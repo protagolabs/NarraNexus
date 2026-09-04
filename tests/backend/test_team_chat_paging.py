@@ -168,7 +168,7 @@ def _client(monkeypatch, db, page_size: int):
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     monkeypatch.setattr(mod, "PAGE_SIZE", page_size)
 

@@ -30,7 +30,7 @@ def _registries(spec: BundleSpec):
 
 @pytest.fixture
 def svc(monkeypatch, tmp_path):
-    from narranexus.platform.marketplace import team_marketplace_service as mod
+    from narranexus_plugins.teams import marketplace_service as mod
 
     monkeypatch.setenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", "1")
 
@@ -74,7 +74,7 @@ async def test_plugin_bundle_listed_resolved_and_pinned(svc, tmp_path, monkeypat
 @pytest.mark.asyncio
 async def test_registry_template_wins_over_plugin_with_same_id(svc, tmp_path, monkeypatch):
     import narranexus.platform.utils.plugin_contributions as pc
-    from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
+    from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 
     service, catalog = svc
     path, digest = _bundle(tmp_path)

@@ -174,7 +174,7 @@ class PluginTestHost:
 # own ``backend/`` package is only ever imported as ``nxplugins.<id>.backend``;
 # but ``python -m pytest`` run inside the plugin directory puts that directory
 # first on sys.path, so a bare ``import backend`` (which builtin.teams' manifest
-# triggers via ``backend.routes.teams``) would resolve to the plugin and fail.
+# triggers via ``narranexus_plugins.teams.routes``) would resolve to the plugin and fail.
 _PLATFORM_TOP_LEVEL = ("backend",)
 
 

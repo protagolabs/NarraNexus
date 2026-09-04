@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
 
 
 def _bundle_bytes() -> bytes:
@@ -59,7 +59,7 @@ def seed_env(db_client, tmp_path, monkeypatch):
     monkeypatch.delenv("TEMPLATE_S3_BUCKET", raising=False)
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
 
-    import narranexus.platform.marketplace._team_marketplace_seed as seed_mod
+    import narranexus_plugins.teams.marketplace_seed as seed_mod
 
     store = LocalArtifactStore(tmp_path / "team_store")
     monkeypatch.setattr(seed_mod, "get_template_store", lambda: store)

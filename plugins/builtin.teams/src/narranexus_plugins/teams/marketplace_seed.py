@@ -25,9 +25,9 @@ import httpx
 from loguru import logger
 
 from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import get_template_store
-from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
-from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
-from narranexus.platform.marketplace.team_marketplace_service import store_key_for
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
+from narranexus_plugins.teams.marketplace_service import store_key_for
 
 # Migration source: narra.nexus static templates (the original ee1db871
 # catalog). `source_url` is used only to fetch-and-restore into our store.

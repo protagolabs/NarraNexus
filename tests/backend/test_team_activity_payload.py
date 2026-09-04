@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from backend.routes.teams import _member_activity
+from narranexus_plugins.teams.routes import _member_activity
 from narranexus.platform.message_bus import _bus_activity as act
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
 

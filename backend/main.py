@@ -334,17 +334,10 @@ async def lifespan(app: FastAPI):
     # compose healthcheck start_period. Fire-and-forget with a done-callback.
     async def _seed_marketplaces() -> None:
         try:
-            from narranexus.platform.marketplace.team_marketplace_service import TeamMarketplaceService
+            from narranexus.platform.marketplace.skill_marketplace_service import is_registry_host
 
-            if not TeamMarketplaceService()._is_registry_host():
+            if not is_registry_host():
                 return  # a pure desktop client proxies to the cloud
-            from narranexus.platform.marketplace._team_marketplace_seed import (
-                seed_team_marketplace,
-            )
-
-            seeded = await seed_team_marketplace(db)
-            logger.info(f"Team Marketplace seed: {seeded} templates present")
-
             # First-party skills vendored in marketplace/resources/marketplace_skills/ (incl. the
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
@@ -355,6 +348,11 @@ async def lifespan(app: FastAPI):
 
             skill_seeded = await seed_skill_marketplace(db)
             logger.info(f"Skill Marketplace seed: {skill_seeded} first-party skill(s) present")
+            # Plugin-owned seeds (the team marketplace templates live in
+            # builtin.teams) run on the same background task via the host event.
+            from backend.host_events import emit_host_event
+
+            await emit_host_event("onDidStartBackend", db=db)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[marketplace-seed] skipped due to error: {e}")
 
@@ -524,7 +522,6 @@ from backend.routes.artifacts.users import router as users_artifacts_router
 from backend.routes.runs import router as runs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
-from backend.routes.marketplace_teams import router as marketplace_teams_router
 from backend.routes.providers import router as providers_router
 from backend.routes.plugins.routes import router as plugins_router
 from backend.plugins_factory.routes import router as plugin_factory_router
@@ -567,9 +564,6 @@ app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
 # teams/* is reserved for the Team/Agent bundle marketplace.
 app.include_router(
     marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
-)
-app.include_router(
-    marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
 )
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(plugin_factory_router, tags=["PluginFactory"])

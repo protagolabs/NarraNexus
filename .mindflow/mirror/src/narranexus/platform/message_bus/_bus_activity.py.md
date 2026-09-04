@@ -70,7 +70,7 @@ A team-room agent runs in the background via [[message_bus_trigger]] — the tea
 no WebSocket stream to it (unlike the single-agent path, which gets `events`/`event_stream`/
 Broadcaster telemetry from `BackgroundRun`). This module is a **cheap status mirror**: the
 trigger writes running/phase/heartbeat into `bus_agent_activity` around + during a run, and
-`backend/routes/teams.py::get_team_chat` reads it to show running / phase / elapsed.
+`plugins/builtin.teams/src/narranexus_plugins/teams/routes.py::get_team_chat` reads it to show running / phase / elapsed.
 
 Deliberately NOT the `events` pipeline (which is WS-only and heavier). One row per
 (agent_id, channel_id); `state` flips `running`→`idle` at turn end.

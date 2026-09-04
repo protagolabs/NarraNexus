@@ -29,7 +29,7 @@ from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 from narranexus.platform.utils.db.schema_registry import auto_migrate
 
-import backend.routes.teams as teams_mod
+import narranexus_plugins.teams.routes as teams_mod
 
 
 @pytest_asyncio.fixture

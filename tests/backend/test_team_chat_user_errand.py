@@ -38,7 +38,7 @@ def client(db_client, monkeypatch):
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     async def _get_db():
         return db_client
@@ -134,7 +134,7 @@ async def test_an_attachment_only_hand_off_gets_a_title_that_says_so(
     is under test is the TITLE, and `_sanitized_attachment`'s own job (rebuild
     from server-side state, never trust the echo) has its own coverage.
     """
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     monkeypatch.setattr(
         mod, "_sanitized_attachment",

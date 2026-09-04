@@ -169,7 +169,7 @@ def resolve_default_responder(
     getting a plausible-looking empty string.
 
     Lives with Team for the same reason `patrol_is_on` does: it is a rule ABOUT
-    Team, and it spent a while inside `backend/routes/teams.py`, where the
+    Team, and it spent a while inside `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py`, where the
     team-summary worker could not reach it — so the worker grew a second copy,
     which is how one rule becomes two that drift.
 

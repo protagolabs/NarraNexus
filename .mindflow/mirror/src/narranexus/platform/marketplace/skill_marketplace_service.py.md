@@ -55,3 +55,5 @@ whichever side the catalog lives on.
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 Workspaces come from the `skills.workspaces` service.
+
+Batch 6b.3: module-level `is_registry_host()` is the single registry-host predicate (env `SKILL_MARKETPLACE_LOCAL_REGISTRY`, settings flag, cloud mode); the service method and builtin.teams delegate to it.

@@ -91,3 +91,5 @@ The 17 module builtins' contributions are named through `_PLUG = "narranexus_plu
 A platform package that needs one slot populated at first use (memory kinds, provider drivers) asks the kernel to register every builtin manifest's contributions for that slot — the manifests name the code, the loader resolves it, the platform never imports a plugin by name. `builtin.memory_kinds` and `builtin.providers` are workspace packages now (`narranexus_plugins.memory_kinds` / `narranexus_plugins.providers`).
 
 Batch 6b.2b: `register_builtin_provides(slot, registries=None)` resolves a slot's contributions from the builtin manifests and registers them — the seam platform code uses so it never imports `narranexus_plugins`. Framework/turn/llm-client refs now point at the plugin packages.
+
+Batch 6b.3: builtin.teams provides two routers, the worker and a `backend.hooks` implementation, all under `narranexus_plugins.teams`.

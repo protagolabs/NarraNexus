@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.routes.artifacts._token import verify
-from backend.routes.teams import _authorize_team_artifact
+from narranexus_plugins.teams.routes import _authorize_team_artifact
 from fastapi import HTTPException
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact

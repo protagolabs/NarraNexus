@@ -12,4 +12,4 @@ register 只认「当前树哈希 + 绿报告」。
 
 ## 2026-09-04 · PYTHONSAFEPATH
 
-The subprocess runs with cwd = plugin dir; `python -m pytest` would put that dir first on sys.path and the plugin's own `backend/` package would shadow the platform's `backend` (first bitten when builtin.teams made the boot import `backend.routes.teams`). `PYTHONSAFEPATH=1` keeps sys.path to the explicit PYTHONPATH.
+The subprocess runs with cwd = plugin dir; `python -m pytest` would put that dir first on sys.path and the plugin's own `backend/` package would shadow the platform's `backend` (first bitten when builtin.teams made the boot import `narranexus_plugins.teams.routes`). `PYTHONSAFEPATH=1` keeps sys.path to the explicit PYTHONPATH.

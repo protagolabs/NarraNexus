@@ -60,7 +60,7 @@ NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指�
 
 ## 2026-08-11 (review 收口) — `resolve_default_responder` 与房间前缀迁入
 
-规则本身没变，只是从 `backend/routes/teams.py` 搬到了 Team 规则该在的地方——理由和
+规则本身没变，只是从 `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py` 搬到了 Team 规则该在的地方——理由和
 `patrol_is_on` 一个 release 前的搬家完全相同：**它是一条关于 Team 的规则，却待在一个
 核心包够不着的模块里**，于是总结 worker 长出了第二份拷贝。一条规则两份实现，就是会漂移的那种。
 
@@ -74,7 +74,7 @@ NULL 读作**开**;但仅限**有 lead** 的 team —— 设 lead 才是「指�
 正是注释点名的那个。**一条被证伪的注释比没有注释更贵。**
 
 三处都改为 import，现在 `TEAM_ROOM_OWNER_PREFIX` / `USER_SENDER_PREFIX` 在全仓只有这一处定义。
-`message_bus_trigger` 里那两段「Keep in sync with backend/routes/teams.py」的注释也删了——
+`message_bus_trigger` 里那两段「Keep in sync with plugins/builtin.teams/src/narranexus_plugins/teams/routes.py」的注释也删了——
 定义搬走后它们悬在原地，而且要求读者去做的正是这次改动要消灭的事。其中「为什么必须是
 non-agent marker」那段理由有价值，搬到了定义处而不是丢掉。
 

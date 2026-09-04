@@ -253,7 +253,7 @@ async def _room_shows_a_sign_of_life(db, bus, members) -> tuple[bool, dict]:
     question is what the room actually renders, and a private copy of the rule
     here would pass while the UI stayed silent.
     """
-    from backend.routes.teams import _member_activity
+    from narranexus_plugins.teams.routes import _member_activity
 
     rows = await _member_activity(db, bus, CHANNEL, members)
     states = {r["agent_id"]: r["status"] for r in rows}

@@ -21,10 +21,13 @@ from fastapi.responses import Response
 from loguru import logger
 
 from backend.auth import reject_cross_origin, resolve_current_user_id
-from narranexus.platform.marketplace.team_marketplace_service import TeamMarketplaceService
+from narranexus_plugins.teams.marketplace_service import TeamMarketplaceService
 from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
+from narranexus.contracts.route import RouterSpec
+from narranexus.kernel.plugins.registry import Contribution
 
 router = APIRouter()
+ROUTES = (Contribution("marketplace_teams", lambda: RouterSpec(router, "/api/marketplace/teams", tags=("TeamMarketplace",))),)
 
 
 def _require_publisher(request: Request) -> None:

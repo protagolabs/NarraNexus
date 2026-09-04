@@ -9,7 +9,7 @@ Why this file exists
 The team workspace ships six hand-written statements, all previously exercised
 only against `SQLiteBackend(":memory:")`. Two of them are the interesting ones:
 
-  * `_team_artifact_turns` (backend/routes/teams.py) — `SELECT DISTINCT` over a
+  * `_team_artifact_turns` (plugins/builtin.teams/src/narranexus_plugins/teams/routes.py) — `SELECT DISTINCT` over a
     JOIN with `ORDER BY` on an aliased column. That is the exact shape that
     trips ONLY_FULL_GROUP_BY / error 3065 when the ordering column is not in
     the select list.
@@ -181,7 +181,7 @@ async def test_agent_context_union_runs_on_mysql(mysql_client):
 async def test_artifact_turns_distinct_join_runs_on_mysql(mysql_client):
     """The 3065-shaped statement: SELECT DISTINCT over a JOIN, ordered by a
     column carried through an alias."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(mysql_client, f"{_PREFIX}_e1", team_id=TEAM)
     await _seed_artifact(mysql_client, f"{_PREFIX}_e2", team_id=TEAM)
@@ -200,7 +200,7 @@ async def test_artifact_turns_distinct_join_runs_on_mysql(mysql_client):
 @pytest.mark.asyncio
 async def test_artifact_turns_skips_null_event_ids_on_mysql(mysql_client):
     """`IS NOT NULL` against a nullable column, verified on the real dialect."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(mysql_client, f"{_PREFIX}_f1", team_id=TEAM)
     await mysql_client.insert("instance_artifact_history", {
@@ -224,7 +224,7 @@ async def _seed_file(db, file_id, *, team_id=TEAM, name="report.md", size=10, di
 
 @pytest.mark.asyncio
 async def test_team_files_listing_runs_on_mysql(mysql_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(mysql_client, f"{_PREFIX}_g1")
     await _seed_file(mysql_client, f"{_PREFIX}_g2", team_id=OTHER_TEAM)

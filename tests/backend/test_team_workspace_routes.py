@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.routes.teams import _wipe_team_data
+from narranexus_plugins.teams.routes import _wipe_team_data
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
 from narranexus.platform.schema.team_schema import Team
@@ -116,7 +116,7 @@ async def test_clearing_only_chat_leaves_the_workspace_alone(db_client, monkeypa
 
 @pytest.mark.asyncio
 async def test_list_team_files_returns_only_that_team(db_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     await _seed_file(db_client, "nope", team_id=OTHER_TID)
@@ -127,7 +127,7 @@ async def test_list_team_files_returns_only_that_team(db_client):
 
 @pytest.mark.asyncio
 async def test_team_files_are_newest_first(db_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "older", team_id=TID)
     await _seed_file(db_client, "newer", team_id=TID)
@@ -154,7 +154,7 @@ async def _seed_history(db, artifact_id, *, event_id, agent_id="agent_a"):
 
 @pytest.mark.asyncio
 async def test_turn_map_groups_artifacts_by_event(db_client):
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_artifact(db_client, "art_2", team_id=TID)
@@ -167,7 +167,7 @@ async def test_turn_map_groups_artifacts_by_event(db_client):
 @pytest.mark.asyncio
 async def test_turn_map_excludes_other_teams(db_client):
     """A chip must never point at another team's work."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_mine", team_id=TID)
     await _seed_artifact(db_client, "art_theirs", team_id=OTHER_TID)
@@ -179,7 +179,7 @@ async def test_turn_map_excludes_other_teams(db_client):
 
 @pytest.mark.asyncio
 async def test_turn_map_excludes_private_artifacts(db_client):
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_private", team_id=None)
     await _seed_history(db_client, "art_private", event_id="evt_a")
@@ -191,7 +191,7 @@ async def test_turn_map_excludes_private_artifacts(db_client):
 async def test_an_updating_turn_also_gets_a_chip(db_client):
     """Re-registration is how a teammate picks work up, so the turn that
     UPDATED an artifact is exactly the one worth surfacing."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_history(db_client, "art_1", event_id="evt_first")
@@ -209,7 +209,7 @@ async def test_an_updating_turn_also_gets_a_chip(db_client):
 async def test_rows_without_a_turn_are_skipped(db_client):
     """event_id is nullable — legacy rows and callers with no event in scope
     simply produce no chip rather than a bogus grouping."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_history(db_client, "art_1", event_id=None)
@@ -295,7 +295,7 @@ async def test_file_timestamps_are_offset_aware(db_client):
     "8h ago" for a UTC+8 user. The artifacts half never had this because it
     goes through the Artifact model, whose parse_dt attaches UTC.
     """
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     rows = await _team_files(db_client, TID)
@@ -312,7 +312,7 @@ async def test_file_rows_do_not_leak_internal_columns(db_client):
     """`SELECT *` put id / owner_user_id / content_hash into the API shape.
     Owner-only, so not a disclosure — but the wire shape should be chosen, not
     inherited from the table."""
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     row = (await _team_files(db_client, TID))[0]

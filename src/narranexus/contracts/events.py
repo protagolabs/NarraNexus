@@ -31,6 +31,7 @@ HOST_EVENTS: tuple[str, ...] = (
     "onDidChangeAgentName",
     "onDidSettleAgentName",
     "onWillExportManagedChannels",
+    "onDidStartBackend",
 )
 
 
@@ -132,6 +133,16 @@ class ManagedChannelCredentialsEvent(TypedDict):
     db: Any
 
 
+class BackendStartedEvent(TypedDict):
+    """Payload for ``onDidStartBackend``: the backend host finished its startup
+    critical path and runs post-start work (catalog seeds, warm-ups) in a
+    background task. Fired once per process, off the request path, with the
+    host's database client; a plugin that seeds a registry-host catalog
+    (builtin.teams' marketplace templates) does so here."""
+
+    db: Any
+
+
 EventPayload = dict[str, Any]
 
 # Which payload shape each host event carries; the kernel declares one hook
@@ -151,6 +162,7 @@ HOST_EVENT_PAYLOADS: dict[str, type] = {
     "onDidChangeAgentName": AgentNameChangeEvent,
     "onDidSettleAgentName": AgentNameSettledEvent,
     "onWillExportManagedChannels": ManagedChannelCredentialsEvent,
+    "onDidStartBackend": BackendStartedEvent,
 }
 
 
@@ -171,6 +183,7 @@ __all__ = [
     "AgentNameChangeEvent",
     "AgentNameSettledEvent",
     "ManagedChannelCredentialsEvent",
+    "BackendStartedEvent",
     "PluginEvent",
     "EventPayload",
 ]

@@ -32,6 +32,7 @@ members = [
     "narranexus-plugin-providers",
     "narranexus-plugin-skills",
     "narranexus-plugin-social-network",
+    "narranexus-plugin-teams",
     "narranexus-plugin-turn",
     "xyz-agent-context",
 ]
@@ -1956,6 +1957,11 @@ source = { editable = "plugins/builtin.social_network" }
 provides-extras = ["full"]
 
 [[package]]
+name = "narranexus-plugin-teams"
+version = "1.0.0"
+source = { editable = "plugins/builtin.teams" }
+
+[[package]]
 name = "narranexus-plugin-turn"
 version = "1.0.0"
 source = { editable = "plugins/builtin.turn" }
@@ -3571,6 +3577,7 @@ dependencies = [
     { name = "narranexus-plugin-providers" },
     { name = "narranexus-plugin-skills" },
     { name = "narranexus-plugin-social-network" },
+    { name = "narranexus-plugin-teams" },
     { name = "narranexus-plugin-turn" },
     { name = "numpy" },
     { name = "openai" },
@@ -3655,6 +3662,7 @@ requires-dist = [
     { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
     { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
     { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
+    { name = "narranexus-plugin-teams", editable = "plugins/builtin.teams" },
     { name = "narranexus-plugin-turn", editable = "plugins/builtin.turn" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "openai", specifier = ">=2.7.1" },

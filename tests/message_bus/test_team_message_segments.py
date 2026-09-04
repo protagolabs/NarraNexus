@@ -201,7 +201,7 @@ async def test_the_route_passes_segments_to_the_panel(db_client):
     """A column the API does not return is a column the UI cannot render."""
     import inspect
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     src = inspect.getsource(mod)
     assert '"segments": m.segments' in src

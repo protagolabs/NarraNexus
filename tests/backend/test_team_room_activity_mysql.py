@@ -34,7 +34,7 @@ from narranexus.platform.utils.db.database import AsyncDatabaseClient
 from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
 from narranexus.platform.utils.db.schema_registry import auto_migrate
 
-from backend.routes.teams import _team_room_activity
+from narranexus_plugins.teams.routes import _team_room_activity
 
 from tests.mysql_dialect import (
     mysql_configured,

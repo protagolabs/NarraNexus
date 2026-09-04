@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-teams"
+version = "1.0.0"
+description = "Agent teams: the /api/teams API and the team bulletin summary worker (feature-level plugin)."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# The engine (narranexus) hosts this package; a distribution installs both.
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]

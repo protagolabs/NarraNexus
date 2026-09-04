@@ -25,7 +25,7 @@ is written in exactly one place and read in exactly one place.
 
 ## What is NOT folded in here
 
-``backend/routes/teams.py`` resolves rooms for MANY teams in ONE query
+``plugins/builtin.teams/src/narranexus_plugins/teams/routes.py`` resolves rooms for MANY teams in ONE query
 (``created_by IN (...)``). It looks like another copy and is not: it answers a
 different question, and rewriting it in terms of ``primary_room_of`` would turn
 one indexed query into N — the N+1 shape this repository's repository layer

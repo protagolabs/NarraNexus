@@ -17,7 +17,7 @@ stub: false
 ## 上下游关系
 
 - **被谁用**：
-  - `backend/routes/teams.py` — REST CRUD
+  - `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py` — REST CRUD
   - `module/social_network_module/social_network_module.py` — `gather` 里 derive 同 team agent
   - `bundle/importer.py` — import 时建 team + 加 member
 - **依赖谁**：`utils/database.AsyncDatabaseClient`、`repository/base.BaseRepository`

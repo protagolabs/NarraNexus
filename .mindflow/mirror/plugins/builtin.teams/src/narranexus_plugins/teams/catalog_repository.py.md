@@ -1,6 +1,6 @@
 ---
-code_file: src/narranexus/platform/repository/team_catalog_repository.py
-last_verified: 2026-07-21
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/catalog_repository.py
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -14,3 +14,5 @@ SkillCatalogRepository conventions: compact JSON for the categories list,
 `save_template`/`remove` (not `upsert`/`delete`) to avoid overriding
 BaseRepository's incompatible `upsert(entity)->int` / `delete(id)->int`
 signatures.
+
+Batch 6b.3: moved from `platform/repository/team_catalog_repository.py`; imports `BaseRepository` absolutely.

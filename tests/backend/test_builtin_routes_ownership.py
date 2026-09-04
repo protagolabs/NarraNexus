@@ -20,7 +20,7 @@ from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system.contributions import register_all
 
 OWNED = {
-    "builtin.teams": {"teams"},
+    "builtin.teams": {"teams", "marketplace_teams"},
     "builtin.awareness": {"agents_awareness", "agents_profile"},
     "builtin.social_network": {"agents_social_network"},
     "builtin.basic_info": {"agents_narrative"},
@@ -87,5 +87,5 @@ def test_disabling_builtin_job_removes_dashboard_controls_but_not_dashboard_read
 def test_main_no_longer_includes_the_moved_routers():
     main = Path(__file__).resolve().parents[2] / "backend" / "main.py"
     src = main.read_text()
-    for name in ("jobs_router", "skills_router", "home_assistant_router", "lark_router", "slack_router", "telegram_router", "wechat_router", "narramessenger_router", "discord_router"):
+    for name in ("jobs_router", "skills_router", "home_assistant_router", "lark_router", "slack_router", "telegram_router", "wechat_router", "narramessenger_router", "discord_router", "marketplace_teams_router"):
         assert f"include_router({name}" not in src, name

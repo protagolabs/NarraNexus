@@ -1,6 +1,6 @@
 ---
-code_file: src/narranexus/platform/marketplace/team_marketplace_service.py
-last_verified: 2026-09-03
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/marketplace_service.py
+last_verified: 2026-09-04
 stub: false
 ---
 # team_marketplace_service.py
@@ -30,3 +30,5 @@ exact Local/Remote pattern from the skill marketplace, applied to bundles.
 - `publish`: sha256 the bundle → `store_key_for(id, sha)` → put in template
   store → save catalog row. Blob lives in get_template_store() (own prefix,
   separate from skills).
+
+Batch 6b.3: moved from `platform/marketplace/team_marketplace_service.py`; `_is_registry_host` delegates to the platform's `is_registry_host()`.

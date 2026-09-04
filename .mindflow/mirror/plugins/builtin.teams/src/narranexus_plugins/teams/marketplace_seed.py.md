@@ -1,6 +1,6 @@
 ---
-code_file: src/narranexus/platform/marketplace/_team_marketplace_seed.py
-last_verified: 2026-08-19
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/marketplace_seed.py
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -38,3 +38,5 @@ catalog row with the resulting store_key. Idempotent (skips re-upload when
 the store already has the key), best-effort per-entry (one unreachable
 source never aborts the rest). Runs in the backend lifespan only where the
 instance IS the registry (cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY).
+
+Batch 6b.3: moved from `platform/marketplace/_team_marketplace_seed.py`; invoked by the plugin's `onDidStartBackend` hook.

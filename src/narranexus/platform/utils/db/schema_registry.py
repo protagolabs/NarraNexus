@@ -2071,7 +2071,7 @@ _register(
             Column("intro_md", "TEXT", "MEDIUMTEXT"),
             # Agent that responds to a team-chat message with NO @mention.
             # NULL = fall back to the earliest-joined member. auto_migrate adds
-            # this to pre-existing tables. See backend/routes/teams.py.
+            # this to pre-existing tables. See plugins/builtin.teams/src/narranexus_plugins/teams/routes.py.
             Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
             # --- Leader patrol (2026-08-07) ---
             #

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.routes.teams import _wipe_team_data
+from narranexus_plugins.teams.routes import _wipe_team_data
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
 from narranexus.platform.schema.team_schema import Team
 from narranexus.platform.utils.workspace_paths import team_shared_dir

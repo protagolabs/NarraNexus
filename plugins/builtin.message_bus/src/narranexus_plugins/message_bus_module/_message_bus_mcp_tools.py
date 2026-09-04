@@ -585,7 +585,7 @@ def register_message_bus_mcp_tools(
             db = await get_db_client()
 
             # Same-user boundary AND existence — mirror the UI writer
-            # (backend/routes/teams.py: 404 an unknown agent, 403 a cross-owner
+            # (plugins/builtin.teams/src/narranexus_plugins/teams/routes.py: 404 an unknown agent, 403 a cross-owner
             # one). `_resolve_owner_user_id` returns None for an id with no
             # `agents` row, so a model-typo'd or invented id must be REJECTED
             # here, not silently written as a ghost member (which room_roster

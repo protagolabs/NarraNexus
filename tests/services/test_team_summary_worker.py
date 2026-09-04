@@ -36,7 +36,7 @@ import pytest
 from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from narranexus.platform.services.team_summary_worker import TeamSummaryWorker
+from narranexus_plugins.teams.summary_worker import TeamSummaryWorker
 
 OWNER = "user_1"
 TEAM = "team_1"
@@ -326,7 +326,7 @@ def test_the_worker_is_started_and_stopped_by_the_app():
     # Since batch 3c.2 the worker reaches the app as the backend.workers
     # contribution of builtin.teams; main.py starts/stops every such worker.
     teams = next(m for m in builtin_manifests() if m.id == "builtin.teams")
-    assert "narranexus.platform.services.team_summary_worker:WORKERS" in teams.provides["backend.workers"]
+    assert "narranexus_plugins.teams.summary_worker:WORKERS" in teams.provides["backend.workers"]
     assert "await start_backend_workers(app, KERNEL_REGISTRIES, db)" in src
     assert "await stop_backend_workers(app)" in src
     # Order matters: stop the loop before the client it uses goes away.
@@ -353,7 +353,7 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
     """`set_cost_context(agent_id, db)` — two positional params, no user_id, no
     label. Calling it wrong raises TypeError, which `run_once` swallows into a
     warning, so the worker looks alive while never writing a single summary."""
-    from narranexus.platform.services import team_summary_worker as mod
+    from narranexus_plugins.teams import summary_worker as mod
 
     seen = {}
 
@@ -398,7 +398,7 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
 async def test_the_real_summarise_injects_the_teams_credentials(db_client, monkeypatch):
     """A detached background task inherits no per-request ContextVars, so
     without this every cloud call uses the platform key and 401s."""
-    from narranexus.platform.services import team_summary_worker as mod
+    from narranexus_plugins.teams import summary_worker as mod
 
     injected = []
 
@@ -424,7 +424,7 @@ async def test_credentials_are_cleared_before_they_are_resolved(db_client, monke
     team whose owner cannot be resolved inherits the previous team's
     credentials — a cross-tenant leak, not merely a stale config."""
     from narranexus.platform.agent_framework.providers import resolver
-    from narranexus.platform.services.team_summary_worker import _inject_team_credentials
+    from narranexus_plugins.teams.summary_worker import _inject_team_credentials
 
     order = []
     monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
@@ -445,7 +445,7 @@ async def test_an_unresolvable_team_leaves_credentials_cleared(db_client, monkey
     """The leak case made concrete: no owner row means we must NOT fall through
     holding whatever the last team put there."""
     from narranexus.platform.agent_framework.providers import resolver
-    from narranexus.platform.services.team_summary_worker import _inject_team_credentials
+    from narranexus_plugins.teams.summary_worker import _inject_team_credentials
 
     order = []
     monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
@@ -622,7 +622,7 @@ def test_the_filter_is_built_from_constants_not_retyped_strings():
     them up correctly and only the test disagreed.
     """
     from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
-    from narranexus.platform.services.team_summary_worker import _SYSTEM_MSG_TYPES
+    from narranexus_plugins.teams.summary_worker import _SYSTEM_MSG_TYPES
 
     assert set(_SYSTEM_MSG_TYPES) == set(PLATFORM_MSG_TYPES)
 

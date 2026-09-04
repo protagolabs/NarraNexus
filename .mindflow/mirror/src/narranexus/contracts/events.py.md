@@ -23,3 +23,5 @@ stub: false
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `onDidChangeUserRunnability` (user_id), `onDidChangeAgentName` (db, agent_id, old_name, new_name), `onDidSettleAgentName` (db, agent_id, name), `onWillExportManagedChannels` (db) — the request-style host events that replaced the last platform→builtin imports; `db` rides in the payload so listeners write on the caller's client.
+
+Batch 6b.3: new host event `onDidStartBackend` with `BackendStartedEvent(db)` — the backend fires it once from its post-start background task so plugins can seed catalogs off the startup critical path (builtin.teams seeds the team marketplace there).

@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/teams.py
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/routes.py
 last_verified: 2026-09-04
 stub: false
 ---
@@ -560,3 +560,5 @@ lead 只在**被设置**时宣告；清空 lead 是把责任按规则交回最�
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 The router is no longer included by `backend/main.py`; it ships as the `ROUTES` contribution of the `builtin.teams` manifest (`backend.routes`, prefix `/api/teams`). Disabling the plugin in registry.json makes every `/api/teams/*` path 404 with no code path referencing teams.
+
+Batch 6b.3: moved from `backend/routes/teams.py` into the builtin.teams package.

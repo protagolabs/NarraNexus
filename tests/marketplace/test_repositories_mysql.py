@@ -28,12 +28,12 @@ from narranexus.platform.repository.skill_catalog_repository import SkillCatalog
 from narranexus.platform.repository.skill_scan_result_repository import (
     SkillScanResultRepository,
 )
-from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
 from narranexus.platform.schema.skill_marketplace_schema import (
     SkillCatalogEntry,
     SkillScanResult,
 )
-from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
 from narranexus.platform.utils.db.schema_registry import auto_migrate

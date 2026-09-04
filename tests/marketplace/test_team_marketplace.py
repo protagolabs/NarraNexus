@@ -27,8 +27,8 @@ from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store impo
     get_artifact_store,
     get_template_store,
 )
-from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
-from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 
 USER_ID = "usr_test"
 
@@ -128,9 +128,10 @@ def test_template_store_s3_prefix(monkeypatch):
 
 @pytest.fixture
 def service(db_client, tmp_path, monkeypatch):
-    import narranexus.platform.marketplace.team_marketplace_service as mod
+    import narranexus_plugins.teams.marketplace_service as mod
 
     monkeypatch.setattr(mod, "get_deployment_mode", lambda: "cloud")
+    monkeypatch.setattr("narranexus.platform.marketplace.skill_marketplace_service.get_deployment_mode", lambda: "cloud")
     store = LocalArtifactStore(tmp_path / "team_store")
     return mod.TeamMarketplaceService(db_client=db_client, store=store)
 
@@ -218,9 +219,10 @@ def app(db_client, tmp_path, monkeypatch):
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
     monkeypatch.delenv("TEMPLATE_S3_BUCKET", raising=False)
 
-    import narranexus.platform.marketplace.team_marketplace_service as svc_mod
+    import narranexus_plugins.teams.marketplace_service as svc_mod
 
     monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")
+    monkeypatch.setattr("narranexus.platform.marketplace.skill_marketplace_service.get_deployment_mode", lambda: "cloud")
 
     async def _get_db():
         return db_client
@@ -229,7 +231,7 @@ def app(db_client, tmp_path, monkeypatch):
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
-    import backend.routes.marketplace_teams as routes
+    import narranexus_plugins.teams.marketplace_routes as routes
 
     async def _fake_user(request):
         return USER_ID

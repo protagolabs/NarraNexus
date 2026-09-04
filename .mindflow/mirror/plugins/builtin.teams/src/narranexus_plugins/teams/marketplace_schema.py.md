@@ -1,6 +1,6 @@
 ---
-code_file: src/narranexus/platform/schema/team_marketplace_schema.py
-last_verified: 2026-07-21
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/marketplace_schema.py
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -15,3 +15,5 @@ self-host blobs (S3/local, separate from skills) instead of pointing at
 narra.nexus. `agent_count` is a UI badge only — a "team template" is just a
 multi-agent bundle (team_id set); single-agent bundles use the identical
 format. Timestamps are Optional[datetime] (SQLite returns datetime objects).
+
+Batch 6b.3: moved from `platform/schema/team_marketplace_schema.py`.

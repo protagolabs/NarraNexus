@@ -47,9 +47,10 @@ def test_teams_router_and_worker_are_manifest_contributions(tmp_path: Path, monk
     regs, report, _ = _boot(tmp_path, monkeypatch, disable=None)
     loaded = {pl.plugin_id for pl in report.builtins.loaded}
     assert TEAMS in loaded and not report.builtins.errors
-    (route,) = [e for e in regs.registry_for("backend.routes").entries() if e.owner == TEAMS]
-    spec = route.factory()
-    assert isinstance(spec, RouterSpec) and spec.prefix == "/api/teams" and route.name == "teams"
+    routes = {e.name: e.factory() for e in regs.registry_for("backend.routes").entries() if e.owner == TEAMS}
+    assert set(routes) == {"teams", "marketplace_teams"}
+    assert all(isinstance(spec, RouterSpec) for spec in routes.values())
+    assert routes["teams"].prefix == "/api/teams" and routes["marketplace_teams"].prefix == "/api/marketplace/teams"
     (worker,) = [e for e in regs.registry_for("backend.workers").entries() if e.owner == TEAMS]
     wspec = worker.factory()
     assert isinstance(wspec, WorkerSpec) and wspec.host == "backend" and wspec.name == "team_summary"
@@ -76,7 +77,7 @@ def test_disable_builtin_teams_degrades_cleanly(tmp_path: Path, monkeypatch):
 
 def test_enabled_builtin_teams_mounts_and_worker_starts(tmp_path: Path, monkeypatch):
     from backend.plugins_host import mount_plugin_routes, start_backend_workers, stop_backend_workers
-    from narranexus.platform.services import team_summary_worker as tsw
+    from narranexus_plugins.teams import summary_worker as tsw
 
     calls: list[str] = []
 

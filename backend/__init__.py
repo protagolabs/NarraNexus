@@ -11,6 +11,6 @@ This package provides:
 The ASGI entrypoint is ``backend.main:app`` (run.sh / Makefile / Tauri /
 compose all name it explicitly). This ``__init__`` deliberately imports
 nothing: builtin feature plugins expose symbols under ``backend.*``
-(``backend.routes.teams:ROUTES``) and importing one of them must not
+(``narranexus_plugins.teams.routes:ROUTES``) and importing one of them must not
 construct the whole application.
 """

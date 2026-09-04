@@ -28,9 +28,10 @@ def service(db_client, tmp_path, monkeypatch):
     from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
-    import narranexus.platform.marketplace.team_marketplace_service as mod
+    import narranexus_plugins.teams.marketplace_service as mod
 
     monkeypatch.setattr(mod, "get_deployment_mode", lambda: "cloud")
+    monkeypatch.setattr("narranexus.platform.marketplace.skill_marketplace_service.get_deployment_mode", lambda: "cloud")
     store = LocalArtifactStore(tmp_path / "team_store")
     return mod.TeamMarketplaceService(db_client=db_client, store=store)
 

@@ -38,7 +38,7 @@ import pytest_asyncio
 from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from narranexus.platform.services.team_summary_worker import TeamSummaryWorker
+from narranexus_plugins.teams.summary_worker import TeamSummaryWorker
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
 from narranexus.platform.utils.db.schema_registry import auto_migrate

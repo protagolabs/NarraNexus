@@ -29,8 +29,8 @@ from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store impo
     ArtifactStore,
     get_template_store,
 )
-from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
-from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 from narranexus.platform.utils.deployment_mode import get_deployment_mode
 
 __all__ = ["TeamMarketplaceService"]
@@ -56,15 +56,9 @@ class TeamMarketplaceService:
     # -- plumbing ------------------------------------------------------------
 
     def _is_registry_host(self) -> bool:
-        import os
+        from narranexus.platform.marketplace.skill_marketplace_service import is_registry_host
 
-        if os.environ.get("SKILL_MARKETPLACE_LOCAL_REGISTRY", "").lower() in ("1", "true"):
-            return True
-        from narranexus.platform.settings import settings
-
-        if getattr(settings, "skill_marketplace_local_registry", False):
-            return True
-        return get_deployment_mode() == "cloud"
+        return is_registry_host()
 
     async def _get_db(self):
         if self._db_client is None:

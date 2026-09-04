@@ -20,6 +20,7 @@ dependencies = [
     "narranexus-plugin-channels-telegram",
     "narranexus-plugin-channels-wechat",
     "narranexus-plugin-chat",
+    "narranexus-plugin-teams",
     "narranexus-plugin-frameworks-claude-code",
     "narranexus-plugin-frameworks-codex-cli",
     "narranexus-plugin-frameworks-nexus-power",
@@ -162,6 +163,7 @@ narranexus-plugin-channels-slack = { workspace = true }
 narranexus-plugin-channels-telegram = { workspace = true }
 narranexus-plugin-channels-wechat = { workspace = true }
 narranexus-plugin-chat = { workspace = true }
+narranexus-plugin-teams = { workspace = true }
 narranexus-plugin-frameworks-claude-code = { workspace = true }
 narranexus-plugin-frameworks-codex-cli = { workspace = true }
 narranexus-plugin-frameworks-nexus-power = { workspace = true }
@@ -243,7 +245,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Make `uv run pytest` work without a manual PYTHONPATH or editable install:
 # `src` for the xyz_agent_context package, `.` for the backend package.
-pythonpath = ["src", ".", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src"]
+pythonpath = ["src", ".", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.teams/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src"]
 
 [tool.importlinter]
 # Dependency direction for the plugin platform (batch 0). Contracts are a
@@ -381,6 +383,7 @@ modules = [
     "narranexus_plugins.lark_module",
     "narranexus_plugins.memory_kinds",
     "narranexus_plugins.message_bus_module",
+    "narranexus_plugins.teams",
     "narranexus_plugins.frameworks_claude_code",
     "narranexus_plugins.frameworks_codex_cli",
     "narranexus_plugins.frameworks_nexus_power",
@@ -407,6 +410,7 @@ ignore_imports = [
     "narranexus_plugins.** -> narranexus_plugins.lark_module.api",
     "narranexus_plugins.** -> narranexus_plugins.memory_kinds.api",
     "narranexus_plugins.** -> narranexus_plugins.message_bus_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.teams.api",
     "narranexus_plugins.** -> narranexus_plugins.frameworks_claude_code.api",
     "narranexus_plugins.** -> narranexus_plugins.frameworks_codex_cli.api",
     "narranexus_plugins.** -> narranexus_plugins.frameworks_nexus_power.api",

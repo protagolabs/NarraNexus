@@ -14,7 +14,7 @@ stub: false
 
 ## 为什么在核心包，而不是挨着路由
 
-**第一版把预算函数写在 `backend/routes/teams.py`，核心包再反向 import 它** —— 核心包伸手进
+**第一版把预算函数写在 `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py`，核心包再反向 import 它** —— 核心包伸手进
 web 层，架构明确禁止（API 层独立于核心包）。提交前修正：规则搬进核心包，路由 import 它。
 
 这不是洁癖。两个面都要强制同一套上限：路由服务用户，MCP 工具服务 agent。
@@ -54,7 +54,7 @@ agent 可以加，可以撤回**它自己写的**；绝不能碰用户的、别�
 
 ## 2026-08-11 (review) — 通知搬进核心包，agent 写入也要落痕
 
-`_post_bulletin_notice` 原本只挂在 `backend/routes/teams.py` 的 4 个路由上，于是
+`_post_bulletin_notice` 原本只挂在 `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py` 的 4 个路由上，于是
 **一条 agent 钉上去的规则改变了全队的行为，却在房间里不留任何痕迹**——验收标准写的是
 「公告栏更新时群里出现系统消息」，而一半的写入方在跳过它。
 

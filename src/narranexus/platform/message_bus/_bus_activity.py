@@ -145,7 +145,7 @@ async def get_channel_activity(db, channel_id: str) -> List[dict]:
 #: The step a team turn ends on when it made no `message_team` call. Written
 #: by `MessageBusTrigger` (`note_silent_turn`, private like the rest of the
 #: write side); read through `activity.last_turn_was_silent` by
-#: `backend/routes/teams.py::_member_activity` (→ ``last_turn_silent``).
+#: `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py::_member_activity` (→ ``last_turn_silent``).
 SILENT_PHASE = "silent"
 
 

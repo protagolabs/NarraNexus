@@ -11,8 +11,8 @@ One row per team template. Mirrors SkillCatalogRepository's conventions
 import json
 from typing import Any, Dict, List, Optional
 
-from .base import BaseRepository
-from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
+from narranexus.platform.repository.base import BaseRepository
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 
 _COMPACT = {"separators": (",", ":"), "ensure_ascii": False}
 

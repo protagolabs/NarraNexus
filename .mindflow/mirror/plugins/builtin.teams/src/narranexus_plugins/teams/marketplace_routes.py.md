@@ -1,6 +1,6 @@
 ---
-code_file: backend/routes/marketplace_teams.py
-last_verified: 2026-07-22
+code_file: plugins/builtin.teams/src/narranexus_plugins/teams/marketplace_routes.py
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -28,3 +28,5 @@ boundary), mirroring the skill publish policy. Route order: /download and
 /install-preflight declared before /{template_id} (FastAPI matches in order).
 Install is fork semantics — no per-user installation audit table; forked
 agents/teams ARE the record (team.source = 'bundle:<id>').
+
+Batch 6b.3: moved from `backend/routes/marketplace_teams.py`; exports `ROUTES` (RouterSpec at `/api/marketplace/teams`) so the host mounts it from the manifest instead of `main.py`.
