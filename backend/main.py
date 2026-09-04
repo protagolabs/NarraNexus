@@ -874,7 +874,11 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
         /manyfold/* requests must return 404 — never the SPA bundle.
         Otherwise platform readiness probes get a fake 200.
         """
-        if full_path.startswith("v1/") or full_path.startswith("manyfold/"):
+        if full_path.startswith(("v1/", "manyfold/", "api/", "ws/")):
+            # An API path nothing serves is a 404, never the SPA bundle: a
+            # distribution that leaves a builtin out (batch 6) must answer its
+            # former routes with 404, and a frontend bug asking for a missing
+            # endpoint must not receive index.html with a 200.
             from fastapi.responses import JSONResponse
 
             return JSONResponse(status_code=404, content={"detail": "not found"})
