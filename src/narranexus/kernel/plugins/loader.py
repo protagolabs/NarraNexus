@@ -87,7 +87,7 @@ def discover(
     from narranexus.kernel.plugins.lifecycle import RegistryStore
     from narranexus.kernel.plugins.manifest import load_manifest
     from narranexus.kernel.plugins.paths import manifest_path, registry_path
-    from narranexus.kernel.plugins.slots import build_kernel_slot_tree
+    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
     found = Discovery(manifests=list(builtin_manifests()))
     if cloud:
@@ -105,7 +105,7 @@ def discover(
         logger.warning(f"[plugins] SAFE MODE: user plugins skipped ({reg.safe_mode_reason or 'no reason recorded'})")
         found.safe_mode = True
         return found
-    tree = build_kernel_slot_tree()
+    tree = slot_tree_with_builtins()
     for pid, rec in sorted(reg.plugins.items()):
         if not rec.enabled:
             continue

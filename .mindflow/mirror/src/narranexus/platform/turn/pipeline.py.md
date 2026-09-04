@@ -4,6 +4,10 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3b）— `resolve_profile(explicit=)`
+
+回合显式点名的 profile（TURN 绑定层）优先级最高，必须在 `turn.profiles` 注册表或内置表里，否则 `UnknownEntry`。
+
 ## 2026-09-04（批 3a）— `TurnPipeline`：七阶段唯一的编排器
 
 对每个阶段：`onWill<Stage>` 钩子（收冻结输入视图；返回值改写留给后续批）→ profile 指定的策略

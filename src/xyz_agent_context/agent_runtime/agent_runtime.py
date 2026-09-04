@@ -291,6 +291,7 @@ class AgentRuntime:
         fast_mode: bool = False,
         turn_profile: Optional["TurnProfile"] = None,
         steering: Optional[Any] = None,
+        pipeline_profile: Optional[str] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -474,6 +475,7 @@ class AgentRuntime:
                 silent=silent,
                 turn_profile=turn_profile,
                 working_source=working_source,
+                explicit=pipeline_profile,
             )
             services = TurnServices(
                 db_client=db_client,

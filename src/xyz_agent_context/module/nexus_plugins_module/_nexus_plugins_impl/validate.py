@@ -24,7 +24,7 @@ from narranexus.contracts import ManifestError
 from narranexus.kernel.plugins.compat import Range, Version
 from narranexus.kernel.plugins.manifest import Manifest, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, VERSIONS_FILENAME
-from narranexus.kernel.plugins.slots import build_kernel_slot_tree
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
 _NETWORK = re.compile(r"\b(httpx|requests|urllib\.request|aiohttp|websockets|socket)\b|\bfetch\(|XMLHttpRequest")
 _SUBPROCESS = re.compile(r"\bsubprocess\b|os\.system\(|os\.popen\(|asyncio\.create_subprocess")
@@ -95,7 +95,7 @@ def validate_plugin(root: Path, *, host_version: str, installed: dict[str, str] 
     if not mpath.is_file():
         return Validation(ok=False, problems=[f"{MANIFEST_FILENAME} is missing"])
     try:
-        manifest: Manifest = load_manifest(mpath, tree=build_kernel_slot_tree(), host_version=host_version)
+        manifest: Manifest = load_manifest(mpath, tree=slot_tree_with_builtins(), host_version=host_version)
     except ManifestError as exc:
         return Validation(ok=False, problems=[str(exc)])
     v = Validation(ok=True, plugin_id=manifest.id, version=manifest.version)

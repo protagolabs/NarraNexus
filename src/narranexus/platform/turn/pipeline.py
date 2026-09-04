@@ -50,9 +50,17 @@ def resolve_profile(
     turn_profile: Any,
     working_source: Any,
     registries: Registries | None = None,
+    explicit: str | None = None,
 ) -> PipelineProfile:
-    """Legacy flags → a named profile (silent > explicit TurnProfile name > fast > job > default)."""
+    """Profile selection: explicit id > silent > TurnProfile name (voice/fast) > fast_mode > source job > default.
+
+    ``explicit`` is the TURN layer of the binding order (a caller naming a
+    registered profile, e.g. a plugin-defined ``research``); it must exist in
+    the ``turn.profiles`` registry or the builtin table, else ``UnknownEntry``.
+    """
     regs = registries or KERNEL_REGISTRIES
+    if explicit:
+        return _profile(explicit, regs)
     if silent:
         return _profile("silent", regs)
     if turn_profile is not None:

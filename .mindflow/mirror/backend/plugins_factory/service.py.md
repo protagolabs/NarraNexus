@@ -1,8 +1,10 @@
 ---
 code_file: backend/plugins_factory/service.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3b）— manifest 校验改用 `slot_tree_with_builtins()`（含内置声明的位）
 
 ## 2026-09-03（批 2f.1）— 提案与审计
 

@@ -4,6 +4,8 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3b）— `ContextProvider` 加 `@runtime_checkable`（Assemble 用 isinstance 筛提供者）
+
 ## 2026-09-04（批 3a）— `ContextProvider` Protocol
 
 `agent.capabilities.context_providers` 位的契约：`name`、`context_cost_hint`、可选 `contribute_instructions`/

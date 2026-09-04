@@ -134,10 +134,25 @@ def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:
     return tuple(parse_manifest(data, tree=tree, allow_builtin=True) for data in BUILTIN_MANIFEST_DATA)
 
 
+def slot_tree_with_builtins() -> SlotTree:
+    """The kernel tree plus every slot a builtin plugin declares (e.g. ``builtin.turn``'s stage slots).
+
+    User-plugin validation (install, discover, publish-check, self-extension)
+    must see these: a third-party Recall strategy provides into
+    ``turn.pipeline.recall``, which only exists once ``builtin.turn`` declared it.
+    """
+    tree = build_kernel_slot_tree()
+    for manifest in builtin_manifests():
+        for slot in manifest.declared_slots():
+            if slot.path not in tree:
+                tree.declare(slot, create_namespaces=True)
+    return tree
+
+
 @lru_cache(maxsize=1)
 def builtin_manifests() -> tuple[Manifest, ...]:
     """Validated builtin manifests against the kernel tree (cached; the data is a constant)."""
     return build_builtin_manifests(build_kernel_slot_tree())
 
 
-__all__ = ["BUILTIN_MANIFEST_DATA", "build_builtin_manifests", "builtin_manifests"]
+__all__ = ["BUILTIN_MANIFEST_DATA", "build_builtin_manifests", "builtin_manifests", "slot_tree_with_builtins"]

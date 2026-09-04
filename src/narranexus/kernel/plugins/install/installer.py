@@ -24,7 +24,7 @@ from narranexus.kernel.plugins.install.sources import GitHubReleaseSource, GitHu
 from narranexus.kernel.plugins.lifecycle import PluginRecord, RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, VERSIONS_FILENAME, deps_dir, plugin_dir, plugin_home, registry_path
-from narranexus.kernel.plugins.slots import build_kernel_slot_tree
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
 
 class InstallError(PluginError):
@@ -116,7 +116,7 @@ class Installer:
     def _validate(self, root: Path) -> Manifest:
         mpath = root / MANIFEST_FILENAME
         try:
-            return load_manifest(mpath, tree=build_kernel_slot_tree(), host_version=self.host)
+            return load_manifest(mpath, tree=slot_tree_with_builtins(), host_version=self.host)
         except ManifestError as exc:
             versions = root / VERSIONS_FILENAME
             if versions.is_file():

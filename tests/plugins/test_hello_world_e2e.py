@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from narranexus.cli.main import main as cli
+from narranexus.contracts.agent.stages import Stage
 from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.importer import import_plugin_module, plugin_finder, uninstall_synthetic_package
 from narranexus.kernel.plugins.lifecycle import RegistryStore
@@ -61,6 +62,9 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     assert backend.registry_for("content.bundles").get("team").path.is_file()
     assert backend.registry_for("content.skills").get("hello_skill").manifest_path.is_file()
     assert backend.hooks.caller("onDidPersistTurn").owners() == (PID,)
+    assert "hello_graph" in backend.registry_for("turn.pipeline.recall").names()
+    assert backend.registry_for("turn.profiles").get("hello_research").strategy_for(Stage.RECALL) == "hello_graph"
+    assert backend.registry_for("agent.capabilities.context_providers").get("hello_calendar").name == "hello_calendar"
     asyncio.run(backend.hooks.caller("onDidPersistTurn").call(run_id="r1", agent_id="a1", user_id="u1", event_id="e1", narrative_ids=[]))
     assert import_plugin_module(PID).HOOK_CALLS == ["a1:r1"]
 

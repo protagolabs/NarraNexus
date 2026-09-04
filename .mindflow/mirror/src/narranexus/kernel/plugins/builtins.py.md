@@ -4,6 +4,12 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3b）— `slot_tree_with_builtins()`
+
+用户插件的校验树 = 内核树 + 每个内置 manifest `declares` 的位（如 `builtin.turn` 的六个阶段位）；否则第三方
+Recall 策略永远装不上（hello-world 实锤）。installer/discover/publish-check/自我扩展 validate/工场都改用它。
+装饰器教训再犯一次：在 `@lru_cache` 与 def 之间插函数会把缓存装到新函数上。
+
 ## 2026-09-04（批 3a）— `builtin.turn`
 
 提供 `turn.pipeline`（编排器）与七个阶段的默认策略、五个 profile；`declares` 六个阶段子位（act 已在内核树）。

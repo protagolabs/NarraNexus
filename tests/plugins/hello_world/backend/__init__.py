@@ -101,6 +101,38 @@ BUNDLES = (Contribution("team", _bundle),)
 SKILLS = (Contribution("hello_skill", lambda: SkillSpec(_ROOT / "skills" / "hello_skill")),)
 
 
+# ---- the vertical axis: a Recall strategy + a profile that names it (spec §7.8 scenario 1)
+from narranexus.contracts.agent.pipeline import PipelineProfile  # noqa: E402
+from narranexus.contracts.agent.stages import Stage  # noqa: E402
+
+
+class HelloRecall:
+    """A stand-in graph recall: no narratives, no LLM."""
+
+    stage = Stage.RECALL
+
+    async def run(self, inputs):
+        inputs.ctx.narrative_list = []
+        return
+        yield  # pragma: no cover
+
+
+RECALL_STRATEGIES = (Contribution("hello_graph", HelloRecall),)
+PROFILES = (Contribution("hello_research", lambda: PipelineProfile(id="hello_research", strategies={Stage.RECALL: "hello_graph"})),)
+
+
+# ---- the horizontal axis, L2: a context provider (spec §7.8 scenario 2)
+class HelloCalendar:
+    name = "hello_calendar"
+    context_cost_hint = 40
+
+    async def contribute_turn_context(self, ctx_data):
+        return "Hello World says: it is a fine day for plugins."
+
+
+CONTEXT_PROVIDERS = (Contribution("hello_calendar", HelloCalendar),)
+
+
 def activate(ctx):
     ACTIVATIONS.append(ctx.plugin_id)
     ctx.log.info(f"greeting={ctx.settings.get('greeting')}")

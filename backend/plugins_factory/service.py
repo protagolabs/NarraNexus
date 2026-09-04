@@ -29,7 +29,7 @@ from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.lifecycle import RegistryError, RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest, derive_activation_events, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
-from narranexus.kernel.plugins.slots import build_kernel_slot_tree
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
 ERROR_LOG_LIMIT = 50
 
@@ -78,7 +78,7 @@ class FactoryService:
 
     def _manifest_of(self, path: Path) -> Manifest | None:
         try:
-            return load_manifest(path / MANIFEST_FILENAME, tree=build_kernel_slot_tree())
+            return load_manifest(path / MANIFEST_FILENAME, tree=slot_tree_with_builtins())
         except Exception:  # noqa: BLE001 — a broken manifest is reported through state, not here
             return None
 

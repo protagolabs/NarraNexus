@@ -12,7 +12,7 @@ from pathlib import Path
 from narranexus.contracts import ManifestError
 from narranexus.kernel.plugins.manifest import load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, VERSIONS_FILENAME
-from narranexus.kernel.plugins.slots import build_kernel_slot_tree
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
 
 def publish_check(root: Path) -> list[str]:
@@ -21,7 +21,7 @@ def publish_check(root: Path) -> list[str]:
     if not mpath.is_file():
         return [f"{MANIFEST_FILENAME} is missing"]
     try:
-        manifest = load_manifest(mpath, tree=build_kernel_slot_tree())
+        manifest = load_manifest(mpath, tree=slot_tree_with_builtins())
     except ManifestError as exc:
         return [f"manifest invalid: {exc}"]
     if manifest.is_builtin:

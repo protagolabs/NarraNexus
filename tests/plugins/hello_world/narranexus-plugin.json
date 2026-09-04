@@ -14,7 +14,10 @@
     "tool": 0,
     "mcp_server": 0,
     "bundle": 0,
-    "skill": 0
+    "skill": 0,
+    "stage_strategy": 0,
+    "pipeline_profile": 0,
+    "context_provider": 0
   },
   "hosts": [
     "backend",
@@ -79,6 +82,15 @@
     ],
     "content.skills": [
       "nxplugins.acme_hello_world:SKILLS"
+    ],
+    "turn.pipeline.recall": [
+      "nxplugins.acme_hello_world:RECALL_STRATEGIES"
+    ],
+    "turn.profiles": [
+      "nxplugins.acme_hello_world:PROFILES"
+    ],
+    "agent.capabilities.context_providers": [
+      "nxplugins.acme_hello_world:CONTEXT_PROVIDERS"
     ]
   },
   "permissions": {

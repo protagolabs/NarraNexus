@@ -4,6 +4,10 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3b）— `run(pipeline_profile=)`
+
+调用方可点名一个注册的 profile（如插件贡献的 `research`），走 `resolve_profile(explicit=)`。
+
 ## 2026-09-04（批 3a）— `run()` 瘦身为「服务装配 + `TurnPipeline.run`」
 
 step_0…step_5 的内联块全部原样搬进 `narranexus.platform.turn.stages`；`run()` 只建 `RunContext`（含 `run_id`）、

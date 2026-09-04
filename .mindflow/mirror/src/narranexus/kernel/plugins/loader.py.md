@@ -1,8 +1,10 @@
 ---
 code_file: src/narranexus/kernel/plugins/loader.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3b）— manifest 校验改用 `slot_tree_with_builtins()`（含内置声明的位）
 
 ## 2026-09-03（批 2b.5）— `discover` 读 `registry.json`
 

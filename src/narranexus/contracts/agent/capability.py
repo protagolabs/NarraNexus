@@ -108,6 +108,7 @@ class Capability(Protocol):
         ...
 
 
+@runtime_checkable
 class ContextProvider(Protocol):
     """An L2 capability that only speaks in Assemble (slot ``agent.capabilities.context_providers``).
 
