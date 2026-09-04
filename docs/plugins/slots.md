@@ -79,7 +79,7 @@ bound only from the distribution or default layers.
 
 | Plugin | Version | Hosts | Provides | Quality |
 |---|---|---|---|---|
-| `builtin.frameworks.nexus_power` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
+| `builtin.frameworks.nexus_power` | 1.0.0 | backend | `turn.pipeline.act.framework`, `builtin.frameworks.nexus_power.stop`, `builtin.frameworks.nexus_power.compaction`, `builtin.frameworks.nexus_power.projector`, `builtin.frameworks.nexus_power.expression`, `builtin.frameworks.nexus_power.policy` | gold |
 | `builtin.frameworks.claude_code` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
 | `builtin.frameworks.codex_cli` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
 | `builtin.providers` | 1.0.0 | backend, mcp, workers | `model.providers` | gold |

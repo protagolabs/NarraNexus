@@ -22,6 +22,8 @@ from narranexus.kernel.plugins.manifest import Manifest, parse_manifest
 from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 
 _FRAMEWORK = "xyz_agent_context.agent_framework"
+_NP = "xyz_agent_context.agent_framework.nexus_power.extension_points"
+_NP_PROTO = "xyz_agent_context.agent_framework.nexus_power.contracts.protocols"
 _MODULE = "xyz_agent_context.module"
 _DRIVERS = "xyz_agent_context.agent_framework.providers.driver.drivers"
 
@@ -30,9 +32,25 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "id": "builtin.frameworks.nexus_power",
         "version": "1.0.0",
         "displayName": "NexusPower agent loop",
-        "description": "The home-grown agent loop; always available.",
+        "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
         "hosts": ["backend"],
-        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:NEXUS_POWER"},
+        "provides": {
+            "turn.pipeline.act.framework": f"{_FRAMEWORK}:NEXUS_POWER",
+            "builtin.frameworks.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
+            "builtin.frameworks.nexus_power.compaction": f"{_NP}:COMPACTION_DEFAULT",
+            "builtin.frameworks.nexus_power.projector": f"{_NP}:PROJECTOR_DEFAULT",
+            "builtin.frameworks.nexus_power.expression": f"{_NP}:EXPRESSION_DEFAULT",
+            "builtin.frameworks.nexus_power.policy": [f"{_NP}:POLICY_LAYERS"],
+        },
+        # The loop's five strategy seats (spec §484): other plugins provide
+        # implementations, configuration binds them (NX_BIND__builtin__frameworks__nexus_power__stop=...).
+        "declares": {
+            "builtin.frameworks.nexus_power.stop": {"arity": "one", "contract": f"{_NP_PROTO}:StopPolicy", "default": "no_more_actions", "doc": "When the loop ends a turn."},
+            "builtin.frameworks.nexus_power.compaction": {"arity": "one", "contract": f"{_NP_PROTO}:CompactionPolicy", "default": "tool_result_pruner", "doc": "How the ledger is compacted."},
+            "builtin.frameworks.nexus_power.projector": {"arity": "one", "contract": f"{_NP_PROTO}:ContextProjector", "default": "passthrough", "doc": "How the ledger becomes provider messages."},
+            "builtin.frameworks.nexus_power.expression": {"arity": "one", "contract": f"{_NP_PROTO}:ExpressionPolicy", "default": "contract", "doc": "Which tools count as the agent speaking."},
+            "builtin.frameworks.nexus_power.policy": {"arity": "many", "contract": f"{_NP_PROTO}:PolicyLayer", "doc": "Tool-call policy layers, checked in order."},
+        },
         "quality": "gold",
     },
     {

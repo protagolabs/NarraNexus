@@ -23,6 +23,7 @@ per-turn.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -186,23 +187,15 @@ async def run_turn_events(
     this entry only threads it to the loop."""
     from xyz_agent_context.agent_framework.llm.litellm_client import LitellmClient
     from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolContext
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
-        ExpressionContract,
-    )
+    from xyz_agent_context.agent_framework.nexus_power import extension_points as ep
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
         NexusPowerLoop,
-    )
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
-        ToolResultPruner,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
         LiteLLMModelClient,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
         resolve_profile,
-    )
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
-        PassthroughProjector,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
         cache_hit_metrics,
@@ -241,10 +234,7 @@ async def run_turn_events(
         McpToolChannel,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
-        DisallowedToolsLayer,
         PolicyEngine,
-        ShellConfinementLayer,
-        WorkspaceConfinementLayer,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
         WaitState,
@@ -287,7 +277,11 @@ async def run_turn_events(
     # grant delivery tools mid-turn (add_tools), and only the per-step
     # tail reminder reads the growing list — the stable prefix freezes
     # the turn-start view.
-    expression = ExpressionContract(opts.expressive_tools)
+    # Strategy seats come from the framework's extension points (default
+    # providers = the classes this file used to construct directly; another
+    # plugin or an NX_BIND__ binding may replace them).
+    seat = ep.SeatContext(options=opts, workspace=workspace, tool_context=ctx, profile=profile)
+    expression = ep.resolve_one(ep.EXPRESSION, seat)
     catalog = tuple(
         Expandable(
             key=e.key,
@@ -350,9 +344,7 @@ async def run_turn_events(
     wait_state = WaitState()
     dispatcher = ToolDispatcher(
         (builtin, scheduling, *_steer_channels(opts.steerable, wait_state), mcp),
-        policy=PolicyEngine(
-            (DisallowedToolsLayer(), WorkspaceConfinementLayer(), ShellConfinementLayer())
-        ),
+        policy=PolicyEngine(ep.resolve_many(ep.POLICY, seat)),
         ctx=ctx,
         disallowed_tools=frozenset(opts.disallowed_tools),
         deferred_tools=frozenset(opts.deferred_tools),
@@ -403,15 +395,17 @@ async def run_turn_events(
             parts = (plan.render(), opts.origin_declaration, reminder)
             return "\n\n".join(p for p in parts if p)
 
+        projector_seat = dataclasses.replace(seat, base_messages=base_messages, tail=_tail)
         assembly = LoopAssembly(
             model=LiteLLMModelClient(profile, LitellmClient()),
             tools=dispatcher,
-            projector=PassthroughProjector(base_messages, _tail),
+            projector=ep.resolve_one(ep.PROJECTOR, projector_seat),
             log=log or NullEventLogWriter(),
             cancel=cancel,
             expression=expression,
             errors=DefaultErrorClassifier(),
-            compaction=ToolResultPruner(),
+            compaction=ep.resolve_one(ep.COMPACTION, seat),
+            stop=ep.resolve_one(ep.STOP, seat),
             params=params,
             include_arg_deltas=opts.include_arg_deltas,
             expression_nudge=opts.expression_nudge,

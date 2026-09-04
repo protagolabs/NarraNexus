@@ -65,3 +65,7 @@ Channel builtins provide `backend.routes.channels.<ch>:ROUTES`; builtin.job adds
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 builtin.job / builtin.awareness / the six channel builtins provide `backend.hooks` (`<module>.plugin_hooks:HOOKS`).
+
+## 2026-09-04 · extension points (batch 3d.1)
+
+`builtin.frameworks.nexus_power` declares its five seat slots (`builtin.frameworks.nexus_power.{stop,compaction,projector,expression,policy}`, contracts = the NexusPower protocols) and provides their default implementations from `nexus_power/extension_points.py` (one-arity seats as a single Contribution symbol, the policy seat as a tuple).
