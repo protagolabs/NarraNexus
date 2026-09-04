@@ -1379,6 +1379,61 @@
         "hint": "Design, Sprache und wie die Fortschrittsnotizen des Agenten angezeigt werden.",
         "narrationTitle": "Fortschritts-Kommentar",
         "narrationHint": "Zeigt die Zwischennotizen des Agenten direkt und gut lesbar im Verlauf, statt den ganzen Durchlauf hinter einer Klappe zu verstecken."
+      },
+      "plugins": {
+        "factory": {
+          "title": "Benutzer-Plugins",
+          "hint": "Plugins von GitHub oder aus einem lokalen Ordner. Sie werden beim Start geladen; Änderungen gelten nach einem Neustart.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch oder /pfad/zum/plugin",
+          "sourceHelp": "Ein GitHub-Release (owner/repo@tag), eine Repository-Referenz (owner/repo#ref) oder ein lokales Verzeichnis (an Ort und Stelle verknüpft).",
+          "install": "Installieren",
+          "installing": "Wird installiert…",
+          "restartRequired": "Gespeichert. NarraNexus neu starten, damit die Änderung wirksam wird.",
+          "enable": "Aktivieren",
+          "disable": "Deaktivieren",
+          "disabled": "deaktiviert",
+          "uninstall": "Deinstallieren",
+          "upgrade": "Aktualisieren",
+          "rollback": "Auf letzten funktionierenden Stand zurücksetzen",
+          "safeModeTitle": "Abgesicherter Modus: Benutzer-Plugins sind nicht geladen",
+          "safeModeLeave": "Abgesicherten Modus verlassen",
+          "bisectStart": "Plugin finden, das den Start verhindert",
+          "bisectTrial": "Halbierung: {{count}} Verdächtige — diese sind beim nächsten Start aktiv:",
+          "bisectGood": "Start war in Ordnung",
+          "bisectBad": "Wieder fehlgeschlagen",
+          "bisectStop": "Halbierung beenden",
+          "bisectCulprit": "Verursacher gefunden: {{id}} (bleibt deaktiviert)",
+          "permissionsTitle": "{{id}} fordert diese Berechtigungen an",
+          "permissionsNetwork": "Netzwerk",
+          "permissionsFilesystem": "Dateien",
+          "permissionsSubprocess": "Startet Unterprozesse",
+          "permissionsEnv": "Umgebungsvariablen",
+          "permissionsAck": "Verstanden, aktivieren",
+          "permissionsKeepDisabled": "Deaktiviert lassen",
+          "empty": "Keine Benutzer-Plugins installiert.",
+          "loadFailed": "Benutzer-Plugins konnten nicht geladen werden",
+          "isolated": "Beim Start isoliert",
+          "viewErrors": "Fehler ({{count}})",
+          "hideErrors": "Fehler ausblenden",
+          "noErrors": "Keine Fehler aufgezeichnet.",
+          "mode": {
+            "link": "verknüpft",
+            "copy": "installiert"
+          },
+          "state": {
+            "registered": "registriert",
+            "validated": "geprüft",
+            "enabled": "aktiviert",
+            "active": "aktiv",
+            "incompatible": "inkompatibel",
+            "blocked": "blockiert",
+            "missing": "fehlt",
+            "deps_missing": "Abhängigkeiten fehlen",
+            "crashed": "abgestürzt",
+            "disabled": "deaktiviert",
+            "slow": "langsam"
+          }
+        }
       }
     },
     "system": {

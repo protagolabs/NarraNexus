@@ -117,6 +117,10 @@ import type {
   PluginsListResponse,
   PluginUninstallResponse,
   PluginInstallEvent,
+  FactoryListResponse,
+  FactoryInstallResponse,
+  FactoryErrorsResponse,
+  FactoryIndexResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1477,6 +1481,47 @@ class ApiClient {
   // Claude Code / Codex CLI ship as user-installed plugins rather than
   // baked into the desktop image. `cloud_managed` in the response tells the
   // panel to hide itself entirely — cloud installs its own CLIs centrally.
+
+  // ---- plugin factory (/api/plugin-factory): user plugins from GitHub / local dirs.
+
+  async factoryList(): Promise<FactoryListResponse> {
+    return this.request(`/api/plugin-factory`);
+  }
+
+  async factoryInstall(source: string, opts: { permissionsAcknowledged?: boolean; scope?: string } = {}): Promise<FactoryInstallResponse> {
+    return this.request(`/api/plugin-factory/install`, {
+      method: 'POST',
+      body: JSON.stringify({ source, permissions_acknowledged: opts.permissionsAcknowledged ?? false, scope: opts.scope ?? 'global' }),
+    });
+  }
+
+  async factoryAction(id: string, action: 'enable' | 'disable' | 'uninstall' | 'upgrade' | 'acknowledge-permissions'): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+  }
+
+  async factoryRollback(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/rollback`, { method: 'POST' });
+  }
+
+  async factoryLeaveSafeMode(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/safe-mode/leave`, { method: 'POST' });
+  }
+
+  async factoryBisect(step: 'start' | 'stop'): Promise<ApiResponse & { data?: { trial?: string[]; remaining?: number; culprit?: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/${step}`, { method: 'POST' });
+  }
+
+  async factoryBisectAnswer(good: boolean): Promise<ApiResponse & { data?: { trial: string[]; remaining: number; culprit: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/answer`, { method: 'POST', body: JSON.stringify({ good }) });
+  }
+
+  async factoryErrors(id: string): Promise<FactoryErrorsResponse> {
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/errors`);
+  }
+
+  async factoryIndex(q = ''): Promise<FactoryIndexResponse> {
+    return this.request(`/api/plugin-factory/index?q=${encodeURIComponent(q)}`);
+  }
 
   /** List every known plugin's install/update/login state. */
   async getPlugins(): Promise<PluginsListResponse> {

@@ -14,6 +14,7 @@ import { RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { PluginsSettings } from '@/components/settings/PluginsSettings';
+import { PluginFactory } from '@/components/settings/plugins';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
@@ -287,6 +288,9 @@ export function PluginsSection() {
         hint={t('pages.settings.plugins.hint')}
       />
       <PluginsSettings />
+      <div className="mt-6">
+        <PluginFactory />
+      </div>
     </section>
   );
 }

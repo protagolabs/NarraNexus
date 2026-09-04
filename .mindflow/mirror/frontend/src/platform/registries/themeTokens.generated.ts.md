@@ -1,5 +1,5 @@
 ---
-code_file: frontend/src/platform/themeTokens.generated.ts
+code_file: frontend/src/platform/registries/themeTokens.generated.ts
 last_verified: 2026-09-03
 stub: false
 ---

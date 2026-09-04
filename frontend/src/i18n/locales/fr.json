@@ -1379,6 +1379,61 @@
         "hint": "Thème, langue et affichage des notes de progression de l'agent.",
         "narrationTitle": "Narration de progression",
         "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet."
+      },
+      "plugins": {
+        "factory": {
+          "title": "Plugins utilisateur",
+          "hint": "Plugins depuis GitHub ou un dossier local. Chargés au démarrage ; les changements prennent effet après redémarrage.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch ou /chemin/vers/plugin",
+          "sourceHelp": "Une Release GitHub (owner/repo@tag), une référence de dépôt (owner/repo#ref) ou un dossier local (lié sur place).",
+          "install": "Installer",
+          "installing": "Installation…",
+          "restartRequired": "Enregistré. Redémarrez NarraNexus pour appliquer le changement.",
+          "enable": "Activer",
+          "disable": "Désactiver",
+          "disabled": "désactivé",
+          "uninstall": "Désinstaller",
+          "upgrade": "Mettre à jour",
+          "rollback": "Revenir au dernier état fonctionnel",
+          "safeModeTitle": "Mode sans échec : les plugins utilisateur ne sont pas chargés",
+          "safeModeLeave": "Quitter le mode sans échec",
+          "bisectStart": "Trouver le plugin qui casse le démarrage",
+          "bisectTrial": "Bissection : {{count}} suspects — ceux-ci seront actifs au prochain démarrage :",
+          "bisectGood": "Démarrage réussi",
+          "bisectBad": "Encore cassé",
+          "bisectStop": "Arrêter la bissection",
+          "bisectCulprit": "Coupable trouvé : {{id}} (reste désactivé)",
+          "permissionsTitle": "{{id}} demande ces permissions",
+          "permissionsNetwork": "Réseau",
+          "permissionsFilesystem": "Fichiers",
+          "permissionsSubprocess": "Lance des sous-processus",
+          "permissionsEnv": "Variables d’environnement",
+          "permissionsAck": "Je comprends, l’activer",
+          "permissionsKeepDisabled": "Laisser désactivé",
+          "empty": "Aucun plugin utilisateur installé.",
+          "loadFailed": "Échec du chargement des plugins utilisateur",
+          "isolated": "Isolé au démarrage",
+          "viewErrors": "Erreurs ({{count}})",
+          "hideErrors": "Masquer les erreurs",
+          "noErrors": "Aucune erreur enregistrée.",
+          "mode": {
+            "link": "lié",
+            "copy": "installé"
+          },
+          "state": {
+            "registered": "enregistré",
+            "validated": "validé",
+            "enabled": "activé",
+            "active": "actif",
+            "incompatible": "incompatible",
+            "blocked": "bloqué",
+            "missing": "manquant",
+            "deps_missing": "dépendances manquantes",
+            "crashed": "planté",
+            "disabled": "désactivé",
+            "slow": "lent"
+          }
+        }
       }
     },
     "system": {

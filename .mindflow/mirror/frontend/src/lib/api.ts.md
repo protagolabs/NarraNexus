@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2d.3）— `factory*` 方法
+
+`/api/plugin-factory` 的 list/install/action(enable|disable|uninstall|upgrade|acknowledge-permissions)/rollback/
+leave-safe-mode/bisect/errors/index，全部走 `request<T>`（JSON、会话鉴权头）。
+
 ## 2026-09-03 — `setTeamPatrol` 带 15s 超时
 
 `PATROL_WRITE_TIMEOUT_MS = 15_000` 导出;`setTeamPatrol` 的 fetch 加 `signal: AbortSignal.timeout(...)`。

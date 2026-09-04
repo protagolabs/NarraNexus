@@ -1399,6 +1399,80 @@ export interface PluginUninstallResponse extends ApiResponse {
   data?: PluginStatus;
 }
 
+// ---------------------------------------------------------------- plugin factory
+// `/api/plugin-factory` — user plugins (GitHub / local), managed by the kernel
+// registry file. Distinct from the framework installer above.
+
+export type FactoryPluginState =
+  | 'registered' | 'validated' | 'enabled' | 'active'
+  | 'incompatible' | 'blocked' | 'missing' | 'deps_missing' | 'crashed' | 'disabled' | 'slow';
+
+export interface FactoryPlugin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  mode: 'copy' | 'link';
+  path: string;
+  source: { type: 'github' | 'github_repo' | 'local'; repo?: string; tag?: string; ref?: string; commit?: string };
+  enabled: boolean;
+  state: FactoryPluginState;
+  scope: string;
+  last_error: string | null;
+  crash_count: number;
+  warnings: string[];
+  permissions: { network?: string[]; filesystem?: string[]; subprocess?: boolean; env?: string[] };
+  permissions_acknowledged: boolean;
+  installed_by: string;
+  installed_at: string;
+  provides: string[];
+  size: { backend_deps_mb?: number; frontend_kb?: number };
+  loaded: boolean;
+  isolated: string | null;
+  recent_errors: number;
+  frontend: { entry: string; integrity?: string } | null;
+  activation_events: string[];
+  protected: boolean;
+}
+
+export interface FactoryBisect {
+  candidates: string[];
+  trial: string[];
+  cleared: string[];
+}
+
+export interface FactoryListResponse extends ApiResponse {
+  data?: {
+    plugins: FactoryPlugin[];
+    safe_mode: boolean;
+    safe_mode_reason: string;
+    bisect: FactoryBisect | null;
+    cloud_managed: boolean;
+    boot: { role: string; loaded: string[]; isolated: Record<string, string>; rejected: Record<string, string>; duration_ms: number } | null;
+  };
+}
+
+export interface FactoryInstallResponse extends ApiResponse {
+  data?: {
+    id: string;
+    version: string;
+    path: string;
+    mode: 'copy' | 'link';
+    warnings: string[];
+    deps_installed: string[];
+    permissions: FactoryPlugin['permissions'];
+    restart_required: boolean;
+  };
+}
+
+export interface FactoryErrorsResponse extends ApiResponse {
+  data?: { errors: { at: number; kind: string; message: string; stack: string }[] };
+}
+
+export interface FactoryIndexResponse extends ApiResponse {
+  data?: { plugins: { id: string; repo: string; author: string; description: string; tags: string[]; kinds: string[] }[] };
+}
+
 /** One line of the `POST /api/plugins/{id}/install` ndjson stream. */
 export type PluginInstallEvent =
   | { done: false; phase: 'pip' | 'npm'; line: string }

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2d.3）— plugin factory 类型
+
+`FactoryPlugin`（与 `FactoryService.list` 行一一对应）、`FactoryListResponse`/`FactoryInstallResponse`/
+`FactoryErrorsResponse`/`FactoryIndexResponse`。
 
 ## 2026-08-30 — `EventLogTimelineEntry.monologue?: boolean`
 

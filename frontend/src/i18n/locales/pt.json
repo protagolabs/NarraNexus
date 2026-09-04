@@ -1379,6 +1379,61 @@
         "hint": "Tema, idioma e como as notas de progresso do agente são exibidas.",
         "narrationTitle": "Narração de progresso",
         "narrationHint": "Mostra as notas do agente entre etapas em linha e legíveis, em vez de guardar toda a execução atrás de um único painel."
+      },
+      "plugins": {
+        "factory": {
+          "title": "Plugins do usuário",
+          "hint": "Plugins do GitHub ou de uma pasta local. Carregados na inicialização; as alterações valem após reiniciar.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch ou /caminho/do/plugin",
+          "sourceHelp": "Uma Release do GitHub (owner/repo@tag), uma referência do repositório (owner/repo#ref) ou um diretório local (vinculado no lugar).",
+          "install": "Instalar",
+          "installing": "Instalando…",
+          "restartRequired": "Salvo. Reinicie o NarraNexus para aplicar a alteração.",
+          "enable": "Ativar",
+          "disable": "Desativar",
+          "disabled": "desativado",
+          "uninstall": "Desinstalar",
+          "upgrade": "Atualizar",
+          "rollback": "Voltar ao último estado bom",
+          "safeModeTitle": "Modo seguro: plugins do usuário não foram carregados",
+          "safeModeLeave": "Sair do modo seguro",
+          "bisectStart": "Encontrar o plugin que quebra a inicialização",
+          "bisectTrial": "Bissecção: {{count}} suspeitos — estes ficam ativos na próxima inicialização:",
+          "bisectGood": "Iniciou bem",
+          "bisectBad": "Quebrou de novo",
+          "bisectStop": "Parar bissecção",
+          "bisectCulprit": "Culpado encontrado: {{id}} (mantido desativado)",
+          "permissionsTitle": "{{id}} pede estas permissões",
+          "permissionsNetwork": "Rede",
+          "permissionsFilesystem": "Arquivos",
+          "permissionsSubprocess": "Executa subprocessos",
+          "permissionsEnv": "Variáveis de ambiente",
+          "permissionsAck": "Entendi, ativar",
+          "permissionsKeepDisabled": "Manter desativado",
+          "empty": "Nenhum plugin do usuário instalado.",
+          "loadFailed": "Falha ao carregar os plugins do usuário",
+          "isolated": "Isolado na inicialização",
+          "viewErrors": "Erros ({{count}})",
+          "hideErrors": "Ocultar erros",
+          "noErrors": "Nenhum erro registrado.",
+          "mode": {
+            "link": "vinculado",
+            "copy": "instalado"
+          },
+          "state": {
+            "registered": "registrado",
+            "validated": "validado",
+            "enabled": "ativado",
+            "active": "ativo",
+            "incompatible": "incompatível",
+            "blocked": "bloqueado",
+            "missing": "ausente",
+            "deps_missing": "dependências ausentes",
+            "crashed": "travou",
+            "disabled": "desativado",
+            "slow": "lento"
+          }
+        }
       }
     },
     "system": {

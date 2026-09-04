@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
 
-import { THEME_TOKENS } from '@/platform/themeTokens.generated';
+import { THEME_TOKENS } from '@/platform/registries/themeTokens.generated';
 
 it('generated token list is fresh', () => {
   const css = readFileSync(resolve(__dirname, '../../index.css'), 'utf8');

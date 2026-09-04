@@ -1378,6 +1378,61 @@
         "hint": "테마, 언어, 그리고 에이전트의 진행 메모 표시 방식.",
         "narrationTitle": "진행 내레이션",
         "narrationHint": "에이전트가 단계 사이에 남기는 메모를 대화 안에 또렷하게 표시하고, 전체 실행을 하나의 접힘 영역에 넣지 않습니다."
+      },
+      "plugins": {
+        "factory": {
+          "title": "사용자 플러그인",
+          "hint": "GitHub 또는 로컬 폴더의 플러그인입니다. 시작 시 로드되며 변경 사항은 재시작 후 적용됩니다.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch 또는 /path/to/plugin",
+          "sourceHelp": "GitHub Release(owner/repo@tag), 저장소 참조(owner/repo#ref) 또는 로컬 디렉터리(제자리 링크).",
+          "install": "설치",
+          "installing": "설치 중…",
+          "restartRequired": "저장되었습니다. 변경 사항을 적용하려면 NarraNexus를 재시작하세요.",
+          "enable": "활성화",
+          "disable": "비활성화",
+          "disabled": "비활성",
+          "uninstall": "제거",
+          "upgrade": "업그레이드",
+          "rollback": "마지막 정상 상태로 되돌리기",
+          "safeModeTitle": "안전 모드: 사용자 플러그인이 로드되지 않았습니다",
+          "safeModeLeave": "안전 모드 종료",
+          "bisectStart": "시작을 망가뜨리는 플러그인 찾기",
+          "bisectTrial": "이분 탐색: 용의 플러그인 {{count}}개 — 다음 시작 시 이것들만 활성화됩니다:",
+          "bisectGood": "정상적으로 시작됨",
+          "bisectBad": "다시 실패함",
+          "bisectStop": "이분 탐색 중지",
+          "bisectCulprit": "원인 발견: {{id}} (비활성 유지)",
+          "permissionsTitle": "{{id}}이(가) 다음 권한을 요청합니다",
+          "permissionsNetwork": "네트워크",
+          "permissionsFilesystem": "파일",
+          "permissionsSubprocess": "하위 프로세스 실행",
+          "permissionsEnv": "환경 변수",
+          "permissionsAck": "이해했습니다, 활성화",
+          "permissionsKeepDisabled": "비활성 유지",
+          "empty": "설치된 사용자 플러그인이 없습니다.",
+          "loadFailed": "사용자 플러그인을 불러오지 못했습니다",
+          "isolated": "시작 시 격리됨",
+          "viewErrors": "오류 ({{count}})",
+          "hideErrors": "오류 숨기기",
+          "noErrors": "기록된 오류가 없습니다.",
+          "mode": {
+            "link": "링크됨",
+            "copy": "설치됨"
+          },
+          "state": {
+            "registered": "등록됨",
+            "validated": "검증됨",
+            "enabled": "활성화됨",
+            "active": "실행 중",
+            "incompatible": "호환 불가",
+            "blocked": "차단됨",
+            "missing": "누락",
+            "deps_missing": "의존성 누락",
+            "crashed": "충돌",
+            "disabled": "비활성",
+            "slow": "느림"
+          }
+        }
       }
     },
     "system": {

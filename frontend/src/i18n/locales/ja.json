@@ -1378,6 +1378,61 @@
         "hint": "テーマ、言語、そしてエージェントの進捗メモの表示方法。",
         "narrationTitle": "進捗ナレーション",
         "narrationHint": "エージェントがステップの合間に書くメモを会話内に読みやすく表示し、実行全体を一つの折りたたみに収めません。"
+      },
+      "plugins": {
+        "factory": {
+          "title": "ユーザープラグイン",
+          "hint": "GitHub またはローカルフォルダーからのプラグイン。起動時に読み込まれ、変更は再起動後に反映されます。",
+          "sourcePlaceholder": "owner/repo@1.2.0、owner/repo#branch、または /path/to/plugin",
+          "sourceHelp": "GitHub Release（owner/repo@tag）、リポジトリ参照（owner/repo#ref）、またはローカルディレクトリ（その場でリンク）。",
+          "install": "インストール",
+          "installing": "インストール中…",
+          "restartRequired": "保存しました。変更を反映するには NarraNexus を再起動してください。",
+          "enable": "有効化",
+          "disable": "無効化",
+          "disabled": "無効",
+          "uninstall": "アンインストール",
+          "upgrade": "アップグレード",
+          "rollback": "最後の正常な状態に戻す",
+          "safeModeTitle": "セーフモード：ユーザープラグインは読み込まれていません",
+          "safeModeLeave": "セーフモードを終了",
+          "bisectStart": "起動を壊すプラグインを特定",
+          "bisectTrial": "二分探索：{{count}} 件の候補 — 次回起動で有効になるのはこれらです：",
+          "bisectGood": "正常に起動した",
+          "bisectBad": "また壊れた",
+          "bisectStop": "二分探索を停止",
+          "bisectCulprit": "原因を特定：{{id}}（無効のまま）",
+          "permissionsTitle": "{{id}} が次の権限を要求しています",
+          "permissionsNetwork": "ネットワーク",
+          "permissionsFilesystem": "ファイル",
+          "permissionsSubprocess": "サブプロセスを実行",
+          "permissionsEnv": "環境変数",
+          "permissionsAck": "理解した、有効化する",
+          "permissionsKeepDisabled": "無効のままにする",
+          "empty": "ユーザープラグインはインストールされていません。",
+          "loadFailed": "ユーザープラグインの読み込みに失敗しました",
+          "isolated": "起動時に隔離",
+          "viewErrors": "エラー（{{count}}）",
+          "hideErrors": "エラーを隠す",
+          "noErrors": "エラーは記録されていません。",
+          "mode": {
+            "link": "リンク",
+            "copy": "インストール済み"
+          },
+          "state": {
+            "registered": "登録済み",
+            "validated": "検証済み",
+            "enabled": "有効",
+            "active": "稼働中",
+            "incompatible": "非互換",
+            "blocked": "ブロック",
+            "missing": "見つからない",
+            "deps_missing": "依存関係が不足",
+            "crashed": "クラッシュ",
+            "disabled": "無効",
+            "slow": "低速"
+          }
+        }
       }
     },
     "system": {

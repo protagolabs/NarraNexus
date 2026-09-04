@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CSS = ROOT / "frontend" / "src" / "index.css"
-OUT = ROOT / "frontend" / "src" / "platform" / "themeTokens.generated.ts"
+OUT = ROOT / "frontend" / "src" / "platform" / "registries" / "themeTokens.generated.ts"
 _TOKEN = re.compile(r"^\s*(--[a-zA-Z0-9-]+)\s*:")
 
 

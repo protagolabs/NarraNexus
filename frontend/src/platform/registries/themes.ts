@@ -11,7 +11,7 @@
  * root element; `clearTheme` removes exactly what was set.
  */
 import { Registry } from './registry';
-import { THEME_TOKENS } from '../themeTokens.generated';
+import { THEME_TOKENS } from './themeTokens.generated';
 
 export interface ThemeDef {
   displayName: string;

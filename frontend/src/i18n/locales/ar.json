@@ -1387,6 +1387,61 @@
         "hint": "المظهر واللغة وطريقة عرض ملاحظات تقدّم الوكيل.",
         "narrationTitle": "سرد التقدّم",
         "narrationHint": "إظهار ملاحظات الوكيل بين الخطوات ضمن المحادثة وبوضوح، بدلاً من طي التنفيذ بأكمله في قسم واحد."
+      },
+      "plugins": {
+        "factory": {
+          "title": "إضافات المستخدم",
+          "hint": "إضافات من GitHub أو مجلد محلي. تُحمَّل عند بدء التشغيل؛ تسري التغييرات بعد إعادة التشغيل.",
+          "sourcePlaceholder": "owner/repo@1.2.0 أو owner/repo#branch أو /path/to/plugin",
+          "sourceHelp": "إصدار GitHub (owner/repo@tag) أو مرجع مستودع (owner/repo#ref) أو مجلد محلي (يُربط في مكانه).",
+          "install": "تثبيت",
+          "installing": "جارٍ التثبيت…",
+          "restartRequired": "تم الحفظ. أعد تشغيل NarraNexus لتطبيق التغيير.",
+          "enable": "تفعيل",
+          "disable": "تعطيل",
+          "disabled": "معطّل",
+          "uninstall": "إزالة",
+          "upgrade": "ترقية",
+          "rollback": "العودة إلى آخر حالة سليمة",
+          "safeModeTitle": "الوضع الآمن: لم تُحمَّل إضافات المستخدم",
+          "safeModeLeave": "مغادرة الوضع الآمن",
+          "bisectStart": "العثور على الإضافة التي تعطّل بدء التشغيل",
+          "bisectTrial": "التنصيف: {{count}} مشتبه بها — ستُفعَّل هذه عند التشغيل التالي:",
+          "bisectGood": "بدأ التشغيل بنجاح",
+          "bisectBad": "تعطّل مجددًا",
+          "bisectStop": "إيقاف التنصيف",
+          "bisectCulprit": "تم العثور على السبب: {{id}} (يبقى معطّلًا)",
+          "permissionsTitle": "تطلب {{id}} هذه الأذونات",
+          "permissionsNetwork": "الشبكة",
+          "permissionsFilesystem": "الملفات",
+          "permissionsSubprocess": "تشغيل عمليات فرعية",
+          "permissionsEnv": "متغيرات البيئة",
+          "permissionsAck": "فهمت، فعّلها",
+          "permissionsKeepDisabled": "إبقاؤها معطّلة",
+          "empty": "لا توجد إضافات مستخدم مثبتة.",
+          "loadFailed": "تعذّر تحميل إضافات المستخدم",
+          "isolated": "عُزلت عند بدء التشغيل",
+          "viewErrors": "الأخطاء ({{count}})",
+          "hideErrors": "إخفاء الأخطاء",
+          "noErrors": "لم تُسجَّل أي أخطاء.",
+          "mode": {
+            "link": "مرتبطة",
+            "copy": "مثبّتة"
+          },
+          "state": {
+            "registered": "مسجّلة",
+            "validated": "مُتحقَّق منها",
+            "enabled": "مفعّلة",
+            "active": "نشطة",
+            "incompatible": "غير متوافقة",
+            "blocked": "محظورة",
+            "missing": "مفقودة",
+            "deps_missing": "اعتماديات مفقودة",
+            "crashed": "تعطّلت",
+            "disabled": "معطّلة",
+            "slow": "بطيئة"
+          }
+        }
       }
     },
     "system": {

@@ -20,7 +20,18 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' plugin: officewatch: http://localhost:* http://127.0.0.1:*",
+        "script-src": "'self' blob: plugin: 'wasm-unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline' plugin:",
+        "img-src": "'self' data: blob: plugin: http://localhost:* http://127.0.0.1:* https:",
+        "media-src": "'self' data: blob: http://localhost:* http://127.0.0.1:* https:",
+        "font-src": "'self' data: plugin:",
+        "connect-src": "'self' blob: plugin: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:",
+        "frame-src": "'self' blob: officewatch: http://localhost:* http://127.0.0.1:* https:",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'"
+      }
     }
   },
   "bundle": {

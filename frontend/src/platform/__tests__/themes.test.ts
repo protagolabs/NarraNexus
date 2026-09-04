@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { THEMES, applyTheme, clearTheme, validateThemeTokens } from '@/platform/registries';
-import { THEME_TOKENS } from '@/platform/themeTokens.generated';
+import { THEME_TOKENS } from '@/platform/registries/themeTokens.generated';
 
 describe('theme registry', () => {
   it('rejects unknown tokens and unsafe values', () => {
