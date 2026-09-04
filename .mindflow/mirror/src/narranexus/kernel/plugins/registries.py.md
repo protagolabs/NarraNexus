@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2e）— 每个 `Registries` 默认声明宿主钩子词表
+
+`contracts.events.HOST_EVENTS`（参数取自 payload TypedDict）+ `contracts.agent.events.STAGE_HOOKS` 十四个
+阶段钩子。宿主不必记得逐个声明，插件 `backend.hooks` 在任何进程都能对上（hello-world 实锤：忘了声明就整个
+插件被隔离）。
+
 ## 2026-09-03（批 2a）— `SLOT_KINDS` 补十个平台/内容位
 
 新位的注册表带各自 kind 的契约版本；`backend.hooks` 没有 `Registry`（走 `HookRegistry`），loader 特判。

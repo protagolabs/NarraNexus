@@ -52,6 +52,18 @@ class Registries:
     def __init__(self, slots: SlotTree | None = None) -> None:
         self.slots: SlotTree = slots if slots is not None else build_kernel_slot_tree()
         self.hooks: HookRegistry = HookRegistry()
+        # The host hook vocabulary is the kernel's: every process declares the
+        # host events (contracts.events) and the fourteen stage hooks
+        # (contracts.agent.events) so a plugin's ``backend.hooks`` can target
+        # them without the host having to remember to declare each one.
+        from narranexus.contracts.agent.events import STAGE_HOOKS
+        from narranexus.contracts.events import HOST_EVENTS, host_event_params
+        from narranexus.kernel.plugins.hooks import HookSpec
+
+        for name in HOST_EVENTS:
+            self.hooks.declare(HookSpec(name, host_event_params(name), doc=f"host event {name}"))
+        for name, (params, firstresult) in STAGE_HOOKS.items():
+            self.hooks.declare(HookSpec(name, params, firstresult=firstresult, doc=f"stage hook {name}"))
         self._by_path: dict[str, Registry[Any]] = {}
         self._frozen = False
 

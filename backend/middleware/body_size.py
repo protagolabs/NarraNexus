@@ -60,6 +60,10 @@ MAX_CHAT_COMPLETIONS_BYTES = 8 * _MB
 #: after buffering; this is the byte cap that runs in the middleware, before
 #: FastAPI parks the body in memory). 4 KB is two orders of magnitude of slack.
 MAX_APPLY_TO_AGENTS_BYTES = 4 * 1024
+# Plugin factory writes: install/bisect are a few scalar fields; the error
+# report carries a message (≤ 4000 chars) plus a stack (≤ 20000 chars) with
+# JSON framing — 64 KiB covers the largest legitimate body with margin.
+MAX_PLUGIN_FACTORY_BYTES = 64 * 1024
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
@@ -67,6 +71,11 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
         frozenset({"POST"}),
         re.compile(r"^/api/providers/slots/apply-to-agents$"),
         MAX_APPLY_TO_AGENTS_BYTES,
+    ),
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/plugin-factory(/|$)"),
+        MAX_PLUGIN_FACTORY_BYTES,
     ),
     (
         frozenset({"PUT"}),

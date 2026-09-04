@@ -1,0 +1,11 @@
+---
+code_file: frontend/src/sdk/index.ts
+last_verified: 2026-09-03
+stub: false
+---
+
+## 2026-09-03（批 2e）— `@narranexus/sdk`（暂在 app 工程内）
+
+插件前端只从这里拿东西：`definePlugin`、`HostAPI` 类型、各注册表条目类型、`vitePreset`/`HOST_EXTERNALS`/
+`hostShimModule`、主题 token 表。放在 `frontend/src/sdk/` 是为了与宿主一起类型检查与测试；批 6 发成独立 npm 包，
+表面不变。

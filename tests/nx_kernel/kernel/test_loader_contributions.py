@@ -15,7 +15,7 @@ import pytest
 from narranexus.contracts import UnknownEntry
 from narranexus.contracts.route import RouterSpec
 from narranexus.contracts.table import ColumnSpec, TableSpec
-from narranexus.kernel.plugins.hooks import HookSpec, hookimpl
+from narranexus.kernel.plugins.hooks import hookimpl
 from narranexus.kernel.plugins.loader import load
 from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.registries import Registries
@@ -78,15 +78,13 @@ def test_routes_and_tables_land_in_their_registries_under_the_plugin_owner(fake_
 
 
 def test_hook_impls_register_under_manifest_id_and_fire(fake_module):
-    registries = Registries()
-    registries.hooks.declare(HookSpec("onDidPersistTurn", ("run_id", "agent_id", "event_id")))
-    registries.hooks.declare(HookSpec("onDidStartRun", ("run_id",)))
+    registries = Registries()  # host events are declared by the kernel
     manifest = _manifest(registries, {"backend.hooks": [f"{MOD}:HOOKIMPLS"]})
     report = load(registries, [manifest], role="backend")
     assert not report.errors
     assert report.loaded[0].entries == 2
     assert registries.hooks.caller("onDidPersistTurn").owners() == ("acme.weather",)
-    asyncio.run(registries.hooks.caller("onDidPersistTurn").call(run_id="r1", agent_id="a1", event_id="e1"))
+    asyncio.run(registries.hooks.caller("onDidPersistTurn").call(run_id="r1", agent_id="a1", user_id="u1", event_id="e1", narrative_ids=[]))
     assert fake_module.calls == [("r1", "a1")]
 
 

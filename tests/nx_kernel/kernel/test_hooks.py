@@ -169,8 +169,9 @@ def test_freeze_stops_adding_implementations_but_declaring_stays_frozen_too():
 async def test_registry_declares_specs_and_dispatches_by_name():
     reg = HookRegistry()
     reg.declare(SPEC)
-    with pytest.raises(RegistryConflict):
-        reg.declare(SPEC)
+    assert reg.declare(SPEC) is reg.caller(SPEC.name)  # identical spec: idempotent
+    with pytest.raises(RegistryConflict, match="different signature"):
+        reg.declare(HookSpec(SPEC.name, SPEC.params + ("extra",)))
     with pytest.raises(UnknownEntry, match="not declared"):
         reg.caller("onDidNothing")
     reg.add("onDidThing", lambda a: a, owner="p")

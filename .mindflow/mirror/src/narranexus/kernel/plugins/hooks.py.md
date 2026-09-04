@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2e）— `declare` 对相同 spec 幂等
+
+内核词表可能被多条路径声明（Registries 构造 + 测试/宿主显式声明），完全相同的 spec 返回既有 caller；签名不同才
+`RegistryConflict`。
+
 ## 2026-09-03（批 2a）— `HookImplSpec` + `@hookimpl(name)`
 
 插件在 manifest `backend.hooks` 指向的 `HOOKIMPLS` 里放的是 `HookImplSpec`（hook 名 + 函数 + 三个 flag），

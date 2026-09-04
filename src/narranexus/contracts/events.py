@@ -76,8 +76,29 @@ class PluginEvent(TypedDict):
 
 EventPayload = dict[str, Any]
 
+# Which payload shape each host event carries; the kernel declares one hook
+# spec per event from this table (params = the TypedDict's keys).
+HOST_EVENT_PAYLOADS: dict[str, type] = {
+    "onWillStartRun": RunEvent,
+    "onDidStartRun": RunEvent,
+    "onDidCompleteRun": RunEvent,
+    "onDidCancelRun": RunEvent,
+    "onDidPersistTurn": TurnEvent,
+    "onDidChangeArtifact": ArtifactEvent,
+    "onDidReceiveChannelMessage": ChannelMessageEvent,
+    "onDidReplyChannelMessage": ChannelMessageEvent,
+    "onDidActivatePlugin": PluginEvent,
+}
+
+
+def host_event_params(name: str) -> tuple[str, ...]:
+    """The parameter names a hook implementation of ``name`` may accept."""
+    return tuple(HOST_EVENT_PAYLOADS[name].__annotations__)
+
 __all__ = [
     "HOST_EVENTS",
+    "HOST_EVENT_PAYLOADS",
+    "host_event_params",
     "RunEvent",
     "TurnEvent",
     "ArtifactEvent",

@@ -1,0 +1,83 @@
+"""
+@file_name: test_templates_and_cli.py
+@author: Bin Liang
+@date: 2026-09-03
+@description: Every template scaffolds into a plugin whose own tests pass under PluginTestHost; CLI verbs behave; publish-check catches misses.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from narranexus.cli.main import main as cli
+from narranexus.cli.scaffold import TEMPLATES_DIR, scaffold
+from narranexus.kernel.plugins.importer import plugin_finder, uninstall_synthetic_package
+from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
+
+KINDS = sorted(p.name for p in TEMPLATES_DIR.iterdir() if p.is_dir())
+
+
+@pytest.fixture
+def home(tmp_path: Path, monkeypatch):
+    h = tmp_path / "home"
+    h.mkdir()
+    monkeypatch.setenv(ENV_PLUGIN_HOME, str(h))
+    yield h
+
+
+def test_every_template_kind_exists():
+    assert KINDS == ["bundle", "hook", "mcp_server", "routes", "settings", "skill", "table", "theme", "tool", "ui_page", "ui_panel", "worker"]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_template_scaffolds_and_its_tests_pass(kind: str, tmp_path: Path, home: Path):
+    pid = f"acme.t_{kind}"
+    dest = tmp_path / pid
+    files = scaffold(pid, [kind], dest, display_name=f"T {kind}")
+    assert (dest / "narranexus-plugin.json").is_file() and (dest / "backend" / "__init__.py").is_file()
+    assert not any("__PLUGIN" in f.read_text(errors="ignore") for f in files if f.suffix in (".py", ".json", ".md", ".ts", ".js"))
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(dest / "tests")],
+        capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[2]), env={**__import__("os").environ, ENV_PLUGIN_HOME: str(home / kind)},
+        timeout=300,
+    )
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
+    uninstall_synthetic_package(pid)
+    plugin_finder().unregister_deps(pid)
+
+
+def test_scaffold_composes_kinds_and_cli_new(tmp_path: Path, capsys):
+    dest = tmp_path / "acme.multi"
+    assert cli(["plugin", "new", "acme.multi", "--kinds", "routes,table,settings", "--dir", str(dest)]) == 0
+    import json
+
+    manifest = json.loads((dest / "narranexus-plugin.json").read_text())
+    assert set(manifest["provides"]) == {"backend.routes", "backend.tables", "backend.settings"}
+    assert manifest["api"] == {"route": 0, "table": 0, "settings": 0}
+    init = (dest / "backend" / "__init__.py").read_text()
+    assert "ROUTES = " in init and "TABLES = " in init and "SETTINGS = " in init
+    assert cli(["plugin", "new", "builtin.x"]) == 2
+    assert cli(["plugin", "new", "acme.multi", "--dir", str(dest)]) == 2  # not empty
+    assert cli(["plugin", "new", "acme.y", "--kinds", "nope", "--dir", str(tmp_path / "y")]) == 2
+
+
+def test_publish_check_reports_misses(tmp_path: Path, capsys):
+    dest = tmp_path / "acme.pc"
+    scaffold("acme.pc", ["routes"], dest, display_name="PC")
+    assert cli(["plugin", "publish-check", str(dest)]) == 1
+    out = capsys.readouterr().out
+    assert "description is empty" in out and "tests/ has no test_*.py" not in out
+    (dest / "narranexus-plugin.json").unlink()
+    assert cli(["plugin", "publish-check", str(dest)]) == 1
+    assert "missing" in capsys.readouterr().out
+
+
+def test_cli_errors_are_messages_not_tracebacks(home: Path, capsys):
+    assert cli(["plugin", "link", str(home / "nowhere")]) == 1
+    assert "error:" in capsys.readouterr().err
+    assert cli(["plugin", "enable", "acme.unknown"]) == 1
+    assert cli(["plugin", "bisect", "start"]) == 1
+    assert cli(["plugin", "rollback"]) == 1

@@ -109,6 +109,9 @@ plugins = [
     "openai-codex>=0.1.0b3,<0.2",
 ]
 
+[project.scripts]
+narranexus = "narranexus.cli.main:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/xyz_agent_context", "src/narranexus", "backend"]
 

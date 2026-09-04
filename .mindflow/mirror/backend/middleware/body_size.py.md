@@ -1,10 +1,14 @@
 ---
 code_file: backend/middleware/body_size.py
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
-
 # body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
+
+## 2026-09-03（批 2e）— `/api/plugin-factory/*` 写路由统一 64 KiB 上限
+
+安装/二分是几个标量字段；错误上报带 message（≤4000）+ stack（≤20000）加 JSON 外壳，64 KiB 足够。一个正则覆盖
+该前缀下所有 POST，新加工场动词不必逐条登记。
 
 ## 2026-08-27 — apply-to-agents 真 cap
 

@@ -264,8 +264,11 @@ class HookRegistry:
         self._frozen = False
 
     def declare(self, spec: HookSpec) -> HookCaller:
-        if spec.name in self._callers:
-            raise RegistryConflict(f"hook {spec.name!r} already declared")
+        existing = self._callers.get(spec.name)
+        if existing is not None:
+            if existing.spec == spec:
+                return existing  # idempotent: the kernel vocabulary may be declared by more than one path
+            raise RegistryConflict(f"hook {spec.name!r} already declared with a different signature")
         caller = HookCaller(spec)
         if self._frozen:
             caller.freeze()
