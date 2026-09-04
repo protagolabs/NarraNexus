@@ -9,6 +9,8 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "narranexus",
+    "narranexus-contracts",
     "narranexus-plugin-auth-local",
     "narranexus-plugin-auth-netmind",
     "narranexus-plugin-awareness",
@@ -36,7 +38,7 @@ members = [
     "narranexus-plugin-social-network",
     "narranexus-plugin-teams",
     "narranexus-plugin-turn",
-    "xyz-agent-context",
+    "narranexus-sdk",
 ]
 
 [[package]]
@@ -944,12 +946,38 @@ wheels = [
 ]
 
 [[package]]
-name = "griffelib"
-version = "2.1.0"
+name = "griffe"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/33/e4/8d187ea29c2e30b3a09505c567513077d6117861bde1fbd997a167f262ec/griffelib-2.1.0.tar.gz", hash = "sha256:762a186d2c6fd6794d4ea20d428d597ffb857cb56b66421651cbba15bdd5e813", size = 216234, upload-time = "2026-06-19T12:05:42.278Z" }
+dependencies = [
+    { name = "griffecli" },
+    { name = "griffelib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/a0/927cf9416f527f623f4ccd9220337fca0cd85303b7e82adeab1e53669cd3/griffe-2.2.0.tar.gz", hash = "sha256:9c0dd9a7feda9e169d783507d777c6fb2f2fc2919b139747a5b4f5357517a611", size = 246229, upload-time = "2026-08-16T14:04:57.232Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/d3/5268aeabf2ad82658c4e2ff3a060648d0f02f3926cb53247c0e4d0dab49e/griffelib-2.1.0-py3-none-any.whl", hash = "sha256:cc7b3d2d2865ad0b909fcc38086e3f554b5ea7acbaa7bbb7ecaa3f5dfb7d9f00", size = 142560, upload-time = "2026-06-19T12:05:38.742Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/51/c9f9cb144e2bd21cbcb6ebd7978ecb5b9f5a375e78313744158338c8039c/griffe-2.2.0-py3-none-any.whl", hash = "sha256:db20672b31c3de2a1af5a18a3b3d8c186ccc2425e10290486b4f0364d25929e9", size = 5070, upload-time = "2026-08-16T14:04:51.971Z" },
+]
+
+[[package]]
+name = "griffecli"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama" },
+    { name = "griffelib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/75/3cf2fb1ae21fb55a3b917b45d24426a620ee916f4bdbd03f350c69d3d892/griffecli-2.2.0.tar.gz", hash = "sha256:b9e763131218eb19887ed52de20fe944252d811bfb4a3e339874908a588f0044", size = 58066, upload-time = "2026-08-16T14:04:55.984Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/83/04652213d82afeecc8e8a31231eeb87cc484dcc055fd96ecb0bfd9860405/griffecli-2.2.0-py3-none-any.whl", hash = "sha256:8ebb7ae1dcc2617f5d39f00e4c238dd6b5cd0b13157b0ce22c1ea4ca8b4c5d1d", size = 11480, upload-time = "2026-08-16T14:04:53.14Z" },
+]
+
+[[package]]
+name = "griffelib"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/b4/a767e91c606deefc447a96eaf59edd77397960b1d677dffd833ee8449831/griffelib-2.2.0.tar.gz", hash = "sha256:e1bc36fe9cd21d4b6b659b456346755e4cfdc5676c0a5214083126ee12612b3c", size = 227048, upload-time = "2026-08-16T14:04:58.383Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f6/b6/f65ac785d4ac90dcf7c831ac6256f5dd4a19780f4e1575b2c0d6eeebe319/griffelib-2.2.0-py3-none-any.whl", hash = "sha256:d71c3bc2bbed9f958488634fe788b843a9f705d6d2838ca32cd6c25eeb64dfc4", size = 166779, upload-time = "2026-08-16T14:04:54.365Z" },
 ]
 
 [[package]]
@@ -1769,6 +1797,185 @@ wheels = [
 ]
 
 [[package]]
+name = "narranexus"
+version = "1.15.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiomysql" },
+    { name = "aiosqlite" },
+    { name = "anthropic" },
+    { name = "bcrypt" },
+    { name = "boto3" },
+    { name = "croniter" },
+    { name = "cryptography" },
+    { name = "ddgs" },
+    { name = "discord-py" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "google-genai" },
+    { name = "httpx", extra = ["socks"] },
+    { name = "lark-oapi" },
+    { name = "litellm" },
+    { name = "loguru" },
+    { name = "matrix-nio" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "narranexus-contracts" },
+    { name = "narranexus-plugin-auth-local" },
+    { name = "narranexus-plugin-auth-netmind" },
+    { name = "narranexus-plugin-awareness" },
+    { name = "narranexus-plugin-basic-info" },
+    { name = "narranexus-plugin-channels-discord" },
+    { name = "narranexus-plugin-channels-lark" },
+    { name = "narranexus-plugin-channels-narramessenger" },
+    { name = "narranexus-plugin-channels-slack" },
+    { name = "narranexus-plugin-channels-telegram" },
+    { name = "narranexus-plugin-channels-wechat" },
+    { name = "narranexus-plugin-chat" },
+    { name = "narranexus-plugin-common-tools" },
+    { name = "narranexus-plugin-frameworks-claude-code" },
+    { name = "narranexus-plugin-frameworks-codex-cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power" },
+    { name = "narranexus-plugin-general-memory" },
+    { name = "narranexus-plugin-home-assistant" },
+    { name = "narranexus-plugin-job" },
+    { name = "narranexus-plugin-llm-clients" },
+    { name = "narranexus-plugin-memory-kinds" },
+    { name = "narranexus-plugin-message-bus" },
+    { name = "narranexus-plugin-nexus-plugins-module" },
+    { name = "narranexus-plugin-providers" },
+    { name = "narranexus-plugin-skills" },
+    { name = "narranexus-plugin-social-network" },
+    { name = "narranexus-plugin-teams" },
+    { name = "narranexus-plugin-turn" },
+    { name = "narranexus-sdk" },
+    { name = "numpy" },
+    { name = "openai" },
+    { name = "openai-agents" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt" },
+    { name = "python-magic" },
+    { name = "pyyaml" },
+    { name = "regex" },
+    { name = "slack-sdk" },
+    { name = "sse-starlette" },
+    { name = "tiktoken" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+channels-lark = [
+    { name = "lark-oapi" },
+]
+plugins = [
+    { name = "claude-agent-sdk" },
+    { name = "openai-codex" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "griffe" },
+    { name = "hatchling" },
+    { name = "import-linter" },
+    { name = "pillow" },
+    { name = "psutil" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0" },
+    { name = "aiomysql", specifier = ">=0.3.2" },
+    { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "anthropic", specifier = ">=0.72.0" },
+    { name = "bcrypt", specifier = ">=5.0.0" },
+    { name = "boto3", specifier = ">=1.34.0" },
+    { name = "claude-agent-sdk", marker = "extra == 'plugins'", specifier = "~=0.1.43" },
+    { name = "croniter", specifier = ">=6.0.0" },
+    { name = "cryptography", specifier = ">=42.0.0" },
+    { name = "ddgs", specifier = ">=9.0.0" },
+    { name = "discord-py", specifier = ">=2.4.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "fastmcp", specifier = ">=2.14.1" },
+    { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "httpx", extras = ["socks"] },
+    { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
+    { name = "lark-oapi", marker = "extra == 'channels-lark'", specifier = ">=1.4.0,<2.0.0" },
+    { name = "litellm", specifier = ">=1.94.0,<2" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "matrix-nio", specifier = ">=0.25.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.20.0" },
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-plugin-auth-local", editable = "plugins/builtin.auth.local" },
+    { name = "narranexus-plugin-auth-netmind", editable = "plugins/builtin.auth.netmind" },
+    { name = "narranexus-plugin-awareness", editable = "plugins/builtin.awareness" },
+    { name = "narranexus-plugin-basic-info", editable = "plugins/builtin.basic_info" },
+    { name = "narranexus-plugin-channels-discord", editable = "plugins/builtin.channels.discord" },
+    { name = "narranexus-plugin-channels-lark", editable = "plugins/builtin.channels.lark" },
+    { name = "narranexus-plugin-channels-narramessenger", editable = "plugins/builtin.channels.narramessenger" },
+    { name = "narranexus-plugin-channels-slack", editable = "plugins/builtin.channels.slack" },
+    { name = "narranexus-plugin-channels-telegram", editable = "plugins/builtin.channels.telegram" },
+    { name = "narranexus-plugin-channels-wechat", editable = "plugins/builtin.channels.wechat" },
+    { name = "narranexus-plugin-chat", editable = "plugins/builtin.chat" },
+    { name = "narranexus-plugin-common-tools", editable = "plugins/builtin.common_tools" },
+    { name = "narranexus-plugin-frameworks-claude-code", editable = "plugins/builtin.frameworks.claude_code" },
+    { name = "narranexus-plugin-frameworks-codex-cli", editable = "plugins/builtin.frameworks.codex_cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power", editable = "plugins/builtin.frameworks.nexus_power" },
+    { name = "narranexus-plugin-general-memory", editable = "plugins/builtin.general_memory" },
+    { name = "narranexus-plugin-home-assistant", editable = "plugins/builtin.home_assistant" },
+    { name = "narranexus-plugin-job", editable = "plugins/builtin.job" },
+    { name = "narranexus-plugin-llm-clients", editable = "plugins/builtin.llm_clients" },
+    { name = "narranexus-plugin-memory-kinds", editable = "plugins/builtin.memory_kinds" },
+    { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
+    { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
+    { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
+    { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
+    { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
+    { name = "narranexus-plugin-teams", editable = "plugins/builtin.teams" },
+    { name = "narranexus-plugin-turn", editable = "plugins/builtin.turn" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+    { name = "numpy", specifier = ">=1.26.0" },
+    { name = "openai", specifier = ">=2.7.1" },
+    { name = "openai-agents", specifier = ">=0.19.1" },
+    { name = "openai-codex", marker = "extra == 'plugins'", specifier = ">=0.1.0b3,<0.2" },
+    { name = "pydantic", specifier = ">=2.12.3" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "python-magic", specifier = ">=0.4.27" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "regex", specifier = ">=2024.0.0" },
+    { name = "slack-sdk", specifier = ">=3.27.0" },
+    { name = "sse-starlette", specifier = ">=2.2.0" },
+    { name = "tiktoken", specifier = ">=0.13.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "websockets", specifier = ">=15.0.1" },
+]
+provides-extras = ["plugins", "channels-lark"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "griffe", specifier = ">=1.5" },
+    { name = "hatchling", specifier = ">=1.27.0" },
+    { name = "import-linter", specifier = ">=2.0" },
+    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pyright", specifier = ">=1.1.390" },
+    { name = "pytest", specifier = ">=9.0.1" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "ruff", specifier = ">=0.8.0" },
+]
+
+[[package]]
+name = "narranexus-contracts"
+version = "1.15.0"
+source = { editable = "packages/narranexus-contracts" }
+
+[[package]]
 name = "narranexus-plugin-auth-local"
 version = "1.0.0"
 source = { editable = "plugins/builtin.auth.local" }
@@ -1980,6 +2187,17 @@ source = { editable = "plugins/builtin.turn" }
 
 [package.metadata]
 provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-sdk"
+version = "1.15.0"
+source = { editable = "packages/narranexus-sdk" }
+dependencies = [
+    { name = "narranexus-contracts" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "narranexus-contracts", editable = "packages/narranexus-contracts" }]
 
 [[package]]
 name = "nodeenv"
@@ -3540,174 +3758,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/79/d9/7cfd5a312760ac4dd8bf0184a6ee9e43c33e47f3dadc303032ce012b8fa3/wrapt-1.17.3-cp314-cp314t-win_amd64.whl", hash = "sha256:73d496de46cd2cdbdbcce4ae4bcdb4afb6a11234a1df9c085249d55166b95116", size = 41334, upload-time = "2025-08-12T05:53:14.178Z" },
     { url = "https://files.pythonhosted.org/packages/46/78/10ad9781128ed2f99dbc474f43283b13fea8ba58723e98844367531c18e9/wrapt-1.17.3-cp314-cp314t-win_arm64.whl", hash = "sha256:f38e60678850c42461d4202739f9bf1e3a737c7ad283638251e79cc49effb6b6", size = 38471, upload-time = "2025-08-12T05:52:57.784Z" },
     { url = "https://files.pythonhosted.org/packages/1f/f6/a933bd70f98e9cf3e08167fc5cd7aaaca49147e48411c0bd5ae701bb2194/wrapt-1.17.3-py3-none-any.whl", hash = "sha256:7171ae35d2c33d326ac19dd8facb1e82e5fd04ef8c6c0e394d7af55a55051c22", size = 23591, upload-time = "2025-08-12T05:53:20.674Z" },
-]
-
-[[package]]
-name = "xyz-agent-context"
-version = "1.15.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "aiomysql" },
-    { name = "aiosqlite" },
-    { name = "anthropic" },
-    { name = "bcrypt" },
-    { name = "boto3" },
-    { name = "croniter" },
-    { name = "cryptography" },
-    { name = "ddgs" },
-    { name = "discord-py" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "google-genai" },
-    { name = "httpx", extra = ["socks"] },
-    { name = "lark-oapi" },
-    { name = "litellm" },
-    { name = "loguru" },
-    { name = "matrix-nio" },
-    { name = "mcp", extra = ["cli"] },
-    { name = "narranexus-plugin-auth-local" },
-    { name = "narranexus-plugin-auth-netmind" },
-    { name = "narranexus-plugin-awareness" },
-    { name = "narranexus-plugin-basic-info" },
-    { name = "narranexus-plugin-channels-discord" },
-    { name = "narranexus-plugin-channels-lark" },
-    { name = "narranexus-plugin-channels-narramessenger" },
-    { name = "narranexus-plugin-channels-slack" },
-    { name = "narranexus-plugin-channels-telegram" },
-    { name = "narranexus-plugin-channels-wechat" },
-    { name = "narranexus-plugin-chat" },
-    { name = "narranexus-plugin-common-tools" },
-    { name = "narranexus-plugin-frameworks-claude-code" },
-    { name = "narranexus-plugin-frameworks-codex-cli" },
-    { name = "narranexus-plugin-frameworks-nexus-power" },
-    { name = "narranexus-plugin-general-memory" },
-    { name = "narranexus-plugin-home-assistant" },
-    { name = "narranexus-plugin-job" },
-    { name = "narranexus-plugin-llm-clients" },
-    { name = "narranexus-plugin-memory-kinds" },
-    { name = "narranexus-plugin-message-bus" },
-    { name = "narranexus-plugin-nexus-plugins-module" },
-    { name = "narranexus-plugin-providers" },
-    { name = "narranexus-plugin-skills" },
-    { name = "narranexus-plugin-social-network" },
-    { name = "narranexus-plugin-teams" },
-    { name = "narranexus-plugin-turn" },
-    { name = "numpy" },
-    { name = "openai" },
-    { name = "openai-agents" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pyjwt" },
-    { name = "python-magic" },
-    { name = "pyyaml" },
-    { name = "regex" },
-    { name = "slack-sdk" },
-    { name = "sse-starlette" },
-    { name = "tiktoken" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-channels-lark = [
-    { name = "lark-oapi" },
-]
-plugins = [
-    { name = "claude-agent-sdk" },
-    { name = "openai-codex" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hatchling" },
-    { name = "import-linter" },
-    { name = "pillow" },
-    { name = "psutil" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.0" },
-    { name = "aiomysql", specifier = ">=0.3.2" },
-    { name = "aiosqlite", specifier = ">=0.22.1" },
-    { name = "anthropic", specifier = ">=0.72.0" },
-    { name = "bcrypt", specifier = ">=5.0.0" },
-    { name = "boto3", specifier = ">=1.34.0" },
-    { name = "claude-agent-sdk", marker = "extra == 'plugins'", specifier = "~=0.1.43" },
-    { name = "croniter", specifier = ">=6.0.0" },
-    { name = "cryptography", specifier = ">=42.0.0" },
-    { name = "ddgs", specifier = ">=9.0.0" },
-    { name = "discord-py", specifier = ">=2.4.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "fastmcp", specifier = ">=2.14.1" },
-    { name = "google-genai", specifier = ">=1.0.0" },
-    { name = "httpx", extras = ["socks"] },
-    { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
-    { name = "lark-oapi", marker = "extra == 'channels-lark'", specifier = ">=1.4.0,<2.0.0" },
-    { name = "litellm", specifier = ">=1.94.0,<2" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "matrix-nio", specifier = ">=0.25.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.20.0" },
-    { name = "narranexus-plugin-auth-local", editable = "plugins/builtin.auth.local" },
-    { name = "narranexus-plugin-auth-netmind", editable = "plugins/builtin.auth.netmind" },
-    { name = "narranexus-plugin-awareness", editable = "plugins/builtin.awareness" },
-    { name = "narranexus-plugin-basic-info", editable = "plugins/builtin.basic_info" },
-    { name = "narranexus-plugin-channels-discord", editable = "plugins/builtin.channels.discord" },
-    { name = "narranexus-plugin-channels-lark", editable = "plugins/builtin.channels.lark" },
-    { name = "narranexus-plugin-channels-narramessenger", editable = "plugins/builtin.channels.narramessenger" },
-    { name = "narranexus-plugin-channels-slack", editable = "plugins/builtin.channels.slack" },
-    { name = "narranexus-plugin-channels-telegram", editable = "plugins/builtin.channels.telegram" },
-    { name = "narranexus-plugin-channels-wechat", editable = "plugins/builtin.channels.wechat" },
-    { name = "narranexus-plugin-chat", editable = "plugins/builtin.chat" },
-    { name = "narranexus-plugin-common-tools", editable = "plugins/builtin.common_tools" },
-    { name = "narranexus-plugin-frameworks-claude-code", editable = "plugins/builtin.frameworks.claude_code" },
-    { name = "narranexus-plugin-frameworks-codex-cli", editable = "plugins/builtin.frameworks.codex_cli" },
-    { name = "narranexus-plugin-frameworks-nexus-power", editable = "plugins/builtin.frameworks.nexus_power" },
-    { name = "narranexus-plugin-general-memory", editable = "plugins/builtin.general_memory" },
-    { name = "narranexus-plugin-home-assistant", editable = "plugins/builtin.home_assistant" },
-    { name = "narranexus-plugin-job", editable = "plugins/builtin.job" },
-    { name = "narranexus-plugin-llm-clients", editable = "plugins/builtin.llm_clients" },
-    { name = "narranexus-plugin-memory-kinds", editable = "plugins/builtin.memory_kinds" },
-    { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
-    { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
-    { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
-    { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
-    { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
-    { name = "narranexus-plugin-teams", editable = "plugins/builtin.teams" },
-    { name = "narranexus-plugin-turn", editable = "plugins/builtin.turn" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "openai", specifier = ">=2.7.1" },
-    { name = "openai-agents", specifier = ">=0.19.1" },
-    { name = "openai-codex", marker = "extra == 'plugins'", specifier = ">=0.1.0b3,<0.2" },
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "python-magic", specifier = ">=0.4.27" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "regex", specifier = ">=2024.0.0" },
-    { name = "slack-sdk", specifier = ">=3.27.0" },
-    { name = "sse-starlette", specifier = ">=2.2.0" },
-    { name = "tiktoken", specifier = ">=0.13.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
-    { name = "websockets", specifier = ">=15.0.1" },
-]
-provides-extras = ["plugins", "channels-lark"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hatchling", specifier = ">=1.27.0" },
-    { name = "import-linter", specifier = ">=2.0" },
-    { name = "pillow", specifier = ">=12.2.0" },
-    { name = "psutil", specifier = ">=7.2.2" },
-    { name = "pyright", specifier = ">=1.1.390" },
-    { name = "pytest", specifier = ">=9.0.1" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
 ]
 
 [[package]]

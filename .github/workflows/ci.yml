@@ -36,8 +36,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev --extra plugins
 
-      - name: Ruff lint
-        run: uv run ruff check src/ backend/
+      - name: "Ruff lint (incl. TID251 — plugin code never imports kernel internals)"
+        run: uv run ruff check src/ backend/ packages/ plugins/
+
+      - name: Public contract surface (griffe check against the base branch)
+        # Every change to narranexus.contracts' public API must be explicit:
+        # griffe diffs the stable contracts against the PR's base and fails on
+        # a breaking change (docs/API_POLICY.md — stable since batch 6).
+        run: |
+          git fetch --no-tags --depth=1 origin ${{ github.base_ref || 'main' }}
+          uv run scripts/dev/api_check.sh origin/${{ github.base_ref || 'main' }}
 
       - name: Import direction (import-linter)
         # Plugin-platform layering: contracts are a leaf, kernel sees only

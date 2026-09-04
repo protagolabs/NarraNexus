@@ -7,16 +7,16 @@
 
     "include": [
         "src/narranexus/kernel",
-        "src/narranexus/contracts",
+        "packages/narranexus-contracts/src/narranexus",
         "src/narranexus/cli",
         "src/narranexus/hosts",
-        "src/narranexus/sdk",
+        "packages/narranexus-sdk/src/narranexus",
         "src/narranexus/platform/turn",
         "src/narranexus/platform/module_system",
         "src/xyz_agent_context",
         "plugins"
     ],
-    "extraPaths": [
+    "extraPaths": ["packages/narranexus-contracts/src", "packages/narranexus-sdk/src", 
         "plugins/builtin.awareness/src",
         "plugins/builtin.basic_info/src",
         "plugins/builtin.channels.discord/src",

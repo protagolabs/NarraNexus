@@ -85,8 +85,8 @@ def test_error_hierarchy():
     assert str(UnknownEntry("no such entry 'x'")) == "no such entry 'x'"
 
 
-def test_versions_and_stability_cover_the_same_kinds_and_start_alpha():
+def test_versions_and_stability_cover_the_same_kinds_and_are_stable_since_batch_6():
     assert set(API_VERSIONS) == set(STABILITY)
     assert API_VERSIONS
     assert all(isinstance(v, int) and v >= 0 for v in API_VERSIONS.values())
-    assert all(s is Stability.ALPHA for s in STABILITY.values())
+    assert all(s is Stability.STABLE for s in STABILITY.values())

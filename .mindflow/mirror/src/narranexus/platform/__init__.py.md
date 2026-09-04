@@ -59,3 +59,5 @@ stamps into every export manifest (`_current_app_version`).
 **New-contributor trap.** Adding a new top-level module to the package without adding it to `__init__.py` means it is not discoverable via `from xyz_agent_context import NewModule`. It can still be imported from its own path, but it will not appear in the package's public surface.
 
 Batch 6b.2b: the lazy `ClaudeAgentSDK` passthrough is gone; the SDK is `narranexus_plugins.frameworks_claude_code.sdk`.
+
+Batch 6d: `__version__` comes from the `narranexus` package metadata.

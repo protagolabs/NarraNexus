@@ -1,0 +1,4 @@
+# Deliberate public-API changes of the stable contracts, one symbol per line, reason after " # ".
+# scripts/dev/api_check.sh (griffe) fails CI on any breakage not listed here; remove an entry once
+# the base branch carries the change. Governed by docs/API_POLICY.md.
+STABILITY # batch 6: every contract kind flips ALPHA -> STABLE (the stable point itself, not a break for consumers)

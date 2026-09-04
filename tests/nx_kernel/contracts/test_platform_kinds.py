@@ -24,10 +24,10 @@ from narranexus.contracts.worker import WorkerSpec
 NEW_KINDS = ("hook", "route", "table", "worker", "settings", "tool", "mcp_server", "bundle", "skill", "theme")
 
 
-def test_every_new_kind_is_versioned_and_alpha():
+def test_every_new_kind_is_versioned_and_stable():
     for kind in NEW_KINDS:
         assert API_VERSIONS[kind] == 0
-        assert STABILITY[kind] is Stability.ALPHA
+        assert STABILITY[kind] is Stability.STABLE
 
 
 def test_router_spec_prefix_rules():

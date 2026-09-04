@@ -11,6 +11,8 @@ modules, log text, iteration order and timing are explicitly NOT part of the con
 
 ## 2. Stability levels
 
+Since plugin platform batch 6 (2026-09) every kind in `narranexus.contracts.API_VERSIONS` is **stable**: `STABILITY` says so, `scripts/dev/api_check.sh` (griffe) diffs the public surface of `narranexus.contracts` and `narranexus.sdk` against the base branch in CI, and a breaking change must go through section 4.
+
 Every exported symbol and every slot carries exactly one level, declared in code
 (`narranexus.contracts.STABILITY`, `Slot.stability`) and in the generated docs.
 

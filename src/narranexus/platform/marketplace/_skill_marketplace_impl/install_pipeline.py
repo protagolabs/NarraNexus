@@ -84,9 +84,9 @@ def _version_tuple(version: str) -> tuple:
 
 def _current_app_version() -> Optional[str]:
     try:
-        from importlib.metadata import version
+        from narranexus.kernel.plugins.compat import host_version
 
-        return version("xyz-agent-context")
+        return host_version()
     except Exception:
         return None
 

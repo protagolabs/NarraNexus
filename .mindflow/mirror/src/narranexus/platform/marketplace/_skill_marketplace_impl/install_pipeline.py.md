@@ -68,3 +68,5 @@ source)由 skill_marketplace_service 统一传入;`_default_marketplace_source`
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `skill_module` is typed as the `SkillWorkspace` Protocol and defaults to the `skills.workspaces` service.
+
+Batch 6d: `_current_app_version()` reads `narranexus.kernel.plugins.compat.host_version()` (the engine package is `narranexus`; the old name is its fallback).

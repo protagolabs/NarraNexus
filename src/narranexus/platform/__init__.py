@@ -16,7 +16,7 @@ alias of this package (plugin platform batch 6a, D8).
 try:
     from importlib.metadata import version as _pkg_version
 
-    __version__ = _pkg_version("xyz-agent-context")
+    __version__ = _pkg_version("narranexus")
 except Exception:  # noqa: BLE001 — source tree with no install metadata
     __version__ = "0.0.0+unknown"
 

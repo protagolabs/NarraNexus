@@ -3,13 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "xyz-agent-context"
+name = "narranexus"
 version = "1.15.0"
-description = "XYZ Agent Context Framework for multi-agent systems"
+description = "NarraNexus engine: kernel + platform + backend host (plugins, contracts and the SDK are workspace packages)"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.13"
 dependencies = [
+    # engine contracts + SDK — workspace members (plugin platform batch 6d)
+    "narranexus-contracts",
+    "narranexus-sdk",
     # builtin plugins — workspace members (plugin platform batch 6b)
     "narranexus-plugin-awareness",
     "narranexus-plugin-basic-info",
@@ -151,11 +154,14 @@ narranexus = "narranexus.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xyz_agent_context", "src/narranexus", "backend"]
+# ``narranexus`` is a namespace package: contracts and sdk ship from packages/ (their own wheels).
 
 [tool.uv.workspace]
-members = ["plugins/*"]
+members = ["packages/*", "plugins/*"]
 
 [tool.uv.sources]
+narranexus-contracts = { workspace = true }
+narranexus-sdk = { workspace = true }
 narranexus-plugin-awareness = { workspace = true }
 narranexus-plugin-basic-info = { workspace = true }
 narranexus-plugin-channels-discord = { workspace = true }
@@ -204,6 +210,7 @@ dev = [
     "pillow>=12.2.0",
     "psutil>=7.2.2",
     "import-linter>=2.0",
+    "griffe>=1.5",
     "pyright>=1.1.390",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
@@ -216,7 +223,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 # Start conservative — only catch clear bugs, not style
-select = ["E", "F"]
+select = ["E", "F", "TID251"]
 # Ignore rules that conflict with existing codebase patterns
 ignore = [
     "E501",   # line too long (handled by formatter)
@@ -241,6 +248,29 @@ ignore = [
 # someone runs ruff over the tree by hand. Widening that scope is a separate
 # change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Plugin code (plugins/**) programs against contracts, the SDK and the public
+# kernel registry types — never the loader/lifecycle/boot internals. The ban
+# is global and lifted for the engine itself in per-file-ignores.
+"narranexus.kernel.plugins.builtins".msg = "plugins never name the builtin manifest table; the host resolves manifests"
+"narranexus.kernel.plugins.loader".msg = "plugins never load other plugins; use contributions and hooks"
+"narranexus.kernel.plugins.lifecycle".msg = "the plugin registry is the host's; plugins do not read or mutate it"
+"narranexus.kernel.plugins.importer".msg = "plugin import isolation is the host's concern"
+"narranexus.hosts.boot".msg = "plugins never boot the host"
+
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["TID251"]
+"backend/**" = ["TID251"]
+"tests/**" = ["TID251"]
+"scripts/**" = ["TID251"]
+"packages/**" = ["TID251"]
+"plugins/*/tests/**" = ["TID251"]
+# The plugin factory IS the host's registry UI/agent surface packaged as a plugin
+# (spec section 12); it is the one plugin allowed to read and mutate the
+# registry. Exception tracked as plugin-platform follow-up "factory host API"
+# (move these calls behind a HostAPI service); expires 2026-12-31.
+"plugins/builtin.nexus_plugins_module/**" = ["TID251"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["narranexus", "narranexus_plugins", "backend"]
 
@@ -249,7 +279,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Make `uv run pytest` work without a manual PYTHONPATH or editable install:
 # `src` for the xyz_agent_context package, `.` for the backend package.
-pythonpath = ["src", ".", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.auth.local/src", "plugins/builtin.auth.netmind/src", "plugins/builtin.teams/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src"]
+pythonpath = ["src", ".", "packages/narranexus-contracts/src", "packages/narranexus-sdk/src", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.auth.local/src", "plugins/builtin.auth.netmind/src", "plugins/builtin.teams/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src"]
 
 [tool.importlinter]
 # Dependency direction for the plugin platform (batch 0). Contracts are a
@@ -257,6 +287,7 @@ pythonpath = ["src", ".", "plugins/builtin.awareness/src", "plugins/builtin.basi
 # Exceptions, if ever needed, go in ``ignore_imports`` with an issue link
 # and an expiry date — the list only shrinks.
 root_packages = ["narranexus", "narranexus_plugins", "xyz_agent_context", "backend"]
+include_external_packages = false
 
 [[tool.importlinter.contracts]]
 name = "contracts is a leaf: no kernel, no legacy, no backend"

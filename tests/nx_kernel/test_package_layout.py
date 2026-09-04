@@ -18,7 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-_SRC = Path(__file__).resolve().parents[2] / "src"
+_ROOT = Path(__file__).resolve().parents[2]
+_SRC = os.pathsep.join(str(_ROOT / p) for p in ("src", "packages/narranexus-contracts/src", "packages/narranexus-sdk/src"))
 
 _PROBE = """
 import importlib, json, sys
@@ -29,15 +30,18 @@ print(json.dumps(leaked))
 """
 
 
-def test_narranexus_package_imports():
+def test_narranexus_is_a_namespace_package_spanning_engine_contracts_and_sdk():
     mod = importlib.import_module("narranexus")
-    assert mod.__version__
+    assert mod.__file__ is None and len(list(mod.__path__)) >= 2  # PEP 420: engine + packages/
+    assert importlib.import_module("narranexus._version").__version__
+    assert importlib.import_module("narranexus.contracts").API_VERSIONS
+    assert importlib.import_module("narranexus.sdk.testing").PluginTestHost
 
 
 def test_contracts_do_not_import_kernel_or_legacy():
     # A fresh interpreter: purging sys.modules in-process would re-import the
     # legacy package later and break class identity for every other test.
-    env = {**os.environ, "PYTHONPATH": str(_SRC)}
+    env = {**os.environ, "PYTHONPATH": _SRC}
     out = subprocess.run(
         [sys.executable, "-c", _PROBE], capture_output=True, text=True, check=True, timeout=120, env=env
     )
