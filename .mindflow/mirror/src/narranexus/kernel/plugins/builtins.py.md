@@ -53,3 +53,7 @@ First feature-level builtin: `builtin.teams` (hosts backend; provides `backend.r
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 Six channel builtins, builtin.job and builtin.chat now also provide `ingress.triggers` (`module.contributions:TRIGGERS_*`); builtin.chat provides `backend.hooks` (`chat_module.plugin_hooks:HOOKS`).
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+awareness/social_network/basic_info/job/chat also provide `agent.capabilities.data_access` and their `backend.routes` twins (`backend/routes/agents/{awareness,profile,social_network,narrative,jobs,chat_history}:ROUTES`).

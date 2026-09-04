@@ -607,3 +607,12 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         logger.exception(f"Error creating agent: {e}")
         return {"success": False, "error": f"Error: {e}"}
 
+
+# ---- plugin contribution (batch 3c.4): this twin router of the data-access
+# seam is provided by builtin.social_network through backend.routes (mounted under /api/agents
+# by backend.plugins_host, no longer included by routes/agents/core.py), so the
+# HTTP twin disappears together with the capability when the plugin is disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("agents_social_network", lambda: RouterSpec(router, "/api/agents", tags=("Agents",))),)

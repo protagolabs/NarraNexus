@@ -206,3 +206,13 @@ async def job_cancel(agent_id: str, job_id: str, request: Request) -> dict:
         logger.warning(f"job_cancel failed: {e}")
         return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
     return await cancel_job_from_args(db, agent_id, job_id)
+
+
+# ---- plugin contribution (batch 3c.4): this twin router of the data-access
+# seam is provided by builtin.job through backend.routes (mounted under /api/agents
+# by backend.plugins_host, no longer included by routes/agents/core.py), so the
+# HTTP twin disappears together with the capability when the plugin is disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("agents_jobs", lambda: RouterSpec(router, "/api/agents", tags=("Agents",))),)

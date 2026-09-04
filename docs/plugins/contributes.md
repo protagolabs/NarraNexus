@@ -9,6 +9,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | Slot | Kind | API version | Contract | Manifest key |
 |---|---|---|---|---|
 | `agent.capabilities.context_providers` | context_provider | 0 | `narranexus.contracts.agent.capability:ContextProvider` | `"agent.capabilities.context_providers": ["pkg.module:SYMBOL"]` |
+| `agent.capabilities.data_access` | data_access | 0 | `narranexus.contracts.data_access:DataAccessSpec` | `"agent.capabilities.data_access": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.mcp_servers` | mcp_server | 0 | `narranexus.contracts.mcp_server:McpServerSpec` | `"agent.capabilities.mcp_servers": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.memory_kinds` | memory | 0 | `narranexus.contracts.memory:MemoryKindContract` | `"agent.capabilities.memory_kinds": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.modules` | module | 0 | `narranexus.contracts.agent.capability:Capability` | `"agent.capabilities.modules": ["pkg.module:SYMBOL"]` |

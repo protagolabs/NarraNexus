@@ -52,7 +52,7 @@ without breaking parity (see profile.py's ProfileUpdateBody note).
 """
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 from urllib.parse import quote
 
 from loguru import logger
@@ -149,6 +149,13 @@ _AWARENESS_OK = "Awareness updated successfully"
 
 def _no_instance_msg(agent_id: str) -> str:
     return f"Error: No AwarenessModule instance found for agent_id={agent_id}"
+
+
+DATA_ACCESS_SLOT = "agent.capabilities.data_access"
+
+
+def _unavailable_msg(name: str) -> str:
+    return f"Error: {name} unavailable — no data-access provider registered (plugin disabled?)"
 
 
 # The recall/retain input contract, mirrored from general_memory routes'
@@ -283,7 +290,18 @@ class DirectStore:
     bodies. The one deliberate wording change is social's no-instance text: it
     now uses the shared ``social_instance_not_found_msg`` (the route's phrasing)
     instead of the tool's old ``_get_instance_and_module`` string, so Direct and
-    Http agree on that edge case — see the social methods below."""
+    Http agree on that edge case — see the social methods below.
+
+    Since batch 3c.4 the capability-specific bodies live with their plugins
+    (``<module>/data_access.py``) and are dispatched by name through the
+    ``agent.capabilities.data_access`` registry; this class keeps the platform
+    policy — parity rejects/clamps and the never-raise invariant — and the
+    exact failure shapes. A method whose provider is absent (the builtin is
+    disabled) returns the tool's own failure shape saying so.
+    """
+
+    def __init__(self, registries: Optional[Any] = None) -> None:
+        self._registries = registries
 
     async def _db(self):
         # The one MCP db entry point (module/base.py) — loop-aware factory
@@ -293,6 +311,8 @@ class DirectStore:
         return await XYZBaseModule.get_mcp_db_client()
 
     async def _awareness_instance_id(self, db, agent_id: str) -> Optional[str]:
+        # "Which instance of module X does this agent have" is a platform query
+        # (InstanceRepository), so it stays here; the provider gets the id.
         from xyz_agent_context.repository import InstanceRepository
 
         instances = await InstanceRepository(db).get_by_agent(
@@ -300,43 +320,38 @@ class DirectStore:
         )
         return instances[0].instance_id if instances else None
 
+    def _handler(self, name: str):
+        from narranexus.contracts._base import UnknownEntry
+
+        regs = self._registries
+        if regs is None:
+            from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+            regs = KERNEL_REGISTRIES
+        try:
+            return regs.registry_for(DATA_ACCESS_SLOT).get(name).handler
+        except UnknownEntry:
+            logger.warning(f"[data_access.{name}] no provider registered (plugin disabled?)")
+            return None
+
     async def update_awareness(self, agent_id: str, awareness: str) -> str:
-        from xyz_agent_context.repository import InstanceAwarenessRepository
-
-        from xyz_agent_context.module.awareness_module import (
-            carry_over_platform_record,
-        )
-
+        fn = self._handler("update_awareness")
+        if fn is None:
+            return _unavailable_msg("update_awareness")
         db = await self._db()
         instance_id = await self._awareness_instance_id(db, agent_id)
         if not instance_id:
             return _no_instance_msg(agent_id)
-        repo = InstanceAwarenessRepository(db)
-        # The model rewrites the WHOLE profile here, and the format it is given
-        # does not include the platform's identity record — so a rewrite silently
-        # deleted the rename correction. Re-attached in code, because asking the
-        # model to keep it would make prompt text the mechanism (rule #15).
-        current = await repo.get_by_instance(instance_id)
-        awareness = carry_over_platform_record(
-            (current.awareness if current else "") or "", awareness
-        )
-        await repo.upsert(instance_id, awareness)
+        await fn(db, instance_id, awareness)
         return _AWARENESS_OK
 
     async def update_agent_profile(
         self, agent_id: str, new_name: Optional[str], new_description: Optional[str]
     ) -> str:
-        # The whole rename transaction (name/description + identity-note
-        # correction + same-owner clash note + discovery refresh) is the shared
-        # update_agent_profile_from_args; the backend twin route calls the SAME
-        # function, so the two paths return byte-identical strings.
-        from xyz_agent_context.module.awareness_module import (
-            update_agent_profile_from_args,
-        )
-        return await update_agent_profile_from_args(
-            await self._db(), agent_id,
-            new_name=new_name, new_description=new_description,
-        )
+        fn = self._handler("update_agent_profile")
+        if fn is None:
+            return _unavailable_msg("update_agent_profile")
+        return await fn(await self._db(), agent_id, new_name, new_description)
 
     async def remember(self, agent_id: str, query: str, limit: int) -> dict:
         # MemoryCoordinator/MemoryEngine go through the repository layer — no
@@ -359,9 +374,6 @@ class DirectStore:
             return {"success": False, "error": str(e), "memories": []}
 
     async def grep_memory(self, agent_id: str, pattern: str, regex: bool, limit: int) -> dict:
-        # Same MemoryCoordinator path as remember (repository layer, dialect-safe);
-        # the regex engine is ReDoS-guarded in retrieval.grep_filter, not here.
-        # Same input contract as the Http path (parity) — see _grep_reject.
         from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, format_memory_hits
 
         reject = _grep_reject(pattern)
@@ -399,60 +411,28 @@ class DirectStore:
             logger.warning(f"[memory.memory_retain] failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def _social_module(self, agent_id: str):
-        """Resolve the agent's SocialNetworkModule instance and build a temp
-        module bound to it — the same (instance lookup + module construction)
-        the backend social routes do (this is where the tool's old
-        ``_get_instance_and_module`` logic moved).
-
-        Returns (module, instance_id, None) on success, or (None, None,
-        failure_dict) where failure_dict is the seam's own ``message``-shaped
-        dict — for a missing instance OR any db/resolution error — so a caller
-        never sees an exception escape (the DirectStore invariant, module
-        docstring: only ever return a dict; the memory methods keep it the same
-        way). SocialNetworkModule is imported lazily here to avoid a circular
-        import at module load."""
-        from xyz_agent_context.repository import InstanceRepository
-        from xyz_agent_context.module.social_network_module import (
-            SocialNetworkModule,
-            social_instance_not_found_msg,
-        )
-
+    # Social: the provider resolves the agent's SocialNetworkModule instance
+    # itself and returns the seam's ``message``-shaped failure dicts; here we
+    # keep the parity rejects/clamps and the never-raise wrapper.
+    async def _social(self, name: str, *args, results: bool = False) -> dict:
+        fn = self._handler(name)
+        if fn is None:
+            failure = {"success": False, "message": _unavailable_msg(name)}
+            return {**failure, "results": []} if results else failure
         try:
-            db = await self._db()
-            instances = await InstanceRepository(db).get_by_agent(
-                agent_id=agent_id, module_class="SocialNetworkModule"
-            )
-            if not instances:
-                return None, None, {"success": False, "message": social_instance_not_found_msg(agent_id)}
-            instance_id = instances[0].instance_id
-            module = SocialNetworkModule(agent_id=agent_id, database_client=db, instance_id=instance_id)
-            return module, instance_id, None
+            return await fn(await self._db(), *args)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social] instance resolution failed for {agent_id}: {e}")
-            return None, None, {"success": False, "message": f"Error: {e}"}
+            logger.warning(f"[social.{name}] failed: {e}")
+            failure = {"success": False, "message": f"Error: {e}"}
+            return {**failure, "results": []} if results else failure
 
     async def extract_entity_info(
         self, agent_id: str, entity_id: str, updates: dict, update_mode: str
     ) -> dict:
-        # Mirrors the extract_entity_info tool's post-parse body: resolve the
-        # instance, then delegate to the module's pure-repository merge. Every
-        # exit is an in-band ``message``-shaped dict — the module method catches
-        # its own errors, and _social_module + this try/except catch resolution
-        # / call failures, so DirectStore never raises (parity with HttpStore).
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return err
-        try:
-            return await module.extract_and_update_entity_info(
-                entity_id=entity_id, instance_id=instance_id, updates=updates, update_mode=update_mode
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.extract_entity_info] failed: {e}")
-            return {"success": False, "message": f"Error: {e}"}
+        return await self._social("extract_entity_info", agent_id, entity_id, updates, update_mode)
 
     async def merge_entities(
         self, agent_id: str, source_entity_id: str, target_entity_id: str, keep_target_name: bool
@@ -460,30 +440,13 @@ class DirectStore:
         reject = _social_id_reject(source_entity_id, target_entity_id)
         if reject is not None:
             return reject
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return err
-        try:
-            return await module.merge_entities(
-                source_entity_id=source_entity_id, target_entity_id=target_entity_id,
-                instance_id=instance_id, keep_target_name=keep_target_name,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.merge_entities] failed: {e}")
-            return {"success": False, "message": f"Error: {e}"}
+        return await self._social("merge_entities", agent_id, source_entity_id, target_entity_id, keep_target_name)
 
     async def delete_entity(self, agent_id: str, entity_id: str) -> dict:
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return err
-        try:
-            return await module.delete_entity(entity_id=entity_id, instance_id=instance_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.delete_entity] failed: {e}")
-            return {"success": False, "message": f"Error: {e}"}
+        return await self._social("delete_entity", agent_id, entity_id)
 
     async def search_social_network(
         self, agent_id: str, search_keyword: str, search_type: str, top_k: int
@@ -491,144 +454,55 @@ class DirectStore:
         reject = _social_search_reject(search_keyword)
         if reject is not None:
             return reject
-        top_k = _clamp_limit(top_k)
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return {**err, "results": []}  # search tool's no-instance shape
-        try:
-            return await module.search_network(
-                search_keyword=search_keyword, instance_id=instance_id,
-                search_type=search_type, top_k=top_k,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.search_social_network] failed: {e}")
-            return {"success": False, "message": f"Error: {e}", "results": []}
+        return await self._social("search_social_network", agent_id, search_keyword, search_type, _clamp_limit(top_k), results=True)
 
     async def get_contact_info(self, agent_id: str, entity_id: str) -> dict:
-        from xyz_agent_context.module.social_network_module import format_contact_result
-
         reject = _social_id_reject(entity_id)
         if reject is not None:
             return reject
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return err  # get_contact_info's no-instance shape (no results key)
-        try:
-            recall = await module.recall_entity_info(entity_id, instance_id)
-            return format_contact_result(entity_id, recall)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.get_contact_info] failed: {e}")
-            return {"success": False, "message": f"Error: {e}"}
+        return await self._social("get_contact_info", agent_id, entity_id)
 
     async def get_agent_social_stats(
         self, agent_id: str, sort_by: str, top_k: int, filter_tags: Optional[list]
     ) -> dict:
-        from xyz_agent_context.module.social_network_module import format_stats_result
-
-        top_k = _clamp_limit(top_k)
-        module, instance_id, err = await self._social_module(agent_id)
-        if err is not None:
-            return {**err, "results": []}  # stats tool's no-instance shape
-        try:
-            stats = await module.get_agent_stats(
-                instance_id=instance_id, sort_by=sort_by, top_k=top_k, filter_tags=filter_tags,
-            )
-            return format_stats_result(sort_by, stats)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.get_agent_social_stats] failed: {e}")
-            return {"success": False, "message": f"Error: {e}", "results": []}
+        return await self._social("get_agent_social_stats", agent_id, sort_by, _clamp_limit(top_k), filter_tags, results=True)
 
     async def create_agent(
         self, creator_agent_id: str, new_agent_id: str, agent_name: str,
         awareness: str, agent_description: str,
     ) -> dict:
-        # Resolve the creator's owner, provision the new agent under that owner
-        # with the caller-minted new_agent_id, and shape the result via the
-        # shared format_create_agent_success — same path the create-agent route
-        # takes, so Direct and Http return byte-identical output. Message-shaped
-        # failures; never raises (DirectStore invariant).
-        from xyz_agent_context.repository import AgentRepository
-        from xyz_agent_context.bootstrap.provision import provision_new_agent
-        from xyz_agent_context.module.social_network_module import (
-            format_create_agent_success,
-            CREATE_AGENT_NO_OWNER_MSG,
-            create_agent_text_reject,
-            default_created_by_description,
-        )
-        from xyz_agent_context.schema import normalize_agent_text
+        return await self._social("create_agent", creator_agent_id, new_agent_id, agent_name, awareness, agent_description)
 
+    # Narrative / event reads: the helpers are dialect-safe and self-contained
+    # (they return a dict, never raise), and the narrative routes call the SAME
+    # helpers — so Direct and Http are byte-identical. The outer try only guards
+    # the _db() acquisition so DirectStore still never raises.
+    async def _dict_call(self, name: str, log: str, *args, failure: Optional[dict] = None) -> dict:
+        fn = self._handler(name)
+        if fn is None:
+            return {**(failure or {}), "success": False, "error": _unavailable_msg(name)}
         try:
-            db = await self._db()
-            caller = await AgentRepository(db).get_agent(creator_agent_id)
-            if not caller or not caller.created_by:
-                return {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
-            # Normalize BEFORE the checks below: the row is stored normalized
-            # (AgentRepository.add_agent), so an unnormalized name here would
-            # make the success echo disagree with what was written, and the
-            # `or` fallback would be skipped by a whitespace-only description.
-            agent_name = normalize_agent_text(agent_name)
-            agent_description = normalize_agent_text(agent_description)
-            # Same rule as the Http twin because it IS the same function — see
-            # create_agent_text_reject for why the order lives there.
-            refusal = create_agent_text_reject(agent_name, agent_description)
-            if refusal:
-                return {"success": False, "message": refusal}
-            result = await provision_new_agent(
-                db,
-                agent_id=new_agent_id,
-                user_id=caller.created_by,
-                agent_name=agent_name,
-                agent_description=agent_description
-                or default_created_by_description(
-                    caller.agent_name or creator_agent_id
-                ),
-                awareness=awareness,
-            )
-            # Match the route's create log so local-mode 'who created which agent
-            # when' is not silent (the route logs this too).
-            logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {caller.created_by}")
-            return format_create_agent_success(agent_name, new_agent_id, result.warnings)
+            result = await fn(await self._db(), *args)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"[social.create_agent] failed: {e}")
-            return {"success": False, "message": f"Error: {e}"}
+            logger.warning(f"[{log}] failed: {e}")
+            return {**(failure or {}), "success": False, "error": str(e)}
+        return result
 
-    # basic_info narrative/event reads. The fetch_*/check_* helpers are
-    # dialect-safe (get_one/get/get_by_ids, no raw SQL) and self-contained (they
-    # return a dict, never raise), and the narrative routes call the SAME helpers
-    # — so Direct and Http are byte-identical. The outer try only guards the
-    # _db() acquisition so DirectStore still never raises.
     async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module import fetch_narrative_view
-
-        try:
-            result = await fetch_narrative_view(await self._db(), agent_id, narrative_id)
+        result = await self._dict_call("view_narrative", "basic_info.view_narrative", agent_id, narrative_id)
+        if result.get("success", True):
             logger.info(f"[basic_info.view_narrative] {narrative_id} -> {result.get('message_count')} messages")
-            return result
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[basic_info.view_narrative] failed: {e}")
-            return {"success": False, "error": str(e)}
+        return result
 
     async def view_event(self, agent_id: str, event_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module import fetch_event_view
-
-        try:
-            result = await fetch_event_view(await self._db(), agent_id, event_id)
-            logger.info(f"[basic_info.view_event] {event_id} -> success={result.get('success')}")
-            return result
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[basic_info.view_event] failed: {e}")
-            return {"success": False, "error": str(e)}
+        result = await self._dict_call("view_event", "basic_info.view_event", agent_id, event_id)
+        logger.info(f"[basic_info.view_event] {event_id} -> success={result.get('success')}")
+        return result
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
-        from xyz_agent_context.module.basic_info_module import check_narrative_switch
-
-        try:
-            result = await check_narrative_switch(await self._db(), agent_id, narrative_id)
-            logger.info(f"[basic_info.switch_narrative] {narrative_id} -> success={result.get('success')}")
-            return result
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[basic_info.switch_narrative] failed: {e}")
-            return {"success": False, "error": str(e)}
+        result = await self._dict_call("switch_narrative", "basic_info.switch_narrative", agent_id, narrative_id)
+        logger.info(f"[basic_info.switch_narrative] {narrative_id} -> success={result.get('success')}")
+        return result
 
     # Job reads. The fetch/search helpers are dialect-safe (JobRepository) and
     # self-contained (return a dict, never raise); the job routes call the SAME
@@ -636,95 +510,49 @@ class DirectStore:
     # stores to the route's le=100 bound (parity). The outer try only guards
     # _db() so DirectStore still never raises.
     async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict:
-        from xyz_agent_context.module.job_module import fetch_job_by_id
-
-        try:
-            return await fetch_job_by_id(await self._db(), agent_id, job_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_retrieval_by_id] failed: {e}")
-            return {"success": False, "error": str(e)}
+        return await self._dict_call("job_retrieval_by_id", "job.job_retrieval_by_id", agent_id, job_id)
 
     async def job_retrieval_semantic(
         self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int
     ) -> dict:
-        from xyz_agent_context.module.job_module import search_jobs_semantic
-
         reject = _job_query_reject(query)
         if reject is not None:
             return reject
-        try:
-            return await search_jobs_semantic(
-                await self._db(), agent_id, query, user_id, status, _clamp_limit(limit),
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_retrieval_semantic] failed: {e}")
-            return {"success": False, "error": str(e)}
+        return await self._dict_call(
+            "job_retrieval_semantic", "job.job_retrieval_semantic", agent_id, query, user_id, status, _clamp_limit(limit)
+        )
 
     async def job_retrieval_by_keywords(
         self, agent_id: str, keywords: list, user_id: Optional[str], status: Optional[str], limit: int
     ) -> dict:
-        from xyz_agent_context.module.job_module import search_jobs_by_keywords
-
         reject = _job_keywords_reject(keywords)
         if reject is not None:
             return reject
+        return await self._dict_call(
+            "job_retrieval_by_keywords", "job.job_retrieval_by_keywords", agent_id, keywords, user_id, status, _clamp_limit(limit)
+        )
+
+    async def _job_write(self, name: str, job_id: str, *args) -> dict:
+        fn = self._handler(name)
+        if fn is None:
+            return {"success": False, "job_id": job_id, "message": _unavailable_msg(name)}
         try:
-            return await search_jobs_by_keywords(
-                await self._db(), agent_id, keywords, user_id, status, _clamp_limit(limit),
-            )
+            return await fn(await self._db(), *args)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_retrieval_by_keywords] failed: {e}")
-            return {"success": False, "error": str(e)}
+            logger.warning(f"[job.{name}] failed: {e}")
+            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
 
     async def job_update(self, agent_id: str, job_id: str, fields: dict) -> dict:
-        # The shared update_job_from_args is self-contained (returns a
-        # message-keyed dict, never raises) — the backend job routes call the
-        # SAME function, so Direct and Http are byte-identical. The outer try
-        # only guards _db().
-        from xyz_agent_context.module.job_module import update_job_from_args
-
-        try:
-            return await update_job_from_args(await self._db(), agent_id, job_id, **fields)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_update] failed: {e}")
-            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+        return await self._job_write("job_update", job_id, agent_id, job_id, fields)
 
     async def job_create(self, agent_id: str, fields: dict) -> dict:
-        # create_job_from_args is self-contained (sets up the owner LLM context,
-        # returns an error-keyed dict, never raises) — the backend job route
-        # calls the SAME function, so Direct and Http are byte-identical. The
-        # outer try only guards _db().
-        from xyz_agent_context.module.job_module import create_job_from_args
-
-        try:
-            return await create_job_from_args(await self._db(), agent_id, **fields)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_create] failed: {e}")
-            return {"success": False, "error": str(e)}
+        return await self._dict_call("job_create", "job.job_create", agent_id, fields)
 
     async def job_pause(self, agent_id: str, job_id: str) -> dict:
-        # pause_job_from_args is self-contained (message-keyed dict, never
-        # raises); the backend route calls the SAME function. Outer try guards
-        # _db() only.
-        from xyz_agent_context.module.job_module import pause_job_from_args
-
-        try:
-            return await pause_job_from_args(await self._db(), agent_id, job_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_pause] failed: {e}")
-            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+        return await self._job_write("job_pause", job_id, agent_id, job_id)
 
     async def job_cancel(self, agent_id: str, job_id: str) -> dict:
-        # cancel_job_from_args is self-contained (message-keyed dict, entity
-        # cleanup best-effort, never raises); the backend route calls the SAME
-        # function. Outer try guards _db() only.
-        from xyz_agent_context.module.job_module import cancel_job_from_args
-
-        try:
-            return await cancel_job_from_args(await self._db(), agent_id, job_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[job.job_cancel] failed: {e}")
-            return {"success": False, "job_id": job_id, "message": f"Error: {e}"}
+        return await self._job_write("job_cancel", job_id, agent_id, job_id)
 
     async def get_chat_history(self, agent_id: str, instance_id: str, limit: int) -> dict:
         # fetch_chat_history is self-contained (instance-scoped, de-rawed, returns
@@ -733,14 +561,10 @@ class DirectStore:
         # guards _db() (lazy MySQL pool build can raise) so DirectStore keeps the
         # "never raises, only returns a dict" invariant — the twin route wraps
         # get_db_client() for the same reason.
-        from xyz_agent_context.module.chat_module import fetch_chat_history
-
-        try:
-            return await fetch_chat_history(await self._db(), agent_id, instance_id, limit)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[chat.get_chat_history] failed: {e}")
-            return {"success": False, "instance_id": instance_id, "error": str(e),
-                    "total_messages": 0, "messages": []}
+        return await self._dict_call(
+            "get_chat_history", "chat.get_chat_history", agent_id, instance_id, limit,
+            failure={"instance_id": instance_id, "total_messages": 0, "messages": []},
+        )
 
 
 class HttpStore:

@@ -42,3 +42,7 @@ stub: false
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `ingress.triggers` (many, `TriggerSpec`) under the ingress domain: IM channel listeners (host=channels), pollers run as workers (host=workers), on-demand HTTP servers (host=api).
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`agent.capabilities.data_access` (many, `DataAccessSpec`).

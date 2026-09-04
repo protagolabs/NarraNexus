@@ -64,3 +64,13 @@ async def update_profile(agent_id: str, body: ProfileUpdateBody, request: Reques
         db, agent_id, new_name=body.new_name, new_description=body.new_description,
     )
     return {"message": message}
+
+
+# ---- plugin contribution (batch 3c.4): this twin router of the data-access
+# seam is provided by builtin.awareness through backend.routes (mounted under /api/agents
+# by backend.plugins_host, no longer included by routes/agents/core.py), so the
+# HTTP twin disappears together with the capability when the plugin is disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("agents_profile", lambda: RouterSpec(router, "/api/agents", tags=("Agents",))),)

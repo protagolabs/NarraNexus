@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/profile.py
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -22,3 +22,7 @@ stub: false
 ## 长度上限故意不放路由 body
 
 `ProfileUpdateBody` **不加** `Field(max_length=AGENT_TEXT_MAX_LENGTH)`：上限在共享 [[_awareness_writes]] `update_agent_profile_from_args` 里 enforce、返回可读的 "Error: … too long" 串(HTTP 200)。若在路由 body 加 Field 会 422 抢在 fn 前 → HttpStore 收 "rejected (422)" 而 DirectStore 返 fn 串 → 破 byte-parity。单点 enforce 两条路径逐字节同，过长值仍被拒(绝不落库)。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.awareness (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-30
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -253,3 +253,7 @@ Event 的 `event_log` 字段里存的是流式 delta，每个 thinking_delta 是
 
 **加字段时的陷阱**：`WipeResult.narrative_ids` 在响应里叫 `narrative_ids_deleted`，所以不能用
 `**asdict(result)` 一把展开；覆盖测试因此只断言 `*_count` 这一类，而不是全字段相等。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.chat (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

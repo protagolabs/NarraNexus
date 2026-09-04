@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/social_network.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -237,3 +237,7 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
 ## 新人易踩的坑
 
 单实体查询接口用 `user_id` 作为路径参数，但实际上查的是 `entity_id` 字段（`WHERE entity_id = {user_id}`）。这个接口的命名继承自最初只处理"用户"类型实体的设计，实际上 `entity_id` 可以是任何类型实体的 ID，不限于用户。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.social_network (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

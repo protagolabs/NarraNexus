@@ -29,3 +29,7 @@ stub: false
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `API_VERSIONS["trigger"] = 0` for `contracts/trigger.py`.
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`API_VERSIONS["data_access"] = 0`.

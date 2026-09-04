@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/awareness.py
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -66,3 +66,7 @@ Awareness 是 Agent 的自我认知配置——它知道自己是谁、有什么
 ## 新人易踩的坑
 
 `instance_awareness` 表的主键是 `instance_id`，而不是 `agent_id`。必须先拿到实例 ID（GET 用 `_find_awareness_instance` 只查不建、PUT 用 `_ensure_awareness_instance` 查不到则建），再用实例 ID 查询，不能用 agent_id 直接查 `instance_awareness`。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.awareness (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

@@ -133,6 +133,22 @@ def channel_trigger_specs() -> tuple[TriggerSpec, ...]:
     return tuple(spec for _, spec in TRIGGER_SPECS if spec.host == "channels")
 
 
+# ``agent.capabilities.data_access``: AgentDataStore bodies (owner, "pkg.mod:DATA_ACCESS").
+DATA_ACCESS_SLOT = "agent.capabilities.data_access"
+DATA_ACCESS_SPECS: tuple[tuple[str, str], ...] = (
+    ("builtin.awareness", f"{_MOD}.awareness_module.data_access:DATA_ACCESS"),
+    ("builtin.social_network", f"{_MOD}.social_network_module.data_access:DATA_ACCESS"),
+    ("builtin.basic_info", f"{_MOD}.basic_info_module.data_access:DATA_ACCESS"),
+    ("builtin.job", f"{_MOD}.job_module.data_access:DATA_ACCESS"),
+    ("builtin.chat", f"{_MOD}.chat_module.data_access:DATA_ACCESS"),
+)
+
+
+def _resolve_symbol(ref: str):
+    module_path, attr = ref.rsplit(":", 1)
+    return getattr(importlib.import_module(module_path), attr)
+
+
 # ``backend.hooks`` implementations builtins ship (owner, "pkg.mod:HOOKS").
 HOOK_SPECS: tuple[tuple[str, str], ...] = (
     ("builtin.chat", f"{_MOD}.chat_module.plugin_hooks:HOOKS"),
@@ -152,9 +168,13 @@ def register_all(registries: Any = None) -> None:
     for plugin_id, spec in TRIGGER_SPECS:
         if spec.name not in triggers:
             triggers.register_contribution(TRIGGER_CONTRIBUTIONS[spec.name], owner=plugin_id)
+    data_access = regs.registry_for(DATA_ACCESS_SLOT)
+    for plugin_id, ref in DATA_ACCESS_SPECS:
+        for contribution in _resolve_symbol(ref):
+            if contribution.name not in data_access:
+                data_access.register_contribution(contribution, owner=plugin_id)
     for plugin_id, ref in HOOK_SPECS:
-        module_path, attr = ref.rsplit(":", 1)
-        for impl in getattr(importlib.import_module(module_path), attr):
+        for impl in _resolve_symbol(ref):
             regs.hooks.add(impl.hook, impl.fn, owner=plugin_id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper)
 
 
@@ -189,6 +209,8 @@ TRIGGERS_JOB = trigger_contributions_for("builtin.job")
 __all__ = [
     "BY_PLUGIN",
     "CONTRIBUTIONS",
+    "DATA_ACCESS_SLOT",
+    "DATA_ACCESS_SPECS",
     "HOOK_SPECS",
     "MODULES_SLOT",
     "MODULE_SPECS",

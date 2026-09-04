@@ -14,3 +14,7 @@ stub: false
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host=workers with its historical kwargs, the `a2a` server as host=api) with `TRIGGERS_<ID>` per-plugin tuples the manifests name, and `HOOK_SPECS` (builtin.chat's greeting hook). `register_all` registers modules, triggers and hooks so processes that never run a manifest boot see the same picture; `channel_trigger_specs()` is the static registration intent the alignment test checks.
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`DATA_ACCESS_SPECS` (owner → `<module>/data_access.py:DATA_ACCESS`) registered by `register_all` alongside modules/triggers/hooks; `_resolve_symbol` is the shared lazy import.

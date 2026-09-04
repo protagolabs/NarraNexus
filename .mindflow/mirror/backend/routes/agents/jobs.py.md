@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/jobs.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-08-11 — job 三写全孪生：POST /{agent_id}/jobs（create）、PUT .../{job_id}/pause|cancel
@@ -39,3 +39,7 @@ by-id 用 GET。三个端点整体包 try 兜 `get_db_client()` 获取失败 →
 与 DirectStore 对齐。limit `Field(le=100)`，HttpStore 侧 `_clamp_limit` 预夹取避免 422。
 
 **user_id 归属决定（预审 Important）**：搜索端点**故意接受**调用方传的 optional user_id（默认 None=该 agent 下全部用户 job），因为其调用方是 agent 本身（经身份转发 seam）查自己 agent 的 job，逐字保留工具签名以维持 Direct/Http parity。与 `backend/routes/jobs.py` 相反（那里 user_id 强制为登录用户，因为它是用户浏览器面，一个用户不能读另一个用户的 job）。两者对各自 actor 都对；assert_owned 把这些端点门控到 agent owner。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.job (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

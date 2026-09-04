@@ -31,6 +31,7 @@ SLOT_KINDS: dict[str, str] = {
     "agent.capabilities.tools": "tool",
     "agent.capabilities.context_providers": "context_provider",
     "agent.capabilities.modules": "module",
+    "agent.capabilities.data_access": "data_access",
     "turn.profiles": "pipeline_profile",
     "turn.pipeline.ingress": "stage_strategy",
     "turn.pipeline.recall": "stage_strategy",

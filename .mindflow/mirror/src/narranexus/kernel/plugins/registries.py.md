@@ -37,3 +37,7 @@ loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得�
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `SLOT_KINDS["ingress.triggers"] = "trigger"`.
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`SLOT_KINDS["agent.capabilities.data_access"] = "data_access"`.

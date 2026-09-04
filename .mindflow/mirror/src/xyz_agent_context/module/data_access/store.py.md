@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/store.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-19 — `update_awareness` 现在先读后写：保住平台身份记录
@@ -238,3 +238,7 @@ not each against a constant.
   awareness". A known, documented asymmetry: Http is strictly more honest,
   Direct is bug-compatible; fixing Direct means changing local behaviour and
   belongs to its own change, not this seam.
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`DirectStore` no longer imports any builtin module: each capability method resolves its body by name from `agent.capabilities.data_access` (`_handler`, on the injected registries or the process kernel registries) and passes the db client first. What stays here is platform policy — the parity rejects/clamps, the never-raise wrapping per failure shape (`_dict_call`, `_social`, `_job_write`), `_awareness_instance_id` (a platform InstanceRepository query the awareness provider receives the result of) and the message constants — plus `_unavailable_msg` for a provider that is absent because its builtin is disabled. `HttpStore` is untouched.

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/narrative.py
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -122,3 +122,7 @@ MCP 工具版本的 `create_narrative` 只是一个信号——它自己不写�
   Instance-Narrative 绑定的全貌，理解 `instance_narrative_links` 语义时读
 - 铁律 #21（placement rule）—— 本文件在 `backend/routes/`，只经 HTTP 被
   agent 进程消费，不被 `xyz_agent_context` 反向 import
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+`ROUTES` — this router is the `backend.routes` contribution of builtin.basic_info (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.

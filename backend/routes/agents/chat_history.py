@@ -1060,3 +1060,13 @@ async def get_chat_history_by_instance(
         return {"success": False, "instance_id": body.instance_id, "error": str(e),
                 "total_messages": 0, "messages": []}
     return await fetch_chat_history(db, agent_id, body.instance_id, body.limit)
+
+
+# ---- plugin contribution (batch 3c.4): this twin router of the data-access
+# seam is provided by builtin.chat through backend.routes (mounted under /api/agents
+# by backend.plugins_host, no longer included by routes/agents/core.py), so the
+# HTTP twin disappears together with the capability when the plugin is disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("agents_chat_history", lambda: RouterSpec(router, "/api/agents", tags=("Agents",))),)
