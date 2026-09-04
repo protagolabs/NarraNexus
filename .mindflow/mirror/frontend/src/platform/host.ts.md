@@ -16,3 +16,7 @@ externals 解析。stores/组件/内部实现一律不承诺。
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 `HostAPI.registries` gains `messageRenderers`, `timelineEvents`, `conversationKinds` and the six slot points (`chatHeaderActions`, `composerExtensions`, `messageActions`, `sidebarSections`, `agentCardBadges`, `topBarItems`); `host.register` works on them like on the structural registries (disposer tracked, may replace only its own gate).
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`registries.channels` — a channel plugin registers its Channels-section row.

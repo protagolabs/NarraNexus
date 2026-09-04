@@ -20,3 +20,7 @@ ArrayBuffer，测试用 node:crypto）比对，再由 Blob URL `import()`（动�
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 `registerDeclaredUi` also registers gates for `frontend.ui.conversationKinds` / `messageRenderers` (a renderer gate matching by role / content prefix) / `timelineEvents` (a gate per event type) / `slots` (silent component gates, labelled action gates) and derives `onRenderer:` / `onTimelineEvent:` / `onSlot:` activation events; `disableBuiltinUi` sweeps the new registries too.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`disableBuiltinUi` also sweeps `ui.channels`.

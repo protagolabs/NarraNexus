@@ -22,3 +22,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `HOOK_SPECS` covers job (runnability), awareness (identity), six channels (credential export); `SERVICE_SPECS` exposes skills/job services; `register_all` registers both (services skipped when already exposed).
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`CHANNEL_SPECS` (seven descriptors) registered into `ingress.channels` by `register_all`, which also registers each inbound channel's `WorkingSource`.

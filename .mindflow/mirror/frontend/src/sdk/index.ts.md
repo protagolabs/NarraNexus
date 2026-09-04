@@ -13,3 +13,7 @@ stub: false
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 Re-exports the slot-point / renderer / timeline / when types for plugin authors.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+Exports `ChannelDef` / `ChannelStatus` / `ChannelConfigProps`.

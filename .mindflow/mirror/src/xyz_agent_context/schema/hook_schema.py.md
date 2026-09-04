@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -126,3 +126,7 @@ Every module in the system has a `hook_after_event_execution()` callback that fi
 两个框架的回复提醒点名，与 patrol 提示三行之上的禁令直接冲突。两个消费者：模块（声明为空、
 两个动词都撤下桌）与 [[message_source_handler.py]]（不渲染顶部那行，否则会把别的模块的工具
 说成本轮的应答方式）。
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`WorkingSource` is an OPEN enum now (a `str` subclass with an enum-like metaclass): the core members are class attributes as before, `.value/.name`, `WorkingSource("job")`, `from_string`, iteration/membership/`__members__`, pickling, pydantic (core schema) and JSON all keep working, and `WorkingSource.register("mattermost")` adds an IM channel's value at runtime (idempotent; core names cannot be redefined). Registered channel sources count as automated AND from-human, exactly like the six builtin IM members; `is_channel()` / `channel_values()` expose the set. `module/contributions.register_all` registers every inbound ChannelDescriptor's name.

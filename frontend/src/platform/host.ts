@@ -24,6 +24,7 @@ import { addPluginBundle, pluginT } from './i18n';
 import { reportUiError } from './errorSink';
 import {
   AGENT_CARD_BADGES,
+  CHANNELS,
   CHAT_HEADER_ACTIONS,
   COMMANDS,
   COMPOSER_EXTENSIONS,
@@ -71,6 +72,8 @@ export interface HostAPI {
     timelineEvents: typeof TIMELINE_EVENTS;
     /** Slot points inside existing surfaces (gated by `when`, ordered by `order`). */
     conversationKinds: typeof CONVERSATION_KINDS;
+    /** IM channel rows of the Channels section (a channel plugin registers its config UI here). */
+    channels: typeof CHANNELS;
     chatHeaderActions: typeof CHAT_HEADER_ACTIONS;
     composerExtensions: typeof COMPOSER_EXTENSIONS;
     messageActions: typeof MESSAGE_ACTIONS;
@@ -143,6 +146,7 @@ export function createHostApi(pluginId: string, hostVersion: string): HostAPI {
       messageRenderers: MESSAGE_RENDERERS,
       timelineEvents: TIMELINE_EVENTS,
       conversationKinds: CONVERSATION_KINDS,
+      channels: CHANNELS,
       chatHeaderActions: CHAT_HEADER_ACTIONS,
       composerExtensions: COMPOSER_EXTENSIONS,
       messageActions: MESSAGE_ACTIONS,

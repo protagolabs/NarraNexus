@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/channel_store.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 ---
 ## 2026-08-11 (三轮审查) — 写失败信封用稳定错误码，不泄漏 DB 连接文本
 
@@ -63,3 +63,7 @@ seam / 端点 / allowlist 全跟随。已接入：discord/slack/telegram/wechat/
 Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents.created_by）——narra 的媒体发送 + CLI 工作区解析要它；DirectStore 读库、HttpStore 打 `/channels/owner`。**已知缺口（明写不藏）**：写/生命周期（bind/unbind/setup）尚未进本 Protocol，
 `DirectStore.get_manager()` 是给 discord 写工具的**本地专用**便利、无 HttpStore 对应——所以云端写工具仍需本地 db，
 `DB_PASSWORD` 要等写路径也迁移（另一 PR）才能从 mcp 摘掉。这是 #2「mcp 零 db 凭据」的收口条件。
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`CHANNELS` is `_ChannelSpecs`, a live Mapping over `ingress.channels` (ChannelSpec derived from each descriptor's manager / read method / bind-test service / unbind service); `SUPPORTED_CHANNELS` is the live name set. The hand-written table is gone: adding a channel is a descriptor in its plugin, and a disabled builtin answers "unknown channel".

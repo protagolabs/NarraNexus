@@ -55,6 +55,8 @@ tree is credential-free — so the mcp container can drop ``DATABASE_URL`` (with
 """
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
+
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
@@ -161,52 +163,82 @@ class ChannelSpec:
     unbind_service: str = ""
 
 
-_CM = "xyz_agent_context.module"
-CHANNELS: dict[str, ChannelSpec] = {
-    "discord": ChannelSpec(
-        f"{_CM}.discord_module._discord_credential_manager", "DiscordCredentialManager",
-        display_name="Discord",
-        bind=_BindSpec(f"{_CM}.discord_module._discord_service"),
-    ),
-    "slack": ChannelSpec(
-        f"{_CM}.slack_module._slack_credential_manager", "SlackCredentialManager",
-        display_name="Slack",
-        bind=_BindSpec(f"{_CM}.slack_module._slack_service"),
-    ),
-    "telegram": ChannelSpec(
-        f"{_CM}.telegram_module._telegram_credential_manager", "TelegramCredentialManager",
-        display_name="Telegram",
-        bind=_BindSpec(f"{_CM}.telegram_module._telegram_service"),
-    ),
-    "wechat": ChannelSpec(
-        f"{_CM}.wechat_module._wechat_credential_manager", "WeChatCredentialManager",
-        display_name="WeChat",  # has an unbind tool; bind is QR (backend-only), so no _BindSpec
-    ),
-    "narramessenger": ChannelSpec(
-        f"{_CM}.narramessenger_module._narramessenger_credential_manager", "NarramessengerCredentialManager",
-        # bind tool exists (gateway-bind takes the raw db); NO unbind tool + no
-        # do_test_connection, so display_name="" and has_test=False.
-        bind=_BindSpec(f"{_CM}.narramessenger_module._narramessenger_service", takes="db", has_test=False),
-    ),
-    "lark": ChannelSpec(
-        f"{_CM}.lark_module._lark_credential_manager", "LarkCredentialManager",
-        read_method="get_credential", display_name="Lark",
-        # bind an EXISTING app is a typed do_bind (mgr-taking, no do_test_connection);
-        # unbind is do_unbind (credential + inbox teardown). The CLI-OAuth writes go
-        # through the patch/put/delete primitives instead.
-        bind=_BindSpec(f"{_CM}.lark_module._lark_service", takes="mgr", has_test=False),
-        unbind_service=f"{_CM}.lark_module._lark_service",
-    ),
-    # Home Assistant has no bot credential — a JSON config blob (base_url + LLAT).
-    # A thin repository-backed adapter gives it the seam's uniform read shape.
-    "home_assistant": ChannelSpec(
-        f"{_CM}.home_assistant_module._home_assistant_impl.binding", "HomeAssistantCredentialManager",
-    ),
-}
+def _spec_from_descriptor(d: Any) -> ChannelSpec:
+    """The data-access view of a ChannelDescriptor (manager + read method + bind/unbind services)."""
+    manager_module, _, manager_class = d.credential_manager_ref.partition(":")
+    bind = _BindSpec(d.service_ref, takes=d.bind_takes, has_test=d.has_test) if d.has_bind and d.service_ref else None
+    return ChannelSpec(
+        manager_module,
+        manager_class,
+        read_method=d.credential_read_method,
+        display_name=d.display_name if d.name != "narramessenger" else "",
+        bind=bind,
+        unbind_service=d.service_ref if d.unbind_service else "",
+    )
 
-# The allowlist the backend endpoint gates on — derived from the descriptor so
-# it can never drift from what DirectStore can actually resolve.
-SUPPORTED_CHANNELS = frozenset(CHANNELS)
+
+class _ChannelSpecs(Mapping[str, ChannelSpec]):
+    """``CHANNELS``: name -> ChannelSpec, read live from the ``ingress.channels`` registry.
+
+    Adding a channel is a ChannelDescriptor in the plugin (its manifest
+    provides ``ingress.channels``); a builtin disabled in registry.json is
+    absent here and its seam calls answer "unknown channel".
+    """
+
+    def __init__(self, registries: Any = None) -> None:
+        self._registries = registries
+
+    def _registry(self):
+        import xyz_agent_context.module  # noqa: F401 — registers the builtin descriptors (idempotent)
+
+        regs = self._registries
+        if regs is None:
+            from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+            regs = KERNEL_REGISTRIES
+        return regs.registry_for("ingress.channels")
+
+    def _build(self) -> dict[str, ChannelSpec]:
+        out: dict[str, ChannelSpec] = {}
+        for entry in self._registry().entries():
+            d = entry.factory()
+            if d.credential_manager_ref:
+                out[d.name] = _spec_from_descriptor(d)
+        return out
+
+    def __getitem__(self, name: str) -> ChannelSpec:
+        return self._build()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._build())
+
+    def __len__(self) -> int:
+        return len(self._build())
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._build()
+
+
+CHANNELS: Mapping[str, ChannelSpec] = _ChannelSpecs()
+
+
+class _SupportedChannels:
+    """``SUPPORTED_CHANNELS``: the live set of channel names (membership, iteration, len)."""
+
+    def __contains__(self, name: object) -> bool:
+        return name in CHANNELS
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(sorted(CHANNELS))
+
+    def __len__(self) -> int:
+        return len(CHANNELS)
+
+    def __repr__(self) -> str:
+        return f"SUPPORTED_CHANNELS({sorted(CHANNELS)})"
+
+
+SUPPORTED_CHANNELS = _SupportedChannels()
 
 
 def _spec(channel: str) -> ChannelSpec:

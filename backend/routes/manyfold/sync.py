@@ -65,14 +65,18 @@ router = APIRouter()
 # the outbound reply. Providers the platform cannot hand over (slack) or
 # deliberately keeps (unknown names) fall back to a plain MANYFOLD turn.
 # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.
-_PROVIDER_WORKING_SOURCE: dict[str, WorkingSource] = {
-    "lark": WorkingSource.LARK,
-    "slack": WorkingSource.SLACK,
-    "telegram": WorkingSource.TELEGRAM,
-    "wechat": WorkingSource.WECHAT,
-    "discord": WorkingSource.DISCORD,
-    "narramessenger": WorkingSource.NARRAMESSENGER,
-}
+def _provider_working_source(provider: str) -> Optional[WorkingSource]:
+    """The inbound WorkingSource of an IM provider — any channel with a descriptor in ``ingress.channels``."""
+    import xyz_agent_context.module  # noqa: F401 — registers the builtin descriptors (idempotent)
+    from xyz_agent_context.module.data_access.channel_store import CHANNELS
+
+    key = (provider or "").lower().strip()
+    if key not in CHANNELS:
+        return None
+    try:
+        return WorkingSource(key)
+    except ValueError:
+        return None  # credentials-only channel (no inbound turns)
 
 
 def _ctx_str(ctx: dict, key: str) -> str:
@@ -133,7 +137,7 @@ def build_inbound_run_context(
 
     Returns ``(working_source, input_content, trigger_extra_data)``.
     """
-    ws = _PROVIDER_WORKING_SOURCE.get((channel_provider or "").lower().strip())
+    ws = _provider_working_source(channel_provider or "")
     if ws is None:
         return (
             WorkingSource.MANYFOLD,

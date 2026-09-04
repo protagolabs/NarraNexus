@@ -149,6 +149,19 @@ def _resolve_symbol(ref: str):
     return getattr(importlib.import_module(module_path), attr)
 
 
+# ``ingress.channels``: one ChannelDescriptor per channel (owner, "pkg.mod:CHANNEL").
+CHANNELS_SLOT = "ingress.channels"
+CHANNEL_SPECS: tuple[tuple[str, str], ...] = (
+    ("builtin.channels.lark", f"{_MOD}.lark_module.descriptor:CHANNEL"),
+    ("builtin.channels.slack", f"{_MOD}.slack_module.descriptor:CHANNEL"),
+    ("builtin.channels.telegram", f"{_MOD}.telegram_module.descriptor:CHANNEL"),
+    ("builtin.channels.wechat", f"{_MOD}.wechat_module.descriptor:CHANNEL"),
+    ("builtin.channels.narramessenger", f"{_MOD}.narramessenger_module.descriptor:CHANNEL"),
+    ("builtin.channels.discord", f"{_MOD}.discord_module.descriptor:CHANNEL"),
+    ("builtin.home_assistant", f"{_MOD}.home_assistant_module.descriptor:CHANNEL"),
+)
+
+
 # ``backend.hooks`` implementations builtins ship (owner, "pkg.mod:HOOKS").
 HOOK_SPECS: tuple[tuple[str, str], ...] = (
     ("builtin.chat", f"{_MOD}.chat_module.plugin_hooks:HOOKS"),
@@ -184,6 +197,16 @@ def register_all(registries: Any = None) -> None:
     for plugin_id, spec in TRIGGER_SPECS:
         if spec.name not in triggers:
             triggers.register_contribution(TRIGGER_CONTRIBUTIONS[spec.name], owner=plugin_id)
+    channels = regs.registry_for(CHANNELS_SLOT)
+    for plugin_id, ref in CHANNEL_SPECS:
+        for contribution in _resolve_symbol(ref):
+            if contribution.name not in channels:
+                channels.register_contribution(contribution, owner=plugin_id)
+            descriptor = contribution.factory()
+            if descriptor.has_inbound:
+                from xyz_agent_context.schema.hook_schema import WorkingSource
+
+                WorkingSource.register(descriptor.name)
     data_access = regs.registry_for(DATA_ACCESS_SLOT)
     for plugin_id, ref in DATA_ACCESS_SPECS:
         for contribution in _resolve_symbol(ref):
@@ -228,6 +251,8 @@ TRIGGERS_JOB = trigger_contributions_for("builtin.job")
 
 __all__ = [
     "BY_PLUGIN",
+    "CHANNELS_SLOT",
+    "CHANNEL_SPECS",
     "CONTRIBUTIONS",
     "DATA_ACCESS_SLOT",
     "DATA_ACCESS_SPECS",

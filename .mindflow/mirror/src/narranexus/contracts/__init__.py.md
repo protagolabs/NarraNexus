@@ -33,3 +33,7 @@ stub: false
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `API_VERSIONS["data_access"] = 0`.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`API_VERSIONS["channel"] = 0`.

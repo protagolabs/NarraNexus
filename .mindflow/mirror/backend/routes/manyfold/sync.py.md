@@ -169,3 +169,7 @@ automations（镜像闹钟）和 channel 连接接管，事件发生时按需唤
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `/manyfold/channels` collects rows from every channel builtin through `onWillExportManagedChannels` (provider order pinned by `_PROVIDER_ORDER`); `execute_job_once` runs through builtin.job's `jobs.run_once` service (`RunJobOutcome` now subclasses `contracts.job.JobRunOutcome`; `jobs_unavailable` when the builtin is disabled). The route imports no channel or job module.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`_provider_working_source()` resolves an IM provider to its inbound WorkingSource through `ingress.channels` (credentials-only channels and unknown names → None) instead of the hard-coded six-entry map.

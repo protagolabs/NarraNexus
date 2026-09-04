@@ -15,3 +15,7 @@ components/pages/stores/lib/hooks：注册表只存类型与表，不认识任�
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 Exports the `when` grammar and the slot-point / content registries with their defs and the `visibleSlotEntries` / `rendererFor` reads.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+Exports `CHANNELS` / `sortedChannels` and the channel row types.

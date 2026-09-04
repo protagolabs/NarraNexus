@@ -45,6 +45,7 @@ SLOT_KINDS: dict[str, str] = {
     "backend.tables": "table",
     "backend.workers": "worker",
     "ingress.triggers": "trigger",
+    "ingress.channels": "channel",
     "backend.settings": "settings",
     "backend.hooks": "hook",
     "ui.themes": "theme",

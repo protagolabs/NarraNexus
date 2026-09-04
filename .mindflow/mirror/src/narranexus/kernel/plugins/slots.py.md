@@ -46,3 +46,7 @@ stub: false
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `agent.capabilities.data_access` (many, `DataAccessSpec`).
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`ingress.channels` (many, `ChannelDescriptor`).

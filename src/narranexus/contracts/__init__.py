@@ -45,6 +45,7 @@ API_VERSIONS: dict[str, int] = {
     "worker": 0,
     "trigger": 0,
     "data_access": 0,
+    "channel": 0,
     "settings": 0,
     "tool": 0,
     "mcp_server": 0,

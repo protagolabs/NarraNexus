@@ -13,6 +13,9 @@ export type { PluginDefinition } from './definePlugin';
 export type { HostAPI, Disposable } from '@/platform/host';
 export type { PageDef, PanelDef, CommandDef, ThemeDef, SettingsSectionDef, SidebarItemDef } from '@/platform/registries';
 export type {
+  ChannelConfigProps,
+  ChannelDef,
+  ChannelStatus,
   ConversationKindDef,
   MessageRendererDef,
   MessageRendererProps,

@@ -19,6 +19,8 @@ export { THEMES, applyTheme, clearTheme, validateThemeTokens } from './themes';
 export type { ThemeDef } from './themes';
 export { COMMANDS } from './commands';
 export type { CommandDef } from './commands';
+export { CHANNELS, sortedChannels } from './channels';
+export type { ChannelConfigProps, ChannelDef, ChannelStatus } from './channels';
 export { evaluateWhen, parseWhen } from './when';
 export type { WhenClause, WhenContext } from './when';
 export {

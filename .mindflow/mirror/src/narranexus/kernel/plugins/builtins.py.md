@@ -73,3 +73,7 @@ builtin.job / builtin.awareness / the six channel builtins provide `backend.hook
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `builtin.channels.lark` declares `backend.pip` lark-oapi + `imports` lark_oapi with `install.deps: on_demand` (still in the base install today; see install/builtin_deps.py).
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+The six channel builtins and builtin.home_assistant provide `ingress.channels` (`<module>.descriptor:CHANNEL`).

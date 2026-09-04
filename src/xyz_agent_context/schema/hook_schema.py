@@ -86,50 +86,123 @@ def is_plain_text_turn(ctx_data: Any) -> bool:
     return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
 
 
-class WorkingSource(str, Enum):
+class _OpenEnumMeta(type):
+    """Enum-like class behaviour for ``WorkingSource``: iteration, ``in``, ``__members__``."""
+
+    def __iter__(cls):
+        return iter(cls._members.values())  # type: ignore[attr-defined]
+
+    def __len__(cls) -> int:
+        return len(cls._members)  # type: ignore[attr-defined]
+
+    def __contains__(cls, item: object) -> bool:
+        return isinstance(item, str) and str(item).lower() in cls._members  # type: ignore[attr-defined]
+
+    @property
+    def __members__(cls):
+        return dict(cls._members)  # type: ignore[attr-defined]
+
+
+class WorkingSource(str, metaclass=_OpenEnumMeta):
     """
     Agent execution source - Identifies the origin that triggered Agent execution
 
-    Uses enum instead of magic strings, providing:
-    - Type safety: Typos are caught at compile/import time
-    - IDE support: Auto-completion and refactoring support
-    - Self-documenting: All valid values are clearly visible
-
-    Inherits from str so it can:
-    - Be compared directly with strings
-    - Be automatically converted to string values during JSON serialization
+    An OPEN enum (plugin platform batch 4): the core sources are class
+    attributes exactly like the old ``Enum`` members, and an IM channel
+    registers its own value (``WorkingSource.register("mattermost")``) — a
+    channel plugin must not need a platform release to name its turns.
+    The enum surface is kept: ``.value`` / ``.name``, ``WorkingSource("job")``,
+    ``from_string``, iteration, membership, ``is_automated`` /
+    ``is_user_initiated`` / ``is_from_human``, pydantic and JSON (it is a
+    ``str``, so ``json.dumps`` writes the value).
 
     Values:
         CHAT: Triggered by user conversation (default)
         JOB: Triggered by JobTrigger task
         A2A: Triggered by Agent-to-Agent call
         CALLBACK: Triggered by callback after Job completion (dependency chain activation)
-
-    Usage:
-        # Type-safe comparison
-        if source == WorkingSource.JOB:
-            handle_job()
-
-        # Also supports string comparison
-        if source == "job":
-            handle_job()
-
-        # JSON serialization
-        json.dumps({"source": WorkingSource.JOB})  # {"source": "job"}
+        … and one value per IM channel (builtin or plugin).
     """
-    CHAT = "chat"
-    JOB = "job"
-    A2A = "a2a"
-    CALLBACK = "callback"  # Callback triggered after Job completion
-    SKILL_STUDY = "skill_study"  # Skill study trigger
-    MESSAGE_BUS = "message_bus"  # Triggered by MessageBus message
-    LARK = "lark"  # Triggered by Lark/Feishu message (LarkTrigger)
-    SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
-    TELEGRAM = "telegram"  # Triggered by Telegram message (TelegramTrigger)
-    WECHAT = "wechat"  # Triggered by WeChat (iLink) message (WeChatTrigger)
-    NARRAMESSENGER = "narramessenger"  # Triggered by NarraMessenger message (NarramessengerTrigger)
-    DISCORD = "discord"  # Triggered by Discord message (DiscordTrigger)
-    MANYFOLD = "manyfold"  # Triggered by Manyfold platform via OpenAI-compat endpoint
+
+    _members: dict[str, "WorkingSource"] = {}
+    _channel_values: set[str] = set()
+    _name_: str
+
+    # Core members — declared here for type checkers; bound by ``_add`` below.
+    CHAT: "WorkingSource"
+    JOB: "WorkingSource"
+    A2A: "WorkingSource"
+    CALLBACK: "WorkingSource"
+    SKILL_STUDY: "WorkingSource"
+    MESSAGE_BUS: "WorkingSource"
+    MANYFOLD: "WorkingSource"
+    LARK: "WorkingSource"
+    SLACK: "WorkingSource"
+    TELEGRAM: "WorkingSource"
+    WECHAT: "WorkingSource"
+    NARRAMESSENGER: "WorkingSource"
+    DISCORD: "WorkingSource"
+
+    def __new__(cls, value: object):
+        key = str(value).lower()
+        member = cls._members.get(key)
+        if member is None:
+            valid = list(cls._members)
+            raise ValueError(f"Invalid WorkingSource: {value!r}. Valid values: {valid}")
+        return member
+
+    @classmethod
+    def _add(cls, name: str, value: str, *, channel: bool = False) -> "WorkingSource":
+        obj = str.__new__(cls, value)
+        obj._name_ = name
+        cls._members[value] = obj
+        setattr(cls, name, obj)
+        if channel:
+            cls._channel_values.add(value)
+        return obj
+
+    @classmethod
+    def register(cls, value: str, *, name: str | None = None) -> "WorkingSource":
+        """Register an IM channel's source value (idempotent; core names cannot be redefined)."""
+        key = str(value).lower()
+        if not key or not key.replace("_", "").isalnum():
+            raise ValueError(f"WorkingSource value must be [a-z0-9_], got {value!r}")
+        existing = cls._members.get(key)
+        if existing is not None:
+            return existing
+        return cls._add(name or key.upper(), key, channel=True)
+
+    @classmethod
+    def is_channel(cls, value: object) -> bool:
+        return str(value).lower() in cls._channel_values
+
+    @classmethod
+    def channel_values(cls) -> tuple[str, ...]:
+        return tuple(v for v in cls._members if v in cls._channel_values)
+
+    @property
+    def value(self) -> str:
+        return str.__str__(self)
+
+    @property
+    def name(self) -> str:
+        return self._name_
+
+    def __repr__(self) -> str:
+        return f"<WorkingSource.{self._name_}: {str.__str__(self)!r}>"
+
+    def __reduce__(self):
+        return (WorkingSource, (str.__str__(self),))
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any):
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda v: str.__str__(v), when_used="json"),
+        )
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
@@ -144,36 +217,27 @@ class WorkingSource(str, Enum):
 
         Raises:
             ValueError: Invalid value
-
-        Example:
-            source = WorkingSource.from_string("job")  # WorkingSource.JOB
         """
         try:
             return cls(value.lower())
         except ValueError:
             valid = [e.value for e in cls]
-            raise ValueError(f"Invalid working_source '{value}'. Must be one of: {valid}")
+            raise ValueError(f"Invalid WorkingSource: '{value}'. Valid values: {valid}")
 
     def is_automated(self) -> bool:
         """
         Check if this is an automated (not directly user-triggered) execution
 
         Returns:
-            True if triggered by JOB, A2A, CALLBACK, MESSAGE_BUS, or any IM channel.
+            True if triggered by JOB, A2A, CALLBACK, MESSAGE_BUS, MANYFOLD or any IM channel.
         """
         return self in (
             WorkingSource.JOB,
             WorkingSource.A2A,
             WorkingSource.CALLBACK,
             WorkingSource.MESSAGE_BUS,
-            WorkingSource.LARK,
-            WorkingSource.SLACK,
-            WorkingSource.TELEGRAM,
-            WorkingSource.WECHAT,
-            WorkingSource.NARRAMESSENGER,
-            WorkingSource.DISCORD,
             WorkingSource.MANYFOLD,
-        )
+        ) or WorkingSource.is_channel(self)
 
     def is_user_initiated(self) -> bool:
         """
@@ -190,9 +254,9 @@ class WorkingSource(str, Enum):
 
         Rule of thumb (set by Bin哥, 2026-05-19):
           - Anything that ultimately delivers a reply to a real person —
-            CHAT (UI), LARK / SLACK / TELEGRAM (IM channels) — is
-            "from human". Reply with warmth; even a one-line ACK is
-            better than cold silence.
+            CHAT (UI), LARK / SLACK / TELEGRAM (IM channels, builtin or
+            plugin) — is "from human". Reply with warmth; even a one-line
+            ACK is better than cold silence.
           - JOB (cron / dependency triggers) / MESSAGE_BUS (peer agent) /
             CALLBACK (post-job hook) / SKILL_STUDY (internal maintenance)
             are NOT from a human. Reply tersely or stay silent when there's
@@ -215,19 +279,27 @@ class WorkingSource(str, Enum):
         )
 
 
-# Turn-source stamp for bus sends made from a MESSAGE_BUS turn that is
-# CONTINUING the sender's own errand (the batch that triggered the turn was
-# classified as a reply to an errand the sender started). Deliberately NOT a
-# WorkingSource member: it never triggers a turn — it only rides the MCP
-# identity bearer and lands in ``bus_messages.sender_turn_source`` so the
-# RECIPIENT can tell "the errand owner is asking me (again)" from "a peer is
-# answering me". Plain ``WorkingSource.MESSAGE_BUS`` on a message means the
-# sender was in a peer-ANSWERING turn; this stamp means the sender was in a
-# bus turn but still ASKING (clarifying follow-up, or fanning out to a third
-# agent). Without the distinction, a follow-up question sent from a bus turn
-# was stamped identically to an answer and the recipient relayed it to its
-# owner instead of answering the peer — P1 evt_0dcee899 recurred on exactly
-# the path the Owner-Relay directive itself recommends (2026-08-03 review).
+# Core members (the former Enum body). IM channels register theirs from their
+# ChannelDescriptor (module/contributions.register_all) — the six builtin ones
+# are pre-registered here so the class attributes exist at import.
+WorkingSource._add("CHAT", "chat")
+WorkingSource._add("JOB", "job")
+WorkingSource._add("A2A", "a2a")
+WorkingSource._add("CALLBACK", "callback")  # Callback triggered after Job completion
+WorkingSource._add("SKILL_STUDY", "skill_study")  # Skill study trigger
+WorkingSource._add("MESSAGE_BUS", "message_bus")  # Triggered by MessageBus message
+WorkingSource._add("MANYFOLD", "manyfold")  # Triggered by Manyfold platform via OpenAI-compat endpoint
+for _name, _value in (
+    ("LARK", "lark"),
+    ("SLACK", "slack"),
+    ("TELEGRAM", "telegram"),
+    ("WECHAT", "wechat"),
+    ("NARRAMESSENGER", "narramessenger"),
+    ("DISCORD", "discord"),
+):
+    WorkingSource._add(_name, _value, channel=True)
+
+
 BUS_ERRAND_TURN_SOURCE = "message_bus_errand"
 
 #: working_source values MessageBusTrigger produces for peer-agent (A2A) and

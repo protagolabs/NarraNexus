@@ -24,6 +24,7 @@ import { makePageGate, makePanelGate, makeRendererGate, makeSlotGate, makeTimeli
 import { createHostApi, exposeHostGlobals, type HostAPI } from './host';
 import {
   AGENT_CARD_BADGES,
+  CHANNELS,
   CHAT_HEADER_ACTIONS,
   COMMANDS,
   COMPOSER_EXTENSIONS,
@@ -101,7 +102,7 @@ const ACTION_SLOTS: Record<string, Registry<SlotActionDef>> = {
 };
 
 /** Every shell registry a disabled builtin's UI row is removed from (`disableBuiltinUi`). */
-const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES, MESSAGE_RENDERERS, TIMELINE_EVENTS, CONVERSATION_KINDS, ...Object.values(COMPONENT_SLOTS), ...Object.values(ACTION_SLOTS)] as const;
+const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES, MESSAGE_RENDERERS, TIMELINE_EVENTS, CONVERSATION_KINDS, CHANNELS, ...Object.values(COMPONENT_SLOTS), ...Object.values(ACTION_SLOTS)] as const;
 
 export interface PluginModule {
   plugin?: { activate(host: HostAPI): void | Promise<void>; deactivate?(host: HostAPI): void | Promise<void> };

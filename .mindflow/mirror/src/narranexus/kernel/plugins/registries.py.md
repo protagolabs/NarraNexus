@@ -45,3 +45,7 @@ loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得�
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `Registries.services` — one `ServiceLocator` per process (builtins expose at import via `register_all`, user plugins through `PluginContext.services`); `remove_owner` also releases the owner's services.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`SLOT_KINDS["ingress.channels"] = "channel"`.

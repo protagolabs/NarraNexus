@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-13 — tri-state channel status badge
@@ -115,3 +115,7 @@ on demand.
 - Adding a channel without an ``Icon`` from ``lucide-react`` will type-
   fail — the ``ComponentType<{ className?: string }>`` constraint is
   there to keep the row visually consistent.
+
+## 2026-09-04 · rows from the ui.channels registry (batch 4a)
+
+Rows come from the `ui.channels` registry (`sortedChannels(useRegistryEntries(CHANNELS))`) — the six builtins register in `registerBuiltinChannels.ts` with their plugin id as owner, a channel plugin registers its own — instead of the hard-coded `IM_CHANNELS` list; probing, expand/collapse and the counter are unchanged. `ChannelConfigProps` is re-exported from here so the config components keep their import path.
