@@ -25,3 +25,5 @@ include；之后直通。认证中间件在主 app 上先跑，所以未登录�
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `register_builtins_for_import` applies the same on-demand dependency probe as the boot, so a deps-missing builtin's routes/workers are not mounted at import either.
+
+Batch 6c.3: `register_builtins_for_import` follows the distribution (`plugins_boot.distribution()`): builtins outside it drop their registrations before routes mount, bundled plugins are prepared and loaded at import like builtins.

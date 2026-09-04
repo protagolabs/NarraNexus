@@ -2,7 +2,7 @@
 @file_name: main.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check``, ``narranexus dist doctor|lock`` and ``narranexus docs gen``.
+@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check``, ``narranexus dist doctor|lock``, ``narranexus create-app``, ``narranexus build`` and ``narranexus docs gen``.
 
 Every mutating verb goes through the same kernel objects the factory API
 uses (``Installer`` / ``RegistryStore`` / ``Bisect``), so the CLI and the
@@ -277,6 +277,39 @@ def cmd_dist_lock(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_create_app(args: argparse.Namespace) -> int:
+    """Scaffold a distribution repo: narranexus-dist.json, one bundled plugin, branding/, defaults/, CI."""
+    from narranexus.cli.distribution_scaffold import create_app
+
+    dest = Path(args.dir or args.id.split(".", 1)[1]).resolve()
+    if dest.exists() and any(dest.iterdir()):
+        print(f"{dest} exists and is not empty", file=sys.stderr)
+        return 2
+    try:
+        written = create_app(args.id, dest, display_name=args.display_name, base=args.base, auth=args.auth, deployment=args.deployment)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"created {dest} with {len(written)} files; next: narranexus dist doctor {dest}")
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    """Resolve a distribution, write its lock + generated builtins list, and run (or print) the target build."""
+    from narranexus.cli.build import build
+
+    res = _distribution(args)
+    if not res.ok:
+        for problem in res.problems:
+            print(f"PROBLEM: {problem}", file=sys.stderr)
+        return 1
+    out = Path(args.out) if args.out else Path("build") / res.spec.id
+    result = build(res, target=args.target, out=out, dry_run=args.dry_run, dockerfile=Path(args.dockerfile) if args.dockerfile else None)
+    for line in result.log:
+        print(line)
+    return 0 if result.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="narranexus", description="NarraNexus plugin tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -345,6 +378,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path", nargs="?", default=".")
     p.add_argument("--out", default="")
     p.set_defaults(fn=cmd_dist_lock)
+
+    p = sub.add_parser("create-app", help="scaffold a distribution repo (narranexus-dist.json + a bundled plugin)")
+    p.add_argument("id", help="distribution id, <publisher>.<name>")
+    p.add_argument("--dir", default="", help="destination (default: ./<name>)")
+    p.add_argument("--display-name", default="")
+    p.add_argument("--base", default="minimal", choices=["minimal", "desktop", "cloud"], help="official distribution whose plugin set to start from")
+    p.add_argument("--auth", default="builtin.auth.local", help="auth provider plugin id (builtin.auth.local | builtin.auth.netmind | your own)")
+    p.add_argument("--deployment", default="desktop", choices=["desktop", "cloud", "headless"])
+    p.set_defaults(fn=cmd_create_app)
+
+    p = sub.add_parser("build", help="build a distribution: lock + generated builtins list + target packaging")
+    p.add_argument("path", nargs="?", default=".", help="narranexus-dist.json or its directory")
+    p.add_argument("--target", required=True, choices=["desktop", "docker", "wheel"])
+    p.add_argument("--out", default="", help="output directory (default build/<dist id>)")
+    p.add_argument("--dockerfile", default="", help="docker target: the Dockerfile to build with (the deploy repo's)")
+    p.add_argument("--dry-run", action="store_true", help="write the lock/plan but run no packaging command")
+    p.set_defaults(fn=cmd_build)
 
     docs = sub.add_parser("docs", help="generated documentation")
     dsub = docs.add_subparsers(dest="verb", required=True)

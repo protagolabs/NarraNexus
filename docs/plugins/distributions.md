@@ -20,6 +20,9 @@ A distribution is a declaration, not a fork: engine range + plugin set + brandin
 
 - `narranexus dist doctor <dir>` — resolves against this engine; exits non-zero on any problem (engine range, unknown plugin, range miss, bundled manifest errors, dependency outside the set, bad `auth`, foreign binding provider). `--json` for machines.
 - `narranexus dist lock <dir>` — writes `narranexus-dist.lock.json`: the exact plugin set (version + source + relative path) a build bakes in.
+- `narranexus create-app <publisher>.<name>` — scaffold a distribution repo (declaration from an official base, a bundled plugin, an auth choice or stub, branding, defaults, CI).
+- `narranexus build <dir> --target desktop|docker|wheel [--dry-run]` — lock + `builtins.generated.json` + bundled plugins into `build/<id>/`, then the packaging command (`uv build` per package, the Tauri bundle, or `docker build --dockerfile <deploy repo Dockerfile>`).
+- Headless: `from narranexus.engine import Engine; engine = Engine.load("distributions/minimal")`; `engine.run_turn(agent_id, user_id, text)` streams the turn, `engine.agents(user_id)`, `engine.events().subscribe(...)`.
 - Run a host as a distribution: `NARRANEXUS_DIST=<dir or file>`; the boot drops the builtins outside the set, loads bundled plugins in stage 1 and gates runtime plugins by `runtime.userPlugins`. The resolved bindings are snapshotted to `<plugin home>/run/bindings.resolved.json`.
 
 ## Who answers "who is this request?"

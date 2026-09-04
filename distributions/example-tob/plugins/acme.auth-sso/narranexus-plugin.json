@@ -15,6 +15,6 @@
     "activate": false
   },
   "provides": {
-    "kernel.auth": "backend:CONTRIBUTION"
+    "kernel.auth": "nxplugins.acme_auth_sso:CONTRIBUTION"
   }
 }

@@ -21,6 +21,16 @@ from narranexus.platform.module_system.contributions import register_all
 from .conftest import make_plugin, register
 
 HOST = "1.15.0"
+
+
+@pytest.fixture(autouse=True)
+def _forget_bundled_packages():
+    """Bundled plugins get a synthetic ``nxplugins.<id>`` package; each test must leave the process clean."""
+    from narranexus.kernel.plugins.importer import uninstall_synthetic_package
+
+    yield
+    for pid in ("acme.crm", "acme.auth-sso", "acme.sso"):
+        uninstall_synthetic_package(pid)
 CORE = {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.awareness": "^1.0", "builtin.providers": "^1.0",
         "builtin.frameworks.nexus_power": "^1.0", "builtin.turn": "^1.0", "builtin.llm_clients": "^1.0",
         "builtin.memory_kinds": "^1.0", "builtin.common_tools": "^1.0", "builtin.auth.local": "^1.0"}
@@ -71,7 +81,7 @@ def test_a_broken_distribution_refuses_to_boot(plugin_home: Path):
 def test_distribution_only_plugin_is_rejected_at_runtime_install(plugin_home: Path):
     path = make_plugin(plugin_home, "acme.sso", extra={
         "api": {"auth": 0}, "distributionOnly": True, "backend": {"activate": False},
-        "provides": {"kernel.auth": "backend:CONTRIBUTION"}, "activationEvents": [],
+        "provides": {"kernel.auth": "nxplugins.acme_sso:CONTRIBUTION"}, "activationEvents": [],
     })
     (path / "backend" / "__init__.py").write_text(
         "from narranexus.kernel.plugins.registry import Contribution\nCONTRIBUTION = Contribution('sso', lambda: object())\n"

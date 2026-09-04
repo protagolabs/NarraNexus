@@ -25,6 +25,7 @@ from typing import Any, Callable, Literal
 
 from loguru import logger
 
+from narranexus.contracts import PluginError
 from narranexus.kernel.plugins.activation import Activator
 from narranexus.kernel.plugins.importer import install_synthetic_package, plugin_finder
 from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryError, RegistryStore
@@ -144,10 +145,7 @@ def boot(
         report.excluded_builtins = left_out
         disabled = set(found.disabled_builtins)
         stage1 = [m for m in distribution.manifests if m.id not in disabled]
-        finder = plugin_finder()
-        for pick in distribution.picks:
-            if pick.path is not None and pick.id not in disabled:
-                _prepare_user_plugin(pick.manifest, pick.path, finder, store)
+        prepare_bundled_plugins(distribution, store, skip=disabled)
 
     builtins = []
     for manifest in stage1:
@@ -159,8 +157,13 @@ def boot(
         removed = registries.remove_owner(manifest.id)
         logger.warning(f"[plugins] {manifest.id}: deps_missing — booting without it ({removed} contribution(s) removed): {status.error}")
 
-    # ---- stage 1: builtins (fail-fast inside load())
+    # ---- stage 1: builtins (fail-fast inside load()); a distribution's bundled
+    # plugin is its own code and fails the boot the same way
     report.builtins = load(registries, builtins, role=role)
+    if distribution is not None:
+        bundled_errors = [f"{pl.plugin_id}: {pl.error}" for pl in report.builtins.loaded if pl.error and pl.plugin_id in {p.id for p in distribution.picks if p.path}]
+        if bundled_errors:
+            raise PluginError(f"distribution {distribution.spec.id}: bundled plugin failed to load — " + "; ".join(bundled_errors))
 
     # ---- stage 2: user plugins, isolated
     users = [m for m in found.manifests if not m.is_builtin]
@@ -220,6 +223,18 @@ def boot(
         f"{report.duration_ms:.0f} ms"
     )
     return report
+
+
+def prepare_bundled_plugins(distribution: DistributionResolution, store: RegistryStore, *, skip: set[str] | frozenset[str] = frozenset()) -> tuple[str, ...]:
+    """Give every bundled (path) plugin of the distribution its synthetic package and private deps so stage 1 can import it. Raises: bundled code is the distribution's own."""
+    finder = plugin_finder()
+    prepared = []
+    for pick in distribution.picks:
+        if pick.path is None or pick.id in skip:
+            continue
+        _prepare_user_plugin(pick.manifest, pick.path, finder, store)
+        prepared.append(pick.id)
+    return tuple(prepared)
 
 
 def _prepare_user_plugin(manifest: Manifest, path: Path, finder: Any, store: RegistryStore) -> None:

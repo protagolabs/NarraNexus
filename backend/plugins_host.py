@@ -157,10 +157,26 @@ def register_builtins_for_import(registries: Registries) -> tuple[str, ...]:
     found = discover(cloud=cloud, host_version=host_version())
     for pid in found.disabled_builtins:
         registries.remove_owner(pid)
+    stage1 = [m for m in found.manifests if m.is_builtin]
+    # Under a distribution the same plugin set the lifespan boot uses: the
+    # builtins it leaves out drop their registrations now (their routers must
+    # never mount) and its bundled plugins get their package so their
+    # contributions register at import like a builtin's.
+    from backend.plugins_boot import distribution, registry_store
+    from narranexus.hosts.boot import prepare_bundled_plugins
+
+    res = distribution()
+    if res is not None:
+        res.raise_for_problems()
+        selected = {m.id for m in res.manifests}
+        disabled = set(found.disabled_builtins)
+        for manifest in stage1:
+            if manifest.id not in selected:
+                registries.remove_owner(manifest.id)
+        stage1 = [m for m in res.manifests if m.id not in disabled]
+        prepare_bundled_plugins(res, registry_store(), skip=disabled)
     loadable = []
-    for manifest in found.manifests:
-        if not manifest.is_builtin:
-            continue
+    for manifest in stage1:
         status = ensure_builtin_deps(manifest, cloud=cloud)
         if status.ok:
             loadable.append(manifest)

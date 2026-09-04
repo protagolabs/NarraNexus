@@ -23,3 +23,5 @@ import 时登记的贡献（模块类等）在 stage1 之前按 owner 移除并 
 Before stage 1 every builtin passes `ensure_builtin_deps` (probe / install on the local build); a builtin whose on-demand dependencies are unavailable is recorded in `BootReport.deps_missing`, its contributions removed, and the boot continues without it.
 
 Batch 6c: `boot(..., distribution=DistributionResolution | None)`. With a distribution the stage-1 set is its plugin set: builtins it leaves out lose their import-time registrations (`report.excluded_builtins`), bundled path plugins get a synthetic package + private deps via `_prepare_user_plugin` and load fail-fast in stage 1, and `runtime.userPlugins=false` skips the user registry. A resolution with problems raises before anything loads. `report.distribution` names the distribution.
+
+Batch 6c.3: `prepare_bundled_plugins(distribution, store, skip)` is the shared helper (boot and the backend's import-time registration) giving bundled path plugins their synthetic package and deps.
