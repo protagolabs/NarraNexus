@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/events.py
-last_verified: 2026-07-29
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 新增 `DATA_TYPE_RETRY`
+
+`DATA_TYPE_RETRY = "response.retry"`：Claude 适配器在订阅账号瞬时错误后、resume 同一
+CLI 会话重试之前发出（见 [[sdk]] `_run_with_transient_retry`）。data 携带
+`error_type`（CLI 枚举）、`attempt`（1 起）、`max_attempts`、`delay_seconds`。
+[[response_processor]] 映射为步骤面板的一条 COMPLETED 信息行；不认识它的 consumer 忽略即可，
+重试那次 run 的事件随后照常到达。是线协议新增值（executor NDJSON 原样转发），
+只加不改，旧 consumer 走 `OTHER` 分支不炸。同一改动里新增常量 `DATA_TYPE_DONE_SUPERSEDED_KEY = "superseded_by_retry"`：被重试替代的那次 run 放行出来的 raw 事件（done / usage）上的可选布尔键，usage 仍要累加、但不代表本轮产出；只有 [[sdk]] 写、只有 [[sdk]] 的 resume 门读。模块 docstring 的 Shapes 块补齐了 `response.usage` / `response.reply.delta` / `response.retry` 与 done 的 `session_id?` / `superseded_by_retry?`（此前三次新增都漏了 Shapes）。
 
 ## 2026-07-29 — 删除 DATA_TYPE_RESUME_FAILED(T5)
 

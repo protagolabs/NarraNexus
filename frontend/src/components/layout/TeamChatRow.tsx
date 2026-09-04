@@ -40,8 +40,6 @@ export interface TeamChatRowProps {
   onSelectMember: (agentId: string) => void;
   onRename: (teamId: string, name: string) => void;
   onDelete: (teamId: string) => void;
-  /** Clear the team's group-chat / shared files (keeps the team + members). */
-  onClearData: (teamId: string) => void;
   /** Create a new agent already assigned to this team (#43). */
   onAddAgent: (teamId: string) => void;
   /** True while an agent create is in flight — disables the Add-agent item. */
@@ -59,7 +57,6 @@ export function TeamChatRow({
   onSelectMember,
   onRename,
   onDelete,
-  onClearData,
   onAddAgent,
   addingAgent,
 }: TeamChatRowProps) {
@@ -160,7 +157,6 @@ export function TeamChatRow({
                     onAddAgent={() => onAddAgent(teamId)}
                     addingAgent={addingAgent}
                     onRename={() => { setNameDraft(teamName); setRenaming(true); }}
-                    onClearData={() => onClearData(teamId)}
                     onDelete={() => onDelete(teamId)}
                   />
                 </div>

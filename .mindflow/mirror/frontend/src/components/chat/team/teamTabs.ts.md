@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/chat/team/teamTabs.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 第四个 tab:manage
+
+`TeamTabId` 加 `'manage'`(Settings2,labelKey `chat.team.manage.title`,无计数),排最后。
+面板见 [[TeamManagePanel.tsx]]。
+
+## 2026-09-03 — 只剩 id + labelKey(切换器退役的连带)
+
+抽屉标题下拉删除后([[../../bookmarks/BookmarkDrawer]]),`teamDrawerCategories`
+与 `TeamTabCounts` 没有消费方,连 lucide/ArtifactsGlyph 图标依赖一起删掉。
+本文件回到最小形态:`TeamTabId` + `TAB_LABEL_KEYS` + `teamTabLabelKey`。
+计数不是丢了而是**搬到入口上**——members/artifacts/files 三枚 member bar
+toggle 各自带计数(见 [[TeamChatPanel.tsx]]),仍然满足「入口必须宣传自己
+的内容」。`Record<TeamTabId,…>` 的穷尽性保留:加面板漏 label 直接编译错。
 
 ## 2026-08-19(二)— 注册表变 builder(带活计数)
 

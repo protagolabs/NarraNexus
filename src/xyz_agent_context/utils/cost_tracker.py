@@ -18,8 +18,9 @@ Architecture:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 from loguru import logger
 
@@ -45,24 +46,112 @@ _cost_context: ContextVar[Optional[Tuple[str, object]]] = ContextVar(
     "_cost_context", default=None
 )
 
+# Which turn the current work belongs to. Deliberately a SEPARATE var rather
+# than a third slot in the tuple above: every helper call site destructures
+# `_agent_id, _db = ctx`, and widening that tuple would break each of them for
+# no gain — the two have different lifecycles anyway (agent+db span a worker
+# pass, the event spans one turn inside it).
+_cost_event_id: ContextVar[Optional[str]] = ContextVar(
+    "_cost_event_id", default=None
+)
+
 
 def set_cost_context(agent_id: str, db) -> None:
     """
     Set global cost tracking context for the current async task.
     Called once by AgentRuntime.run() — all subsequent LLM calls
     in this task automatically use this context.
+
+    Does NOT touch the ambient event id: the two have different lifetimes on
+    purpose, and clearing the event on a mid-turn re-set would drop those
+    tokens off the turn they belong to.
+
+    Prefer ``cost_context_scope`` for any nested / mid-turn use — see its
+    docstring for the failure this unscoped setter has already caused.
     """
     _cost_context.set((agent_id, db))
 
 
 def clear_cost_context() -> None:
-    """Clear the cost tracking context (called in AgentRuntime.run() finally block)."""
+    """Clear the cost tracking context, event id included.
+
+    OUTERMOST use only — a background worker finishing its pass, or
+    ``AgentRuntime``'s post-turn task wrapping up. Calling this partway
+    through a turn empties the turn's own context: everything after it
+    records nothing, and any task spawned later copies the emptied context.
+    Mid-turn callers want ``cost_context_scope`` instead.
+    """
     _cost_context.set(None)
+    _cost_event_id.set(None)
 
 
 def get_cost_context() -> Optional[Tuple[str, object]]:
     """Get the current cost context (agent_id, db), or None if not set."""
     return _cost_context.get()
+
+
+def get_cost_event_id() -> Optional[str]:
+    """Get the turn this context is currently attributed to, or None."""
+    return _cost_event_id.get()
+
+
+def _unwind(var: ContextVar, token) -> None:
+    """Restore ``var`` to its pre-scope value, degrading to a clear.
+
+    ``ContextVar.reset`` raises ``ValueError: Token was created in a different
+    Context`` when the block is unwound somewhere other than where it was
+    entered. An async generator abandoned mid-iteration does exactly that: its
+    ``finally`` runs when the generator is closed or collected, under whatever
+    context happens to be current. Cost tracking is observability, not flow
+    control (iron rule of this module) — so a cross-context unwind clears
+    rather than raising into an unrelated caller's stack.
+    """
+    try:
+        var.reset(token)
+    except ValueError:
+        var.set(None)
+
+
+@contextmanager
+def cost_event_scope(event_id: Optional[str]) -> Iterator[None]:
+    """Attribute every cost recorded inside the block to ``event_id``.
+
+    Entered by ``AgentRuntime.run()`` as soon as Step 0 has run, and unwound on
+    exit — including on the error path, so a failed turn cannot leak its id
+    onto whatever runs next in the same context. Entered unconditionally: a run
+    with no Event row scopes to None, which is how a nested run avoids booking
+    its spend onto the parent turn's id.
+
+    Background Steps 5-6 are spawned from inside this block: ``create_task``
+    copies the context at spawn time, so post-turn hook spend keeps the turn's
+    id even though the task outlives the block.
+    """
+    token = _cost_event_id.set(event_id)
+    try:
+        yield
+    finally:
+        _unwind(_cost_event_id, token)
+
+
+@contextmanager
+def cost_context_scope(agent_id: str, db) -> Iterator[None]:
+    """Set (agent_id, db) for the block, then RESTORE what was there before.
+
+    The restore is the whole point. ``step_3``'s fallback-reply helper used to
+    ``set_cost_context`` and then ``clear_cost_context`` in a finally — inside
+    an async generator, which (PEP 568 never landed) does NOT get its own
+    context copy. So that clear wiped the TURN's own (agent_id, db), not a
+    private copy: every ``record_cost`` after it in that turn found no context
+    and returned early, and Steps 5-6 — spawned later, copying the emptied
+    context — booked nothing at all. Only the fallback paths (``no_reply`` /
+    ``after_error``) were affected, so the account was wrong exactly on the
+    turns that failed, with nothing on screen to show it.
+    """
+    token = _cost_context.set((agent_id, db))
+    try:
+        yield
+    finally:
+        _unwind(_cost_context, token)
 
 
 def warn_missing_usage(source: str, model: str, call_type: str) -> None:
@@ -172,7 +261,11 @@ async def record_cost(
     Args:
         db: AsyncDatabaseClient instance
         agent_id: Agent that incurred the cost
-        event_id: Associated event (None for standalone llm_function calls)
+        event_id: Associated event. None means "ask the ambient context" —
+            helper call sites (llm_function / llm_stream) never know their
+            turn, and hard-coding None there is what kept per-turn token
+            figures counting only the main loop. An explicit id always wins;
+            outside a turn the fallback is None too and the column stays NULL.
         call_type: "agent_loop" | "llm_function"
         model: Model identifier
         input_tokens: Input token count
@@ -183,6 +276,12 @@ async def record_cost(
         cache_creation_tokens: Prompt-cache write tokens
         num_turns: Model calls within this run (None = framework didn't report)
     """
+    # Fall back to the turn this context is attributed to. The var carries a
+    # None default, so "nobody set one" reads back as None rather than raising
+    # — no guard needed, and an unattributed row is the same NULL as before.
+    if event_id is None:
+        event_id = _cost_event_id.get()
+
     cost = calculate_cost(
         model, input_tokens, output_tokens,
         cache_read_tokens=cache_read_tokens,

@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/lib/mock/fixtures.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-03 — `bound_channels` 形状变为 `[{channel, active}]`
+
+跟随 `AgentInfo.bound_channels` 的类型变化（PR #383 评审 M2）。两个自有 agent 分别是
+`[lark(on), slack(off)]` 与 `[telegram(on)]`：slack **故意** `active: false`，因为 mock 模式
+是不连后端就能看到 Dashboard Channels 列「配过但关着」那条渲染（降透明 + `channelOff`
+tooltip）的唯一地方。别人的公开 agent 仍是 `[]`。08-27 条里「`['lark','slack']` 和
+`['telegram']`」的字面量以本条为准。
+
+## 2026-08-27 — 三个 mock agent 有了 `bound_channels`,queue 补三个状态
+
+`AgentInfo.bound_channels` 在 TS 侧是必填,所以三个 fixture 都得填。**没有全填
+`[]`**:两个 agent 分别给了 `['lark','slack']` 和 `['telegram']`,第三个(别人拥有
+的公开 agent)才是 `[]`——mock 模式是 Dashboard Channels 列唯一能不连后端就看到
+真实渲染的地方,全空的话品牌图标行、tooltip、多图标重叠这些全都测不到,等于
+白留了这个 fixture。空列表那个同时演示了「别人的 agent 不暴露集成」这条规则。
+
+三处 `queue` 字面量补了 `cooling` / `paused_no_quota` / `blocked_failed`。这三个
+值目前都是 0,是为了满足 `QueueCounts` 的必填;想看
+队列条的新色段得手工改非零。(渲染它的 `QueueBar` 已于 2026-08-27 删除;
+这三个字段仍是 `QueueCounts` 的必填项,故保留。)
 
 ## 2026-08-19 — `mockCostSummary.by_model` 改回后端真实契约
 

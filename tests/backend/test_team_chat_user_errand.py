@@ -176,3 +176,22 @@ async def test_book_keeping_never_costs_the_user_their_message(
     assert r.status_code == 200, r.text
     rows = await db_client.get("bus_messages", {"channel_id": CHANNEL})
     assert [m["content"] for m in rows] == ["@Bruno pull the Q3 numbers"]
+
+
+@pytest.mark.asyncio
+async def test_the_room_poll_carries_the_patrol_switch(db_client, client, room):
+    """2026-09-03: one feed for the switch, so no panel pulls the board for it.
+
+    Defaults ON for a team with a lead (`patrol_is_on`); the PUT flips it and
+    the next poll says so.
+    """
+    r = client.get(f"/api/teams/{TEAM}/chat/messages", headers={"X-User-Id": OWNER})
+    assert r.status_code == 200
+    assert r.json()["patrol_enabled"] is True
+
+    off = client.put(
+        f"/api/teams/{TEAM}/patrol", json={"enabled": False}, headers={"X-User-Id": OWNER},
+    )
+    assert off.status_code == 200
+    r = client.get(f"/api/teams/{TEAM}/chat/messages", headers={"X-User-Id": OWNER})
+    assert r.json()["patrol_enabled"] is False

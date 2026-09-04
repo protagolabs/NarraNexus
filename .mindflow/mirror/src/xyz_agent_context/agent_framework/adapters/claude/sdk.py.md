@@ -1,10 +1,76 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-08-18
+last_verified: 2026-09-03
 stub: false
 ---
 
-## 2026-08-04 — 消费 expressive_tools：回复面 reminder 上 user message 末尾
+## 2026-09-03 — 订阅账号瞬时错误：报错原样透传 + 同会话 resume 重试
+
+背景：从 SDK 0.1.43 内置 CLI 2.1.56 二进制读出的重试判据是
+`status === 429 → !isSubscriber()` —— claude.ai 订阅（oauth / oauth_token）的 429
+**CLI 一次都不重试**，我们注入的 `CLAUDE_CODE_MAX_RETRIES` 在这条路上是空操作；一次
+「Opus is experiencing high load」或用量窗口就把整轮终止成 `AssistantMessage.error =
+"rate_limit"`。用户侧看到的是我们拼的通用句子，看不到 CLI 正文里的原因与 reset 时间。
+
+两处改动：
+
+1. `_inline_assistant_error_event`：有 assistant 正文时 `error_message` **就是正文原样**
+   （stderr 尾巴若有则追加在后面，`classify_self_serviceable` 仍看得到 token 数等细节）；
+   无正文才退回 `Claude API error: <enum>`。`error_type` 永远是 CLI 枚举，分类器不受影响。
+2. 新增 `_run_with_transient_retry(run_kwargs)` 包住 `_run_once`，冷启动 / resume /
+   resume 被拒后的冷重试三处调用点统一改走它：
+   * 门：`settings.claude_transient_retry_attempts > 0` 且 `claude_config.auth_type ∈
+     _SUBSCRIPTION_AUTH_TYPES` 且错误枚举 ∈ `_TRANSIENT_CLI_ERROR_TYPES`（rate_limit /
+     server_error）且拿得到 session id。任一不满足 → 事件原样透传（改前行为）。
+   * 看到可重试错误先**扣住**，继续读该次 run 的尾巴：出现实质事件（工具调用 / 非空文本 /
+     reply delta，`_is_substantive_event`）说明 CLI 自己续上了 → 按原顺序放行、不重试；
+     只剩 `response.done` 等非实质尾巴 → 丢弃扣住的事件（下游只见一个完成标记）、发
+     `response.retry`（`_retry_notice_event`）、`_wait_before_retry` 与取消令牌竞速地等
+     `_retry_delay_seconds(schedule, attempt)`（"15,30,60"，不够用最后一个值，解析失败 = 0）、
+     清空 stderr 缓存，然后 `resume=<session id>` + `_TRANSIENT_RETRY_NUDGE` 再跑一次
+     （`_run_once` 新增 `user_message` 参数）。
+   * session id：resume 轮 = 我们写的 transcript id；冷轮 = 失败那次 `response.done`
+     里 CLI 报的 `session_id`（没有就不重试）。
+   * 决定重试时，替代掉的那次 run 在错误之后产出的事件**除错误本身外全部放行**
+     （`_is_discarded_on_retry` 写的是"丢什么"：瞬时错误事件 + 零输出标记；done / streamed
+     usage / 空 delta 都放行并打上 [[events]] 的 `DATA_TYPE_DONE_SUPERSEDED_KEY`）：
+     `accumulate_usage` 的唯一来源是 done、按 run 累加，丢掉它就把 429 之前已花的 token
+     漏记。resume 路径的 `yielded_any` 门对 `response.retry` 与带该标记的事件不置位
+     （否则 resume 被拒的零输出冷重试安全网会被记账事件废掉），live run 自己的事件仍照旧置位。
+   * 重试计数是 **turn 级**（`transient_retry_attempt` nonlocal）：一轮最多驱动包装器两次
+     （resume run + 被拒后的 cold run），次数预算与 `response.retry` 的 attempt 编号跨两次
+     连续，步骤 id `3.4.retry.N` 一轮内唯一。
+   * CLI 在错误后自己续上（出现实质事件）而放弃重试时打一条 info 日志，写明是哪种事件。
+   * session id 优先取失败那次 done 里 CLI **上报**的 `session_id`（CLI resume 时 fork 出新
+     会话则以新 id 为准，那份文件才含本轮工具结果），两者不一致打 warning；没有才退回我们
+     的 resume 句柄。
+   * run 在扣住错误后抛异常（CLI 非零退出 → ProcessError / 我们的 subprocess-exited
+     RuntimeError）：先把扣住的事件放行再 re-raise，外层看到的与不重试的适配器完全一致
+     （否则被判成零输出 → 整轮冷重跑 → 工具重复执行）。`GeneratorExit` 直接 raise 不放行。
+   * 续跑提示末尾拼回 `append_reply_reminder` 的回复面提醒（`reply_reminder_suffix`），
+     retry run 的最后一条指令仍点名回复面；retry 前重发 `_log_sysprompt_sha` 哨兵。
+   * 次数用尽 / 退避期被取消 → 扣住的错误事件原样放行，进入既有 recoverable → fallback。
+   * `_wait_before_retry`：取消 awaiter 若以异常结束按"未取消"处理且异常被 retrieve。
+   * 只重试 RUN 不重试 TURN：CLI 自己的会话文件已含本轮所有工具调用与结果，续跑不会
+     重复副作用、也不会重复流式输出——这就是不做整轮冷重跑的原因。
+   * 既有零输出冷重试逻辑不动（`no_output` 不在可重试枚举内）。
+   `options = ClaudeAgentOptions(**options_kwargs)` 的提前构造删除，改为每次 run 内构造。
+
+测试：`tests/agent_framework/test_claude_transient_retry.py`（去掉包装器多例变红；含 Opus 预审坐实的四个破洞的回归：resume 被拒安全网、run 抛异常放行、失败 run 计费、CLI 上报 session 优先）。
+
+## 2026-08-28 — 惰性 import claude_agent_sdk（轻量化插件）
+
+`claude-agent-sdk` 在本地版是**按需安装的插件**，故本模块 import 时**不能**要求
+它在场。改动：顶部加 `from __future__ import annotations`（让 `ClaudeAgentOptions`
+等注解变惰性字符串，签名不再需要 SDK），删掉顶部
+`from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher`，
+改成**模块级 sentinel 全局**（三个名字先 `= None`）+ `_ensure_sdk_imported()`：
+`agent_loop` 入口调它，先 `plugin_paths.activate_pyenv()` 再 `import
+claude_agent_sdk`，**只填仍为 None 的符号**。这样兼顾两点：(1) import 本模块不
+要求插件在场；(2) 保住测试 seam——`test_claude_synthetic_transcript` /
+`test_claude_sdk_resume` 用 `monkeypatch.setattr(sdk, "ClaudeSDKClient", stub)`，
+stub 非 None 会被保留，其余从真 SDK 填。插件运行中装完免重启。到这步框架必已被
+[[driver]] 的 fail-closed 确认已装，故 ImportError 属"不该发生"。
 
 此前 CLI 驱动完全忽略 TurnInput.expressive_tools，回复指令只存在于遥远的
 system prompt——正是 NexusPower 尾部机制要修的 far-from-generation 失效。

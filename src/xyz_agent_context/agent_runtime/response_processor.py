@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
+    DATA_TYPE_RETRY,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_PLAN,
@@ -113,7 +114,17 @@ _AUTH_FAILURE_PHRASES: tuple[str, ...] = (
     "invalid_api_key",
     "incorrect api key",  # OpenAI's bad-key message wording
     "expired token",
-    "401",
+)
+# Bare "401" used to sit in the list above. It also appears inside epoch
+# timestamps ("usage limit reached|1774015401") and token counts, and since
+# the inline CLI error text now rides error_message verbatim (2026-09-03)
+# that haystack is wider — a rate-limit turn was one digit away from being
+# declared a dead login (fatal, fallback skipped). Same narrowing discipline
+# as ``llm/failure.py``'s 403 markers: every part of a group must co-occur.
+_AUTH_FAILURE_AND_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("401", "unauthorized"),
+    ("401", "authentication"),
+    ("401", "invalid"),
 )
 
 
@@ -129,7 +140,9 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
     if et in _AUTH_FAILURE_TYPES or "auth" in et or "unauthor" in et:
         return True
     em = (error_message or "").lower()
-    return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
+    if any(frag in em for frag in _AUTH_FAILURE_PHRASES):
+        return True
+    return any(all(part in em for part in group) for group in _AUTH_FAILURE_AND_GROUPS)
 
 
 # ``AUTH_EXPIRED_ERROR_TYPE`` (imported from schema above) is the
@@ -233,18 +246,21 @@ class ResponseProcessor:
 
     def __init__(self) -> None:
         self._thinking_batcher = _ThinkingBatcher()
-        # Monologue chunks (NexusPower text deltas displayed as thinking)
-        # buffered since the last batcher flush. Kept OUTSIDE the batcher:
-        # the batcher coalesces the display stream (monologue + CoT mixed,
-        # iron rule #16 verbatim), while final_output must receive the
-        # monologue subset only. Drained into record_thinking's
-        # ``monologue`` arg at every flush site.
-        self._pending_monologue: list[str] = []
 
-    def _take_pending_monologue(self) -> str:
-        text = "".join(self._pending_monologue)
-        self._pending_monologue = []
-        return text
+    def _batch_monologue(self, coalesced: str) -> str:
+        """The monologue subset of a just-flushed batch.
+
+        Since 2026-08-30 the batcher refuses to coalesce across a tier
+        switch, so a batch is monologue or CoT and never both — the
+        "subset" is therefore the whole batch or nothing. The separate
+        pending-monologue buffer this used to need is gone with it.
+
+        Keeping the field a STRING (not a bool) is deliberate:
+        ``collect_run.output_text`` relays this text as "what the agent
+        said" (the fix for the group-chat reply that vanished, dev
+        evt_238abc4b0b0c4dca).
+        """
+        return coalesced if self._thinking_batcher.flushed_tier else ""
 
     def process(
         self,
@@ -315,10 +331,10 @@ class ResponseProcessor:
         if not residual:
             return
         thinking_display = format_thinking_for_display(residual)
-        # Drained ONCE per flush; the message and the state update carry
-        # the same subset (message: for collect_run consumers relaying
+        # Read ONCE per flush; the message and the state update carry the
+        # same subset (message: for collect_run consumers relaying
         # output_text; state: for final_output / reasoning persistence).
-        monologue = self._take_pending_monologue()
+        monologue = self._batch_monologue(residual)
         yield ProcessedResponse(
             type=ResponseType.THINKING,
             message=AgentThinking(thinking_content=residual, monologue=monologue),
@@ -400,6 +416,45 @@ class ResponseProcessor:
                     call_id=str(data.get("call_id", "")),
                     tool_name=str(data.get("tool_name", "")),
                 ),
+            )
+
+        if data_type == DATA_TYPE_RETRY:
+            # The adapter is retrying the model call after a transient provider
+            # error (claude_code on a subscription account: the CLI never
+            # retries a 429 for a claude.ai login, so the adapter resumes the
+            # same CLI session). Shown as a step-panel row so the wait is not
+            # silent; the swallowed failure itself never reaches the user —
+            # if every attempt fails, the final error arrives as a normal
+            # DATA_TYPE_ERROR below. COMPLETED, not RUNNING: the popover
+            # treats the last RUNNING step as "what the agent is doing now",
+            # and this row would otherwise stay current after the retry
+            # itself has long since finished.
+            attempt = data.get("attempt", 1)
+            max_attempts = data.get("max_attempts", attempt)
+            delay = data.get("delay_seconds", 0)
+            error_type = data.get("error_type", "api_error")
+            logger.warning(
+                f"[AGENT-LOOP-RETRY] {error_type}: attempt {attempt}/{max_attempts} "
+                f"in {delay}s"
+            )
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=ProgressMessage(
+                    step=f"3.4.retry.{attempt}",
+                    title="Retrying after a transient provider error",
+                    description=(
+                        f"The model provider reported {error_type}; "
+                        f"retrying (attempt {attempt}/{max_attempts}) in {delay:g}s"
+                    ),
+                    status=ProgressStatus.COMPLETED,
+                    details={
+                        "error_type": error_type,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "delay_seconds": delay,
+                    },
+                ),
+                state_update={"method": "increment_response", "args": {}},
             )
 
         if data_type == DATA_TYPE_ERROR:
@@ -576,15 +631,15 @@ class ResponseProcessor:
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
             thinking_content = item.get("content", "")
-            if item.get("monologue"):
-                self._pending_monologue.append(thinking_content)
-            coalesced = self._thinking_batcher.append_thinking(thinking_content)
+            coalesced = self._thinking_batcher.append_thinking(
+                thinking_content, bool(item.get("monologue"))
+            )
             if coalesced is None:
                 return  # still buffering
             thinking_display = format_thinking_for_display(coalesced)
             logger.info(f"  💭 Thinking flush: {len(coalesced)} chars (coalesced)")
-            # Same single-drain discipline as _flush_thinking_residual.
-            monologue = self._take_pending_monologue()
+            # Same single-read discipline as _flush_thinking_residual.
+            monologue = self._batch_monologue(coalesced)
             yield ProcessedResponse(
                 type=ResponseType.THINKING,
                 message=AgentThinking(

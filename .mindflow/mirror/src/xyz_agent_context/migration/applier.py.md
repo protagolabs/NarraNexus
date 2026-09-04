@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/migration/applier.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
+
+## 2026-09-04 — `try/finally` 上移，盖住 agent 创建两步
+
+评审二轮 M1：`add_agent` / `create_agent_level_instances` 抛出时标记也会泄漏。现在
+`try:` 从 `created = False` 起，注释「However this apply ends」成为实话。
+
+## 2026-09-03 (评审修订) — `hurry.clear` 真的在 `finally` 里了
+
+评审 I4：注释承诺 finally，代码平铺在函数尾；步骤 0–5 里任何裸调用抛出都会让标记
+泄漏进进程级注册表，用户对同一行点 Retry 就会无故降级。步骤 0–5 抽成 `_populate`，
+`apply_plan` 用一个 `try/finally` 包住。测试 `test_hurry_mark_is_dropped_when_the_apply_raises`。
 
 ## 2026-08-17 — 默认串在归一之后判
 
@@ -100,3 +111,17 @@ counts.
   helper task (see `providers.resolver.inject_owner_helper_credentials`). Verified
   live: with it, the summary uses the user's anthropic helper (real keywords);
   without it, 401 → fallback.
+
+## 2026-09-03 — hurried imports
+
+`apply_plan` takes an optional `import_id` and re-reads [[hurry]] **before every
+session**: once the user has pressed stop, the remaining sessions take
+`_fallback_summary` (title + raw transcript) instead of a helper-LLM call. The
+loop, not the request boundary, is where this has to happen — sessions are
+summarized serially, one model call each, so "finish the current project" was an
+unbounded wait (Owner objection 2026-09-03). Nothing is skipped and nothing is
+aborted: every session still becomes a Narrative, and `summaries_degraded` counts
+the plain ones so the UI can state the trade instead of hiding it.
+
+The deterministic fallback is not new — it already covered LLM failure and empty
+sources; this change just makes it reachable on purpose.

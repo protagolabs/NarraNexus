@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-21
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — Reply Discipline 两条加宽
+
+「Do NOT repeat yourself」→「— or anyone else」:队友已说/已接受的不要复述回去,不要发
+会话已有内容的总结;「Substance only」加「not a reply that only agrees」。
+同一目标的团队房侧改动在 [[../../message_bus/message_bus_trigger]]。
+
 
 ## 2026-08-21 — 通信能力跟着 agent 走：合并后的 review 收尾（🟢×4）
 

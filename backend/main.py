@@ -512,6 +512,7 @@ from backend.routes.marketplace_skills import router as marketplace_skills_route
 from backend.routes.marketplace_teams import router as marketplace_teams_router
 from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
+from backend.routes.plugins.routes import router as plugins_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
 from backend.routes.dashboard.routes import router as dashboard_router
@@ -566,6 +567,7 @@ app.include_router(
 )
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
+app.include_router(plugins_router, tags=["Plugins"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])

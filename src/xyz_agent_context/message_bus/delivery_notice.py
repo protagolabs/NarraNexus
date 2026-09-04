@@ -23,8 +23,9 @@ so its notice carries a mention and wakes it — a hanging errand resolves itsel
 instead of waiting forever (PRD 2026-08-04 §四, "A2A 空回复").
 
 Deliberately NOT folding the NexusPower monologue into the reply as a fallback
-for (3). The monologue contract promises the agent its plain text is private
-deliberation; relaying it to a peer would leak reasoning the agent never
+for (3). The monologue contract promises the agent its plain text is never
+DELIVERED — visible to its owner as working narration, but addressed to no
+one. Relaying it to a peer would deliver deliberation the agent never
 addressed to anyone (see run_collector.collect_run's ``include_monologue``).
 Saying "nothing was delivered" is honest and leaks nothing.
 
@@ -70,11 +71,11 @@ async def announce_undelivered(
 ) -> bool:
     """Say that ``agent_id``'s turn delivered nothing. True if the line landed.
 
-    ``mentions`` is the whole difference between the two call sites. A team
-    room passes none: nobody is blocked on the silence, and waking every
-    member over it would be worse than the silence itself. An A2A DM passes
-    the peer that asked, because that peer IS blocked and only a message wakes
-    it.
+    Called for A2A DMs only since 2026-09-03 — a team-room silence is marked
+    on the member's activity row instead (`activity.note_silent_turn`), never
+    posted. ``mentions`` names the peer that asked when that peer IS blocked
+    and only a message wakes it; None when the silence answered our own
+    errand and nobody is waiting.
     """
     return await _post(
         bus, channel_id, agent_id,

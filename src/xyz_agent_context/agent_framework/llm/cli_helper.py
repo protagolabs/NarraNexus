@@ -161,6 +161,13 @@ class CliHelperSDK:
         api_key makes the CLI read ~/.claude credentials, exactly like the
         agent loop. Returns (text, input_tokens, output_tokens).
         """
+        # Put a just-installed Claude Code plugin on sys.path first, so the
+        # helper-LLM path also works without an app restart (not only the agent
+        # driver). The module-import-time activate_pyenv only covers plugins
+        # present at startup.
+        from xyz_agent_context.agent_framework import plugin_paths
+
+        plugin_paths.activate_pyenv()
         from claude_agent_sdk import (
             AssistantMessage,
             ClaudeAgentOptions,
@@ -283,7 +290,7 @@ class CliHelperSDK:
             _codex_ctx,
         )
         from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CODEX_CLI_CREDENTIALS_REF,
+            derive_auth_ref,
         )
 
         # Run codex on the HELPER's own model + credentials, not the agent's.
@@ -294,8 +301,11 @@ class CliHelperSDK:
             model=model_name,
             auth_type=_auth_type,
             # OAuth stages ~/.codex/auth.json via this ref (to_cli_env /
-            # _stage_codex_oauth_credentials read it); api-key codex uses the key.
-            auth_ref=(CODEX_CLI_CREDENTIALS_REF if _auth_type == "oauth" else ""),
+            # _stage_codex_oauth_credentials read it); api-key codex uses
+            # the key. Same derive.py truth table as every other producer;
+            # source is the literal "codex_oauth" because this constructor
+            # is codex by definition.
+            auth_ref=derive_auth_ref("codex_oauth", _auth_type) or "",
         )
         _codex_token = _codex_ctx.set(_helper_codex)
         try:

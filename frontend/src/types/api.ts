@@ -271,6 +271,14 @@ export interface EventLogTimelineEntry {
   tool_input?: Record<string, unknown>;
   tool_output?: string;
   reply_via?: string;
+  /**
+   * `thinking` entries only: this block is NexusPower's own narration rather
+   * than provider chain-of-thought, so it replays at the PROGRESS tier. The
+   * backend already resolved the tier (a mixed block reports false), so this
+   * is a plain bool here while the live frame carries the subset text.
+   * Absent on rows persisted before the field existed → plain thinking.
+   */
+  monologue?: boolean;
 }
 
 // Mirrors backend EventLogMeta — run-level header for the activity card:
@@ -376,6 +384,13 @@ export interface ActiveRunInfo {
   current_stage?: string;
 }
 
+/** One channel an owned agent is bound to. `active` false = configured but
+ *  switched off (the credential's enable switch is 0). */
+export interface BoundChannel {
+  channel: string;
+  active: boolean;
+}
+
 export interface AgentInfo {
   agent_id: string;
   name?: string;
@@ -384,6 +399,21 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  /**
+   * Effective agent-slot runtime identity, resolved server-side through the
+   * same overlay the runtime dispatches on (a rebinding per-agent override,
+   * else the owner's default, else the platform default). Present for the
+   * viewer's OWN agents only; absent for someone else's public agent, and
+   * the UI renders absent as '—' rather than inventing a brand.
+   */
+  agent_framework?: string;
+  model?: string;
+  /**
+   * Channels bound to this agent, each with its on/off state. Always [] for a
+   * public agent owned by someone else — another user's integrations are not
+   * the viewer's business.
+   */
+  bound_channels: BoundChannel[];
   bootstrap_active?: boolean;
   /** Per-agent first-run greeting (Arena etc.); falls back to the generic
    *  constant when absent. Must match the DB-persisted greeting so the
@@ -476,6 +506,9 @@ export interface OnboardingProgress {
   first_agent_created: boolean;
   template_applied: boolean;
   dismissed: boolean;
+  /** The one-time first-run flow (WelcomePage) has been seen — finished OR
+   *  skipped. Server-side so another browser/machine doesn't replay it. */
+  landing_completed: boolean;
 }
 
 export interface OnboardingResponse extends ApiResponse {
@@ -748,6 +781,9 @@ export interface QueueCounts {
   blocked: number;
   paused: number;
   failed: number;
+  cooling: number;
+  paused_no_quota: number;
+  blocked_failed: number;
   total: number;
 }
 
@@ -1352,10 +1388,38 @@ export interface SlotOverrideStats {
   total_agents: number;
 }
 
-/** Per owned-agent effective model per slot, for the Dashboard model chip. */
-export interface AgentModelOverview {
-  [agentId: string]: {
-    agent: { model: string; inheriting: boolean };
-    helper_llm: { model: string; inheriting: boolean };
+// ── local-only plugin installs (Settings › Plugins) ────────────────────────
+// Claude Code / Codex CLI are user-installed local plugins rather than
+// baked into the desktop image, so the frontend has to show install state
+// and drive a pip/npm install through the backend orchestrator.
+export type PluginId = 'claude_code' | 'codex_cli';
+
+export interface PluginStatus {
+  id: PluginId;
+  display_name: string;
+  installed: boolean;
+  version: string | null;
+  target_version: string;
+  update_available: boolean;
+  logged_in: boolean;
+  size_hint: string;
+  /** An install/uninstall is in flight for this plugin right now. */
+  busy: boolean;
+}
+
+export interface PluginsListResponse extends ApiResponse {
+  data?: {
+    plugins: PluginStatus[];
+    /** Cloud deployments manage plugins centrally — the panel hides itself. */
+    cloud_managed: boolean;
   };
 }
+
+export interface PluginUninstallResponse extends ApiResponse {
+  data?: PluginStatus;
+}
+
+/** One line of the `POST /api/plugins/{id}/install` ndjson stream. */
+export type PluginInstallEvent =
+  | { done: false; phase: 'pip' | 'npm'; line: string }
+  | { done: true; ok: boolean; error: string | null; status: PluginStatus | null };

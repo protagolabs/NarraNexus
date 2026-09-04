@@ -15,6 +15,7 @@
 import { create } from 'zustand';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed_v1';
+const INTERIM_NARRATION_KEY = 'interim_narration_v1';
 
 function readInitialCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -22,6 +23,18 @@ function readInitialCollapsed(): boolean {
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
   } catch {
     return false;
+  }
+}
+
+/** Default ON: the narration is the agent telling you what it is about to do,
+ *  which is signal. Only an explicit '0' turns it off, so a fresh profile and
+ *  an unavailable localStorage both land on the default. */
+function readInitialInterimNarration(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(INTERIM_NARRATION_KEY) !== '0';
+  } catch {
+    return true;
   }
 }
 
@@ -37,6 +50,16 @@ interface UIState {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
+
+  /** Render NexusPower's own narration at the "progress" tier (legible,
+   *  always open) instead of letting it recede like provider chain-of-thought.
+   *  Purely a display preference — the frames are identical either way, only
+   *  the tier changes, so turning it off restores the pre-A′ look and loses no
+   *  content. Kept client-side (localStorage, default on) on purpose: what it
+   *  governs is whether the reader finds it noisy, which is the reader's call,
+   *  not a platform risk needing a backend flag. Persisted. */
+  interimNarration: boolean;
+  setInterimNarration: (on: boolean) => void;
 
   /** ⌘K command palette. The palette element is hosted once in MainLayout;
    *  triggers live in the sidebar (Chats search) and the mobile top strip. */
@@ -72,6 +95,14 @@ export const useUIStore = create<UIState>((set) => ({
       } catch { /* non-fatal */ }
       return { sidebarCollapsed: next };
     }),
+
+  interimNarration: readInitialInterimNarration(),
+  setInterimNarration: (on) => {
+    try {
+      window.localStorage.setItem(INTERIM_NARRATION_KEY, on ? '1' : '0');
+    } catch { /* storage unavailable — the preference just won't persist */ }
+    set({ interimNarration: on });
+  },
 
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),

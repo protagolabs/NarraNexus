@@ -2,9 +2,11 @@ import { getAuthHeaders } from './authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 export type ProductEventName =
-  | 'setup_entered'
-  | 'setup_skipped'
-  | 'setup_completed'
+  // First-run flow (WelcomePage). Replaced setup_* when /setup's single
+  // provider screen became step 1 of the welcome flow — 2026-08-27.
+  | 'welcome_entered'
+  | 'welcome_skipped'
+  | 'welcome_completed'
   | 'workspace_ready'
   | 'message_submitted'
   | 'reply_rendered'

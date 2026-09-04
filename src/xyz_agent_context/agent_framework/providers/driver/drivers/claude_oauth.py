@@ -98,6 +98,24 @@ class ClaudeOAuthDriver(_DriverBase):
         the real verdict. It stays cheap (no network) because the Settings
         page calls it on every load.
         """
+        # Source guard FIRST — before the token/host mode split, so a
+        # misrouted card never gets mode-specific advice it cannot act on.
+        # test_provider's legacy driver_type fallback routes any
+        # anthropic-protocol oauth/oauth_token row here precisely when
+        # driver_type is NULL, so a hand-crafted custom card
+        # (source="user") can land in this driver. Guard on source, NOT
+        # driver_type (its being NULL is the misroute's cause) — and
+        # never advise removal: remove_provider wipes the card's
+        # per-agent slot overrides.
+        if (self.card.source or "").lower() != "claude_oauth":
+            return DriverHealth(
+                ok=False,
+                detail=(
+                    "this provider is not a Claude Code (OAuth) card — "
+                    "to use a Claude subscription, add a Claude Code "
+                    "(OAuth) card in Settings → LLM Providers instead"
+                ),
+            )
         if self._is_token_mode():
             token = self.card.api_key or ""
             if not token:
@@ -125,9 +143,19 @@ class ClaudeOAuthDriver(_DriverBase):
 
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
+            # Creation writes the claude-cli: sentinel at insert time and
+            # ProviderCard.from_row derives it for older rows, so reaching
+            # this branch means the stored reference itself is malformed —
+            # a genuinely corrupt row. Tell the user the way out, not the
+            # internal column name (P1: the Test dialog showed "auth_ref
+            # is missing" verbatim).
             return DriverHealth(
                 ok=False,
-                detail="auth_ref is missing or not a claude-cli: reference",
+                detail=(
+                    "this Claude Code (OAuth) provider is missing its "
+                    "credential reference — remove it and re-add Claude "
+                    "Code (OAuth) in Settings → LLM Providers"
+                ),
             )
         if path.is_file():
             return DriverHealth(ok=True, detail=f"credentials present at {path}")
@@ -235,6 +263,12 @@ class ClaudeOAuthDriver(_DriverBase):
                 return VERIFY_UNKNOWN, f"could not stage credentials: {summary}"
 
         async def _one_shot() -> tuple[VerifyVerdict, str]:
+            # Activate a just-installed Claude Code plugin first (the "Verify"
+            # button can be the first thing a user hits after installing, before
+            # any agent driver ran). See plugin_paths.activate_pyenv.
+            from xyz_agent_context.agent_framework import plugin_paths
+
+            plugin_paths.activate_pyenv()
             from claude_agent_sdk import (
                 AssistantMessage,
                 ClaudeAgentOptions,

@@ -1,8 +1,49 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-26
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 删 `getAgentsModelOverview`
+
+后端端点已删（评审 I6）；每 agent 的有效模型/框架来自 `getAgents()` 的
+`agent_framework` / `model`。
+
+## 2026-09-03 — `setTeamPatrol` 带 15s 超时
+
+`PATROL_WRITE_TIMEOUT_MS = 15_000` 导出;`setTeamPatrol` 的 fetch 加 `signal: AbortSignal.timeout(...)`。
+原因:[[../stores/teamsStore]] 在这个 PUT 飞行期间把巡查开关标成 in-flight(轮询忽略、按钮禁用),
+一个永不 settle 的请求会把该状态钉死;超时会 reject 走 store 的回滚。api 层其它请求未改。
+
+
+## 2026-08-28 — 插件安装三件套 + `getAgentFramework` 加 `frameworks`
+
+`getPlugins()` / `uninstallPlugin(id)` 走既有 `request<T>()`；`installPlugin(id,
+onEvent)` **不走** `request<T>()` —— `/api/plugins/{id}/install` 的响应体是
+ndjson 逐行流（`Content-Type: application/x-ndjson`），不是单个 JSON 文档，
+`request<T>()` 的 `response.json()` 只会解析出第一行就返回或直接炸掉。改用
+`response.body.getReader()` 手动累积 `TextDecoder` 输出、按 `\n` 切行，每行
+`JSON.parse` 后回调 `onEvent`；末尾 `done: true` 帧既回调也作为函数返回值。
+一行跨两个网络 chunk 到达是正常情况（TCP 不保证消息边界），所以用
+`buffer` 累积而不是假设每个 `read()` 恰好是整行——见同名 vitest 用例
+"a line split across two stream chunks"。非 2xx（如云端 403：插件由云端集中
+管理）直接抛 `ApiError`，不进入流式解析分支。
+
+`getAgentFramework()` 返回类型新增可选 `frameworks?: Array<{name, available}>`
+——插件安装态的门禁，[[agentFramework]] 的 `frameworkAvailabilityMap` 消费。
+可选是因为要在没升级的后端下仍然类型检查通过。
+## 2026-08-28 — providers 族三个新方法 + ApiError.detail(P0 review 第 3 轮)
+
+`addProvider` / `getClaudeStatus` / `getCodexStatus` 收进 ApiClient——
+review 判定 providersApi 的裸 fetch 版本是"同一资源的第二套客户端",
+绕过了本类的 session-death 守卫(2026-08-02 的 /api/providers 401 事故
+正是这条资源)与 FastAPI detail 提取。`ApiError` 增加 `detail` 字段
+(裸 detail,'' = body 无 detail):展示用户文案的调用方要它而非带
+"API error 400:" 前缀的 message;`providerErrorMessage`(providersApi)
+基于它做统一映射。`getProviders` 的 providers 值类型从
+`Record<string, unknown>` 收紧为 `Record<string, ProviderRow>`(type-only
+import 自 providersApi,无运行时环;ProviderSummaryCard 的 ProviderInfo 现为
+ProviderRow 别名,cast 已删)。
 
 ## 2026-08-26 — owner 级 bulk slot 方法
 
@@ -338,7 +379,7 @@ Every panel and store needs to talk to the backend. Without a centralized HTTP c
 
 Imports `getApiBaseUrl` from `stores/runtimeStore` — the single source of truth for base URL across the app. `getApiBaseUrl` is re-exported from `api.ts` as `getBaseUrl` for backward compatibility (some older call sites use `getBaseUrl`).
 
-Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`SetupPage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
+Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`WelcomePage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
 
 ## Design decisions
 
@@ -419,3 +460,14 @@ void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正
 引导 Agent 接替新手引导）。`markOnboardingStep`（写方）保留——
 useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 幂等标记与之共用同一 metadata blob。
+
+## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
+
+`frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。
+
+## 2026-08-27 — onboarding read + landing flag
+
+`getOnboarding()` was added (the GET had no frontend caller for a while) because
+[[App]]'s root redirect needs `landing_completed` to decide whether a user still
+owes the first-run flow. `markOnboardingStep` accepts `'landing_completed'`,
+which [[WelcomePage]] writes on every exit — finish, skip, or nothing-to-do.

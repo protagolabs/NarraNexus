@@ -77,7 +77,7 @@
       "downloadMd": ".md としてダウンロード"
     },
     "timeline": {
-      "thinking": "思考",
+      "thought": "思考済み",
       "toolLabel": "[ ツール ]",
       "outputLabel": "[ 出力 ]",
       "reply": "返信",
@@ -140,7 +140,7 @@
         "mention": "@ でメンバーを指名すると、その相手が直接対応します。",
         "broadcastTitle": "全員に一斉送信",
         "broadcast": "@all は全員に届きます。各メンバーが 1 ターンずつ実行するため、控えめに使ってください。",
-        "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎは 4 回で停止します。"
+        "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎはプラットフォームの上限で停止し、ルームにその旨が表示されます。"
       },
       "noProcess": "このターンの処理記録はありません",
       "detailLoadFailed": "プロセスの読み込みに失敗しました。もう一度お試しください。",
@@ -156,7 +156,8 @@
         "stopping": "停止中…",
         "stopped": "オーナーにより停止されました",
         "stopFailed": "この実行を停止できませんでした",
-        "stopHint": "この実行を停止"
+        "stopHint": "この実行を停止",
+        "silentLastTurn": "前回のターン：発言なし"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
       "leadTitle": "{{name}} · 誰も @ されていないときに対応",
@@ -178,8 +179,6 @@
           "stalled": "停滞",
           "paused": "一時停止"
         },
-        "turnOff": "オフ",
-        "turnOn": "オン",
         "awaitingReply": "返信待ち",
         "nameSep": "、"
       },
@@ -203,7 +202,15 @@
         "download": "{{name}} をダウンロード",
         "loading": "読み込み中…"
       },
-      "drawerCategory": "チームルーム"
+      "manage": {
+        "title": "チーム管理",
+        "patrol": "リーダー巡回",
+        "patrolHint": "オンにするとリーダーが停滞した引き継ぎを定期的に催促します。オフではボードのみ残ります。",
+        "patrolOn": "オン",
+        "patrolOff": "オフ",
+        "editProfile": "プロフィール編集（名前 / 色 / 紹介）",
+        "clearData": "データを消去…"
+      }
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -273,16 +280,15 @@
     },
     "process": {
       "plan": "プラン",
-      "title": "エージェント · プロセス",
       "ops": "回の操作"
     },
     "header": {
-      "sessionLabel": "セッション · {{time}}",
       "detailMenuTitle": "エージェント詳細 — パネル",
-      "modelFramework": "モデルとフレームワーク",
-      "switchAgent": "エージェントを切り替え"
+      "viewProfile": "エージェントのプロフィールを表示"
     },
-    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
+    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。",
+    "activityEmpty": "バックグラウンド活動はまだありません",
+    "activityEmptyHint": "エージェントが自ら開始した実行（ジョブ、チャネル、チームメイト）はここに表示されます。"
   },
   "awareness": {
     "common": {
@@ -611,19 +617,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "キュー",
-      "jobs": "ジョブ",
-      "totalInQueue": "キューに {{count}} 件のジョブ"
-    },
-    "jobState": {
-      "running": "実行中",
-      "active": "アクティブ",
-      "pending": "待機中",
-      "blocked": "ブロック",
-      "paused": "一時停止",
-      "failed": "失敗"
-    },
     "jobStateLabel": {
       "running": "実行中",
       "active": "アクティブ",
@@ -648,25 +641,6 @@
         "up": "昨日より遅い",
         "down": "昨日より速い",
         "flat": "昨日と同じ"
-      }
-    },
-    "jobs": {
-      "title": "ジョブ（{{count}}）",
-      "running": "{{count}} 件実行中",
-      "step": "ステップ {{current}}/{{total}}",
-      "next": "次回 {{time}}",
-      "action": {
-        "retry": "再試行",
-        "pause": "一時停止",
-        "resume": "再開",
-        "failed": "{{label}}に失敗"
-      },
-      "detail": {
-        "manual": "（手動）",
-        "nextRun": "次回実行",
-        "iterations": "反復回数",
-        "trigger": "トリガー",
-        "lastError": "最新エラー"
       }
     },
     "sessions": {
@@ -722,16 +696,10 @@
       "noAgentsShort": "エージェントはまだありません。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "キャンセル（Esc）",
       "publicBy": "公開 · {{name}} による"
     },
     "agentRowMenu": {
       "options": "エージェントのオプション",
-      "rename": "名前を変更",
-      "edit": "編集…",
-      "setPrivate": "非公開にする",
-      "setPublic": "公開にする",
       "clearData": "データを消去",
       "delete": "削除"
     },
@@ -760,7 +728,6 @@
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
-      "clearData": "データを消去",
       "delete": "削除",
       "addAgent": "エージェントを追加",
       "addingAgent": "追加中…"
@@ -1073,8 +1040,7 @@
     "drawer": {
       "unpin": "パネルのピンを外す",
       "pin": "パネルをピン留め",
-      "close": "パネルを閉じる",
-      "switchPanel": "パネルを切り替え"
+      "close": "パネルを閉じる"
     },
     "coach": {
       "title": "アーティファクトはここに表示されます",
@@ -1289,7 +1255,23 @@
       "noTeamsLabel": "チームがまだありません",
       "noTeamsHint": "サイドバーの New メニューから作成できます。",
       "manageTeam": "管理",
-      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。"
+      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。",
+      "colLeader": "リーダー",
+      "colCreatedBy": "作成者",
+      "colChannels": "チャネル",
+      "colFramework": "フレームワーク",
+      "colModel": "モデル",
+      "colLastActive": "最終アクティブ",
+      "noLeader": "リーダーなし",
+      "teamProfileNoDescription": "チームの説明はありません。",
+      "agentProfileNoDescription": "説明はありません。",
+      "memberRuntimeLabel": "ランタイム",
+      "memberModelLabel": "モデル",
+      "memberOwnerLabel": "オーナー",
+      "memberPrivate": "非公開",
+      "memberPublic": "公開",
+      "openProfile": "{{name}} のプロフィールを開く",
+      "channelOff": "{{name}} · オフ"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1305,14 +1287,6 @@
       "failed": "ユーザーの作成に失敗しました",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
     },
-    "setup": {
-      "sectionLabel": "セットアップ · LLM プロバイダーの設定",
-      "title": "LLM プロバイダーの設定",
-      "subtitle": "NarraNexus が言語モデルに接続できるよう、API キーを設定します。",
-      "skipForNow": "今はスキップ",
-      "getStarted": "始める",
-      "done": "完了"
-    },
     "settings": {
       "title": "設定",
       "nav": {
@@ -1322,7 +1296,8 @@
         "providers": "LLM プロバイダー",
         "modelDefaults": "モデル既定値",
         "artifacts": "アーティファクト",
-        "updates": "アプリ更新"
+        "updates": "アプリ更新",
+        "plugins": "プラグイン"
       },
       "providers": {
         "label": "LLM プロバイダー"
@@ -1368,7 +1343,9 @@
       },
       "personalization": {
         "label": "パーソナライズ",
-        "hint": "テーマと言語。今後追加予定。"
+        "hint": "テーマ、言語、そしてエージェントの進捗メモの表示方法。",
+        "narrationTitle": "進捗ナレーション",
+        "narrationHint": "エージェントがステップの合間に書くメモを会話内に読みやすく表示し、実行全体を一つの折りたたみに収めません。"
       }
     },
     "system": {
@@ -1444,7 +1421,8 @@
       "addedToTeamResultWithFailures": "{{success}} 件追加、{{failedCount}} 件失敗（{{failedIds}}）。",
       "removedFromTeamTitle": "チームから削除しました",
       "removedFromTeamMessage": "{{count}} 件のエージェントをチームから削除しました。",
-      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。"
+      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。",
+      "openChat": "チャットを開く"
     },
     "bundleImport": {
       "installTemplate": "テンプレートをインストール",
@@ -1797,6 +1775,109 @@
     },
     "account": {
       "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"
+    },
+    "agentProfile": {
+      "breadcrumb": "エージェント",
+      "backToChat": "チャット",
+      "overview": "概要",
+      "capabilities": "機能",
+      "settings": "設定",
+      "views": "エージェントプロフィールのビュー",
+      "chat": "チャット",
+      "running": "実行中",
+      "idleStatus": "アイドル",
+      "currentTask": "現在のタスク",
+      "idle": "現在実行中のタスクはありません。",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} 件の Job",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} 件の会話",
+      "overviewCardLabel": "エージェント概要",
+      "jobsNoun": "件の Job",
+      "inboxNoun": "件の会話",
+      "jobsRunningFlag": "実行中",
+      "inboxUnreadFlag": "未読 {{count}} 件",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} 件接続済み",
+      "noSkills": "Skill は未インストールです",
+      "noMcp": "MCP サーバーはありません",
+      "moreCount": "他 {{count}} 件",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model と Framework",
+      "modelFrameworkHint": "エージェントの次回実行で使用される実際のランタイム設定です。",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "設定",
+      "general": "一般",
+      "generalHint": "このエージェントがワークスペースでどう表示されるかを管理します。",
+      "avatar": "アバター",
+      "avatarHint": "タスクの割り当て、アクティビティ、チャットに表示されます。",
+      "name": "名前",
+      "description": "説明",
+      "saveGeneral": "変更を保存",
+      "saving": "保存中…",
+      "saved": "保存しました",
+      "saveFailed": "変更を保存できませんでした。",
+      "missingAgent": "エージェントが選択されていません",
+      "notFound": "エージェントが見つかりません",
+      "activity": "アクティビティ",
+      "activityLast24h": "過去 24 時間",
+      "activityToday": "今日",
+      "activityAxisStart": "24 時間前",
+      "activityAxisNow": "現在"
+    },
+    "welcome": {
+      "logout": "ログアウト",
+      "continue": "続ける",
+      "rail": {
+        "model": {
+          "title": "モデルをつなぐ",
+          "detail": "キーは1つで十分 — いつでも差し替えられます。"
+        },
+        "import": {
+          "title": "エージェントを引き継ぐ",
+          "detail_one": "このマシンで {{count}} 件見つかりました。",
+          "detail_other": "このマシンで {{count}} 件見つかりました。"
+        },
+        "agent": {
+          "title": "{{name}} に会う",
+          "detail": "最初のエージェントが待っています。"
+        }
+      },
+      "model": {
+        "title": "まずモデルをつなぎましょう。",
+        "skip": "今はスキップ — キーは後で設定から追加できます",
+        "advanced": "詳細設定 — サブスクリプションでのサインイン、カスタムエンドポイント、スロットごとのモデル",
+        "subscriptionTitle": "Claude または ChatGPT のサブスクリプションを使う",
+        "subscriptionSubtitle": "API キーは不要 — お持ちのサブスクリプションでサインインします。"
+      },
+      "import": {
+        "title": "すでにあるエージェントを引き継ぐ。",
+        "subtitle": "すべてこのマシンから読み取ります — アップロードはしません。",
+        "lede": "チェックしたものは NarraNexus のエージェントになり、会話履歴は記憶として引き継がれます。",
+        "importAndContinue_one": "{{count}} 件をインポートして続ける",
+        "importAndContinue_other": "{{count}} 件をインポートして続ける",
+        "skip": "この手順をスキップ"
+      },
+      "agent": {
+        "title": "{{name}} に会う。",
+        "subtitle": "ログイン時にあなたのために作られた最初のエージェント。二人で話したことをすべて覚えています — それが NarraNexus と使い捨てチャットの違いです。",
+        "role": "あなたのガイド · シリコン",
+        "capMemory": "ストーリーとして残る長期記憶",
+        "capCheckin": "毎日あなたに声をかけます",
+        "cta": "NarraNexus を使い始める",
+        "skip": "そのままアプリへ",
+        "preparingTitle": "最初のエージェントを準備中…",
+        "preparingSubtitle": "名前と性格を選んでいます。数秒お待ちください。",
+        "notReady": "最初のエージェントはまだ作成中です — まもなくサイドバーに表示されます。",
+        "fallbackName": "あなたのエージェント",
+        "rename": "名前を変更"
+      }
     }
   },
   "rail": {
@@ -1860,9 +1941,6 @@
       "cancelled": "キャンセル済み"
     },
     "metrics": {
-      "active": "実行中",
-      "success": "成功",
-      "failed": "失敗",
       "rate": "成功率"
     },
     "view": {
@@ -1971,17 +2049,6 @@
       "waiting": "待機中...",
       "noTimeData": "時間データなし"
     },
-    "distribution": {
-      "title": "ステータス分布",
-      "total": "合計 {{count}} 件",
-      "legend": {
-        "completed": "完了 {{count}} 件",
-        "running": "稼働中 {{count}} 件",
-        "active": "実行中 {{count}} 件",
-        "paused": "一時停止 {{count}} 件",
-        "failed": "失敗 {{count}} 件"
-      }
-    },
     "editSchedule": {
       "title": "実行時刻の変更",
       "hint": "このジョブの実行タイミングを調整します。変更は次回実行時に反映されます。",
@@ -2001,6 +2068,18 @@
       "modeLabel": "トリガー方式",
       "modeInterval": "間隔",
       "modeCron": "Cron 式"
+    },
+    "row": {
+      "every": "{{interval}} ごと",
+      "daily": "毎日 {{time}}",
+      "hourly": "毎時 :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "単発 {{time}}",
+      "afterDeps": "{{n}} 件のジョブ待ち",
+      "next": "次回 {{time}}",
+      "elapsed": "経過 {{duration}}",
+      "failedAt": "失敗 {{time}}",
+      "lastRun": "前回 {{time}}"
     }
   },
   "artifacts": {

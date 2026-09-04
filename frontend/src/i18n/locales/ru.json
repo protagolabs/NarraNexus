@@ -77,7 +77,7 @@
       "downloadMd": "Скачать как .md"
     },
     "timeline": {
-      "thinking": "Размышление",
+      "thought": "Обдумано",
       "toolLabel": "[ инструмент ]",
       "outputLabel": "[ вывод ]",
       "reply": "Ответ",
@@ -142,7 +142,7 @@
         "mention": "Упомяните участника через @, чтобы обратиться к нему напрямую.",
         "broadcastTitle": "Сообщение всем",
         "broadcast": "@all обращается ко всем — каждый участник выполнит полный ход, поэтому используйте осторожно.",
-        "relay": "Участники могут передавать работу друг другу через @; без вашего сообщения эстафета останавливается после 4 передач."
+        "relay": "Участники могут передавать работу друг другу через @; без вашего сообщения цепочка останавливается на лимите платформы, и комната сообщает об этом."
       },
       "noProcess": "Нет записи процесса для этого хода",
       "detailLoadFailed": "Не удалось загрузить ход выполнения. Попробуйте ещё раз.",
@@ -158,7 +158,8 @@
         "stopping": "Остановка…",
         "stopped": "Остановлено владельцем",
         "stopFailed": "Не удалось остановить этот запуск",
-        "stopHint": "Остановить этот запуск"
+        "stopHint": "Остановить этот запуск",
+        "silentLastTurn": "Последний ход: ничего не сказал"
       },
       "emptyHintWithLead": "Отправьте сообщение, чтобы начать — им займётся {{name}}, либо обратитесь к кому-то другому через @.",
       "leadTitle": "{{name}} · отвечает, когда никто не упомянут",
@@ -180,8 +181,6 @@
           "stalled": "застряла",
           "paused": "приостановлена"
         },
-        "turnOff": "Выключить",
-        "turnOn": "Включить",
         "awaitingReply": "ожидает ответа",
         "nameSep": ", "
       },
@@ -205,7 +204,15 @@
         "download": "Скачать {{name}}",
         "loading": "Загрузка…"
       },
-      "drawerCategory": "Комната команды"
+      "manage": {
+        "title": "Управление командой",
+        "patrol": "Обход лидера",
+        "patrolHint": "Если включено, лидер регулярно напоминает о зависших передачах; если выключено, остаётся только доска.",
+        "patrolOn": "Включить",
+        "patrolOff": "Выключить",
+        "editProfile": "Изменить профиль (имя / цвет / описание)",
+        "clearData": "Очистить данные…"
+      }
     },
     "execution": {
       "showSteps": "Показать шаги выполнения",
@@ -275,16 +282,15 @@
     },
     "process": {
       "plan": "План",
-      "title": "агент · процесс",
       "ops": "опер."
     },
     "header": {
-      "sessionLabel": "сессия · {{time}}",
       "detailMenuTitle": "Детали агента — панели",
-      "modelFramework": "Модель и фреймворк",
-      "switchAgent": "Сменить агента"
+      "viewProfile": "Открыть профиль агента"
     },
-    "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией."
+    "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией.",
+    "activityEmpty": "Фоновой активности пока нет",
+    "activityEmptyHint": "Запуски, которые агент начал сам — задачи, каналы, товарищи по команде — появятся здесь."
   },
   "awareness": {
     "common": {
@@ -613,19 +619,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Очередь",
-      "jobs": "задач",
-      "totalInQueue": "{{count}} задач в очереди"
-    },
-    "jobState": {
-      "running": "выполняется",
-      "active": "активна",
-      "pending": "ожидает",
-      "blocked": "заблокирована",
-      "paused": "приостановлена",
-      "failed": "не удалось"
-    },
     "jobStateLabel": {
       "running": "выполняется",
       "active": "активна",
@@ -650,25 +643,6 @@
         "up": "медленнее, чем вчера",
         "down": "быстрее, чем вчера",
         "flat": "как вчера"
-      }
-    },
-    "jobs": {
-      "title": "Задачи ({{count}})",
-      "running": "{{count}} выполняется",
-      "step": "шаг {{current}}/{{total}}",
-      "next": "следующий {{time}}",
-      "action": {
-        "retry": "Повторить",
-        "pause": "Пауза",
-        "resume": "Возобновить",
-        "failed": "Не удалось: {{label}}"
-      },
-      "detail": {
-        "manual": "(вручную)",
-        "nextRun": "Следующий запуск",
-        "iterations": "Итерации",
-        "trigger": "Триггер",
-        "lastError": "Последняя ошибка"
       }
     },
     "sessions": {
@@ -724,16 +698,10 @@
       "noAgentsShort": "Агентов пока нет."
     },
     "agentRow": {
-      "saveTitle": "Сохранить (Enter)",
-      "cancelTitle": "Отмена (Esc)",
       "publicBy": "Публичный · от {{name}}"
     },
     "agentRowMenu": {
       "options": "Параметры агента",
-      "rename": "Переименовать",
-      "edit": "Изменить…",
-      "setPrivate": "Сделать приватным",
-      "setPublic": "Сделать публичным",
       "clearData": "Очистить данные",
       "delete": "Удалить"
     },
@@ -765,7 +733,6 @@
     "teamRowMenu": {
       "options": "Параметры группового чата",
       "rename": "Переименовать",
-      "clearData": "Очистить данные",
       "delete": "Удалить",
       "addAgent": "Добавить агента",
       "addingAgent": "Добавление…"
@@ -1078,8 +1045,7 @@
     "drawer": {
       "unpin": "Открепить панель",
       "pin": "Закрепить панель",
-      "close": "Закрыть панель",
-      "switchPanel": "Сменить панель"
+      "close": "Закрыть панель"
     },
     "coach": {
       "title": "Ваши артефакты появляются здесь",
@@ -1294,7 +1260,23 @@
       "noTeamsLabel": "Команд пока нет",
       "noTeamsHint": "Создайте её через меню «Создать» в боковой панели.",
       "manageTeam": "Управлять",
-      "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников."
+      "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников.",
+      "colLeader": "Лидер",
+      "colCreatedBy": "Создатель",
+      "colChannels": "Каналы",
+      "colFramework": "Фреймворк",
+      "colModel": "Модель",
+      "colLastActive": "Последняя активность",
+      "noLeader": "Нет лидера",
+      "teamProfileNoDescription": "Нет описания команды.",
+      "agentProfileNoDescription": "Нет описания.",
+      "memberRuntimeLabel": "Среда выполнения",
+      "memberModelLabel": "Модель",
+      "memberOwnerLabel": "Владелец",
+      "memberPrivate": "Приватный",
+      "memberPublic": "Публичный",
+      "openProfile": "Открыть профиль {{name}}",
+      "channelOff": "{{name}} · выключен"
     },
     "createUser": {
       "title": "Создать пользователя",
@@ -1310,14 +1292,6 @@
       "failed": "Не удалось создать пользователя",
       "connectionFailed": "Сбой подключения. Попробуйте снова."
     },
-    "setup": {
-      "sectionLabel": "Настройка · Провайдеры LLM",
-      "title": "Настройка провайдеров LLM",
-      "subtitle": "Укажите API-ключи, чтобы NarraNexus мог подключаться к языковым моделям.",
-      "skipForNow": "Пропустить",
-      "getStarted": "Начать",
-      "done": "Готово"
-    },
     "settings": {
       "title": "Настройки",
       "nav": {
@@ -1327,7 +1301,8 @@
         "providers": "LLM-провайдеры",
         "modelDefaults": "Модели по умолчанию",
         "artifacts": "Артефакты",
-        "updates": "Обновления"
+        "updates": "Обновления",
+        "plugins": "Плагины"
       },
       "providers": {
         "label": "Провайдеры LLM"
@@ -1373,7 +1348,9 @@
       },
       "personalization": {
         "label": "Персонализация",
-        "hint": "Тема и язык. Скоро будет больше."
+        "hint": "Тема, язык и то, как показываются заметки агента о ходе работы.",
+        "narrationTitle": "Комментарии о ходе работы",
+        "narrationHint": "Показывать заметки агента между шагами прямо в переписке и читаемо, а не прятать весь прогон в один сворачиваемый блок."
       }
     },
     "system": {
@@ -1449,7 +1426,8 @@
       "addedToTeamResultWithFailures": "Добавлено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
       "removedFromTeamTitle": "Удалены из команды",
       "removedFromTeamMessage": "Из команды удалено агентов: {{count}}.",
-      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
+      "openChat": "Открыть чат"
     },
     "bundleImport": {
       "installTemplate": "Установить шаблон",
@@ -1802,6 +1780,109 @@
     },
     "account": {
       "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."
+    },
+    "agentProfile": {
+      "breadcrumb": "Агенты",
+      "backToChat": "Чат",
+      "overview": "Обзор",
+      "capabilities": "Возможности",
+      "settings": "Настройки",
+      "views": "Виды профиля агента",
+      "chat": "Чат",
+      "running": "Выполняется",
+      "idleStatus": "Простой",
+      "currentTask": "Текущая задача",
+      "idle": "Сейчас не выполняется ни одна задача.",
+      "jobs": "Jobs",
+      "jobsCount": "Jobs: {{count}}",
+      "inbox": "Inbox",
+      "inboxCount": "Диалогов: {{count}}",
+      "overviewCardLabel": "Обзор агента",
+      "jobsNoun": "jobs",
+      "inboxNoun": "диалогов",
+      "jobsRunningFlag": "выполняется",
+      "inboxUnreadFlag": "{{count}} новых",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "подключено: {{count}}",
+      "noSkills": "Skills не установлены",
+      "noMcp": "Нет серверов MCP",
+      "moreCount": "ещё {{count}}",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model и Framework",
+      "modelFrameworkHint": "Фактическая конфигурация выполнения для следующего запуска агента.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Настроить",
+      "general": "Общее",
+      "generalHint": "Управляйте тем, как этот агент отображается в рабочем пространстве.",
+      "avatar": "Аватар",
+      "avatarHint": "Отображается при назначении задач, в активности и в чате.",
+      "name": "Имя",
+      "description": "Описание",
+      "saveGeneral": "Сохранить изменения",
+      "saving": "Сохранение…",
+      "saved": "Сохранено",
+      "saveFailed": "Не удалось сохранить изменения.",
+      "missingAgent": "Агент не выбран",
+      "notFound": "Агент не найден",
+      "activity": "Активность",
+      "activityLast24h": "За последние 24 часа",
+      "activityToday": "Сегодня",
+      "activityAxisStart": "24 ч назад",
+      "activityAxisNow": "сейчас"
+    },
+    "welcome": {
+      "logout": "Выйти",
+      "continue": "Продолжить",
+      "rail": {
+        "model": {
+          "title": "Подключите модель",
+          "detail": "Одного ключа достаточно — замените его в любой момент."
+        },
+        "import": {
+          "title": "Перенесите своих агентов",
+          "detail_one": "Найдено {{count}} на этом компьютере.",
+          "detail_other": "Найдено {{count}} на этом компьютере."
+        },
+        "agent": {
+          "title": "Познакомьтесь с {{name}}",
+          "detail": "Ваш первый агент уже ждёт."
+        }
+      },
+      "model": {
+        "title": "Сначала подключите модель.",
+        "skip": "Пропустить — ключ можно добавить позже в настройках",
+        "advanced": "Расширенная настройка — вход по подписке, свои эндпоинты, модели для каждого слота",
+        "subscriptionTitle": "Использовать подписку Claude или ChatGPT",
+        "subscriptionSubtitle": "Без API-ключа — войдите с подпиской, которая у вас уже есть."
+      },
+      "import": {
+        "title": "Перенесите агентов, которые у вас уже есть.",
+        "subtitle": "Всё читается с этого компьютера — ничего не загружается.",
+        "lede": "Каждый отмеченный станет агентом NarraNexus, а история его переписки сохранится как память.",
+        "importAndContinue_one": "Импортировать {{count}} и продолжить",
+        "importAndContinue_other": "Импортировать {{count}} и продолжить",
+        "skip": "Пропустить этот шаг"
+      },
+      "agent": {
+        "title": "Познакомьтесь с {{name}}.",
+        "subtitle": "Ваш первый агент, созданный для вас при входе. Он помнит всё, о чём вы говорите, — в этом разница между NarraNexus и одноразовым чатом.",
+        "role": "ваш гид · кремний",
+        "capMemory": "Долгая память в виде сюжетных линий",
+        "capCheckin": "Пишет вам каждый день",
+        "cta": "Начать работу с NarraNexus",
+        "skip": "Сразу в приложение",
+        "preparingTitle": "Готовим вашего первого агента…",
+        "preparingSubtitle": "Подбираем имя и характер. Несколько секунд.",
+        "notReady": "Ваш первый агент ещё создаётся — скоро он появится в боковой панели.",
+        "fallbackName": "ваш агент",
+        "rename": "Переименовать"
+      }
     }
   },
   "rail": {
@@ -1865,9 +1946,6 @@
       "cancelled": "Отменена"
     },
     "metrics": {
-      "active": "Активные",
-      "success": "Успешно",
-      "failed": "Неудачи",
       "rate": "Доля"
     },
     "view": {
@@ -1976,17 +2054,6 @@
       "waiting": "Ожидание...",
       "noTimeData": "Нет данных о времени"
     },
-    "distribution": {
-      "title": "Распределение статусов",
-      "total": "всего {{count}}",
-      "legend": {
-        "completed": "{{count}} завершено",
-        "running": "{{count}} выполняется",
-        "active": "{{count}} активно",
-        "paused": "{{count}} приостановлено",
-        "failed": "{{count}} с ошибкой"
-      }
-    },
     "editSchedule": {
       "title": "Изменить время выполнения",
       "hint": "Настройте, когда выполняется эта задача. Изменения вступят в силу при следующем запуске.",
@@ -2006,6 +2073,18 @@
       "modeLabel": "Режим запуска",
       "modeInterval": "Интервал",
       "modeCron": "Выражение cron"
+    },
+    "row": {
+      "every": "Каждые {{interval}}",
+      "daily": "Ежедневно {{time}}",
+      "hourly": "Ежечасно :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Однократно {{time}}",
+      "afterDeps": "Заблокировано: {{n}}",
+      "next": "следующий {{time}}",
+      "elapsed": "выполняется {{duration}}",
+      "failedAt": "ошибка {{time}}",
+      "lastRun": "последний {{time}}"
     }
   },
   "artifacts": {

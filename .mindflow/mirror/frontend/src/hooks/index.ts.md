@@ -1,13 +1,23 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 新增 `useAgentImport` 导出
+
+barrel 新增 `useAgentImport` 与 `AgentImportController` 类型，供批量导入队列
+使用（队列本体在 `lib/migrationImportQueue.ts`，控制器把「排队 / 逐个 apply /
+按 import_id 催促」这套状态收在一个 hook 里，让 [[../components/layout/ImportAgentModal]]
+只消费状态而不自己编排）。
+
+同批清理：08-19 那条里列的五个自绘弹层少了一个 —— `AgentRowMenu` 在本次删除，
+它的引用已从该条移除。
 
 ## 2026-08-19
 
 新增 `useDismissOnOutside` 导出([[useDismissOnOutside]])——五个自绘弹层
-([[../components/layout/AgentRowMenu]] / [[../components/layout/TeamRowMenu]] /
+([[../components/layout/TeamRowMenu]] /
 [[../components/layout/CreateMenu]] / [[../components/layout/Sidebar]] 账户弹层 /
 [[../components/chat/ChatHeader]] ⋯ 菜单)经 barrel 引用。
 

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -185,3 +185,10 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
   `features.showSystemPage` (runtimeStore). The mode-switch popup is a raw
   positioned `div`, not a Popover — it doesn't close on outside-click; you toggle
   it by clicking the button again.
+
+## 2026-08-27 — session wipe extracted
+
+`wipeAllSessionData` moved to [[sessionWipe]]: the first-run flow's rail also
+offers "log out", and a second hand-rolled half-logout is how cloud data bled
+into a later local session before. The sidebar still owns the confirm dialog and
+the `window.location.href` reload — only the wipe itself is shared.

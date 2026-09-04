@@ -2,15 +2,16 @@
  * @file_name: TeamRowMenu.tsx
  * @author:
  * @date: 2026-06-23
- * @description: Kebab (⋮) context menu for the team group-chat row — mirrors
- * AgentRowMenu so a team's row offers the same Rename / Delete affordances as
- * an agent row. Inline absolute panel (no portal) so it works inside the
- * sidebar scroll container.
+ * @description: Kebab (⋮) context menu for the team group-chat row. The last
+ * per-row menu in the sidebar: agent rows lost theirs on 2026-08-27 (their
+ * actions moved to the agent profile page), and a team has no profile page to
+ * move Rename / Clear / Delete to. Inline absolute panel (no portal) so it
+ * works inside the sidebar scroll container.
  */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, UserPlus, Eraser } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
 
@@ -22,15 +23,13 @@ export interface TeamRowMenuProps {
   /** True while an agent create is in flight — disables the Add-agent item. */
   addingAgent?: boolean;
   onRename: (e: React.MouseEvent) => void;
-  /** Clear the team's group-chat / shared files (keeps the team + members). */
-  onClearData: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   /** Fired on open/close so the host row can lift its z-index above the rows
    *  below (each row is its own stacking context). */
   onOpenChange?: (open: boolean) => void;
 }
 
-export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, onDelete, onOpenChange }: TeamRowMenuProps) {
+export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpenChange }: TeamRowMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // Notify the parent from the event handler (NOT inside a setState updater —
@@ -80,11 +79,6 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
             icon={<Pencil className="w-3 h-3" />}
             label={t('layout.teamRowMenu.rename')}
             onClick={handleItem(onRename)}
-          />
-          <MenuItem
-            icon={<Eraser className="w-3 h-3" />}
-            label={t('layout.teamRowMenu.clearData')}
-            onClick={handleItem(onClearData)}
           />
           <MenuItem
             icon={<Trash2 className="w-3 h-3" />}

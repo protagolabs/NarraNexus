@@ -311,6 +311,7 @@ export const mockApi = {
         description: agentDescription,
         created_by: createdBy,
         created_at: new Date().toISOString(),
+        bound_channels: [],
       },
     });
   },

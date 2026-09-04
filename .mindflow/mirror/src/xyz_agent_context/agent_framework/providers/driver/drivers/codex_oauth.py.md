@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/codex_oauth.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-28
 ---
+
+## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(随 claude_oauth 同批)
+
+同 claude_oauth.md 同日条目:内部列名不再进用户可见文案。分支按
+source 判别(review 第 3 轮),第 4 轮把守卫**提到 probe 顶部**——
+misroute 判定先于一切凭证检查,与 claude 侧(token 分支之前)对称。
+判 source 不判 driver_type。误路由文案须给出**正向动作**(引导新建
+Codex CLI (OAuth) 卡;2026-08-28 PR bot 轮——不得退回纯 check 措辞,
+也不得混用损坏支专属的 remove+re-add)。`test_codex_oauth_driver.py`
+的 probe 测试断言不泄漏 "auth_ref" 且含 "re-add"。
+
+另:`build_codex_config` 的强制 auth_ref 覆盖改走
+`derive_auth_ref("codex_oauth", auth_type)`(真值表副本清点,review
+第 4 轮)。source 传**字面量**是刻意的——这里的语义是强制覆盖而非
+按卡推导,传 `self.card.source` 会让误路由卡拿到空 ref、stager 静默
+产出空 CODEX_HOME。测试 fixture 注意:`_codex_card`/`_claude_card`
+(test_oauth_live_verification.py)的 source 必须是真实 CLI 订阅
+source,`source="user"` 的合成卡会被顶部守卫拦下。
 
 ## 2026-07-31 — verify_live:P0「凭证失效仍测试通过」的修复主体
 

@@ -54,6 +54,23 @@ class NexusPowerPrompts:
 
     # ---- stable prefix (S layer: byte-stable within a session) -------
 
+    # Rule 1 owns every "do my words reach anyone" claim, because it is the
+    # only rule that can know: `default_reply_tool` empty is the framework's
+    # existing signal for a MUTE turn, where the platform has withheld every
+    # expressive declaration because plain text is itself the delivered
+    # artifact (the platform's `is_plain_text_turn`). Rules 2/3/4 therefore
+    # state action and turn-end semantics only — if a delivery claim lived in
+    # one of them it would be unconditional, and on a mute turn the model
+    # would read rule 1 saying "what you write is the output" against rule 2
+    # saying "plain text reaches no one". The louder rule wins, and the safest
+    # reading of rule 2 is to write nothing — which on a patrol turn means the
+    # status line silently stops appearing, with no error and no failing test.
+    #
+    # The copy itself stays in resources/ (this class loads and fills, never
+    # holds prose — see the file header), so wording changes never go through
+    # Python review. The framework names no scenario: it reads one bit of
+    # data, "is there an expressive tool" (iron rule #4).
+
     @classmethod
     def constitution(cls, inputs: PromptInputs, mode: PromptMode) -> str:
         """S1 — the monologue/expression contract. Non-empty in every
@@ -62,19 +79,44 @@ class NexusPowerPrompts:
         The reply-tool example is per-turn DATA (the platform's declared
         default), never a platform tool name baked into framework copy:
         the framework knows no platform, and some turns are legitimately
-        mute (no example to give)."""
+        mute (no example to give). A mute turn also swaps rule 1's whole
+        delivery passage — see the note above."""
+        speaks_by_tool = bool(inputs.default_reply_tool)
         if mode is PromptMode.NONE:
+            if not speaks_by_tool:
+                # Kept under the NONE face's size budget (see the mode-faces
+                # test) while still carrying BOTH rules the full face has:
+                # how this turn delivers, and that everything else is tools.
+                return (
+                    "Your plain text IS this turn's output — you have no "
+                    "reply tool. Write only the finished thing, with no "
+                    "narration of what you are about to do. Everything else "
+                    "happens only through tool calls."
+                )
             return (
-                "Your plain text is private monologue; only tool calls act "
-                "on the world."
+                "Your plain text is visible working narration, never a "
+                "delivered message; only tool calls act on the world. Before "
+                "each tool call, say in one short sentence what you are about "
+                "to do."
             )
         example = (
             f" (this turn's default: `{inputs.default_reply_tool}`)"
-            if inputs.default_reply_tool
+            if speaks_by_tool
             else ""
         )
-        return _load("constitution.md").replace(
-            "{{DEFAULT_REPLY_TOOL_EXAMPLE}}", example
+        delivery = _load(
+            "delivery_speaks_by_tool.md" if speaks_by_tool
+            else "delivery_speaks_by_writing.md"
+        )
+        return (
+            _load("constitution.md")
+            .replace("{{DEFAULT_REPLY_TOOL_EXAMPLE}}", example)
+            # `_load` strips, and the slot sits BETWEEN two paragraphs of
+            # rule 1. Restore both things the strip removed: the blank lines
+            # that keep it a separate paragraph, and the FIRST line's 3-space
+            # indent (every later line still carries its own — the indent
+            # aligns the passage under the numbered list item).
+            .replace("{{PLAIN_TEXT_DELIVERY}}", f"\n   {delivery}\n")
         )
 
     @classmethod

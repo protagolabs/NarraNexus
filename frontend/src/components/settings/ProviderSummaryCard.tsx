@@ -5,7 +5,7 @@
  * @description: At-a-glance summary of the user's current LLM wiring.
  *
  * The simple face of the Settings → Providers section (mirror of the
- * /setup logic: simple surface first, full ProviderSettings behind the
+ * first-run logic: simple surface first, full ProviderSettings behind the
  * "Advanced configuration" disclosure). Answers, without scrolling:
  * which framework + model the agent runs on, what the helper uses, and
  * which provider keys are registered. Read-only — every edit affordance
@@ -16,14 +16,12 @@ import { useEffect, useState } from 'react';
 import { Bot, Wrench, KeyRound } from 'lucide-react';
 import { PaperCard } from '@/components/nm';
 import { api } from '@/lib/api';
+import type { ProviderRow } from '@/lib/providersApi';
 
-interface ProviderInfo {
-  name: string;
-  source: string;
-  protocol: string;
-  api_key_masked?: string;
-  is_active: boolean;
-}
+// All fields come straight off the shared row type — no local shape,
+// no cast (a previous revision re-declared a narrower ProviderInfo and
+// needed an as-unknown-as double cast to consume getProviders).
+type ProviderInfo = ProviderRow;
 
 interface SlotInfo {
   config: { provider_id: string; model: string } | null;
@@ -88,7 +86,7 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
         ]);
         if (cancelled) return;
         if (prov.success && prov.data) {
-          setProviders((prov.data.providers ?? {}) as Record<string, ProviderInfo>);
+          setProviders(prov.data.providers ?? {});
           setSlots((prov.data.slots ?? {}) as Record<string, SlotInfo>);
         }
         if (fw.success && fw.data?.framework) {

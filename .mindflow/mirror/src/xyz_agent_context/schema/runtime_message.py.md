@@ -28,11 +28,20 @@ NexusPower 的明文（独白）以 thinking 形态流出，但它语义上是 c
 IM inbox 转发都靠它）之前只能看到消息流，拿不到独白子集，导致群聊 @mention
 的回复整段蒸发（dev evt_238abc4b0b0c4dca）。字段承载**本批次**的独白子集，
 provider CoT 恒为空串；state 侧 `record_thinking(monologue=...)` 的链路不变，
-消息与 state 在每个 flush 点取同一次 drain。WS 前端可忽略该字段。
+消息与 state 在每个 flush 点取同一次 drain。
+
+**2026-08-30 更新：WS 前端不再忽略该字段。** 独白提级（A′）用它判档——
+当这个子集**逐字等于** `thinking_content` 时，前端按「进度」档渲染（规则见
+[[monologueTier]]，后端同一条副本在 `chat_history_timeline.is_monologue_step`）。
+所以它**不是可以为了瘦帧删掉的冗余副本**：删了直播档位会静默退回 CoT 观感，
+而前端那几个分档测试都是自己手工构造 `AgentThinking`，**一个都不会红**。
+同理**不要把类型从 str 改成 bool**——`collect_run` 中继的是这段**文本**。
 
 ## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
 
 NexusPower 的独白契约让**明文 = 私有思考、对外说话必须走表达工具**，于是多出
+（**2026-08-30 宪法改口为「不投递」**，见 [[library]]；本条记的是当时的判据，判据本身不变。）
+
 两种别的框架永远不发的形状：
 
 - `AGENT_REPLY_DELTA` / `AgentReplyDelta` —— 表达工具**参数**的流式片段。这才是
@@ -113,7 +122,6 @@ response_processor`），import 时常量尚未绑定（2026-06-11 incident）�
 
 - `AgentTextDelta.delta` is a *chunk*, not the full response. Multiple deltas must be concatenated by the consumer to form the complete agent response. Do not display `delta` alone as if it were the complete answer.
 - These message types are used for real-time streaming only. The persistent record of what the agent said is stored in `EventLogEntry` (in `narrative/models.py`), not in these objects. The `agent_loop_response` list in `HookExecutionTrace` may hold serialized versions of these objects for post-hoc analysis, but the source of truth for storage is always the event log.
-
 
 ## 2026-08-18 — owner 工具改名跟随
 

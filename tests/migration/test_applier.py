@@ -192,3 +192,125 @@ async def test_apply_no_local_source_marks_unmatched(db_client, workspace, monke
     res = await apply_plan(db_client, user_id="user_x", plan=plan)
     assert res.skills_unmatched == ["ghost-skill"]
     assert res.skills_copied == [] and res.skills_installed == []
+
+
+# ── stop mid-import: degrade the running project instead of making the user wait ──
+
+
+def _import_with_two_sessions() -> StandardizedAgentImport:
+    """Two sessions, so the applier's per-session hurry check runs more than once."""
+    return StandardizedAgentImport(
+        source=MigrationSource(
+            framework="claude_code", detected_path="/x", detection_confidence="high"
+        ),
+        agent=MigrationAgent(name="Hurried One", system_prompt="You are imported."),
+        sessions=[
+            MigrationSession(
+                session_id=f"s{i}",
+                title=f"Session {i}",
+                started_at="2026-07-01T00:00:00Z",
+                compact_text=f"transcript {i}",
+                turns=[MigrationTurn(role="user", text=f"hi {i}", ts="2026-07-01T00:00:00Z")],
+            )
+            for i in (1, 2)
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_hurried_apply_skips_the_llm_but_still_imports_every_session(
+    db_client, workspace, monkeypatch
+):
+    """The Owner's objection (2026-09-03): pressing stop must not mean waiting out
+    one LLM call per remaining session. Marking the import id makes the applier
+    take the deterministic summary path — every session still lands, and the
+    result says how many were degraded."""
+    from xyz_agent_context.migration import hurry
+    import xyz_agent_context.migration.applier as applier_mod
+    import xyz_agent_context.marketplace.skill_marketplace_service as sms
+    import xyz_agent_context.repository.event_memory_repository as emr_mod
+
+    async def _no_defaults(self, aid, uid):
+        return {"installed": [], "skipped": [], "failed": []}
+    monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _no_defaults)
+
+    async def _capture(self, module_name, instance_id, memory):
+        return True
+    monkeypatch.setattr(
+        emr_mod.EventMemoryRepository, "add_instance_json_format_memory", _capture
+    )
+
+    llm_calls: list = []
+
+    class _CountingSDK(_FakeHelperSDK):
+        async def llm_function(self, instructions, user_input, output_type):
+            llm_calls.append(user_input)
+            return await super().llm_function(instructions, user_input, output_type)
+
+    monkeypatch.setattr(applier_mod, "get_helper_sdk", lambda: _CountingSDK())
+
+    plan = build_plan(_import_with_two_sessions())
+    hurry.mark("imp_test_1")
+    try:
+        result = await apply_plan(db_client, "u1", plan, import_id="imp_test_1")
+    finally:
+        hurry.clear("imp_test_1")
+
+    assert llm_calls == []                       # not one model call
+    assert len(result.narratives_created) == 2   # both sessions still imported
+    assert result.summaries_degraded == 2        # and it says so
+    # the mark is consumed, so a later import of the same id is not degraded
+    assert hurry.is_hurried("imp_test_1") is False
+
+
+@pytest.mark.asyncio
+async def test_unhurried_apply_still_summarizes(db_client, workspace, monkeypatch):
+    """Guard the other direction: without a mark, nothing degrades."""
+    import xyz_agent_context.migration.applier as applier_mod
+    import xyz_agent_context.marketplace.skill_marketplace_service as sms
+    import xyz_agent_context.repository.event_memory_repository as emr_mod
+
+    async def _no_defaults(self, aid, uid):
+        return {"installed": [], "skipped": [], "failed": []}
+    monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _no_defaults)
+
+    async def _capture(self, module_name, instance_id, memory):
+        return True
+    monkeypatch.setattr(
+        emr_mod.EventMemoryRepository, "add_instance_json_format_memory", _capture
+    )
+
+    llm_calls: list = []
+
+    class _CountingSDK(_FakeHelperSDK):
+        async def llm_function(self, instructions, user_input, output_type):
+            llm_calls.append(user_input)
+            return await super().llm_function(instructions, user_input, output_type)
+
+    monkeypatch.setattr(applier_mod, "get_helper_sdk", lambda: _CountingSDK())
+
+    result = await apply_plan(
+        db_client, "u1", build_plan(_import_with_two_sessions()), import_id="imp_test_2"
+    )
+    assert len(llm_calls) == 2
+    assert result.summaries_degraded == 0
+
+
+@pytest.mark.asyncio
+async def test_hurry_mark_is_dropped_when_the_apply_raises(db_client, workspace, monkeypatch):
+    """PR #383 review I4: ``hurry.clear`` used to sit at the end of apply_plan,
+    so any exception in the steps above it leaked the mark into the process-
+    level registry. The user's later RETRY of that same row (the frontend
+    reused the import id) then ran hurried although nobody pressed stop."""
+    from xyz_agent_context.migration import hurry
+    import xyz_agent_context.migration.applier as applier_mod
+
+    async def _boom(db, agent_id):
+        raise RuntimeError("awareness lookup exploded")
+    monkeypatch.setattr(applier_mod, "_awareness_instance_id", _boom)
+
+    plan = build_plan(_import_with_two_sessions())
+    hurry.mark("imp_leak_1")
+    with pytest.raises(RuntimeError):
+        await apply_plan(db_client, "u1", plan, import_id="imp_leak_1")
+    assert hurry.is_hurried("imp_leak_1") is False

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_posting.py
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `_record_errands` 查一次 `teams` 行拿组长
+
+`record_handoffs` 现在需要 `lead_agent_id`([[errand]] 的 `opens_handoffs` 门)。
+「谁能派活」是团队的事实不是消息的事实,所以在这里 `db.get_one("teams")` 一次,
+不让 `message_team` 工具多传一个它得记着的字段。仍在 swallow 内、仍在 post 之后;
+查询放在 `close_delivered_errands` **之后**、`record_handoffs` 之前:查失败只丢 open
+(成员发言的 open 本来就是 no-op),不丢 close——跳过 close 会让已交付的差事继续被 patrol 追。
+
 
 ## 2026-08-20 — 级联上限 4 → 30，可用 env 覆盖
 
@@ -70,7 +79,7 @@ trigger 那侧原来也叙述一遍，两处都留会说两次。
 
 `segments`（独白/回复边界）不再存在于 team 回复上。回复是工具参数，agent 的思考保持私密
 ——所以没有「独白那一半」可渲染。**房间里看不到 agent 出声思考了，这是本次有意移除的
-特性**：它此前之所以存在，只是因为回复和思考是同一段文本。存储层的 `segments` 列语义
+特性**：它此前之所以存在，只是因为回复和思考是同一段文本。（**2026-08-30 宪法改口为「不投递」**，见 [[library]]；本条记的是当时的判据，判据本身不变。）存储层的 `segments` 列语义
 不变（缺失 = 一整块），公告栏与 IM 路径仍可使用。见
 `tests/message_bus/test_team_message_segments.py` 同日条。
 

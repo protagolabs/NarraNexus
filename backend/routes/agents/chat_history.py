@@ -40,11 +40,11 @@ from xyz_agent_context.schema import (
     SimpleChatMessage,
     SimpleChatHistoryResponse,
     EventLogToolCall,
-    EventLogTimelineEntry,
     EventLogMeta,
     EventLogResponse,
 )
 from xyz_agent_context.schema.api_schema import InstanceInfo
+from backend.routes.agents.chat_history_timeline import build_event_timeline
 
 
 router = APIRouter()
@@ -911,86 +911,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
             i += 1
 
-        # Build the time-ordered timeline view. We walk event_log entries
-        # in their original order — that order IS the agent's actual
-        # think→tool→think→tool→reply rhythm, and we don't want to lose
-        # it the way the grouped thinking/tool_calls fields above do.
-        # Consecutive thinking deltas are concatenated into one entry so
-        # the UI doesn't render 50 tiny italic blocks.
-        timeline: List[EventLogTimelineEntry] = []
-        pending_thinking: List[str] = []
-        # Stored tool_output entries usually carry no tool_name of their
-        # own. Resolve via the SHARED call_names index (parallel calls
-        # interleave: every call lands before any output, so "nearest
-        # preceding call" would confidently attach the WRONG name);
-        # nearest-preceding survives only as the fallback for legacy rows
-        # without ids. Never invent a placeholder ("unknown") — and the
-        # write side (response_processor's record_tool_call persistence)
-        # honours the same rule, so new rows never carry one either; the
-        # frontend's normalization is a shim for rows persisted before.
-        last_tool_name = ""
-
-        def _flush_thinking():
-            if pending_thinking:
-                timeline.append(EventLogTimelineEntry(
-                    type="thinking",
-                    content="".join(pending_thinking),
-                ))
-                pending_thinking.clear()
-
-        for content in entries_content:
-            if not isinstance(content, dict):
-                continue
-            ctype = content.get("type")
-            if ctype == "thinking":
-                txt = content.get("content", "")
-                if txt:
-                    pending_thinking.append(txt)
-            elif ctype == "tool_call":
-                _flush_thinking()
-                # Some legacy stored entries carry a reply_via tag on the
-                # send_message tool — preserve it so the historical Reply
-                # block can render the "helper_llm fallback" badge.
-                last_tool_name = content.get("tool_name") or ""
-                timeline.append(EventLogTimelineEntry(
-                    type="tool_call",
-                    tool_name=last_tool_name,
-                    tool_input=content.get("arguments", {}) or {},
-                    reply_via=(content.get("details") or {}).get("reply_via"),
-                ))
-            elif ctype == "tool_output":
-                _flush_thinking()
-                out_id = content.get("tool_call_id") or ""
-                if content.get("tool_name"):
-                    out_name = content.get("tool_name")
-                elif out_id in call_names:
-                    # Membership check, not an `or` chain: a known-empty
-                    # name must stay empty rather than fall through to the
-                    # nearest sibling's name.
-                    out_name = call_names[out_id]
-                elif out_id:
-                    # An id we never saw a call for: we OUGHT to know the
-                    # owner and genuinely don't — an honest blank beats a
-                    # sibling's name. last_tool_name serves id-less legacy
-                    # rows only.
-                    out_name = ""
-                else:
-                    out_name = last_tool_name
-                timeline.append(EventLogTimelineEntry(
-                    type="tool_output",
-                    tool_name=out_name,
-                    tool_output=content.get("output"),
-                ))
-            elif ctype in ("native_output", "agent_response"):
-                _flush_thinking()
-                txt = content.get("content", "")
-                if txt:
-                    timeline.append(EventLogTimelineEntry(
-                        type="native_output",
-                        content=txt,
-                    ))
-            # Other types (progress markers, etc.) intentionally skipped.
-        _flush_thinking()
+        timeline = build_event_timeline(entries_content, call_names)
 
         meta = await _build_event_meta(db_client, event_row, tool_call_count=len(tool_calls))
 

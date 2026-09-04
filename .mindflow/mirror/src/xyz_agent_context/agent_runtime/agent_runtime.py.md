@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-17
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — `run()` 的 cost context 也改成 scope
+
+开头那处 `set_cost_context(agent_id, db_client)` 换成
+`_trace_stack.enter_context(cost_context_scope(agent_id, db_client))`，与
+Step 0 之后的 `cost_event_scope` 并排。
+
+**理由：`run()` 并不总是最外层。** Step 6 回调经
+`_execute_callback_instance` 会驱动**嵌套的 `run()`**，裸 `set` 把父层的
+`(agent_id, db)` 永久覆盖掉，父轮回来后再也拿不回自己的。今天两层的
+`agent_id` 落回同一个 `self._current_agent_id`、`db_client` 也是同一个单例，
+所以看不出任何异常——**第一个**给 `_execute_callback_instance` 传不同
+`agent_id` 的调用方出现时，父轮剩余的 post-turn 花销就会记到子 agent 头上，
+现象仍然是"账目偏了、不报错"。
+
+这同时补齐了 08-28 留下的不对称：event 那一半当时已经是 scope，
+`(agent_id, db)` 这一半还是裸 `set`。两个变量的清理语义详见
+[[cost_tracker]] 同日条目（`clear_cost_context` 已收窄为「最外层专用」）。
+
+## 2026-08-28 — 账目也绑 event_id
+
+Step 0 建出 Event 行之后那处 `bind_event` 旁边，多挂一个
+`cost_event_scope(ctx.event.id)`，两者同挂在 `_trace_stack` 上，错误路径一起
+回退。
+
+理由和日志绑定是同一个：helper LLM 调用（narrative 选择、shutter/decider、
+总结、post-turn hooks）在自己的调用点根本拿不到 event_id，此前全部记
+`event_id=NULL`，导致单轮 token 只数得到主循环。绑定点必须在 Step 0 之后
+——Event 行此时才存在。详见 [[cost_tracker]] 同日条目。
+
+**但两者的守卫条件不同（08-31 修正）**：`bind_event` 保持 `if ctx.event is
+not None`——日志继承外层 run_id 正是想要的。`cost_event_scope` 改成**无条件
+进入**，没有 Event 行就显式把 ambient 打成 `None`。否则：post-turn 回调触发
+的嵌套运行会复制父轮 context，若它自己的 Step 0 没建出 Event 行，它整轮的
+helper 花销会记到**父轮的 event_id** 上，父轮卡片的单轮数字被凭空放大——一
+个只会表现为"数字偏大"、不会报错的账目错误。
 
 ## 2026-08-17 — 去掉 `on_plain_text_delivery`
 
@@ -205,7 +241,12 @@ intentional (no back-compat per ironclad rule #2).
 - `_execute_callback_instance()` 是递归调用——它在后台创建新的 `AgentRuntime.run()`。如果 callback chain 很深或有循环依赖，可能导致无限递归。目前没有 depth limit 保护。
 - `cleanup()` 不关闭数据库连接（特意设计），注释有说明。如果在测试里手动调用 `cleanup()` 后再查数据库，连接仍然存在（来自 db_factory 单例）。
 - `bind_event(event_id=...)` 只在 `ctx.event is not None` 时进入（Step 0 在异常路径下可能不创建 event），所以早期失败的 turn 日志只带 `run_id`，没有 `event_id`——这是有意的，避免对未持久化的 event 做无意义的引用。
-- Cost tracking 的 `set_cost_context` 是 task 级别的 ContextVar，`clear_cost_context` 在后台任务的 `finally` 里执行，确保不泄漏到其他任务。
+- Cost tracking 的两个 ContextVar 都是 task 级别的。`run()` 用
+  `cost_context_scope` / `cost_event_scope` 进出**还原**（挂在 `_trace_stack`
+  上，错误路径一起回退），**不是**裸 `set` + `clear`——理由见下方 08-31 条目。
+  仍然调用 `clear_cost_context()` 的只有 `_run_hooks_background` 的 `finally`
+  （`:1037` / `:1087`）：`spawn` 的 `create_task` 给了它私有的 context 副本，
+  在那里清空不会伤到父轮，所以那两处是对的，别跟着改成 scope。
 
 ## 新人易踩的坑
 

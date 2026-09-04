@@ -40,7 +40,7 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
       continue;
     }
     // A plan belongs to no segment: it answers "where are we now" and
-    // renders separately at the bottom of the ProcessPanel.
+    // renders separately in the pinned PlanStrip above the composer.
     if (event.type === 'plan') continue;
 
     if (event.type === 'reply') {
@@ -99,7 +99,16 @@ export function timelineToEvents(
     const ts = idx;
     switch (entry.type) {
       case 'thinking':
-        if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
+        if (entry.content) {
+          // The tier was resolved backend-side (chat_history splits blocks on
+          // a tier switch, so an entry is one tier), and carrying it here is
+          // what keeps a reloaded turn looking like the live one.
+          events.push({
+            id, ts, type: 'thinking',
+            content: entry.content,
+            monologue: !!entry.monologue,
+          });
+        }
         break;
       case 'tool_call': {
         const toolName = realName(entry.tool_name);

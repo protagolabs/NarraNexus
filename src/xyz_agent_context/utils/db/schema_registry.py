@@ -709,6 +709,11 @@ _register(
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
             Index("idx_cost_records_user_id", ["user_id"]),
+            # Per-turn lookup. chat_history._build_event_meta runs
+            # `WHERE event_id = ?` every time a run card is expanded, and the
+            # chat panel now does it per turn — without this the ledger is
+            # scanned end to end for a handful of rows.
+            Index("idx_cost_event_id", ["event_id"]),
         ],
     )
 )
@@ -1642,7 +1647,11 @@ _register(
 # Layout
 #   * (event_id, seq) is the natural primary key but we keep a synthetic
 #     auto-increment `id` to make MySQL row inserts cheaper.
-#   * `kind` is small and bounded — VARCHAR(32) is plenty.
+#   * `kind` is small and bounded — VARCHAR(32). The longest value today
+#     is `thinking_segment_monologue` (26), leaving 6 characters. Mind
+#     that gap: a longer kind passes every local test, because SQLite
+#     ignores the declared length, and fails only on MySQL (error 1406).
+#     Count the characters before adding one.
 #   * `payload` is JSON or plain text. For `thinking_segment` it is the
 #     raw concatenated text; for `tool_call` / `tool_output` it is a
 #     JSON object so the consumer can pull `tool_name` / `arguments` /

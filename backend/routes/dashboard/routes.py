@@ -132,7 +132,7 @@ async def agents_status(request: Request, response: Response):
         )
         action_line = build_action_line(run_state)
 
-        # v2.1.1: queue counts (all 6 live states, no overlap — see fetch_jobs)
+        # v2.1.1: queue counts (every live state, no overlap — see fetch_jobs)
         queue_counts = {
             s: len(per_state.get(s, []))
             for s in ("running", "active", "pending", "blocked", "paused", "failed",
@@ -140,7 +140,7 @@ async def agents_status(request: Request, response: Response):
         }
         queue_counts["total"] = sum(queue_counts.values())
 
-        # v2.1.1: pending_jobs surfaces all 5 non-running live states with
+        # v2.1.1: pending_jobs surfaces every non-running live state with
         # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
         seen_job_ids: set[str] = set()

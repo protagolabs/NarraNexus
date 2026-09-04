@@ -2,14 +2,15 @@
 @file_name: test_provider_slots_bulk.py
 @author:
 @date: 2026-08-26
-@description: Owner-scoped bulk slot endpoints — override-stats / apply-to-agents
-    / agents-overview. Uses an in-memory _FakeDB (equality-filter store) wired
+@description: Owner-scoped bulk slot endpoints — override-stats / apply-to-agents.
+    Uses an in-memory _FakeDB (equality-filter store) wired
     via monkeypatching providers.get_db_client, plus a fake auth middleware that
     lifts X-User-Id into request.state (same shape auth_middleware guarantees).
 """
-from collections import defaultdict
 
 import pytest
+
+from tests.fake_db import FakeDB
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -18,36 +19,7 @@ import backend.routes.providers as providers_mod
 OWNER = {"X-User-Id": "owner1"}
 
 
-class _FakeDB:
-    def __init__(self):
-        self.tables: dict[str, list[dict]] = defaultdict(list)
-
-    async def get(self, table, filters=None, fields=None, **_kw):
-        filters = filters or {}
-        rows = [
-            r for r in self.tables[table]
-            if all(r.get(k) == v for k, v in filters.items())
-        ]
-        if fields:
-            rows = [{k: r.get(k) for k in fields} for r in rows]
-        return rows
-
-    async def get_one(self, table, filters):
-        rows = await self.get(table, filters)
-        return rows[0] if rows else None
-
-    async def insert(self, table, data):
-        self.tables[table].append(dict(data))
-
-    async def delete(self, table, filters):
-        before = len(self.tables[table])
-        self.tables[table] = [
-            r for r in self.tables[table]
-            if not all(r.get(k) == v for k, v in filters.items())
-        ]
-        return before - len(self.tables[table])
-
-
+_FakeDB = FakeDB
 @pytest.fixture
 def db():
     return _FakeDB()
@@ -148,21 +120,6 @@ async def test_apply_to_agents_writes_audit_snapshot(client, db):
 
 
 @pytest.mark.asyncio
-async def test_agents_overview_stub_row_reads_inheriting(client, db):
-    await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
-                                   "provider_id": "p1", "model": "def-a",
-                                   "params_json": "{}", "agent_framework": "nexus_power"})
-    await db.insert("agents", {"agent_id": "a1", "created_by": "owner1", "name": "a1"})
-    await db.insert("agent_slots", {"agent_id": "a1", "slot_name": "agent",
-                                    "provider_id": "", "model": "",
-                                    "params_json": "{}", "agent_framework": "codex_cli",
-                                    "created_at": "x", "updated_at": "x"})
-    r = client.get("/api/providers/slots/agents-overview", headers=OWNER)
-    ov = r.json()["data"]["agents"]
-    assert ov["a1"]["agent"] == {"model": "def-a", "inheriting": True}
-
-
-@pytest.mark.asyncio
 async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
     # A valid slot alongside a bad one must NOT be partially cleared: the whole
     # request is rejected up front, before any delete.
@@ -171,20 +128,6 @@ async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
                     json={"slots": ["agent", "bogus"]}, headers=OWNER)
     assert r.status_code == 400
     assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is not None
-
-
-@pytest.mark.asyncio
-async def test_agents_overview(client, db):
-    await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
-                                   "provider_id": "p1", "model": "def-a",
-                                   "params_json": "{}", "agent_framework": "nexus_power"})
-    await _seed(db, "a1", "owner1", slot="agent", model="pinned")
-    await _seed(db, "a2", "owner1")
-    r = client.get("/api/providers/slots/agents-overview", headers=OWNER)
-    assert r.status_code == 200
-    ov = r.json()["data"]["agents"]
-    assert ov["a1"]["agent"] == {"model": "pinned", "inheriting": False}
-    assert ov["a2"]["agent"] == {"model": "def-a", "inheriting": True}
 
 
 def test_override_stats_requires_identity(client):

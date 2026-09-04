@@ -901,3 +901,83 @@ def test_free_tier_thinking_explicit_auto_is_allowed(monkeypatch):
 
     monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "auto")
     assert free_tier_default_thinking() == ""
+
+
+# =============================================================================
+# 8. Framework auth probe leg 2 — the CLI-OAuth stubs (review round 4)
+# =============================================================================
+#
+# The stubs in _probe_agent_framework_auth build a fake DB row through
+# ProviderCard.from_row, so auth_ref comes from the derive.py truth table —
+# and the ONLY thing keeping that derivation alive is the explicit
+# auth_type="oauth" key in each dict (from_row defaults to "api_key",
+# which derives nothing). These four tests are the tripwire: without them,
+# dropping that key reports a logged-in host as "auth missing" with every
+# other test green. user_id is deliberately omitted — passing one lets
+# leg 1 (the API-key provider check) answer first and leg 2 never runs.
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_codex_leg2_ok_when_auth_json_exists(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "auth.json").write_text("{}")
+    probe = await _probe_agent_framework_auth("codex_cli")
+    assert probe["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_codex_leg2_not_ok_when_auth_json_missing(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    probe = await _probe_agent_framework_auth("codex_cli")
+    assert probe["ok"] is False
+    assert "codex login" in probe["detail"]
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_claude_leg2_ok_when_credentials_file_exists(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    creds = tmp_path / ".credentials.json"
+    creds.write_text("{}")
+    # Highest-priority override in resolve_claude_credentials_path.
+    monkeypatch.setenv("CLAUDE_CLI_CREDENTIALS_PATH", str(creds))
+    probe = await _probe_agent_framework_auth("claude_code")
+    assert probe["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_claude_leg2_not_ok_when_no_credentials(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+        claude_oauth as claude_oauth_mod,
+    )
+
+    monkeypatch.setenv(
+        "CLAUDE_CLI_CREDENTIALS_PATH", str(tmp_path / "absent.json")
+    )
+
+    # On a mac with a real `claude login`, the probe falls back to the
+    # Keychain and would answer ok=True — block it so the assertion is
+    # about the file path, deterministic on every machine.
+    async def _no_keychain() -> bool:
+        return False
+
+    monkeypatch.setattr(
+        claude_oauth_mod.ClaudeOAuthDriver,
+        "_keychain_has_credentials",
+        staticmethod(_no_keychain),
+    )
+    probe = await _probe_agent_framework_auth("claude_code")
+    assert probe["ok"] is False

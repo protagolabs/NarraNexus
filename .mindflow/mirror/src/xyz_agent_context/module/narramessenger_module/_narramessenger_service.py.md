@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — `runtime-ready` now carries `platform="nexus"`
+
+NarraMessenger labels an agent's origin platform from the `runtime-ready`
+call; their field **defaults to `"default"` when the key is absent**, which
+is what every agent we ever bound looked like on their side (reported by
+宋顺君 2026-08-19: "新绑定的 platform 显示 default，而不是 nexus"). The call
+previously posted `None` as its body, so the tag was never sent.
+
+`PLATFORM_TAG = "nexus"` is now posted as `{"platform": PLATFORM_TAG}`.
+
+**Why runtime-ready and not report-profile** (the question that was actually
+asked): report-profile is CONDITIONAL — `do_bind` skips it whenever the guide
+already revealed the bearer (re-binds, resumed sessions), so a tag sent there
+would silently go missing for exactly the flows that re-run most often.
+`runtime-ready` is the single call every bind path makes, and it is the step
+whose semantics match the label ("this agent is now usable") — which is also
+what the NarraMessenger side asked for.
+
+The value is a module constant rather than a literal so the test can assert
+against the same symbol; it is deliberately NOT env-configurable — it
+identifies the product, not the deployment (local, DMG and cloud all bind as
+`nexus`).
+
+Contract risk to watch: the platform silently ignores unknown body keys, so a
+rename on their side would fail open (back to `default`) with no error on
+our end. The test asserts the exact body of the runtime-ready POST, which
+catches OUR side regressing; catching THEIRS requires checking the agent
+list in NarraMessenger after a real bind.
 
 ## 2026-08-11 — `do_bind` now persists `profileId`
 

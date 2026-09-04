@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-28 — 新增 `plugins` nav 项（[[PluginsSettings]]）
+
+放在 `modeldefaults` 和 `artifacts` 之间——插件是模型配置的前置条件（框架选
+不了就是因为插件没装），紧挨着放阅读顺序更顺。`ModelDefaultsSettings` 新增
+`onManagePlugins` 跳转回调（选中未装插件框架时弹窗里的按钮）——**云端传
+`undefined`** 让 ModelDefaults 走纯文本降级分支（见下方 08-31 补段的护栏演进）。`PluginsSettings` 自己在
+`cloud_managed` 时返回 `null`——云端央管这些插件，本地安装按钮在云端没有意义
+（装端点也会 403），所以这里不用像别的 pane 那样加"云端不可用"的占位文案，
+面板本身就是空的。
 
 ## 2026-08-19(三)— neverDefault 取代内联 id 比较
 
@@ -243,7 +253,7 @@ the state-machine rewrite above.
 
 ## Why it exists
 
-Provides a persistent settings surface within the `/app/settings` route. Currently composes two existing components: `ProviderSettings` (LLM API key and model configuration) and `EmbeddingStatus` (embedding index rebuild management). Neither component is exclusive to this page — `SetupPage` also uses `ProviderSettings`.
+Provides a persistent settings surface within the `/app/settings` route. Currently composes two existing components: `ProviderSettings` (LLM API key and model configuration) and `EmbeddingStatus` (embedding index rebuild management). Neither component is exclusive to this page — `WelcomePage` also uses `ProviderSettings`.
 
 ## Upstream / Downstream
 
@@ -260,3 +270,7 @@ Route: `/app/settings`, rendered inside `MainLayout` as a child route. No store 
 ## Gotchas
 
 **`EmbeddingStatus` starts polling on mount.** If the user navigates to Settings while a rebuild is running, `EmbeddingStatus` picks up the live status. But if they navigate away before polling stops, the `useEmbeddingStore._pollTimer` continues running. The component itself calls `stopPolling` in its cleanup, so this is handled — but only if `EmbeddingStatus` properly calls `stopPolling` on unmount. Verify this if embedding polling behavior seems wrong after a settings navigation.
+
+## 2026-08-28 补(auto-review I8) — 云端隐藏 plugins nav 项(同步 mode 判定)
+
+plugins 是本地专属概念(云端镜像预装框架)。用 `isForcedCloud()`(`@/lib/runtimeConfig`,读 `window.__NARRANEXUS_CONFIG__`,**真同步、零持久化**)从 NAV_ITEMS 过滤掉 plugins 项。**必须首帧就对**:`active` 的 useState initializer 首帧即跑——异步 fetch 版(初版)会让云端 `?tab=plugins` 深链首帧把 active 定成 plugins→过滤后仍渲染空面板(round-5 抓到)。**不用 `useRuntimeStore.mode`**(round-6 修正):那是 useEffect 置的、且 persist 进 localStorage,某云端 origin 若曾因 config.js 未注入落过 `mode:'local'`,首帧会是脏的 truthy→窄窗口漏面板;`isForcedCloud()` 无此窗口且与 useResolveAppMode 同判据。`onManagePlugins` 云端传 **`undefined`**(round-7 从 `if(!isCloud)` 护栏内吞改来:护栏内吞会让 prop 仍 truthy→ModelDefaults 渲染成"可点但点了没反应"的死链;传 undefined 则走它 `? :` 的纯文本降级分支)。PluginsSettings 仍按后端 `cloud_managed` return null 作独立第二层兜底。删了死 key cloudManagedNote。

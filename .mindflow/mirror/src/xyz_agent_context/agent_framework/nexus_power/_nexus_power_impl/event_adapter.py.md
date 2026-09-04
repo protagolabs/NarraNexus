@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/event_adapter.py
-last_verified: 2026-07-30
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31（二）— 映射表的理由加上例外
+
+同 [[harness/expression]]：「delivered to no one」改成「**框架**不投递」，
+并补一句无表达工具轮次的例外。
+
+**映射本身没变，这是重点**：那种轮次上仍然映到 `thinking_item`。平台之后拿这段
+文字做什么是平台的事；本表决定的只有一件事——**我们从不把它冒充成 reply**。
+把这两件事分开写，是为了下一个人不会因为「原来它会被投递」就去改映射。
+
+## 2026-08-31 — 语义映射表的措辞随宪法改口（无行为变化）
+
+`text/thinking deltas -> thinking_item` 那条的理由原写「plain text is PRIVATE
+reasoning」。改为「working narration：owner 可以看，但不送达给任何人」。
+
+**映射一条都没动。** 它仍然不能映到 legacy「assistant text」通道——那样等于
+把叙述当答案交给用户。变的是理由的准确性：挡住的是**冒充答案**，不是「藏起来」。
 
 ## 2026-07-30 — TYPE_TOOL_USE_START → pending tool_call
 

@@ -11,20 +11,16 @@
  */
 
 import { isForcedCloud } from './runtimeConfig'
+// type-only import on purpose: providersApi imports @/lib/api at runtime,
+// and a value import here would create an agentFramework -> providersApi
+// -> api runtime cycle (api.ts only back-references types).
+import type { ProviderRow } from '@/lib/providersApi'
 
 // ---- shared types --------------------------------------------------------
 
-export interface ProviderSummary {
-  provider_id: string
-  name: string
-  source: string
-  protocol: string
-  auth_type: string
-  is_active: boolean
-  models: string[]
-  api_key_masked?: string
-  base_url?: string
-}
+// The row shape has ONE definition (providersApi.ProviderRow); this module
+// used to carry a fourth structural copy that three consumers cast into.
+export type ProviderSummary = ProviderRow
 
 export interface KnownModelMeta {
   model_id: string
@@ -45,6 +41,15 @@ export interface AgentFramework {
   protocols?: string[]
   label: string
   desc: string
+  /**
+   * Plugin-install gate (Claude Code / Codex CLI are user-installed local
+   * plugins — see `getPlugins` / Settings › Plugins). `undefined`/`true` =
+   * available; `false` = the plugin isn't installed, so the picker must
+   * still LIST it (never hide it — the user needs to see what to install)
+   * but render it `disabled`. Populated by `withFrameworkAvailability`,
+   * never set directly on `AGENT_FRAMEWORKS`.
+   */
+  available?: boolean
 }
 
 /** Whether a provider's protocol can back this framework. */
@@ -216,6 +221,48 @@ export function availableFrameworks(
     (f) =>
       f.id === current || providers.some((p) => providerBacksFramework(p, f.id)),
   )
+}
+
+/**
+ * Turns the `frameworks` array from `GET/POST /api/providers/agent-framework`
+ * into a name→available lookup. A framework the backend didn't mention
+ * (older backend that predates plugin gating, or the array is entirely
+ * absent) is treated as available elsewhere — this map only records what
+ * the backend explicitly said, so the caller's "default true" policy lives
+ * in one place (`withFrameworkAvailability`) instead of being duplicated at
+ * every read site.
+ */
+export function frameworkAvailabilityMap(
+  frameworks: Array<{ name: string; available: boolean }> | undefined,
+): Record<string, boolean> {
+  const map: Record<string, boolean> = {}
+  for (const f of frameworks ?? []) map[f.name] = f.available
+  return map
+}
+
+/**
+ * Attaches the plugin-install gate to a framework list, defaulting to
+ * available when the map has no entry for that framework id. This NEVER
+ * hides a framework — unlike `availableFrameworks` (which hides frameworks
+ * no bindable provider can drive), an uninstalled plugin still needs to
+ * render so the user has something to click "install" on. The two gates
+ * compose by calling this on the output of `availableFrameworks`.
+ */
+export function withFrameworkAvailability(
+  frameworks: AgentFramework[],
+  availability: Record<string, boolean>,
+): AgentFramework[] {
+  return frameworks.map((f) => ({
+    ...f,
+    available: f.id in availability ? availability[f.id] : true,
+  }))
+}
+
+/** Whether a framework (already merged via `withFrameworkAvailability`) may
+ *  be selected right now — `undefined` (map had no entry, or was never
+ *  merged) counts as available. */
+export function isFrameworkAvailable(framework: Pick<AgentFramework, 'available'>): boolean {
+  return framework.available !== false
 }
 
 // What the helper_llm "Default (recommended)" resolves to per protocol.

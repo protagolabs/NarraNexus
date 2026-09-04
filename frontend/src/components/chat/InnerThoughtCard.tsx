@@ -25,12 +25,14 @@ import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight, ChevronDown, Loader2, Brain, Wrench, CheckCircle2, TerminalSquare,
-  Clock, Coins, Cpu, ArrowDownToLine, ArrowUpFromLine, AlertTriangle,
+  ArrowDownToLine, ArrowUpFromLine, Milestone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { TimelineItem } from '@/lib/buildTimeline';
-import { inputSideTokens } from '@/lib/tokenFormat';
 import type { EventLogMeta, EventLogResponse, EventLogTimelineEntry } from '@/types/api';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
+import { hasRunStats } from '@/lib/runStats';
+import { RunStatChips } from './RunStatChips';
 
 interface SourceMeta {
   /** Brand name shown verbatim (IM channels). */
@@ -62,112 +64,18 @@ const DEFAULT_META: SourceMeta = { labelKey: 'chat.inner.source.activity', color
 
 type LoadState = 'idle' | 'loading' | 'ok' | 'error';
 
-/** 90 → "1m 30s", 42 → "42s", 3900 → "1h 5m". */
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
-}
-
-/** 1250 → "1.3k", 980 → "980", 2_400_000 → "2.4M". */
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
-/** Cost with enough precision for sub-cent runs ($0.0041), trimmed for big ones. */
-function formatCost(usd: number): string {
-  if (usd >= 0.1) return `$${usd.toFixed(2)}`;
-  return `$${parseFloat(usd.toFixed(4))}`;
-}
-
-/** One pill in the run-stats row. */
-function StatChip({ icon, children, title }: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  title?: string;
-}) {
-  return (
-    <span
-      title={title}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-[family-name:var(--font-mono,monospace)]"
-      style={{
-        color: 'var(--text-secondary)',
-        background: 'var(--bg-tertiary, rgba(0,0,0,0.04))',
-        border: '1px solid var(--border-subtle)',
-      }}
-    >
-      {icon}
-      {children}
-    </span>
-  );
-}
-
 /**
- * Run-stats row + input/output blocks around the loop timeline. Every chip
- * renders only when its datum exists — legacy rows (no lifecycle columns)
- * and cost-less runs collapse to whatever is actually known.
+ * Run-stats row + input/output blocks around the loop timeline. The chip row
+ * itself lives in RunStatChips — the Conversation view renders the same one,
+ * and two copies of "what did this turn cost" drift silently.
  */
 function RunMeta({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }) {
-  const failed = meta.state === 'failed';
-  const cancelled = meta.state === 'cancelled';
-  // Shared with the cost popover and the account page's usage section: the
-  // three-input-bucket rule is one rule, and it has already shipped a wrong
-  // number once (see lib/tokenFormat.ts).
-  const inputSide = inputSideTokens(meta);
-  const hasTokens = inputSide > 0 || meta.output_tokens > 0;
-  const hasChips =
-    failed || cancelled || meta.duration_seconds != null ||
-    meta.total_cost_usd != null || hasTokens || meta.models.length > 0;
+  const hasChips = hasRunStats(meta);
   if (!hasChips && !meta.input_text && !meta.final_output) return null;
 
   return (
     <div className="mt-2 space-y-2" data-testid="run-meta">
-      {hasChips && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(failed || cancelled) && (
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"
-              style={{
-                color: failed ? 'var(--color-error)' : 'var(--text-secondary)',
-                background: failed ? 'rgba(192,57,43,0.08)' : 'var(--bg-tertiary, rgba(0,0,0,0.04))',
-                border: `1px solid ${failed ? 'color-mix(in srgb, var(--color-error) 25%, transparent)' : 'var(--border-subtle)'}`,
-              }}
-            >
-              <AlertTriangle className="w-2.5 h-2.5" />
-              {t(failed ? 'chat.inner.meta.stateFailed' : 'chat.inner.meta.stateCancelled')}
-            </span>
-          )}
-          {meta.duration_seconds != null && (
-            <StatChip icon={<Clock className="w-2.5 h-2.5" />} title={t('chat.inner.meta.duration')}>
-              {formatDuration(meta.duration_seconds)}
-            </StatChip>
-          )}
-          {meta.total_cost_usd != null && (
-            <StatChip icon={<Coins className="w-2.5 h-2.5" />} title={t('chat.inner.meta.cost')}>
-              {formatCost(meta.total_cost_usd)}
-            </StatChip>
-          )}
-          {hasTokens && (
-            <StatChip
-              icon={<ArrowDownToLine className="w-2.5 h-2.5" />}
-              title={t('chat.inner.meta.tokens')}
-            >
-              {formatTokens(inputSide)} / {formatTokens(meta.output_tokens)}
-            </StatChip>
-          )}
-          {meta.models.map((m) => (
-            <StatChip key={m} icon={<Cpu className="w-2.5 h-2.5" />} title={t('chat.inner.meta.model')}>
-              {m}
-            </StatChip>
-          ))}
-        </div>
-      )}
+      <RunStatChips meta={meta} t={t} />
 
       {meta.input_text && (
         <div
@@ -234,7 +142,13 @@ function toEntries(res: EventLogResponse): EventLogTimelineEntry[] {
   return out;
 }
 
-function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
+function EntryRow({
+  entry,
+  showNarration,
+}: {
+  entry: EventLogTimelineEntry;
+  showNarration: boolean;
+}) {
   if (entry.type === 'tool_call') {
     return (
       <div className="flex items-start gap-1.5 text-xs">
@@ -259,16 +173,35 @@ function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
       </div>
     );
   }
+  // Progress tier (design A′), same rule as TurnTimeline and ProcessEventRows.
+  // This card matters MORE than either: it is the only view for turns that
+  // sent no reply (background jobs, channel triggers), and those turns are
+  // nothing but narration. The condition names `type === 'thinking'` because
+  // this return is the fallback for every non-tool, non-reply entry, not for
+  // thinking alone; the legacy `toEntries` path carries no tier, so it stays
+  // receded — correctly, since it cannot know.
+  const narration = showNarration && entry.type === 'thinking' && !!entry.monologue;
   return (
-    <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-      <Brain className="w-3 h-3 mt-0.5 shrink-0" />
-      <span className="break-words italic">{entry.content}</span>
+    <div
+      className="flex items-start gap-1.5 text-xs"
+      style={{ color: narration ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}
+    >
+      {narration ? (
+        <Milestone className="w-3 h-3 mt-0.5 shrink-0" />
+      ) : (
+        <Brain className="w-3 h-3 mt-0.5 shrink-0" />
+      )}
+      <span className={narration ? 'break-words' : 'break-words italic'}>{entry.content}</span>
     </div>
   );
 }
 
 export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentId: string }) {
   const { t } = useTranslation();
+  // Card level, not row level — same split as TurnTimeline (see
+  // hooks/useNarrationTier): the top-level component resolves the preference,
+  // shared row renderers take it as a prop.
+  const showNarration = useNarrationTier();
   const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState<LoadState>('idle');
   const [entries, setEntries] = useState<EventLogTimelineEntry[]>([]);
@@ -353,7 +286,7 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
                   className="mt-2 space-y-1.5 pl-2 border-l-2"
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
-                  {entries.map((e, i) => <EntryRow key={i} entry={e} />)}
+                  {entries.map((e, i) => <EntryRow key={i} entry={e} showNarration={showNarration} />)}
                 </div>
               )}
               {runMeta && <RunOutput meta={runMeta} t={t} />}

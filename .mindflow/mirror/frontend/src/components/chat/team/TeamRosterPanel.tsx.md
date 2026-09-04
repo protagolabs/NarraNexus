@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — idle 且 `last_turn_silent` 显示「上一轮未发言」
+
+`StatusLine` 加一个分支(`data-testid=silent-<id>`),idle **和 queued** 都显示(queued 时与「排队中」并列),
+否则 owner 追问一句就把沉默从所有界面抹掉。房间不再为沉默贴系统行,
+「跑了但没说」只在这里可见。守卫:`TeamRosterPanel.test.tsx` 「said nothing」用例。
+
 
 ## 2026-08-20 — 组长可在花名册就地指定（onSetLead）
 
@@ -104,8 +111,9 @@ test file.
 - **Depends on**: [[teamActivity]] for the whole vocabulary (`compareActivity`
   ordering, `STATUS_TONES`, `phaseLabelKey`, `buildTimeline`, `formatDuration`,
   `lastRunSummary`) — the roster must not re-decide what "stalled" looks like;
-  `processShared` for `ProcessEventRows` + `friendlyToolName`, so a member's
-  process reads identically to the single-agent ProcessPanel's terminal;
+  `processShared` for `friendlyToolName` and the shared terminal glyphs (its
+  `ProcessEventRows` retired 2026-08-30 — a member's process now renders
+  through [[TurnTimeline]], the same component the main chat uses);
   `segmentTurn`'s `timelineToEvents` to normalise the persisted timeline; and
   `api.getEventLog`.
 

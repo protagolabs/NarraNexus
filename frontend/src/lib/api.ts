@@ -110,9 +110,12 @@ import type {
   AgentSlotView,
   AgentSlotEffective,
   SlotOverrideStats,
-  AgentModelOverview,
   WorkerStatus,
   WorkerLiveness,
+  PluginId,
+  PluginsListResponse,
+  PluginUninstallResponse,
+  PluginInstallEvent,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -120,6 +123,7 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import type { CliStatusPayload, ProviderRow } from './providersApi';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
@@ -130,13 +134,22 @@ import { confirmSessionDeath } from './sessionGuard';
  * callers can branch on it (e.g. treat DELETE 404 as already-gone)
  * instead of string-matching the message.
  */
+/** How long one patrol-switch PUT may stay in flight before the store gives
+ *  up on it (see teamsStore.patrolInFlight). */
+export const PATROL_WRITE_TIMEOUT_MS = 15_000;
+
 export class ApiError extends Error {
   readonly status: number;
+  /** The backend's raw HTTPException `detail` ('' when the body had
+   * none) — callers that show user copy want this, not the prefixed
+   * message. */
+  readonly detail: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail: string = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -239,7 +252,7 @@ class ApiClient {
       const label = detail
         ? `API error ${response.status}: ${detail}`
         : `API error: ${response.status} ${response.statusText}`;
-      throw new ApiError(response.status, label);
+      throw new ApiError(response.status, label, detail);
     }
 
     return response.json();
@@ -476,7 +489,7 @@ class ApiClient {
     return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
-  // 语义搜索 Social Network Entities
+  // Semantic search over Social Network Entities
   async searchSocialNetwork(
     agentId: string,
     query: string,
@@ -568,11 +581,15 @@ class ApiClient {
   }
 
   /** Turn the Leader's periodic sweep on or off. The board stays usable either
-   *  way — this only stops the chasing. */
+   *  way — this only stops the chasing. Times out (→ rejects → the store rolls
+   *  back) rather than pinning the in-flight state indefinitely. */
   async setTeamPatrol(teamId: string, enabled: boolean): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/patrol`,
-      { method: 'PUT', body: JSON.stringify({ enabled }) },
+      // Bounded: the store marks the switch "in flight" until this settles
+      // (polls ignored, button disabled), so a request that never settles
+      // must not be able to hold that state forever.
+      { method: 'PUT', body: JSON.stringify({ enabled }), signal: AbortSignal.timeout(PATROL_WRITE_TIMEOUT_MS) },
     );
   }
 
@@ -688,17 +705,22 @@ class ApiClient {
     });
   }
 
+  /** Read the current user's onboarding progress. The root redirect asks for
+   *  `landing_completed` to decide whether this user still owes the one-time
+   *  welcome flow — server-side state, so a new browser doesn't replay it. */
+  async getOnboarding(): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>('/api/auth/onboarding');
+  }
+
   /** Mark a single onboarding step complete. Write-once-true on the
    *  backend — passing a step here can only ever set it, never clear it.
-   *  The checklist card that used to READ this state is retired (the
-   *  auto-provisioned guide agent replaced it); the write stays because the
-   *  progress metadata still feeds analytics and the server-side
-   *  guide-agent marker shares the same metadata blob. */
+   *  `landing_completed` is written by the welcome flow (on finish, on skip,
+   *  and as a silent backfill for users who predate the flow). */
   async markOnboardingStep(
     userId: string,
     // 'dismissed' left the union with the checklist card (its only setter);
     // the backend still accepts it, so re-adding is a one-line change.
-    step: 'first_agent_created' | 'template_applied',
+    step: 'first_agent_created' | 'template_applied' | 'landing_completed',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',
@@ -1292,12 +1314,42 @@ class ApiClient {
   async getProviders(): Promise<{
     success: boolean;
     data?: {
-      providers: Record<string, unknown>;
+      providers: Record<string, ProviderRow>;
       slots: Record<string, unknown>;
       version?: number;
     };
   }> {
     return this.request(`/api/providers`);
+  }
+
+  /** Add a provider card (claude_oauth / codex_oauth / one of the key
+   * card types). Business rejections arrive as HTTPException -> this
+   * THROWS ApiError (read err.detail for the backend's reason); map
+   * errors to user copy with providersApi.providerErrorMessage. */
+  async addProvider(
+    body: Record<string, unknown>,
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Claude Code CLI credential status (cloud non-staff get
+   * allowed: false — the OAuth-cards gate). */
+  async getClaudeStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/claude-status`);
+  }
+
+  /** Codex CLI credential status — same shape and gate as claude's. */
+  async getCodexStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/codex-status`);
   }
 
   /** One-key onboarding: a single API key wires the agent framework,
@@ -1371,12 +1423,22 @@ class ApiClient {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
-  /** Get the user's coding-agent framework choice + auth probe. */
+  /** Get the user's coding-agent framework choice + auth probe.
+   *
+   * `frameworks` reports plugin-install availability per framework name
+   * (Claude Code / Codex CLI are user-installed local plugins — see
+   * `getPlugins`). The array only lists the plugin-gated frameworks, so a
+   * framework absent from it (nexus_power, or any future non-plugin framework)
+   * is treated as available — that "unknown ⇒ available" default lives in
+   * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
+   * modelled as optional here.
+   */
   async getAgentFramework(): Promise<{
     success: boolean;
     data: {
       framework: string;
       supported: string[];
+      frameworks?: Array<{ name: string; available: boolean }>;
       probe: { ok: boolean; detail: string };
     };
   }> {
@@ -1413,6 +1475,90 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ framework }),
     });
+  }
+
+  // ── local plugin installs (Settings › Plugins) ─────────────────────────
+  // Claude Code / Codex CLI ship as user-installed plugins rather than
+  // baked into the desktop image. `cloud_managed` in the response tells the
+  // panel to hide itself entirely — cloud installs its own CLIs centrally.
+
+  /** List every known plugin's install/update/login state. */
+  async getPlugins(): Promise<PluginsListResponse> {
+    return this.request(`/api/plugins`);
+  }
+
+  /** Remove a plugin's local install (binary + its pip/npm target dir). */
+  async uninstallPlugin(id: PluginId): Promise<PluginUninstallResponse> {
+    return this.request(`/api/plugins/${encodeURIComponent(id)}/uninstall`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Streams the ndjson install log for a plugin. `onEvent` fires once per
+   * line as it arrives off the wire — progress frames (`done: false`) carry
+   * one pip/npm log line each; the stream always ends with exactly one
+   * `done: true` frame carrying the outcome, which this also returns.
+   *
+   * Bypasses `request<T>` (like the FormData/blob helpers) because the
+   * response body is a line-delimited stream, not a single JSON document —
+   * `response.body.getReader()` is read incrementally instead of calling
+   * `response.json()` once.
+   */
+  async installPlugin(
+    id: PluginId,
+    onEvent: (event: PluginInstallEvent) => void,
+  ): Promise<Extract<PluginInstallEvent, { done: true }>> {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
+
+    if (!response.ok || !response.body) {
+      let detail = '';
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body?.detail === 'string') detail = body.detail;
+      } catch {
+        /* not JSON — fall through to the status line */
+      }
+      throw new ApiError(
+        response.status,
+        detail || `API error: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let final: Extract<PluginInstallEvent, { done: true }> | null = null;
+
+    const consumeLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const event = JSON.parse(trimmed) as PluginInstallEvent;
+      onEvent(event);
+      if (event.done) final = event;
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        consumeLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+      }
+    }
+    if (buffer) consumeLine(buffer);
+
+    if (!final) {
+      throw new Error('Plugin install stream ended without a result');
+    }
+    return final;
   }
 
   // ── per-agent LLM config overrides ────────────────────────────────────
@@ -1485,11 +1631,6 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slots }),
     });
-  }
-
-  /** Effective model per owned agent, one call — for the Dashboard chip. */
-  async getAgentsModelOverview(): Promise<{ success: boolean; data?: { agents: AgentModelOverview } }> {
-    return this.request(`/api/providers/slots/agents-overview`);
   }
 
   /**
@@ -2317,10 +2458,23 @@ class ApiClient {
   async migrateApply(
     importData: StandardizedAgentImport,
     agentId?: string,
+    /** Handle for this one apply, so `migrateHurry` can reach it mid-flight. */
+    importId?: string,
   ): Promise<MigrationApplyResult> {
     return this.request<MigrationApplyResult>('/api/migrate/apply', {
       method: 'POST',
-      body: JSON.stringify({ import_data: importData, agent_id: agentId }),
+      body: JSON.stringify({ import_data: importData, agent_id: agentId, import_id: importId }),
+    });
+  }
+
+  /** Tell a RUNNING import to stop summarizing and just finish. The apply keeps
+   *  going (cutting it would half-populate an agent) but drops to the
+   *  deterministic no-LLM summary for every session it has left — which is the
+   *  difference between seconds and N sequential model calls. */
+  async migrateHurry(importId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('/api/migrate/hurry', {
+      method: 'POST',
+      body: JSON.stringify({ import_id: importId }),
     });
   }
 }

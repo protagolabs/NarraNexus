@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-08-03
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — codex helper 的 auth_ref 改走 derive_auth_ref (auth_ref P1 收尾)
+
+`_run_codex_oneshot` 构造 helper CodexConfig 时的
+`CODEX_CLI_CREDENTIALS_REF if _auth_type == "oauth" else ""` 是
+`derive.py` 真值表的条件式副本(review 第 4 轮清点出的最后两份之一),
+改为 `derive_auth_ref("codex_oauth", _auth_type) or ""`。source 传字面量
+"codex_oauth"——此构造器语境即 codex,不从卡上读。行为逐值不变,
+`test_cli_helper.py` 的 codex_auth_ref 断言钉住。
 
 ## 2026-08-03 — 两条改动的合并点
 
@@ -209,3 +218,7 @@ prompt，客户端提取+校验 JSON），复用其 `_extract_json_from_llm_outp
 
 - OAuth 订阅调用可能上报 0 token（CLI 计费在订阅侧，不在我们）——有则记账，无则 warn 不报错。
 - 成本上下文来自 `get_cost_context()`（agent_id, db），与其它 helper 一致。
+
+## 2026-08-28 补(auto-review I5) — 惰性 import 前调 activate_pyenv
+
+`_run_claude_oneshot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:用户装完插件后**先**用到 helper LLM(不经 agent driver)时,不重启也能解析到插件 SDK;否则拿到裸 ModuleNotFoundError。模块 import 期那次 activate 只覆盖'启动时已装'。

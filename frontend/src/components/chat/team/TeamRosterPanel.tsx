@@ -24,7 +24,7 @@
  *   stalled=error, idle=muted), a readable status word instead of a
  *   1.5px color dot, a chevron affordance, a selected state (accent
  *   rail + wash) that mirrors the transcript's typing-bubble highlight.
- * - The expanded detail is a mini ProcessPanel (TeamMemberPanel):
+ * - The expanded detail is one member's terminal card (TeamMemberPanel):
  *   running members stream REAL thinking/tool rows through the
  *   universal run-observation channel; idle members keep the persisted
  *   TurnTimeline. Same terminal language as single chat.
@@ -158,6 +158,23 @@ function StatusLine({ activity }: { activity: TeamMemberActivity }) {
       <span className="flex min-w-0 items-center gap-1 text-[11px]" style={{ color: tone.color }}>
         <AlertTriangle className="h-3 w-3 shrink-0" />
         <span className="truncate">{t(tone.labelKey)}</span>
+      </span>
+    );
+  }
+  // The turn ran and chose not to speak. Since 2026-09-03 the transcript no
+  // longer carries a line for that, so this is where "said nothing" and
+  // "never ran" stay tellable apart.
+  // Also while queued — the owner's natural reply to silence is to ask again,
+  // and that must not make the silence vanish from every surface.
+  if ((activity.status === 'idle' || activity.status === 'queued') && activity.last_turn_silent) {
+    return (
+      <span
+        className="min-w-0 truncate text-[11px]"
+        style={{ color: activity.status === 'queued' ? tone.color : 'var(--text-tertiary)' }}
+        data-testid={`silent-${activity.agent_id}`}
+      >
+        {activity.status === 'queued' ? `${t(tone.labelKey)} · ` : ''}
+        {t('chat.team.roster.silentLastTurn')}
       </span>
     );
   }

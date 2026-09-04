@@ -7,7 +7,7 @@
  * importable: Create agent / Create team / Import .nxbundle / Import from
  * other source — one front door for "bring a new thing into NarraNexus".
  *
- * Same inline-panel approach as AgentRowMenu — no Radix portal, so it
+ * Same inline-panel approach as TeamRowMenu — no Radix portal, so it
  * renders correctly inside the sidebar without portal-positioning issues.
  */
 

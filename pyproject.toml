@@ -4,23 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.19.0"
+version = "1.20.0"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.72.0",
-    "claude-agent-sdk~=0.1.43",
     "openai>=2.7.1",
     "openai-agents>=0.19.1",
-    # Official OpenAI Codex SDK — drives CodexSDKv2 (the v2 agent-loop
-    # driver registered under `codex_cli_v2`). Pinned to 0.1.x because
-    # the package is beta — accept patch/beta bumps inside 0.1, but
-    # treat 0.2 as a breaking change requiring deliberate upgrade.
-    # Transitively pulls openai-codex-cli-bin (the codex binary as a
-    # wheel) so users no longer need `npm install -g @openai/codex`.
-    "openai-codex>=0.1.0b3,<0.2",
     "mcp[cli]>=1.20.0",
     "loguru>=0.7.3",
     "pydantic>=2.12.3",
@@ -88,6 +80,33 @@ dependencies = [
     # a low floor the resolver is free to wander onto a pre-release above
     # it, which is how 1.95.0.dev3 got locked.
     "litellm>=1.94.0,<2",
+]
+
+[project.optional-dependencies]
+# Optional coding-agent framework SDKs. On the lightweight LOCAL build
+# (`bash run.sh` + the desktop DMG) these are NOT installed — the user installs
+# them on demand from Settings → Plugins, into ~/.narranexus/plugins (see
+# src/xyz_agent_context/agent_framework/plugin_paths.py and
+# backend/integrations/plugins/). `claude-agent-sdk` also carries the ~186 MB
+# bundled `claude` CLI, so keeping BOTH out of the base install is the bulk of
+# the local slim-down.
+#
+# Anything that must run/typecheck/test every framework installs this group
+# EXPLICITLY with `uv sync ... --extra plugins` — LOCKSTEP (铁律 #7) across:
+#   * .github/workflows/ci.yml            (this repo — BOTH `uv sync --dev`
+#     jobs; miss it and pyright reports missing imports + the agent_loop
+#     tests ERROR, i.e. this very PR's CI goes red)
+#   * docker/Dockerfile.manyfold          (this repo)
+#   * deploy repo docker/Dockerfile.executor, docker/Dockerfile.python
+# Miss one and that image/job's claude_code / codex_cli silently break (the SDK
+# is absent, the lazy driver factory raises ImportError at run time).
+#
+# `openai-codex` is beta-only and transitively pulls `openai-codex-cli-bin`
+# (the codex binary wheel); the `[tool.uv] prerelease = "if-necessary-or-explicit"`
+# policy below still covers it.
+plugins = [
+    "claude-agent-sdk~=0.1.43",
+    "openai-codex>=0.1.0b3,<0.2",
 ]
 
 [tool.hatch.build.targets.wheel]

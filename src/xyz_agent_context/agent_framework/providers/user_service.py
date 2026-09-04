@@ -22,6 +22,7 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.providers.model_identity import framework_of
 from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_default_models,
 )
@@ -154,6 +155,61 @@ def _generate_provider_id() -> str:
 
 def _generate_group_id() -> str:
     return f"grp_{uuid4().hex[:8]}"
+
+
+def _cli_subscription_row_fields(
+    source: str, auth_type: str, protocol: str
+) -> dict:
+    """driver_type / billing_policy / auth_ref for a CLI-subscription card.
+
+    The values are the ``derive.py`` truth table, not literals: this P1's
+    root cause was exactly one of several literal copies missing a field
+    (same lesson as the ``_DUAL_PROVIDER_CONFIGS`` comment in
+    ``add_provider``). Scope: ONLY the claude_oauth / codex_oauth insert
+    and reconnect paths — aggregator and custom cards deliberately leave
+    driver_type / billing_policy for the resolver's read-time derivation.
+
+    ``derive_auth_ref`` returns None for oauth_token (the token IS the
+    credential, no file sentinel) — mapped to ``""`` here so
+    ``_insert_provider``'s ``if key in data`` check writes the empty
+    string instead of skipping the column.
+
+    ``protocol`` is passed through to align with ``derive_driver_type``'s
+    signature; for the two CLI-subscription sources it does not affect
+    the result (their branches key on source alone).
+    """
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
+        CLI_SUBSCRIPTION_SOURCES,
+        derive_auth_ref,
+        derive_billing_policy,
+        derive_driver_type,
+    )
+
+    if (source or "").lower() not in CLI_SUBSCRIPTION_SOURCES:
+        # Enforce the documented scope, not merely "classifiable":
+        # derive_driver_type happily classifies source="user" as
+        # custom_anthropic, and this helper would then stamp an
+        # external_oauth billing policy onto a card it must not serve.
+        # Fail loudly at the call site instead of producing a broken row.
+        raise ValueError(
+            f"not a CLI-subscription source: {source!r} (auth_type={auth_type!r})"
+        )
+    driver_type = derive_driver_type(source, auth_type, protocol)
+    if driver_type is None:
+        # In-scope but unclassifiable = the membership set was extended
+        # before derive_driver_type grew the matching branch (the
+        # half-done gemini_cli scenario). Without this backstop the row
+        # would be written with driver_type=NULL — the exact state this
+        # helper exists to eliminate.
+        raise ValueError(
+            f"CLI-subscription source {source!r} has no derive_driver_type "
+            "branch — extend the truth table before wiring the card type"
+        )
+    return {
+        "driver_type": driver_type,
+        "billing_policy": derive_billing_policy(source, auth_type),
+        "auth_ref": derive_auth_ref(source, auth_type) or "",
+    }
 
 
 class UserProviderService:
@@ -319,21 +375,24 @@ class UserProviderService:
                     {
                         "auth_type": "oauth_token",
                         "api_key": token,
-                        "auth_ref": "",
-                        "driver_type": "claude_oauth",
-                        "billing_policy": "external_oauth",
                         "updated_at": now,
+                        **_cli_subscription_row_fields(
+                            "claude_oauth", "oauth_token", "anthropic"
+                        ),
                     },
                 )
                 new_ids.append(pid)
             else:
                 pid = _generate_provider_id()
+                # One expression feeds both the row column and the derived
+                # fields below — duplicating it is how the two drift.
+                oauth_auth_type = "oauth_token" if token else "oauth"
                 row = {
                     "provider_id": pid,
                     "name": "Claude Code (OAuth)",
                     "source": "claude_oauth",
                     "protocol": "anthropic",
-                    "auth_type": "oauth_token" if token else "oauth",
+                    "auth_type": oauth_auth_type,
                     "api_key": token,
                     "base_url": "",
                     # CLI family aliases → auto-track the latest Claude release
@@ -344,23 +403,20 @@ class UserProviderService:
                     # Subscription funnels through official Anthropic → server
                     # tools OK.
                     "supports_anthropic_server_tools": True,
+                    # Classify at insert time. The startup backfill only
+                    # normalizes rows left by pre-driver builds — a new row
+                    # must never wait for the next restart to become
+                    # testable: leaning on the backfill left auth_ref NULL
+                    # until then, so Test right after creation always
+                    # failed (P1, 2026-08-27).
+                    **_cli_subscription_row_fields(
+                        "claude_oauth", oauth_auth_type, "anthropic"
+                    ),
                 }
-                if token:
-                    # Token rows are self-contained: classify them at insert
-                    # time (mirrors the codex_oauth branch) instead of leaning
-                    # on the startup backfill, whose auth_ref derivation only
-                    # covers the host-CLI transport.
-                    row["driver_type"] = "claude_oauth"
-                    row["billing_policy"] = "external_oauth"
-                    row["auth_ref"] = ""
                 await self._insert_provider(user_id, row, now)
                 new_ids.append(pid)
 
         elif card_type == "codex_oauth":
-            from xyz_agent_context.agent_framework.providers.driver.derive import (
-                CODEX_CLI_CREDENTIALS_REF,
-            )
-
             # Mirror of claude_oauth: a single row representing the
             # host's ``codex login`` credential. The CodexSDK reads
             # the token directly from ~/.codex/auth.json via its
@@ -400,9 +456,7 @@ class UserProviderService:
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
-                "driver_type": "codex_oauth",
-                "billing_policy": "external_oauth",
-                "auth_ref": CODEX_CLI_CREDENTIALS_REF,
+                **_cli_subscription_row_fields("codex_oauth", "oauth", "openai"),
             }, now)
             new_ids.append(pid)
 
@@ -907,7 +961,7 @@ class UserProviderService:
     async def get_user_agent_framework(self, user_id: str) -> str:
         """Return the user's chosen coding-agent framework.
 
-        Returns ``"nexus_power"`` (platform default) when:
+        Returns ``DEFAULT_AGENT_FRAMEWORK`` (``model_identity``) when:
           - The user has no agent slot row yet (new user)
           - The column is null (rows from before the column was added)
         Anything other than the supported set still returns the raw
@@ -917,9 +971,7 @@ class UserProviderService:
         row = await self.db.get_one(
             "user_slots", {"user_id": user_id, "slot_name": "agent"}
         )
-        if not row:
-            return "nexus_power"
-        return (row.get("agent_framework") or "nexus_power")
+        return framework_of(row)
 
     async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
         """Persist the user's coding-agent framework choice.

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/teams/ClearTeamDataDialog.tsx
-last_verified: 2026-08-11
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 入口迁到房间的团队管理 tab
+
+不再由 [[AgentList]] 渲染、也不再从 [[TeamRowMenu]] 的「清理数据」打开(两处都已删)。
+现在唯一入口是 [[../chat/team/TeamManagePanel]] 的「清理团队数据…」按钮,确认后
+`api.clearTeamData` → `onCleared(scopes)` 让 [[../chat/team/TeamChatPanel]] 丢掉对应内容。
+组件本身与 scopes 语义未变。
+
 
 # ClearTeamDataDialog.tsx — clear a team's chat / shared files
 

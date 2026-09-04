@@ -1,8 +1,83 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
+
+`/slots/override-stats` 上方那段注释在删 `/slots/agents-overview` 后断了句（后半句还在说
+已删的 Dashboard chip）。重写为：这两个端点只回答「多少 agent 覆盖」与「清除覆盖」，
+目录的框架 / 模型列归 `/api/auth/agents`。
+
+## 2026-09-03 (评审修订) — 删 `/slots/agents-overview`；provider 卡带 `auto_provisioned`
+
+- 目录表改由 `/api/auth/agents` 经同一个 service 投影后，这个端点没有任何前端调用者
+  （评审 I6，铁律 #2 不留兼容壳），连同它的两条路由测试删除；service 方法保留并多了
+  `agent_framework`。
+- `_config_to_response` 给每张卡打 `auto_provisioned`（评审 I7）：取自 free-tier 与
+  netmind provisioner 自己的 source 常量，放在写入方旁边。首程门禁读这个标记，不再在
+  前端维护一份「哪些 source 是 login 自动开的」。已知碰撞：用户自己粘贴的 NetMind key
+  也是 `netmind`，代价是多走一次首程流程。
+
+## 2026-08-28 — agent-framework 端点接入插件安装状态（fail-closed）
+
+Local/desktop 把 `claude_code`/`codex_cli` 从基础安装拆成按需插件（装进
+`~/.narranexus/plugins/`，见 [[plugin_paths]]、`backend/integrations/plugins/`）
+后，两个既有端点各加一处、都只 import `framework_installed`，不重新推导判定
+逻辑（这条规则是 2026-07-18 那次教训的直接延续）：
+
+- **`GET /agent-framework`**：`data` 新增 `frameworks` 字段——
+  `[{"name": fw, "available": framework_installed(fw)} for fw in
+  _SUPPORTED_AGENT_FRAMEWORKS]`。既有 `supported`/`framework`/`probe` 三个
+  字段原样保留，`frameworks` 是纯增量，前端插件感知选择器消费它，旧前端
+  忽略它。
+- **`POST /agent-framework`**：在「未知 framework → 400」之后、真正调用
+  `service.set_user_agent_framework` 之前插一道 fail-closed 检查——
+  `body.framework != "nexus_power" and not framework_installed(body.framework)`
+  → `409`，detail 是纯英文机器可读串
+  `f"Framework '{...}' plugin is not installed"`（前端按 framework 名本地化，
+  不解析 detail 文本）。不这样做的后果：用户切到一个没装插件的框架会先
+  "成功"落库，下一次真正发消息时才在 `get_agent_loop_driver` 里炸出
+  `FrameworkNotInstalledError`——把一个本可以在切换那一刻就说清楚的错误，
+  推迟到了体验最差的时间点。
+
+**为什么门禁顺序是 cloud gate → unknown-framework 400 → install 409 → codex
+wheel 检查 → 落库**：cloud gate（`framework_allowed_in_cloud`）必须最先，
+它决定这个请求在这个部署形态下"能不能问这个问题"；未知框架名是纯粹的输入
+校验，理应比"这个框架装没装"更先报；`_ensure_codex_installed` 检查的是
+「wheel 里的 codex 二进制在不在」，是 install 检查通过之后的**运行时细节**
+（wheel 已确认可 import，但二进制路径可能仍然缺失），语义上比
+`framework_installed` 更细粒度，所以排在它之后。
+
+**为什么 `nexus_power` 天然豁免**：`framework_installed("nexus_power")`
+在 [[plugin_paths]] 里恒真（它是内置框架，从不走插件安装），本条件式的
+`body.framework != "nexus_power"` 短路只是把这条真值原样体现在门禁的措辞
+里，并非另开一条特例判定——即便 `framework_installed` 未来某天对
+`nexus_power` 返回非 True（回归），这句显式排除仍能兜底。
+
+**为什么云端永远不会被这道新门挡住**：云端镜像的基础环境本身就预装了
+`claude_agent_sdk`/`openai_codex`（铁律：cloud/CI 用 `uv sync --extra
+plugins` 显式装这两个包，见 [[plugin_paths]] 文件头），`framework_installed`
+走的是 `_present_in_base`（`importlib.util.find_spec`）分支，恒真——这道
+门只在 local/desktop（未装插件）才会真正触发。
+
+测试：`tests/backend/test_agent_framework_plugin_gate.py`（monkeypatch
+`framework_installed`，覆盖正例/负例/`nexus_power` 豁免/cloud gate 先行）。
+## 2026-08-27 — agent-framework 探针 stub 改走 from_row(auth_ref P1 收尾)
+
+`_probe_agent_framework_auth` 的 claude/codex 两个 stub 原来手写
+`auth_ref` 常量 + `driver_type` 字符串——`derive.py` 真值表之外的第三份
+副本,哨兵语义一变就静默漂移(探针会拿过期形态的 auth_ref 去 resolve,
+把登录正常的宿主报成 "auth missing")。现改为 `ProviderCard.from_row`
+喂假 DB row,auth_ref 走读时推导(base.py.md 同日条目)。两个坑:
+① `auth_type` 必须显式 `"oauth"`——from_row 缺省兜 `"api_key"`,推导
+返回 None,探针会误报未登录;② `driver_type` 字段删除是安全的——两个
+分支都直接构造 driver 类,不经 `get_driver_class`。leg 2 此前**零测试
+覆盖**(既有探针测试都带 user_id,在 leg 1 就 return 了),review 第 4
+轮补了 4 条(test_one_key_onboarding.py §8):不传 user_id 才走 leg 2;
+claude 反向用例必须 monkeypatch 掉 `_keychain_has_credentials`,否则在
+装了真 claude 登录的 mac 上假绿。
 
 ## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
 
@@ -463,3 +538,7 @@ existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分
 ## 2026-07-07 (bug#3) — hot-reload 传 cli_helper
 
 add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增传 `cfg.cli_helper`，订阅（OAuth）helper 才能在当前进程即时生效。OAuth 登录后 add_provider 自动绑定 agent+helper 两槽。
+
+## 2026-08-28 补(auto-review I-new-6) — _ensure_codex_installed 惰性 activate + 修失效指引
+
+`_ensure_codex_installed` 是插件包 import 的第 6 个站点,原来 import `codex_cli_bin` 前不 activate_pyenv,装完 Codex 不重启会 ImportError;且失效文案叫用户 'Run uv sync'(轻量版 run.sh 的 uv sync 明确不带 --extra plugins,永远装不上)。修:import 前 `plugin_paths.activate_pyenv()`;文案改指 Settings→Plugins(云端才提 uv sync --extra plugins);删 docstring 里 'hard dependency in pyproject.toml' 等 v2 时代过时前提。测试 test_agent_framework_plugin_gate::test_ensure_codex_installed_activates_plugin_pyenv_first 锁定。

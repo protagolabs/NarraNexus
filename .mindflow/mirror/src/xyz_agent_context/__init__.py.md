@@ -2,6 +2,13 @@
 
 Package entry point — re-exports the full public API of the `xyz_agent_context` package in dependency order.
 
+## 2026-08-28 — `ClaudeAgentSDK` 惰性导出（轻量化插件）
+
+`claude-agent-sdk` 在本地版是按需安装的插件，故顶层包 import 时**不能**急加载它。
+去掉 import 期 `from .agent_framework import ClaudeAgentSDK`，改为 PEP 562
+`__getattr__` 惰性透传（仍 `from xyz_agent_context import ClaudeAgentSDK` 可用，但
+只在真取用时才拉 SDK）。名字仍在 `__all__`。详见 [[__init__]]（agent_framework）。
+
 ## 2026-06-09 — `__version__` sourced from package metadata
 
 `__version__` was a hardcoded `"0.1.0"` that silently went stale. It now reads

@@ -62,7 +62,6 @@ from xyz_agent_context.agent_framework.llm.failure import (
         # agent promise work it never did.
         (
             "invalid_request",
-            'Claude API error: invalid_request\n\nProvider response:\n'
             'API Error: 403 {"error":{"message":"Invalid api token"}}',
             SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS,
         ),

@@ -4,16 +4,20 @@
  * @date: 2026-08-06
  * @description: The v4 chat header — the agent's name is the protagonist.
  *
- * Left: sidebar-expand button (only while the sidebar is collapsed), agent
- * ring avatar, agent-name button (opens the detail menu) and a mono
- * "session · <time>" label. Right: the Chat / Inner Thoughts segmented
+ * Left: sidebar-expand button (only while the sidebar is collapsed) and the
+ * agent ring avatar + name, which together form ONE button that navigates to
+ * the agent's profile page. Right: the Chat / Inner Thoughts segmented
  * toggle, entry icons for Jobs / Inbox / Artifacts (with live badges from
- * the bookmark registry), the cost popover, and a ⋯ detail menu listing
- * every agent panel (Awareness / Workspace / Channels / Skills / MCP /
- * Smart Home | Network / Memory) plus the per-agent model & framework
- * panel.
+ * the bookmark registry), the cost popover, and a ⋯ detail menu listing the
+ * remaining agent panels (Workspace / Channels / Skills / MCP / Smart Home).
  *
- * This component is ENTRY POINTS ONLY: every item opens the same bookmark
+ * Awareness, Network/Memory and Model & framework were dropped from that menu
+ * (2026-08-27) — they are all reachable from the profile page now, so a second
+ * door to the same rooms was pure duplication. The agent-switcher dropdown
+ * that used to hang off the name is gone for the same reason: clicking the
+ * name means "who is this", and switching agents belongs to the sidebar.
+ *
+ * This component is ENTRY POINTS ONLY: every ⋯ item opens the same bookmark
  * drawer panels that the retired right-edge BookmarkStrip used to open
  * (via uiStore.requestPanel → ChatView's drawer). Panel internals are
  * unchanged by design — the v4 redesign relocated the doors, not the rooms.
@@ -21,15 +25,8 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ChevronDown,
-  MoreVertical,
-  ListTodo,
-  Inbox,
-  PanelLeft,
-  SlidersHorizontal,
-  Check,
-} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MoreVertical, ListTodo, Inbox, PanelLeft } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
@@ -41,24 +38,17 @@ import {
   tabDescKey,
   type AtomicTabId,
 } from '@/components/bookmarks';
-import { useUIStore, useArtifactStore, useConfigStore, useChatStore } from '@/stores';
+import { useUIStore, useArtifactStore } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
 
-/** Detail-menu layout: config panels first, then the Narra/Nexus pair —
- *  mirrors the retired strip's category order, flattened into one menu. */
-const DETAIL_GROUP_A: AtomicTabId[] = [
-  'awareness',
-  'workspace',
-  'channels',
-  'skills',
-  'mcp',
-  'smarthome',
-];
-const DETAIL_GROUP_B: AtomicTabId[] = ['social', 'memory'];
+/** Detail-menu layout: config panels only. Awareness and the Network/Memory
+ *  pair are dropped here — they now live on the agent's Profile page and
+ *  don't need a second door. */
+const DETAIL_GROUP_A: AtomicTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 const ALL_TAB_DEFS = STRIP_CATEGORIES.flatMap((c) => c.tabs);
 
@@ -69,43 +59,30 @@ function tabDef(id: AtomicTabId) {
 export interface ChatHeaderProps {
   agentId: string | null;
   agentName: string;
-  /** Mono side label, e.g. "session · 09:41". Empty string hides it. */
-  sessionLabel: string;
   isStreaming: boolean;
   currentSteps: Step[];
   chatTab: 'conversation' | 'inner';
   onChatTabChange: (tab: 'conversation' | 'inner') => void;
-  /** Opens the per-agent model & framework panel (AgentLlmConfigPanel). */
-  onOpenAgentConfig: () => void;
 }
 
 export function ChatHeader({
   agentId,
   agentName,
-  sessionLabel,
   isStreaming,
   currentSteps,
   chatTab,
   onChatTabChange,
-  onOpenAgentConfig,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
   const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
-  // Agent switcher under the name. Clicking the agent's NAME must answer
-  // "talk to someone else", not open settings — settings keep their own
-  // door (the ⋯ menu on the right).
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
-  const agents = useConfigStore((s) => s.agents);
-  const setAgentId = useConfigStore((s) => s.setAgentId);
-  const setActiveAgent = useChatStore((s) => s.setActiveAgent);
-  const handleSwitchAgent = (id: string) => {
-    setSwitcherOpen(false);
-    if (id !== agentId) {
-      setAgentId(id);
-      setActiveAgent(id);
-    }
+
+  // `from: 'chat'` is what makes the profile's breadcrumb say "back to Chat"
+  // instead of "back to Agents" — the profile has two callers.
+  const goToProfile = () => {
+    if (!agentId) return;
+    navigate(`/app/agents/${encodeURIComponent(agentId)}`, { state: { from: 'chat' } });
   };
 
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -133,11 +110,9 @@ export function ChatHeader({
       className="hidden md:flex items-center justify-between gap-3 px-4 min-h-[52px] shrink-0 border-b"
       style={{ borderColor: 'var(--nm-hairline)' }}
     >
-      {/* Left — expand + agent identity + session label. Shrinking is
-          min-w-0 down the chain (group → switcher wrapper → button) with
-          truncate on the name and session label; overflow-hidden here would
-          CLIP the agent-switcher dropdown (absolute, inside this subtree)
-          to the header strip — an open menu that renders nothing. */}
+      {/* Left — expand + agent identity. The identity block is one button:
+          avatar and name open the same profile page, so there is no dead
+          half. Shrinking is min-w-0 down the chain with truncate on the name. */}
       <div className="flex items-center gap-2.5 min-w-0">
         {sidebarCollapsed && (
           <button
@@ -150,71 +125,26 @@ export function ChatHeader({
             <PanelLeft className="h-4 w-4" />
           </button>
         )}
-        <RingAvatar
-          species="silicon"
-          label={(agentName || 'AI').slice(0, 2)}
-          size="sm"
-          className="shrink-0"
-        />
-        <div ref={switcherRef} className="relative min-w-0">
-          <button
-            type="button"
-            onClick={() => setSwitcherOpen((v) => !v)}
-            aria-expanded={switcherOpen}
-            title={t('chat.header.switchAgent')}
-            aria-label={t('chat.header.switchAgent')}
-            className="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
-          >
-            {/* Same family as the sidebar row that shows this same name — the
-                header keeps its lead role via size + weight, not a second
-                typeface (design_system.md §4.1: display is for large titles). */}
-            <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
-              {agentName}
-            </span>
-            <ChevronDown
-              className={cn('h-3.5 w-3.5 text-[var(--nm-ink30)] transition-transform', switcherOpen && 'rotate-180')}
-            />
-          </button>
-          {switcherOpen && (
-            <div
-              className={cn(
-                'absolute left-0 top-full z-50 mt-1.5 w-60 max-h-[50vh] overflow-y-auto py-1',
-                'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
-                'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
-              )}
-            >
-              {agents.map((a) => {
-                const active = a.agent_id === agentId;
-                return (
-                  <button
-                    key={a.agent_id}
-                    type="button"
-                    onClick={() => handleSwitchAgent(a.agent_id)}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors',
-                      'hover:bg-[var(--nm-paper-warm)]',
-                      active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
-                    )}
-                  >
-                    <RingAvatar
-                      species="silicon"
-                      label={(a.name || a.agent_id).slice(0, 2)}
-                      size="sm"
-                      className="shrink-0"
-                    />
-                    <span className="flex-1 min-w-0 truncate">{a.name || a.agent_id}</span>
-                    {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        {sessionLabel && (
-          <span className="min-w-0 font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
-            {sessionLabel}
+        <button
+          type="button"
+          onClick={goToProfile}
+          title={t('chat.header.viewProfile')}
+          aria-label={t('chat.header.viewProfile')}
+          className="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+        >
+          <RingAvatar
+            species="silicon"
+            label={(agentName || 'AI').slice(0, 2)}
+            size="sm"
+            className="shrink-0"
+          />
+          {/* Same family as the sidebar row that shows this same name — the
+              header keeps its lead role via size + weight, not a second
+              typeface (design_system.md §4.1: display is for large titles). */}
+          <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
+            {agentName}
           </span>
-        )}
+        </button>
       </div>
 
       {/* Right — streaming chip, segmented toggle, entry icons, detail ⋯ */}
@@ -321,25 +251,6 @@ export function ChatHeader({
                 {DETAIL_GROUP_A.map((id) => (
                   <DetailItem key={id} id={id} onOpen={openPanel} />
                 ))}
-                <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                {DETAIL_GROUP_B.map((id) => (
-                  <DetailItem key={id} id={id} onOpen={openPanel} />
-                ))}
-                <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                {/* Per-agent model & framework — the panel formerly behind
-                    the header sliders icon; the composer chip stays the
-                    quick model switch. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDetailOpen(false);
-                    onOpenAgentConfig();
-                  }}
-                  className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
-                >
-                  <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
-                  {t('chat.header.modelFramework')}
-                </button>
               </div>
             )}
           </div>

@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-07-31
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(P1 缺陷 B)
+
+"auth_ref is missing or not a claude-cli: reference" 原样弹进了 Test
+对话框(P1 工单)——内部列名对用户毫无行动指向。改为"remove it and
+re-add Claude Code (OAuth) in Settings → LLM Providers"。前提:创建路径
+自本日起插入即写 sentinel、from_row 读时推导兜住存量行。**分支有两种
+含义,按 source 判别**(review 第 3 轮):`source=="claude_oauth"` →
+存的引用本身损坏,remove+re-add 是对的;source 是别的(test_provider
+的 driver_type 兜底会把任意 anthropic 协议 oauth 行误路由进本 driver,
+恰在 driver_type 为 NULL 时)→ 卡本来就不是 Claude Code (OAuth),
+建议删卡是破坏性误导,改报 "not a Claude Code (OAuth) card"。**判
+source 不判 driver_type**——误路由的成因就是 driver_type 为 NULL。
+codex_oauth 同款同批修。测试断言文案**不含** "auth_ref" 字符串、误路由
+行**不含** "remove"。误路由文案还必须给出**正向动作**(引导新建对应
+类型的卡,2026-08-28 PR bot 轮)——不得退回纯 check / 纯禁止措辞,
+"文案没给出路"正是本 P1 工单的原始体感;但也不得写成 remove + re-add,
+那是 `source==claude_oauth` 引用真损坏那一支的专属措辞,两支责任不同。第 4 轮把 source 守卫**提到 `_is_token_mode()` 之前**
+——否则 `auth_type="oauth_token"` 的误路由卡会先落进 token 分支,拿到
+"run `claude setup-token`" 这种它执行不了的建议;现在 misroute 判定
+先于一切模式分支(测试:
+`test_probe_misrouted_token_card_gets_source_verdict_not_token_advice`)。
+第 5 轮定性:这条 token 误路由路径**当前用户不可达**(`verify_live` 的
+token 分支直接查 api_key、不调 probe;probe 的可达调用方只有 framework
+探针 stub 和 verify_live 的 host 分支),守卫属 defense-in-depth。
+**不要**给 verify_live 的 token 分支也加 source 守卫——那里用用户粘贴的
+token 真跑一次 CLI,绿就是绿才诚实。守卫比较已 `.lower()` 归一,与
+derive_auth_ref 同口径。
 
 ## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
 
@@ -75,3 +103,7 @@ Claude Code 在 macOS 上把 OAuth token 存 Keychain(generic password
 探测在所有 Mac 上误报 '✗ credentials file not found'(CLI 实际能跑)。
 oauth 模式的 `probe()` 文件缺失时用 `security find-generic-password` 查
 Keychain(仅判存在、不读密文;非 darwin/出错回落文件结论)。
+
+## 2026-08-28 补(auto-review I5) — Verify 前调 activate_pyenv
+
+`_one_shot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:Providers 页 Claude OAuth 卡片的'Verify'可能是用户装完插件后第一个触发点(早于任何 agent driver),不重启也要能解析 SDK。

@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-07-29
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 注释里的 `/setup` 改为「first-run」
+
+`SetupPage` 在本次退役（换成 [[../../pages/WelcomePage]]，`/setup` 路由保留为
+指向 `/welcome` 的重定向）。本组件注释里那句「/setup 的逻辑：先给简单表面，
+完整 ProviderSettings 藏在后面」改成「first-run 的逻辑」——描述的是那套渐进披露
+的意图，不是某一个页面文件。
+
+行为未改。
+
+## 2026-08-28 — ProviderInfo 成为共享 ProviderRow 的别名
+
+`api.getProviders()` 的 providers 值类型是共享 `ProviderRow`;本组件的
+本地 `ProviderInfo` 改为它的别名,**双重 cast 已删除**(第 4 轮:窄共享
+类型 + 富本地类型的组合逼出过 `as unknown as`,等于关掉这一处的全部类型
+检查)。行字段的唯一定义在 [[providersApi]]。
 
 # ProviderSummaryCard.tsx — at-a-glance LLM wiring summary
 

@@ -1,8 +1,38 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — thinking 合并加一条「换档即边界」
+
+`agent_thinking` 的相位合并（回溯找 open bubble，只有 tool_call/reply 打断）
+现在多一个条件：**open bubble 与新帧必须同档**（[[monologueTier]] 的
+`isMonologueFrame`）。
+
+为什么不能只按相位合并：一个 thinking 块只带**一个** `monologue` 标记，而
+独白与 provider CoT 走同一条通道。跨档合并出来的块必然把两档文本标成一档
+——要么把独白дим掉，要么把草稿纸提亮。后者是不能犯的那一侧
+（理由全文在 [[monologueTier]]）。
+
+### 「未知档位」那套机制已经拆掉（2026-08-30 第二版）
+
+曾经存在一个 `replayed: true` / `undefined` 档位的三态，用来兜住回放帧没有
+档位这件事——它自己在 review 里错过两次（当成 false 会劈句子，向上采纳会把
+CoT 提亮）。**根因在源头**：`run_recorder` / `broadcaster` 不持久化档位。
+
+那条根因这一单补掉了（见 [[run_recorder]] / [[broadcaster]] / [[wsManager]]），
+三条回放路现在都带真实档位，于是三态退回布尔，`replayed` 字段删除。
+**边界的正确性从「前端防御性合并」换成了「上游不跨档合并」**——
+[[_thinking_batcher]] 与 [[run_recorder]] 各自换档即 flush，所以到这里的帧
+不可能骑在一次切换上。
+
+**独白必须留在 thinking 车道**，这是一条红线，不是风格选择：本文件
+`agent_response` 分支有 `alreadyReplied` 全量丢弃（本轮出现任何 `reply` 之后
+的 native 文本一律 `return {}`，为治模型「回完又复述一遍」）。把独白改走
+native_output 那条"直觉捷径"，会**静默吃掉 reply 之后的所有独白**——那是
+减少用户今天已经看得到的内容，直接违反铁律 #16。夹具钉在
+`__tests__/chatStore.monologueTier.test.ts`「红线 1」那条。
 
 ## 2026-08-24 (review #349 M4) — `runId` 接成守卫;`currentRunId` 进 flat fields
 
@@ -30,7 +60,6 @@ AgentChatState 加 `currentSteerable`(run_started 设、startStreaming 重置 fa
 后端把一个 owner 工具拆成了 `reply_owner` / `notify_owner`，每轮桌上只有一个。前端只匹配
 其中一个名字时，另一条表面上的回复内容是真的、字也在，**气泡就是不渲染**——一个不报错的
 静默失败。
-
 
 ## 2026-08-14 — ToastItem 成为可辨识联合
 

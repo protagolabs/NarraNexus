@@ -77,7 +77,7 @@
       "downloadMd": "Télécharger en .md"
     },
     "timeline": {
-      "thinking": "Réflexion",
+      "thought": "Réfléchi",
       "toolLabel": "[ outil ]",
       "outputLabel": "[ sortie ]",
       "reply": "Réponse",
@@ -140,7 +140,7 @@
         "mention": "@ un coéquipier pour t'adresser directement à lui.",
         "broadcastTitle": "Diffuser à tous",
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
-        "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
+        "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de votre part, le relais s'arrête à la limite de la plateforme et le salon le signale."
       },
       "noProcess": "Aucun enregistrement de processus pour ce tour",
       "detailLoadFailed": "Impossible de charger le processus. Réessayez.",
@@ -156,7 +156,8 @@
         "stopping": "Arrêt en cours…",
         "stopped": "Arrêté par le propriétaire",
         "stopFailed": "Impossible d'arrêter cette exécution",
-        "stopHint": "Arrêter cette exécution"
+        "stopHint": "Arrêter cette exécution",
+        "silentLastTurn": "Dernier tour : rien dit"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
@@ -178,8 +179,6 @@
           "stalled": "bloqué",
           "paused": "en pause"
         },
-        "turnOff": "Désactiver",
-        "turnOn": "Activer",
         "awaitingReply": "en attente de réponse",
         "nameSep": ", "
       },
@@ -203,7 +202,15 @@
         "download": "Télécharger {{name}}",
         "loading": "Chargement…"
       },
-      "drawerCategory": "Salle d'équipe"
+      "manage": {
+        "title": "Gérer l'équipe",
+        "patrol": "Contrôle du responsable",
+        "patrolHint": "Activé, le responsable relance régulièrement les passations bloquées ; désactivé, seul le tableau reste.",
+        "patrolOn": "Activer",
+        "patrolOff": "Désactiver",
+        "editProfile": "Modifier le profil (nom / couleur / intro)",
+        "clearData": "Effacer les données…"
+      }
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -273,16 +280,15 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agent · processus",
       "ops": "ops"
     },
     "header": {
-      "sessionLabel": "session · {{time}}",
       "detailMenuTitle": "Détail de l'agent — panneaux",
-      "modelFramework": "Modèle & framework",
-      "switchAgent": "Changer d'agent"
+      "viewProfile": "Voir le profil de l'agent"
     },
-    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
+    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
+    "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
+    "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici."
   },
   "awareness": {
     "common": {
@@ -611,19 +617,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "File",
-      "jobs": "tâches",
-      "totalInQueue": "{{count}} tâches en file"
-    },
-    "jobState": {
-      "running": "en cours",
-      "active": "actif",
-      "pending": "en attente",
-      "blocked": "bloqué",
-      "paused": "en pause",
-      "failed": "échoué"
-    },
     "jobStateLabel": {
       "running": "en cours",
       "active": "actif",
@@ -648,25 +641,6 @@
         "up": "plus lent qu'hier",
         "down": "plus rapide qu'hier",
         "flat": "identique à hier"
-      }
-    },
-    "jobs": {
-      "title": "Tâches ({{count}})",
-      "running": "{{count}} en cours",
-      "step": "étape {{current}}/{{total}}",
-      "next": "prochaine {{time}}",
-      "action": {
-        "retry": "Réessayer",
-        "pause": "Pause",
-        "resume": "Reprendre",
-        "failed": "Échec de {{label}}"
-      },
-      "detail": {
-        "manual": "(manuel)",
-        "nextRun": "Prochaine exécution",
-        "iterations": "Itérations",
-        "trigger": "Déclencheur",
-        "lastError": "Dernière erreur"
       }
     },
     "sessions": {
@@ -722,16 +696,10 @@
       "noAgentsShort": "Aucun agent pour l'instant."
     },
     "agentRow": {
-      "saveTitle": "Enregistrer (Entrée)",
-      "cancelTitle": "Annuler (Échap)",
       "publicBy": "Public · par {{name}}"
     },
     "agentRowMenu": {
       "options": "Options de l'agent",
-      "rename": "Renommer",
-      "edit": "Modifier…",
-      "setPrivate": "Rendre privé",
-      "setPublic": "Rendre public",
       "clearData": "Effacer les données",
       "delete": "Supprimer"
     },
@@ -761,7 +729,6 @@
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
-      "clearData": "Effacer les données",
       "delete": "Supprimer",
       "addAgent": "Ajouter un agent",
       "addingAgent": "Ajout…"
@@ -1074,8 +1041,7 @@
     "drawer": {
       "unpin": "Désépingler le panneau",
       "pin": "Épingler le panneau",
-      "close": "Fermer le panneau",
-      "switchPanel": "Changer de panneau"
+      "close": "Fermer le panneau"
     },
     "coach": {
       "title": "Vos artefacts apparaissent ici",
@@ -1290,7 +1256,23 @@
       "noTeamsLabel": "Pas encore d'équipes",
       "noTeamsHint": "Créez-en une depuis le menu Nouveau de la barre latérale.",
       "manageTeam": "Gérer",
-      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici."
+      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici.",
+      "colLeader": "Chef",
+      "colCreatedBy": "Créé par",
+      "colChannels": "Canaux",
+      "colFramework": "Framework",
+      "colModel": "Modèle",
+      "colLastActive": "Dernière activité",
+      "noLeader": "Aucun chef",
+      "teamProfileNoDescription": "Aucune description d'équipe.",
+      "agentProfileNoDescription": "Aucune description.",
+      "memberRuntimeLabel": "Runtime",
+      "memberModelLabel": "Modèle",
+      "memberOwnerLabel": "Propriétaire",
+      "memberPrivate": "Privé",
+      "memberPublic": "Public",
+      "openProfile": "Ouvrir le profil de {{name}}",
+      "channelOff": "{{name}} · désactivé"
     },
     "createUser": {
       "title": "Créer un utilisateur",
@@ -1306,14 +1288,6 @@
       "failed": "Échec de la création de l'utilisateur",
       "connectionFailed": "Échec de la connexion. Veuillez réessayer."
     },
-    "setup": {
-      "sectionLabel": "Configuration · Fournisseurs LLM",
-      "title": "Configurer les fournisseurs LLM",
-      "subtitle": "Configurez vos clés API pour que NarraNexus puisse se connecter aux modèles de langage.",
-      "skipForNow": "Ignorer pour l'instant",
-      "getStarted": "Commencer",
-      "done": "Terminé"
-    },
     "settings": {
       "title": "Paramètres",
       "nav": {
@@ -1323,7 +1297,8 @@
         "providers": "Fournisseurs LLM",
         "modelDefaults": "Modèles par défaut",
         "artifacts": "Artefacts",
-        "updates": "Mises à jour"
+        "updates": "Mises à jour",
+        "plugins": "Modules"
       },
       "providers": {
         "label": "Fournisseurs LLM"
@@ -1369,7 +1344,9 @@
       },
       "personalization": {
         "label": "Personnalisation",
-        "hint": "Thème et langue. D’autres suivront."
+        "hint": "Thème, langue et affichage des notes de progression de l'agent.",
+        "narrationTitle": "Narration de progression",
+        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet."
       }
     },
     "system": {
@@ -1445,7 +1422,8 @@
       "addedToTeamResultWithFailures": "{{success}} ajoutés, {{failedCount}} en échec ({{failedIds}}).",
       "removedFromTeamTitle": "Retirés de l'équipe",
       "removedFromTeamMessage": "{{count}} agents retirés de l'équipe.",
-      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}}).",
+      "openChat": "Ouvrir le chat"
     },
     "bundleImport": {
       "installTemplate": "Installer le modèle",
@@ -1798,6 +1776,109 @@
     },
     "account": {
       "powerOnlyHint": "Compte, facturation et abonnement sont des fonctionnalités du compte NetMind — connectez-vous avec un compte NetMind pour les voir ici."
+    },
+    "agentProfile": {
+      "breadcrumb": "Agents",
+      "backToChat": "Chat",
+      "overview": "Aperçu",
+      "capabilities": "Capacités",
+      "settings": "Paramètres",
+      "views": "Vues du profil de l'agent",
+      "chat": "Chat",
+      "running": "En cours",
+      "idleStatus": "Inactif",
+      "currentTask": "Tâche en cours",
+      "idle": "Aucune tâche n'est en cours.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} jobs",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} conversations",
+      "overviewCardLabel": "Aperçu de l'agent",
+      "jobsNoun": "jobs",
+      "inboxNoun": "conversations",
+      "jobsRunningFlag": "en cours",
+      "inboxUnreadFlag": "{{count}} nouveaux",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} connectés",
+      "noSkills": "Aucun skill installé",
+      "noMcp": "Aucun serveur MCP",
+      "moreCount": "+{{count}} de plus",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model & Framework",
+      "modelFrameworkHint": "La configuration d'exécution effective utilisée lors de la prochaine exécution de l'agent.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Configurer",
+      "general": "Général",
+      "generalHint": "Gérez la façon dont cet agent est présenté dans l'espace de travail.",
+      "avatar": "Avatar",
+      "avatarHint": "Affiché lors de l'attribution des tâches, dans l'activité et le chat.",
+      "name": "Nom",
+      "description": "Description",
+      "saveGeneral": "Enregistrer les modifications",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré",
+      "saveFailed": "Impossible d'enregistrer les modifications.",
+      "missingAgent": "Aucun agent sélectionné",
+      "notFound": "Agent introuvable",
+      "activity": "Activité",
+      "activityLast24h": "Dernières 24 heures",
+      "activityToday": "Aujourd'hui",
+      "activityAxisStart": "il y a 24 h",
+      "activityAxisNow": "maintenant"
+    },
+    "welcome": {
+      "logout": "Se déconnecter",
+      "continue": "Continuer",
+      "rail": {
+        "model": {
+          "title": "Brancher un modèle",
+          "detail": "Une seule clé suffit — changez-la quand vous voulez."
+        },
+        "import": {
+          "title": "Rapatrier vos agents",
+          "detail_one": "{{count}} trouvé sur cette machine.",
+          "detail_other": "{{count}} trouvés sur cette machine."
+        },
+        "agent": {
+          "title": "Rencontrez {{name}}",
+          "detail": "Votre premier agent, déjà là."
+        }
+      },
+      "model": {
+        "title": "Branchez d'abord un modèle.",
+        "skip": "Passer pour l'instant — vous pourrez ajouter une clé dans les Réglages",
+        "advanced": "Configuration avancée — connexion par abonnement, endpoints personnalisés, modèles par slot",
+        "subscriptionTitle": "Utiliser un abonnement Claude ou ChatGPT",
+        "subscriptionSubtitle": "Pas de clé API — connectez-vous avec l'abonnement que vous avez déjà."
+      },
+      "import": {
+        "title": "Rapatriez les agents que vous avez déjà.",
+        "subtitle": "Tout est lu depuis cette machine — rien n'est envoyé.",
+        "lede": "Chaque agent coché devient un agent NarraNexus, son historique de conversation conservé comme mémoire.",
+        "importAndContinue_one": "Importer {{count}} et continuer",
+        "importAndContinue_other": "Importer {{count}} et continuer",
+        "skip": "Passer cette étape"
+      },
+      "agent": {
+        "title": "Rencontrez {{name}}.",
+        "subtitle": "Votre premier agent, créé pour vous à la connexion. Il retient tout ce que vous vous dites — c'est la différence entre NarraNexus et un chat jetable.",
+        "role": "votre guide · silicium",
+        "capMemory": "Mémoire longue, sous forme de récits",
+        "capCheckin": "Prend des nouvelles chaque jour",
+        "cta": "Commencer avec NarraNexus",
+        "skip": "Aller directement à l'app",
+        "preparingTitle": "Préparation de votre premier agent…",
+        "preparingSubtitle": "Choix de son nom et de sa personnalité. Quelques secondes.",
+        "notReady": "Votre premier agent est encore en cours de création — il apparaîtra bientôt dans la barre latérale.",
+        "fallbackName": "votre agent",
+        "rename": "Renommer"
+      }
     }
   },
   "rail": {
@@ -1861,9 +1942,6 @@
       "cancelled": "Annulée"
     },
     "metrics": {
-      "active": "Actives",
-      "success": "Réussies",
-      "failed": "Échouées",
       "rate": "Taux"
     },
     "view": {
@@ -1972,17 +2050,6 @@
       "waiting": "En attente...",
       "noTimeData": "Aucune donnée temporelle"
     },
-    "distribution": {
-      "title": "Répartition des statuts",
-      "total": "{{count}} au total",
-      "legend": {
-        "completed": "{{count}} terminées",
-        "running": "{{count}} en cours",
-        "active": "{{count}} actives",
-        "paused": "{{count}} en pause",
-        "failed": "{{count}} échouées"
-      }
-    },
     "editSchedule": {
       "title": "Modifier l'heure d'exécution",
       "hint": "Ajustez le moment d'exécution de cette tâche. Les changements s'appliquent à la prochaine exécution.",
@@ -2002,6 +2069,18 @@
       "modeLabel": "Mode de déclenchement",
       "modeInterval": "Intervalle",
       "modeCron": "Expression cron"
+    },
+    "row": {
+      "every": "Toutes les {{interval}}",
+      "daily": "Quotidien {{time}}",
+      "hourly": "Horaire :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Unique {{time}}",
+      "afterDeps": "Bloqué par {{n}}",
+      "next": "prochaine {{time}}",
+      "elapsed": "en cours {{duration}}",
+      "failedAt": "échec {{time}}",
+      "lastRun": "dernière {{time}}"
     }
   },
   "artifacts": {

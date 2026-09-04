@@ -1,8 +1,37 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-07-31
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 插件安装可用性合并（`frameworkAvailabilityMap` / `withFrameworkAvailability`）
+
+轻量化插件化后 Claude Code / Codex CLI 从桌面镜像里移出，改成用户按需装的本地
+插件（见 [[PluginsSettings]] / `backend/integrations/plugins`）。`GET/POST
+/api/providers/agent-framework` 的响应新增可选 `frameworks: [{name, available}]`
+——`frameworkAvailabilityMap()` 把它拆成 name→available 的查表，
+`withFrameworkAvailability()` 把这张表贴到 `AgentFramework[]` 上（新增可选字段
+`available`），`isFrameworkAvailable()` 判定。
+
+三个函数刻意和 `availableFrameworks()`（钱包能不能驱动）分层：那个函数的语义是
+**隐藏**死路选项；这里的语义是**禁用但仍列出**——插件没装的框架必须让用户看得
+见、点得到"去装"，隐藏就等于把安装入口也一起藏没了。两个选择器
+（[[ModelDefaultsSettings]] / [[AgentLlmConfigPanel]]）都是先调
+`availableFrameworks()` 再套这层。
+
+`frameworkAvailabilityMap` 对 `frameworks` 缺失的键（旧后端没有这个字段，或者
+某个框架不是插件如 nexus_power）一律按"可用"处理——fail-closed 在这里是错的
+方向：字段还没上线就把所有框架锁死，用户会以为整个功能坏了。
+## 2026-08-28 — ProviderSummary 改为 providersApi.ProviderRow 的别名(PR #376 bot 轮)
+
+本模块曾持有行形状的**第四份**结构副本,三个消费方
+(AgentLlmConfigPanel / ComposerModelBadge / ModelDefaultsSettings)拿着
+已经类型正确的 `api.getProviders()` 结果再 `as` 回这份窄副本——断言不是
+转换,它关掉了三处的类型检查(后端上次加 netmind_account_email 这类字段
+时就会静默漏掉)。现在 `export type ProviderSummary = ProviderRow`,三处
+cast 删除。**import type 引 ProviderRow 是刻意的**:providersApi 运行时
+import @/lib/api,值导入会造成 agentFramework → providersApi → api 运行时
+环(api.ts 只做 type-only 反向引用才无环)。
 
 ## 2026-07-31 — `providerBacksFramework()` + `availableFrameworks()`
 

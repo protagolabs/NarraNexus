@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_suggested_models,
     OFFICIAL_BASE_URLS,
 )
+from xyz_agent_context.agent_framework.plugin_paths import framework_installed
 from xyz_agent_context.schema.provider_schema import (
     LLMConfig,
     SlotName,
@@ -204,8 +205,24 @@ async def _get_service():
     return UserProviderService(db)
 
 
+# ``user_providers.source`` values that LOGIN writes on the user's behalf (see
+# auth._provision_providers): the free-tier wallet and the Power-account card.
+# Neither is a decision the user made, so neither proves they have onboarded;
+# the first-run gate reads the per-card ``auto_provisioned`` flag derived from
+# this set instead of keeping its own copy of these names. Lives next to the
+# provisioners' own constants so a new auto-provisioned card is one edit here.
+# Known collision, accepted: a NetMind key the user pastes also lands as
+# NETMIND_SOURCE — the cost is one extra showing of the welcome flow.
+def _auto_provisioned_sources() -> frozenset[str]:
+    from backend.integrations.netmind.netmind_provisioner import NETMIND_SOURCE
+    from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+
+    return frozenset({NETMIND_SOURCE, FREE_TIER_SOURCE})
+
+
 def _config_to_response(config: LLMConfig) -> dict:
     """Convert LLMConfig to API response dict with masked api_key."""
+    auto_sources = _auto_provisioned_sources()
     providers = {}
     for pid, prov in config.providers.items():
         d = prov.model_dump(mode="json")
@@ -214,6 +231,7 @@ def _config_to_response(config: LLMConfig) -> dict:
         else:
             d["api_key_masked"] = "***"
         del d["api_key"]
+        d["auto_provisioned"] = d.get("source") in auto_sources
         providers[pid] = d
 
     slots = {}
@@ -781,9 +799,10 @@ async def validate_slots(request: Request):
 # override in ``agent_slots``. Changing the default does NOT touch existing
 # overrides, so these endpoints let the owner (a) see how many agents override
 # and (b) clear those overrides so they fall back to inheriting the new
-# default (clear-to-inherit; NOT a value snapshot). ``agents-overview`` feeds
-# the Dashboard model chip in one HTTP call (the DB layer is still one
-# agent_slots read per owned agent, not a single query).
+# default (clear-to-inherit; NOT a value snapshot). The directory's per-agent
+# framework / model columns are served by GET /api/auth/agents through the same
+# service (``owner_agents_overview``); these two endpoints only answer "how many
+# agents override" and "clear the overrides".
 
 
 class ApplyToAgentsRequest(BaseModel):
@@ -825,17 +844,6 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     return {"success": True, "data": {"cleared": cleared}}
 
 
-@router.get("/slots/agents-overview")
-async def slot_agents_overview(request: Request):
-    """Effective (agent + helper_llm) model per owned agent, in one call —
-    feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
-    uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    overview = await AgentSlotService(db).owner_agents_overview(uid)
-    return {"success": True, "data": {"agents": overview}}
-
-
 # =============================================================================
 # Agent Framework (coding-agent CLI choice — Claude Code vs Codex CLI)
 # =============================================================================
@@ -856,38 +864,25 @@ _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT
 
 async def _ensure_codex_installed() -> dict:
     """Verify the codex binary bundled with the ``openai-codex-cli-bin``
-    wheel is available. No PATH check, no npm install — both became
-    obsolete when v2 cutover made ``openai-codex`` (which transitively
-    ships ``openai-codex-cli-bin``) a hard dependency in pyproject.toml.
+    wheel is available. No PATH check, no npm install — the openai-codex
+    SDK calls ``bundled_codex_path()`` to locate the wheel binary directly.
 
-    Behaviour:
-      - ``uv sync`` (run by ``run.sh`` and during DMG build) installs
-        both wheels. The binary lands at
-        ``.venv/lib/python3.X/site-packages/codex_cli_bin/bin/codex`` —
-        NOT on PATH, but the openai-codex SDK calls
-        ``bundled_codex_path()`` to locate it directly, so PATH is
-        irrelevant.
-      - If the wheel is missing, the user's deploy is broken upstream
-        (uv sync failed); we report a clear actionable error so they
-        re-run install rather than seeing an inscrutable
-        ``codex: command not found`` at agent_loop time.
-
-    Pre-2026-06-08 history (kept for context): this function used to
-    ``npm install -g @openai/codex`` lazily on framework switch. That
-    path was correct for v1 (which spawned ``codex exec`` from PATH)
-    but is now dead code — v2's SDK uses the wheel-bundled binary.
-    Worse, on the DMG build the npm path always failed (no npm in the
-    bundled environment) and surfaced a misleading red banner even
-    though codex actually worked. binding rule #7 (DMG + bash run.sh
-    must align) made this a hard fix, not optional.
+    On the LOCAL build ``openai-codex`` is an OPTIONAL plugin (Settings →
+    Plugins), NOT a base dependency — ``run.sh``'s ``uv sync`` deliberately
+    omits ``--extra plugins`` (see pyproject.toml). So this activates the
+    plugin pyenv first (a plugin installed this session resolves without a
+    restart — same seam as the driver factories / cli_helper / claude_oauth),
+    then imports. On cloud it is pre-installed via ``uv sync --extra plugins``.
 
     Returns:
         Dict shape ``{"installed": bool, "action": str, "reason": str}``.
         ``action`` is always ``"already_installed"`` on success or
-        ``"install_failed"`` with an actionable reason on failure.
-        ``"auto_installed"`` / ``"blocked"`` no longer fire — both
-        were states the npm path produced.
+        ``"install_failed"`` with an actionable reason on failure (consumed
+        by the frontend — only ``reason`` text is safe to change here).
     """
+    from xyz_agent_context.agent_framework import plugin_paths  # noqa: PLC0415
+
+    plugin_paths.activate_pyenv()
     try:
         from codex_cli_bin import bundled_codex_path  # noqa: PLC0415
     except ImportError as e:
@@ -895,9 +890,8 @@ async def _ensure_codex_installed() -> dict:
             "installed": False,
             "action": "install_failed",
             "reason": (
-                f"openai-codex-cli-bin wheel not importable ({e}). "
-                f"Run ``uv sync`` to install the openai-codex SDK "
-                f"and its bundled binary wheel."
+                f"Codex plugin not importable ({e}). Install it from "
+                f"Settings → Plugins (cloud: rebuild with `uv sync --extra plugins`)."
             ),
         }
 
@@ -907,8 +901,8 @@ async def _ensure_codex_installed() -> dict:
             "installed": False,
             "action": "install_failed",
             "reason": (
-                f"codex_cli_bin imported but bundled binary missing at "
-                f"{binary}. Re-run ``uv sync`` to repair the install."
+                f"Codex wheel present but the bundled binary is missing at "
+                f"{binary}. Reinstall the Codex plugin from Settings → Plugins."
             ),
         }
 
@@ -984,21 +978,21 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CODEX_CLI_CREDENTIALS_REF,
-        )
-        stub = ProviderCard(
-            provider_id="_probe_codex",
-            user_id="_probe",
-            name="probe",
-            source="codex_oauth",
-            protocol="openai",
-            auth_type="oauth",
-            api_key="",
-            base_url="",
-            auth_ref=CODEX_CLI_CREDENTIALS_REF,
-            driver_type="codex_oauth",
-        )
+        # A fake DB row through from_row, so auth_ref comes from the same
+        # derive.py truth table every real row uses (read-time fallback) —
+        # not a third hand-written copy that silently drifts when the
+        # sentinel semantics change. auth_type must be explicit ("oauth"):
+        # from_row defaults it to "api_key", which derives no auth_ref and
+        # would report a logged-in host as missing credentials. No
+        # driver_type: the driver is constructed directly below.
+        stub = ProviderCard.from_row({
+            "provider_id": "_probe_codex",
+            "user_id": "_probe",
+            "name": "probe",
+            "source": "codex_oauth",
+            "protocol": "openai",
+            "auth_type": "oauth",
+        })
         health = await CodexOAuthDriver(stub).probe()
         detail = health.detail
         if not health.ok:
@@ -1012,21 +1006,16 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
             ClaudeOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CLAUDE_CLI_CREDENTIALS_REF,
-        )
-        stub = ProviderCard(
-            provider_id="_probe_claude",
-            user_id="_probe",
-            name="probe",
-            source="claude_oauth",
-            protocol="anthropic",
-            auth_type="oauth",
-            api_key="",
-            base_url="",
-            auth_ref=CLAUDE_CLI_CREDENTIALS_REF,
-            driver_type="claude_oauth",
-        )
+        # Same shape as the codex stub above: from_row derives auth_ref
+        # from the shared truth table; explicit auth_type="oauth" required.
+        stub = ProviderCard.from_row({
+            "provider_id": "_probe_claude",
+            "user_id": "_probe",
+            "name": "probe",
+            "source": "claude_oauth",
+            "protocol": "anthropic",
+            "auth_type": "oauth",
+        })
         health = await ClaudeOAuthDriver(stub).probe()
         detail = health.detail
         if not health.ok:
@@ -1051,6 +1040,16 @@ async def get_agent_framework(request: Request):
         "data": {
             "framework": framework,
             "supported": list(_SUPPORTED_AGENT_FRAMEWORKS),
+            # Richer per-framework status for the plugin-aware Settings
+            # picker: nexus_power is built-in (always available);
+            # claude_code/codex_cli report whether their plugin package is
+            # present (cloud images pre-install these in the base
+            # environment, so framework_installed reports True there too —
+            # see plugin_paths.framework_installed).
+            "frameworks": [
+                {"name": fw, "available": framework_installed(fw)}
+                for fw in _SUPPORTED_AGENT_FRAMEWORKS
+            ],
             "probe": probe,
         },
     }
@@ -1067,14 +1066,15 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     otherwise couldn't self-recover.
 
     Side effect: when ``framework == "codex_cli"`` this verifies the
-    codex binary bundled with the ``openai-codex-cli-bin`` wheel is
-    available (``_ensure_codex_installed``) and returns the result in
-    ``data.install`` so the frontend can surface a clear error if the
-    wheel is missing (deploy ran without ``uv sync``). There is NO npm
-    install — codex ships as a wheel since the v2 cutover, so ``action``
-    is ``already_installed`` or ``install_failed`` (never the old
-    ``auto_installed`` / ``blocked``). claude_code skips this — the
-    ``claude`` binary is installed at run.sh boot.
+    codex wheel binary is importable (``_ensure_codex_installed``, which
+    activates the plugin pyenv first) and returns the result in
+    ``data.install`` so the frontend can surface a clear error if the Codex
+    plugin is not installed (local: Settings → Plugins). There is NO npm
+    install — codex ships as a wheel, so ``action`` is ``already_installed``
+    or ``install_failed`` (never the old ``auto_installed`` / ``blocked``).
+    The plugin-not-installed case is also caught earlier by the
+    ``framework_installed`` 409 gate; this stays as a belt-and-suspenders
+    check against a half-installed wheel. claude_code skips this.
     """
     uid = _get_user_id(request)
     # Cloud non-staff: only frameworks that cannot reach a shared CLI
@@ -1091,6 +1091,19 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
                 f"Unknown framework {body.framework!r}. "
                 f"Supported: {list(_SUPPORTED_AGENT_FRAMEWORKS)}"
             ),
+        )
+
+    # Fail-closed: a local/desktop user cannot switch onto a framework whose
+    # plugin isn't installed yet — that would otherwise surface as a much
+    # later, harder-to-diagnose FrameworkNotInstalledError out of
+    # get_agent_loop_driver the next time they send a message. nexus_power
+    # is exempt (framework_installed always reports True for it); on cloud,
+    # framework_installed also reports True for claude_code/codex_cli
+    # (their SDKs ship in the base image), so this never blocks cloud users.
+    if body.framework != "nexus_power" and not framework_installed(body.framework):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Framework '{body.framework}' plugin is not installed",
         )
 
     # Verify the wheel-bundled codex binary is present on opt-in. The

@@ -1,8 +1,177 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-31（四）— 「正在处理…」删除
+
+直播块尾部那个 `Loader2 + chat.execution.acting` 的行内指示器删掉，i18n key
+（en / zh 两处，其余语言从未有过）一并删除（铁律 #2）。
+
+它原来的职责是「事件之间的空档里让页面别静默」。现在 [[process/RunPhases]]
+在同一列顶部已经有 `» 运行 Agent` 的 spinner **加逐秒计时** —— 后者回答
+「卡住还是在忙」比一句「正在处理…」更硬（计时器在动就是活的）。两个活体
+指示器同屏是重复，而且它们在**同一列的两端**，读起来像两件事。
+
+`Loader2` 的 import 保留：本文件另有一处在用（附件上传态）。
+
+## 2026-08-31（三）— 相位来得太晚 + 直播轮次画了两次
+
+Owner 报了两条，一条是我上一版留的门，一条是被我放大的旧账。
+
+### 相位要等 agent loop 才出现
+
+直播块的门是 `isStreaming && currentEvents.length > 0`，而 `currentEvents`
+**要等 agent loop 产出才有第一行**。相位数据（`currentSteps`）在 step 0 就到齐，
+却被这道门挡在外面——于是「初始化 / 选叙事 / 加载模块」全看不见，一直到
+「运行 Agent」才突然全冒出来。[[process/RunPhases]] 存在的意义恰恰是填这段空白，
+被门挡掉等于白写。门去掉：`isStreaming` 就渲染，空态由 RunPhases 自己说
+「Starting up…」。
+
+### 同一个回复画了两次
+
+后端在 reply 工具执行时就**落库**，12 秒一次的 history poll 中途把它捞回来，
+而直播块正用 `currentEvents` 渲染同一句话 —— 相位行上方和下方各一份。
+刷新之后直播块没了，所以「刷新一次就好了」。
+
+`buildUnifiedTimeline` 的 dedup **抓不到这种**：它调和的是 history ↔ **session
+messages**，而在飞的这一轮还没有 session message（那是 `stopStreaming` 才写的）。
+所以过滤放在 `visibleTimeline`：`isStreaming && eventId === currentRunId` 的
+assistant 行不画。
+
+**三个限定条件每一个都承重**：
+
+- `isStreaming` + `currentRunId`：回合一落定这行就恢复成普通历史（铁律 #16
+  —— 不是藏起来，只是不画两遍）。
+- **`role === 'assistant'`**：自审时抓出来的。后端 `chat_history.py` 用**同一个
+  循环**给两个 role 建行，**用户那一行也带着同一个 `event_id`**；而 history 行在
+  dedup 里是赢家（session 副本被丢）。不限定 role 的话，**用户刚发的消息会在
+  agent 干活期间从屏幕上消失**。测试钉住了这条。
+
+## 2026-08-31 — 过程框拆掉：相位进文稿，plan 变贴底细条
+
+Owner 验收文档流时问「为什么还留着一个 agent 过程的框」。`ProcessPanel` 那个
+`rounded-lg + border + nm-paper + shadow` 的终端盒子确实是上一版的残留——
+turn 已经无框了，它还坐在输入框上方，同一屏两种语域。
+
+拆法是**去框不丢信息**（铁律 #16）：
+
+- 相位 / ops / 计时 → [[process/RunPhases]]，渲染在直播块开头，`SegmentedReply`
+  之上，和叙述同一列。
+- plan → [[process/PlanStrip]]，仍钉在 composer 上方（它必须不滚走），但只剩
+  一条 `border-t` 细线，不再是盒子。
+- `ProcessPanel.tsx` 及其测试、mirror md **整体删除**（铁律 #2）。
+
+## 2026-08-30（二）— 直播轮次即文档，turn 靠节奏分隔
+
+两处改动：
+
+- **直播块不再是"银色气泡里只放回复"**。此前直播只渲染 reply（过程在
+  `ProcessPanel`），且套一个 silicon 气泡 + 头像。现在直接渲染
+  `<SegmentedReply segments={segmentTurn(currentEvents)} showProcess isStreaming />`
+  ——**落定时形状一个像素都不变**，因为它已经是最终形态。原来那个
+  "有 reply 才渲染"的门也去掉了：叙述先于工具上屏正是要看的节奏。
+- **turn 节奏**：用户消息的外层加 `mt-6`。没有气泡之后，分隔靠间距和
+  用户气泡这个锚点。**刻意没用分隔线**——一轮一条横线在长对话里堆成流水账
+  （取舍写进 `design_system.md` §2.6）。
+
+`RingAvatar` 随 agent 侧头像一起从本文件退出。
+
+## 2026-08-27 (3) — Activity Log 是只读页:整块 composer footer 按 tab 摘掉
+
+**症状**:点进 Activity Log,下方还挂着 chat 输入框 —— 它是一个**独立的功能
+页**(看 agent 自己发起的 run:job / channel / 队友),没有「回信」这条通道,
+输入框在那儿就是个假承诺。
+
+**改法**:`{!isActivityTab && ( … )}` 包住 `border-t` 那整块 footer,而**不是**
+只藏 textarea。跟着一起消失的都是「对话专属」的东西,少摘一样就是不一致:
+
+- `<Composer>` + 发送/Stop 键(steerable 时那颗 steer 键)
+- attach(+)/`<AudioRecorder>`/隐私提示/`ComposerFastToggle`/`ComposerModelBadge`
+- `transcriptionNotice`、pendingAttachments 预览行
+- **`<ProcessPanel>`**(原本挂在 composer 上方,**没**带 tab 维度)—— 它描述的
+  是 owner↔agent 这一轮的流程;而直播回复块本来就已经 `chatTab ===
+  'conversation'` 门控过了,两者现在口径一致。
+
+**顺带修的真 bug(铁律 #8 扫边)**:`handleDragOver` / `handleDrop` 挂在 **Card
+根**(用户会往整个面板拖文件),footer 藏了它们照样收 —— 会在 Activity Log 上
+静默上传并塞进 `pendingAttachments`,而**唯一能显示 chip 的预览行已经不渲染
+了**:文件进了后端、界面一点痕迹没有。两个 handler 都加 `|| isActivityTab`
+提前 return(`handleDragOver` 要在 `preventDefault` **之前** bail,否则浏览器
+以为这里能放)。`handlePaste` 只挂在 textarea 上,textarea 不存在即失效,不用改。
+
+**`isActivityTab` 的声明位置上移**到 `chatTab` state 旁边(不再和下面的零态
+块放一起)—— 附件入口 handler(~L755)比零态块(~L910)早,拿不到原来的定义。
+
+**草稿不会丢**:`<Composer>` 卸载时把文本 flush 进 per-agent 草稿 store,重挂
+时恢复(见 [[Composer.tsx]]),所以「打了一半 → 切去 Activity Log → 切回来」
+文本还在。
+
+`bootstrapGreetingPending` 仍然**刻意不带 tab 维度**(见下面同日条):虽然现在
+已经不可能从 Activity Log 发出第一条消息,但那是**渲染**条件收窄的结果,写入
+条件不该跟着 UI 门控走。
+
+测试:`chatPanelActivityTabComposer.test.tsx` —— 对话 tab 有 textbox/发送键/
+attach 键、切 Activity Log 三者全无、再切回来又有;拖文件在对话 tab 会调
+`uploadAttachment`(基线,证明 drop 真的到了 handler),在 Activity Log 上不调。
+
+## 2026-08-27 (2) — 头部瘦身的连带清理:sessionLabel / AgentLlmConfigPanel
+
+[[ChatHeader]] 的身份块改成 Profile 入口后,本文件三处状态成了死代码,
+一并删掉(留着就是下一个人照抄的样板):
+
+- `sessionLabel` 的 `useMemo`(以及 `formatChatTimestamp` import)——
+  头部不再画那条 mono 侧标。
+- `agentCfgOpen` / `modelReloadKey` 两个 state 与页面底部挂的
+  `<AgentLlmConfigPanel>`——「Model & framework」面板现在**只从
+  [[../../pages/AgentProfilePage]] 的 Settings tab 打开**,本页不再是
+  它的宿主。
+- `<ComposerModelBadge reloadKey>` 随之退化为 `<ComposerModelBadge>`:
+  没有宿主面板在旁边保存,就没有需要 bump 的重读信号
+  (见 [[ComposerModelBadge]] 同日条)。
+
+composer 上的 model chip 仍是快速切模型的入口,不受影响。
+
+## 2026-08-27 — 零态按 tab 分家（修「Activity Log 空时点了没反应」）
+
+**症状**:agent 的 activity 流为空时,点 Activity Log 那颗按钮像是死键 ——
+画面和「对话」tab 一模一样,用户到不了那个(本来就该空的)Activity Log。
+
+**根因**:零态判定用的是 `historyLoaded && historyMessages.length === 0 &&
+messages.length === 0`,**不带 tab 维度**,而它挂的两个界面
+([[OnboardingJourney]] 的「<Agent> is ready」卡、bootstrap 问候气泡)都是
+**对话专属**的。于是:
+
+* 新 agent(两条流都空)→ 切到 Activity Log 照样画同一张 onboarding 卡 =
+  按钮「点了没反应」;
+* 有对话、activity 空 → `messages`(session 里的**对话**消息)非空,把零态
+  整个压掉,Activity Log 变成一片没有任何说明的空白。
+
+**修法**:零态改成按 tab 算,且键在 `visibleTimeline`(这个 tab **真正渲染
+的行**),而不是「原始流 + session」这对量:
+`tabIsEmpty = historyLoaded && visibleTimeline.length === 0`;
+`showBootstrapGreeting` / `showEmptyState` 前面加 `!isActivityTab`;新增
+`showActivityEmptyState` → `chat.activityEmpty` / `chat.activityEmptyHint`
+的 [[bracket|BracketEmptyState]](10 个 locale 全补)。
+
+`bootstrapGreetingPending`(`isBootstrap && loadedByStream.chat &&
+historyByStream.chat.length === 0 && messages.length === 0`)**刻意不带
+tab 维度**并单独留一个名字:`handleSubmit` 首次发送时靠它把问候语折进
+session,而用户完全可能停在 Activity Log tab 上发出第一条消息 —— 渲染条件
+可以按 tab 收窄,这条写入条件不能。
+
+顺带(铁律 #8 扫边):同一块 JSX 里「无 agent」的空态硬编码英文
+`label="Select an agent"`,而 `chat.selectAgent` / `chat.selectAgentHint`
+十个 locale 早就备好了 —— 改回走 i18n。
+
+## 2026-08-26 — 两处 `<MessageBubble agentName={...} />` 删除
+
+[[MessageBubble.tsx]] 移植 `40d353e1` 的「answer 无气泡」改动后 assistant 侧不再渲染头像，
+`agentName` prop 整个从 `MessageBubbleProps` 消失。ChatPanel 里 bootstrap 问候气泡和
+timeline 里真实消息气泡两处 `agentName={currentAgent?.name || agentId}` 随之删除
+（`agentId` 仍保留 — event-log 拉取还要用）。**推翻**下面 2026-08-20 那条「bootstrap 气泡补
+agentName 修 AI 头像」的前提：头像本体已经不存在了，这条修复记录仅作历史存档。
 
 ## 2026-08-24 — 运行中发送=折进本轮(steer)
 

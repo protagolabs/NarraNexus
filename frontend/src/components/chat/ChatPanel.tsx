@@ -18,15 +18,14 @@ import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon,
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
-import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn, formatChatTimestamp, generateId } from '@/lib/utils';
+import { cn, generateId } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { streamForTab } from '@/lib/chatStreams';
@@ -36,7 +35,8 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { ProcessPanel } from './ProcessPanel';
+import { RunPhases } from './process/RunPhases';
+import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
@@ -186,10 +186,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
-  // Per-agent model/framework panel, opened from the header. A bump on save
-  // tells the composer model chip to re-read the (possibly changed) model.
-  const [agentCfgOpen, setAgentCfgOpen] = useState(false);
-  const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -198,6 +194,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // narrations (turns whose working_source isn't chat/manyfold) so they aren't
   // shown as if the agent were speaking to the owner.
   const [chatTab, setChatTab] = useState<'conversation' | 'inner'>('conversation');
+  // Declared up here (not next to the zero-state block below) because the
+  // attachment intake handlers need it too: the Activity Log has no composer,
+  // so a drag/paste there must not silently queue a file no surface can show.
+  const isActivityTab = chatTab === 'inner';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -529,13 +529,36 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Per-tab visible items, computed BEFORE rendering so day separators can
   // compare each item against the previous VISIBLE one — comparing against
   // a neighbour that the tab filter hides would draw phantom separators.
+  //
+  // The run IN FLIGHT is also filtered out here. The backend persists a reply
+  // row as soon as the reply tool executes, the 12s history poll picks it up
+  // mid-run, and the streaming block below is already rendering that same
+  // reply from currentEvents — so the answer drew twice, above and below the
+  // pipeline phases, and a refresh "fixed" it only because the streaming copy
+  // was gone by then. buildUnifiedTimeline's dedup cannot catch this: it
+  // reconciles history against SESSION messages, and the in-flight turn has
+  // no session message yet (stopStreaming is what writes it).
+  //
+  // Scoped three ways, and each one is load-bearing:
+  //   - only while isStreaming, and only for currentRunId — the moment the run
+  //     settles the row is ordinary history again and renders normally, so
+  //     nothing is withheld from the reader (iron rule #16);
+  //   - only role 'assistant'. The backend stamps the SAME event_id on the
+  //     user's own row for that turn (chat_history.py builds both roles from
+  //     one loop), and history rows win buildUnifiedTimeline's dedup, so an
+  //     unscoped filter deletes the user's message from the screen while the
+  //     agent works on it.
   const visibleTimeline: TimelineItem[] = useMemo(
     () =>
       timeline.filter((item) => {
+        if (
+          isStreaming && currentRunId
+          && item.role === 'assistant' && item.eventId === currentRunId
+        ) return false;
         const isInner = item.messageType === 'activity';
         return chatTab === 'inner' ? isInner : !isInner;
       }),
-    [timeline, chatTab],
+    [timeline, chatTab, isStreaming, currentRunId],
   );
 
   // The newest visible full message keeps its meta row (time) always
@@ -546,16 +569,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
     return null;
   }, [visibleTimeline]);
-
-  // v4 header side label: "session · <last activity time>" — the most recent
-  // visible message anchors the label; empty until history lands.
-  const sessionLabel = useMemo(() => {
-    const last = visibleTimeline.length
-      ? visibleTimeline[visibleTimeline.length - 1]
-      : null;
-    if (!last?.timestamp) return '';
-    return t('chat.header.sessionLabel', { time: formatChatTimestamp(last.timestamp) });
-  }, [visibleTimeline, t]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -768,7 +781,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // need preventDefault on dragover (to opt the element in as a drop
   // target) and on drop (to cancel the textarea's default).
   const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    // No composer on the Activity Log tab → nothing to attach to. Bail before
+    // preventDefault so the browser keeps its own "not a drop target" cursor
+    // instead of us claiming the drag and then dropping it on the floor.
+    if (!agentId || isActivityTab) return;
     // Only treat the drag as an attachment intent if it actually carries
     // files — typing-style drags (selected text from another tab) should
     // still fall through to the textarea's normal text-paste behavior.
@@ -788,7 +804,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsDragging(false);
   };
   const handleDrop = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    if (!agentId || isActivityTab) return;
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length === 0) return;
     e.preventDefault();
@@ -861,7 +877,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     // streaming starts. The streaming effect takes over from there.
     initialScrollPendingRef.current = true;
 
-    if (showBootstrapGreeting) {
+    if (bootstrapGreetingPending) {
       useChatStore.setState((state) => ({
         agentSessions: {
           ...state.agentSessions,
@@ -915,8 +931,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const stableDrop = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.drop(e), []);
   const stablePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => dragFnsRef.current.paste(e), []);
 
-  const showBootstrapGreeting = isBootstrap && historyLoaded && historyMessages.length === 0 && messages.length === 0;
-  const showEmptyState = !showBootstrapGreeting && historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
+  // Zero-state is PER TAB, and it keys on `visibleTimeline` — exactly the rows
+  // this tab renders — not on the raw stream + session pair. Two bugs came out
+  // of the old form: the conversation's onboarding card / bootstrap greeting
+  // were drawn on an empty Activity Log too (so switching tabs looked like a
+  // dead button — the user could never reach the legitimately blank Activity
+  // Log), and any live session message (conversation-only) suppressed the
+  // Activity Log's zero-state into an unexplained blank area.
+  // (`isActivityTab` is declared with the tab state above — the attachment
+  // intake handlers need it before this point.)
+  // Day-zero of the CONVERSATION. Deliberately tab-independent (it reads the
+  // chat stream's own slot, not the active one) because handleSubmit also uses
+  // it to fold the greeting into the session on the user's first send — which
+  // can happen while the Activity Log tab is open.
+  const bootstrapGreetingPending =
+    isBootstrap && loadedByStream.chat && historyByStream.chat.length === 0 && messages.length === 0;
+  const tabIsEmpty = historyLoaded && visibleTimeline.length === 0;
+  const showBootstrapGreeting = !isActivityTab && bootstrapGreetingPending;
+  const showEmptyState = !isActivityTab && !showBootstrapGreeting && tabIsEmpty && !isStreaming;
+  const showActivityEmptyState = isActivityTab && tabIsEmpty;
 
   // ── Render ──────────────────────────────────────────
   return (
@@ -934,20 +967,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* v4 header — agent-name protagonist + session label; Chat / Inner
-          Thoughts segmented toggle; Jobs / Inbox / Artifacts / Cost entries
-          and the ⋯ detail menu (doors only — panels unchanged). Hidden on
-          mobile: the top strip shows the breadcrumb there and the tab pair
-          below stands in. */}
+      {/* v4 header — agent-name protagonist (now a link into the agent's
+          profile page); Chat / Inner Thoughts segmented toggle; Jobs / Inbox /
+          Artifacts / Cost entries and the ⋯ detail menu (doors only — panels
+          unchanged). Hidden on mobile: the top strip shows the breadcrumb
+          there and the tab pair below stands in. */}
       <ChatHeader
         agentId={agentId}
         agentName={currentAgent?.name || agentId || 'AI'}
-        sessionLabel={sessionLabel}
         isStreaming={isStreaming}
         currentSteps={currentSteps}
         chatTab={chatTab}
         onChatTabChange={setChatTab}
-        onOpenAgentConfig={() => setAgentCfgOpen(true)}
       />
 
       {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
@@ -1023,15 +1054,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // dismissal leaks onto agent B (and vice versa).
               key={agentId}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
           ) : (
             <BracketEmptyState
-              label="Select an agent"
-              hint="Choose an agent from the sidebar to begin your interaction."
+              label={t('chat.selectAgent')}
+              hint={t('chat.selectAgentHint')}
             />
           )
+        )}
+
+        {/* Activity Log zero-state. An agent that has never run on its own has
+            a genuinely empty stream — say so, instead of handing the tab the
+            conversation's onboarding card (which read as "the tab button does
+            nothing") or an unexplained blank column. */}
+        {showActivityEmptyState && (
+          <BracketEmptyState
+            label={agentId ? t('chat.activityEmpty') : t('chat.selectAgent')}
+            hint={agentId ? t('chat.activityEmptyHint') : t('chat.selectAgentHint')}
+          />
         )}
 
         {/* Bootstrap greeting */}
@@ -1045,7 +1086,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 timestamp: Date.now(),
               }}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               isLatest
             />
           </div>
@@ -1106,7 +1146,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <div
               key={item.id}
               data-timeline-item
-              className={isNewSession ? 'animate-slide-up' : undefined}
+              // Turn rhythm. With the agent's turn unframed, spacing is what
+              // separates one exchange from the next: extra air opens each
+              // user message, so a turn reads as [air] question [close]
+              // document [air] question. A hairline was the alternative and
+              // was rejected — one rule per turn stacks into a ledger down a
+              // long conversation, and the right-aligned user bubble is
+              // already a strong enough anchor to start from.
+              className={cn(
+                item.role === 'user' && 'mt-6',
+                isNewSession && 'animate-slide-up',
+              )}
             >
               {separator}
               <MessageBubble
@@ -1128,7 +1178,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                agentName={currentAgent?.name || agentId}
                 isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
@@ -1143,97 +1192,69 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
-            + Live activity preview" pair. Renders thinking / tool /
-            reply blocks in chronological order as the events arrive,
-            so the user can see the agent's actual rhythm. See
-            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
-
-            Wrapped in the same Bot-avatar + flex-1 content shell as
-            MessageBubble uses for historical turns, so the in-flight
-            turn doesn't visually detach from the rest of the
-            conversation (it would otherwise be the only assistant
-            output with no left-side avatar). */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
-          <div className="flex gap-3 animate-fade-in">
-            <RingAvatar
-              species="silicon"
-              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-              size="sm"
-              className="shrink-0"
+        {/* The in-flight turn, rendered exactly as it will settle: narration,
+            tool lines and collapsed reasoning in the order they arrive, with
+            the reply growing underneath. No avatar and no bubble, matching
+            the settled agent turn in MessageBubble — the whole point is that
+            nothing rearranges when the run lands. */}
+        {chatTab === 'conversation' && isStreaming && (
+          <div className="animate-fade-in">
+            {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                replay below is the SAME run continuing after a refresh /
+                reconnect — label it, with elapsed anchored to the run's
+                real start, so it cannot be read as a fresh generation.
+                runId must match the streaming turn (review #349 M4): the
+                anchor may only badge ITS run — if a second start-stream
+                path ever appears, a stale anchor stays invisible instead
+                of silently badging someone else's turn. */}
+            {resumedRun && resumedRun.runId === currentRunId && (
+              <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+            )}
+            {/* The run's preamble: the backend pipeline phases that happen
+                before the model produces anything. Without it the window
+                between "send" and the first narration is blank. It heads
+                the document rather than sitting in a box beside it. */}
+            <RunPhases
+              events={currentEvents}
+              steps={currentSteps}
+              startedAtMs={
+                resumedRun && resumedRun.runId === currentRunId
+                  ? resumedRun.startedAtMs
+                  : undefined
+              }
             />
-            <div className="flex-1 min-w-0">
-              {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
-                  replay below is the SAME run continuing after a refresh /
-                  reconnect — label it, with elapsed anchored to the run's
-                  real start, so it cannot be read as a fresh generation.
-                  runId must match the streaming turn (review #349 M4): the
-                  anchor may only badge ITS run — if a second start-stream
-                  path ever appears, a stale anchor stays invisible instead
-                  of silently badging someone else's turn. */}
-              {resumedRun && resumedRun.runId === currentRunId && (
-                <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
-              )}
-              {/* Live view shows answers only: the process is in the
-                  ProcessPanel above the composer. Painting it here too
-                  would render the same thinking/tools twice.
+            {/* The live turn IS the document — narration, tool lines and
+                collapsed reasoning in the order they happen, the reply
+                growing underneath. Same component, same shape the settled
+                turn keeps, so nothing rearranges when it lands.
 
-                  The reply streams inside the same silicon bubble the
-                  settled MessageBubble will use — a bare string next to
-                  the avatar that suddenly gains a bubble on settle reads
-                  as two different things. Rendered only once a reply has
-                  visible content, so no empty blue box shows while the
-                  agent is still thinking/tooling. */}
-              {(() => {
-                const liveSegments = segmentTurn(currentEvents);
-                if (!liveSegments.some((s) => s.reply?.content)) return null;
-                return (
-                  <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)]"
-                    style={{
-                      background: 'var(--nm-paper)',
-                      color: 'var(--nm-ink)',
-                      border: '1px solid var(--nm-hairline)',
-                      borderLeft: '3px solid var(--color-silicon)',
-                    }}
-                  >
-                    <div className="text-sm break-words leading-relaxed">
-                      <SegmentedReply segments={liveSegments} isStreaming />
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* Mid-stream artifact preview is independent of the timeline:
-                  it surfaces created/uploaded artifacts inline as soon as
-                  their tool_output lands, without waiting for the whole
-                  turn to finish. */}
-              {agentId && currentToolCalls.length > 0 && (
-                <ArtifactToolCallCards
-                  toolCalls={currentToolCalls}
-                  allArtifacts={allArtifacts}
-                />
-              )}
-              {/* Inter-event "still working" indicator. Reassurance for
-                  the gap between two visible blocks (e.g. waiting on a
-                  tool result, or the next thinking hasn't started
-                  streaming yet) — without it the page goes silent
-                  and the user can't tell stuck from busy. Distinct from
-                  "Thinking" (whose content is already on screen): this
-                  signals the agent is *acting* between the visible
-                  blocks. Disappears the instant isStreaming flips. */}
-              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
-                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>{t('chat.execution.acting')}</span>
-              </div>
-            </div>
+                showProcess is on here (it used to be off, with the process
+                living in a framed panel above the composer): that panel is
+                gone, so there is nothing to paint twice, and the narration
+                is finally IN the reading flow rather than in a side box
+                between reasoning rows. */}
+            <SegmentedReply
+              segments={segmentTurn(currentEvents)}
+              showProcess
+              isStreaming
+            />
+            {/* Mid-stream artifact preview is independent of the timeline:
+                it surfaces created/uploaded artifacts inline as soon as
+                their tool_output lands, without waiting for the whole
+                turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                allArtifacts={allArtifacts}
+              />
+            )}
           </div>
         )}
 
         {/* The old "starting up… / loading context…" indicator that
-            floated here moved into ProcessPanel (above the composer),
-            which renders pipeline phases as terminal rows from the
-            moment streaming starts — one surface for everything the
-            agent is doing. */}
+            floated here is now RunPhases, at the head of the in-flight
+            document — the phases read as the run's preamble, in the same
+            column as everything else the agent does. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1242,9 +1263,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </div>
       </ScrollArea>
 
-      {/* Input area — drop is handled at the Card root, so this wrapper
-          no longer needs its own onDragOver/onDragLeave/onDrop. Inner
-          wrapper mirrors the 820px stream measure (v4). */}
+      {/* Input area — CONVERSATION ONLY. The Activity Log is a read-only window
+          onto runs the agent started by itself (jobs, channels, teammates);
+          there is no reply channel to type into, so the whole footer goes —
+          composer, attach/voice row, transcription notice and the live
+          ProcessPanel alike, since every one of them describes the owner↔agent
+          run. This matches the live reply block above, already gated to
+          `chatTab === 'conversation'`. Unmounting <Composer> does NOT lose a
+          draft: it flushes to the per-agent draft store on unmount and restores
+          on remount (see Composer.tsx).
+          Drop is handled at the Card root, so this wrapper no longer needs its
+          own onDragOver/onDragLeave/onDrop. Inner wrapper mirrors the 820px
+          stream measure (v4). */}
+      {!isActivityTab && (
       <div className="border-t border-[var(--rule)]">
       <div className="mx-auto w-full max-w-[820px] px-6 max-md:px-3 pt-3.5 pb-3">
         {/* Audio transcription unavailable notice — only shown when an
@@ -1338,11 +1369,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
-        {/* While the agent works, the process lives here; answers live
-            in the bubbles above. Mounted only while streaming — when the
-            turn ends the process folds back into each reply's bubble
-            (lib/segmentTurn), so unmounting the panel loses nothing. */}
-        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
+        {/* The plan is the one piece of the run that must not scroll away —
+            it answers "where are we now" — so it stays pinned here while the
+            rest of the process reads inline in the document above. Mounted
+            only while streaming; the settled turn carries its own process. */}
+        {isStreaming && <PlanStrip events={currentEvents} />}
 
         <div className="relative" data-help-id="chat.composer">
           <Composer
@@ -1511,20 +1542,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onToggle={setFastMode}
               disabled={!agentId}
             />
-            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+            <ComposerModelBadge agentId={agentId} />
           </div>
         </div>
       </div>
       </div>
-
-      {/* Per-agent model & framework panel (opened from the header). */}
-      {agentId && (
-        <AgentLlmConfigPanel
-          agentId={agentId}
-          isOpen={agentCfgOpen}
-          onClose={() => setAgentCfgOpen(false)}
-          onSaved={() => setModelReloadKey((k) => k + 1)}
-        />
       )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

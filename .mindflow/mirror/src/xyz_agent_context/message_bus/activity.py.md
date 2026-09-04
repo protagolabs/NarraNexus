@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/message_bus/activity.py
-last_verified: 2026-07-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 只外露读侧 `last_turn_was_silent`
+
+路由侧(`_member_activity`)读沉默标记走这个门面;写侧 `note_silent_turn` 与
+`TurnActivity`/`turn` 一样**留在 [[_bus_activity]]**,trigger 直接 import 私有模块
+(与同文件其余 4 处一致)。门面「只公开读侧」的契约不变。
+
 
 ## 2026-07-28 — `is_stalled` / `parse_steps` join the read surface
 

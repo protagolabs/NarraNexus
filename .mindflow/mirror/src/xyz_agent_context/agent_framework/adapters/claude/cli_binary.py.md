@@ -1,10 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/cli_binary.py
-last_verified: 2026-07-29
+last_verified: 2026-08-28
 stub: false
 ---
 
 # cli_binary.py — 决定 agent loop 启动哪个 `claude` 二进制,并把决定说出来
+
+## 2026-08-28 — 解析优先托管插件二进制
+
+`_decide()` 在"显式 CLAUDE_CLI_PATH"之后、"PATH 上 `claude`"之前，插入**托管插件
+二进制**候选：[[plugin_paths]] `claude_cli_path()`
+（`~/.narranexus/plugins/nodejs/node_modules/.bin/claude`）。命中且版本==
+`PINNED_CLI_VERSION` 则用它——那是我们钉死并验证过的版本；优先它也保证**永不误启
+或覆盖用户自己全局的 `claude`**。present-but-mismatch 则继续 fall through 到 PATH/
+bundled（不跑未验证版本）。fail-open 三规则不变。
 
 ## 2026-07-29 — 暴露 `effective_cli_version()`
 
