@@ -143,10 +143,11 @@ describe('live state from the conversation', () => {
 });
 
 describe('Done', () => {
-  test('leaves the studio AND asks the drawer to close', async () => {
-    // Regression: Done used to clear the studio flag only. The flag lives in
-    // sessionStorage, so nothing re-rendered and the panel stayed on screen —
-    // indistinguishable from "Done is broken", and clicking again repeated it.
+  test('ENDS the studio and leaves the drawer to useStudioLifecycle', async () => {
+    // Done must not also ask the drawer to toggle: that request raced the
+    // lifecycle effect (both land in one React commit; the toggle then read
+    // the already-collapsed tab as "not open" and re-opened an empty panel).
+    // The drawer collapsing after Done is pinned in useStudioLifecycle.test.
     openStudio(AGENT);
     const view = renderPanel();
 
@@ -157,8 +158,7 @@ describe('Done', () => {
     });
     // Done ENDS the studio — unlike collapsing the drawer, it is not resumable.
     expect(selectStudioResumable(AGENT)(useStudioStore.getState())).toBe(false);
-    expect(useUIStore.getState().pendingPanel).toBe('builder');
-    expect(useUIStore.getState().pendingPanelMode).toBe('toggle');
+    expect(useUIStore.getState().pendingPanel).toBeNull();
   });
 
   test('flushes an unblurred edit instead of losing it', async () => {

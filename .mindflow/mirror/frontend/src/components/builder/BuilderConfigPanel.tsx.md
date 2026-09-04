@@ -4,6 +4,17 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审三轮) — 「完成」不再碰抽屉
+
+评审 🔴#13：`finish()` 里 `finishStudio` + `requestPanel('builder')` 两句同步调用被 React 19
+批成同一次 commit；passive effect 按声明顺序先跑 `useStudioLifecycle`（`setDrawerTab(null)`
+排队），再跑 `pendingPanel` effect —— 它的 updater 拿到的 `prev` 已是 `null`，toggle 不成立、
+返回 `'builder'`，抽屉停在一个切换器里都不存在的 Builder tab 上、内容空白。每次点完成都命中。
+现在 `finish()` 只「冲刷字段 → finishStudio」，抽屉由 lifecycle 的「非 open 非 resumable
+→ 丢 tab」分支收起，与 X / 切 tab / 切 agent 同一条路。`useUIStore` 在本组件已无用处，
+import 与 deps 一并删。两条错误行改为两个显式 `<p>`（同文案时 `key={line}` 会重复）。
+09-03 那条「完成必须同时关抽屉」的动机（flag 不响应式）已随 store 消失，结论随之作废。
+
 ## 2026-09-04 (评审二轮) — 「完成」= `finishStudio`；两条错误都显示；空名回滚输入框
 
 - Done 调 `finishStudio`（结束、不可恢复），与抽屉 X 的「收起」（可恢复）区分。

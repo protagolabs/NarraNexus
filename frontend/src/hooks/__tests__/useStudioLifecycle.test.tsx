@@ -89,6 +89,20 @@ describe('useStudioLifecycle', () => {
     expect(other.setDrawerTab).toHaveBeenCalledWith(null);
   });
 
+  it('after Done (finishStudio) the drawer collapses — the panel does not have to ask', () => {
+    // Regression: Done also requested a drawer toggle; batched with the
+    // finish into one commit, the toggle read the tab this hook had just
+    // dropped as "not open" and re-opened the drawer on an empty panel.
+    useStudioStore.getState().openStudio(A);
+    const { hook, setDrawerTab } = mount(A, 'builder');
+    act(() => useStudioStore.getState().finishStudio(A));
+    // drawerTab is still 'builder' in this pass — nothing else changed it.
+    hook.rerender({ agentId: A, drawerTab: 'builder' });
+    expect(setDrawerTab).toHaveBeenCalledWith(null);
+    expect(isStudioOpen(A)).toBe(false);
+    expect(selectStudioResumable(A)(useStudioStore.getState())).toBe(false);
+  });
+
   it('closing the drawer on another agent does not collapse a studio elsewhere', () => {
     useStudioStore.getState().openStudio(A);
     const { hook } = mount(B, 'awareness');

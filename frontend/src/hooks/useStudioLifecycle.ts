@@ -30,11 +30,15 @@
  *     "no tab" so the drawer never opens on an empty panel.
  *
  * Collapsing is `closeStudio` (keeps it resumable); only the panel's Done
- * calls `finishStudio`. Neither the drawer nor this hook ends a studio.
+ * calls `finishStudio`. Neither the drawer nor this hook ends a studio — and
+ * conversely Done does not touch the drawer: after `finishStudio` the agent
+ * is neither open nor resumable, so the "drop the tab" branch below collapses
+ * the drawer. Done asking the drawer to toggle as well used to race this
+ * effect inside one React commit and re-open the drawer on an empty panel.
  */
 import { useEffect, useRef } from 'react';
 import type { AtomicTabId } from '@/components/bookmarks';
-import { useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores/studioStore';
+import { useStudioStore, selectStudioOpen, selectStudioResumable, isStudioOpen } from '@/stores/studioStore';
 
 export interface StudioLifecycleInput {
   agentId: string | null | undefined;
@@ -60,8 +64,9 @@ export function useStudioLifecycle({ agentId, drawerTab, setDrawerTab }: StudioL
     }
     const shown = onBuilderTab && studioOpen ? agentId : null;
     const prev = shownRef.current;
-    // `prev` is null on the first pass — nothing to collapse then.
-    if (prev && prev !== shown) closeStudio(prev);
+    // `prev` is null on the first pass — nothing to collapse then. A `prev`
+    // that is already shut (Done ran `finishStudio`) needs no collapse either.
+    if (prev && prev !== shown && isStudioOpen(prev)) closeStudio(prev);
     shownRef.current = shown;
   }, [agentId, drawerTab, studioOpen, studioResumable, openStudio, closeStudio, setDrawerTab]);
 

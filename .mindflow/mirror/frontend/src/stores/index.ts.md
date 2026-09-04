@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/index.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -12,7 +12,7 @@ Provides a single import path `@/stores` for all store hooks and the `JOB_TEMPLA
 
 ## 2026-09-03
 
-新增 `studioStore` 及其三个 selector / helper（`selectStudioOpen`、
+新增 `studioStore` 及其四个 selector / helper（`selectStudioOpen`、`selectStudioResumable`、
 `selectRecommendations`、`isStudioOpen`）的再导出，见 [[studioStore.ts]]。
 
 ## Notes

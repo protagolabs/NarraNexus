@@ -4,6 +4,14 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审三轮) — apply 侧等目录有上限
+
+评审 🟡#14：in-flight 去重 + apply 侧 `await loadCatalogue()` 合起来的新失效：第一次请求
+挂死（不 settle、无超时）→ 那个 promise 永不清空 → 此后每一次 `applyFromReply` 都等它，
+整个 session 的模型写入静默失效。`CATALOGUE_TIMEOUT_MS` + `withTimeout`：超时视为未知、
+释放 in-flight、下一次重试。刻意**有上限地等**而不是不等：`mergeAgentDraft(…, null)` 会让
+首轮 skill 建议整体回落。测试用 fake timers 钉住「永不 settle 时 apply 仍在上限内完成」。
+
 ## 2026-09-04 (评审二轮) — 目录请求移出发送路径 + in-flight 去重
 
 评审 🟡#11：上一轮把「目录未知就重试」放进了 `encodeOutgoing` 的 `await`，等于把 marketplace

@@ -15,8 +15,8 @@ vi.mock('@/lib/api', () => ({
   api: {
     searchMarketplaceSkills: (...a: unknown[]) => h.searchMarketplaceSkills(...a),
     getAwareness: (...a: unknown[]) => h.getAwareness(...a),
-    updateAgent: vi.fn(),
-    updateAwareness: vi.fn(),
+    updateAgent: vi.fn().mockResolvedValue({ success: true }),
+    updateAwareness: vi.fn().mockResolvedValue({ success: true }),
   },
 }));
 
@@ -33,6 +33,31 @@ beforeEach(() => {
   useStudioStore.setState({ open: {}, visited: {}, recommendations: {}, applyError: {} });
   useConfigStore.setState({ agents: [{ agent_id: AGENT, name: 'X', description: 'd' } as never] });
   useStudioStore.getState().openStudio(AGENT);
+});
+
+describe('useStudioTurn.applyFromReply', () => {
+  it('a catalogue request that never settles does not block applying the reply forever', async () => {
+    vi.useFakeTimers();
+    try {
+      h.searchMarketplaceSkills.mockReturnValue(new Promise(() => undefined)); // stalled
+      const { result } = renderHook(() => useStudioTurn(AGENT));
+      const reply = `ok<agent_draft>{"name":"Briefing","skill_ids":["web-search"]}</agent_draft>`;
+      let settled = false;
+      const applying = result.current.applyFromReply(reply).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(9_000);
+      await applying;
+      expect(settled).toBe(true);
+      // the text write happened; the skill suggestion stayed as it was
+      // (catalogue unknown → untouched), and nothing was left hanging.
+      const { api } = await import('@/lib/api');
+      expect(api.updateAgent).toHaveBeenCalledWith(AGENT, 'Briefing', 'd');
+      expect(useStudioStore.getState().recommendations[AGENT]?.skill_ids ?? []).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('useStudioTurn.encodeOutgoing', () => {

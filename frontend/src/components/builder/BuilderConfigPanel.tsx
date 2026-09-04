@@ -43,7 +43,6 @@ import { SkillsPanel } from '@/components/skills';
 import {
   useConfigStore,
   usePreloadStore,
-  useUIStore,
   useStudioStore,
   selectRecommendations,
 } from '@/stores';
@@ -60,7 +59,6 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const refreshAgents = useConfigStore((s) => s.refreshAgents);
   const awareness = usePreloadStore((s) => s.awareness);
   const refreshAwareness = usePreloadStore((s) => s.refreshAwareness);
-  const requestPanel = useUIStore((s) => s.requestPanel);
   // Reactive: a turn that only recommended a skill re-renders this section
   // even though no text field (and therefore no other subscription) changed.
   const recommendations = useStudioStore(selectRecommendations(agentId));
@@ -140,19 +138,16 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
       await commitAwareness();
     } finally {
       setFinishing(false);
-      // Done ENDS the studio (flag, recommendations, resumability). Merely
-      // collapsing the panel is the drawer's business, see useStudioLifecycle.
+      // Done ENDS the studio (flag, recommendations, resumability). Nothing
+      // here touches the drawer: once this agent is neither open nor
+      // resumable, useStudioLifecycle collapses the drawer itself — the same
+      // way it does for the X, another tab or another agent. Asking the
+      // drawer to toggle from here as well used to race that effect (React
+      // batches both into one commit; the toggle read the already-collapsed
+      // tab as "not open" and re-opened it on an empty panel).
       finishStudio(agentId);
-      // AND close the drawer. Clearing the studio flag alone leaves this very
-      // panel on screen — the flag is sessionStorage, so nothing re-renders —
-      // which reads as "Done does nothing", and clicking again just repeats it.
-      //
-      // requestPanel is the TOGGLE, and toggling our own tab is exactly
-      // "close me": this component only renders while `builder` IS the open
-      // tab, so the toggle can never accidentally open something.
-      requestPanel('builder');
     }
-  }, [commitName, commitAwareness, agentId, finishStudio, requestPanel]);
+  }, [commitName, commitAwareness, agentId, finishStudio]);
 
   const install = useCallback(
     async (skillId: string) => {
@@ -303,11 +298,16 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
           {/* Both lines, not one: a manual-edit error is cleared only by the
               next manual commit, so a single slot would let one old error hide
               every later model-driven failure. */}
-          {[applyError, error].filter(Boolean).map((line) => (
-            <p key={line} className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
-              {line}
+          {applyError && (
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
+              {applyError}
             </p>
-          ))}
+          )}
+          {error && (
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
+              {error}
+            </p>
+          )}
         </div>
       </ScrollArea>
 

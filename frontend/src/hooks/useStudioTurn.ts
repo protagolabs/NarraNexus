@@ -31,7 +31,12 @@
  * composer did not clear and no bubble appeared, and a second Enter sent the
  * same message twice (binding rule #16 — our own downstream must not become
  * a hang the user feels). Applying a settled reply is not on that path, so it
- * may wait for the catalogue. One fetch is in flight at a time.
+ * may wait for the catalogue — but only up to `CATALOGUE_TIMEOUT_MS`: one
+ * fetch is in flight at a time, so a request that never settles would
+ * otherwise be the promise every later apply awaits, and every model write
+ * for the rest of the session would silently never happen. On timeout the
+ * catalogue stays unknown (skill suggestions untouched this turn), the
+ * in-flight slot is released and the next call tries again.
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
@@ -51,6 +56,23 @@ import { applyLiveFields, readCurrentConfig } from '@/lib/builderApply';
  */
 const CATALOGUE_LIMIT = 60;
 
+/**
+ * Upper bound on waiting for the catalogue anywhere it IS awaited. The
+ * marketplace request has no timeout of its own, and a stalled connection
+ * (not a 5xx — simply no answer) must not become a session-long hang.
+ */
+const CATALOGUE_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(onTimeout), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(onTimeout); },
+    );
+  });
+}
+
 export function useStudioTurn(agentId: string | null) {
   const agents = useConfigStore((s) => s.agents);
   const refreshAgents = useConfigStore((s) => s.refreshAgents);
@@ -67,9 +89,13 @@ export function useStudioTurn(agentId: string | null) {
   const loadCatalogue = useCallback((): Promise<SkillCatalogue | null> => {
     if (catalogueRef.current) return Promise.resolve(catalogueRef.current);
     if (catalogueInFlightRef.current) return catalogueInFlightRef.current;
-    const attempt = api
-      .searchMarketplaceSkills({ limit: CATALOGUE_LIMIT })
+    const attempt = withTimeout(
+      api.searchMarketplaceSkills({ limit: CATALOGUE_LIMIT }),
+      CATALOGUE_TIMEOUT_MS,
+      null,
+    )
       .then((res) => {
+        if (!res) return null; // timed out or failed: stays unknown
         const items = (res.items ?? []).map((s) => ({ id: s.skill_id, name: s.name }));
         const next: SkillCatalogue = { items, total: Math.max(res.total ?? items.length, items.length) };
         catalogueRef.current = next;
