@@ -176,24 +176,31 @@ export function useStudioTurn(agentId: string | null) {
       const parsed = parseAgentDraft(replyText);
       if (!parsed) return;
       try {
-        const [prev, catalogue] = await Promise.all([
-          readCurrentConfig(agentId, identity(), recommendationsFor(agentId)),
-          loadCatalogue(),
-        ]);
-        const next = mergeAgentDraft(
-          prev,
-          parsed,
-          catalogue ? catalogue.items.map((s) => s.id) : null,
-        );
-        const outcome = await applyLiveFields(agentId, prev, next);
-        // The store is reactive, so a turn that ONLY recommended a skill
-        // re-renders the panel's suggestions — no refresh of unrelated data.
-        setRecommendations(agentId, { skill_ids: next.skill_ids, channels: next.channels });
+        // Text fields first, and WITHOUT waiting for the catalogue: name,
+        // description and instructions do not depend on it, and `prev` is a
+        // snapshot — every second spent waiting widens the window in which a
+        // panel edit the user just saved is diffed against a stale `prev`
+        // and overwritten. The catalogue only gates skill_ids.
+        const prev = await readCurrentConfig(agentId, identity(), recommendationsFor(agentId));
+        const textOnly = mergeAgentDraft(prev, parsed, null);
+        const outcome = await applyLiveFields(agentId, prev, textOnly);
         setApplyError(agentId, outcome.errors.length ? outcome.errors.join('; ') : null);
         // Refresh only what actually changed, so a turn that touched one field
         // does not refetch the other.
         if (outcome.changed.includes('identity')) void refreshAgents();
         if (outcome.changed.includes('awareness')) void refreshAwareness(agentId, true);
+
+        // Then the suggestions, once the catalogue is known (bounded wait;
+        // unknown → this turn leaves the recommendations untouched). The
+        // store is reactive, so a turn that ONLY recommended a skill
+        // re-renders the panel's suggestions — no refresh of unrelated data.
+        const catalogue = await loadCatalogue();
+        const withSkills = mergeAgentDraft(
+          prev,
+          parsed,
+          catalogue ? catalogue.items.map((s) => s.id) : null,
+        );
+        setRecommendations(agentId, { skill_ids: withSkills.skill_ids, channels: withSkills.channels });
       } catch (e) {
         setApplyError(agentId, String(e));
       }

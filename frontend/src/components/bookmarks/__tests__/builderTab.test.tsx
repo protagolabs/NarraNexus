@@ -20,7 +20,7 @@ import { render, waitFor, within } from '@testing-library/react';
 import { useUIStore } from '@/stores/uiStore';
 import { useStudioStore } from '@/stores/studioStore';
 import { BookmarkPanelHost } from '../BookmarkPanelHost';
-import { ALL_TABS, visibleCategories, visibleTabs } from '../tabs';
+import { ALL_TABS, visibleTabs } from '../tabs';
 
 vi.mock('@/components/builder', () => ({
   BuilderConfigPanel: ({ agentId }: { agentId: string }) => (
@@ -63,7 +63,7 @@ describe('builder tab', () => {
   });
 
   test('is OFFERED only while the studio is open — one rule for every picker', () => {
-    // MainLayout's switcher and the ⌘K palette both derive from these; a tab
+    // The chat header's ⋯ menu and the ⌘K palette both derive from this; a tab
     // hidden in one and offered in the other is the bug this pins.
     const never = { studioOpen: false, studioResumable: false };
     const open = { studioOpen: true, studioResumable: false };
@@ -72,10 +72,8 @@ describe('builder tab', () => {
     expect(visibleTabs(open).some((t) => t.id === 'builder')).toBe(true);
     // Collapsed (drawer X, another tab) keeps the way back on offer.
     expect(visibleTabs(collapsed).some((t) => t.id === 'builder')).toBe(true);
-    const gone = visibleCategories(never).flatMap((c) => c.tabs);
-    expect(gone.some((t) => t.id === 'builder')).toBe(false);
     // Every other tab is unaffected either way.
-    expect(gone.length).toBe(ALL_TABS.length - 1);
+    expect(visibleTabs(never).length).toBe(ALL_TABS.length - 1);
     expect(visibleTabs(open)).toEqual(ALL_TABS);
   });
 

@@ -57,7 +57,7 @@ export function useStudioLifecycle({ agentId, drawerTab, setDrawerTab }: StudioL
   useEffect(() => {
     const onBuilderTab = drawerTab === 'builder' && !!agentId;
     if (onBuilderTab && !studioOpen) {
-      // The tab was picked (switcher / ⌘K / a restored drawerTab) for an
+      // The tab was picked (⋯ menu / ⌘K / a restored drawerTab) for an
       // agent whose studio is not open: resume it, or drop the tab.
       if (studioResumable) openStudio(agentId);
       else setDrawerTab(null);

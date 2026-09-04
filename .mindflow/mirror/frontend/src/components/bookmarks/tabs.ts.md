@@ -4,7 +4,7 @@ last_verified: 2026-09-04
 stub: false
 ---
 
-## 2026-09-04 — `visibleCategories` 删除
+## 2026-09-04 — `visibleCategories` 删除（五轮真正落地；四轮那条 commit 里脚本中断未生效）
 
 dev（#383）退役了抽屉切换器，分组形态再无生产消费者；只留扁平的 `visibleTabs`，消费方是
 ChatHeader ⋯ 菜单与 ⌘K。
@@ -19,7 +19,7 @@ ChatHeader ⋯ 菜单与 ⌘K。
 `builder` 曾只在两个消费点被过滤（MainLayout 的切换器、ChatHeader 的硬编码菜单），
 而 `ALL_TABS` 这条派生链没被扫到：⌘K 面板（移动端主入口）对任意 agent 都列出
 Builder。现在 `AtomicTabDef.conditional?: 'studio'` 是**唯一**的规则所在，
-`visibleCategories(ctx)` / `visibleTabs(ctx)` 是所有「可选列表」的出口 ——
+`visibleTabs(ctx)` 是所有「可选列表」的出口（`visibleCategories` 已随抽屉切换器删除）——
 切换器与 palette 都调它，新消费者自动继承。`ALL_TABS` / `tabLabelKey` /
 `tabDescKey` 仍含 `builder`：注册表不过滤，否则已经停在这个 tab 上的抽屉标题会回
 落成 `rail.builder` 字面量。测试 `builderTab.test.tsx` 钉住「关 studio 时

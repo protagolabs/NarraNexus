@@ -93,7 +93,7 @@ export interface AtomicTabDef {
    * did not: a studio panel with no conversation driving it reads as broken.
    * The tab stays REGISTERED regardless (so
    * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
-   * only the pickable lists — drawer switcher, ⌘K palette — filter on it.
+   * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette — filter on it.
    * One field here rather than a filter in each consumer: a new consumer of
    * `STRIP_CATEGORIES` inherits the rule instead of re-deriving it.
    */
@@ -203,18 +203,11 @@ function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
 }
 
 /**
- * The categories a user may PICK from right now — `STRIP_CATEGORIES` with the
- * conditional tabs removed (and a category dropped once it is empty). The
- * drawer's switcher and the ⌘K palette both go through here, so a conditional
+ * The tabs a user may PICK from right now — `ALL_TABS` minus the conditional
+ * tabs whose context does not hold. Every entry point that offers panels (the
+ * chat header's ⋯ menu, the ⌘K palette) goes through here, so a conditional
  * tab can never leak out of one entry while being hidden in another.
  */
-export function visibleCategories(ctx: TabVisibilityContext): StripCategory[] {
-  return STRIP_CATEGORIES.map((c) => ({ ...c, tabs: c.tabs.filter((t) => tabOffered(t, ctx)) })).filter(
-    (c) => c.tabs.length > 0,
-  );
-}
-
-/** Flat form of `visibleCategories`. */
 export function visibleTabs(ctx: TabVisibilityContext): AtomicTabDef[] {
   return ALL_TABS.filter((t) => tabOffered(t, ctx));
 }

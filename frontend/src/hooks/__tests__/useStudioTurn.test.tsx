@@ -23,6 +23,7 @@ vi.mock('@/lib/api', () => ({
 import { useStudioTurn } from '../useStudioTurn';
 import { useStudioStore } from '@/stores/studioStore';
 import { useConfigStore } from '@/stores/configStore';
+import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 
 const AGENT = 'agent_x';
 
@@ -46,7 +47,7 @@ describe('useStudioTurn.applyFromReply', () => {
       const applying = result.current.applyFromReply(reply).then(() => {
         settled = true;
       });
-      await vi.advanceTimersByTimeAsync(13_000);
+      await vi.advanceTimersByTimeAsync(MARKETPLACE_SEARCH_TIMEOUT_MS + 3_000);
       await applying;
       expect(settled).toBe(true);
       // the text write happened; the skill suggestion stayed as it was

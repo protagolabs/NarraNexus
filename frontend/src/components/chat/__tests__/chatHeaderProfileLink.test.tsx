@@ -18,7 +18,10 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return { ...actual, useNavigate: () => navigate };
 });
-vi.mock('@/stores', () => ({
+vi.mock('@/stores', async () => ({
+  // Real barrel underneath (the header reads the studio store from it); only
+  // the two UI stores below are stubbed.
+  ...(await vi.importActual<typeof import('@/stores')>('@/stores')),
   useUIStore: (sel: (s: unknown) => unknown) =>
     sel({
       sidebarCollapsed: false,

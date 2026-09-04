@@ -78,7 +78,20 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const [finishing, setFinishing] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const [installed, setInstalled] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // One slot per writer, not one shared string: the two field commits and a
+  // skill install all report here, and a shared slot let a later `null` from
+  // one writer erase another's failure — or a stale manual error hide a fresh
+  // one. Each writer owns exactly its own slot.
+  type ErrorSlot = 'name' | 'awareness' | 'install';
+  const [errors, setErrors] = useState<Partial<Record<ErrorSlot, string>>>({});
+  const setSlotError = useCallback((slot: ErrorSlot, message: string | null) => {
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (message) next[slot] = message;
+      else delete next[slot];
+      return next;
+    });
+  }, []);
 
   useEffect(() => setName(agent?.name ?? ''), [agent?.name]);
   useEffect(() => setInstructions(awareness ?? ''), [awareness]);
@@ -97,36 +110,36 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     }
     if (next === (agent?.name ?? '')) return true;
     setSaving(true);
-    setError(null);
+    setSlotError('name', null);
     try {
       const res = await api.updateAgent(agentId, next, agent?.description ?? '');
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');
       await refreshAgents();
       return true;
     } catch (e) {
-      setError(String(e));
+      setSlotError('name', String(e));
       return false;
     } finally {
       setSaving(false);
     }
-  }, [name, agent?.name, agent?.description, agentId, refreshAgents]);
+  }, [name, agent?.name, agent?.description, agentId, refreshAgents, setSlotError]);
 
   const commitAwareness = useCallback(async (): Promise<boolean> => {
     if (instructions === (awareness ?? '')) return true;
     setSaving(true);
-    setError(null);
+    setSlotError('awareness', null);
     try {
       const res = await api.updateAwareness(agentId, instructions);
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');
       await refreshAwareness(agentId, true);
       return true;
     } catch (e) {
-      setError(String(e));
+      setSlotError('awareness', String(e));
       return false;
     } finally {
       setSaving(false);
     }
-  }, [instructions, awareness, agentId, refreshAwareness]);
+  }, [instructions, awareness, agentId, refreshAwareness, setSlotError]);
 
   /**
    * Flush pending field edits, then end the studio — in that order, and only
@@ -149,7 +162,13 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     setFinishing(true);
     let flushed = false;
     try {
-      flushed = (await commitName()) && (await commitAwareness());
+      // BOTH run, always — no `&&` short-circuit. They hit two independent
+      // endpoints; a rejected name is no reason not to try the instructions,
+      // whose only copy is this component's state and would otherwise be
+      // lost the moment the panel unmounts, with no error ever shown for it.
+      const nameOk = await commitName();
+      const awarenessOk = await commitAwareness();
+      flushed = nameOk && awarenessOk;
     } finally {
       setFinishing(false);
     }
@@ -167,19 +186,19 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const install = useCallback(
     async (skillId: string) => {
       setInstalling(skillId);
-      setError(null);
+      setSlotError('install', null);
       try {
         await api.installMarketplaceSkill(skillId, agentId);
         setInstalled((prev) => [...prev, skillId]);
         // The embedded Skills section reads the same list through react-query.
         await qc.invalidateQueries({ queryKey: ['skills'] });
       } catch (e) {
-        setError(String(e));
+        setSlotError('install', String(e));
       } finally {
         setInstalling(null);
       }
     },
-    [agentId, qc],
+    [agentId, qc, setSlotError],
   );
 
   return (
@@ -310,18 +329,20 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
             </EmbeddedSection>
           </Section>
 
-          {/* Both lines, not one: a manual-edit error is cleared only by the
-              next manual commit, so a single slot would let one old error hide
-              every later model-driven failure. */}
+          {/* One line per writer (model-driven first): a shared slot let one
+              writer's `null` erase another's failure, or an old error hide a
+              fresh one. */}
           {applyError && (
             <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
               {applyError}
             </p>
           )}
-          {error && (
-            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
-              {error}
-            </p>
+          {(['name', 'awareness', 'install'] as const).map((slot) =>
+            errors[slot] ? (
+              <p key={slot} className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
+                {errors[slot]}
+              </p>
+            ) : null,
           )}
         </div>
       </ScrollArea>

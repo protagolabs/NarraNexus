@@ -4,6 +4,15 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审五轮) — 文本写入不再等目录
+
+`applyFromReply` 先 `readCurrentConfig` → `mergeAgentDraft(prev, parsed, null)` → 立刻
+`applyLiveFields`（name / description / awareness 不依赖目录），目录落地后再单独算
+`skill_ids / channels` 写 `setRecommendations`。原来文本写入跟着目录一起等最多 12s，`prev`
+快照在这期间过期，用户刚 blur 落库的手改会被按旧 `prev` 的 diff 覆盖。目录未知时推荐
+仍整体回落（`builderProtocol.test` 钉着）。测试推进量改为从 `MARKETPLACE_SEARCH_TIMEOUT_MS`
+派生，不留第三份数字。
+
 ## 2026-09-04 (评审四轮) — 超时下沉到请求本身
 
 评审 🟡#17：`withTimeout` 只是不再等，底层 fetch 仍挂着，且 `.finally` 释放槽后下一轮又发
