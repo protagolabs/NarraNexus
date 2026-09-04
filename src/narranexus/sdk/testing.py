@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,7 @@ class PluginTestHost:
     # ------------------------------------------------------------- setup
 
     def __enter__(self) -> "PluginTestHost":
+        _unshadow_platform_packages(self.plugin_dir)
         self._previous_home = os.environ.get(ENV_PLUGIN_HOME)
         self.home.mkdir(parents=True, exist_ok=True)
         os.environ[ENV_PLUGIN_HOME] = str(self.home)
@@ -125,6 +127,17 @@ class PluginTestHost:
         return self.registries.registry_for(path)
 
     def names(self, path: str) -> tuple[str, ...]:
+        """Contribution names the plugin under test registered in ``path``.
+
+        Builtin feature plugins (e.g. ``builtin.teams`` in ``backend.routes``)
+        boot alongside and are filtered out, so a plugin's own tests stay
+        stable when the host grows new builtins.
+        """
+        pid = self.plugin_id
+        return tuple(e.name for e in self.registries.registry_for(path).entries() if e.owner == pid)
+
+    def all_names(self, path: str) -> tuple[str, ...]:
+        """Every contribution in ``path`` including the builtins (for tests about host composition)."""
         return self.registries.registry_for(path).names()
 
     @property
@@ -147,11 +160,44 @@ class PluginTestHost:
         from narranexus.contracts.route import RouterSpec
 
         app = FastAPI()
+        pid = self.plugin_id
         for entry in self.registries.registry_for("backend.routes").entries():
+            if entry.owner != pid:
+                continue  # builtin routers (e.g. /api/teams) need the full app; a plugin test mounts only its own
             spec = entry.factory()
             if isinstance(spec, RouterSpec):
                 app.include_router(spec.router, prefix=spec.prefix)
         return app
+
+
+# Top-level package names a plugin directory shares with the platform. A plugin's
+# own ``backend/`` package is only ever imported as ``nxplugins.<id>.backend``;
+# but ``python -m pytest`` run inside the plugin directory puts that directory
+# first on sys.path, so a bare ``import backend`` (which builtin.teams' manifest
+# triggers via ``backend.routes.teams``) would resolve to the plugin and fail.
+_PLATFORM_TOP_LEVEL = ("backend",)
+
+
+def _unshadow_platform_packages(plugin_dir: Path) -> None:
+    """Drop the plugin directory (and cwd aliases of it) from sys.path and forget any shadowing import."""
+    root = plugin_dir.resolve()
+    keep: list[str] = []
+    for entry in sys.path:
+        try:
+            resolved = Path(entry or os.getcwd()).resolve()
+        except OSError:
+            keep.append(entry)
+            continue
+        if resolved != root:
+            keep.append(entry)
+    if len(keep) != len(sys.path):
+        sys.path[:] = keep
+    for name in _PLATFORM_TOP_LEVEL:
+        mod = sys.modules.get(name)
+        file = getattr(mod, "__file__", None) if mod is not None else None
+        if file and Path(file).resolve().is_relative_to(root):
+            for key in [k for k in sys.modules if k == name or k.startswith(name + ".")]:
+                del sys.modules[key]
 
 
 __all__ = ["PluginTestHost"]

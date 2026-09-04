@@ -309,12 +309,12 @@ async def lifespan(app: FastAPI):
     # Same opportunistic contract as the memory worker: per-team isolation, a
     # failure keeps the previous summary, and nothing ever waits on it
     # (iron rule #14).
-    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+    # Since batch 3c.2 the worker is a backend.workers contribution of
+    # builtin.teams (host="backend"); every such contribution starts here.
+    from backend.plugins_host import start_backend_workers
 
-    team_summary_worker = TeamSummaryWorker(db)
-    await team_summary_worker.start()
-    app.state.team_summary_worker = team_summary_worker
-    logger.info("Team summary worker started")
+    started_workers = await start_backend_workers(app, KERNEL_REGISTRIES, db)
+    logger.info(f"Backend plugin workers started: {started_workers or 'none'}")
 
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
@@ -431,9 +431,9 @@ async def lifespan(app: FastAPI):
     # Stopped BEFORE the db client closes: its poll loop holds that client, and
     # a pass landing mid-teardown would log a confusing connection error on
     # every clean shutdown.
-    summary_worker = getattr(app.state, "team_summary_worker", None)
-    if summary_worker is not None:
-        await summary_worker.stop()
+    from backend.plugins_host import stop_backend_workers
+
+    await stop_backend_workers(app)
     await close_db_client()
     logger.info("Database connections closed")
 
@@ -556,7 +556,6 @@ from backend.routes.office_watch.proxy import (
     router as office_watch_router,
     public_router as office_watch_public_router,
 )
-from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 from backend.routes.migrate import router as migrate_router
 from backend.routes.arena import router as arena_router
@@ -587,7 +586,6 @@ app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["H
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(plugin_factory_router, tags=["PluginFactory"])
 app.include_router(plugins_router, tags=["Plugins"])
-app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
@@ -829,9 +827,12 @@ else:
 # After every shell router (a plugin cannot shadow one) and before the SPA
 # fallback (the catch-all cannot swallow one). With no user plugins loaded this
 # mounts nothing, so the route snapshot is unchanged.
-from backend.plugins_host import mount_plugin_routes  # noqa: E402
+from backend.plugins_host import mount_plugin_routes, register_builtins_for_import  # noqa: E402
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES  # noqa: E402
 
+# Builtin plugins (incl. builtin.teams' router) register at import so the route
+# table is complete before serving; the lifespan boot repeats this idempotently.
+app.state.disabled_builtins = register_builtins_for_import(KERNEL_REGISTRIES)
 app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)
 
 

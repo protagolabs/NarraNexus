@@ -45,3 +45,7 @@ D4「内置即插件」的落点：六份 manifest 常量（批 1 加 `builtin.l
 选择显式清单而非目录扫描（参考文档 §E-24：确定性、可 grep、启动快）。`builtin_manifests()`
 带 `lru_cache`，因为数据是常量；批 3 逐个抽取内置时，这里每插件一条。`hosts` 目前只按进程角色
 粗分（框架只在 backend 装），`mcp`/`workers` 装 providers 与 memory kinds。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+First feature-level builtin: `builtin.teams` (hosts backend; provides `backend.routes` + `backend.workers`; depends on message_bus + chat so disabling either cascades). It is the template for extracting the remaining features — routes/worker arrive through contributions, the platform keeps no direct reference.

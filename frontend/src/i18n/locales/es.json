@@ -1439,7 +1439,10 @@
           "proposalTestsRed": "Las pruebas no pasaron",
           "proposalApprove": "Aprobar",
           "proposalReject": "Rechazar",
-          "noPermissions": "No se solicitan permisos especiales"
+          "noPermissions": "No se solicitan permisos especiales",
+          "builtinsTitle": "Funciones integradas",
+          "builtinsHint": "Plugins de funcionalidad incluidos con NarraNexus. Al desactivar uno, su API, workers y páginas desaparecen tras reiniciar; los protegidos no se pueden apagar.",
+          "protected": "protegido"
         }
       }
     },

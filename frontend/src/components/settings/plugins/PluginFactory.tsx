@@ -20,7 +20,7 @@ import { AlertTriangle, Download, Power, PowerOff, RefreshCw, RotateCcw, Trash2 
 
 import { api } from '@/lib/api';
 import { Button, PaperCard, StatusBadge, TextInput } from '@/components/nm';
-import type { FactoryListResponse, FactoryPlugin, FactoryProposal } from '@/types';
+import type { FactoryBuiltin, FactoryListResponse, FactoryPlugin, FactoryProposal } from '@/types';
 
 type Data = NonNullable<FactoryListResponse['data']>;
 
@@ -309,6 +309,45 @@ export function PluginFactory() {
           </PaperCard>
         );
       })}
+
+      {(data.builtins ?? []).length > 0 && (
+        <div className="space-y-2" data-testid="builtin-plugins">
+          <div>
+            <div className="text-sm font-medium text-[var(--nm-ink)]">{t(`${fp}.builtinsTitle`)}</div>
+            <div className="text-xs text-[var(--nm-ink50)] mt-0.5">{t(`${fp}.builtinsHint`)}</div>
+          </div>
+          {(data.builtins ?? []).map((b: FactoryBuiltin) => (
+            <PaperCard key={b.id} padding="md" className="space-y-1.5" data-testid={`builtin-${b.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-[var(--nm-ink)]">
+                    {b.display_name} <span className="text-xs text-[var(--nm-ink50)]">v{b.version}</span>
+                  </div>
+                  <div className="text-xs text-[var(--nm-ink50)] mt-0.5 font-mono">{b.id}</div>
+                  {b.description && <div className="text-xs text-[var(--nm-ink70)] mt-1">{b.description}</div>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {b.protected && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
+                  <StatusBadge status={b.enabled ? 'success' : 'neutral'}>{t(`${fp}.state.${b.enabled ? 'enabled' : 'disabled'}`)}</StatusBadge>
+                </div>
+              </div>
+              {!b.protected && (
+                <div className="flex items-center gap-2">
+                  {b.enabled ? (
+                    <Button size="sm" variant="secondary" leading={<PowerOff className="h-3.5 w-3.5" />} disabled={busy !== null} onClick={() => void run(b.id, () => api.factoryBuiltinSetEnabled(b.id, false), t(`${fp}.restartRequired`))}>
+                      {t(`${fp}.disable`)}
+                    </Button>
+                  ) : (
+                    <Button size="sm" leading={<Power className="h-3.5 w-3.5" />} disabled={busy !== null} onClick={() => void run(b.id, () => api.factoryBuiltinSetEnabled(b.id, true), t(`${fp}.restartRequired`))}>
+                      {t(`${fp}.enable`)}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </PaperCard>
+          ))}
+        </div>
+      )}
 
       {data.plugins.length > 0 && (
         <div>

@@ -136,4 +136,95 @@ def mount_plugin_routes(app: Any, registries: Registries) -> MountReport:
     return report
 
 
-__all__ = ["LazyRouterApp", "MountReport", "ROUTES_SLOT", "mount_lazy_router", "mount_plugin_routes"]
+# ------------------------------------------------------------------ boot-at-import
+
+
+def register_builtins_for_import(registries: Registries) -> tuple[str, ...]:
+    """Load every builtin manifest for the backend role at import time and drop disabled ones.
+
+    ``backend.main`` mounts plugin routers at import (so the route table is
+    fixed before serving and the approval snapshot can see it); the builtin
+    contributions must therefore be registered by then. The lifespan boot
+    repeats this idempotently and adds user plugins. Returns the disabled
+    builtin ids (from registry.json ``builtin_overrides``).
+    """
+    from narranexus.kernel.deployment import is_cloud_mode
+    from narranexus.kernel.plugins.compat import host_version
+    from narranexus.kernel.plugins.loader import discover, load
+
+    found = discover(cloud=is_cloud_mode(), host_version=host_version())
+    for pid in found.disabled_builtins:
+        registries.remove_owner(pid)
+    load(registries, [m for m in found.manifests if m.is_builtin], role="backend")
+    return tuple(found.disabled_builtins)
+
+
+WORKERS_SLOT = "backend.workers"
+
+
+@dataclass
+class BackendWorkerContext:
+    db: Any
+
+
+async def start_backend_workers(app: Any, registries: Registries, db: Any) -> list[str]:
+    """Start every ``backend.workers`` contribution with ``host == "backend"`` inside the API process."""
+    from narranexus.contracts.worker import WorkerSpec
+
+    started: list[str] = []
+    handles: list[tuple[str, Any, Any]] = []
+    if WORKERS_SLOT not in registries.paths() and WORKERS_SLOT not in registries.slots:
+        return started
+    for entry in registries.registry_for(WORKERS_SLOT).entries():
+        try:
+            spec = entry.factory()
+        except Exception as exc:  # noqa: BLE001 — isolate the plugin
+            logger.warning(f"[plugins] {entry.owner}: worker {entry.name!r} spec failed: {exc}")
+            continue
+        if not isinstance(spec, WorkerSpec) or spec.host != "backend":
+            continue
+        name = f"{entry.owner}:{spec.name}"
+        try:
+            handle = await spec.factory(BackendWorkerContext(db))
+            task = asyncio.ensure_future(handle.run)
+            task.add_done_callback(
+                lambda t, n=name: logger.warning(f"[plugins] backend worker {n} exited: {t.exception()}")
+                if not t.cancelled() and t.exception() is not None
+                else None
+            )
+            handles.append((name, handle, task))
+            started.append(name)
+            logger.info(f"[plugins] backend worker {name} started")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[plugins] backend worker {name} failed to start: {exc}")
+    app.state.plugin_backend_workers = handles
+    return started
+
+
+async def stop_backend_workers(app: Any) -> None:
+    handles = getattr(app.state, "plugin_backend_workers", None) or []
+    for name, handle, task in handles:
+        try:
+            result = handle.stop()
+            if asyncio.iscoroutine(result):
+                await result
+            await asyncio.wait_for(task, timeout=10.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            task.cancel()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[plugins] backend worker {name} stop raised: {exc}")
+    app.state.plugin_backend_workers = []
+
+
+__all__ = [
+    "BackendWorkerContext",
+    "LazyRouterApp",
+    "MountReport",
+    "ROUTES_SLOT",
+    "WORKERS_SLOT",
+    "mount_lazy_router",
+    "mount_plugin_routes",
+    "register_builtins_for_import",
+    "start_backend_workers",
+    "stop_backend_workers",
+]

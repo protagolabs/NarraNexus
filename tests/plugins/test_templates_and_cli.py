@@ -81,3 +81,16 @@ def test_cli_errors_are_messages_not_tracebacks(home: Path, capsys):
     assert cli(["plugin", "enable", "acme.unknown"]) == 1
     assert cli(["plugin", "bisect", "start"]) == 1
     assert cli(["plugin", "rollback"]) == 1
+
+
+def test_cli_toggles_builtins_through_overrides(home: Path, capsys):
+    import json
+
+    from narranexus.kernel.plugins.paths import registry_path
+
+    assert cli(["plugin", "disable", "builtin.teams"]) == 0
+    assert json.loads(registry_path().read_text())["builtin_overrides"]["builtin.teams"] == {"enabled": False}
+    assert cli(["plugin", "enable", "builtin.teams"]) == 0
+    assert "builtin.teams" not in json.loads(registry_path().read_text())["builtin_overrides"]
+    assert cli(["plugin", "disable", "builtin.nexus_plugins_module"]) != 0  # protected
+    assert cli(["plugin", "disable", "builtin.does_not_exist"]) != 0

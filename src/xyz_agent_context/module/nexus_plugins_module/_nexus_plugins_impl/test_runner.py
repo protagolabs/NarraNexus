@@ -93,6 +93,9 @@ def run_tests(plugin_dir: Path, *, timeout_s: float = DEFAULT_TIMEOUT_S, python:
         "NARRANEXUS_PLUGIN_HOME": str(test_home),
         "NARRANEXUS_DEPLOYMENT_MODE": "local",
         "PYTHONDONTWRITEBYTECODE": "1",
+        # cwd is the plugin dir; without this `python -m pytest` puts it first on
+        # sys.path and the plugin's own `backend/` shadows the platform package.
+        "PYTHONSAFEPATH": "1",
         **(extra_env or {}),
     }
     cmd = [python or sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--maxfail=20", str(tests)]

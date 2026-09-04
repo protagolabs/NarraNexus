@@ -1439,7 +1439,10 @@
           "proposalTestsRed": "Tests nicht bestanden",
           "proposalApprove": "Freigeben",
           "proposalReject": "Ablehnen",
-          "noPermissions": "Keine besonderen Berechtigungen angefordert"
+          "noPermissions": "Keine besonderen Berechtigungen angefordert",
+          "builtinsTitle": "Integrierte Funktionen",
+          "builtinsHint": "Funktions-Plugins, die mit NarraNexus ausgeliefert werden. Beim Deaktivieren verschwinden API, Worker und Seiten nach einem Neustart; geschützte lassen sich nicht abschalten.",
+          "protected": "geschützt"
         }
       }
     },

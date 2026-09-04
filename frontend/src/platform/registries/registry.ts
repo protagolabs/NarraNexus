@@ -78,6 +78,19 @@ export class Registry<T> {
     return [...this.entries.keys()];
   }
 
+  /** Drop every entry registered by `owner` (a disabled builtin's whole UI row). Returns the removed ids. */
+  removeOwner(owner: string): string[] {
+    const removed: string[] = [];
+    for (const [id, entry] of this.entries) {
+      if (entry.owner === owner) {
+        this.entries.delete(id);
+        removed.push(id);
+      }
+    }
+    if (removed.length) this.notify();
+    return removed;
+  }
+
   freeze(): void {
     this.frozen = true;
   }

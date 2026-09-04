@@ -103,6 +103,8 @@ def test_main_app_mounts_plugin_routes_before_the_spa_fallback():
     assert hasattr(report, "mounted")
     paths = [getattr(r, "path", "") for r in main.app.routes]
     # The SPA fallback (or root redirect) is after the API routes; plugin
-    # mounting happened before it (no user plugins in tests → nothing mounted).
-    assert report.mounted == []
+    # mounting happened before it. No user plugins in tests → only builtin
+    # feature plugins (builtin.teams' /api/teams) are mounted.
+    assert [m for m in report.mounted if not m[0].startswith("builtin.")] == []
+    assert ("builtin.teams", "teams", "/api/teams") in report.mounted
     assert any(p.startswith("/api/") for p in paths)

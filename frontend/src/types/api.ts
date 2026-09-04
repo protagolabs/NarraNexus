@@ -1441,9 +1441,23 @@ export interface FactoryBisect {
   cleared: string[];
 }
 
+export interface FactoryBuiltin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  enabled: boolean;
+  protected: boolean;
+  hosts: string[];
+  provides: string[];
+  dependencies: Record<string, string>;
+}
+
 export interface FactoryListResponse extends ApiResponse {
   data?: {
     plugins: FactoryPlugin[];
+    /** Builtin (feature-level) plugins with their enabled flag from registry.json builtin_overrides. */
+    builtins?: FactoryBuiltin[];
     safe_mode: boolean;
     safe_mode_reason: string;
     bisect: FactoryBisect | null;

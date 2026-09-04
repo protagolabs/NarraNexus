@@ -97,10 +97,16 @@ class Registry(Generic[T]):
         """Add a provider. Raises on duplicates (unless ``replace``) and after freeze."""
         key = self._key(name)
         existing = self._entries.get(key)
-        if existing is not None and existing.factory is factory:
+        if existing is not None and (existing.factory is factory or (existing.owner == owner and not replace)):
             # Idempotent: the same contribution registered twice (import-time
             # and manifest-driven) is one entry — a no-op even after freeze,
             # since nothing changes (a second host boot in one process, tests).
+            # The same owner re-registering the same name with a fresh factory
+            # object is the same situation after a module re-import (the
+            # providing module was purged from sys.modules and re-executed);
+            # the first registration stands. A different owner still conflicts.
+            if existing.factory is not factory:
+                logger.debug(f"[registry:{self.kind}] {key!r} re-registered by its owner {owner!r}; keeping the first")
             return Disposable(lambda: None)
         if self._frozen:
             raise RegistryFrozen(f"{self.kind}: cannot register {name!r} after freeze()")

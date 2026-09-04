@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   factoryErrors: vi.fn(),
   factoryProposals: vi.fn(),
   factoryDecide: vi.fn(),
+  factoryBuiltinSetEnabled: vi.fn(),
 }));
 vi.mock('@/lib/api', () => ({ api: mocks }));
 
@@ -49,6 +50,28 @@ beforeEach(() => {
   mocks.factoryErrors.mockResolvedValue({ success: true, data: { errors: [{ at: 1, kind: 'render', message: 'boom', stack: '' }] } });
   mocks.factoryProposals.mockResolvedValue({ success: true, data: { proposals: [] } });
   mocks.factoryDecide.mockResolvedValue({ success: true, data: { decision: 'approved', restart_required: true } });
+  mocks.factoryBuiltinSetEnabled.mockResolvedValue({ success: true, data: { id: 'builtin.teams', enabled: false, also_disabled: [], restart_required: true } });
+});
+
+it('lists builtin features; disable toggles through the builtin endpoint and protected ones have no toggle', async () => {
+  mocks.factoryList.mockResolvedValue(
+    listing({
+      builtins: [
+        { id: 'builtin.teams', display_name: 'Teams', description: 'Agent teams', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: ['backend.routes', 'backend.workers'], dependencies: {} },
+        { id: 'builtin.nexus_plugins_module', display_name: 'Nexus Plugins', description: '', version: '1.0.0', enabled: true, protected: true, hosts: ['backend'], provides: [], dependencies: {} },
+      ],
+    }),
+  );
+  render(<PluginFactory />);
+  const teams = await screen.findByTestId('builtin-builtin.teams');
+  expect(teams).toHaveTextContent('Teams');
+  expect(teams).toHaveTextContent('Agent teams');
+  const protectedCard = screen.getByTestId('builtin-builtin.nexus_plugins_module');
+  expect(protectedCard).toHaveTextContent('protected');
+  expect(protectedCard.querySelector('button')).toBeNull();
+  fireEvent.click(teams.querySelector('button')!);
+  await waitFor(() => expect(mocks.factoryBuiltinSetEnabled).toHaveBeenCalledWith('builtin.teams', false));
+  expect(await screen.findByRole('status')).toHaveTextContent('Restart NarraNexus');
 });
 
 it('shows agent proposals with permissions and test status; approve/reject decide them', async () => {

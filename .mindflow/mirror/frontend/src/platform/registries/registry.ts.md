@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/registries/registry.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -11,3 +11,7 @@ stub: false
 额外两样是 React 需要的：`subscribe` 让组件在插件晚于首帧注册时重渲染，`snapshot()` 在两次变更之间
 返回同一引用（`useSyncExternalStore` 的要求，否则无限重渲染）。`subscribe` 的退订函数返回 void
 （不泄漏 `Set.delete` 的布尔值到调用方签名）。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+`removeOwner(owner)` drops a whole owner's row and notifies once; the loader uses it to make a disabled builtin's pages/sidebar/panels/commands disappear at boot.

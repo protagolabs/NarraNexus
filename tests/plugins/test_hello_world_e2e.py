@@ -27,6 +27,11 @@ HELLO = Path(__file__).resolve().parent / "hello_world"
 PID = "acme.hello_world"
 
 
+
+def _user_names(registries, path: str) -> tuple[str, ...]:
+    """Contribution names in ``path`` that come from user plugins (builtin feature plugins such as builtin.teams excluded)."""
+    return tuple(e.name for e in registries.registry_for(path).entries() if not e.owner.startswith("builtin."))
+
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch):
     h = tmp_path / "home"
@@ -54,7 +59,7 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     tables = []
     backend, report = _boot("backend", register_table=lambda spec, owner: tables.append((spec.name, owner)))
     assert report.user_plugin_ids == (PID,) and report.isolated == {}
-    assert backend.registry_for("backend.routes").names() == ("api", "webhook")
+    assert _user_names(backend, "backend.routes") == ("api", "webhook")
     assert tables == [("ext_acme_hello_world_greetings", PID)]
     assert backend.registry_for("backend.settings").get("schema").fields["token"].secret is True
     assert [t.name for t in backend.registry_for("agent.capabilities.tools").get("tools").list_tools()] == ["hello_wave", "hello_now"]
@@ -95,7 +100,7 @@ def test_disabling_removes_every_contribution(home: Path, capsys):
     registries, report = _boot("backend")
     assert report.user_plugin_ids == ()
     for path in ("backend.routes", "agent.capabilities.tools", "content.skills"):
-        assert registries.registry_for(path).names() == ()
+        assert _user_names(registries, path) == ()
     assert cli(["plugin", "enable", PID, "--ack"]) == 0
     registries2, report2 = _boot("backend")
     assert report2.user_plugin_ids == (PID,)

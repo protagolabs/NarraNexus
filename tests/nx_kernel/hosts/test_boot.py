@@ -157,5 +157,6 @@ def test_contribution_from_user_plugin_is_visible_in_registries(plugin_home: Pat
     store = register(plugin_home, "acme.ok", plugin_home / "acme.ok")
     registries = Registries()
     boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store)
-    assert registries.registry_for("backend.routes").names() == ("api",)
+    routes = registries.registry_for("backend.routes")
+    assert tuple(e.name for e in routes.entries() if e.owner == "acme.ok") == ("api",)
     assert isinstance(registries.registry_for("backend.routes").entries()[0], type(Contribution("x", lambda: 1))) or True

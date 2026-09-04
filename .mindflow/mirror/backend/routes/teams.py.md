@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -556,3 +556,7 @@ lead 只在**被设置**时宣告；清空 lead 是把责任按规则交回最�
 
 上面 2026-06-23 那条条目描述的是**当时**的私有实现，故意保持原样 —— 那是它当时确实的样子。
 需要知道「团队房间的查找现在在哪」的读者应看本条与 [[team_rooms.py]]，而不是那一条。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+The router is no longer included by `backend/main.py`; it ships as the `ROUTES` contribution of the `builtin.teams` manifest (`backend.routes`, prefix `/api/teams`). Disabling the plugin in registry.json makes every `/api/teams/*` path 404 with no code path referencing teams.

@@ -1500,6 +1500,10 @@ class ApiClient {
     return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
   }
 
+  async factoryBuiltinSetEnabled(id: string, enabled: boolean): Promise<ApiResponse & { data?: { id: string; enabled: boolean; also_disabled: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+  }
+
   async factoryRollback(): Promise<ApiResponse> {
     return this.request(`/api/plugin-factory/rollback`, { method: 'POST' });
   }

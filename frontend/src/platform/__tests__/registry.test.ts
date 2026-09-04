@@ -58,3 +58,19 @@ describe('Registry', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Registry.removeOwner', () => {
+  it('drops every entry of that owner, keeps the rest, and notifies once', () => {
+    const r = new Registry<number>('demo');
+    const listener = vi.fn();
+    r.register('shell', 0);
+    r.register('t1', 1, { owner: 'builtin.teams' });
+    r.register('t2', 2, { owner: 'builtin.teams' });
+    r.subscribe(listener);
+    expect(r.removeOwner('builtin.teams')).toEqual(['t1', 't2']);
+    expect(r.ids()).toEqual(['shell']);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(r.removeOwner('builtin.teams')).toEqual([]);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1166,6 +1166,16 @@
   ],
   [
     "POST",
+    "/api/plugin-factory/builtin/{plugin_id}/disable",
+    "builtin_disable"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/builtin/{plugin_id}/enable",
+    "builtin_enable"
+  ],
+  [
+    "POST",
     "/api/plugin-factory/install",
     "install"
   ],

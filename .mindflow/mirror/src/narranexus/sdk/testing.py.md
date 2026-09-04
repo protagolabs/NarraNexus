@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/sdk/testing.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -10,3 +10,9 @@ stub: false
 内核 `boot(role)` → 暴露注册表、`tables`、`hooks`、`activate()`（内存设置 store + EventBus + 服务定位器）、
 `test_app()`（插件路由挂到无鉴权中间件的 FastAPI，测试直接打路由）。退出时 deactivate、卸合成包、关总线。
 `plugin_id` 属性在插件被隔离时直接断言失败并给出原因——模板测试全部靠它。
+
+## 2026-09-04 · owner-scoped queries (batch 3c.2)
+
+`names()` and `test_app()` are scoped to the plugin under test: builtin feature plugins (`builtin.teams` in `backend.routes`) boot alongside it, and a plugin author's tests must not break when the host gains a builtin. `all_names()` keeps the unfiltered view for host-composition tests.
+
+`_unshadow_platform_packages` runs on enter: if the plugin dir sits on sys.path (a plugin author ran pytest from inside it) it is removed and a shadowing `backend` import is forgotten, so the builtins that import `backend.*` boot in the plugin's own test run.

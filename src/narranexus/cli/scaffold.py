@@ -44,6 +44,16 @@ def substitute(text: str, plugin_id: str, display_name: str) -> str:
     )
 
 
+# Byte-code and test-run leftovers a template directory may accumulate when its
+# own tests are executed in place; they are never part of a scaffolded plugin.
+_ARTIFACT_DIRS = frozenset({"__pycache__", ".test-home", ".pytest_cache"})
+_ARTIFACT_FILES = frozenset({".test-report.json", ".plugin-changelog.jsonl"})
+
+
+def _is_artifact(rel: Path) -> bool:
+    return any(part in _ARTIFACT_DIRS for part in rel.parts) or rel.name in _ARTIFACT_FILES or rel.suffix == ".pyc"
+
+
 def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str, templates_dir: Path = TEMPLATES_DIR) -> list[Path]:
     manifest: dict[str, Any] = {
         "id": plugin_id,
@@ -64,7 +74,7 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
         if fragment.is_file():
             manifest = _merge(manifest, json.loads(substitute(fragment.read_text(encoding="utf-8"), plugin_id, display_name)))
         for path in sorted(src.rglob("*")):
-            if not path.is_file() or path.name == "manifest.fragment.json":
+            if not path.is_file() or path.name == "manifest.fragment.json" or _is_artifact(path.relative_to(src)):
                 continue
             rel = path.relative_to(src)
             if rel.parts[0] == "backend" and rel.name == "__init__.py":

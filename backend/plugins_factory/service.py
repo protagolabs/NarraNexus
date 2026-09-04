@@ -121,6 +121,7 @@ class FactoryService:
             )
         return {
             "plugins": rows,
+            "builtins": self._builtin_rows(reg),
             "safe_mode": reg.safe_mode,
             "safe_mode_reason": reg.safe_mode_reason,
             "bisect": reg.bisect.model_dump() if reg.bisect else None,
@@ -137,6 +138,51 @@ class FactoryService:
                 else None
             ),
         }
+
+    @staticmethod
+    def _builtin_rows(reg) -> list[dict[str, Any]]:
+        from narranexus.kernel.plugins.builtins import builtin_manifests
+
+        rows = []
+        for m in builtin_manifests():
+            override = reg.builtin_overrides.get(m.id, {})
+            rows.append(
+                {
+                    "id": m.id,
+                    "display_name": m.display_name,
+                    "description": m.description,
+                    "version": m.version,
+                    "enabled": override.get("enabled", True) is not False,
+                    "protected": bool(m.protected),
+                    "hosts": list(m.hosts),
+                    "provides": sorted(m.provides),
+                    "dependencies": dict(m.dependencies),
+                }
+            )
+        return rows
+
+    def set_builtin_enabled(self, plugin_id: str, enabled: bool) -> dict[str, Any]:
+        """Toggle a builtin through registry.json builtin_overrides (protected builtins refuse)."""
+        self._guard_mutation()
+        from narranexus.kernel.plugins.builtins import builtin_manifests
+
+        manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
+        if manifest is None:
+            raise NotInstalled(f"{plugin_id} is not a builtin plugin")
+        if manifest.protected and not enabled:
+            raise RegistryError(f"{plugin_id} is protected and cannot be disabled")
+        dependants = [m.id for m in builtin_manifests() if plugin_id in m.dependencies]
+
+        def _mutate(reg):
+            if enabled:
+                reg.builtin_overrides.pop(plugin_id, None)
+            else:
+                reg.builtin_overrides[plugin_id] = {"enabled": False}
+                for dep in dependants:  # a disabled dependency disables its dependants too (spec §9.6)
+                    reg.builtin_overrides[dep] = {"enabled": False, "because": plugin_id}
+
+        reg = self.store.update(_mutate)
+        return {"id": plugin_id, "enabled": enabled, "also_disabled": dependants if not enabled else [], "restart_required": True}
 
     # ---------------------------------------------------------- mutations
 

@@ -132,3 +132,36 @@ def test_proposals_are_listed_and_decided_by_the_user(client, tmp_path: Path, mo
     assert c.get("/api/plugin-factory/proposals", headers=H).json()["data"]["proposals"] == []
     assert c.post(f"/api/plugin-factory/proposals/{p.id}/decide", json={"approved": False}, headers=H).status_code == 400  # already decided
     assert c.post("/api/plugin-factory/proposals/prop_nope/decide", json={"approved": True}, headers=H).status_code == 404
+
+
+def test_builtin_rows_and_toggle(client):
+    c, svc, home = client
+    data = c.get("/api/plugin-factory", headers=H).json()["data"]
+    rows = {b["id"]: b for b in data["builtins"]}
+    assert rows["builtin.teams"]["enabled"] and not rows["builtin.teams"]["protected"]
+    assert rows["builtin.nexus_plugins_module"]["protected"]
+    r = c.post("/api/plugin-factory/builtin/builtin.teams/disable", headers=H)
+    assert r.status_code == 200 and r.json()["data"]["enabled"] is False and r.json()["data"]["restart_required"]
+    reg = json.loads((home / "registry.json").read_text())
+    assert reg["builtin_overrides"]["builtin.teams"] == {"enabled": False}
+    data = c.get("/api/plugin-factory", headers=H).json()["data"]
+    assert {b["id"]: b["enabled"] for b in data["builtins"]}["builtin.teams"] is False
+    assert c.post("/api/plugin-factory/builtin/builtin.teams/enable", headers=H).status_code == 200
+    assert "builtin.teams" not in json.loads((home / "registry.json").read_text())["builtin_overrides"]
+
+
+def test_builtin_toggle_refuses_protected_and_unknown(client):
+    c, _, home = client
+    assert c.post("/api/plugin-factory/builtin/builtin.nexus_plugins_module/disable", headers=H).status_code >= 400
+    reg_file = home / "registry.json"
+    assert not reg_file.exists() or not json.loads(reg_file.read_text()).get("builtin_overrides")
+    assert c.post("/api/plugin-factory/builtin/acme.nope/disable", headers=H).status_code == 404
+    assert c.post("/api/plugin-factory/builtin/builtin.nexus_plugins_module/enable", headers=H).status_code == 200
+
+
+def test_disabling_a_builtin_cascades_to_its_dependants(client):
+    c, _, home = client
+    r = c.post("/api/plugin-factory/builtin/builtin.message_bus/disable", headers=H)
+    assert r.status_code == 200 and "builtin.teams" in r.json()["data"]["also_disabled"]
+    overrides = json.loads((home / "registry.json").read_text())["builtin_overrides"]
+    assert overrides["builtin.teams"] == {"enabled": False, "because": "builtin.message_bus"}

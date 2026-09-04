@@ -1438,7 +1438,10 @@
           "proposalTestsRed": "テスト不合格",
           "proposalApprove": "承認",
           "proposalReject": "却下",
-          "noPermissions": "特別な権限の要求はありません"
+          "noPermissions": "特別な権限の要求はありません",
+          "builtinsTitle": "組み込み機能",
+          "builtinsHint": "NarraNexus に同梱される機能レベルのプラグイン。無効にすると再起動後に API・ワーカー・ページがまとめて消えます。保護された組み込みは無効化できません。",
+          "protected": "保護"
         }
       }
     },

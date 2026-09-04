@@ -1601,3 +1601,13 @@ async def set_patrol_enabled(team_id: str, payload: PatrolToggleRequest, request
     await _owned_team(db, team_id, user_id)
     await db.update("teams", {"team_id": team_id}, {"patrol_enabled": 1 if payload.enabled else 0})
     return TeamOperationResponse(success=True, message="Updated")
+
+
+# ---- plugin contribution (batch 3c.2): builtin.teams provides this router through
+# backend.routes; backend.main mounts it from the registry, so disabling the
+# plugin (registry.json builtin_overrides) makes /api/teams/* 404 without any
+# code path knowing teams exist.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("teams", lambda: RouterSpec(router, "/api/teams", tags=("Teams",))),)

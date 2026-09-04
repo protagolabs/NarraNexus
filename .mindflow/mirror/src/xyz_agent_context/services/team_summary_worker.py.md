@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/team_summary_worker.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -131,3 +131,7 @@ helper SDK 会丢弃整条成本记录，总结等于**烧了 owner 的 token �
 
 `_summarise` 的 `bearer` 去掉默认值：空 bearer 闸门的全部意义就是它不该是空的，
 留一个 `= ""` 等于把闸门要挡的状态设成默认。`_cost_bearer` 的函数内 import 也提到了模块级。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+Started/stopped through the `WORKERS` contribution (`WorkerSpec(host="backend")`) of `builtin.teams`, not by `backend/main.py` directly. `_BackendHandle` adapts the start()/stop() pair to the run-until-stopped handle shape the backend worker host expects, so the worker itself stays untouched.

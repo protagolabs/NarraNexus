@@ -1438,7 +1438,10 @@
           "proposalTestsRed": "테스트 실패",
           "proposalApprove": "승인",
           "proposalReject": "거부",
-          "noPermissions": "특별한 권한을 요청하지 않음"
+          "noPermissions": "특별한 권한을 요청하지 않음",
+          "builtinsTitle": "내장 기능",
+          "builtinsHint": "NarraNexus와 함께 제공되는 기능 단위 플러그인입니다. 비활성화하면 재시작 후 API, 워커, 페이지가 함께 사라집니다. 보호된 내장 기능은 끌 수 없습니다.",
+          "protected": "보호됨"
         }
       }
     },

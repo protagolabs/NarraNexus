@@ -112,7 +112,32 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _toggle_builtin(plugin_id: str, enabled: bool) -> bool:
+    """builtin.* ids are toggled through registry.json builtin_overrides; returns False for non-builtins."""
+    if not plugin_id.startswith("builtin."):
+        return False
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
+    manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
+    if manifest is None:
+        raise KeyError(f"{plugin_id} is not a builtin plugin")
+    if manifest.protected and not enabled:
+        raise PermissionError(f"{plugin_id} is protected and cannot be disabled")
+
+    def _mutate(reg):
+        if enabled:
+            reg.builtin_overrides.pop(plugin_id, None)
+        else:
+            reg.builtin_overrides[plugin_id] = {"enabled": False}
+
+    _store().update(_mutate)
+    print(f"{plugin_id}: builtin {'enabled' if enabled else 'disabled'}; restart the app")
+    return True
+
+
 def cmd_enable(args: argparse.Namespace) -> int:
+    if _toggle_builtin(args.id, True):
+        return 0
     store = _store()
     rec = store.set_enabled(args.id, True)
     if args.ack:
@@ -125,6 +150,8 @@ def cmd_enable(args: argparse.Namespace) -> int:
 
 
 def cmd_disable(args: argparse.Namespace) -> int:
+    if _toggle_builtin(args.id, False):
+        return 0
     rec = _store().set_enabled(args.id, False)
     print(f"{args.id}: disabled (state {rec.state}); restart the app")
     return 0
@@ -281,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     fn: Callable[[argparse.Namespace], int] = args.fn
     try:
         return fn(args)
-    except (ManifestError, FileNotFoundError) as exc:
+    except (ManifestError, FileNotFoundError, KeyError, PermissionError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 — a CLI prints, it does not traceback

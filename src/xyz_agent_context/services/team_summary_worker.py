@@ -405,3 +405,36 @@ class TeamSummaryWorker:
         team = await self._db.get_one("teams", {"team_id": team_id})
         members = await TeamMemberRepository(self._db).list_members_by_team(team_id)
         return resolve_default_responder((team or {}).get("lead_agent_id"), members) or ""
+
+
+# ---- plugin contribution (batch 3c.2): builtin.teams provides this worker through
+# backend.workers with host="backend"; backend.main starts/stops it from the
+# registry (no direct TeamSummaryWorker reference in the platform).
+import asyncio as _asyncio  # noqa: E402
+
+from narranexus.contracts.worker import WorkerSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+
+class _BackendHandle:
+    """Adapts the start()/stop() worker to the WorkerHandle shape (run awaits until stop())."""
+
+    def __init__(self, worker: "TeamSummaryWorker") -> None:
+        self._worker = worker
+        self._done = _asyncio.Event()
+        self.run = self._run()
+
+    async def _run(self) -> None:
+        await self._worker.start()
+        await self._done.wait()
+        await self._worker.stop()
+
+    def stop(self) -> None:
+        self._done.set()
+
+
+async def _factory(ctx):
+    return _BackendHandle(TeamSummaryWorker(ctx.db))
+
+
+WORKERS = (Contribution("team_summary", lambda: WorkerSpec("team_summary", _factory, host="backend")),)

@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -470,3 +470,7 @@ routes 就退回假门。OPTIONS 复核结论:preflight 无 Content-Length,
 含「CORS 在四层最外」(历史上唯一真被破过的那条,#334 r5 I1 补钉;
 断言是相对序而非 `names[0]`,将来在最外再加 tracing 层是合法改动)——
 注释顺序契约本仓已破过一次,不再只靠注释。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+Teams is no longer wired here: the router and the summary worker come from the `builtin.teams` manifest. Import time calls `register_builtins_for_import()` before `mount_plugin_routes()` so the route table is complete for the approval snapshot; lifespan starts/stops every `backend.workers` contribution with `host="backend"` through `start_backend_workers`/`stop_backend_workers`.

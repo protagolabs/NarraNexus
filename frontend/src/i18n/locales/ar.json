@@ -1447,7 +1447,10 @@
           "proposalTestsRed": "لم تنجح الاختبارات",
           "proposalApprove": "موافقة",
           "proposalReject": "رفض",
-          "noPermissions": "لم تُطلب أذونات خاصة"
+          "noPermissions": "لم تُطلب أذونات خاصة",
+          "builtinsTitle": "الميزات المضمّنة",
+          "builtinsHint": "إضافات على مستوى الميزة تأتي مع NarraNexus. تعطيل إحداها يزيل واجهتها البرمجية وعمّالها وصفحاتها بعد إعادة التشغيل؛ المحمية لا يمكن إيقافها.",
+          "protected": "محمي"
         }
       }
     },

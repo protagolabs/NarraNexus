@@ -21,3 +21,7 @@ stub: false
 （搜索 + 黑名单）、`Bisect`、上次 `BootReport`（谁加载了/谁被隔离）、每插件有界错误环（前端 errorSink 上报）。
 云端只读：所有变更先 `_guard_mutation` 抛 `CloudManaged`（路由答 403）。`asset_path` 只在插件
 `frontend/dist` 下解析且拒绝穿越。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+`list()` also returns `builtins` (id/display_name/enabled/protected/provides/dependencies from the manifests + overrides). `set_builtin_enabled()` writes `builtin_overrides` and cascades a disable to dependants (`because: <id>`); protected builtins refuse; enabling pops the override.

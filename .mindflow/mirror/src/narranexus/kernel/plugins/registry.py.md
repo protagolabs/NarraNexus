@@ -33,3 +33,7 @@ stub: false
 `normalize` 可选（框架名大小写不敏感就是它）。`__contains__/__len__/__iter__` 让
 `"x" in registry` 这类遗留写法直接成立，但**不提供** `__getitem__`/`pop`：那是 dict 的语义，
 遗留调用方按 rule 2 改用 `get/try_get/Disposable`。
+
+## 2026-09-04 · owner-level idempotency
+
+Re-registering an existing name by the *same owner* is a no-op (first registration wins) even with a fresh factory object: after a module re-import (sys.modules purge, `PluginTestHost` unshadowing `backend`) the manifest loader produces new `Contribution` objects for the same (owner, name) and must not raise. A different owner still conflicts; `replace=True` still replaces.

@@ -1883,7 +1883,10 @@
           "proposalTestsRed": "Tests did not pass",
           "proposalApprove": "Approve",
           "proposalReject": "Reject",
-          "noPermissions": "No special permissions requested"
+          "noPermissions": "No special permissions requested",
+          "builtinsTitle": "Built-in features",
+          "builtinsHint": "Feature-level plugins that ship with NarraNexus. Disabling one removes its API, workers and pages after a restart; protected ones cannot be turned off.",
+          "protected": "protected"
         }
       }
     },

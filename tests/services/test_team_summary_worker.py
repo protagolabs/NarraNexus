@@ -318,14 +318,19 @@ def test_the_worker_is_started_and_stopped_by_the_app():
     poll loop outlives the db client it holds."""
     import pathlib
 
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
     main = pathlib.Path(__file__).resolve().parents[2] / "backend" / "main.py"
     src = main.read_text()
 
-    assert "TeamSummaryWorker(db)" in src
-    assert "team_summary_worker.start()" in src
-    assert "await summary_worker.stop()" in src
+    # Since batch 3c.2 the worker reaches the app as the backend.workers
+    # contribution of builtin.teams; main.py starts/stops every such worker.
+    teams = next(m for m in builtin_manifests() if m.id == "builtin.teams")
+    assert "xyz_agent_context.services.team_summary_worker:WORKERS" in teams.provides["backend.workers"]
+    assert "await start_backend_workers(app, KERNEL_REGISTRIES, db)" in src
+    assert "await stop_backend_workers(app)" in src
     # Order matters: stop the loop before the client it uses goes away.
-    assert src.index("await summary_worker.stop()") < src.index("await close_db_client()")
+    assert src.index("await stop_backend_workers(app)") < src.index("await close_db_client()")
 
 
 # ── the production path, NOT stubbed ────────────────────────────────────────

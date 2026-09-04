@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -464,3 +464,7 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 ## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
 
 `frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+`factoryBuiltinSetEnabled(id, enabled)` → `POST /api/plugin-factory/builtin/{id}/enable|disable`.

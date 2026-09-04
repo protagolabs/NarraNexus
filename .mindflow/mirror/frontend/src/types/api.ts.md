@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -213,3 +213,7 @@ last_run_timezone?: string;
 `job_schema.TriggerConfig.end_at`）；`NetmindLoginResponse`/`CreateUserResponse`
 增 `guide_agent_provisioning?: boolean`（服务端 kill-switch 回显，见
 api.ts.md 的 coachmark 门控段）。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+`FactoryBuiltin` + optional `builtins` on `FactoryListResponse.data` mirror the factory service's builtin rows.

@@ -99,3 +99,4 @@ bound only from the distribution or default layers.
 | `builtin.channels.wechat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.channels.narramessenger` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.channels.discord` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
+| `builtin.teams` | 1.0.0 | backend | `backend.routes`, `backend.workers` | gold |

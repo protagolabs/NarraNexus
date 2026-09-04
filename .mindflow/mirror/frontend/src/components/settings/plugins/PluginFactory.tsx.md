@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/settings/plugins/PluginFactory.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -17,3 +17,7 @@ stub: false
 enable/disable/upgrade/uninstall（`protected` 插件不能停用/卸载）；LKG 回滚；安全模式横幅 + 二分向导
 （good/bad/stop）；每插件错误环（errorSink 上报的）。每个变更后提示「重启生效」——插件在启动时加载，页面
 不假装热生效。云端整段隐藏。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+A "Built-in features" section lists the builtins with enabled/protected badges and an enable/disable toggle (hidden for protected ones) that hits `factoryBuiltinSetEnabled` and shows the restart notice.

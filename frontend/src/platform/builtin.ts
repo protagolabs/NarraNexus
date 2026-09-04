@@ -28,6 +28,8 @@ import {
 } from '@/platform/builtinPanels';
 
 const OWNER = { owner: 'builtin.ui' };
+// Feature-level builtin plugin: its UI row disappears when builtin.teams is disabled (loader.disableBuiltinUi).
+const TEAMS = { owner: 'builtin.teams' };
 
 // ---------------------------------------------------------------- pages
 // Top-level routes (outside the /app layout).
@@ -58,9 +60,9 @@ PAGES.register('bundle-import', { path: 'bundle/import', element: lazy(() => imp
 // as bundle/import; the URL query (?url=&sha256=) triggers auto-fetch-then-preflight.
 PAGES.register('templates-install', { path: 'templates/install', element: lazy(() => import('@/pages/BundleImportPage')), guard: 'protected', layout: 'app' }, OWNER);
 // Static segment ranks above :teamId in v6 route ranking, but it also reads clearer listed first.
-PAGES.register('teams-new', { path: 'teams/new', element: lazy(() => import('@/pages/CreateTeamPage')), guard: 'protected', layout: 'app' }, OWNER);
-PAGES.register('team-detail', { path: 'teams/:teamId', element: lazy(() => import('@/pages/TeamDetailPage')), guard: 'protected', layout: 'app' }, OWNER);
-PAGES.register('team-chat', { path: 'teams/:teamId/chat', element: null, guard: 'protected', layout: 'app' }, OWNER);
+PAGES.register('teams-new', { path: 'teams/new', element: lazy(() => import('@/pages/CreateTeamPage')), guard: 'protected', layout: 'app' }, TEAMS);
+PAGES.register('team-detail', { path: 'teams/:teamId', element: lazy(() => import('@/pages/TeamDetailPage')), guard: 'protected', layout: 'app' }, TEAMS);
+PAGES.register('team-chat', { path: 'teams/:teamId/chat', element: null, guard: 'protected', layout: 'app' }, TEAMS);
 
 // -------------------------------------------------------------- sidebar
 const prefetchDashboard = () => {

@@ -21,7 +21,7 @@ import { fireActivation, registerActivation } from './activation';
 import { attributeChunkUrl, reportUiError } from './errorSink';
 import { makePageGate, makePanelGate } from './gates';
 import { createHostApi, exposeHostGlobals, type HostAPI } from './host';
-import { COMMANDS, PAGES, PANELS } from './registries';
+import { COMMANDS, PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, THEMES } from './registries';
 
 export interface FactoryPluginRow {
   id: string;
@@ -41,6 +41,25 @@ export interface FactoryPluginRow {
     };
   };
   activation_events?: string[];
+}
+
+export interface FactoryBuiltinRow {
+  id: string;
+  enabled: boolean;
+  protected: boolean;
+}
+
+const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES] as const;
+
+/**
+ * Remove every shell registration owned by a disabled builtin plugin (its pages,
+ * sidebar rows, panels, commands…). `platform/builtin.ts` tags feature-level
+ * builtins with their plugin id as owner, so the whole UI row goes with one call.
+ */
+export function disableBuiltinUi(pluginId: string): string[] {
+  const removed: string[] = [];
+  for (const reg of SHELL_REGISTRIES) removed.push(...reg.removeOwner(pluginId).map((id) => `${reg.kind}:${id}`));
+  return removed;
 }
 
 export interface PluginModule {
@@ -160,7 +179,8 @@ export async function loadPlugins(deps: LoaderDeps = {}): Promise<FactoryPluginR
   try {
     const res = await fetchImpl(`${getApiBaseUrl()}/api/plugin-factory`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
-    const body = (await res.json()) as { data?: { plugins?: FactoryPluginRow[] } };
+    const body = (await res.json()) as { data?: { plugins?: FactoryPluginRow[]; builtins?: FactoryBuiltinRow[] } };
+    for (const b of body.data?.builtins ?? []) if (!b.enabled && !b.protected) disableBuiltinUi(b.id);
     rows = (body.data?.plugins ?? []).filter((r) => r.enabled && r.loaded && r.frontend);
   } catch (e) {
     reportUiError(e instanceof Error ? e : new Error(String(e)), { kind: 'chunk', source: 'shell', context: 'loadPlugins' });

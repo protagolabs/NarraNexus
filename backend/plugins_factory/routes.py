@@ -99,6 +99,16 @@ async def install(body: InstallBody) -> dict[str, Any]:
     }
 
 
+@router.post("/builtin/{plugin_id}/enable")
+async def builtin_enable(plugin_id: str) -> dict[str, Any]:
+    return {"success": True, "data": await _run(service().set_builtin_enabled, plugin_id, True)}
+
+
+@router.post("/builtin/{plugin_id}/disable")
+async def builtin_disable(plugin_id: str) -> dict[str, Any]:
+    return {"success": True, "data": await _run(service().set_builtin_enabled, plugin_id, False)}
+
+
 @router.post("/{plugin_id}/enable")
 async def enable(plugin_id: str) -> dict[str, Any]:
     return {"success": True, "data": await _run(service().set_enabled, plugin_id, True)}

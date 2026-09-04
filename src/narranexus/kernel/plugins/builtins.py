@@ -289,6 +289,20 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_DISCORD"]},
         "quality": "gold",
     },
+    {
+        "id": "builtin.teams",
+        "version": "1.0.0",
+        "displayName": "Teams",
+        "description": "Agent teams: the /api/teams API and the team bulletin summary worker (feature-level plugin).",
+        "hosts": ["backend"],
+        "api": {"route": 0, "worker": 0},
+        "dependencies": {"builtin.message_bus": ">=1.0", "builtin.chat": ">=1.0"},
+        "provides": {
+            "backend.routes": ["backend.routes.teams:ROUTES"],
+            "backend.workers": ["xyz_agent_context.services.team_summary_worker:WORKERS"],
+        },
+        "quality": "gold",
+    },
 )
 
 
