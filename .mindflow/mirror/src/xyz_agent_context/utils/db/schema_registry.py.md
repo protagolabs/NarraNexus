@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -1083,3 +1083,7 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 `steer_inbox` 加 `Index("idx_steer_inbox_created", ["created_at"])`:支撑 `cleanup_older_than_days` 的两臂 DELETE
 (都过滤 `created_at`),否则 MySQL 上全表扫。走 registry(`auto_migrate` 幂等加索引,非手写 ALTER)。见
 [[message_bus_trigger.py]] 补10 / [[steer_inbox_repository.py]] 补4。
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+`channel_credentials` — the generic channel credential table (channel, agent_id, enabled, external_id, public_json, encrypted secret_json; unique (channel, agent_id) and (channel, external_id)). The six per-channel tables stay (never dropped) through the dual-write phase.

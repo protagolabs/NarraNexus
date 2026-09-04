@@ -22,20 +22,31 @@ from xyz_agent_context.module.lark_module._lark_credential_manager import (
 
 
 class _FakeDb:
-    """A one-row lark_credentials world; captures the update payload."""
+    """A one-row lark_credentials world; captures the update payload.
+
+    Only the lark table is observed: the credential mirror (plugin platform
+    batch 4b) re-reads the row after every write and upserts it into
+    ``channel_credentials``, and that second write must not be mistaken for
+    the lark write under test."""
+
+    LARK = LarkCredentialManager.TABLE
 
     def __init__(self, row):
         self.row = row
         self.updated = None
 
     async def get_one(self, table, filters):
+        if table != self.LARK:
+            return None
         return dict(self.row) if filters.get("agent_id") == self.row["agent_id"] else None
 
     async def update(self, table, filters, data):
-        self.updated = data
+        if table == self.LARK:
+            self.updated = data
 
-    async def insert(self, table, data):  # pragma: no cover - existing row path
-        self.updated = data
+    async def insert(self, table, data):
+        if table == self.LARK:  # pragma: no cover - existing row path
+            self.updated = data
 
 
 def _row(**over):

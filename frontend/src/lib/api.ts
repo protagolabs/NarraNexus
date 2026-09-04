@@ -5,6 +5,8 @@
 
 import type { Artifact, TeamFile } from '@/types/artifact';
 import type {
+  ChannelCredentialView,
+  ChannelSchema,
   MigrationFramework,
   MigrationDetectResponse,
   StandardizedAgentImport,
@@ -1845,6 +1847,31 @@ class ApiClient {
   }
 
   // Telegram Integration API
+  // ---- generic channels (/api/channels/{channel}): any channel in ingress.channels (plugin platform batch 4b).
+  async channelSchema(channel: string): Promise<ApiResponse & { data?: ChannelSchema }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/schema`);
+  }
+
+  async channelCredential(channel: string, agentId: string): Promise<ApiResponse & { data?: ChannelCredentialView | null }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async channelBind(channel: string, agentId: string, fields: Record<string, unknown>): Promise<ApiResponse & { data?: ChannelCredentialView }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/bind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, fields }) });
+  }
+
+  async channelTest(channel: string, agentId: string): Promise<ApiResponse & { data?: Record<string, unknown> }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/test`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
+  }
+
+  async channelUnbind(channel: string, agentId: string): Promise<ApiResponse> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/unbind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
+  }
+
+  async channelSetActive(channel: string, agentId: string, active: boolean): Promise<ApiResponse & { enabled?: boolean }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/set-active`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, active }) });
+  }
+
   async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
     return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
   }

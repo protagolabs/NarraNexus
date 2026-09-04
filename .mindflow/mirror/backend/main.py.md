@@ -478,3 +478,7 @@ Teams is no longer wired here: the router and the summary worker come from the `
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 jobs / skills / home-assistant / the six IM channel routers are no longer imported or included here — they are `backend.routes` contributions of their builtins (batch 3c.5) mounted by `mount_plugin_routes`. main.py keeps only shell-level routers.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+Mounts the generic channel router at `/api/channels` (shell-level: any channel in ingress.channels).

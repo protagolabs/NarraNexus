@@ -321,6 +321,16 @@
   ],
   [
     "GET",
+    "/api/channels/{channel}/credential",
+    "channel_credential"
+  ],
+  [
+    "GET",
+    "/api/channels/{channel}/schema",
+    "channel_schema"
+  ],
+  [
+    "GET",
     "/api/dashboard/agents-status",
     "agents_status"
   ],
@@ -998,6 +1008,26 @@
     "POST",
     "/api/bundle/skills/archives/upload",
     "upload_archive"
+  ],
+  [
+    "POST",
+    "/api/channels/{channel}/bind",
+    "channel_bind"
+  ],
+  [
+    "POST",
+    "/api/channels/{channel}/set-active",
+    "channel_set_active"
+  ],
+  [
+    "POST",
+    "/api/channels/{channel}/test",
+    "channel_test"
+  ],
+  [
+    "POST",
+    "/api/channels/{channel}/unbind",
+    "channel_unbind"
   ],
   [
     "POST",

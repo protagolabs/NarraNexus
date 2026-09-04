@@ -1441,6 +1441,37 @@ export interface FactoryBisect {
   cleared: string[];
 }
 
+/** GET /api/channels/{channel}/schema — the generic bind form of a channel (plugin platform batch 4b). */
+export interface ChannelSchemaField {
+  name: string;
+  kind: 'string' | 'secret' | 'url' | 'bool' | 'int' | 'select';
+  label: string;
+  help: string;
+  required: boolean;
+  options: string[];
+  public: boolean;
+}
+
+export interface ChannelSchema {
+  channel: string;
+  display_name: string;
+  transport: 'socket' | 'poll' | 'webhook' | 'none';
+  has_bind: boolean;
+  has_test: boolean;
+  manager_backed: boolean;
+  fields: ChannelSchemaField[];
+  external_id_field: string;
+}
+
+/** The public half of a generic channel credential (identity fields only; secrets never leave the server). */
+export interface ChannelCredentialView {
+  channel: string;
+  agent_id: string;
+  enabled: boolean;
+  external_id: string | null;
+  [field: string]: unknown;
+}
+
 export interface FactoryBuiltin {
   id: string;
   display_name: string;

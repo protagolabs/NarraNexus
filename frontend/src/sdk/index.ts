@@ -9,6 +9,8 @@
  * with the same surface. Plugins never import `@/platform/*` directly.
  */
 export { definePlugin } from './definePlugin';
+export { GenericChannelConfig } from '@/components/awareness/GenericChannelConfig';
+export { makeGenericChannelConfig } from '@/components/awareness/genericChannelFactory';
 export type { PluginDefinition } from './definePlugin';
 export type { HostAPI, Disposable } from '@/platform/host';
 export type { PageDef, PanelDef, CommandDef, ThemeDef, SettingsSectionDef, SidebarItemDef } from '@/platform/registries';

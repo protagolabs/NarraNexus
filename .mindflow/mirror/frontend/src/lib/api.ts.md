@@ -472,3 +472,7 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `factoryBuiltinInstallDeps(id)` → `POST /api/plugin-factory/builtin/{id}/install-deps`.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+`channelSchema` / `channelCredential` / `channelBind` / `channelTest` / `channelUnbind` / `channelSetActive` — the generic channel API.

@@ -17,3 +17,7 @@ Re-exports the slot-point / renderer / timeline / when types for plugin authors.
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 Exports `ChannelDef` / `ChannelStatus` / `ChannelConfigProps`.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+Exports `GenericChannelConfig` / `makeGenericChannelConfig` for channel plugins.

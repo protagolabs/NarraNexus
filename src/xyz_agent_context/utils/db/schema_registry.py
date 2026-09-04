@@ -1296,6 +1296,36 @@ _register(
 # for the uniqueness check.
 _register(
     TableDef(
+        name="channel_credentials",
+        # Plugin platform batch 4b: the ONE credential table every IM channel
+        # (builtin or plugin) is served from. A row is one (channel, agent)
+        # binding; identity fields live in public_json, secrets encrypted in
+        # secret_json (channel/credential_codec.py), split by the channel's
+        # CredentialSchema. The six per-channel tables keep working during the
+        # dual-write phase (channel/credential_mirror.py copies every write here)
+        # and are retired, never dropped (rule #6), when reads switch (4d).
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # The channel-wide unique external identity (bot user id, app id) — one bot, one agent.
+            Column("external_id", "TEXT", "VARCHAR(255)"),
+            Column("public_json", "TEXT", "MEDIUMTEXT", nullable=False, default="'{}'"),
+            Column("secret_json", "TEXT", "MEDIUMTEXT", nullable=False, default="''"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_channel_cred_channel_agent", ["channel", "agent_id"], unique=True),
+            Index("idx_channel_cred_external", ["channel", "external_id"], unique=True),
+        ],
+    )
+)
+
+
+_register(
+    TableDef(
         name="channel_telegram_credentials",
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),

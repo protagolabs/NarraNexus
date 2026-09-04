@@ -583,6 +583,11 @@ app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Ana
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
+from backend.routes.channels.generic import router as channels_generic_router  # noqa: E402
+
+# Generic channel routes (/api/channels/{channel}/…) serve ANY channel in
+# ingress.channels — shell-level, not plugin-owned.
+app.include_router(channels_generic_router, prefix="/api/channels", tags=["Channels"])
 # jobs / skills / home-assistant / the six IM channel routers are backend.routes
 # contributions of their builtin plugins (batch 3c.5), mounted below by
 # mount_plugin_routes together with the data-access twins and teams.

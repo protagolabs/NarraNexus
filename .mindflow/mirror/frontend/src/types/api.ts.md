@@ -221,3 +221,7 @@ api.ts.md 的 coachmark 门控段）。
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `FactoryBuiltin` gains `on_demand`, `pip`, `deps_missing`.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+`ChannelSchema` / `ChannelSchemaField` / `ChannelCredentialView`.

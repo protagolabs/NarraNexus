@@ -26,3 +26,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `CHANNEL_SPECS` (seven descriptors) registered into `ingress.channels` by `register_all`, which also registers each inbound channel's `WorkingSource`.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+`register_all` installs the credential mirror on every manager-backed channel (dual-write phase).
