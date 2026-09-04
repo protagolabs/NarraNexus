@@ -226,7 +226,7 @@ async def test_build_input_for_framework_augments_current_turn_only(
         agent_id="agent_x", user_id="user_owner", database_client=db_client
     )
 
-    final_messages, _mcp_servers, _disallowed, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp_servers, _disallowed, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="you are an agent",
         active_instances=[],
