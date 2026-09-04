@@ -14,7 +14,7 @@ import pytest
 from narranexus.contracts import UnknownEntry
 from narranexus.contracts.agent.pipeline import PipelineProfile
 from narranexus.contracts.agent.stages import CommitContext, Stage
-from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn.stages import slot_path
 from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
@@ -111,9 +111,9 @@ async def _seed_agent(db, agent_id: str) -> None:
     await db.insert("agents", {"agent_id": agent_id, "agent_name": agent_id, "created_by": "owner_1", "agent_type": "general", "is_public": 0})
 
 
-async def _run(db_client, **kw) -> list:
+async def _run(db_client, registries: Registries | None = None, **kw) -> list:
     await _seed_agent(db_client, kw.get("agent_id", "agent_s"))
-    runtime = AgentRuntime(database_client=db_client, hook_manager=_Hooks())
+    runtime = AgentRuntime(database_client=db_client, hook_manager=_Hooks(), registries=registries)
     gen = runtime.run(agent_id=kw.pop("agent_id", "agent_s"), user_id="owner_1", input_content="scenario", working_source=WorkingSource.CHAT, silent=True, **kw)
     return [m async for m in gen]
 
@@ -132,18 +132,19 @@ async def test_scenario_1_swap_the_recall_strategy_through_a_plugin_profile(db_c
             return
             yield  # pragma: no cover
 
-    recall = KERNEL_REGISTRIES.registry_for(slot_path(Stage.RECALL))
-    d1 = recall.register_contribution(Contribution("graph", GraphRecall), owner="acme.graph_recall")
-    profiles = KERNEL_REGISTRIES.registry_for("turn.profiles")
-    d2 = profiles.register_contribution(Contribution("research", lambda: PipelineProfile(id="research", strategies={Stage.RECALL: "graph", Stage.ACT: "silent"})), owner="acme.graph_recall")
-    try:
-        await _run(db_client, pipeline_profile="research")
-        assert calls == ["agent_s"]
-        with pytest.raises(UnknownEntry):
-            await _run(db_client, agent_id="agent_t", pipeline_profile="nope")
-    finally:
-        d1.dispose()
-        d2.dispose()
+    # A private Registries (the process ones may be frozen by an earlier boot in the session).
+    from narranexus.platform.turn import TurnPipeline
+
+    regs = Registries()
+    TurnPipeline(regs)
+    regs.registry_for(slot_path(Stage.RECALL)).register_contribution(Contribution("graph", GraphRecall), owner="acme.graph_recall")
+    regs.registry_for("turn.profiles").register_contribution(
+        Contribution("research", lambda: PipelineProfile(id="research", strategies={Stage.RECALL: "graph", Stage.ACT: "silent"})), owner="acme.graph_recall"
+    )
+    await _run(db_client, registries=regs, pipeline_profile="research")
+    assert calls == ["agent_s"]
+    with pytest.raises(UnknownEntry):
+        await _run(db_client, registries=regs, agent_id="agent_t", pipeline_profile="nope")
 
 
 @pytest.mark.asyncio
@@ -154,11 +155,12 @@ async def test_scenario_4_audit_hook_observes_every_commit(db_client):
     async def audit(stage, output, agent_id, run_id):
         seen.append(output)
 
-    d = KERNEL_REGISTRIES.hooks.add("onDidCommit", audit, owner="acme.audit")
-    try:
-        await _run(db_client)
-    finally:
-        d.dispose()
+    from narranexus.platform.turn import TurnPipeline
+
+    regs = Registries()
+    TurnPipeline(regs)
+    regs.hooks.add("onDidCommit", audit, owner="acme.audit")
+    await _run(db_client, registries=regs)
     assert len(seen) == 1 and isinstance(seen[0], CommitContext)
     rows = await db_client.get("events", {"agent_id": "agent_s"})
     assert seen[0].event_id == str(rows[0]["event_id"] if "event_id" in rows[0] else rows[0]["id"])

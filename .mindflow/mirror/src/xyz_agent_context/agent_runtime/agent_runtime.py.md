@@ -4,9 +4,10 @@ last_verified: 2026-09-04
 stub: false
 ---
 
-## 2026-09-04（批 3b）— `run(pipeline_profile=)`
+## 2026-09-04（批 3b）— `run(pipeline_profile=)`、`AgentRuntime(registries=)`
 
-调用方可点名一个注册的 profile（如插件贡献的 `research`），走 `resolve_profile(explicit=)`。
+调用方可点名一个注册的 profile（如插件贡献的 `research`），走 `resolve_profile(explicit=)`。构造器可注入私有
+`Registries`（测试用；进程注册表在启动后是冻结的，不能往里注册测试策略）。
 
 ## 2026-09-04（批 3a）— `run()` 瘦身为「服务装配 + `TurnPipeline.run`」
 

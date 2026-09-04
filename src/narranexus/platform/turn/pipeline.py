@@ -94,8 +94,11 @@ class TurnPipeline:
     def __init__(self, registries: Registries | None = None) -> None:
         from narranexus.platform.turn.stages import ensure_registered, slot_path
 
+        from narranexus.platform.turn import ensure_pipeline_registered
+
         self.registries = registries or KERNEL_REGISTRIES
         ensure_registered(self.registries)
+        ensure_pipeline_registered(self.registries)
         self._slot_path = slot_path
 
     def strategy_for(self, stage: Stage, profile: PipelineProfile) -> Any:

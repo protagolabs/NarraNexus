@@ -240,6 +240,7 @@ class AgentRuntime:
         response_processor: Optional[ResponseProcessor] = None,
         hook_manager: Optional[HookManager] = None,
         use_async_db: bool = True,
+        registries: Optional[Any] = None,
     ):
         """
         Initialize AgentRuntime
@@ -253,6 +254,10 @@ class AgentRuntime:
                             Only takes effect when database_client is None.
         """
         logger.info("Initializing AgentRuntime")
+
+        # Plugin registries the turn pipeline reads strategies/profiles/hooks from
+        # (None = the process registries; tests inject a private Registries).
+        self._registries = registries
 
         # Database client (may require lazy initialization)
         self._database_client = database_client
@@ -476,6 +481,7 @@ class AgentRuntime:
                 turn_profile=turn_profile,
                 working_source=working_source,
                 explicit=pipeline_profile,
+                registries=self._registries,
             )
             services = TurnServices(
                 db_client=db_client,
@@ -489,7 +495,7 @@ class AgentRuntime:
                 execute_callback_instance=self._execute_callback_instance,
                 timings={"run_start": _t_run_start},
             )
-            pipeline = TurnPipeline()
+            pipeline = TurnPipeline(self._registries)
             event_bound = False
             async for msg in pipeline.run(ctx, profile, services, silent=silent):
                 if not event_bound and ctx.event is not None:
