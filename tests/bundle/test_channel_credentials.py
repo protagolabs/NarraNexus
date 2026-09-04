@@ -93,43 +93,44 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
 
 async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1,
                           app_id: str | None = None):
-    await db.insert("lark_credentials", {
-        "agent_id": agent_id,
-        "app_id": app_id or f"cli_{agent_id}",
-        "app_secret_ref": "ref_xxx",
-        "app_secret_encrypted": "c2VjcmV0",  # base64("secret")
-        "brand": "lark",
-        "profile_name": profile_name,
-        "auth_status": "bot_ready",
-        "is_active": is_active,
-    })
+    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+        LarkCredential, LarkCredentialManager, _encode_secret,
+    )
+
+    await LarkCredentialManager(db).save_credential(LarkCredential(
+        agent_id=agent_id, app_id=app_id or f"cli_{agent_id}", app_secret_ref="ref_xxx",
+        app_secret_encoded=_encode_secret("secret"), brand="lark", profile_name=profile_name,
+        auth_status="bot_ready", is_active=bool(is_active),
+    ))
 
 
 async def _seed_wechat_cred(db, agent_id: str, owner_user_id: str, enabled: int = 1):
-    await db.insert("channel_wechat_credentials", {
-        "agent_id": agent_id,
-        "bot_token_encoded": "dG9rZW4=",  # base64("token")
-        "base_url": "http://localhost:9000",
-        "bot_wx_id": "wxid_bot",
-        "owner_wx_id": "wxid_owner",
-        "owner_user_id": owner_user_id,   # IM-side id — must survive import
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    await GenericCredentialStore(db).upsert("wechat", agent_id, {
+        # bot_wx_id (the channel-wide identity) is empty: WeChat learns it on the
+        # first DM, and a same-DB roundtrip of an identified bot is a clash by design.
+        "bot_token": "token", "base_url": "http://localhost:9000", "bot_wx_id": "",
+        "owner_wx_id": "wxid_owner", "owner_user_id": owner_user_id,  # IM-side id — must survive import
         "owner_name": "WX Owner",
-        "enabled": enabled,
-    })
+    }, enabled=bool(enabled))
 
 
 async def _seed_slack_cred(db, agent_id: str, team_id: str, bot_user_id: str,
                            owner_user_id: str, enabled: int = 1):
-    await db.insert("channel_slack_credentials", {
-        "agent_id": agent_id,
-        "bot_token_encoded": "eG94Yi10b2tlbg==",
-        "app_token_encoded": "eGFwcC10b2tlbg==",
-        "bot_user_id": bot_user_id,
-        "team_id": team_id,
-        "team_name": "Test WS",
-        "owner_user_id": owner_user_id,   # Slack user id — must survive import
-        "enabled": enabled,
-    })
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    await GenericCredentialStore(db).upsert("slack", agent_id, {
+        "bot_token": "xoxb-token", "app_token": "xapp-token", "bot_user_id": bot_user_id,
+        "team_id": team_id, "team_name": "Test WS", "owner_user_id": owner_user_id,  # Slack user id — must survive import
+    }, enabled=bool(enabled))
+
+
+async def _rows(db, channel: str):
+    """Generic credential rows for one channel (public fields decoded for assertions)."""
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    return await GenericCredentialStore(db).list_all(channel)
 
 
 def _read_member(bundle_path: Path, member: str):
@@ -176,9 +177,11 @@ async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, 
     raw = _read_member(bundle, f"agents/{aid}/channel_credentials.json")
     assert raw is not None
     creds = json.loads(raw)
-    assert "lark_credentials" in creds
-    assert creds["lark_credentials"][0]["profile_name"] == "prof_optin"
-    assert creds["lark_credentials"][0]["agent_id"] == aid
+    assert list(creds) == ["channel_credentials"]
+    (row,) = creds["channel_credentials"]
+    assert row["channel"] == "lark" and row["profile_name"] == "prof_optin" and row["agent_id"] == aid
+    # secrets travel decoded inside the opt-in file (the file itself is the trust boundary)
+    assert row["app_secret_encoded"]
 
     manifest = json.loads(_read_member(bundle, "manifest.json"))
     assert manifest.get("contains_channel_credentials") is True
@@ -204,15 +207,16 @@ async def test_import_forces_inactive_and_remaps_agent(db_client, tmp_workspace_
     pre = await preflight(bundle, uid)
     summary = await confirm(pre["preflight_token"], uid)
 
-    rows = await db_client.get("channel_wechat_credentials", {})
-    # original (enabled=1, aid) + imported (enabled=0, new aid)
+    rows = await _rows(db_client, "wechat")
+    # original (enabled, aid) + imported (disabled, new aid)
     assert len(rows) == 2
-    imported = [r for r in rows if r["agent_id"] != aid]
+    imported = [r for r in rows if r.agent_id != aid]
     assert len(imported) == 1
-    assert imported[0]["enabled"] == 0
+    assert imported[0].enabled is False
+    assert imported[0].secret["bot_token"] == "token"
     # new agent_id must be a real, freshly-minted agent in this DB
-    assert imported[0]["agent_id"].startswith("agent_")
-    assert await db_client.get_one("agents", {"agent_id": imported[0]["agent_id"]})
+    assert imported[0].agent_id.startswith("agent_")
+    assert await db_client.get_one("agents", {"agent_id": imported[0].agent_id})
     assert summary.get("channel_credentials_imported", 0) == 1
 
 
@@ -233,10 +237,9 @@ async def test_import_preserves_im_owner_identity(db_client, tmp_workspace_root,
     pre = await preflight(bundle, uid)
     await confirm(pre["preflight_token"], uid)
 
-    rows = await db_client.get("channel_wechat_credentials", {})
-    imported = [r for r in rows if r["agent_id"] != aid][0]
-    # The IM owner id survived verbatim — NOT overwritten with "test_user".
-    assert imported["owner_user_id"] == "wx_owner_XYZ"
+    rows = await _rows(db_client, "wechat")
+    imported = [r for r in rows if r.agent_id != aid][0]
+    assert imported.public["owner_user_id"] == "wx_owner_XYZ"
 
 
 async def test_credential_clash_is_skipped(db_client, tmp_workspace_root, tmp_path):
@@ -260,9 +263,9 @@ async def test_credential_clash_is_skipped(db_client, tmp_workspace_root, tmp_pa
     summary = await confirm(pre["preflight_token"], uid)
 
     # Still exactly one slack cred (the original) — the clashing import skipped.
-    rows = await db_client.get("channel_slack_credentials", {})
+    rows = await _rows(db_client, "slack")
     assert len(rows) == 1
-    assert rows[0]["agent_id"] == aid
+    assert rows[0].agent_id == aid
     assert summary.get("channel_credentials_skipped_conflict", 0) == 1
 
 
@@ -286,7 +289,9 @@ async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspa
 
     # Free prof_src so ONLY app_id (not profile_name) can match in the target env,
     # then bind the same Lark app under a different agent + profile.
-    await db_client.delete("lark_credentials", {"agent_id": src})
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    await GenericCredentialStore(db_client).unbind("lark", src)
     other = "agent_larkother1"
     await _seed_agent(db_client, other, "Lark Other", uid)
     await _seed_lark_cred(db_client, other, profile_name="prof_other", app_id=SHARED_APP)
@@ -296,6 +301,39 @@ async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspa
     summary = await confirm(pre["preflight_token"], uid)
 
     # The same Lark app is not double-bound: only the existing (other) row remains.
-    rows = await db_client.get("lark_credentials", {})
-    assert [r["agent_id"] for r in rows] == [other]
+    rows = await _rows(db_client, "lark")
+    assert [r.agent_id for r in rows] == [other]
     assert summary.get("channel_credentials_skipped_conflict", 0) == 1
+
+
+async def test_legacy_per_table_bundle_still_imports(db_client, tmp_workspace_root, tmp_path):
+    """A bundle exported before 4d carries ``{"<legacy table>": [rows]}``; the
+    importer normalizes it through the same legacy column map and lands the
+    credential in the generic store, inactive."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    aid, uid = "agent_cred0006", "test_user"
+    await _seed_agent(db_client, aid, "Creddy6", uid)
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(agent_ids=[aid]), bundle)
+    legacy = {"channel_telegram_credentials": [{
+        "agent_id": aid, "bot_token_encoded": "dGctdG9rZW4=", "bot_user_id": "4242", "bot_username": "oldbot", "enabled": 1,
+    }]}
+    patched = tmp_path / "legacy.nxbundle"
+    with zipfile.ZipFile(bundle) as src, zipfile.ZipFile(patched, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "manifest.json":
+                m = json.loads(data)
+                m["contains_channel_credentials"] = True
+                m["stripped"] = [x for x in m.get("stripped", []) if x != "im_channel_credentials"]
+                data = json.dumps(m).encode()
+            dst.writestr(item, data)
+        dst.writestr(f"agents/{aid}/channel_credentials.json", json.dumps(legacy))
+    pre = await preflight(patched, uid)
+    summary = await confirm(pre["preflight_token"], uid)
+    assert summary.get("channel_credentials_imported", 0) == 1
+    (row,) = await _rows(db_client, "telegram")
+    assert row.agent_id != aid and row.enabled is False
+    assert row.secret == {"bot_token": "tg-token"} and row.external_id == "4242" and row.public["bot_username"] == "oldbot"

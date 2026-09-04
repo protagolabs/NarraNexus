@@ -182,18 +182,19 @@ async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
     # original test only covered telegram, which is why it slipped — hit
     # live during the 2026-08-03 local managed-IM E2E (fix ported from the
     # feat/manyfold-cloud experiment branch).
-    await db_client.insert(
-        "lark_credentials",
-        {
-            "agent_id": "agent_1",
-            "app_id": "cli_abc123",
-            "app_secret_ref": "appsecret:cli_abc123",
-            "app_secret_encrypted": base64.b64encode(b"the_app_secret").decode(),
-            "brand": "feishu",
-            "profile_name": "agent_agent_1",
-            "auth_status": "user_logged_in",  # bot-active → listed
-            "is_active": 1,
-        },
+    from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+
+    await LarkCredentialManager(db_client).save_credential(  # lark persists in channel_credentials (batch 4d)
+        LarkCredential(
+            agent_id="agent_1",
+            app_id="cli_abc123",
+            app_secret_ref="appsecret:cli_abc123",
+            app_secret_encoded=base64.b64encode(b"the_app_secret").decode(),
+            brand="feishu",
+            profile_name="agent_agent_1",
+            auth_status="user_logged_in",  # bot-active → listed
+            is_active=True,
+        )
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")

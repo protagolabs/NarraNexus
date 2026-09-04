@@ -23,11 +23,11 @@ import pytest
 
 async def _seed(db, table, agent_id, active_col, active_val):
     if table == "lark_credentials":
-        row = {
-            "agent_id": agent_id, "app_id": f"cli_{agent_id}", "app_secret_ref": "r",
-            "brand": "lark", "profile_name": f"prof_{agent_id}", "is_active": active_val,
-        }
-        await db.insert(table, row)
+        from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+
+        await LarkCredentialManager(db).save_credential(
+            LarkCredential(agent_id=agent_id, app_id=f"cli_{agent_id}", app_secret_ref="r", brand="lark", profile_name=f"prof_{agent_id}", is_active=bool(active_val))
+        )
         return
     # The four `enabled` channels persist in channel_credentials (batch 4d).
     from xyz_agent_context.channel.credential_store import GenericCredentialStore

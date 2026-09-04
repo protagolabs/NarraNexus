@@ -34,7 +34,6 @@ done by the runtime ``/status`` endpoint when needed.
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -44,16 +43,6 @@ from loguru import logger
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
-def _encode_token(raw: str) -> str:
-    if not raw:
-        return ""
-    return base64.b64encode(raw.encode()).decode()
-
-
-def _decode_token(encoded: str) -> str:
-    if not encoded:
-        return ""
-    return base64.b64decode(encoded.encode()).decode()
 
 
 @dataclass
@@ -164,10 +153,21 @@ def _cred_from_raw(raw: dict[str, Any]) -> "NarramessengerCredential":
     )
 
 
+def _store(db: Any):
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    return GenericCredentialStore(db)
+
+
+CHANNEL = "narramessenger"
+
+
 class NarramessengerCredentialManager:
     """Manages per-agent credentials in ``channel_narramessenger_credentials``."""
 
-    TABLE = "channel_narramessenger_credentials"
+    # Persistence: the generic channel_credentials table (plugin platform batch 4d);
+    # the historical channel_narramessenger_credentials table is retired, never dropped.
+    TABLE = "channel_narramessenger_credentials"  # retired — kept for the legacy copy migration and diagnostics
 
     def __init__(self, db: AsyncDatabaseClient):
         self._db = db
@@ -176,54 +176,28 @@ class NarramessengerCredentialManager:
     # Public API
     # ------------------------------------------------------------------
 
-    async def upsert(self, cred: NarramessengerCredential) -> None:
-        """Insert or update one agent's credential row (secrets base64-encoded).
+    @staticmethod
+    def _values(cred: NarramessengerCredential) -> dict[str, Any]:
+        raw = cred.to_raw_dict()
+        for k in ("agent_id", "enabled", "created_at", "updated_at"):
+            raw.pop(k, None)
+        raw["connection_mode"] = cred.connection_mode or "gateway"
+        return raw
 
-        Do NOT call this on every /sync tick to persist ``matrix_since_token``
-        — use ``update_since_token()`` instead. This method rewrites the
-        whole row and is meant for bind / unbind / owner-update flows.
-        """
-        now_iso = self._now_iso()
-        row = {
-            "agent_id": cred.agent_id,
-            "bearer_token_encoded": _encode_token(cred.bearer_token),
-            "backend_base_url": cred.backend_base_url,
-            "matrix_homeserver_url": cred.matrix_homeserver_url,
-            "matrix_user_id": cred.matrix_user_id,
-            "nexus_principal_id": cred.nexus_principal_id,
-            "nexus_profile_id": cred.nexus_profile_id,
-            "bind_room_id": cred.bind_room_id,
-            "owner_matrix_user_id": cred.owner_matrix_user_id,
-            "owner_name": cred.owner_name,
-            "connection_mode": cred.connection_mode or "gateway",
-            "enabled": 1 if cred.enabled else 0,
-            # Matrix transport fields — populated on bind, hydrated on read.
-            "matrix_access_token_encoded": _encode_token(cred.matrix_access_token),
-            "matrix_device_id": cred.matrix_device_id,
-            "matrix_since_token": cred.matrix_since_token,
-            "updated_at": now_iso,
-        }
-        existing = await self._db.get_one(self.TABLE, {"agent_id": cred.agent_id})
-        if existing:
-            await self._db.update(self.TABLE, {"agent_id": cred.agent_id}, row)
-            logger.info(
-                f"[narramessenger:{cred.agent_id}] credential updated "
-                f"(matrix_user_id={cred.matrix_user_id})"
-            )
-        else:
-            row["created_at"] = now_iso
-            await self._db.insert(self.TABLE, row)
-            logger.info(
-                f"[narramessenger:{cred.agent_id}] credential inserted "
-                f"(matrix_user_id={cred.matrix_user_id})"
-            )
+    async def upsert(self, cred: NarramessengerCredential) -> None:
+        """Insert or replace the agent's binding (the bind services build the dataclass)."""
+        store = _store(self._db)
+        existed = await store.get(CHANNEL, cred.agent_id) is not None
+        await store.upsert(CHANNEL, cred.agent_id, self._values(cred), enabled=bool(cred.enabled))
+        logger.info(
+            f"[narramessenger:{cred.agent_id}] credential {'updated' if existed else 'inserted'} "
+            f"(matrix_user_id={cred.matrix_user_id})"
+        )
 
     async def get(self, agent_id: str) -> Optional[NarramessengerCredential]:
-        """Fetch credential by agent_id (bearer decoded). None if missing."""
-        row = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not row:
-            return None
-        return self._row_to_cred(row)
+        """Decoded credential for ``agent_id`` (None when unbound)."""
+        record = await _store(self._db).get(CHANNEL, agent_id)
+        return _cred_from_raw(record.to_raw_dict()) if record else None
 
     async def get_public(self, agent_id: str) -> Optional[dict[str, Any]]:
         cred = await self.get(agent_id)
@@ -232,138 +206,50 @@ class NarramessengerCredentialManager:
     async def get_by_matrix_user_id(
         self, matrix_user_id: str
     ) -> Optional[NarramessengerCredential]:
-        """Reverse lookup for callers that hold the agent's Matrix identity
-        (the prewarm endpoint). UNIQUE index on the column guarantees <=1 row."""
+        """The binding whose Matrix user id is ``matrix_user_id`` (the channel-wide identity)."""
         if not matrix_user_id:
             return None
-        row = await self._db.get_one(self.TABLE, {"matrix_user_id": matrix_user_id})
-        return self._row_to_cred(row) if row else None
+        record = await _store(self._db).find_one(CHANNEL, external_id=matrix_user_id)
+        return _cred_from_raw(record.to_raw_dict()) if record else None
 
     async def get_by_profile_id(
         self, nexus_profile_id: str
     ) -> Optional[NarramessengerCredential]:
-        """Reverse lookup by the NarraMessenger profile id. Only rows bound
-        after 2026-08-11 carry it (do_bind started persisting profileId);
-        older rows need a rebind before this resolves."""
+        """The binding whose NarraMessenger profile id is ``nexus_profile_id``."""
         if not nexus_profile_id:
             return None
-        row = await self._db.get_one(self.TABLE, {"nexus_profile_id": nexus_profile_id})
-        return self._row_to_cred(row) if row else None
+        record = await _store(self._db).find_one(CHANNEL, nexus_profile_id=nexus_profile_id)
+        return _cred_from_raw(record.to_raw_dict()) if record else None
 
     async def list_active(self) -> list[NarramessengerCredential]:
-        """All enabled rows — consumed by :class:`MatrixTrigger`'s
-        credential watcher.
-
-        Since Commit 7 (2026-07-02), Matrix is the only NarraMessenger
-        transport, so no ``connection_mode`` filter here. Pre-Matrix
-        ``gateway`` rows still exist in the DB but load without a
-        ``matrix_access_token`` — MatrixTrigger.connect raises on the
-        missing token and the base flips ``enabled=False``, so those
-        rows drop out on the first pass and the owner has to re-run the
-        bind flow to end up on Matrix.
-        """
-        rows = await self._db.get(self.TABLE, {"enabled": 1})
-        return [self._row_to_cred(r) for r in rows]
+        """Every enabled binding (the trigger's subscriber set)."""
+        return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]
 
     async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
-        """Flip ``enabled`` without deleting — lets the trigger break out of a
-        reconnect loop against a revoked bearer (HTTP 401/409)."""
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
-            return False
-        await self._db.update(
-            self.TABLE, {"agent_id": agent_id}, {"enabled": 1 if enabled else 0}
-        )
-        return True
+        """Flip ``enabled`` without deleting the row (bundle-imported credentials land inactive)."""
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
 
     async def update_owner(
         self, agent_id: str, owner_matrix_user_id: str, owner_name: str
     ) -> bool:
-        """Set/refresh the owner identity used for the trust signal."""
-        affected = await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {
-                "owner_matrix_user_id": owner_matrix_user_id,
-                "owner_name": owner_name,
-                "updated_at": self._now_iso(),
-            },
-        )
-        return bool(affected)
+        """Record the owner's Matrix identity once known."""
+        return await _store(self._db).patch(CHANNEL, agent_id, {"owner_matrix_user_id": owner_matrix_user_id, "owner_name": owner_name}) is not None
 
     async def unbind(self, agent_id: str) -> bool:
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
+        if not await _store(self._db).unbind(CHANNEL, agent_id):
             return False
-        await self._db.delete(self.TABLE, {"agent_id": agent_id})
         logger.info(f"[narramessenger:{agent_id}] credential unbound")
         return True
 
     async def update_since_token(
         self, agent_id: str, since_token: str
     ) -> None:
-        """Persist the /sync cursor after we've processed a sync response.
-
-        High-frequency write (once per sync round-trip, i.e. every few
-        seconds when a room is chatty). Deliberately narrow: touches
-        ``matrix_since_token`` only, not ``updated_at`` — so busy rooms
-        don't spam the ``updated_at`` column and drown human-meaningful
-        edits in the timestamp channel. If you need the last-active
-        timestamp separately, add a dedicated column.
-
-        Ordering invariant (see [[matrix_trigger.py]] design):
-          resp = client.sync(since=X)
-          for event in resp.events: process(event)   # ← FIRST
-          update_since_token(agent_id, resp.next_batch)   # ← ONLY IF above succeeds
-
-        A crash inside ``process()`` leaves the cursor at X; on restart
-        the server re-plays the batch and our event handler dedups by
-        event_id at the trigger's base pipeline. Never save the cursor
-        BEFORE processing, or a crashed batch is lost forever.
-        """
-        await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"matrix_since_token": since_token},
-        )
+        """Persist the Matrix sync token so a restart resumes where it left off."""
+        await _store(self._db).patch(CHANNEL, agent_id, {"matrix_since_token": since_token})
 
     async def update_device_id(self, agent_id: str, device_id: str) -> None:
-        """Called once, on the first ``sync`` after a fresh bind when
-        matrix-nio auto-registered a device (empty ``device_id`` on the row).
-        We pin it so future syncs reuse the same server-side device instead
-        of spawning a new one on every restart."""
-        await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"matrix_device_id": device_id, "updated_at": self._now_iso()},
-        )
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _row_to_cred(self, row: dict[str, Any]) -> NarramessengerCredential:
-        return NarramessengerCredential(
-            agent_id=row.get("agent_id", ""),
-            bearer_token=_decode_token(row.get("bearer_token_encoded", "")),
-            backend_base_url=row.get("backend_base_url", "") or "",
-            matrix_homeserver_url=row.get("matrix_homeserver_url", "") or "",
-            matrix_user_id=row.get("matrix_user_id", "") or "",
-            nexus_principal_id=row.get("nexus_principal_id", "") or "",
-            nexus_profile_id=row.get("nexus_profile_id", "") or "",
-            bind_room_id=row.get("bind_room_id", "") or "",
-            owner_matrix_user_id=row.get("owner_matrix_user_id", "") or "",
-            owner_name=row.get("owner_name", "") or "",
-            connection_mode=row.get("connection_mode", "gateway") or "gateway",
-            enabled=bool(row.get("enabled", 1)),
-            matrix_access_token=_decode_token(
-                row.get("matrix_access_token_encoded", "")
-            ),
-            matrix_device_id=row.get("matrix_device_id", "") or "",
-            matrix_since_token=row.get("matrix_since_token", "") or "",
-            created_at=self._parse_dt(row.get("created_at")),
-            updated_at=self._parse_dt(row.get("updated_at")),
-        )
+        """Persist the Matrix device id the login minted."""
+        await _store(self._db).patch(CHANNEL, agent_id, {"matrix_device_id": device_id})
 
     @staticmethod
     def _now_iso() -> str:

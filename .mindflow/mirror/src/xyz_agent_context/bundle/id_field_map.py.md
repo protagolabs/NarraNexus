@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/id_field_map.py
-last_verified: 2026-07-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -49,3 +49,7 @@ Layer 1 (`id_schema.py`) 知道**哪些字符串模式是 ID**，但不知道**�
 ## Gotcha
 
 - JSON path 形式 `"col[*].sub_id": "instance"` 我**写了但 importer 还没真支持**这种 jsonpath。当前实现只处理顶层列名 + 自由文本兜底。这是已知的 Layer 2 半残点。
+
+## 2026-09-04 · `channel_credentials` registered (batch 4d.2)
+
+`{"agent_id": "agent"}` for the generic table (the importer's landing path); the six legacy table entries stay so a pre-4d bundle's rows are still remapped before `legacy_rows_to_generic` sees them.

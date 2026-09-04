@@ -34,7 +34,7 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.file_safety import ensure_within_directory, sanitize_filename
-from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
+from .channel_credential_tables import CHANNEL_CREDENTIALS_KEY
 from .security import (
     bytes_sha256,
     file_sha256,
@@ -92,6 +92,7 @@ INSTANCE_SCOPED_TABLES = [
 # tables here are never exported.
 STRIPPED_TABLES = {
     "lark_credentials",
+    "channel_credentials",  # the generic IM credential table (opt-in via include_channel_credentials)
     "user_providers",
     "user_slots",
     "user_quotas",
@@ -553,15 +554,13 @@ async def build_bundle(
             # remaps it via STRUCTURED_ID_FIELDS); everything else is IM-side and
             # preserved. On import each row lands INACTIVE.
             if selection.include_channel_credentials:
-                cred_by_table: Dict[str, List[dict]] = {}
-                for cred_table in CHANNEL_CREDENTIAL_TABLES:
-                    rows = await db.get(cred_table, {"agent_id": aid})
-                    if not rows:
-                        continue
-                    cred_by_table[cred_table] = [_scrub_user_id(dict(r), user_id, cred_table) for r in rows]
-                    channel_cred_count += len(rows)
+                from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+                # Generic rows: public view + DECRYPTED secrets (the key is per install).
+                cred_rows = [r.to_raw_dict() for r in await GenericCredentialStore(db).list_for_agent(aid)]
+                channel_cred_count += len(cred_rows)
                 (agent_dir / "channel_credentials.json").write_text(
-                    json.dumps(cred_by_table, indent=2, ensure_ascii=False, default=str),
+                    json.dumps({CHANNEL_CREDENTIALS_KEY: cred_rows}, indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
 

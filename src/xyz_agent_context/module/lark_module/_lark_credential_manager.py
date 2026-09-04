@@ -10,7 +10,6 @@ both in lark-cli Keychain (for CLI tools) and encrypted in DB (for SDK trigger).
 from __future__ import annotations
 
 import base64
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, List, Optional
@@ -204,218 +203,120 @@ def _cred_from_raw(raw: dict[str, Any]) -> "LarkCredential":
     )
 
 
+def _store(db: Any):
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    return GenericCredentialStore(db)
+
+
+CHANNEL = "lark"
+
+
 class LarkCredentialManager:
     """CRUD for lark_credentials table."""
 
-    TABLE = "lark_credentials"
+    # Persistence: the generic channel_credentials table (plugin platform batch 4d);
+    # the historical lark_credentials table is retired, never dropped.
+    TABLE = "lark_credentials"  # retired — kept for the legacy copy migration and diagnostics
 
     def __init__(self, db):
         self.db = db
 
-    def _row_to_credential(self, row: dict) -> LarkCredential:
-        raw_state = row.get("permission_state") or "{}"
-        if isinstance(raw_state, str):
-            try:
-                state = json.loads(raw_state) if raw_state.strip() else {}
-            except json.JSONDecodeError:
-                state = {}
-        elif isinstance(raw_state, dict):
-            state = raw_state
-        else:
-            state = {}
+    # The raw dict is the stored shape: app_secret_encoded (base64, the SDK's
+    # working form) is the secret half — encrypted by the store — everything
+    # else, permission_state included, is the public half; is_active maps to
+    # the store's enabled flag.
+    @staticmethod
+    def _values(cred: LarkCredential) -> dict[str, Any]:
+        raw = cred.to_raw_dict()
+        for k in ("agent_id", "is_active", "created_at", "updated_at"):
+            raw.pop(k, None)
+        raw["permission_state"] = cred.permission_state or {}
+        return raw
 
-        return LarkCredential(
-            agent_id=row["agent_id"],
-            app_id=row["app_id"],
-            app_secret_ref=row.get("app_secret_ref", ""),
-            brand=row.get("brand", "feishu"),
-            profile_name=row.get("profile_name", ""),
-            workspace_path=row.get("workspace_path", ""),
-            bot_name=row.get("bot_name", ""),
-            bot_open_id=row.get("bot_open_id", ""),
-            app_secret_encoded=row.get("app_secret_encrypted", ""),
-            owner_open_id=row.get("owner_open_id", ""),
-            owner_name=row.get("owner_name", ""),
-            auth_status=row.get("auth_status", "not_logged_in"),
-            is_active=bool(row.get("is_active", True)),
-            permission_state=state,
-            created_at=row.get("created_at"),
-            updated_at=row.get("updated_at"),
-        )
+    @staticmethod
+    def _from_record(record: Any) -> LarkCredential:
+        raw = record.to_raw_dict()
+        raw["is_active"] = record.enabled
+        return _cred_from_raw(raw)
 
     async def get_credential(self, agent_id: str) -> Optional[LarkCredential]:
-        """Get credential for a single agent."""
-        row = await self.db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not row:
-            return None
-        return self._row_to_credential(row)
+        """The agent's Lark binding (None when unbound)."""
+        record = await _store(self.db).get(CHANNEL, agent_id)
+        return self._from_record(record) if record else None
 
     async def get_by_app_id(self, app_id: str) -> List[LarkCredential]:
-        """Get all credentials using a specific App ID."""
-        rows = await self.db.get(self.TABLE, {"app_id": app_id})
-        return [self._row_to_credential(r) for r in rows]
+        """Every binding of a Lark app (an app may serve one agent; the list form keeps the old contract)."""
+        record = await _store(self.db).find_one(CHANNEL, external_id=app_id)
+        return [self._from_record(record)] if record else []
 
     async def get_active_credentials(self) -> List[LarkCredential]:
-        """Get all active credentials with working bot identity (for trigger).
-
-        Returns credentials with auth_status in {bot_ready, user_logged_in}.
-        """
-        rows = await self.db.get(self.TABLE, {"is_active": 1})
+        """Active bindings whose bot identity works (the trigger's subscriber set)."""
         return [
-            self._row_to_credential(r) for r in rows
-            if r.get("auth_status") in AUTH_STATUSES_BOT_ACTIVE
+            self._from_record(r)
+            for r in await _store(self.db).list_active(CHANNEL)
+            if r.public.get("auth_status") in AUTH_STATUSES_BOT_ACTIVE
         ]
 
     async def migrate_legacy_auth_status(self) -> int:
-        """Migrate old 'logged_in' rows to 'bot_ready'.
-
-        Called on startup to handle DB rows created before the 4-state model.
-        Conservative: we cannot know if user OAuth was completed, so downgrade
-        to bot_ready. Users will need to re-do OAuth (one-time inconvenience).
-        Returns number of rows migrated.
-        """
-        rows = await self.db.get(self.TABLE, {"auth_status": "logged_in"})
+        """One-off: the pre-2026-05 ``logged_in`` status became ``bot_ready``."""
+        store = _store(self.db)
         count = 0
-        for row in rows:
-            await self.db.update(
-                self.TABLE,
-                {"agent_id": row["agent_id"]},
-                {"auth_status": AUTH_STATUS_BOT_READY},
-            )
-            count += 1
+        for record in await store.list_all(CHANNEL):
+            if record.public.get("auth_status") == "logged_in":
+                await store.patch(CHANNEL, record.agent_id, {"auth_status": AUTH_STATUS_BOT_READY})
+                count += 1
         if count:
-            logger.info(f"Migrated {count} lark_credentials from 'logged_in' to 'bot_ready'")
+            logger.info(f"Migrated {count} lark credentials from 'logged_in' to 'bot_ready'")
         return count
 
-    # raw-cred-dict key -> DB column. Identity except app_secret_encoded, which
-    # is stored in app_secret_encrypted. The single source apply_patch uses to
-    # write ONLY the columns its patch names (see apply_patch); the serialized
-    # values come from _cred_to_columns.
-    _PATCHABLE_COLUMN = {
-        "app_id": "app_id",
-        "app_secret_ref": "app_secret_ref",
-        "app_secret_encoded": "app_secret_encrypted",
-        "brand": "brand",
-        "profile_name": "profile_name",
-        "workspace_path": "workspace_path",
-        "bot_name": "bot_name",
-        "bot_open_id": "bot_open_id",
-        "owner_open_id": "owner_open_id",
-        "owner_name": "owner_name",
-        "auth_status": "auth_status",
-        "is_active": "is_active",
-        "permission_state": "permission_state",
-    }
-
-    @staticmethod
-    def _cred_to_columns(cred: LarkCredential) -> dict[str, Any]:
-        """Serialize a credential to its DB columns — the single source of the
-        column mapping (is_active→0/1, permission_state→json, the
-        app_secret_encoded→app_secret_encrypted rename). save_credential writes
-        all of these; apply_patch writes the subset its patch names."""
-        return {
-            "agent_id": cred.agent_id,
-            "app_id": cred.app_id,
-            "app_secret_ref": cred.app_secret_ref,
-            "app_secret_encrypted": cred.app_secret_encoded,
-            "brand": cred.brand,
-            "profile_name": cred.profile_name,
-            "workspace_path": cred.workspace_path,
-            "bot_name": cred.bot_name,
-            "bot_open_id": cred.bot_open_id,
-            "owner_open_id": cred.owner_open_id,
-            "owner_name": cred.owner_name,
-            "auth_status": cred.auth_status,
-            "is_active": 1 if cred.is_active else 0,
-            "permission_state": json.dumps(cred.permission_state or {}),
-        }
+    _PATCHABLE_FIELDS = frozenset({
+        "app_id", "app_secret_ref", "app_secret_encoded", "brand", "profile_name", "workspace_path",
+        "bot_name", "bot_open_id", "owner_open_id", "owner_name", "auth_status", "is_active", "permission_state",
+    })
 
     async def save_credential(self, cred: LarkCredential) -> None:
-        """Insert or update a credential."""
-        data = self._cred_to_columns(cred)
-        existing = await self.get_credential(cred.agent_id)
-        if existing:
-            await self.db.update(self.TABLE, {"agent_id": cred.agent_id}, data)
-        else:
-            await self.db.insert(self.TABLE, data)
+        """Insert or replace the agent's binding."""
+        await _store(self.db).upsert(CHANNEL, cred.agent_id, self._values(cred), enabled=bool(cred.is_active))
         logger.info(f"Saved Lark credential for agent {cred.agent_id} (app_id={cred.app_id})")
 
-    # -- ChannelCredentialStore write primitives (mcp routes through the seam) --
-
     async def apply_patch(self, agent_id: str, patch: dict[str, Any]) -> None:
-        """Partial update in raw-cred-dict space: read the credential, deep-merge
-        ``patch`` (nested dicts like ``permission_state`` merged key-wise via the
-        seam's ``deep_merge``), rebuild, save. This is the one write path behind
-        both the local seam and the backend PATCH endpoint, and it subsumes the
-        old ``patch_permission_state`` / per-field setters: e.g. an admin-request
-        step passes ``{"permission_state": {"admin_request_url": …}}``, enabling
-        receive passes ``{"app_secret_encoded": …}``.
+        """Merge ``patch`` (nested dicts deep-merged: permission_state) into the stored credential.
 
-        Writes ONLY the columns the patch names (resolved via
-        ``_PATCHABLE_COLUMN``), not the whole row — so a concurrent
-        single-column writer on a DISJOINT column (``update_auth_status``
-        from lark_trigger writing BRAND_MISMATCH) is not clobbered by a
-        whole-row rewrite. Two writers on the SAME column still race
-        (inherent without a row lock), but the three-click flow's per-key
-        writes rarely overlap those."""
+        Field-level safety against a concurrent writer on a DISJOINT field
+        (update_auth_status from the trigger while the panel patches
+        permission_state) comes from the store's optimistic version: the merge
+        is re-read and retried if the row moved.
+        """
         from xyz_agent_context.module.data_access.channel_store import deep_merge
 
+        unknown = [k for k in patch if k not in self._PATCHABLE_FIELDS]
+        if unknown:
+            raise ValueError(f"apply_patch: unknown lark credential field {unknown[0]!r}")
         cred = await self.get_credential(agent_id)
         if cred is None:
             raise ValueError(f"no Lark credential to patch for agent {agent_id}")
-        # deep_merge so nested permission_state is key-wise merged; then serialize
-        # via the shared column mapping and keep only the patched keys' columns.
         merged = deep_merge(cred.to_raw_dict(), patch)
-        all_columns = self._cred_to_columns(_cred_from_raw(merged))
-        changed: dict[str, Any] = {}
-        for key in patch:
-            column = self._PATCHABLE_COLUMN.get(key)
-            if column is None:
-                raise ValueError(f"apply_patch: unknown lark credential field {key!r}")
-            changed[column] = all_columns[column]
-        if changed:
-            await self.db.update(self.TABLE, {"agent_id": agent_id}, changed)
+        fields = {k: merged[k] for k in patch}
+        enabled = bool(merged["is_active"]) if "is_active" in patch else None
+        fields.pop("is_active", None)
+        await _store(self.db).patch(CHANNEL, agent_id, fields, enabled=enabled)
 
     async def save_raw(self, agent_id: str, raw: dict[str, Any]) -> None:
-        """Full upsert from a raw cred dict (the PUT primitive). ``agent_id`` is
-        pinned from the path so a mismatched body can't retarget another agent."""
+        """Replace the whole credential from a raw dict; the path's ``agent_id`` pins the row (a body cannot retarget)."""
         await self.save_credential(_cred_from_raw({**raw, "agent_id": agent_id}))
 
     async def update_auth_status(self, agent_id: str, status: str) -> None:
-        """Update authentication status."""
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"auth_status": status},
-        )
+        """The trigger's status writes (bot_ready / user_logged_in / expired / brand_mismatch)."""
+        await _store(self.db).patch(CHANNEL, agent_id, {"auth_status": status})
 
     async def set_is_active(self, agent_id: str, is_active: bool) -> bool:
-        """Flip the ``is_active`` flag without deleting the row.
-
-        Mirrors the other channels' ``set_enabled``. Primary use: activating a
-        credential imported (inactive) from a bundle — flipping this to True is
-        what makes the trigger's credential watcher pick it up and claim the
-        single Lark WS slot for this app. Returns False if no row exists.
-        """
-        existing = await self.db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
-            return False
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"is_active": 1 if is_active else 0},
-        )
-        return True
+        """Flip the binding on/off without deleting it (bundle-imported credentials land inactive)."""
+        return await _store(self.db).set_enabled(CHANNEL, agent_id, is_active)
 
     async def update_bot_identity(
         self, agent_id: str, bot_name: str = "", bot_open_id: str = ""
     ) -> None:
-        """Persist whatever the bot-info lookup resolved (after auth).
-
-        Both fields come from the same `/open-apis/bot/v3/info` call, but
-        either can come back empty on a partial response — write only what
-        we actually got so a blank never overwrites a good stored value.
-        """
         data = {}
         if bot_name:
             data["bot_name"] = bot_name
@@ -423,17 +324,11 @@ class LarkCredentialManager:
             data["bot_open_id"] = bot_open_id
         if not data:
             return
-        await self.db.update(self.TABLE, {"agent_id": agent_id}, data)
+        await _store(self.db).patch(CHANNEL, agent_id, data)
 
     async def update_owner(self, agent_id: str, open_id: str, name: str) -> None:
-        """Update owner Lark identity."""
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"owner_open_id": open_id, "owner_name": name},
-        )
+        await _store(self.db).patch(CHANNEL, agent_id, {"owner_open_id": open_id, "owner_name": name})
 
     async def delete_credential(self, agent_id: str) -> None:
-        """Delete credential for an agent."""
-        await self.db.delete(self.TABLE, {"agent_id": agent_id})
+        await _store(self.db).unbind(CHANNEL, agent_id)
         logger.info(f"Deleted Lark credential for agent {agent_id}")

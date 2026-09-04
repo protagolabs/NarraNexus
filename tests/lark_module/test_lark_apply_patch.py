@@ -1,123 +1,93 @@
 """
 @file_name: test_lark_apply_patch.py
-@date: 2026-08-11
-@description: LarkCredentialManager.apply_patch — the write primitive behind the
-seam's patch_credential (blueprint P2 lark write leg). Proves the read →
-to_raw_dict → deep_merge → _cred_from_raw → save round-trip: a permission_state
-step MERGES into the existing blob (not replace), and a top-level field (e.g.
-app_secret_encoded) is set — exactly what the old patch_permission_state /
-set_app_secret_encoded did, now via one generic path.
+@author: Bin Liang
+@date: 2026-08-19
+@description: LarkCredentialManager.apply_patch / save_raw over the generic credential store: nested permission_state merges, only the patched fields change, unknown fields and missing credentials fail loud, save_raw pins the path's agent_id.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pytest
 
+from xyz_agent_context.channel.credential_store import GenericCredentialStore
 from xyz_agent_context.module.lark_module._lark_credential_manager import (
+    LarkCredential,
     LarkCredentialManager,
     _encode_secret,
 )
 
 
-class _FakeDb:
-    """A one-row lark_credentials world; captures the update payload.
-
-    Only the lark table is observed: the credential mirror (plugin platform
-    batch 4b) re-reads the row after every write and upserts it into
-    ``channel_credentials``, and that second write must not be mistaken for
-    the lark write under test."""
-
-    LARK = LarkCredentialManager.TABLE
-
-    def __init__(self, row):
-        self.row = row
-        self.updated = None
-
-    async def get_one(self, table, filters):
-        if table != self.LARK:
-            return None
-        return dict(self.row) if filters.get("agent_id") == self.row["agent_id"] else None
-
-    async def update(self, table, filters, data):
-        if table == self.LARK:
-            self.updated = data
-
-    async def insert(self, table, data):
-        if table == self.LARK:  # pragma: no cover - existing row path
-            self.updated = data
-
-
-def _row(**over):
-    base = {
-        "agent_id": "agent_x", "app_id": "cli_x", "app_secret_ref": "ref",
-        "app_secret_encrypted": _encode_secret("s3cret"), "brand": "feishu",
-        "profile_name": "agent_agent_x", "workspace_path": "/ws", "bot_name": "Bot",
-        "bot_open_id": "ou_b", "owner_open_id": "ou_o", "owner_name": "Al",
-        "auth_status": "bot_ready", "is_active": 1,
-        "permission_state": json.dumps({"admin_request_url": "u1", "admin_approved_at": "t0"}),
-    }
+def _cred(**over) -> LarkCredential:
+    base = dict(
+        agent_id="agent_x", app_id="cli_x", app_secret_ref="ref", app_secret_encoded=_encode_secret("s3cret"),
+        brand="feishu", profile_name="agent_agent_x", workspace_path="/ws", bot_name="Bot", bot_open_id="ou_b",
+        owner_open_id="ou_o", owner_name="Al", auth_status="bot_ready", is_active=True,
+        permission_state={"admin_request_url": "u1", "admin_approved_at": "t0"},
+    )
     base.update(over)
-    return base
+    return LarkCredential(**base)
 
 
-def test_apply_patch_merges_permission_state_into_the_existing_blob():
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
-    asyncio.run(mgr.apply_patch("agent_x", {"permission_state": {"user_authz_url": "u3"}}))
-    saved = json.loads(db.updated["permission_state"])
-    # existing keys preserved, new key added — a MERGE, not a replace
-    assert saved == {"admin_request_url": "u1", "admin_approved_at": "t0", "user_authz_url": "u3"}
+async def _seeded(db_client) -> LarkCredentialManager:
+    mgr = LarkCredentialManager(db_client)
+    await mgr.save_credential(_cred())
+    return mgr
 
 
-def test_apply_patch_sets_a_top_level_field():
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
-    new_secret_encoded = _encode_secret("new-secret")
-    asyncio.run(mgr.apply_patch("agent_x", {"app_secret_encoded": new_secret_encoded}))
-    assert db.updated["app_secret_encrypted"] == new_secret_encoded
-    # permission_state is not even WRITTEN by a non-permission patch (column-
-    # targeted): the whole point is not to clobber a disjoint column.
-    assert "permission_state" not in db.updated
+@pytest.mark.asyncio
+async def test_apply_patch_merges_permission_state_into_the_existing_blob(db_client):
+    mgr = await _seeded(db_client)
+    await mgr.apply_patch("agent_x", {"permission_state": {"user_authz_url": "u3"}})
+    cred = await mgr.get_credential("agent_x")
+    assert cred.permission_state == {"admin_request_url": "u1", "admin_approved_at": "t0", "user_authz_url": "u3"}
+    # a disjoint field is untouched by the merge
+    assert cred.auth_status == "bot_ready" and cred.get_app_secret() == "s3cret"
 
 
-def test_apply_patch_writes_only_the_patched_columns():
-    # The concurrency fix: apply_patch must write ONLY the columns its patch
-    # names, so a concurrent single-column writer (update_auth_status from
-    # lark_trigger) on a DISJOINT column isn't clobbered by a whole-row
-    # rewrite of a stale read.
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
-    asyncio.run(mgr.apply_patch("agent_x", {"permission_state": {"user_authz_url": "u3"}}))
-    assert set(db.updated) == {"permission_state"}, db.updated
-
-    db2 = _FakeDb(_row())
-    mgr2 = LarkCredentialManager(db2)
-    asyncio.run(mgr2.apply_patch("agent_x", {"app_id": "cli_new", "is_active": False}))
-    # app_id + is_active only — NOT auth_status / workspace_path / bot_* etc.
-    assert set(db2.updated) == {"app_id", "is_active"}, db2.updated
-    assert db2.updated["is_active"] == 0  # bool serialized to 0/1
+@pytest.mark.asyncio
+async def test_apply_patch_writes_only_the_patched_fields(db_client):
+    mgr = await _seeded(db_client)
+    before = await GenericCredentialStore(db_client).get("lark", "agent_x")
+    await mgr.apply_patch("agent_x", {"app_id": "cli_new", "is_active": False})
+    after = await GenericCredentialStore(db_client).get("lark", "agent_x")
+    cred = await mgr.get_credential("agent_x")
+    assert cred.app_id == "cli_new" and cred.is_active is False and after.enabled is False
+    assert after.version == before.version + 1
+    # everything else survived the patch
+    assert cred.auth_status == "bot_ready" and cred.workspace_path == "/ws" and cred.bot_name == "Bot"
 
 
-def test_apply_patch_rejects_unknown_field():
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
+@pytest.mark.asyncio
+async def test_concurrent_disjoint_writers_do_not_clobber_each_other(db_client):
+    """The trigger's status write and the panel's permission patch race on one row."""
+    mgr = await _seeded(db_client)
+    await asyncio.gather(
+        mgr.update_auth_status("agent_x", "user_logged_in"),
+        mgr.apply_patch("agent_x", {"permission_state": {"user_authz_url": "u3"}}),
+    )
+    cred = await mgr.get_credential("agent_x")
+    assert cred.auth_status == "user_logged_in" and cred.permission_state.get("user_authz_url") == "u3"
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_rejects_unknown_field(db_client):
+    mgr = await _seeded(db_client)
     with pytest.raises(ValueError, match="unknown lark credential field"):
-        asyncio.run(mgr.apply_patch("agent_x", {"not_a_real_column": "x"}))
+        await mgr.apply_patch("agent_x", {"not_a_real_column": "x"})
 
 
-def test_apply_patch_on_missing_credential_raises_clearly():
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
+@pytest.mark.asyncio
+async def test_apply_patch_on_missing_credential_raises_clearly(db_client):
+    mgr = LarkCredentialManager(db_client)
     with pytest.raises(ValueError, match="no Lark credential"):
-        asyncio.run(mgr.apply_patch("nobody", {"auth_status": "x"}))
+        await mgr.apply_patch("nobody", {"auth_status": "x"})
 
 
-def test_save_raw_pins_agent_id_from_the_path():
-    db = _FakeDb(_row())
-    mgr = LarkCredentialManager(db)
+@pytest.mark.asyncio
+async def test_save_raw_pins_agent_id_from_the_path(db_client):
+    mgr = await _seeded(db_client)
     # a body that tries to retarget another agent must NOT win — path agent_id pins
-    asyncio.run(mgr.save_raw("agent_x", {"agent_id": "attacker", "app_id": "cli_new"}))
-    assert db.updated["agent_id"] == "agent_x"
-    assert db.updated["app_id"] == "cli_new"
+    await mgr.save_raw("agent_x", {**_cred().to_raw_dict(), "agent_id": "attacker", "app_id": "cli_new"})
+    assert await mgr.get_credential("attacker") is None
+    assert (await mgr.get_credential("agent_x")).app_id == "cli_new"

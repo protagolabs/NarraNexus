@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-19 — plain-text（巡查）回合不声明任何回复工具
@@ -121,3 +121,7 @@ IM integration: subclass two bases + write platform-specific content.
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
+
+## 2026-09-04 · cleanup deletes the generic binding (batch 4d.2)
+
+`cleanup_for_agent` unbinds the agent's row in `channel_credentials` through `GenericCredentialStore` (stat key `channel_credentials`); the retired per-channel table name (`_credential_table_name`) is gone. Subclasses that need the decoded credential during cleanup (lark: workspace path) read it through their manager first.

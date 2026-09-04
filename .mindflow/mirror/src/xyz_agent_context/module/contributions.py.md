@@ -29,4 +29,8 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 
 ## 2026-09-04 · generic channel credentials (batch 4b)
 
-`register_all` installs the credential mirror on every manager-backed channel (dual-write phase).
+`register_all` registered the credential mirror on manager-backed channels during the 4b dual-write phase; since 4d.2 every builtin manager persists in the generic store directly and the mirror is gone.
+
+## 2026-09-04 · no mirror installation (batch 4d.2)
+
+`install_manager_mirrors` no longer exists; `register_all` registers channels, triggers, data-access, hooks and services only. All seven `CHANNEL_SPECS` descriptors declare `storage: generic`.

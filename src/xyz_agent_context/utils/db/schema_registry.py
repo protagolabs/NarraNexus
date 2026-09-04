@@ -1325,7 +1325,7 @@ _register(
         # binding; identity fields live in public_json, secrets encrypted in
         # secret_json (channel/credential_codec.py), split by the channel's
         # CredentialSchema. The six per-channel tables keep working during the
-        # dual-write phase (channel/credential_mirror.py copies every write here)
+        # 4d switch (channel/credential_legacy.py copies the old tables in once)
         # and are retired, never dropped (rule #6), when reads switch (4d).
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),

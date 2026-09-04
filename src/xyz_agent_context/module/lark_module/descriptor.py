@@ -38,6 +38,7 @@ DESCRIPTOR = ChannelDescriptor(
     has_bind=True,
     has_test=False,
     unbind_service=True,
+    meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials
     ui=ChannelUi(label="Lark / Feishu", icon="message-square", order=10),
 )
 

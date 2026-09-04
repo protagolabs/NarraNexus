@@ -69,8 +69,8 @@ def _make_trigger(db_client) -> LarkTrigger:
 async def _save_bound_credential(db_client, agent_id="a1") -> LarkCredential:
     cred = LarkCredential(
         agent_id=agent_id,
-        app_id="cli_wrongbrand",
-        app_secret_ref="appsecret:cli_wrongbrand",
+        app_id=f"cli_wrongbrand_{agent_id}",  # app_id is channel-wide unique in channel_credentials
+        app_secret_ref=f"appsecret:cli_wrongbrand_{agent_id}",
         brand="lark",  # bound as Lark, App ID actually registered on Feishu
         profile_name=f"agent_{agent_id}",
         auth_status=AUTH_STATUS_BOT_READY,
@@ -139,7 +139,7 @@ async def test_credential_stays_active_so_the_ui_can_still_show_it(db_client):
     stored = await LarkCredentialManager(db_client).get_credential(cred.agent_id)
     assert stored is not None
     assert stored.is_active is True
-    assert stored.app_id == "cli_wrongbrand"
+    assert stored.app_id == "cli_wrongbrand_a1"
 
 
 # ── Audit trail (incident lessons #3/#5: DB traces over log greps) ────

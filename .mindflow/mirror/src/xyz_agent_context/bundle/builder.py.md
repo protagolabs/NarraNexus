@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -355,3 +355,7 @@ mcp_hints.json                        ← 1.1+: opt-in by mcp_selection
 `team_meta` 增加 `bulletin`。丢弃逻辑（不带自动总结、不带 author_id）在
 [[team_bulletin_transfer]]，与导入侧的「不可信」规则放在一起——出去时丢掉的，
 正是进来时不能信的。
+
+## 2026-09-04 · credentials exported from the generic store (batch 4d.2)
+
+`channel_credentials.json` is now `{"channel_credentials": [...]}` built from `GenericCredentialStore.list_for_agent(aid)` (`to_raw_dict`: public fields + DECRYPTED secrets — the encryption key is per install, so a bundle must carry plain values). `STRIPPED_TABLES` lists `channel_credentials` so the generic table never leaks through the table-driven paths; the opt-in file is the only way a binding leaves.

@@ -11,7 +11,7 @@ Why this file exists:
     Telegram is the channel under test, calling
     ``TelegramModule().cleanup_for_agent(agent_id, db)``:
 
-      1. Removes the row in ``channel_telegram_credentials``.
+      1. Removes the agent's telegram row in ``channel_credentials``.
       2. Removes the agent's membership in any ``telegram_*`` inbox
          channels.
       3. Drops the inbox channel + messages when the agent was the
@@ -33,18 +33,10 @@ async def test_cleanup_for_agent_removes_credentials_and_inbox(db_client):
     agent_id = "agent_a"
 
     # Arrange — credential row + telegram inbox + a foreign slack_ inbox
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": agent_id,
-            "bot_token_encoded": "ZW5jb2RlZA==",  # base64("encoded")
-            "bot_user_id": "1001",
-            "bot_username": "acme_bot",
-            "owner_username": "",
-            "owner_user_id": "",
-            "owner_name": "",
-            "enabled": 1,
-        },
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    await GenericCredentialStore(db_client).upsert(
+        "telegram", agent_id, {"bot_token": "encoded", "bot_user_id": "1001", "bot_username": "acme_bot"}, enabled=True
     )
     # Telegram inbox channel + members + messages
     await db_client.insert(
@@ -93,10 +85,10 @@ async def test_cleanup_for_agent_removes_credentials_and_inbox(db_client):
 
     # Assert — credential row gone
     cred_row = await db_client.get_one(
-        "channel_telegram_credentials", {"agent_id": agent_id}
+        "channel_credentials", {"channel": "telegram", "agent_id": agent_id}
     )
     assert cred_row is None
-    assert stats.get("channel_telegram_credentials", 0) >= 1
+    assert stats.get("channel_credentials", 0) >= 1
 
     # Telegram inbox member dropped; channel + messages dropped because
     # the agent was the only member.

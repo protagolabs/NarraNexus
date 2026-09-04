@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 ---
 
 ## Why it exists
@@ -34,3 +34,7 @@ non-unique index (`idx_nm_cred_profile`, see `schema_registry.py`)
 backs the lookup — non-unique because empty-string rows would otherwise
 collide on a unique index, and profile-id uniqueness isn't a contract
 we've verified against NarraMessenger's platform semantics.
+
+## 2026-09-04 · persistence switched to the generic store (batch 4d.2)
+
+Same move as the other four managers in 4d.1: reads and writes go through `GenericCredentialStore` under channel `narramessenger` (`_cred_from_raw(record.to_raw_dict())`), the token is the encrypted secret half, `enabled` maps 1:1. `channel_narramessenger_credentials` is retired (copied in by [[credential_legacy]]), never dropped.

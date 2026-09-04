@@ -207,10 +207,6 @@ def register_all(registries: Any = None) -> None:
                 from xyz_agent_context.schema.hook_schema import WorkingSource
 
                 WorkingSource.register(descriptor.name)
-    # Dual-write phase (batch 4b): bespoke credential managers mirror every write into channel_credentials.
-    from xyz_agent_context.channel.credential_mirror import install_manager_mirrors
-
-    install_manager_mirrors(regs)
     data_access = regs.registry_for(DATA_ACCESS_SLOT)
     for plugin_id, ref in DATA_ACCESS_SPECS:
         for contribution in _resolve_symbol(ref):

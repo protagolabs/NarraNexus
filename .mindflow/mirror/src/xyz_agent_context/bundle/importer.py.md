@@ -398,3 +398,7 @@ bundle 是不可信输入：上限重新施加，且无论 payload 声称什么�
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 Skill installs go through `skills.workspaces` (`utils/plugin_services.skill_workspace`); the renamed-agent identity fix fires `onDidSettleAgentName` on the importer's db and reads the reconcile result from the hook outcome.
+
+## 2026-09-04 · credentials land in the generic store (batch 4d.2)
+
+Both the preflight clash check and the landing loop iterate `channel_credential_tables.bundle_rows(payload)` (4d bundles and pre-4d per-table bundles alike). Clash = `GenericCredentialStore.find_one(channel, external_id=…)` already bound in this install → skipped, counted in `channel_credentials_skipped_conflict`. Landing = `rewrite_row("channel_credentials", row)` (agent_id remapped through `id_field_map`, IM-side owner ids untouched) then `store.upsert(channel, new_agent_id, values, enabled=False)` — invariant 1 (force-inactive) is now the `enabled` argument, not a per-table column name. A channel this install does not know (`UnknownChannel`, e.g. a plugin channel not installed here) is reported as a warning and skipped, never crashes the import.

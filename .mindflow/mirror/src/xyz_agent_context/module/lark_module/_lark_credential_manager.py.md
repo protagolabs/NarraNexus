@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
-last_verified: 2026-08-14
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-08-14 — `update_workspace_path` 删除（死代码）
@@ -44,7 +44,7 @@ name fallback covers them, which is why that fallback is not dead code.
 
 Added `set_is_active(agent_id, is_active)`, mirroring the other channels' `set_enabled`. Flipping `is_active` → True is what makes the trigger's credential watcher pick up a bundle-imported (inactive) Lark credential and claim the app's single WS slot. Called by `POST /api/lark/set-active`.
 
-# _lark_credential_manager.py — CRUD for lark_credentials table
+# _lark_credential_manager.py — the Lark credential manager (persisted in channel_credentials)
 
 ## Why it exists
 
@@ -89,3 +89,7 @@ observes error `1000040351`. State stored so:
 - `migrate_legacy_auth_status` is the one-shot migrator for pre-4-
   state DB rows (`logged_in` → `bot_ready`). Conservative downgrade
   — we can't tell from the old row whether user OAuth was completed.
+
+## 2026-09-04 · persistence switched to the generic store (batch 4d.2)
+
+`LarkCredential` keeps its shape (the SDK / route / trigger contract) but the manager stores it through `GenericCredentialStore` under channel `lark`: `app_secret_encoded` (base64, the SDK's working form) + `app_secret_ref` are the secret half — encrypted by the store — everything else including `permission_state` is public, `is_active` ↔ the store's `enabled`, `app_id` is the channel-wide `external_id` (two agents can no longer bind the same Lark app, which is exactly the single-WS-slot rule). `apply_patch` / `update_auth_status` / `set_is_active` go through `store.patch` (version-checked field merge), so the trigger's status write and the panel's permission patch never clobber each other; `_PATCHABLE_FIELDS` still fails loud on unknown names and `save_raw` still pins the path's agent_id. `lark_credentials` is retired (copied in by [[credential_legacy]]), never dropped.

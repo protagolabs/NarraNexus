@@ -1,10 +1,14 @@
 ---
 code_file: src/xyz_agent_context/bundle/channel_credential_tables.py
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 stub: false
 ---
 
-## 2026-07-13 — Lark identity key fixed to app_id
+## 2026-09-04 — one generic table (batch 4d.2)
+
+`CHANNEL_CREDENTIAL_TABLES` is gone with the per-channel tables. A bundle now carries `channel_credentials.json` as `{"channel_credentials": [<generic row: channel, agent_id, enabled, external_id, public fields, decoded secrets>]}` (`CHANNEL_CREDENTIALS_KEY`). `bundle_rows(payload)` is the importer's single entry: it returns those rows verbatim for a 4d bundle and, for a bundle exported before the switch (`{"<legacy table>": [rows]}`), converts each legacy row through `credential_legacy.legacy_rows_to_generic` — the same column map the migration uses, so old bundles keep importing without a second decoder. Clash detection keys on the generic `external_id` (lark app_id, slack bot_user_id, telegram bot id, …), which is what the store's channel-wide unique index enforces anyway.
+
+## 2026-07-13 — Lark identity key fixed to app_id (historical)
 
 Lark's `identity_cols` was `["profile_name"]`, which is wrong: `profile_name` is
 `build_profile_name(agent_name, agent_id)` — agent-derived and preserved verbatim on

@@ -50,7 +50,7 @@ from xyz_agent_context.schema.entity_schema import (
     normalize_agent_text,
 )
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
-from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
+from .channel_credential_tables import bundle_rows as _credential_bundle_rows
 from .id_schema import build_all_id_regex, ID_KINDS
 from .security import (
     extract_zip_safely,
@@ -341,24 +341,27 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         if not cred_path.exists():
             continue
         try:
-            cred_by_table = json.loads(cred_path.read_text(encoding="utf-8"))
+            cred_payload = json.loads(cred_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        for cred_table, crows in cred_by_table.items():
-            spec = CHANNEL_CREDENTIAL_TABLES.get(cred_table)
-            if not spec or not spec["identity_cols"]:
+        from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+        cred_store = GenericCredentialStore(db)
+        for crow in _credential_bundle_rows(cred_payload):
+            channel, external = crow.get("channel"), crow.get("external_id")
+            if not channel or not external:
                 continue
-            id_cols = spec["identity_cols"]
-            for crow in crows:
-                if not all(crow.get(c) is not None for c in id_cols):
-                    continue
-                identity = {c: crow.get(c) for c in id_cols}
-                if await db.get(cred_table, identity):
-                    credential_clashes.append({
-                        "agent_id_in_bundle": aid,
-                        "table": cred_table,
-                        "identity": identity,
-                    })
+            try:
+                bound = await cred_store.find_one(str(channel), external_id=str(external))
+            except Exception:  # noqa: BLE001 — a channel this install does not know
+                bound = None
+            if bound is not None:
+                credential_clashes.append({
+                    "agent_id_in_bundle": aid,
+                    "table": "channel_credentials",
+                    "channel": channel,
+                    "identity": {"external_id": external},
+                })
 
     token = uuid.uuid4().hex
     summary = {
@@ -671,7 +674,7 @@ async def _confirm_inner(
         # user id), NOT a NarraNexus user id. Reattributing them to the
         # recipient would corrupt the owner-trust signal the trigger uses. The
         # agent_id column was already mapped via STRUCTURED_ID_FIELDS above.
-        if table not in CHANNEL_CREDENTIAL_TABLES:
+        if table != "channel_credentials":
             for col in list(out.keys()):
                 if col in ("user_id", "created_by", "owner_user_id"):
                     if table == "bus_channels" and col == "created_by":
@@ -1241,44 +1244,48 @@ async def _confirm_inner(
         #     existing binding and report the skip.
         cred_path = adir / "channel_credentials.json"
         if cred_path.exists():
+            from xyz_agent_context.channel.credential_store import GenericCredentialStore, UnknownChannel
+
             try:
-                cred_by_table = json.loads(cred_path.read_text(encoding="utf-8"))
+                cred_payload = json.loads(cred_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning(
                     f"bundle_import.channel_credentials.read_failed agent={old_aid} reason={e}"
                 )
-                cred_by_table = {}
-            for cred_table, crows in cred_by_table.items():
-                spec = CHANNEL_CREDENTIAL_TABLES.get(cred_table)
-                if not spec:
-                    continue  # unknown credential table — skip defensively
-                identity_cols = spec["identity_cols"]
-                for crow in crows:
+                cred_payload = {}
+            cred_store = GenericCredentialStore(db)
+            for crow in _credential_bundle_rows(cred_payload):
+                channel = str(crow.get("channel") or "")
+                external = crow.get("external_id")
+                if not channel:
+                    continue
+                try:
                     # Clash check: is this exact bot already bound here?
-                    if identity_cols and all(crow.get(c) is not None for c in identity_cols):
-                        clash_filter = {c: crow.get(c) for c in identity_cols}
-                        if await db.get(cred_table, clash_filter):
-                            written_summary["channel_credentials_skipped_conflict"] += 1
-                            written_summary["warnings"].append(
-                                f"agent {old_aid}: {cred_table} bot binding already exists "
-                                f"in this environment ({clash_filter}) — skipped, not overwritten"
-                            )
-                            continue
-                    new_crow = rewrite_row(cred_table, crow)
-                    new_crow[spec["active_col"]] = 0  # force inactive (invariant 1)
-                    new_crow.pop("created_at", None)
-                    new_crow.pop("updated_at", None)
-                    try:
-                        await _ins(cred_table, new_crow)
-                        written_summary["channel_credentials_imported"] += 1
-                    except Exception as ce:  # noqa: BLE001
-                        logger.warning(
-                            f"bundle_import.channel_credential.insert_failed agent={old_aid} "
-                            f"table={cred_table} reason={ce}"
-                        )
+                    if external and await cred_store.find_one(channel, external_id=str(external)) is not None:
+                        written_summary["channel_credentials_skipped_conflict"] += 1
                         written_summary["warnings"].append(
-                            f"agent {old_aid}: {cred_table} credential insert failed: {ce}"
+                            f"agent {old_aid}: {channel} bot binding already exists "
+                            f"in this environment (external_id={external}) — skipped, not overwritten"
                         )
+                        continue
+                    new_crow = rewrite_row("channel_credentials", crow)  # remaps agent_id old → new
+                    values = {
+                        k: v for k, v in new_crow.items()
+                        if k not in ("id", "channel", "agent_id", "enabled", "external_id", "created_at", "updated_at", "version")
+                    }
+                    # Every imported binding lands INACTIVE (invariant 1): the user activates it here.
+                    await cred_store.upsert(channel, new_crow["agent_id"], values, enabled=False)
+                    written_summary["channel_credentials_imported"] += 1
+                except UnknownChannel as ce:
+                    written_summary["warnings"].append(f"agent {old_aid}: {channel} credential skipped: {ce}")
+                except Exception as ce:  # noqa: BLE001
+                    logger.warning(
+                        f"bundle_import.channel_credential.insert_failed agent={old_aid} "
+                        f"channel={channel} reason={ce}"
+                    )
+                    written_summary["warnings"].append(
+                        f"agent {old_aid}: {channel} credential insert failed: {ce}"
+                    )
 
         # Per-agent delta log so the user can see counts attributable to THIS agent
         delta = {

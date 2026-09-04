@@ -16,7 +16,7 @@ from narranexus.contracts.channel import ChannelDescriptor, CredentialField, Cre
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from xyz_agent_context.channel import credential_codec
-from xyz_agent_context.channel.credential_mirror import backfill, install_manager_mirrors, sync_from_manager
+from xyz_agent_context.channel.credential_legacy import LEGACY_BY_TABLE, copy_legacy_tables
 from xyz_agent_context.channel.credential_store import TABLE, GenericCredentialStore, UnknownChannel, missing_required, split_values
 from xyz_agent_context.module.contributions import register_all
 
@@ -38,52 +38,6 @@ PLUGIN = ChannelDescriptor(
 )
 
 
-# A bespoke manager the mirror wraps (stands in for the six builtin ones).
-@dataclass
-class FakeCred:
-    agent_id: str
-    bot_token: str
-    bot_id: str
-    enabled: int = 1
-
-    def to_raw_dict(self) -> dict[str, Any]:
-        return {"agent_id": self.agent_id, "bot_token": self.bot_token, "bot_id": self.bot_id, "enabled": self.enabled}
-
-
-class FakeManager:
-    rows: dict[str, FakeCred] = {}
-
-    def __init__(self, db):
-        self._db = db
-
-    async def bind(self, agent_id: str, bot_token: str) -> dict:
-        self.rows[agent_id] = FakeCred(agent_id, bot_token, bot_id=f"bot-{agent_id}")
-        return {"success": True}
-
-    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
-        cred = self.rows.get(agent_id)
-        if cred is None:
-            return False
-        cred.enabled = 1 if enabled else 0
-        return True
-
-    async def unbind(self, agent_id: str) -> bool:
-        return self.rows.pop(agent_id, None) is not None
-
-    async def get(self, agent_id: str) -> Optional[FakeCred]:
-        return self.rows.get(agent_id)
-
-    async def list_active(self) -> list[FakeCred]:
-        return [c for c in self.rows.values() if c.enabled]
-
-
-MANAGED = ChannelDescriptor(
-    name="fake_managed",
-    display_name="Fake Managed",
-    credential_schema=CredentialSchema(fields=(CredentialField("bot_token", "secret"), CredentialField("bot_id")), external_id_field="bot_id"),
-    credential_manager_ref=f"{__name__}:FakeManager",
-    credential_read_method="get",
-)
 
 
 @pytest.fixture(autouse=True)
@@ -99,8 +53,6 @@ def regs() -> Registries:
     register_all(r)
     reg = r.registry_for("ingress.channels")
     reg.register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
-    reg.register_contribution(Contribution("fake_managed", lambda: MANAGED), owner="acme.managed")
-    FakeManager.rows = {}
     return r
 
 
@@ -144,32 +96,29 @@ async def test_external_id_is_unique_per_channel(db_client, regs):
 
 
 @pytest.mark.asyncio
-async def test_manager_writes_are_mirrored(db_client, regs):
-    wired = install_manager_mirrors(regs)
-    assert "fake_managed" in wired and "lark" in wired
-    install_manager_mirrors(regs)  # idempotent: no double wrapping
-    mgr = FakeManager(db_client)
-    await mgr.bind("a1", "tok")
-    store = GenericCredentialStore(db_client, regs)
-    rec = await store.get("fake_managed", "a1")
-    assert rec is not None and rec.external_id == "bot-a1" and rec.secret == {"bot_token": "tok"} and rec.enabled
-    await mgr.set_enabled("a1", False)
-    assert not (await store.get("fake_managed", "a1")).enabled
-    await mgr.unbind("a1")
-    assert await store.get("fake_managed", "a1") is None
+async def test_legacy_tables_are_copied_once_with_secrets_decoded(db_client, regs):
+    import base64
 
-
-@pytest.mark.asyncio
-async def test_backfill_copies_active_rows(db_client, regs):
-    FakeManager.rows = {"a1": FakeCred("a1", "t1", "b1"), "a2": FakeCred("a2", "t2", "b2", enabled=0)}
-    counts = await backfill(db_client, registries=regs)
-    assert counts["fake_managed"] == 1
+    await db_client.insert("channel_telegram_credentials", {"agent_id": "a1", "bot_token_encoded": base64.b64encode(b"tg-token").decode(), "bot_user_id": "42", "bot_username": "bot", "enabled": 1})
+    await db_client.insert("channel_slack_credentials", {"agent_id": "a2", "bot_token_encoded": base64.b64encode(b"xoxb").decode(), "app_token_encoded": base64.b64encode(b"xapp").decode(), "bot_user_id": "U1", "team_id": "T1", "enabled": 0})
+    await db_client.insert("lark_credentials", {"agent_id": "a3", "app_id": "cli_1", "app_secret_ref": "r", "app_secret_encrypted": base64.b64encode(b"sec").decode(), "brand": "feishu", "profile_name": "p", "auth_status": "bot_ready", "is_active": 1, "permission_state": '{"admin_request_url": "u"}'})
+    counts = await copy_legacy_tables(db_client)
+    assert counts["telegram"] == 1 and counts["slack"] == 1 and counts["lark"] == 1 and counts["wechat"] == 0
     store = GenericCredentialStore(db_client, regs)
-    assert (await store.get("fake_managed", "a1")).secret["bot_token"] == "t1" and await store.get("fake_managed", "a2") is None
-    assert await sync_from_manager(db_client, "fake_managed", "a2", registries=regs) is not None  # an explicit sync copies the inactive one too
+    tg = await store.get("telegram", "a1")
+    assert tg.secret == {"bot_token": "tg-token"} and tg.external_id == "42" and tg.enabled
+    sl = await store.get("slack", "a2")
+    assert sl.secret == {"bot_token": "xoxb", "app_token": "xapp"} and not sl.enabled and sl.public["team_id"] == "T1"
+    lk = await store.get("lark", "a3")
+    assert lk.secret["app_secret_encoded"] == base64.b64encode(b"sec").decode() and lk.public["permission_state"] == {"admin_request_url": "u"} and lk.external_id == "cli_1"
+    # idempotent: a second run copies nothing and leaves the generic rows alone
+    await store.patch("telegram", "a1", {"bot_username": "renamed"})
+    assert await copy_legacy_tables(db_client) == {"telegram": 0, "slack": 0, "discord": 0, "wechat": 0, "narramessenger": 0, "lark": 0}
+    assert (await store.get("telegram", "a1")).public["bot_username"] == "renamed"
+    assert set(LEGACY_BY_TABLE) == {"channel_telegram_credentials", "channel_slack_credentials", "channel_discord_credentials", "channel_wechat_credentials", "channel_narramessenger_credentials", "lark_credentials"}
 
 
 def test_migration_registered():
     from backend.migrations import REGISTRY
 
-    assert REGISTRY[-1].id == "0004_channel_credentials_backfill"
+    assert [m.id for m in REGISTRY[-2:]] == ["0004_channel_credentials_backfill", "0005_channel_credentials_switch"]

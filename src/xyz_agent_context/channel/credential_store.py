@@ -8,10 +8,10 @@ Values are split by the channel's ``CredentialSchema``: declared secret
 fields (and anything that looks like one — token / secret / password / key —
 unless the schema declares it public) go encrypted into ``secret_json``,
 identity fields into ``public_json``, and the schema's ``external_id_field``
-into the channel-wide unique ``external_id``. Builtin channels are mirrored
-into this table from their bespoke managers during the dual-write phase
-(``credential_mirror``); plugin channels write here directly through the
-generic routes. The descriptor comes from the ``ingress.channels`` registry.
+into the channel-wide unique ``external_id``. Every channel — the six
+builtin managers and plugin channels through the generic routes — reads and
+writes here (batch 4d); the retired per-channel tables are copied in once by
+``credential_legacy``. The descriptor comes from the ``ingress.channels`` registry.
 """
 from __future__ import annotations
 
@@ -219,6 +219,11 @@ class GenericCredentialStore:
 
     async def list_active(self, channel: str) -> list[CredentialRecord]:
         rows = await self._db.get(TABLE, {"channel": channel, "enabled": 1})
+        return [self._row_to_record(r) for r in rows]
+
+    async def list_for_agent(self, agent_id: str) -> list[CredentialRecord]:
+        """Every channel binding of one agent (bundle export, agent deletion)."""
+        rows = await self._db.get(TABLE, {"agent_id": agent_id})
         return [self._row_to_record(r) for r in rows]
 
     async def list_all(self, channel: str) -> list[CredentialRecord]:

@@ -117,7 +117,9 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
     # minted agent instead of dangling at the source agent_id. Everything else
     # on these tables (app_id, tokens, owner_user_id, bot_user_id, …) is
     # IM-namespace and is preserved verbatim. Kept in sync with
-    # bundle/channel_credential_tables.py::CHANNEL_CREDENTIAL_TABLES.
+    # bundle/channel_credential_tables.py.
+    "channel_credentials": {"agent_id": "agent"},
+    # Legacy per-table bundles (exported before plugin-platform batch 4d).
     "lark_credentials": {"agent_id": "agent"},
     "channel_slack_credentials": {"agent_id": "agent"},
     "channel_telegram_credentials": {"agent_id": "agent"},

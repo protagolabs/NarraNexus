@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 ---
 ## 2026-08-11 (lark 零凭据收尾)
 
@@ -481,3 +481,7 @@ register。本文件里改到的是该 handler 注册的 `user_reply_tool_names`
 但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
 `render_origin_declaration` 取 label 的同一条记录。规范解释见
 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-04 · cleanup reads the credential through the manager (batch 4d.2)
+
+`cleanup_for_agent` fetches the workspace path via `LarkCredentialManager(db).get_credential` (generic store) before the base class unbinds the generic row; it no longer reads `lark_credentials`.

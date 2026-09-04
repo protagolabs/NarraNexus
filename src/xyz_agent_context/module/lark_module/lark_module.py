@@ -871,11 +871,6 @@ class LarkModule(ChannelModuleBase):
             f"LarkModule after_execution for agent {params.execution_ctx.agent_id}"
         )
 
-    def _credential_table_name(self) -> str:
-        """Lark predates the ``channel_*_credentials`` naming convention —
-        its table is just ``lark_credentials``."""
-        return "lark_credentials"
-
     async def cleanup_for_agent(self, agent_id: str, db) -> dict[str, int]:
         """Lark cascade — extends the base default with CLI profile +
         workspace dir removal, both of which live outside the database.
@@ -886,7 +881,7 @@ class LarkModule(ChannelModuleBase):
         """
         stats: dict[str, int] = {}
         try:
-            cred = await db.get_one("lark_credentials", {"agent_id": agent_id})
+            cred = await LarkCredentialManager(db).get_credential(agent_id)
             if cred:
                 # CLI profile — release Keychain + cli_state.json
                 from .lark_cli_client import LarkCLIClient

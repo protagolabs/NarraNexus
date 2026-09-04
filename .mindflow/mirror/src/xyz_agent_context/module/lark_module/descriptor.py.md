@@ -9,3 +9,7 @@ stub: false
 ## Intent
 
 `DESCRIPTOR` / `CHANNEL` for builtin.channels.lark: the trigger, module, credential manager (+ read method), bind/test service shape, credential schema (identity vs secret fields, external id) and UI row that the platform's registry views read. Class references are strings so registering never imports the lark SDK; the trigger's `channel_name` and this name must agree (parity test).
+
+## 2026-09-04 · `meta.storage = "generic"` (batch 4d.2)
+
+The descriptor now declares generic storage like every other channel: the platform has no channel left whose bindings live outside `channel_credentials`.

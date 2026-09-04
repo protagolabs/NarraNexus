@@ -197,14 +197,13 @@ class ChannelModuleBase(XYZBaseModule):
         ...}`` for the caller to merge into its stats dict.
 
         Default implementation handles the common case:
-          1. Look up the credential row for ``agent_id`` in
-             ``self._credential_table_name()`` (subclasses override if
-             non-standard naming).
+          1. Look up the agent's binding for this channel in the generic
+             ``channel_credentials`` store.
           2. Walk ``bus_channel_members`` for ``channel_id LIKE
              "{channel_name}_%"`` and remove this agent's membership.
           3. For any inbox channel left empty, delete its ``bus_messages``
              + ``bus_channels`` rows.
-          4. Delete the credential row.
+          4. Delete the binding.
 
         Subclasses with extra cleanup (Lark's CLI profile + workspace
         directory; future channels with on-disk caches; etc.) override
@@ -212,16 +211,13 @@ class ChannelModuleBase(XYZBaseModule):
         """
         from loguru import logger
 
+        from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
         stats: dict[str, int] = {}
-        cred_table = self._credential_table_name()
-
+        store = GenericCredentialStore(db)
         try:
-            cred = await db.get_one(cred_table, {"agent_id": agent_id})
-            if not cred:
+            if await store.get(self.channel_name, agent_id) is None:
                 return stats
-
-            # Inbox cleanup — symmetric for every channel that uses the
-            # `{channel_name}_*` channel_id namespace.
             members = await db.get("bus_channel_members", {"agent_id": agent_id})
             channel_prefix = f"{self.channel_name}_"
             for m in members:
@@ -238,27 +234,13 @@ class ChannelModuleBase(XYZBaseModule):
                 if not remaining:
                     await db.delete("bus_messages", {"channel_id": cid})
                     await db.delete("bus_channels", {"channel_id": cid})
-
-            # Credential row
-            result = await db.execute(
-                f"DELETE FROM {cred_table} WHERE agent_id = %s",
-                (agent_id,),
-                fetch=False,
-            )
-            cnt = result if isinstance(result, int) else 0
-            if cnt > 0:
-                stats[cred_table] = cnt
+            if await store.unbind(self.channel_name, agent_id):
+                stats["channel_credentials"] = 1
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"{type(self).__name__} cleanup_for_agent failed: {e}"
             )
         return stats
-
-    def _credential_table_name(self) -> str:
-        """Default credential table name. Override only if your channel uses
-        a non-standard table (Lark uses ``lark_credentials``, predating the
-        ``channel_*_credentials`` convention)."""
-        return f"channel_{self.channel_name}_credentials"
 
     # ────────────────────────────────────────────────────────────────────
     # Concrete — base provides; subclasses inherit
