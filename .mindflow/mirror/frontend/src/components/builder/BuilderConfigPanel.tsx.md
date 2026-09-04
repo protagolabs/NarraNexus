@@ -4,14 +4,23 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审六轮) — 五轮承诺的测试这次真的在；清槽提前到 early-return 之前
+
+五轮那条 commit 里 `builderConfigPanel.test.tsx` 没进去（脚本中断），mirror 与 PR 描述却写了
+「测试补……」——空头承诺比没承诺更贵。本轮补三条：名称被拒仍写认知且错误可见（`&&` 短路与
+分槽互抹两个哨兵）、两个写入方都失败显示两行、字段改回原值后过期错误消失。
+`setSlotError(slot, null)` 提到两个 commit 的函数开头（🟢#4）：原来在 early-return 之后，
+名称写失败后把输入框改回原值再 blur，那行红字会一直挂着。`setSaving` 不跟着提前——
+early-return 分支不走 `finally`，提上去会让页脚「保存中」永不复位。
+
 ## 2026-09-04 (评审五轮) — 两笔冲刷都跑；错误按写入方分槽
 
 四轮那版 `flushed = (await commitName()) && (await commitAwareness())` 会短路：名称被后端拒时
 认知那一笔**连试都不试**，而它唯一的副本在组件 state 里，面板一卸载就没了。现在两笔顺序都
 跑、再合并判定。同时 `error` 拆成 `errors[name | awareness | install]`：共享一个字符串时，
 后一个写入方的 `setError(null)` 会抹掉前一个的失败，用户按了「完成」却一条错误都看不到。
-`install` 有自己的槽，仍不参与 Done 的判定。测试补「名称失败 + 认知成功 →
-updateAwareness 被调用且错误可见、studio 不结束」。
+`install` 有自己的槽，仍不参与 Done 的判定。（这里原写「测试补……」，五轮 commit 里那条测试
+实际没进去，六轮补上。）
 
 ## 2026-09-04 (评审四轮) — 冲刷失败则不结束
 

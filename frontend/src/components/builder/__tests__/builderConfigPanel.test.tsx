@@ -181,6 +181,50 @@ describe('Done', () => {
     await waitFor(() => expect(isStudioOpen(AGENT)).toBe(false));
   });
 
+  test('a rejected name does not stop the instructions from being written', async () => {
+    // Both fields changed, so BOTH commits take the real request path (an
+    // unchanged field early-returns and would make this test vacuous).
+    openStudio(AGENT);
+    useConfigStore.setState({ agents: [{ agent_id: AGENT, name: 'Old', description: '' }] as never });
+    vi.mocked(api.updateAgent).mockResolvedValueOnce({ success: false, message: 'name too long' } as never);
+    const view = renderPanel();
+    fireEvent.change(view.getByPlaceholderText(/Morning Market Brief/i), { target: { value: 'X'.repeat(200) } });
+    fireEvent.change(view.getByPlaceholderText(/What this agent does/i), { target: { value: 'keep me' } });
+    fireEvent.click(view.getByRole('button', { name: 'Done' }));
+    // Short-circuit sentinel: the only assertion a `&&` would turn red.
+    await waitFor(() => expect(api.updateAwareness).toHaveBeenCalledWith(AGENT, 'keep me'));
+    // Slot sentinel: the awareness commit's own "clear" must not erase name's failure.
+    await waitFor(() => expect(view.getByText(/name too long/)).toBeInTheDocument());
+    expect(isStudioOpen(AGENT)).toBe(true);
+  });
+
+  test('two writers failing show two lines, not one', async () => {
+    openStudio(AGENT);
+    useConfigStore.setState({ agents: [{ agent_id: AGENT, name: 'Old', description: '' }] as never });
+    vi.mocked(api.updateAgent).mockResolvedValueOnce({ success: false, message: 'name nope' } as never);
+    vi.mocked(api.updateAwareness).mockRejectedValueOnce(new Error('awareness nope'));
+    const view = renderPanel();
+    fireEvent.change(view.getByPlaceholderText(/Morning Market Brief/i), { target: { value: 'New' } });
+    fireEvent.change(view.getByPlaceholderText(/What this agent does/i), { target: { value: 'new text' } });
+    fireEvent.click(view.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(view.getByText(/name nope/)).toBeInTheDocument());
+    await waitFor(() => expect(view.getByText(/awareness nope/)).toBeInTheDocument());
+    expect(isStudioOpen(AGENT)).toBe(true);
+  });
+
+  test('a stale name error clears once the field is back in sync', async () => {
+    useConfigStore.setState({ agents: [{ agent_id: AGENT, name: 'Old', description: '' }] as never });
+    vi.mocked(api.updateAgent).mockResolvedValueOnce({ success: false, message: 'name nope' } as never);
+    const view = renderPanel();
+    const input = view.getByPlaceholderText(/Morning Market Brief/i);
+    fireEvent.change(input, { target: { value: 'New' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(view.getByText(/name nope/)).toBeInTheDocument());
+    fireEvent.change(input, { target: { value: 'Old' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(view.queryByText(/name nope/)).not.toBeInTheDocument());
+  });
+
   test('flushes an unblurred edit instead of losing it', async () => {
     // A real browser blurs the textarea before the button's click, but nothing
     // guarantees that commit finished — and in jsdom no blur fires at all. So

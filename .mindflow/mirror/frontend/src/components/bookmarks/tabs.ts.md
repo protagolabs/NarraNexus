@@ -4,6 +4,12 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (六轮) — `conditional` 说明书里最后一句改对
+
+「`STRIP_CATEGORIES` 的新消费者自动继承规则」是反的：`STRIP_CATEGORIES` / `ALL_TABS` 是未过滤
+的注册表（ChatHeader 的 `ALL_TAB_DEFS` 就拿全量表按 id 取 def），规则**只**由 `visibleTabs(ctx)`
+施加。新面板入口必须走 `visibleTabs`，否则会把 `builder` 提供给每个 agent——⌘K 那一轮踩过。
+
 ## 2026-09-04 — `visibleCategories` 删除（五轮真正落地；四轮那条 commit 里脚本中断未生效）
 
 dev（#383）退役了抽屉切换器，分组形态再无生产消费者；只留扁平的 `visibleTabs`，消费方是

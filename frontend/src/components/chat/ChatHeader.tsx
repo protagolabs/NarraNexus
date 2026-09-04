@@ -50,10 +50,11 @@ import type { Step } from '@/types';
  *  pair are dropped here — they now live on the agent's Profile page and
  *  don't need a second door.
  *
- *  Hardcoded ids, NOT derived from STRIP_CATEGORIES. The creation studio's
- *  `builder` tab is not in this list either: it is rendered as a CONDITIONAL
- *  first item, only while the studio is open or resumable on this agent
- *  (the same `tabs.ts` rule the ⌘K palette applies). A permanent entry would
+ *  Hardcoded ids, NOT derived from STRIP_CATEGORIES (which is the unfiltered
+ *  registry — `ALL_TAB_DEFS` below only looks defs up by id). The creation
+ *  studio's `builder` tab is not in this list either: it is rendered as a
+ *  CONDITIONAL first item via `builderOffered`, i.e. `visibleTabs(ctx)` — the
+ *  ONE place the `conditional` rule is applied, shared with the ⌘K palette. A permanent entry would
  *  offer a panel the conversation does not drive; but once the drawer's tab
  *  switcher retired, this menu is the desktop's only way back into a studio
  *  the user collapsed — without it, "collapse" would silently mean "end". */

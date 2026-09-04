@@ -98,6 +98,9 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
 
   /** Returns whether the field is now persisted (a no-op counts as success). */
   const commitName = useCallback(async (): Promise<boolean> => {
+    // Clear this writer's slot FIRST — before the early returns too — so a
+    // stale "name rejected" line disappears once the field is back in sync.
+    setSlotError('name', null);
     const next = name.trim();
     // An empty name is never committed — the same rule the model's path
     // applies in mergeAgentDraft, so a blank field reads as "not changing it"
@@ -110,7 +113,6 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     }
     if (next === (agent?.name ?? '')) return true;
     setSaving(true);
-    setSlotError('name', null);
     try {
       const res = await api.updateAgent(agentId, next, agent?.description ?? '');
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');
@@ -125,9 +127,9 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   }, [name, agent?.name, agent?.description, agentId, refreshAgents, setSlotError]);
 
   const commitAwareness = useCallback(async (): Promise<boolean> => {
+    setSlotError('awareness', null);
     if (instructions === (awareness ?? '')) return true;
     setSaving(true);
-    setSlotError('awareness', null);
     try {
       const res = await api.updateAwareness(agentId, instructions);
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');

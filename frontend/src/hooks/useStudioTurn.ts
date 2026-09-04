@@ -189,18 +189,24 @@ export function useStudioTurn(agentId: string | null) {
         // does not refetch the other.
         if (outcome.changed.includes('identity')) void refreshAgents();
         if (outcome.changed.includes('awareness')) void refreshAwareness(agentId, true);
+        // Channel suggestions do not depend on the catalogue either (they are
+        // checked against the compile-time set), so they land now. skill_ids
+        // is carried over UNCHANGED here — setRecommendations replaces the
+        // whole record, and dropping it would wipe the suggestions accepted
+        // on earlier turns.
+        setRecommendations(agentId, { skill_ids: prev.skill_ids, channels: textOnly.channels });
 
-        // Then the suggestions, once the catalogue is known (bounded wait;
-        // unknown → this turn leaves the recommendations untouched). The
-        // store is reactive, so a turn that ONLY recommended a skill
-        // re-renders the panel's suggestions — no refresh of unrelated data.
+        // Then the skill suggestions, once the catalogue is known (bounded
+        // wait; unknown → this turn leaves them untouched). The store is
+        // reactive, so a turn that ONLY recommended a skill re-renders the
+        // panel's suggestions — no refresh of unrelated data.
         const catalogue = await loadCatalogue();
         const withSkills = mergeAgentDraft(
           prev,
           parsed,
           catalogue ? catalogue.items.map((s) => s.id) : null,
         );
-        setRecommendations(agentId, { skill_ids: withSkills.skill_ids, channels: withSkills.channels });
+        setRecommendations(agentId, { skill_ids: withSkills.skill_ids, channels: textOnly.channels });
       } catch (e) {
         setApplyError(agentId, String(e));
       }

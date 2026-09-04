@@ -94,8 +94,11 @@ export interface AtomicTabDef {
    * The tab stays REGISTERED regardless (so
    * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
    * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette — filter on it.
-   * One field here rather than a filter in each consumer: a new consumer of
-   * `STRIP_CATEGORIES` inherits the rule instead of re-deriving it.
+   * One field here rather than a filter in each consumer — but the rule is
+   * applied ONLY by `visibleTabs(ctx)`. `STRIP_CATEGORIES` / `ALL_TABS` are
+   * the UNFILTERED registry, for looking a def up by id (the chat header's
+   * `ALL_TAB_DEFS`) and resolving the drawer title; a new panel entry must go
+   * through `visibleTabs`, or it will offer this tab to every agent.
    */
   conditional?: 'studio';
 }

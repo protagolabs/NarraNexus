@@ -4,6 +4,13 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (六轮) — 渠道建议也不等目录
+
+`channels` 只按编译期 `SUPPORTED_CHANNELS` 过滤，与目录无关，随文本字段那一段立刻写入；
+`setRecommendations` 是整体覆盖，这一段的 `skill_ids` 原样带回 `prev.skill_ids`，不然会把
+此前几轮接受的 skill 建议清空。目录落地后第二段只覆写 `skill_ids`。测试断言目录永不 settle 时
+渠道建议在 `applyLiveFields` 之后立刻可读。
+
 ## 2026-09-04 (评审五轮) — 文本写入不再等目录
 
 `applyFromReply` 先 `readCurrentConfig` → `mergeAgentDraft(prev, parsed, null)` → 立刻

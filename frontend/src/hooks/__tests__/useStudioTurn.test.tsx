@@ -42,19 +42,25 @@ describe('useStudioTurn.applyFromReply', () => {
     try {
       h.searchMarketplaceSkills.mockReturnValue(new Promise(() => undefined)); // stalled
       const { result } = renderHook(() => useStudioTurn(AGENT));
-      const reply = `ok<agent_draft>{"name":"Briefing","skill_ids":["web-search"]}</agent_draft>`;
+      const reply = `ok<agent_draft>{"name":"Briefing","skill_ids":["web-search"],"channels":["telegram"]}</agent_draft>`;
       let settled = false;
       const applying = result.current.applyFromReply(reply).then(() => {
         settled = true;
       });
+      // Text fields and channel suggestions land BEFORE the catalogue wait
+      // resolves — neither depends on the marketplace.
+      await vi.advanceTimersByTimeAsync(0);
+      const { api } = await import('@/lib/api');
+      expect(api.updateAgent).toHaveBeenCalledWith(AGENT, 'Briefing', 'd');
+      expect(useStudioStore.getState().recommendations[AGENT]?.channels).toEqual(['telegram']);
+      expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(MARKETPLACE_SEARCH_TIMEOUT_MS + 3_000);
       await applying;
       expect(settled).toBe(true);
-      // the text write happened; the skill suggestion stayed as it was
-      // (catalogue unknown → untouched), and nothing was left hanging.
-      const { api } = await import('@/lib/api');
-      expect(api.updateAgent).toHaveBeenCalledWith(AGENT, 'Briefing', 'd');
+      // the skill suggestion stayed as it was (catalogue unknown → untouched),
+      // and nothing was left hanging.
       expect(useStudioStore.getState().recommendations[AGENT]?.skill_ids ?? []).toEqual([]);
+      expect(useStudioStore.getState().recommendations[AGENT]?.channels).toEqual(['telegram']);
     } finally {
       vi.useRealTimers();
     }
