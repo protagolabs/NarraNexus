@@ -27,6 +27,7 @@ import {
   ListTodo,
   Inbox,
   PanelLeft,
+  Puzzle,
   SlidersHorizontal,
   Check,
   Sparkles,
@@ -80,6 +81,8 @@ export interface ChatHeaderProps {
   onChatTabChange: (tab: 'conversation' | 'inner') => void;
   /** Opens the per-agent model & framework panel (AgentLlmConfigPanel). */
   onOpenAgentConfig: () => void;
+  /** Opens the per-agent capability switches (AgentCapabilitiesPanel). */
+  onOpenCapabilities: () => void;
 }
 
 export function ChatHeader({
@@ -91,6 +94,7 @@ export function ChatHeader({
   chatTab,
   onChatTabChange,
   onOpenAgentConfig,
+  onOpenCapabilities,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -343,6 +347,18 @@ export function ChatHeader({
                 >
                   <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
                   {t('chat.header.modelFramework')}
+                </button>
+                {/* Per-agent capability switches (plugin platform batch 5c). */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailOpen(false);
+                    onOpenCapabilities();
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
+                >
+                  <Puzzle className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
+                  {t('chat.header.capabilities')}
                 </button>
                 {/* Plugin actions (ui.chatHeaderActions), gated by `when`. */}
                 {headerActions.map((entry) => {

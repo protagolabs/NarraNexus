@@ -287,9 +287,22 @@
       "sessionLabel": "sessão · {{time}}",
       "detailMenuTitle": "Detalhes do agente — painéis",
       "modelFramework": "Modelo e framework",
-      "switchAgent": "Trocar de agente"
+      "switchAgent": "Trocar de agente",
+      "capabilities": "Capacidades"
     },
-    "composerPrivacyHint": "Evite compartilhar informações pessoais sensíveis."
+    "composerPrivacyHint": "Evite compartilhar informações pessoais sensíveis.",
+    "capabilities": {
+      "title": "Capacidades",
+      "subtitle": "Quais módulos participam dos turnos deste agente. Módulos integrados ficam ativos por padrão; módulos instalados por plugins ficam desativados até você ativá-los. As alterações valem a partir da próxima execução.",
+      "builtin": "integrado",
+      "plugin": "plugin",
+      "locked": "Sempre ativo",
+      "tokens": "~{{count}} tokens de prompt",
+      "budget": "Os módulos ativos declaram ~{{enabled}} tokens ({{ratio}}× a base integrada de {{baseline}}).",
+      "overBudget": "Acima do orçamento: os módulos ativos declaram ~{{enabled}} tokens, {{ratio}}× a base integrada de {{baseline}}.",
+      "loadFailed": "Não foi possível carregar as capacidades",
+      "saveFailed": "Não foi possível salvar a alteração"
+    }
   },
   "awareness": {
     "common": {

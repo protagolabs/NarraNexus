@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -668,3 +668,7 @@ was already i18n'd; only ChatPanel's dialog was missed.
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-04 · mounts AgentCapabilitiesPanel (batch 5c)
+
+Opened from the header menu; state `agentCapsOpen`.

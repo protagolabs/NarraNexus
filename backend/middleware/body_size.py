@@ -79,6 +79,12 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
         MAX_APPLY_TO_AGENTS_BYTES,
     ),
     (
+        # per-agent capability switch: {"enabled": bool} (plugin platform batch 5c)
+        frozenset({"PUT"}),
+        re.compile(r"^/api/agents/[^/]+/capabilities/[^/]+$"),
+        MAX_APPLY_TO_AGENTS_BYTES,
+    ),
+    (
         frozenset({"POST"}),
         re.compile(r"^/api/plugin-factory(/|$)"),
         MAX_PLUGIN_FACTORY_BYTES,

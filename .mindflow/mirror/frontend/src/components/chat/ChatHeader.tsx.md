@@ -81,3 +81,7 @@ deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 The ⋯ menu lists `chatHeaderActions` entries (when-filtered for `conversationKind:chat`, ordered) after the model/framework row; each runs with `{agentId}` and closes the menu.
+
+## 2026-09-04 · capabilities entry (batch 5c)
+
+The detail menu gains "Capabilities" (`onOpenCapabilities`) under "Model & framework".

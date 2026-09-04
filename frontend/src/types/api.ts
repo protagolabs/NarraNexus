@@ -1442,6 +1442,29 @@ export interface ChannelSchema {
   external_id_field: string;
 }
 
+/** One registered module as the owner's capability panel sees it (plugin platform batch 5c). */
+export interface AgentCapabilityItem {
+  module_class: string;
+  name: string;
+  icon: string;
+  description: string;
+  owner: string;
+  builtin: boolean;
+  enabled: boolean;
+  default_enabled: boolean;
+  explicit: boolean;
+  locked: boolean;
+  always_load: boolean;
+  context_cost_hint: number | null;
+  priority: number;
+}
+
+export interface AgentCapabilitiesView {
+  agent_id: string;
+  capabilities: AgentCapabilityItem[];
+  budget: { baseline_tokens: number; enabled_tokens: number; ratio: number; over_budget: boolean };
+}
+
 /** The public half of a generic channel credential (identity fields only; secrets never leave the server). */
 export interface ChannelCredentialView {
   channel: string;

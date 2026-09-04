@@ -331,8 +331,8 @@ class ModuleLoader:
         # ===== Add always-loaded modules (no Instance record needed) =====
         all_active_instances = self._add_always_load_modules(all_active_instances)
 
-        # Create Module objects and bind to instances
-        active_instances = self._create_module_objects(all_active_instances)
+        # Create Module objects and bind to instances (only the agent's enabled capabilities)
+        active_instances = self._create_module_objects(await self._drop_disabled(all_active_instances))
 
         # Calculate changes (only calculate task module changes)
         changes_summary = self._calculate_changes(task_instances, task_active_instances)
@@ -393,8 +393,8 @@ class ModuleLoader:
         all_instances = self._ensure_always_available_tool_modules(all_instances)
         all_instances = self._add_always_load_modules(all_instances)
 
-        # Create Module objects and bind
-        active_instances = self._create_module_objects(all_instances)
+        # Create Module objects and bind (only the agent's enabled capabilities)
+        active_instances = self._create_module_objects(await self._drop_disabled(all_instances))
 
         logger.info(
             f"ModuleLoader: Fast-path complete (LLM skipped), "
@@ -533,6 +533,8 @@ class ModuleLoader:
             if always_module not in selected_modules:
                 selected_modules = list(selected_modules) + [always_module]
 
+        enabled = await self._enabled_map()
+        selected_modules = [name for name in selected_modules if enabled.get(name, True)]
         logger.info(f"ModuleLoader: Traditional mode, loading modules: {selected_modules}")
 
         module_list = []
@@ -551,6 +553,33 @@ class ModuleLoader:
             module_objects=module_list,
             execution_type=ExecutionPath.AGENT_LOOP,
         )
+
+    async def _enabled_map(self) -> Dict[str, bool]:
+        """The agent's capability switches (``CapabilityService``): builtin modules
+        on, plugin-installed modules off, unless the owner flipped them. No
+        database client (unit tests) → everything enabled."""
+        if self.database_client is None:
+            return {}
+        from xyz_agent_context.module.capability_service import CapabilityService
+
+        service = CapabilityService(self.database_client)
+        enabled = await service.enabled_map(self.agent_id)
+        service.warn_if_over_budget(self.agent_id, enabled)
+        return enabled
+
+    async def _drop_disabled(self, instances: List[ModuleInstance]) -> List[ModuleInstance]:
+        """Instances of modules the owner disabled for this agent (or plugin
+        modules never enabled) do not bind: their instructions, tools and hooks
+        stay out of the turn."""
+        enabled = await self._enabled_map()
+        if not enabled:
+            return instances
+        kept, dropped = [], []
+        for inst in instances:
+            (kept if enabled.get(inst.module_class, True) else dropped).append(inst)
+        if dropped:
+            logger.info(f"ModuleLoader: {len(dropped)} instance(s) skipped — capability disabled for this agent: {sorted({i.module_class for i in dropped})}")
+        return kept
 
     def _create_module_objects(
         self,

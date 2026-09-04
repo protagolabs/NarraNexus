@@ -1099,3 +1099,7 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 ## 2026-09-04 · `channel_credentials` is the only live credential table (batch 4d.2)
 
 The six per-channel credential tables stay registered (rule #6: never dropped; `credential_legacy` copies them in once) but nothing writes them any more. Comment on the generic table updated accordingly.
+
+## 2026-09-04 · `agent_capabilities` (batch 5c)
+
+The owner's per-agent capability switches, unique per (agent_id, capability); no row = the default rule. Written by the capabilities route, read by the loader.

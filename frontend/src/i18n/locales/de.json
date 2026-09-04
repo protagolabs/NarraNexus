@@ -287,9 +287,22 @@
       "sessionLabel": "Sitzung · {{time}}",
       "detailMenuTitle": "Agent-Details — Panels",
       "modelFramework": "Modell & Framework",
-      "switchAgent": "Agent wechseln"
+      "switchAgent": "Agent wechseln",
+      "capabilities": "Fähigkeiten"
     },
-    "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten."
+    "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten.",
+    "capabilities": {
+      "title": "Fähigkeiten",
+      "subtitle": "Welche Module an den Runden dieses Agenten teilnehmen. Eingebaute Module sind standardmäßig an; von Plugins installierte Module bleiben aus, bis du sie einschaltest. Änderungen gelten ab dem nächsten Lauf.",
+      "builtin": "eingebaut",
+      "plugin": "Plugin",
+      "locked": "Immer an",
+      "tokens": "~{{count}} Prompt-Tokens",
+      "budget": "Aktive Module deklarieren ~{{enabled}} Prompt-Tokens ({{ratio}}× der eingebauten Basis von {{baseline}}).",
+      "overBudget": "Über Budget: aktive Module deklarieren ~{{enabled}} Prompt-Tokens, {{ratio}}× der eingebauten Basis von {{baseline}}.",
+      "loadFailed": "Fähigkeiten konnten nicht geladen werden",
+      "saveFailed": "Änderung konnte nicht gespeichert werden"
+    }
   },
   "awareness": {
     "common": {

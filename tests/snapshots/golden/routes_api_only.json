@@ -6,6 +6,11 @@
   ],
   [
     "DELETE",
+    "/api/agents/{agent_id}/capabilities/{module_class}",
+    "reset_capability"
+  ],
+  [
+    "DELETE",
     "/api/agents/{agent_id}/channels/{channel}/credential",
     "delete_channel_credential"
   ],
@@ -158,6 +163,11 @@
     "GET",
     "/api/agents/{agent_id}/bus-failures",
     "list_bus_failures"
+  ],
+  [
+    "GET",
+    "/api/agents/{agent_id}/capabilities",
+    "get_capabilities"
   ],
   [
     "GET",
@@ -1303,6 +1313,11 @@
     "PUT",
     "/api/agents/{agent_id}/awareness",
     "update_agent_awareness"
+  ],
+  [
+    "PUT",
+    "/api/agents/{agent_id}/capabilities/{module_class}",
+    "set_capability"
   ],
   [
     "PUT",

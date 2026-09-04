@@ -1139,6 +1139,25 @@ _register(
 # same card-lookup / self-heal / driver-dispatch code — no special-casing.
 _register(
     TableDef(
+        name="agent_capabilities",
+        # Plugin platform batch 5c: the owner's per-agent capability switches.
+        # One row per (agent, module class) the owner touched; no row = the
+        # default rule (builtin on, plugin-installed off — context budget).
+        # Read by ModuleLoader every turn, written by /api/agents/{id}/capabilities.
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("capability", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_agent_capabilities_agent_cap", ["agent_id", "capability"], unique=True)],
+    )
+)
+
+_register(
+    TableDef(
         name="agent_slots",
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),

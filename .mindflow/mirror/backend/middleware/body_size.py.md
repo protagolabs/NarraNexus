@@ -66,3 +66,7 @@ env-gated 模板采样,而 `test_every_env_gated_capped_template_has_a_cap`
 ## 2026-09-04 · webhook transport (batch 4c)
 
 Generic channel routes: 64 KiB for bind/test/unbind/set-active, 256 KiB for `/api/channels/{channel}/webhook/{agent_id}`.
+
+## 2026-09-04 · capability switch cap (batch 5c)
+
+`PUT /api/agents/{id}/capabilities/{module}` carries `{"enabled": bool}` — capped at the same 4 KiB as apply-to-agents.

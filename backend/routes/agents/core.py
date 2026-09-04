@@ -20,6 +20,7 @@ from backend.routes.agents.attachments import router as attachments_router
 from backend.routes.agents.mcps import router as mcps_router
 from backend.routes.agents.cost import router as cost_router
 from backend.routes.agents.bus_failures import router as bus_failures_router
+from backend.routes.agents.capabilities import router as capabilities_router
 from backend.routes.agents.llm_config import router as llm_config_router
 from backend.routes.agents.circuit_breaker import router as circuit_breaker_router
 from backend.routes.agents.general_memory import router as general_memory_router
@@ -37,6 +38,7 @@ router.include_router(mcps_router)
 router.include_router(cost_router)
 router.include_router(bus_failures_router)
 router.include_router(llm_config_router)
+router.include_router(capabilities_router)
 router.include_router(general_memory_router)
 router.include_router(circuit_breaker_router)
 router.include_router(channel_credentials_router)

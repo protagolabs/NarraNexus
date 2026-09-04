@@ -356,7 +356,8 @@
       "sessionLabel": "会话 · {{time}}",
       "detailMenuTitle": "Agent 详情 — 面板入口",
       "modelFramework": "模型与框架",
-      "switchAgent": "切换 agent"
+      "switchAgent": "切换 agent",
+      "capabilities": "能力"
     },
     "composerPrivacyHint": "请勿分享敏感个人信息。",
     "steer": {
@@ -372,6 +373,18 @@
         "run_ended": "运行已先结束",
         "unknown": "未能送达"
       }
+    },
+    "capabilities": {
+      "title": "能力开关",
+      "subtitle": "决定哪些模块参与此 agent 的回合。内置模块默认开启；插件安装的模块默认关闭，直到你手动开启。更改在下一次运行生效。",
+      "builtin": "内置",
+      "plugin": "插件",
+      "locked": "始终开启",
+      "tokens": "约 {{count}} 个提示词 token",
+      "budget": "已开启模块声明约 {{enabled}} 个提示词 token（为内置基线 {{baseline}} 的 {{ratio}} 倍）。",
+      "overBudget": "超出预算：已开启模块声明约 {{enabled}} 个提示词 token，为内置基线 {{baseline}} 的 {{ratio}} 倍。",
+      "loadFailed": "无法加载能力列表",
+      "saveFailed": "无法保存更改"
     }
   },
   "awareness": {

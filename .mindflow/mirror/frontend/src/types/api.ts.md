@@ -233,3 +233,7 @@ api.ts.md 的 coachmark 门控段）。
 ## 2026-09-04 · `AgentKind` accepts any channel (batch 4e)
 
 The IM-channel kinds are the source upper-cased (`LARK`, `MATRIX`, a plugin's `ACME_CHAT`), typed as `Uppercase<string>` instead of a closed list.
+
+## 2026-09-04 · `AgentCapabilityItem` / `AgentCapabilitiesView` (batch 5c)
+
+The capabilities route's view: one item per registered module + the budget.

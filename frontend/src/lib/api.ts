@@ -5,6 +5,7 @@
 
 import type { Artifact, TeamFile } from '@/types/artifact';
 import type {
+  AgentCapabilitiesView,
   ChannelCredentialView,
   ChannelSchema,
   MigrationFramework,
@@ -1626,6 +1627,23 @@ class ApiClient {
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
+  }
+
+  // ---- per-agent capabilities (plugin platform batch 5c): which registered modules take part in this agent's turns.
+  async getAgentCapabilities(agentId: string): Promise<{ success: boolean; detail?: string; data?: AgentCapabilitiesView }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities`);
+  }
+
+  async setAgentCapability(agentId: string, moduleClass: string, enabled: boolean): Promise<{ success: boolean; detail?: string; data?: { module_class: string; enabled: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async resetAgentCapability(agentId: string, moduleClass: string): Promise<{ success: boolean; data?: { module_class: string; reset: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, { method: 'DELETE' });
   }
 
   /** Set (or replace) this agent's override for one slot. */

@@ -356,7 +356,8 @@
       "sessionLabel": "session · {{time}}",
       "detailMenuTitle": "Agent detail — panels",
       "modelFramework": "Model & framework",
-      "switchAgent": "Switch agent"
+      "switchAgent": "Switch agent",
+      "capabilities": "Capabilities"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information.",
     "steer": {
@@ -372,6 +373,18 @@
         "run_ended": "the run finished first",
         "unknown": "couldn't be delivered"
       }
+    },
+    "capabilities": {
+      "title": "Capabilities",
+      "subtitle": "Which modules take part in this agent's turns. Builtin modules are on by default; modules installed by plugins stay off until you turn them on. Changes apply on the next run.",
+      "builtin": "builtin",
+      "plugin": "plugin",
+      "locked": "Always on",
+      "tokens": "~{{count}} prompt tokens",
+      "budget": "Enabled modules declare ~{{enabled}} prompt tokens ({{ratio}}× the builtin baseline of {{baseline}}).",
+      "overBudget": "Over budget: enabled modules declare ~{{enabled}} prompt tokens, {{ratio}}× the builtin baseline of {{baseline}}.",
+      "loadFailed": "Could not load capabilities",
+      "saveFailed": "Could not save the change"
     }
   },
   "awareness": {

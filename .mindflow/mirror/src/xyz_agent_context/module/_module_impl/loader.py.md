@@ -23,3 +23,7 @@ The prefix map lists core modules only; `LarkModule` → `lark` comes from the g
 ## 2026-09-04 · no JobModule literal (batch 5b.2)
 
 `_ensure_job_module_available` → `_ensure_always_available_tool_modules` (every module declaring `always_available_tools`); the supplemented job instance uses the module declaring role "jobs".
+
+## 2026-09-04 · only enabled capabilities bind (batch 5c)
+
+`_enabled_map` (via `CapabilityService`) and `_drop_disabled` run before `_create_module_objects` on the decision path, the fast path and the traditional list: instances of modules the owner disabled — or plugin modules never enabled — never bind, so their instructions, tools and hooks stay out of the turn; the budget warning fires here. No database client (unit tests) → nothing is filtered.

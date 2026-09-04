@@ -24,6 +24,7 @@ import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
+import { AgentCapabilitiesPanel } from './AgentCapabilitiesPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn, formatChatTimestamp, generateId } from '@/lib/utils';
@@ -190,6 +191,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Per-agent model/framework panel, opened from the header. A bump on save
   // tells the composer model chip to re-read the (possibly changed) model.
   const [agentCfgOpen, setAgentCfgOpen] = useState(false);
+  const [agentCapsOpen, setAgentCapsOpen] = useState(false);
   const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -972,6 +974,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         chatTab={chatTab}
         onChatTabChange={setChatTab}
         onOpenAgentConfig={() => setAgentCfgOpen(true)}
+        onOpenCapabilities={() => setAgentCapsOpen(true)}
       />
 
       {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
@@ -1528,6 +1531,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           onClose={() => setAgentCfgOpen(false)}
           onSaved={() => setModelReloadKey((k) => k + 1)}
         />
+      )}
+
+      {/* Per-agent capability switches (opened from the header menu). */}
+      {agentId && (
+        <AgentCapabilitiesPanel agentId={agentId} isOpen={agentCapsOpen} onClose={() => setAgentCapsOpen(false)} />
       )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

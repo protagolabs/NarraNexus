@@ -287,9 +287,22 @@
       "sessionLabel": "session · {{time}}",
       "detailMenuTitle": "Détail de l'agent — panneaux",
       "modelFramework": "Modèle & framework",
-      "switchAgent": "Changer d'agent"
+      "switchAgent": "Changer d'agent",
+      "capabilities": "Capacités"
     },
-    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
+    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
+    "capabilities": {
+      "title": "Capacités",
+      "subtitle": "Quels modules participent aux tours de cet agent. Les modules intégrés sont activés par défaut ; ceux installés par des plugins restent désactivés jusqu'à ce que vous les activiez. Les changements s'appliquent à la prochaine exécution.",
+      "builtin": "intégré",
+      "plugin": "plugin",
+      "locked": "Toujours actif",
+      "tokens": "~{{count}} jetons de prompt",
+      "budget": "Les modules activés déclarent ~{{enabled}} jetons ({{ratio}}× la base intégrée de {{baseline}}).",
+      "overBudget": "Budget dépassé : les modules activés déclarent ~{{enabled}} jetons, {{ratio}}× la base intégrée de {{baseline}}.",
+      "loadFailed": "Impossible de charger les capacités",
+      "saveFailed": "Impossible d'enregistrer le changement"
+    }
   },
   "awareness": {
     "common": {
