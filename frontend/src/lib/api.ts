@@ -121,6 +121,7 @@ import type {
   FactoryInstallResponse,
   FactoryErrorsResponse,
   FactoryIndexResponse,
+  FactoryProposalsResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1513,6 +1514,14 @@ class ApiClient {
 
   async factoryBisectAnswer(good: boolean): Promise<ApiResponse & { data?: { trial: string[]; remaining: number; culprit: string | null } }> {
     return this.request(`/api/plugin-factory/bisect/answer`, { method: 'POST', body: JSON.stringify({ good }) });
+  }
+
+  async factoryProposals(): Promise<FactoryProposalsResponse> {
+    return this.request(`/api/plugin-factory/proposals`);
+  }
+
+  async factoryDecide(proposalId: string, approved: boolean): Promise<ApiResponse & { data?: { decision: string; restart_required?: boolean } }> {
+    return this.request(`/api/plugin-factory/proposals/${encodeURIComponent(proposalId)}/decide`, { method: 'POST', body: JSON.stringify({ approved }) });
   }
 
   async factoryErrors(id: string): Promise<FactoryErrorsResponse> {

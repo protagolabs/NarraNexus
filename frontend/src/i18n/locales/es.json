@@ -1432,7 +1432,14 @@
             "crashed": "falló",
             "disabled": "desactivado",
             "slow": "lento"
-          }
+          },
+          "proposalsTitle": "Pendiente de tu aprobación",
+          "proposalBy": "solicitado por el agente {{agent}}",
+          "proposalTestsGreen": "Pruebas superadas ({{count}})",
+          "proposalTestsRed": "Las pruebas no pasaron",
+          "proposalApprove": "Aprobar",
+          "proposalReject": "Rechazar",
+          "noPermissions": "No se solicitan permisos especiales"
         }
       }
     },

@@ -68,6 +68,7 @@ from xyz_agent_context.module.discord_module.discord_module import DiscordModule
 from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
 from xyz_agent_context.module.general_memory_module.general_memory_module import GeneralMemoryModule
 from xyz_agent_context.module.home_assistant_module.home_assistant_module import HomeAssistantModule
+from xyz_agent_context.module.nexus_plugins_module.nexus_plugins_module import NexusPluginsModule
 
 # Module mapping table.
 MODULE_MAP = {
@@ -87,6 +88,7 @@ MODULE_MAP = {
     "CommonToolsModule": CommonToolsModule,
     "GeneralMemoryModule": GeneralMemoryModule,
     "HomeAssistantModule": HomeAssistantModule,
+    "NexusPluginsModule": NexusPluginsModule,
 }
 
 

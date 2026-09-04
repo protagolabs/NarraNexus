@@ -111,3 +111,24 @@ def test_main_app_mounts_the_factory_router():
 
     paths = {getattr(r, "path", "") for r in main.app.routes}
     assert "/api/plugin-factory" in paths and "/api/plugin-factory/install" in paths
+
+
+def test_proposals_are_listed_and_decided_by_the_user(client, tmp_path: Path, monkeypatch):
+    c, svc, home = client
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    from narranexus.kernel.plugins.install import Installer, LocalSource
+    from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+
+    src = _plugin(tmp_path / "dev" / "acme.weather")
+    Installer(store=svc.store, host="1.19.0").install(LocalSource(src, mode="link"), installed_by="agent:a1", scope="agent:a1")
+    svc.store.set_enabled("acme.weather", False)
+    p = ProposalStore().create(plugin_id="acme.weather", agent_id="a1", user_id="u1", action="activate", scope="agent", summary="Activate", permissions={"network": ["x"]}, test_report={"ok": True}, diff_hash="h")
+    listed = c.get("/api/plugin-factory/proposals", headers=H).json()["data"]["proposals"]
+    assert [x["id"] for x in listed] == [p.id] and listed[0]["permissions"] == {"network": ["x"]}
+    r = c.post(f"/api/plugin-factory/proposals/{p.id}/decide", json={"approved": True}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["decision"] == "approved"
+    rec = svc.store.read().plugins["acme.weather"]
+    assert rec.enabled and rec.scope == "agent:a1" and rec.permissions_acknowledged
+    assert c.get("/api/plugin-factory/proposals", headers=H).json()["data"]["proposals"] == []
+    assert c.post(f"/api/plugin-factory/proposals/{p.id}/decide", json={"approved": False}, headers=H).status_code == 400  # already decided
+    assert c.post("/api/plugin-factory/proposals/prop_nope/decide", json={"approved": True}, headers=H).status_code == 404

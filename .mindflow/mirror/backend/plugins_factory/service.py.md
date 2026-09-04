@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2f.1）— 提案与审计
+
+`proposals()`/`decide_proposal()`：用户在工场页批准/拒绝 Agent 的提案，批准即 `SelfExtensionService.apply_decision`
+（enable + scope + 权限确认 / 安装 / 升级）；`record_error` 同时写审计 `ui_error` 行供 observe 窗口读。
+
 ## 2026-09-03（批 2d）— 列表行带 `frontend`/`activation_events`/`protected`
 
 前端加载器只靠这一个端点就知道要登记哪些 gate、哪些事件激活、去哪取 bundle。

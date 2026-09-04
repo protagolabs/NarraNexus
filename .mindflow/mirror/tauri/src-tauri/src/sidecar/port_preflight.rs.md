@@ -1,7 +1,11 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-07-27
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2f.1）— `REQUIRED_PORTS` 加 7811（NexusPluginsModule）
+
+`tests/module/test_port_preflight_ports_sync.py` 钉住 Rust 数组与 `CORE_MODULE_PORTS` 同步。
 
 ## 2026-07-27 — REQUIRED_PORTS 补齐 4 个漏检端口 + Python 防腐化闸门
 

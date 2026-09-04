@@ -1465,6 +1465,26 @@ export interface FactoryInstallResponse extends ApiResponse {
   };
 }
 
+export interface FactoryProposal {
+  id: string;
+  plugin_id: string;
+  agent_id: string;
+  user_id: string;
+  action: 'activate' | 'install' | 'upgrade' | 'deactivate';
+  scope: string;
+  summary: string;
+  permissions: FactoryPlugin['permissions'];
+  test_report: { ok?: boolean; passed?: number; report_hash?: string };
+  diff_hash: string;
+  created_at: number;
+  decision: 'pending' | 'approved' | 'rejected' | 'expired';
+  extra: Record<string, unknown>;
+}
+
+export interface FactoryProposalsResponse extends ApiResponse {
+  data?: { proposals: FactoryProposal[] };
+}
+
 export interface FactoryErrorsResponse extends ApiResponse {
   data?: { errors: { at: number; kind: string; message: string; stack: string }[] };
 }

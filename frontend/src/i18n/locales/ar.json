@@ -1440,7 +1440,14 @@
             "crashed": "تعطّلت",
             "disabled": "معطّلة",
             "slow": "بطيئة"
-          }
+          },
+          "proposalsTitle": "بانتظار موافقتك",
+          "proposalBy": "طلبه الوكيل {{agent}}",
+          "proposalTestsGreen": "نجحت الاختبارات ({{count}})",
+          "proposalTestsRed": "لم تنجح الاختبارات",
+          "proposalApprove": "موافقة",
+          "proposalReject": "رفض",
+          "noPermissions": "لم تُطلب أذونات خاصة"
         }
       }
     },

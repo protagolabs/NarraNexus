@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import time
 from collections import deque
+
+from loguru import logger
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -219,7 +221,35 @@ class FactoryService:
     def record_error(self, plugin_id: str, *, kind: str, message: str, stack: str = "") -> int:
         log = self._errors.setdefault(plugin_id, deque(maxlen=ERROR_LOG_LIMIT))
         log.append(UiError(at=time.time(), kind=kind, message=message[:2000], stack=stack[:8000]))
+        try:
+            # The self-extension observation window reads these rows (audit timeline in the plugin home).
+            from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import Audit
+
+            Audit().record(agent_id="", user_id="", plugin_id=plugin_id, action="ui_error", why=kind, extra={"message": message[:500]})
+        except Exception as exc:  # noqa: BLE001 — never fail an error report
+            logger.debug(f"[plugins] audit write skipped: {exc}")
         return len(log)
+
+    # ----------------------------------------------------------- proposals
+
+    def proposals(self, *, pending_only: bool = True) -> list[dict[str, Any]]:
+        from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+
+        return [asdict(p) for p in ProposalStore().list(pending_only=pending_only)]
+
+    def decide_proposal(self, proposal_id: str, *, approved: bool, by: str) -> dict[str, Any]:
+        self._guard_mutation()
+        from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
+        from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+
+        p = ProposalStore().get(proposal_id)
+        if p is None:
+            raise NotInstalled(f"proposal {proposal_id} not found")
+        svc = SelfExtensionService(p.agent_id, p.user_id, store=self.store)
+        try:
+            return svc.apply_decision(proposal_id, "approved" if approved else "rejected", by=by)
+        except ValueError as exc:
+            raise RegistryError(str(exc)) from exc
 
     def errors(self, plugin_id: str) -> list[dict[str, Any]]:
         return [asdict(e) for e in self._errors.get(plugin_id, ())]

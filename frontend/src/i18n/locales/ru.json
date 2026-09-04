@@ -1436,7 +1436,14 @@
             "crashed": "упал",
             "disabled": "отключён",
             "slow": "медленный"
-          }
+          },
+          "proposalsTitle": "Ожидает вашего одобрения",
+          "proposalBy": "запрошено агентом {{agent}}",
+          "proposalTestsGreen": "Тесты пройдены ({{count}})",
+          "proposalTestsRed": "Тесты не пройдены",
+          "proposalApprove": "Одобрить",
+          "proposalReject": "Отклонить",
+          "noPermissions": "Особые разрешения не запрашиваются"
         }
       }
     },

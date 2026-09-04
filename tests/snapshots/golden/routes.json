@@ -481,6 +481,11 @@
   ],
   [
     "GET",
+    "/api/plugin-factory/proposals",
+    "proposals"
+  ],
+  [
+    "GET",
     "/api/plugin-factory/{plugin_id}/assets/{path:path}",
     "asset"
   ],
@@ -1163,6 +1168,11 @@
     "POST",
     "/api/plugin-factory/install",
     "install"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/proposals/{proposal_id}/decide",
+    "decide"
   ],
   [
     "POST",

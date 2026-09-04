@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   factoryBisect: vi.fn(),
   factoryBisectAnswer: vi.fn(),
   factoryErrors: vi.fn(),
+  factoryProposals: vi.fn(),
+  factoryDecide: vi.fn(),
 }));
 vi.mock('@/lib/api', () => ({ api: mocks }));
 
@@ -45,6 +47,21 @@ beforeEach(() => {
   mocks.factoryBisect.mockResolvedValue({ success: true, data: {} });
   mocks.factoryBisectAnswer.mockResolvedValue({ success: true, data: {} });
   mocks.factoryErrors.mockResolvedValue({ success: true, data: { errors: [{ at: 1, kind: 'render', message: 'boom', stack: '' }] } });
+  mocks.factoryProposals.mockResolvedValue({ success: true, data: { proposals: [] } });
+  mocks.factoryDecide.mockResolvedValue({ success: true, data: { decision: 'approved', restart_required: true } });
+});
+
+it('shows agent proposals with permissions and test status; approve/reject decide them', async () => {
+  mocks.factoryProposals.mockResolvedValue({ success: true, data: { proposals: [{ id: 'prop_1', plugin_id: 'me.weather', agent_id: 'a1', user_id: 'u1', action: 'activate', scope: 'agent', summary: 'Activate me.weather', permissions: { subprocess: true }, test_report: { ok: true, passed: 3 }, diff_hash: 'h', created_at: 1, decision: 'pending', extra: {} }] } });
+  render(<PluginFactory />);
+  const card = await screen.findByTestId('proposal-prop_1');
+  expect(card).toHaveTextContent('Activate me.weather');
+  expect(card).toHaveTextContent('Tests passed (3)');
+  expect(card).toHaveTextContent('Runs subprocesses');
+  fireEvent.click(screen.getByText('Approve'));
+  await waitFor(() => expect(mocks.factoryDecide).toHaveBeenCalledWith('prop_1', true));
+  fireEvent.click(screen.getByText('Reject'));
+  await waitFor(() => expect(mocks.factoryDecide).toHaveBeenCalledWith('prop_1', false));
 });
 afterEach(() => vi.clearAllMocks());
 

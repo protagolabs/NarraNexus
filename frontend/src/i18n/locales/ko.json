@@ -1431,7 +1431,14 @@
             "crashed": "충돌",
             "disabled": "비활성",
             "slow": "느림"
-          }
+          },
+          "proposalsTitle": "승인 대기 중",
+          "proposalBy": "에이전트 {{agent}}의 요청",
+          "proposalTestsGreen": "테스트 통과 ({{count}})",
+          "proposalTestsRed": "테스트 실패",
+          "proposalApprove": "승인",
+          "proposalReject": "거부",
+          "noPermissions": "특별한 권한을 요청하지 않음"
         }
       }
     },

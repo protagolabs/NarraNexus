@@ -20,7 +20,7 @@ import { AlertTriangle, Download, Power, PowerOff, RefreshCw, RotateCcw, Trash2 
 
 import { api } from '@/lib/api';
 import { Button, PaperCard, StatusBadge, TextInput } from '@/components/nm';
-import type { FactoryListResponse, FactoryPlugin } from '@/types';
+import type { FactoryListResponse, FactoryPlugin, FactoryProposal } from '@/types';
 
 type Data = NonNullable<FactoryListResponse['data']>;
 
@@ -48,6 +48,7 @@ export function PluginFactory() {
   const [errorText, setErrorText] = useState('');
   const [openErrors, setOpenErrors] = useState<Record<string, { at: number; kind: string; message: string }[] | undefined>>({});
   const [pendingAck, setPendingAck] = useState<FactoryPlugin | null>(null);
+  const [proposals, setProposals] = useState<FactoryProposal[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +58,11 @@ export function PluginFactory() {
         setLoadError('');
       } else {
         setLoadError(res.error || t('pages.settings.plugins.factory.loadFailed'));
+      }
+      if (!res.data?.cloud_managed) {
+        // Agent-originated requests waiting for the user (self-extension, spec §11.5).
+        const props = await api.factoryProposals().catch(() => null);
+        setProposals(props?.data?.proposals ?? []);
       }
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : t('pages.settings.plugins.factory.loadFailed'));
@@ -188,6 +194,38 @@ export function PluginFactory() {
         {errorText && <p className="text-xs text-[var(--color-error)]" role="alert">{errorText}</p>}
         {notice && <p className="text-xs text-[var(--color-warning)]" role="status">{notice}</p>}
       </PaperCard>
+
+      {proposals.length > 0 && (
+        <div className="space-y-2" data-testid="proposals">
+          <div className="text-sm font-medium text-[var(--nm-ink)]">{t(`${fp}.proposalsTitle`)}</div>
+          {proposals.map((p) => (
+            <PaperCard key={p.id} padding="md" className="space-y-2 border border-[var(--color-info)]" data-testid={`proposal-${p.id}`}>
+              <div className="text-sm text-[var(--nm-ink)]">{p.summary}</div>
+              <div className="text-xs font-mono text-[var(--nm-ink50)]">{p.plugin_id} · {p.action} · {p.scope} · {t(`${fp}.proposalBy`, { agent: p.agent_id })}</div>
+              {p.test_report?.ok !== undefined && (
+                <div className="text-xs text-[var(--nm-ink70)]">
+                  {p.test_report.ok ? t(`${fp}.proposalTestsGreen`, { count: p.test_report.passed ?? 0 }) : t(`${fp}.proposalTestsRed`)}
+                </div>
+              )}
+              <ul className="text-xs text-[var(--nm-ink70)] list-disc pl-4 space-y-0.5">
+                {p.permissions?.network?.length ? <li>{t(`${fp}.permissionsNetwork`)}: {p.permissions.network.join(', ')}</li> : null}
+                {p.permissions?.filesystem?.length ? <li>{t(`${fp}.permissionsFilesystem`)}: {p.permissions.filesystem.join(', ')}</li> : null}
+                {p.permissions?.subprocess ? <li>{t(`${fp}.permissionsSubprocess`)}</li> : null}
+                {p.permissions?.env?.length ? <li>{t(`${fp}.permissionsEnv`)}: {p.permissions.env.join(', ')}</li> : null}
+                {!p.permissions?.network?.length && !p.permissions?.filesystem?.length && !p.permissions?.subprocess && !p.permissions?.env?.length ? <li>{t(`${fp}.noPermissions`)}</li> : null}
+              </ul>
+              <div className="flex items-center gap-2">
+                <Button size="sm" disabled={busy !== null} onClick={() => void run(p.id, () => api.factoryDecide(p.id, true), t(`${fp}.restartRequired`))}>
+                  {t(`${fp}.proposalApprove`)}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run(p.id, () => api.factoryDecide(p.id, false))}>
+                  {t(`${fp}.proposalReject`)}
+                </Button>
+              </div>
+            </PaperCard>
+          ))}
+        </div>
+      )}
 
       {pendingAck && (
         <PaperCard padding="md" className="space-y-2 border border-[var(--color-warning)]" data-testid="permissions-dialog" role="dialog">

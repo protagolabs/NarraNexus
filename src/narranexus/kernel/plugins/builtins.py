@@ -93,6 +93,15 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "provides": {"agent.capabilities.memory_kinds": ["xyz_agent_context.memory.specs:CONTRIBUTIONS"]},
         "quality": "gold",
     },
+    {
+        "id": "builtin.nexus_plugins_module",
+        "version": "1.0.0",
+        "displayName": "Nexus Plugins Module",
+        "description": "Agent self-extension: scaffold, test, register and observe plugins (local only).",
+        "hosts": ["backend", "mcp"],
+        "protected": True,
+        "quality": "gold",
+    },
 )
 
 

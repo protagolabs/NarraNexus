@@ -1,7 +1,9 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-08-10
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2f.1）— `MODULE_MAP["NexusPluginsModule"]`
 ## 2026-08-10 — 导出 IDENTITY_TOKEN_HEADER / stamp_identity_token / BEARER_AGENT_PREFIX / parse_bearer_identity
 
 MCP caller auth(蓝图 P1):包外消费方是 [[step_3_agent_loop.py]](dispatch 时

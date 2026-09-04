@@ -129,6 +129,7 @@ CORE_MCP_MODULES = [
     "BasicInfoModule",  # port: 7808 (narrative-awareness tools — Fix #2 P3)
     "GeneralMemoryModule",  # port: 7809 (remember / grep_memory tools)
     "HomeAssistantModule",  # port: 7810 (smart-home query/control via Home Assistant)
+    "NexusPluginsModule",  # port: 7811 (agent self-extension: plugin_* tools, local only)
     "MessageBusModule",  # port: 7820
 ]
 CORE_MODULE_PORTS = {
@@ -141,6 +142,7 @@ CORE_MODULE_PORTS = {
     "BasicInfoModule": 7808,
     "GeneralMemoryModule": 7809,
     "HomeAssistantModule": 7810,
+    "NexusPluginsModule": 7811,
     "MessageBusModule": 7820,
 }
 

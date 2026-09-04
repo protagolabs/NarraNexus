@@ -1432,7 +1432,14 @@
             "crashed": "abgestürzt",
             "disabled": "deaktiviert",
             "slow": "langsam"
-          }
+          },
+          "proposalsTitle": "Wartet auf deine Freigabe",
+          "proposalBy": "angefordert von Agent {{agent}}",
+          "proposalTestsGreen": "Tests bestanden ({{count}})",
+          "proposalTestsRed": "Tests nicht bestanden",
+          "proposalApprove": "Freigeben",
+          "proposalReject": "Ablehnen",
+          "noPermissions": "Keine besonderen Berechtigungen angefordert"
         }
       }
     },

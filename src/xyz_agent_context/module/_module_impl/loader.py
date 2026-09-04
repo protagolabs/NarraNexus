@@ -70,6 +70,7 @@ class ModuleLoader:
         "SkillModule",
         "CommonToolsModule",
         "GeneralMemoryModule",  # unified memory: learns observations + injects cross-kind recall every turn
+        "NexusPluginsModule",  # agent self-extension (plugin_* tools); no-op on cloud (empty instructions, no MCP)
     ]
 
     @classmethod

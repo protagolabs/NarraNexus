@@ -1876,7 +1876,14 @@
             "crashed": "crashed",
             "disabled": "disabled",
             "slow": "slow"
-          }
+          },
+          "proposalsTitle": "Waiting for your approval",
+          "proposalBy": "requested by agent {{agent}}",
+          "proposalTestsGreen": "Tests passed ({{count}})",
+          "proposalTestsRed": "Tests did not pass",
+          "proposalApprove": "Approve",
+          "proposalReject": "Reject",
+          "noPermissions": "No special permissions requested"
         }
       }
     },

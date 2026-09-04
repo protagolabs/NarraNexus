@@ -1432,7 +1432,14 @@
             "crashed": "planté",
             "disabled": "désactivé",
             "slow": "lent"
-          }
+          },
+          "proposalsTitle": "En attente de votre approbation",
+          "proposalBy": "demandé par l’agent {{agent}}",
+          "proposalTestsGreen": "Tests réussis ({{count}})",
+          "proposalTestsRed": "Tests non réussis",
+          "proposalApprove": "Approuver",
+          "proposalReject": "Refuser",
+          "noPermissions": "Aucune permission particulière demandée"
         }
       }
     },

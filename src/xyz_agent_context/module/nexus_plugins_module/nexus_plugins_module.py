@@ -1,0 +1,74 @@
+"""
+@file_name: nexus_plugins_module.py
+@author: Bin Liang
+@date: 2026-09-03
+@description: The module shell: instructions inject the agent's plugin summary; the MCP server exposes the plugin_* tools.
+
+Shape follows ``SkillModule``: a capability module that always loads, a
+compact instruction block, and a stateless MCP server whose tools take
+``agent_id``/``user_id``. Local only — on cloud the instructions are empty
+and every tool refuses (D1: cloud ships the standard build). The module is
+itself a plugin (``builtin.nexus_plugins_module``) marked ``protected``: no
+tool here can touch it, disable it, or edit the kernel.
+"""
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from loguru import logger
+
+from narranexus.kernel.deployment import is_cloud_mode
+from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.schema.context_schema import ContextData
+from xyz_agent_context.schema.module_schema import MCPServerConfig, ModuleConfig
+
+MCP_PORT = 7811
+
+
+class NexusPluginsModule(XYZBaseModule):
+    """Agent-facing self-extension: scaffold → validate → test → register → canary → observe."""
+
+    def __init__(self, agent_id: str, user_id: Optional[str], database_client: Any = None, instance_id: Optional[str] = None, instance_ids: Optional[list[str]] = None, port: int = MCP_PORT):
+        super().__init__(agent_id=agent_id, user_id=user_id, database_client=database_client, instance_id=instance_id, instance_ids=instance_ids)
+        self.port = port
+
+    def get_config(self) -> ModuleConfig:
+        return ModuleConfig(
+            name="NexusPluginsModule",
+            priority=95,
+            enabled=True,
+            description="Lets the agent write, test, register and observe plugins for its own instance",
+            module_type="capability",
+        )
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        if is_cloud_mode():
+            return ""
+        from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import summary_for_agent
+
+        summary = summary_for_agent(self.agent_id)
+        return (
+            "## Plugins (self-extension)\n"
+            "You can extend THIS instance with plugins: plugin_docs → plugin_scaffold → plugin_edit → "
+            "plugin_validate → plugin_test → plugin_register → plugin_activate(scope=agent). Activation needs the "
+            "user's approval (a card is shown); observe with plugin_observe before asking for global scope. "
+            "Never put credentials in plugin files (use settings). "
+            f"State: {summary}\n"
+        )
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        return ""
+
+    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+        if is_cloud_mode():
+            return None
+        return MCPServerConfig(server_name="nexus_plugins_module", server_url=f"http://{mcp_host()}:{self.port}/sse", type="sse")
+
+    def create_mcp_server(self) -> Optional[Any]:
+        from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.tools import create_nexus_plugins_mcp_server
+
+        logger.debug(f"NexusPluginsModule: creating MCP server on port {self.port}")
+        return create_nexus_plugins_mcp_server(self.port)
+
+
+__all__ = ["MCP_PORT", "NexusPluginsModule"]

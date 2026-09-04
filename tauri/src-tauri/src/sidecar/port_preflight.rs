@@ -57,6 +57,7 @@ use std::process::Command;
 ///   7808   — MCP BasicInfoModule
 ///   7809   — MCP GeneralMemoryModule
 ///   7810   — MCP HomeAssistantModule
+///   7811   — MCP NexusPluginsModule (agent self-extension, local only)
 ///   7820   — MCP MessageBusModule
 ///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
 ///   7831   — MCP SlackModule
@@ -83,7 +84,7 @@ use std::process::Command;
 /// "primary four".
 pub const REQUIRED_PORTS: &[u16] = &[
     8000, 8100,                                                   // backend + sqlite proxy
-    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7809, 7810, 7820, // core MCP modules
+    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7809, 7810, 7811, 7820, // core MCP modules
     7830, 7831, 7832, 7833, 7834, 7835,                          // channel MCP modules
     47831,                                                        // LarkTrigger health endpoint
 ];

@@ -4,6 +4,8 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2f.1）— `GET /proposals`、`POST /proposals/{id}/decide`（`by` 取请求 user_id）
+
 ## 2026-09-03（批 2c）— `/api/plugin-factory`
 
 独立前缀，避免与框架安装器 `/api/plugins/{id}/install` 撞路由；不在鉴权豁免名单（401 fail-closed）。

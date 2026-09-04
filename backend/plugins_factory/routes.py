@@ -156,6 +156,21 @@ async def bisect_stop() -> dict[str, Any]:
     return {"success": True, "data": await _run(service().bisect_stop)}
 
 
+class DecideBody(BaseModel):
+    approved: bool
+
+
+@router.get("/proposals")
+async def proposals(pending_only: bool = True) -> dict[str, Any]:
+    return {"success": True, "data": {"proposals": await _run(service().proposals, pending_only=pending_only)}}
+
+
+@router.post("/proposals/{proposal_id}/decide")
+async def decide(proposal_id: str, body: DecideBody, request: Request) -> dict[str, Any]:
+    by = str(getattr(request.state, "user_id", "") or "user")
+    return {"success": True, "data": await _run(service().decide_proposal, proposal_id, approved=body.approved, by=by)}
+
+
 @router.get("/{plugin_id}/errors")
 async def errors(plugin_id: str) -> dict[str, Any]:
     return {"success": True, "data": {"errors": service().errors(plugin_id)}}

@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2f.1）— `builtin.nexus_plugins_module`（protected，无 provides）
+
+模块本身是插件；`protected: true` 让工场与自我扩展工具都不能改它。
+
 ## 2026-09-03（批 1）— 新增 `builtin.llm_clients`
 
 指向 `agent_framework.llm.helper_sdk:CONTRIBUTIONS`（anthropic/openai/cli 三个协议客户端），宿主

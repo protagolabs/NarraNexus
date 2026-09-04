@@ -1876,7 +1876,14 @@
             "crashed": "已崩溃",
             "disabled": "已停用",
             "slow": "过慢"
-          }
+          },
+          "proposalsTitle": "等待你的批准",
+          "proposalBy": "由 Agent {{agent}} 发起",
+          "proposalTestsGreen": "测试通过（{{count}}）",
+          "proposalTestsRed": "测试未通过",
+          "proposalApprove": "批准",
+          "proposalReject": "拒绝",
+          "noPermissions": "未申请特殊权限"
         }
       }
     },

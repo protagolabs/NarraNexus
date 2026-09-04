@@ -1431,7 +1431,14 @@
             "crashed": "クラッシュ",
             "disabled": "無効",
             "slow": "低速"
-          }
+          },
+          "proposalsTitle": "承認待ち",
+          "proposalBy": "エージェント {{agent}} からの要求",
+          "proposalTestsGreen": "テスト合格（{{count}}）",
+          "proposalTestsRed": "テスト不合格",
+          "proposalApprove": "承認",
+          "proposalReject": "却下",
+          "noPermissions": "特別な権限の要求はありません"
         }
       }
     },
