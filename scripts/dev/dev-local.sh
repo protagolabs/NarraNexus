@@ -77,7 +77,7 @@ echo ""
 # via ``uv pip install -e . --reinstall-package xyz-agent-context``.
 # A second ``uv sync`` in this file would undo that step and the
 # Backend tmux window would die with
-# ``ModuleNotFoundError: No module named 'xyz_agent_context'``.
+# ``ModuleNotFoundError: No module named 'narranexus'``.
 #
 # Instead: import-check; if the editable install really is gone
 # (e.g. user manually nuked .venv, or uv flapped on a Python
@@ -85,8 +85,8 @@ echo ""
 # the dep set. Same trick we end up running by hand every time
 # this drifts.
 echo -e "${Y}Verifying Python environment...${R}"
-if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null; then
-  echo -e "${Y}  xyz_agent_context editable install missing — restoring...${R}"
+if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null; then
+  echo -e "${Y}  narranexus (engine) editable install missing — restoring...${R}"
   (cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv pip install \
     --python "$PROJECT_ROOT/.venv/bin/python3" \
     -e "$PROJECT_ROOT" --no-deps --reinstall 2>&1 | tail -3) || {
@@ -95,8 +95,8 @@ if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null
     exit 1
   }
   # Re-verify; if it still fails, abort with the manual recipe.
-  "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-    echo -e "${RED}ERROR: xyz_agent_context STILL not importable after heal.${R}"
+  "$PROJECT_ROOT/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null || {
+    echo -e "${RED}ERROR: narranexus STILL not importable after heal.${R}"
     echo -e "  Manual fix: cd $PROJECT_ROOT && rm -rf .venv && uv sync && uv pip install -e . --no-deps"
     exit 1
   }

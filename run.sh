@@ -600,8 +600,8 @@ case "${1:-}" in
       exit 1
     }
     # Verify import works
-    "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-      echo -e "${RED}xyz_agent_context still not importable. Rebuilding venv from scratch...${R}"
+    "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null || {
+      echo -e "${RED}narranexus still not importable. Rebuilding venv from scratch...${R}"
       rm -rf "$SCRIPT_DIR/.venv"
       $UV_CLEAN_ENV uv sync || { echo -e "${RED}uv sync failed.${R}"; exit 1; }
       $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" || {
@@ -610,7 +610,7 @@ case "${1:-}" in
         exit 1
       }
       # Final check after rebuild
-      "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" || {
+      "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" || {
         echo -e "${RED}STILL not importable. Tell maintainer.${R}"
         exit 1
       }
