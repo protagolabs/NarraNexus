@@ -178,7 +178,7 @@ async def test_the_mark_read_path_must_see_beyond_the_injection_window(
         instance=None,
     )
 
-    await module.hook_after_event_execution(params)
+    await module.after_turn(params)
 
     row = await db_client.get_one(
         "bus_channel_members", {"channel_id": CHANNEL, "agent_id": ME}

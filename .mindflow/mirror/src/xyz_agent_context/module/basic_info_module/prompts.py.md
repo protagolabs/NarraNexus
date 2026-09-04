@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-18 — 新增「Time-bound Commitments」段
@@ -52,7 +52,7 @@ narrative 工具指引之后新增 feedback 职责段：两个触发条件（用
 模板里的 `Your LLM model: **{agent_info_model_type}** ({model_name}).` 段保持不变，
 但两个占位符的**来源**变了：此前由 [[context_runtime.py]] 写死成
 "Claude Agent SDK / sonnet-4"（所有 agent 都自称 Claude Sonnet-4，违反铁律#9），
-现在由 [[basic_info_module.py]] `hook_data_gathering` 经 [[providers/model_identity.py]]
+现在由 [[basic_info_module.py]] `gather` 经 [[providers/model_identity.py]]
 按 agent 真实 slot 填（如 "Codex CLI (gpt-5)"）。占位符名没动，故模板文本与文档
 注释（131-132）无需改。
 
@@ -89,7 +89,7 @@ new plumbing.
 as the agent's owner / counterpart. The identity block now reads
 `Creator (your owner): {creator_name}`, `Is the current speaker your Creator?:
 {is_creator}`, and `Talking with: {current_speaker_name}` — all human names
-resolved in [[basic_info_module.py]] `hook_data_gathering` via
+resolved in [[basic_info_module.py]] `gather` via
 [[user_repository.py]] `get_display_name`. The opaque NetMind userSystemCode is
 no longer shown as a person. New placeholders require the matching
 [[context_schema.py]] fields (creator_name / is_creator / current_speaker_name)
@@ -124,7 +124,7 @@ example 演示正确动作。
 **Curly-brace escaping gotcha**：`BASIC_INFO_MODULE_INSTRUCTIONS` 是
 `str.format(**ctx)` 渲染模板，`{key}` 被当占位符。示例里出现
 `{device_code: ABC…}` 或 JSON 示例都必须双写 `{{...}}`。遗忘会导致
-`KeyError: 'device_code'` 抛在 `get_instructions()` 里——首次部署这个修改
+`KeyError: 'device_code'` 抛在 `contribute_instructions()` 里——首次部署这个修改
 时就踩过这个坑，被 `tests/basic_info_module/test_deployment_context.py`
 的 integration 测试兜住了。
 
@@ -138,7 +138,7 @@ example 演示正确动作。
 
 ## 上下游关系
 
-- **被谁用**：`BasicInfoModule.__init__` 赋值给 `self.instructions`；`XYZBaseModule.get_instructions()` 用 `ctx_data` 字段格式化后注入系统提示
+- **被谁用**：`BasicInfoModule.__init__` 赋值给 `self.instructions`；`XYZBaseModule.contribute_instructions()` 用 `ctx_data` 字段格式化后注入系统提示
 - **依赖谁**：无外部依赖，纯文本常量；占位符由 `ContextData` 字段提供（如 `{agent_id}`、`{user_id}`、`{current_time}`）
 
 ## 设计决策
@@ -147,7 +147,7 @@ BasicInfoModule 的 prompts 是最稳定的 prompt 文件之一——它只描�
 
 ## 新人易踩的坑
 
-- `ContextData` 里字段名变更时，记得同步更新这里的占位符，否则 `get_instructions()` 的 `.format()` 会在运行时抛 `KeyError`。这类错误只在 Agent 实际被调用时才会暴露，不会在 import 时报错。
+- `ContextData` 里字段名变更时，记得同步更新这里的占位符，否则 `contribute_instructions()` 的 `.format()` 会在运行时抛 `KeyError`。这类错误只在 Agent 实际被调用时才会暴露，不会在 import 时报错。
 
 
 ## 2026-08-18 — owner 工具改名跟随

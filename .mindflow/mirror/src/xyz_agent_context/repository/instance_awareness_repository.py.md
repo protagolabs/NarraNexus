@@ -18,7 +18,7 @@ Notably, `InstanceAwareness` is defined as a Python `@dataclass` here rather tha
 
 ## Upstream / Downstream
 
-`AwarenessModule.hook_data_gathering()` calls `get_by_instance()` to read the awareness text into `ContextData`. The awareness management API route calls `upsert()` when the user edits the agent's self-description in the settings panel. The frontend awareness panel reads the text via `get_by_instance()` through the API.
+`AwarenessModule.gather()` calls `get_by_instance()` to read the awareness text into `ContextData`. The awareness management API route calls `upsert()` when the user edits the agent's self-description in the settings panel. The frontend awareness panel reads the text via `get_by_instance()` through the API.
 
 ## Design decisions
 

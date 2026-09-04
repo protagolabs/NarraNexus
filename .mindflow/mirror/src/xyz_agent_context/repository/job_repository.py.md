@@ -94,7 +94,7 @@ never fire while paused.
 
 ## Upstream / Downstream
 
-`JobTrigger` (background service) calls `get_due_jobs()` on a polling loop and fires each returned job through `AgentRuntime`. `JobModule.hook_after_event_execution()` calls `update_job()` after execution to record the LLM's `JobExecutionResult` (new status, process entries, next_run_time). The job management API routes in `backend/routes/` call `create_job()`, `get_jobs_by_agent()`, and `delete_job()` to serve the frontend job panel.
+`JobTrigger` (background service) calls `get_due_jobs()` on a polling loop and fires each returned job through `AgentRuntime`. `JobModule.after_turn()` calls `update_job()` after execution to record the LLM's `JobExecutionResult` (new status, process entries, next_run_time). The job management API routes in `backend/routes/` call `create_job()`, `get_jobs_by_agent()`, and `delete_job()` to serve the frontend job panel.
 
 ## v2 时区协议（2026-04-21）
 

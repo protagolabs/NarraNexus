@@ -136,7 +136,7 @@ class HelloChannelModule(ChannelModuleBase):
         async def hello_send(chat_id: str, text: str) -> dict:
             return await module.send_to_agent(module.agent_id, chat_id, text)
 
-    async def get_instructions(self, ctx_data: Any) -> str:
+    async def contribute_instructions(self, ctx_data: Any) -> str:
         return "Reply with `hello_send(chat_id, text)` — exactly one message."
 
     async def build_extra_data(self, cred: Any, ctx_data: Any) -> dict:

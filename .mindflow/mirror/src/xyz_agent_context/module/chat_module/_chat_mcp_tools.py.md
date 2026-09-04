@@ -46,7 +46,7 @@ last_verified: 2026-09-04
 
 ## 设计决策
 
-**`reply_owner` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
+**`reply_owner` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.after_turn` 里完成（提取该工具的调用内容作为 assistant 消息）。
 
 **~~`get_chat_history` 直接查表而不走 Repository~~（2026-08-10 已改）**：曾经直查动态命名表 `instance_json_format_memory_chat` 是权宜之计+技术债。现已迁 [[_chat_reads]]，用 `db.get_one`（双方言安全），表名仍是该模块常量但不再有裸 SQL。
 

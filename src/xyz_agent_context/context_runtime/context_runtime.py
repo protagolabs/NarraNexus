@@ -78,29 +78,6 @@ def build_reply_language_section(language: str | None) -> str:
     return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
 
 
-def _is_signature_typeerror(exc: TypeError) -> bool:
-    """Did the CALL fail, or did the callee's body raise?
-
-    A signature TypeError is raised while binding arguments, so it never enters the
-    callee — its traceback has exactly one frame, ours. A TypeError from inside a
-    correctly-shaped implementation has at least one more.
-
-    **True only for an UNDECORATED callable.** A `functools.wraps` wrapper taking
-    `*args, **kwargs` absorbs the arity check, so the inner binding failure carries
-    two frames and lands in the other arm — reported as "raised" rather than as a
-    signature mismatch. No hook in-tree is decorated (six definitions of these two
-    hooks, all plain `async def`), and both arms fail open identically, so the cost
-    is log text. Stated because the alternative is a docstring that is confidently
-    wrong for a shape somebody may well introduce.
-
-    Worth distinguishing because both arms fail open identically, so the only thing
-    at stake is what the log says — and a loud line with the wrong cause sends
-    on-call to check an override signature that is fine, while the actual fault goes
-    unlooked-at. Verified: a module with the correct `(self, ctx_data=None)` shape
-    whose body did `["a"] * None` was reported as "signature mismatch".
-    """
-    tb = exc.__traceback__
-    return tb is None or tb.tb_next is None
 
 
 class ContextRuntime:
@@ -199,9 +176,9 @@ class ContextRuntime:
 
         # Step 2: Gather data from Modules (executed for each instance)
         logger.info("    │ Step 1-2: Gathering information from Module Instances")
-        # Extract the list of module objects (for hook_data_gathering)
+        # Extract the list of module objects (for gather)
         module_list = [inst.module for inst in active_instances if inst.module is not None]
-        ctx_data = await self.hook_manager.hook_data_gathering(module_list, ctx_data)
+        ctx_data = await self.hook_manager.gather(module_list, ctx_data)
 
         # Get chat_history from chat_module. Since Chat Module may not be loaded, there will be no interaction history if it is not loaded.
         messages = ctx_data.chat_history or []
@@ -293,8 +270,8 @@ class ContextRuntime:
         Returns:
             ModuleInstructions
         """
-        # Step 1: Call the module's get_instructions method
-        instructions = await module_object.get_instructions(ctx_data)
+        # Step 1: Call the module's contribute_instructions method
+        instructions = await module_object.contribute_instructions(ctx_data)
         module_instructions = ModuleInstructions(
             name=module_object.config.name,
             instruction=instructions,
@@ -319,7 +296,7 @@ class ContextRuntime:
         Note (after 2025-12-09 refactoring):
         - Chat history (chat_history) is now provided by ChatModule via EventMemoryModule
         - The messages returned by this method are mainly used for detailed Event history display in System Prompt
-        - ChatModule.hook_data_gathering() will populate ctx_data.chat_history
+        - ChatModule.gather() will populate ctx_data.chat_history
 
         Returns:
             (messages, selected_events, updated_ctx_data)
@@ -688,7 +665,7 @@ class ContextRuntime:
             for name in ("security", "temporal", "narrative", "modules", "bootstrap", "turn_context")
         )
         # ALL module instruction sizes — not just the top few — so the per-turn
-        # grower (a module whose get_instructions embeds accumulating ctx_data)
+        # grower (a module whose contribute_instructions embeds accumulating ctx_data)
         # is identifiable by diffing this list across rounds.
         #
         # Order = EMITTED order (R4d, 2026-07-28), i.e. exactly the order
@@ -782,7 +759,7 @@ class ContextRuntime:
         1. User Temporal Context (heading name unchanged — job MCP tool
            docstrings reference it)
         2. Current narrative state (updated_at + current_summary)
-        3. Module get_turn_context blocks — deduplicated by module_class in
+        3. Module contribute_turn_context blocks — deduplicated by module_class in
            active_instances order, then sorted by the total
            (priority, module_class) order (same ordering semantics as
            _build_module_instructions_prompt / _sorted_module_instructions)
@@ -844,10 +821,10 @@ class ContextRuntime:
                 continue
             seen_module_classes.add(inst.module_class)
             try:
-                block = await inst.module.get_turn_context(ctx_data)
+                block = await inst.module.contribute_turn_context(ctx_data)
             except Exception as e:  # noqa: BLE001 — one module must not kill the turn
                 logger.warning(
-                    f"        Turn context: get_turn_context failed for "
+                    f"        Turn context: contribute_turn_context failed for "
                     f"{inst.module_class}: {e}"
                 )
                 continue
@@ -1007,7 +984,7 @@ class ContextRuntime:
 
         # 2026-05-20 (Fix #2): chat_history is ONE unified, time-sorted timeline
         # (current narrative + cross-narrative), each msg tagged with
-        # narrative_id/alias by ChatModule.hook_data_gathering. Render every line
+        # narrative_id/alias by ChatModule.gather. Render every line
         # as a role message prefixed `[time · topic · nar_id]` + the channel
         # source prefix. No more long/short split; no cross-narrative-into-
         # system-prompt section. The "how to read this timeline" preamble is
@@ -1127,7 +1104,7 @@ class ContextRuntime:
         # Add current user input — augment with Read-tool markers for any
         # attachments carried on this turn WITHOUT mutating
         # ``ctx_data.input_content`` (which is the string persisted by
-        # ChatModule.hook_persist_turn as the user message's ``content`` and
+        # ChatModule.persist_turn as the user message's ``content`` and
         # rendered verbatim in the frontend chat panel). The marker is
         # visible ONLY to the LLM this turn; the next turn's history read
         # will re-synthesise the SAME marker from ``msg["attachments"]``,
@@ -1267,7 +1244,7 @@ class ContextRuntime:
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
         # module_class): the module that OWNS this turn's working_source
-        # (owns_working_source) ranks first, plain (priority,
+        # (claims_source) ranks first, plain (priority,
         # module_class) — the R4d order — breaks ties within a rank. NOT
         # the active_instances order: that is created_at-driven (see
         # get_public_instances), so a later-created channel instance
@@ -1294,136 +1271,78 @@ class ContextRuntime:
         collected_count = 0
 
         for inst in active_instances:
-            if inst.module_class not in seen_module_classes and inst.module is not None:
-                logger.debug(f"          Getting MCP config from {inst.module_class} ({inst.instance_id})")
-                mcp_config = await inst.module.get_mcp_config()
-                if mcp_config and mcp_config.server_url:
-                    # Tell the module MCP server WHICH agent is calling. Module
-                    # servers are one shared process for all agents, so before
-                    # this the caller's own id arrived only as a tool parameter
-                    # the MODEL filled in — and a model that guessed
-                    # `agent_id="agent_current"` got a hard dead end and told
-                    # the user it couldn't do the task (P1, evt_0dcee899).
-                    # Headers are the only channel that survives on BOTH
-                    # adapters' transports; see module/_mcp_identity.py.
-                    mcp_servers[mcp_config.server_name] = {
-                        "url": mcp_config.server_url,
-                        "headers": agent_id_headers(
-                            self.agent_id,
-                            turn_source=turn_source,
-                            errand_peer=errand_peer,
-                            errand_channel=errand_channel,
-                            # The turn owner. None on ownerless turns (some
-                            # triggers) — the builder then omits the header
-                            # and tools fall back to the model's parameter.
-                            user_id=self.user_id,
-                            root_run_id=root_run_id,
-                            team_id=team_id,
-                            event_id=event_id,
-                        ),
-                    }
-                    collected_count += 1
-                    logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")
-                elif mcp_config:
-                    logger.debug(f"          ⏭ Skipped MCP: {mcp_config.server_name} -> (empty URL)")
-                # Per-agent tool suppression (setup-residency): modules may
-                # declare tools whose schemas must not reach the model this
-                # turn (e.g. an unbound channel keeps only its bind tool).
-                # Failures fail-open — suppression is an optimization, never
-                # worth breaking the turn over.
+            if inst.module_class in seen_module_classes or inst.module is None:
+                continue
+            seen_module_classes.add(inst.module_class)
+            logger.debug(f"          Collecting the tool surface from {inst.module_class} ({inst.instance_id})")
+            # The module's Assemble-stage cell (batch 5c): its MCP server, the
+            # tools it suppresses for THIS agent THIS turn (setup-residency) and
+            # the reply tools it declares — composed fail-open by the base class.
+            surface = await inst.module.contribute_tools(ctx_data)
+            for server_name, spec in surface.mcp_servers.items():
+                server_url = spec.get("server_url") or spec.get("url")
+                if not server_url:
+                    logger.debug(f"          ⏭ Skipped MCP: {server_name} -> (empty URL)")
+                    continue
+                # Tell the module MCP server WHICH agent is calling. Module
+                # servers are one shared process for all agents, so before
+                # this the caller's own id arrived only as a tool parameter
+                # the MODEL filled in — and a model that guessed
+                # `agent_id="agent_current"` got a hard dead end and told
+                # the user it couldn't do the task (P1, evt_0dcee899).
+                # Headers are the only channel that survives on BOTH
+                # adapters' transports; see module/_mcp_identity.py.
+                mcp_servers[server_name] = {
+                    "url": server_url,
+                    "headers": agent_id_headers(
+                        self.agent_id,
+                        turn_source=turn_source,
+                        errand_peer=errand_peer,
+                        errand_channel=errand_channel,
+                        # The turn owner. None on ownerless turns (some
+                        # triggers) — the builder then omits the header
+                        # and tools fall back to the model's parameter.
+                        user_id=self.user_id,
+                        root_run_id=root_run_id,
+                        team_id=team_id,
+                        event_id=event_id,
+                    ),
+                }
+                collected_count += 1
+                logger.debug(f"          ✓ Added MCP: {server_name} -> {server_url}")
+            if surface.disallowed_tools:
+                disallowed_tools.extend(surface.disallowed_tools)
+                logger.debug(
+                    f"          ⛔ {inst.module_class} suppresses "
+                    f"{len(surface.disallowed_tools)} tools (setup-residency)"
+                )
+            if surface.expressive_tools:
+                # Origin-first: the module that OWNS this turn's
+                # working_source sorts ahead of everyone, so the
+                # first collected tool — the framework's default
+                # reply tool — follows "whoever contacted you"
+                # instead of hard-wiring the owner-chat tool.
+                # Fail-open to the non-origin rank: a module
+                # without the hook (or a crashing one) just keeps
+                # plain priority order.
                 try:
-                    suppressed = await inst.module.get_disallowed_tools(ctx_data)
-                    if suppressed:
-                        disallowed_tools.extend(suppressed)
-                        logger.debug(
-                            f"          ⛔ {inst.module_class} suppresses "
-                            f"{len(suppressed)} tools (setup-residency)"
+                    origin_rank = (
+                        0
+                        if inst.module.claims_source(
+                            getattr(ctx_data, "working_source", None)
                         )
-                except TypeError as e:
-                    # Same loud arm as the declaration below, for the same reason
-                    # and now with a precedent: this hook GREW `ctx_data` on
-                    # 2026-08-18, so a stale `(self)`-only override is a live
-                    # possibility rather than a hypothetical. Fail-open would
-                    # suppress nothing, and on a patrol turn that leaves both
-                    # send verbs on a desk whose prompt forbids them — the C1
-                    # defect class, back, behind a warning nobody greps.
-                    #
-                    # But only when the SIGNATURE is what rejected the call: a
-                    # TypeError from inside a correctly-shaped body reported as a
-                    # signature mismatch sends the reader to check a signature
-                    # that is fine.
-                    if _is_signature_typeerror(e):
-                        logger.error(
-                            f"          get_disallowed_tools signature mismatch "
-                            f"for {inst.module_class} (suppression DROPPED): {e}"
-                        )
-                    else:
-                        logger.exception(
-                            f"          get_disallowed_tools raised for "
-                            f"{inst.module_class} (suppression DROPPED)"
-                        )
-                except Exception as e:  # noqa: BLE001 — fail-open
-                    logger.warning(
-                        f"          get_disallowed_tools failed for "
-                        f"{inst.module_class}: {e}"
+                        else 1
                     )
-                # Same fail-open posture as suppression: a module whose
-                # declaration crashes simply contributes no reply tools.
-                try:
-                    declared = await inst.module.get_expressive_tools(ctx_data)
-                    if declared:
-                        # Origin-first: the module that OWNS this turn's
-                        # working_source sorts ahead of everyone, so the
-                        # first collected tool — the framework's default
-                        # reply tool — follows "whoever contacted you"
-                        # instead of hard-wiring the owner-chat tool.
-                        # Fail-open to the non-origin rank: a module
-                        # without the hook (or a crashing one) just keeps
-                        # plain priority order.
-                        try:
-                            origin_rank = (
-                                0
-                                if inst.module.owns_working_source(
-                                    getattr(ctx_data, "working_source", None)
-                                )
-                                else 1
-                            )
-                        except Exception:  # noqa: BLE001 — fail-open
-                            origin_rank = 1
-                        expressive_declarations.append(
-                            (
-                                origin_rank,
-                                inst.module.config.priority,
-                                inst.module_class,
-                                list(declared),
-                            )
-                        )
-                except TypeError as e:
-                    # A stale override signature is a wiring bug, not a
-                    # per-module hiccup — surface it loudly. This exact
-                    # failure once silently muted ChatModule's declaration
-                    # (fail-open turned a signature drift into an empty
-                    # reply surface for the whole turn).
-                    #
-                    # Split the same way as the suppression arm above: fixing one
-                    # and not the other would make the untouched message actively
-                    # misleading by contrast.
-                    if _is_signature_typeerror(e):
-                        logger.error(
-                            f"          get_expressive_tools signature mismatch "
-                            f"for {inst.module_class} (declaration DROPPED): {e}"
-                        )
-                    else:
-                        logger.exception(
-                            f"          get_expressive_tools raised for "
-                            f"{inst.module_class} (declaration DROPPED)"
-                        )
-                except Exception as e:  # noqa: BLE001 — fail-open
-                    logger.warning(
-                        f"          get_expressive_tools failed for "
-                        f"{inst.module_class}: {e}"
+                except Exception:  # noqa: BLE001 — fail-open
+                    origin_rank = 1
+                expressive_declarations.append(
+                    (
+                        origin_rank,
+                        inst.module.config.priority,
+                        inst.module_class,
+                        list(surface.expressive_tools),
                     )
-                seen_module_classes.add(inst.module_class)
+                )
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
 

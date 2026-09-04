@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-26
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -121,7 +121,7 @@ LLM 生成的字段（name / summary / keywords），不碰 actors**，保住库
 Embedding 那套机器在 2026-06-04 unified-memory 重构时已移除——路由改成 name/summary/
 keywords 上的 BM25，相关 DB 列（routing_embedding 等）按铁律 #6 留作惰性墓碑，无人读写。
 
-上游：Event 执行收尾后被调用。EverMemOS 写入已迁到 `MemoryModule.hook_after_event_execution()`。
+上游：Event 执行收尾后被调用。EverMemOS 写入已迁到 `MemoryModule.after_turn()`。
 
 ## 2026-06-17 — LLM 调用切到 protocol-agnostic 的 get_helper_sdk()
 

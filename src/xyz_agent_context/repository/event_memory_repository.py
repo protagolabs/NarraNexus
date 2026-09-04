@@ -10,7 +10,7 @@ XYZBaseModule, which made ChatModule import a sibling "module" — a false
 iron-rule-#3 violation, since it was never registered in MODULE_MAP and
 its Module hooks were never scheduled. It is in fact pure data access, so
 it now lives in repository/ as EventMemoryRepository with a plain
-constructor (no Module base, no get_config/get_mcp_config).
+constructor (no Module base, no get_config/mcp_server).
 
 Design Principles:
 ==================
@@ -46,9 +46,9 @@ Usage:
 ======
 Other Modules can use EventMemoryRepository in the following ways:
 1. Create an EventMemoryRepository instance in __init__
-2. Call search_json_format_memory in hook_data_gathering to retrieve Memory
-3. Call add_json_format_memory in hook_after_event_execution to store Memory
-4. Call update_report_memory in hook_after_event_execution to update reports
+2. Call search_json_format_memory in gather to retrieve Memory
+3. Call add_json_format_memory in after_turn to store Memory
+4. Call update_report_memory in after_turn to update reports
 """
 
 from typing import Optional, Dict, Any, List

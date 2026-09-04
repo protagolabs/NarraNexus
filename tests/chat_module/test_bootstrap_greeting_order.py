@@ -119,7 +119,7 @@ async def test_bootstrap_greeting_timestamp_precedes_user_message(chat_module):
     greeting on top of the timeline.
 
     Simulates the production timing: the agent loop takes ~30s, so by
-    the time `hook_after_event_execution` runs, `utc_now()` is ~30s
+    the time `after_turn` runs, `utc_now()` is ~30s
     past `event.created_at`. Pre-fix, greeting used `utc_now()` and
     therefore landed after the user message."""
     event_started_at = utc_now() - timedelta(seconds=30)
@@ -129,7 +129,7 @@ async def test_bootstrap_greeting_timestamp_precedes_user_message(chat_module):
         event_created_at=event_started_at,
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
@@ -164,7 +164,7 @@ async def test_bootstrap_greeting_precedes_user_even_when_event_missing(chat_mod
     )
     params.event = None
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
@@ -183,7 +183,7 @@ async def test_bootstrap_greeting_precedes_user_even_when_event_missing(chat_mod
 @pytest.mark.asyncio
 async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_module):
     """Cross-path invariant for the step_1 provision-time seed
-    (chat_module.seed_bootstrap_greeting → then hook_persist_turn in the same
+    (chat_module.seed_bootstrap_greeting → then persist_turn in the same
     turn): the real seed writes the greeting; the hook, seeing a non-empty
     history, must NOT prepend a second one; and the greeting (stamped at
     turn-start - 1ms by the writer) must sort before the user's first message.
@@ -214,7 +214,7 @@ async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_modu
         bootstrap_active=True,
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
@@ -244,7 +244,7 @@ async def test_hook_greeting_carries_no_event_id(chat_module):
         event_created_at=utc_now() - timedelta(seconds=30),
         bootstrap_active=True,
     )
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
     )
@@ -295,7 +295,7 @@ async def test_hook_skips_greeting_when_a_sibling_instance_has_history(db_client
     params.ctx_data.agent_id = agent
     params.ctx_data.user_id = user
 
-    await module.hook_persist_turn(params)
+    await module.persist_turn(params)
 
     memory = await module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot2_b"
@@ -317,7 +317,7 @@ async def test_no_bootstrap_when_inactive(chat_module):
         bootstrap_active=False,
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"

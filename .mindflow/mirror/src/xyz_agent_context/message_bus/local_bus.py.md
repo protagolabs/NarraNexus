@@ -245,7 +245,7 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 为每一行构造 `BusMessage`(含 attachments 的 JSON 解析),再在 Python 里筛。
 
 那正是同一批改动刚从 `get_unread` 里移除的形状(整个积压过一趟网络再被切掉),
-而且它在成功路径和被取消路径上各调一次;同一轮里 `hook_after_event_execution` 还会
+而且它在成功路径和被取消路径上各调一次;同一轮里 `after_turn` 还会
 再全量捞一次。
 
 现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到

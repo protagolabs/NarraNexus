@@ -27,8 +27,23 @@ from xyz_agent_context.schema import (
 )
 
 # Import utils
+from narranexus.contracts.agent.capability import STAGE_METHODS, TIER_STAGES, CapabilityMeta, CapabilityTier, ToolSurface
+from narranexus.contracts.agent.stages import Stage
 from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.utils.mcp_executor import list_mcp_tools
+
+
+def _is_signature_typeerror(exc: TypeError) -> bool:
+    """Did the CALL fail, or did the callee's body raise?
+
+    A signature TypeError is raised while binding arguments, so it never enters the
+    callee — its traceback has exactly one frame, ours. A TypeError from inside a
+    correctly-shaped implementation has at least one more. True only for an
+    UNDECORATED callable (a ``functools.wraps`` wrapper absorbs the arity check);
+    both arms fail open identically, so only the log text is at stake.
+    """
+    tb = exc.__traceback__
+    return tb is None or tb.tb_next is None
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
@@ -78,7 +93,7 @@ def working_source_matches(working_source: Any, source_name: str) -> bool:
     ``WorkingSource`` is a ``(str, Enum)``, so one equality covers both
     the enum member and its serialized string form — a member equals its
     value. The single shared predicate exists so every
-    ``owns_working_source`` override compares the same way (four
+    ``claims_source`` override compares the same way (four
     hand-rolled variants with opposite ``isinstance`` polarities is how
     real divergence starts).
     """
@@ -98,8 +113,8 @@ class XYZBaseModule(ABC):
     Core methods of Module:
     - get_config() - Return Module configuration
     - data_gathering() - Collect data and enrich ContextData
-    - get_instructions() - Return instructions to add to system prompt
-    - get_mcp_config() - Return MCP Server configuration (if any)
+    - contribute_instructions() - Return instructions to add to system prompt
+    - mcp_server() - Return MCP Server configuration (if any)
     - create_mcp_server() - Create MCP Server instance (if any)
 
     Module data isolation:
@@ -128,7 +143,7 @@ class XYZBaseModule(ABC):
             user_id: User ID (for data isolation, some Modules may not need this)
             database_client: Database client
             instance_id: Instance ID (if provided, indicates operation for a specific instance)
-            instance_ids: All instance IDs associated with the Narrative (used for hook_data_gathering, etc.)
+            instance_ids: All instance IDs associated with the Narrative (used for gather, etc.)
         """
         self.agent_id = agent_id
         self.user_id = user_id
@@ -192,7 +207,7 @@ class XYZBaseModule(ABC):
             str: Functional information of the Module
         """
         mcp_tools = []
-        mcp_config = await self.get_mcp_config()
+        mcp_config = await self.mcp_server()
         if mcp_config and mcp_config.server_url != "":
             mcp_server_url = mcp_config.server_url
             mcp_tools = await list_mcp_tools(mcp_server_url)
@@ -209,7 +224,7 @@ MCPs: {mcp_tools}
     # Instructions
     # =========================================================================
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """
         Return instructions to add to the system prompt
 
@@ -230,12 +245,12 @@ MCPs: {mcp_tools}
         instruction = self.instructions.format(**local_ctx_data)
         return instruction
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile context for the CURRENT user message.
 
         Content that changes every turn (retrieved data, live counters,
-        timestamps, dynamic lists) belongs here, NOT in get_instructions —
-        get_instructions must stay byte-stable across turns so the system
+        timestamps, dynamic lists) belongs here, NOT in contribute_instructions —
+        contribute_instructions must stay byte-stable across turns so the system
         prompt stays cacheable (provider prefix caches are byte/blockwise
         and any per-turn byte breaks them). The runtime collects these
         blocks (deduplicated by module class, priority ascending) into a
@@ -299,7 +314,7 @@ MCPs: {mcp_tools}
     # Hooks
     # =========================================================================
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Collect data and enrich ContextData
 
@@ -319,10 +334,10 @@ MCPs: {mcp_tools}
         """
         return ctx_data
 
-    async def hook_persist_turn(self, params: HookAfterExecutionParams) -> None:
+    async def persist_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Synchronous, next-turn-critical persistence — runs INSIDE the request,
-        before the WebSocket closes and before `hook_after_event_execution` is
+        before the WebSocket closes and before `after_turn` is
         dispatched to the background.
 
         Use this ONLY for state that the IMMEDIATELY NEXT turn must be able to
@@ -333,7 +348,7 @@ MCPs: {mcp_tools}
 
         Keep this CHEAP — it adds latency to every turn's completion. Anything
         heavy and non-next-turn-critical (entity extraction, LLM
-        summaries, job analysis) belongs in `hook_after_event_execution`.
+        summaries, job analysis) belongs in `after_turn`.
 
         Default: no-op. Most modules don't need synchronous persistence.
 
@@ -342,11 +357,11 @@ MCPs: {mcp_tools}
         """
         return None
 
-    async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
+    async def after_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Background enrichment — runs AFTER the WebSocket closes, dispatched as a
         fire-and-forget task. The user has already seen the response; nothing the
-        next turn strictly needs may live only here (see `hook_persist_turn`).
+        next turn strictly needs may live only here (see `persist_turn`).
 
         Use for heavy, non-next-turn-critical work: entity
         extraction, memory summarization, external-system updates, job-completion
@@ -362,11 +377,79 @@ MCPs: {mcp_tools}
         return None
 
     # =========================================================================
+    # Capability contract (plugin platform batch 5c): a module IS a Capability
+    # =========================================================================
+
+    @property
+    def meta(self) -> CapabilityMeta:
+        """``CapabilityMeta`` derived from the module's own ``ModuleConfig``."""
+        config = self.config
+        return CapabilityMeta(
+            name=config.name,
+            tier=CapabilityTier.MODULE,
+            display_name=(config.display.name if config.display and config.display.name else config.name),
+            description=config.description,
+            priority=config.priority,
+            always_load=config.always_load or config.module_type == "capability",
+            is_task_capability=config.module_type == "task",
+            provides_chat_history=type(self).provides_chat_history(),
+            context_cost_hint=config.context_cost_hint,
+            instance_prefix=config.effective_instance_prefix(),
+            requires={"enabled": config.enabled},
+        )
+
+    def participations(self) -> "dict[Stage, Any]":
+        """The stages this module fills — every participant stage of the MODULE tier,
+        each answered by the module itself: its lifecycle methods ARE the stage
+        participations (``claims_source`` / ``gather`` / ``contribute_instructions`` /
+        ``contribute_turn_context`` / ``contribute_tools`` / ``persist_turn`` /
+        ``after_turn``). ``recall`` and ``tools`` are not module cells."""
+        return {stage: self for stage in TIER_STAGES[CapabilityTier.MODULE] if any(hasattr(self, m) for m in STAGE_METHODS[stage])}
+
+    async def contribute_tools(self, ctx_data: Any = None) -> ToolSurface:
+        """What this module adds to (and removes from) the turn's tool surface —
+        the Assemble-stage cell. Composed from the three finer hooks a module
+        overrides (``mcp_server`` / ``expressive_tools`` / ``disallowed_tools``);
+        each part fails OPEN on its own (a crashing declaration contributes
+        nothing), and a stale override SIGNATURE is logged loudly — that exact
+        drift once silently muted a module's reply surface for a whole turn.
+        """
+        name = getattr(getattr(self, "config", None), "name", None) or type(self).__name__
+        servers: dict[str, Any] = {}
+        try:
+            cfg = await self.mcp_server()
+            if cfg is not None:
+                servers[cfg.server_name] = cfg.model_dump() if hasattr(cfg, "model_dump") else dict(vars(cfg))
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning(f"mcp_server failed for {name}: {e}")
+        suppressed: list[str] = []
+        try:
+            suppressed = list(await self.disallowed_tools(ctx_data) or [])
+        except TypeError as e:
+            if _is_signature_typeerror(e):
+                logger.error(f"disallowed_tools signature mismatch for {name} (suppression DROPPED): {e}")
+            else:
+                logger.exception(f"disallowed_tools raised for {name} (suppression DROPPED)")
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning(f"disallowed_tools failed for {name}: {e}")
+        declared: list[str] = []
+        try:
+            declared = list(await self.expressive_tools(ctx_data) or [])
+        except TypeError as e:
+            if _is_signature_typeerror(e):
+                logger.error(f"expressive_tools signature mismatch for {name} (declaration DROPPED): {e}")
+            else:
+                logger.exception(f"expressive_tools raised for {name} (declaration DROPPED)")
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning(f"expressive_tools failed for {name}: {e}")
+        return ToolSurface(mcp_servers=servers, expressive_tools=tuple(declared), disallowed_tools=tuple(suppressed))
+
+    # =========================================================================
     # MCP Server
     # =========================================================================
 
     @abstractmethod
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration
 
@@ -382,7 +465,7 @@ MCPs: {mcp_tools}
         """
         pass
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+    async def expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Fully-qualified reply/delivery tools this module contributes.
 
         The platform forwards the collected list to the agent framework
@@ -399,7 +482,7 @@ MCPs: {mcp_tools}
         """
         return []
 
-    def owns_working_source(self, working_source: Any) -> bool:
+    def claims_source(self, working_source: Any) -> bool:
         """True when THIS module is the origin of the given working_source.
 
         The expressive collection sorts the origin module's declaration
@@ -411,11 +494,11 @@ MCPs: {mcp_tools}
         """
         return False
 
-    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
+    async def disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """
         Fully-qualified MCP tool names to suppress for THIS agent THIS turn.
 
-        Takes ``ctx_data`` for the same reason `get_expressive_tools` does:
+        Takes ``ctx_data`` for the same reason `expressive_tools` does:
         a module that suppresses the counterpart of the verb it declares has
         to read the SAME turn both hooks are deciding about. It was briefly
         ctx-less, with the turn remembered on the instance by the

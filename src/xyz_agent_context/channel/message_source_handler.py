@@ -331,7 +331,7 @@ class MessageSourceHandler:
 
 #: The owner-facing delivery tools — one destination, two registers
 #: (`reply_owner` on the owner's own chat turn, `notify_owner` everywhere else;
-#: see ChatModule.get_expressive_tools). Lives HERE because this module already
+#: see ChatModule.expressive_tools). Lives HERE because this module already
 #: has to reason about both — the default handler lists both — and because every
 #: consumer of the distinction is downstream of the registry.
 #:
@@ -494,7 +494,7 @@ def render_origin_declaration(
     * the label from `MessageSourceRegistry` — the same registry entry that
       decides which tool calls count as a reply from this source;
     * the tools from the turn's declared expressive surface — the SAME tuple
-      `get_expressive_tools` produced and `get_disallowed_tools` enforced.
+      `expressive_tools` produced and `disallowed_tools` enforced.
 
     So the sentence cannot contradict the desk: there is no second copy of
     either fact to fall out of step.

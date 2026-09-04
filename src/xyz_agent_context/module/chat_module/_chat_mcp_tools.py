@@ -9,7 +9,7 @@ keeping the module focused on Hook lifecycle and memory management.
 
 Tools:
 - reply_owner / notify_owner: the two registers of speaking to the owner
-  (one on the desk per turn — see ChatModule.get_expressive_tools)
+  (one on the desk per turn — see ChatModule.expressive_tools)
 - get_chat_history: Get chat history for a Chat Instance
 """
 
@@ -90,8 +90,8 @@ def create_chat_mcp_server() -> FastMCP:
     #
     # Split, each name carries its own discipline — and they never appear
     # together: the owner-chat turn is given `reply_owner` only, every other
-    # turn `notify_owner` only (see ChatModule.get_expressive_tools /
-    # get_disallowed_tools). So there is no choice to get wrong, and the rule
+    # turn `notify_owner` only (see ChatModule.expressive_tools /
+    # disallowed_tools). So there is no choice to get wrong, and the rule
     # that applies is the one attached to the tool that is actually on the desk.
     #
     # Both are no-ops that return a confirmation. Delivery is not what they DO —

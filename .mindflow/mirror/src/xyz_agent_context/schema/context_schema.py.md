@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -32,7 +32,7 @@ MCP 工具名（未绑定 channel 只留其 bind 工具）。由 [[context_runti
 新增 `agent_info_model_type`（framework 展示名）+ `model_name`（真实 model），
 Optional/默认 None。这两个字段此前**没声明**，靠 `model_config extra='allow'`
 被 [[context_runtime.py]] 用写死值裸传（"Claude Agent SDK / sonnet-4"）。现在改由
-[[basic_info_module.py]] `hook_data_gathering` 经 [[providers/model_identity.py]] 按
+[[basic_info_module.py]] `gather` 经 [[providers/model_identity.py]] 按
 真实 slot 动态填，正式建模让它们跟其它 identity 字段一样走 schema。
 
 ## 2026-06-12 — ContextData gains human-name + sender-aware identity fields
@@ -44,7 +44,7 @@ the Creator), and `current_speaker_name` (human name of whoever sent the current
 message). `creator_id` stays but is now explicitly an opaque scoping key, not a
 display value. These exist so templates can render people by name instead of the
 opaque NetMind userSystemCode. Populated in [[basic_info_module.py]]
-`hook_data_gathering`; consumed by basic_info [[prompts.py]].
+`gather`; consumed by basic_info [[prompts.py]].
 
 # context_schema.py
 
@@ -56,7 +56,7 @@ opaque NetMind userSystemCode. Populated in [[basic_info_module.py]]
 
 ## Upstream / Downstream
 
-`AgentRuntime` creates a `ContextData` at the start of each execution and passes it to `ContextRuntime`. Every module's `hook_data_gathering()` receives and returns a `ContextData`. After `ContextRuntime` produces a `ContextRuntimeOutput`, `AgentRuntime` passes the embedded `ctx_data` to `HookAfterExecutionParams` so all `hook_after_event_execution()` callbacks can read the full context that was used.
+`AgentRuntime` creates a `ContextData` at the start of each execution and passes it to `ContextRuntime`. Every module's `gather()` receives and returns a `ContextData`. After `ContextRuntime` produces a `ContextRuntimeOutput`, `AgentRuntime` passes the embedded `ctx_data` to `HookAfterExecutionParams` so all `after_turn()` callbacks can read the full context that was used.
 
 ## Design decisions
 
@@ -70,7 +70,7 @@ opaque NetMind userSystemCode. Populated in [[basic_info_module.py]]
 
 **`bootstrap_active` defaults to `False`** at `ContextData` construction, but it may be set to `True` by `BasicInfoModule` if the agent's awareness module detects bootstrap mode. Any code that checks `ctx_data.bootstrap_active` before `BasicInfoModule` has run in the pipeline will always see `False`.
 
-**`narrative_id` can be `None`**: this happens on the very first interaction of a brand-new agent-user pair where no Narrative has been created yet. Narrative assignment happens in a later pipeline step; modules in `hook_data_gathering` that need `narrative_id` must guard against `None`.
+**`narrative_id` can be `None`**: this happens on the very first interaction of a brand-new agent-user pair where no Narrative has been created yet. Narrative assignment happens in a later pipeline step; modules in `gather` that need `narrative_id` must guard against `None`.
 
 ## New-joiner traps
 

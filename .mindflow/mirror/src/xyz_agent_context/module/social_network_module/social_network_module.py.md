@@ -117,17 +117,17 @@ DirectStore 与 backend [[social_network]] 写路由（HttpStore 路径）都 im
 social_network.py` 路由都改调这两个方法,消除两份复制、堵住 drift(PR-2
 pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
-## 2026-07-28 — R4b：实体卡（§5）搬进 get_turn_context
+## 2026-07-28 — R4b：实体卡（§5）搬进 contribute_turn_context
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
 
 - `__init__` 现在把 agent_id 同时烘焙进 legacy 与 stable 两个模板
   （`self._instructions_legacy` / `self._instructions_stable`；
   `self.instructions` 初始化为 legacy 供 functional_information 用）。
-- `get_instructions` override：按
+- `contribute_instructions` override：按
   `settings.prompt_turn_context_relocation_enabled` 选模板后走基类 format
   路径（`{{...}}` 转义行为两条路径一致）。关 = legacy 逐字节一致。
-- `get_turn_context`：返回 `##### Current User Information\n` +
+- `contribute_turn_context`：返回 `##### Current User Information\n` +
   `ctx_data.social_network_current_entity`。hook 的三种 fallback 文案
   （首次见面 / 无 user 上下文 / 加载失败）与错误文案（含异常串——正是最
   不能进 system prompt 的易变内容）都走这条通道；hook 本身一行未动。
@@ -157,7 +157,7 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
    （旧版 Stage 2 因为 mentioned-entity 从来不写 embedding 实际上一直在
    裸跑，删干净比修好它更符合 YOLO 铁律 #2）。
 
-3. **`hook_after_event_execution` 不再调 `update_entity_embedding`**
+3. **`after_turn` 不再调 `update_entity_embedding`**
    （行 407）。`get_embedding` import 也从文件头移除。Self-user 的描述
    依然累计更新，但不再有 embedding 副本。
 
@@ -165,7 +165,7 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 为什么存在
 
-实现 `XYZBaseModule` 合约，让 Agent 在每次对话时自动感知"对方是谁"并持续积累对对方的了解。`hook_data_gathering` 在执行前加载当前用户的实体档案并注入 `ctx_data.social_network_current_entity`；`hook_after_event_execution` 在执行后自动摘要会话内容追加到实体描述。两个 hook 配合形成了闭环的社交记忆更新流。
+实现 `XYZBaseModule` 合约，让 Agent 在每次对话时自动感知"对方是谁"并持续积累对对方的了解。`gather` 在执行前加载当前用户的实体档案并注入 `ctx_data.social_network_current_entity`；`after_turn` 在执行后自动摘要会话内容追加到实体描述。两个 hook 配合形成了闭环的社交记忆更新流。
 
 端口 7802，Agent-level 实例（`is_public=True`），每个 Agent 全局共享一个实例。
 
@@ -176,11 +176,11 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 ## 设计决策
 
-**`entity_description` 只能由 hook 写，不能由 MCP 工具写**：`extract_and_update_entity_info()` 明确拒绝更新 `entity_description` 字段（如果传入就忽略并记录 warning）。`entity_description` 是 `hook_after_event_execution` 自动积累的自然语言档案，结构化的 `identity_info`、`contact_info`、`tags` 才是 MCP 工具应该写的字段。这个分工保证了描述内容的质量不被 LLM 主动覆盖。
+**`entity_description` 只能由 hook 写，不能由 MCP 工具写**：`extract_and_update_entity_info()` 明确拒绝更新 `entity_description` 字段（如果传入就忽略并记录 warning）。`entity_description` 是 `after_turn` 自动积累的自然语言档案，结构化的 `identity_info`、`contact_info`、`tags` 才是 MCP 工具应该写的字段。这个分工保证了描述内容的质量不被 LLM 主动覆盖。
 
-**`related_job_ids` 到 `ctx_data.extra_data` 的写入**：在 `hook_data_gathering` 里，如果找到了当前用户的实体且 `entity.related_job_ids` 非空，就把它写入 `ctx_data.extra_data["related_job_ids"]`。这是为了让后续的 `JobModule.hook_data_gathering`（在顺序 hook 链里 SocialNetworkModule 之后执行）能读到这份数据，加载关联 Job 的上下文。此机制依赖 `hook_data_gathering` 是顺序执行的（见 `hook_manager.py`）。
+**`related_job_ids` 到 `ctx_data.extra_data` 的写入**：在 `gather` 里，如果找到了当前用户的实体且 `entity.related_job_ids` 非空，就把它写入 `ctx_data.extra_data["related_job_ids"]`。这是为了让后续的 `JobModule.gather`（在顺序 hook 链里 SocialNetworkModule 之后执行）能读到这份数据，加载关联 Job 的上下文。此机制依赖 `gather` 是顺序执行的（见 `hook_manager.py`）。
 
-**最小实体自动创建**：`hook_after_event_execution` 发现当前 `user_id` 没有对应实体时，不跳过，而是先创建一个空的最小实体（`entity_name=user_id`，空 description，空 tags），再进行后续的摘要追加。这确保了从第一次对话开始就有记录，不需要用户主动介绍自己才开始建档。
+**最小实体自动创建**：`after_turn` 发现当前 `user_id` 没有对应实体时，不跳过，而是先创建一个空的最小实体（`entity_name=user_id`，空 description，空 tags），再进行后续的摘要追加。这确保了从第一次对话开始就有记录，不需要用户主动介绍自己才开始建档。
 
 **Persona 更新条件控制**：`_entity_updater.should_update_persona()` 决定是否要调用 LLM 推断 Persona。不是每次对话都更新——通常在交互次数达到阈值、或输出内容长度超标时才触发。这是性能权衡：Persona 推断是额外的 LLM 调用，不应该每次都做。
 

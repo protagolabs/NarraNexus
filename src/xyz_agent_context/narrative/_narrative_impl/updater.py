@@ -209,7 +209,7 @@ class NarrativeUpdater:
         # Save basic updates
         await self._crud.save(latest_narrative)
 
-        # EverMemOS write has been migrated to MemoryModule.hook_after_event_execution()
+        # EverMemOS write has been migrated to MemoryModule.after_turn()
         # See docs/MEMORY_MODULE_REFACTOR.md
 
         # Update the passed-in object reference so subsequent code uses the latest data
@@ -243,7 +243,7 @@ class NarrativeUpdater:
 
         return narrative
 
-    # _async_evermemos_write has been migrated to MemoryModule.hook_after_event_execution()
+    # _async_evermemos_write has been migrated to MemoryModule.after_turn()
     # See docs/MEMORY_MODULE_REFACTOR.md
 
     async def _async_llm_update(

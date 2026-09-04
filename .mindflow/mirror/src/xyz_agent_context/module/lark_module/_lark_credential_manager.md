@@ -28,7 +28,7 @@ than touching the DB directly.
   `user_authz_*`, `user_oauth_completed_at`, etc.) can evolve without
   DB migrations.
 - **`current_click_stage()` is the single source of truth** for the
-  three-click state machine. `get_instructions`, `lark_permission_advance`
+  three-click state machine. `contribute_instructions`, `lark_permission_advance`
   guards, and `lark_status` returns all route through this method.
   Strictly derived from DB fields — never from user's literal words.
 

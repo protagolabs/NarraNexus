@@ -61,7 +61,7 @@ class HomeAssistantModule(XYZBaseModule):
             module_type="capability",
         )
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="home_assistant_module",
             server_url=mcp_server_url("home_assistant_module"),

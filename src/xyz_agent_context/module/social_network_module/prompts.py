@@ -12,7 +12,7 @@
 # Placeholder description:
 # - {agent_id}: Agent ID, passed in by __init__()
 # - {social_network_current_entity}: Current user's social network info,
-#   populated by hook_data_gathering() into ctx_data, then replaced by get_instructions()
+#   populated by gather() into ctx_data, then replaced by contribute_instructions()
 # ============================================================================
 SOCIAL_NETWORK_MODULE_INSTRUCTIONS = """
 #### SOCIAL NETWORK MODULE
@@ -182,7 +182,7 @@ One simple role: `engineer`, `researcher`, `student`, `manager`, `designer`, `ar
 #
 # With settings.prompt_turn_context_relocation_enabled ON the module renders
 # this STABLE template (§5 becomes a static pointer) and the entity card —
-# all hook fallback texts included — travels via get_turn_context() into the
+# all hook fallback texts included — travels via contribute_turn_context() into the
 # "[Turn context]" block of the current message. Flag OFF renders the
 # untouched legacy template above, byte-identical to pre-R4.
 #

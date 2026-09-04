@@ -18,8 +18,8 @@ Capabilities:
 2. **Tools (MCP)** - job_create, job_retrieval_semantic, job_retrieval_by_id, job_retrieval_by_keywords
 3. **Data** - Job history stored in job_table
 4. **Hooks**:
-    - hook_data_gathering: Load user's active jobs for context
-    - hook_after_event_execution: LLM-powered job status update after execution
+    - gather: Load user's active jobs for context
+    - after_turn: LLM-powered job status update after execution
 
 Use Cases:
 - Scheduled tasks: "Every day at 8am..."
@@ -35,8 +35,8 @@ Architecture:
     │    job_retrieval_by_id, job_retrieval_by_keywords            │
     ├─────────────────────────────────────────────────────────────┤
     │  Hooks:                                                      │
-    │    hook_data_gathering → Load active jobs to instructions    │
-    │    hook_after_event_execution → LLM analyze & update status  │
+    │    gather → Load active jobs to instructions    │
+    │    after_turn → LLM analyze & update status  │
     └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -101,7 +101,7 @@ from xyz_agent_context.settings import settings
 # (settings.prompt_turn_context_relocation_enabled) the module renders
 # JOB_MODULE_INSTRUCTIONS_STABLE (the section becomes a static pointer, and
 # the "listed above" location wording is corrected to point at the turn
-# context) while the jobs table travels via get_turn_context() into the
+# context) while the jobs table travels via contribute_turn_context() into the
 # "[Turn context]" block of the current message. Flag OFF renders the legacy
 # template, functionally equivalent to pre-R4.
 # =============================================================================
@@ -287,8 +287,8 @@ class JobModule(XYZBaseModule):
     2. **Tools (MCP)** - Provides job_create, job_retrieval_* and other tools
     3. **Data** - Jobs stored in job_table
     4. **Hooks**:
-        - hook_data_gathering: Load user's active Job list into instructions
-        - hook_after_event_execution: After Job execution, use LLM to analyze results and update status
+        - gather: Load user's active Job list into instructions
+        - after_turn: After Job execution, use LLM to analyze results and update status
 
     Collaboration with JobTrigger:
     - JobTrigger is responsible for polling and triggering Job execution
@@ -322,7 +322,7 @@ class JobModule(XYZBaseModule):
         # Initialize repository (lazy initialization)
         self._job_repo: Optional[JobRepository] = None
 
-        # Legacy template by default; get_instructions() swaps in the
+        # Legacy template by default; contribute_instructions() swaps in the
         # stable variant when the R4 relocation flag is on.
         self.instructions = JOB_MODULE_INSTRUCTIONS
         self.instance_ids = instance_ids
@@ -381,13 +381,13 @@ class JobModule(XYZBaseModule):
     # Instructions
     # =========================================================================
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Render the module instruction, selecting the template by the R4
         relocation flag.
 
         Flag ON  → stable template ({jobs_information} replaced by a static
                    pointer) so the output is byte-stable across turns; the
-                   jobs table travels via get_turn_context() instead.
+                   jobs table travels via contribute_turn_context() instead.
         Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
         """
         self.instructions = (
@@ -395,12 +395,12 @@ class JobModule(XYZBaseModule):
             if settings.prompt_turn_context_relocation_enabled
             else JOB_MODULE_INSTRUCTIONS
         )
-        return await super().get_instructions(ctx_data)
+        return await super().contribute_instructions(ctx_data)
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the "Current Job Status" table.
 
-        Carries ctx_data.jobs_information exactly as hook_data_gathering
+        Carries ctx_data.jobs_information exactly as gather
         formatted it (including the "*No jobs for this conversation.*"
         empty-state line — R4: relocated, never dropped).
         """
@@ -413,7 +413,7 @@ class JobModule(XYZBaseModule):
     # Hooks
     # =========================================================================
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Collect Job information associated with the current Narrative, populate ctx_data.jobs_information
 
@@ -428,7 +428,7 @@ class JobModule(XYZBaseModule):
 
         # With skip_module_decision_llm, there are no "created this turn" jobs from the LLM.
         # Jobs created by Claude Code via job_create MCP tool during execution won't appear here
-        # since hook_data_gathering runs before the agent loop.
+        # since gather runs before the agent loop.
         existing = list(jobs_map.values())
 
         ctx_data.jobs_information = await self._format_jobs_information([], existing)
@@ -545,7 +545,7 @@ class JobModule(XYZBaseModule):
     async def _inject_related_jobs_context(self, ctx_data: ContextData) -> None:
         """Surface a target user's related sales tasks into ``jobs_information``.
 
-        SocialNetworkModule.hook_data_gathering — a capability module, which the
+        SocialNetworkModule.gather — a capability module, which the
         sequential data-gathering order runs *before* JobModule — writes the
         current entity's ``related_job_ids`` into ``ctx_data.extra_data``. Here we
         load those Jobs and append a "Related Tasks" section so the Agent is aware
@@ -553,7 +553,7 @@ class JobModule(XYZBaseModule):
         above (e.g. a task another sales manager created against this lead).
 
         Also stashes the rendered text in ``extra_data["related_jobs_context"]``
-        for SocialNetworkModule.hook_after_event_execution's persona inference.
+        for SocialNetworkModule.after_turn's persona inference.
 
         No-op when no related_job_ids were written (non-sales turns), so this is
         safe to call unconditionally from the hook.
@@ -626,7 +626,7 @@ class JobModule(XYZBaseModule):
 
         return None
 
-    async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> Optional[HookCallbackResult]:
+    async def after_turn(self, params: HookAfterExecutionParams) -> Optional[HookCallbackResult]:
         """
         Post-Job execution processing - Use LLM to analyze results and determine completion status
 
@@ -636,7 +636,7 @@ class JobModule(XYZBaseModule):
 
         Delegates heavy lifting to _job_lifecycle module.
         """
-        logger.debug("          JobModule.hook_after_event_execution()")
+        logger.debug("          JobModule.after_turn()")
 
         # Collect active JobModule instance IDs from the current Narrative
         active_job_instance_ids = [
@@ -682,7 +682,7 @@ class JobModule(XYZBaseModule):
     # MCP Server
     # =========================================================================
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration
 

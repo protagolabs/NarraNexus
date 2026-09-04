@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_registry_repository.py
-last_verified: 2026-08-05
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -16,7 +16,7 @@ stub: false
 
 ## 为什么存在（为什么不在 message_bus 模块里）
 
-这张表原来只有一个写入者：`MessageBusModule.hook_data_gathering` 里的一段内联
+这张表原来只有一个写入者：`MessageBusModule.gather` 里的一段内联
 代码。于是"能不能被同伴发现"变成了**跑过一轮的副作用**——刚创建、刚配置好但还
 没跑的 agent 在名录里根本不存在；而那唯一的写入者还把 `capabilities` 硬编码成
 `[]`（P1 段02，详见 [[agent_discovery_sync]]）。

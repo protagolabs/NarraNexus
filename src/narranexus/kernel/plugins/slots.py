@@ -205,7 +205,7 @@ def build_kernel_slot_tree() -> SlotTree:
         Slot("agent.capabilities.data_access", many, "narranexus.contracts.data_access:DataAccessSpec", KERNEL_OWNER,
              doc="AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps)."),
         Slot("agent.capabilities.modules", many, "narranexus.contracts.agent.capability:Capability", KERNEL_OWNER,
-             doc="L4 capabilities (legacy XYZBaseModule classes through LegacyModuleAdapter); meta carries plugin_id / channel; what the platform knows about a module is its own ModuleConfig; every module server is mounted by path on the single MCP host."),
+             doc="L4 capabilities (XYZBaseModule classes — each module IS a Capability: its lifecycle methods are its stage participations); meta carries plugin_id / channel; what the platform knows about a module is its own ModuleConfig; every module server is mounted by path on the single MCP host."),
         Slot("agent.capabilities.context_providers", many, "narranexus.contracts.agent.capability:ContextProvider", KERNEL_OWNER,
              doc="Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section."),
         Slot("agent.capabilities.tools", many, "narranexus.contracts.tool:ToolProvider", KERNEL_OWNER,

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -94,7 +94,7 @@ send 的目标**等于本轮差事作用域(`caller_errand_scope()`,见
 [[_mcp_identity]])时才升级成 [[hook_schema]] 的 `BUS_ERRAND_TURN_SOURCE`。
 
 **为什么不能整轮盖章**(同 PR 内自我推翻的做法):
-`MessageBusModule.hook_data_gathering` 每轮把**跨所有 channel** 的未读
+`MessageBusModule.gather` 每轮把**跨所有 channel** 的未读
 (`bus.get_unread`)注进 context,模块提示词又**要求**回答它们(「A question
 is never ping-pong」)。所以差事延续轮次里顺手回答别的同伴 C 是平台自己引导
 的常规路径;整轮盖章会把那条**回答**标成提问,C 于是不再向自己 owner 回报
@@ -132,7 +132,7 @@ from the LLM.
 
 ## 上下游关系
 
-**被谁用**：`MessageBusModule.get_mcp_config()` 返回的 `MCPServerConfig` 里包含工具列表，MCP 服务器框架（`module_runner.py`）把这些工具函数注册到 MCP 协议上暴露给 LLM。
+**被谁用**：`MessageBusModule.mcp_server()` 返回的 `MCPServerConfig` 里包含工具列表，MCP 服务器框架（`module_runner.py`）把这些工具函数注册到 MCP 协议上暴露给 LLM。
 
 **调用谁**：每个工具函数接受一个 `port` 参数（MCP 服务器端口）和一个 `get_db_client_fn` 参数（工厂函数，调用时返回 DB 客户端）。工具函数内部用这个工厂函数创建 `LocalMessageBus` 实例，调用 `MessageBusService` 的对应方法。这种依赖注入方式避免了工具函数持有全局 DB 状态。
 
@@ -150,7 +150,7 @@ from the LLM.
 
 ## 新人易踩的坑
 
-工具函数名（如 `"send_message"`）就是 LLM 调用时使用的工具名，必须和 MCP 服务器注册时的名称一致。如果修改函数名，需要同时更新 `MessageBusModule.get_mcp_config()` 里注册工具时使用的名称字符串，否则 LLM 调用会报"工具不存在"。
+工具函数名（如 `"send_message"`）就是 LLM 调用时使用的工具名，必须和 MCP 服务器注册时的名称一致。如果修改函数名，需要同时更新 `MessageBusModule.mcp_server()` 里注册工具时使用的名称字符串，否则 LLM 调用会报"工具不存在"。
 
 ## 2026-08-11 — `bus_pin_team_rule` / `bus_unpin_team_rule`
 

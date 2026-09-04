@@ -91,7 +91,7 @@ to mirror Slack's ``slack_*`` and Lark's ``lark_*`` so the agent's
 ## Gotchas
 
 - Adding a new MCP tool here requires also referencing it in the
-  module's ``get_instructions`` template — agents only know what the
+  module's ``contribute_instructions`` template — agents only know what the
   prompt advertises.
 - ``tg_skill`` ignores ``agent_id`` (skill docs are global) — the
   parameter is kept for symmetry with ``lark_skill`` / ``slack_skill``

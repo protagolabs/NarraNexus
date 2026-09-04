@@ -98,7 +98,7 @@ zip 文件上传时先保存到 `tempfile.mkdtemp()` 创建的临时目录，解
 
 改成「你桌上那个面向 owner 的工具」而不是列出两个名字，是刻意的：**本轮到底哪一个在桌上，由
 平台决定并写在该轮开头那行里**（`render_origin_declaration`，见 [[message_source_handler.py]]），
-而 `get_disallowed_tools` 会把另一个的 schema 从模型上下文里移走。这里再列一次名字，就等于让一段
+而 `disallowed_tools` 会把另一个的 schema 从模型上下文里移走。这里再列一次名字，就等于让一段
 散文去和平台每轮算出来的事实竞争 —— 而本次改造的起因正是那种竞争：prod 上两个明写「Do NOT
 call」的工具被调用了 615 次。
 

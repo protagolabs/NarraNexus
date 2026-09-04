@@ -43,7 +43,7 @@ Agent 应转告用户去 Skill tab 配置。桌面模式下这些工具经 cloud
 
 ## 新人易踩的坑
 
-- `skill_save_study_summary` 工具接受 `summary: str`（Markdown 格式），写到 `skills/<skill_name>/STUDY.md`。这个文件目前只是静态文档，不被 `hook_data_gathering` 自动加载到系统提示里——Agent 需要主动 `cat skills/<skill_name>/STUDY.md` 才能读到它。如果想让 Agent 每次执行时都能看到学习摘要，需要在 `_scan_skills()` 里把 STUDY.md 内容也注入 `ctx_data`。
+- `skill_save_study_summary` 工具接受 `summary: str`（Markdown 格式），写到 `skills/<skill_name>/STUDY.md`。这个文件目前只是静态文档，不被 `gather` 自动加载到系统提示里——Agent 需要主动 `cat skills/<skill_name>/STUDY.md` 才能读到它。如果想让 Agent 每次执行时都能看到学习摘要，需要在 `_scan_skills()` 里把 STUDY.md 内容也注入 `ctx_data`。
 
 ## `skill_list_required_env` 的配置判定必须与全局同源（2026-08-13）
 

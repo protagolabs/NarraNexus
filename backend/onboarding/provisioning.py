@@ -79,7 +79,7 @@ GUIDE_SKILL_ID = "narranexus-guide"
 CHECKIN_JOB_TITLE = "Daily check-in"
 # The daily check-in is a plain SCHEDULED job, deliberately NOT "ongoing":
 # an ONGOING job's iteration counter and end_condition analysis also run on
-# every CHAT event (hook_after_event_execution), which would (a) burn a
+# every CHAT event (after_turn), which would (a) burn a
 # max_iterations budget on ordinary conversation — a chatty first week would
 # silently kill the "daily companionship" — and (b) add one Helper-LLM
 # analysis call to EVERY chat turn of every new user. A scheduled job fires

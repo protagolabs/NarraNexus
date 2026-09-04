@@ -33,7 +33,7 @@ It lives in the shared schema layer rather than inside any module because it is 
 
 **Producers** (one per trigger): direct chat routes produce `ChannelTag.direct(...)`, `JobTrigger` produces `ChannelTag.job(...)`, `MatrixTrigger` produces `ChannelTag.matrix(...)`. Each trigger is responsible for constructing an appropriate tag before calling `AgentRuntime`.
 
-**Consumers**: `SocialNetworkModule.hook_data_gathering()` reads `ChannelTag` to identify which entity to look up or create in the social graph. `NarrativeService` stores the serialized tag in chat history so conversation context carries source information. The agent's system prompt may include the formatted tag string to give the LLM situational awareness about who is sending the message.
+**Consumers**: `SocialNetworkModule.gather()` reads `ChannelTag` to identify which entity to look up or create in the social graph. `NarrativeService` stores the serialized tag in chat history so conversation context carries source information. The agent's system prompt may include the formatted tag string to give the LLM situational awareness about who is sending the message.
 
 ## Design decisions
 

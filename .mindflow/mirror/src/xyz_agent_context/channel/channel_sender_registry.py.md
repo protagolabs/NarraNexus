@@ -16,7 +16,7 @@ stub: false
 
 **被谁用**：任何需要发出渠道消息的复合工具（如 `contact_agent`），在执行时调用 `ChannelSenderRegistry.get_sender(channel)` 取得发送函数后调用。
 
-**被谁注册**：具体渠道 Module（如 `MatrixModule`）在其 `get_mcp_config()` 或初始化时调用 `ChannelSenderRegistry.register("matrix", matrix_send_fn)`。`unregister()` 供 Module 卸载时调用（热插拔场景）。
+**被谁注册**：具体渠道 Module（如 `MatrixModule`）在其 `mcp_server()` 或初始化时调用 `ChannelSenderRegistry.register("matrix", matrix_send_fn)`。`unregister()` 供 Module 卸载时调用（热插拔场景）。
 
 **依赖谁**：无外部依赖，纯内存操作。
 

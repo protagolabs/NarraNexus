@@ -41,7 +41,7 @@ stub: false
 
 ## 上下游
 
-- **被谁用**：[[basic_info_module.py]] `hook_data_gathering` 调它，填
+- **被谁用**：[[basic_info_module.py]] `gather` 调它，填
   `ctx_data.agent_info_model_type`（framework 展示名）+ `ctx_data.model_name`
   （真实 model），再由 basic_info 的 [[prompts.py]] 模板 `{...}` 渲染进系统 prompt。
 - **依赖谁**：只用 `db.get_one` 读 `agent_slots` / `agents` / `user_slots`。

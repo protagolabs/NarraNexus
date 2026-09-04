@@ -396,9 +396,9 @@ class SkillModule(XYZBaseModule):
     # Hooks
     # =========================================================================
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """Scan skills directory and add Skills information to ctx_data"""
-        logger.debug(f"SkillModule.hook_data_gathering() started for agent_id={self.agent_id}")
+        logger.debug(f"SkillModule.gather() started for agent_id={self.agent_id}")
 
         # Materialize repo-vendored built-in skills before scanning so they
         # appear in the table on the very first run.
@@ -424,7 +424,7 @@ class SkillModule(XYZBaseModule):
         else:
             table = "*No skills installed.*"
 
-        # Store in ctx_data for use by get_instructions
+        # Store in ctx_data for use by contribute_instructions
         ctx_data.extra_data = ctx_data.extra_data or {}
         ctx_data.extra_data["skills_table"] = table
         ctx_data.extra_data["skills_count"] = len(skills)
@@ -437,10 +437,10 @@ class SkillModule(XYZBaseModule):
             ctx_data.extra_data["skill_env_vars"] = skill_env_vars
             logger.debug(f"Collected {len(skill_env_vars)} skill env vars for injection")
 
-        logger.debug(f"SkillModule.hook_data_gathering() completed, found {len(skills)} skills")
+        logger.debug(f"SkillModule.gather() completed, found {len(skills)} skills")
         return ctx_data
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Return Skills-related Instructions"""
         skills_table = ""
         skills_count = 0
@@ -449,7 +449,7 @@ class SkillModule(XYZBaseModule):
             skills_table = ctx_data.extra_data.get("skills_table", "")
             skills_count = ctx_data.extra_data.get("skills_count", 0)
 
-        # Deployment mode (populated by BasicInfoModule.hook_data_gathering)
+        # Deployment mode (populated by BasicInfoModule.gather)
         # decides whether the agent sees the strict cloud rules or the
         # relaxed local rules.
         workspace_rules = _resolve_workspace_rules(ctx_data)
@@ -468,7 +468,7 @@ class SkillModule(XYZBaseModule):
             workspace_rules=workspace_rules,
         )
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration
 
@@ -571,8 +571,8 @@ class SkillModule(XYZBaseModule):
 
         Iteration is name-sorted, NOT raw readdir order (R4d, 2026-07-28).
         This list becomes the skills table in the system prompt
-        (hook_data_gathering -> ctx_data.extra_data["skills_table"] ->
-        get_instructions), and ``Path.iterdir()`` yields whatever order the
+        (gather -> ctx_data.extra_data["skills_table"] ->
+        contribute_instructions), and ``Path.iterdir()`` yields whatever order the
         filesystem hands back — APFS returns creation-ish order, not
         alphabetical (verified: a live workspace listed as officecli,
         home-assistant-setup, netmind-transcribe, netmind-vision). Because
@@ -1090,7 +1090,7 @@ class SkillModule(XYZBaseModule):
         try:
             box = get_secret_box()
         except Exception as e:  # noqa: BLE001 — bad SKILL_SECRETS_KEY / unwritable dir
-            # A process-level key failure must not raise out of hook_data_gathering
+            # A process-level key failure must not raise out of gather
             # (it would drop this agent's whole skills contribution). Fail CLOSED:
             # inject nothing, and emit the single loud ops signal here.
             logger.error(f"SecretBox unavailable; skipping ALL skill credential injection: {e}")
@@ -1137,7 +1137,7 @@ class SkillModule(XYZBaseModule):
 
         Materializes built-in skills first so the API/UI surface them for a
         freshly-created agent that has never run (materialize is otherwise only
-        triggered by hook_data_gathering on the first run).
+        triggered by gather on the first run).
         """
         self._materialize_builtin_skills()
         skills = self._scan_skills()

@@ -1,14 +1,14 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_reactions.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-09-04
 ---
 
 ## Why it exists
 
 Extracted 2026-07-10 to kill a 5-way copy-paste flagged in PR #87 review: every
 IM module's `react_to_user_message` tool had the same body, and every IM
-channel's `get_instructions` had the same "ack early" directive + the same
+channel's `contribute_instructions` had the same "ack early" directive + the same
 hardcoded 11-name emoji menu. Adding a mood or fixing wording meant editing 10
 places; drift had already started.
 
@@ -33,7 +33,7 @@ module.
   `set_message_reaction` in a coro that raises on `False` so this path reports it.
 - **`render_early_feedback(*, tool_ref, room_id, message_id, inline)`** — the
   generic "ACK FIRST for non-trivial requests" directive, injected into the
-  **per-turn input** (NOT the system prompt / get_instructions) by
+  **per-turn input** (NOT the system prompt / contribute_instructions) by
   `ChannelTriggerBase._early_feedback_prefix`. `tool_ref=None` → message-only ack
   (WeChat, no reaction API). `inline=True` → the `**Early feedback**: …` line the
   trigger prepends; else a `### Early feedback` section. The full-qualified-vs-bare

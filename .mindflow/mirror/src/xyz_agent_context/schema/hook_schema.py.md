@@ -85,13 +85,13 @@ agent 待遇冷处理。`is_automated()` 又把 IM 当 automated，方向也不�
 
 ## Why it exists
 
-Every module in the system has a `hook_after_event_execution()` callback that fires after the agent finishes a turn. Originally this hook received a pile of `**kwargs` which made it impossible to know what was actually available without reading the caller. This file replaces those kwargs with typed dataclasses: callers construct a `HookAfterExecutionParams` and modules destructure it in a type-safe way.
+Every module in the system has a `after_turn()` callback that fires after the agent finishes a turn. Originally this hook received a pile of `**kwargs` which made it impossible to know what was actually available without reading the caller. This file replaces those kwargs with typed dataclasses: callers construct a `HookAfterExecutionParams` and modules destructure it in a type-safe way.
 
 `WorkingSource` is also defined here — the enum that identifies what kind of execution triggered the current turn (chat, job, a2a, callback, etc.).
 
 ## Upstream / Downstream
 
-`AgentRuntime` (Step 8) constructs `HookAfterExecutionParams` from the `PathExecutionResult` and fires `HookManager.hook_after_event_execution()`. Every module's hook implementation receives a single `HookAfterExecutionParams` argument. `WorkingSource` is imported by `context_schema.py` (`ContextData.working_source`) and by the narrative system to decide how to update summaries differently for chat vs job executions.
+`AgentRuntime` (Step 8) constructs `HookAfterExecutionParams` from the `PathExecutionResult` and fires `HookManager.after_turn()`. Every module's hook implementation receives a single `HookAfterExecutionParams` argument. `WorkingSource` is imported by `context_schema.py` (`ContextData.working_source`) and by the narrative system to decide how to update summaries differently for chat vs job executions.
 
 ## Design decisions
 

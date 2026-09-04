@@ -1989,7 +1989,7 @@ class LarkTrigger(ChannelTriggerBase):
             ),
             builder=builder,
             attachments=attachments,
-            # Inbound message id, surfaced per-turn so get_instructions can tell
+            # Inbound message id, surfaced per-turn so contribute_instructions can tell
             # the agent which message to react to (react_to_user_message).
             source_message_id=message.message_id or "",
         )

@@ -15,15 +15,15 @@ last_verified: 2026-09-04
 ## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
 
 Declares `all_tool_names` + `setup_tool_names = {slack_bind}` per the
-[[channel_module_base]] setup-residency contract. The `get_instructions`
+[[channel_module_base]] setup-residency contract. The `contribute_instructions`
 unbound branch now returns `unbound_setup_line()` instead of the full
 onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
 served on demand by zero-arg `slack_bind` (see [[_slack_mcp_tools]]). While
 unbound, every non-setup tool's schema is stripped from the model context.
 
-## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+## 2026-07-10 — early-feedback removed from contribute_instructions (moved to trigger)
 
-The "ack early" block is gone from `get_instructions`; it's now injected per-turn
+The "ack early" block is gone from `contribute_instructions`; it's now injected per-turn
 by the trigger (`_early_feedback_prefix`, see [[channel_trigger_base]]).
 
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
@@ -32,7 +32,7 @@ The Slack early-feedback section is now produced by [[channel_reactions]]
 `render_early_feedback(tool_ref="react_to_user_message", …)` instead of an inline
 hardcoded string.
 
-## 2026-07-10 — get_instructions surfaces early-feedback affordance
+## 2026-07-10 — contribute_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when in the Slack
 channel with a `source_message_id`): a generic SHOULD directive — for non-trivial
@@ -129,14 +129,14 @@ than ``LarkModule`` — the prompt simply names ``slack_cli`` /
 ## Upstream / downstream
 
 - **Upstream**: ``ChannelModuleBase`` (Phase 2 base — provides sender
-  registration, ``hook_data_gathering`` template, MCP server glue).
+  registration, ``gather`` template, MCP server glue).
 - **Downstream**:
   - ``SlackCredentialManager`` — credential CRUD + auth.test validation.
   - ``register_slack_mcp_tools`` — registers the 5 MCP tools on the
     server the base creates.
   - ``SlackSDKClient`` — the thin slack_sdk wrapper used for the sender.
   - ``WorkingSource.SLACK`` — enum entry that ties Slack messages back
-    through ``hook_after_event_execution``.
+    through ``after_turn``.
 
 ## Gotchas
 

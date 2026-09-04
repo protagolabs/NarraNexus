@@ -12,7 +12,7 @@ size / event_id / room_id / sender_id / server_ts).
 
 Consequences for the abstract methods:
   - ``get_conversation_history`` → ``[]``. History is served by
-    ChatModule's chat_history assembly during ``hook_data_gathering``
+    ChatModule's chat_history assembly during ``gather``
     (persisted turns + attachment markers all end up in the system
     prompt).
   - ``get_room_members`` → ``[]``. If a future turn actually needs a
@@ -130,7 +130,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
 
         The intended path is ChatModule's chat_history: past turns
         (including their attachments) are recalled from persisted
-        messages during ``hook_data_gathering`` and rendered into the
+        messages during ``gather`` and rendered into the
         system prompt. Historical attachment markers are synthesised
         there via ``Attachment.markers_from_dicts``; the current
         turn's marker is appended at

@@ -8,7 +8,7 @@ Responsibility: Merge multiple modules' ctx_data modifications into the original
 Assumption: Modules do not write to the same fields (each module is responsible for its own data domain)
 
 Usage scenarios:
-- After parallel execution of hook_data_gathering, merge each module's modifications
+- After parallel execution of gather, merge each module's modifications
 - Each module receives a copy of the original ctx_data and modifies it independently
 - Finally merge all modifications into the final result
 """

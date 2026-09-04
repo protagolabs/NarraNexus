@@ -47,7 +47,7 @@ See [[social_network_module.py]] for the caller-side removals
 
 ## Upstream / Downstream
 
-`SocialNetworkModule` calls this repository for all entity operations: `add_entity()` when a new person is encountered, `update_entity_info()` after each interaction, `increment_interaction()` to track engagement, and the three search methods during `hook_data_gathering()` to surface relevant contacts. `JobModule` calls `append_related_job_ids()` to maintain the bidirectional Job-Entity index.
+`SocialNetworkModule` calls this repository for all entity operations: `add_entity()` when a new person is encountered, `update_entity_info()` after each interaction, `increment_interaction()` to track engagement, and the three search methods during `gather()` to surface relevant contacts. `JobModule` calls `append_related_job_ids()` to maintain the bidirectional Job-Entity index.
 
 ## Design decisions
 

@@ -5,7 +5,7 @@
 @description: Bug 18 — AgentRuntime must persist `event.final_output` when it
 gives up early on the LLMResolverError path.
 
-Before the fix: Step 4 (event persist) and Step 5 (hook_after_event_execution)
+Before the fix: Step 4 (event persist) and Step 5 (after_turn)
 were unreachable because the error branch `return`-ed right after yielding
 `ErrorMessage`. The Event row stayed with `final_output=NULL` forever —
 the failed turn became invisible to audit queries and to any UI that

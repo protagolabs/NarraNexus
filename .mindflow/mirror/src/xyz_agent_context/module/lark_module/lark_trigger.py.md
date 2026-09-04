@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-28
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-26 — ChannelTag 构造点填 `is_agent_peer`
@@ -200,7 +200,7 @@ prompts use the fully-qualified name).
 ## 2026-07-10 — surface source_message_id (agent-driven feedback enabler)
 
 Lark's `_build_and_run_agent` override adds `source_message_id` to
-`trigger_extra_data` (same as the base), so get_instructions can show the agent
+`trigger_extra_data` (same as the base), so contribute_instructions can show the agent
 the inbound message id for `react_to_user_message`.
 
 ## 2026-07-08 — trigger consolidation: pre_start hook + health server moved out
@@ -273,7 +273,7 @@ paths). To make the 1a base abstraction reach Lark users we had to:
    after the echo filter and before `_build_and_run_agent`.
 4. Thread the returned `Attachment` list through
    `_build_and_run_agent` into `trigger_extra_data["attachments"]`
-   so ChatModule's `hook_data_gathering` can synthesize the Read-tool
+   so ChatModule's `gather` can synthesize the Read-tool
    markers the same way the WS upload route does.
 5. Update the empty-content guard in `_process_message` to allow
    caption-less file uploads — the same fix Phase 1b applied to the
@@ -368,7 +368,7 @@ async def _build_and_run_agent(
 
 When `attachments` is non-empty, the method appends them to
 `trigger_extra_data["attachments"]` as JSON-serialized dicts — same
-shape as `backend/routes/websocket.py` produces and `ChatModule.hook_data_gathering`
+shape as `backend/routes/websocket.py` produces and `ChatModule.gather`
 already consumes. Backward-compat is preserved: the legacy 7-arg call
 shape used by older tests still works (attachments defaults to None).
 

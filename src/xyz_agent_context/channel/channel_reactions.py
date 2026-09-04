@@ -76,7 +76,7 @@ def render_early_feedback(
 
     Injected into the per-turn input by ``ChannelTriggerBase._early_feedback_prefix``
     (prepended to the tagged prompt, right after the channel tag) — NOT in
-    ``get_instructions`` / the system prompt.
+    ``contribute_instructions`` / the system prompt.
 
     ``tool_ref``: the react tool name to show (fully-qualified for Lark to match
     its ``mcp__lark_module__…`` convention, bare for the others), or ``None`` for

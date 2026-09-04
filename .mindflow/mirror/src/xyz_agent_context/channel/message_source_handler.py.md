@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -13,7 +13,7 @@ stub: false
    多一个概念），各渠道用自己的品牌大小写。
 2. `render_origin_declaration(working_source, expressive_tools)`——设计 §6.1 的那一行。
    两半都来自平台已经算好的数据：label 来自本 registry（决定哪些调用算回复的同一条
-   记录），工具来自该轮 `get_expressive_tools` 的**同一个 tuple**。所以这句话不可能和
+   记录），工具来自该轮 `expressive_tools` 的**同一个 tuple**。所以这句话不可能和
    桌子矛盾——没有第二份副本可以漂。工具为空时返回空串：没有回复面的轮次不能被塞一句
    声称有回复面的话。
 3. `is_owner_tool()`——`reply_owner` / `notify_owner` 的统一判定。放这里是因为本模块

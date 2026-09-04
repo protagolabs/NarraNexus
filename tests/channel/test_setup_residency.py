@@ -7,7 +7,7 @@ modules.
 While an agent has no binding for a channel, the module stays loaded but
 degrades to a "setup surface": instructions collapse to a one-liner and
 every tool except the ones in ``setup_tool_names`` is suppressed via
-``get_disallowed_tools``. This file pins the cross-channel contract:
+``disallowed_tools``. This file pins the cross-channel contract:
 
   1. Drift guard — ``all_tool_names`` equals the set of tools the module
      actually registers on its FastMCP server, so a newly added tool
@@ -94,7 +94,7 @@ async def test_unbound_disallows_every_non_setup_tool(cls, monkeypatch):
     module = _make_module(cls)
     monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=None))
 
-    disallowed = await module.get_disallowed_tools()
+    disallowed = await module.disallowed_tools()
     expected = sorted(
         f"mcp__{module.mcp_server_name}__{name}"
         for name in module.all_tool_names
@@ -120,7 +120,7 @@ async def test_bound_disallows_nothing(cls, monkeypatch):
     module = _make_module(cls)
     monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=object()))
 
-    assert await module.get_disallowed_tools() == []
+    assert await module.disallowed_tools() == []
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_a_bound_channel_tool_stays_reachable_on_a_foreign_turn(cls, monke
     to turns that originated on that channel. An agent woken on the bus — a
     foreign surface for every IM channel here — keeps its Lark/WeChat/… tools on
     the desk, so it can reach a contact there using a conversation id from the
-    social graph. Re-introducing a working_source gate on get_disallowed_tools
+    social graph. Re-introducing a working_source gate on disallowed_tools
     turns this red; it is the guarantee the reachability flow relies on.
     """
     from xyz_agent_context.schema import ContextData
@@ -142,7 +142,7 @@ async def test_a_bound_channel_tool_stays_reachable_on_a_foreign_turn(cls, monke
     ctx = ContextData(agent_id="agent_a", user_id=None, input_content="hi")
     ctx.working_source = WorkingSource.MESSAGE_BUS  # foreign to every channel here
 
-    assert await module.get_disallowed_tools(ctx) == []
+    assert await module.disallowed_tools(ctx) == []
 
 
 # ── 4. Credential lookup failure → fail-open ───────────────────────────
@@ -159,7 +159,7 @@ async def test_credential_error_fails_open(cls, monkeypatch):
     monkeypatch.setattr(module, "get_credential", _boom)
 
     assert await module.is_bound() is True
-    assert await module.get_disallowed_tools() == []
+    assert await module.disallowed_tools() == []
 
 
 # ── 5. Zero-arg bind tools serve the full setup guide ──────────────────
@@ -255,7 +255,7 @@ async def test_bound_channel_declares_qualified_reply_tools(cls):
     module = _make_module(cls)
     module.get_credential = AsyncMock(return_value={"bound": True})
 
-    declared = await module.get_expressive_tools()
+    declared = await module.expressive_tools()
     assert declared, f"{cls.__name__} must declare at least one reply tool"
     assert declared == [
         f"mcp__{module.mcp_server_name}__{name}" for name in module.reply_tool_names
@@ -271,4 +271,4 @@ async def test_bound_channel_declares_qualified_reply_tools(cls):
 async def test_unbound_channel_declares_no_reply_tools(cls):
     module = _make_module(cls)
     module.get_credential = AsyncMock(return_value=None)
-    assert await module.get_expressive_tools() == []
+    assert await module.expressive_tools() == []

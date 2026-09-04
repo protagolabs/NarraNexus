@@ -10,7 +10,7 @@ the user's own machine — the two modes have fundamentally different
 filesystem / global-install / credential semantics, and the rest of the
 rule system (SkillModule, _tool_policy_guard) will key off this.
 
-`BasicInfoModule.hook_data_gathering` populates two fields on
+`BasicInfoModule.gather` populates two fields on
 ``ContextData``:
 
   - ``deployment_mode`` — "cloud" | "local" — short tag
@@ -101,7 +101,7 @@ def test_local_context_separates_owner_from_im_recipients():
 
 
 async def _run_hook(mode_env_value: str | None, monkeypatch, db_client):
-    """Helper: run BasicInfoModule.hook_data_gathering under a given mode."""
+    """Helper: run BasicInfoModule.gather under a given mode."""
     if mode_env_value is None:
         monkeypatch.delenv(DEPLOYMENT_MODE_ENV_VAR, raising=False)
     else:
@@ -142,7 +142,7 @@ async def _run_hook(mode_env_value: str | None, monkeypatch, db_client):
         user_id="owner_user",
         input_content="hi",
     )
-    return await module.hook_data_gathering(ctx)
+    return await module.gather(ctx)
 
 
 @pytest.mark.asyncio
@@ -178,7 +178,7 @@ async def test_rendered_prompt_contains_cloud_block_when_cloud(
         user_id="owner_user",
         database_client=db_client,
     )
-    rendered = await module.get_instructions(ctx)
+    rendered = await module.contribute_instructions(ctx)
 
     # Cloud-specific language is present, local is not
     assert "CLOUD" in rendered or "cloud" in rendered
@@ -196,7 +196,7 @@ async def test_rendered_prompt_states_real_llm_identity(db_client, monkeypatch):
         user_id="owner_user",
         database_client=db_client,
     )
-    rendered = await module.get_instructions(ctx)
+    rendered = await module.contribute_instructions(ctx)
     assert "Codex CLI" in rendered
     assert "gpt-5" in rendered
     assert "Claude Agent SDK" not in rendered
@@ -213,7 +213,7 @@ async def test_rendered_prompt_contains_local_block_when_local(
         user_id="owner_user",
         database_client=db_client,
     )
-    rendered = await module.get_instructions(ctx)
+    rendered = await module.contribute_instructions(ctx)
     assert "local" in rendered.lower()
     # Local language acknowledges the user's own machine.
     assert ("own computer" in rendered.lower()

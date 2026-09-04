@@ -129,19 +129,19 @@ def test_guide_is_rendered_only_when_stage_completed():
     confuse the agent. Confirm the module gates the guide the same way
     it already gates _IDENTITY_GUIDE.
     """
-    # We verify the gating by reading the source text of get_instructions
+    # We verify the gating by reading the source text of contribute_instructions
     # rather than rendering it — rendering requires a ctx_data fixture
     # with lark_info, which is overkill for a prompt-presence test.
     import inspect
 
     from xyz_agent_context.module.lark_module import lark_module as lm
 
-    src = inspect.getsource(lm.LarkModule.get_instructions)
+    src = inspect.getsource(lm.LarkModule.contribute_instructions)
     # The guide constant must appear in the render function's body, and
     # must be gated on stage == "completed" (same pattern as the
     # existing _IDENTITY_GUIDE gate).
     assert "_INCREMENTAL_AUTH_GUIDE" in src, (
-        "get_instructions must reference _INCREMENTAL_AUTH_GUIDE so the "
+        "contribute_instructions must reference _INCREMENTAL_AUTH_GUIDE so the "
         "guide actually reaches the agent's system prompt."
     )
     assert 'stage == "completed"' in src
@@ -383,9 +383,9 @@ def test_narranexus_specifics_rendered_only_when_stage_completed():
 
     from xyz_agent_context.module.lark_module import lark_module as lm
 
-    src = inspect.getsource(lm.LarkModule.get_instructions)
+    src = inspect.getsource(lm.LarkModule.contribute_instructions)
     assert "_NARRANEXUS_SPECIFICS" in src, (
-        "get_instructions must render _NARRANEXUS_SPECIFICS so the "
+        "contribute_instructions must render _NARRANEXUS_SPECIFICS so the "
         "workspace / per-agent-auth callouts actually reach the agent."
     )
 

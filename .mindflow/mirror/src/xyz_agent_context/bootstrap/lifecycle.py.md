@@ -1,13 +1,13 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/lifecycle.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
 ## 2026-08-20 — bootstrap_active 的单一判定源
 
 `is_bootstrap_active(db, agent_id, owner_id, agent_metadata) -> BootstrapStatus` 是**三个后端消费方**
-——`step_1` 问候 seed、`ChatModule.hook_persist_turn` prepend、`context_runtime` 的 Bootstrap 注入/
+——`step_1` 问候 seed、`ChatModule.persist_turn` prepend、`context_runtime` 的 Bootstrap 注入/
 auto-delete——判「引导期」的共享判定源。返回 `BootstrapStatus(active, present, event_count,
 threshold, bootstrap_path)`；判定 = Bootstrap.md 存在（读侧 `resolve_existing_workspace`，兼容
 legacy flat 布局）**且**（threshold 为 None 的语义型 profile，或 `event_count < threshold`）。

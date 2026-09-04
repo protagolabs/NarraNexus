@@ -201,8 +201,8 @@ class SocialNetworkModule(XYZBaseModule):
     2. **Tools (MCP)** - Provides extract_entity_info, recall_entity, search_social_network tools
     3. **Data** - Stored in social_network_entities table
     4. **Hooks**:
-       - hook_data_gathering: Load known information about the current interaction entity
-       - hook_after_event_execution: Summarize and update entity information (Phase 2 implementation)
+       - gather: Load known information about the current interaction entity
+       - after_turn: Summarize and update entity information (Phase 2 implementation)
     """
 
     def __init__(
@@ -220,7 +220,7 @@ class SocialNetworkModule(XYZBaseModule):
 
         # Build instructions, dynamically insert agent_id (via .replace, not
         # .format — the template contains other literal braces).
-        # Legacy vs stable: get_instructions() picks per the R4 relocation
+        # Legacy vs stable: contribute_instructions() picks per the R4 relocation
         # flag; agent_id is baked into both once here.
         self._instructions_legacy = SOCIAL_NETWORK_MODULE_INSTRUCTIONS.replace("{agent_id}", agent_id)
         self._instructions_stable = SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE.replace("{agent_id}", agent_id)
@@ -282,13 +282,13 @@ class SocialNetworkModule(XYZBaseModule):
 
     # ============================================================================= Instructions
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Render the module instruction, selecting the template by the R4
         relocation flag.
 
         Flag ON  → stable template (§5 entity card replaced by a static
                    pointer) so the output is byte-stable across turns; the
-                   card travels via get_turn_context() instead.
+                   card travels via contribute_turn_context() instead.
         Flag OFF → untouched legacy template, byte-identical to pre-R4.
         """
         self.instructions = (
@@ -296,13 +296,13 @@ class SocialNetworkModule(XYZBaseModule):
             if settings.prompt_turn_context_relocation_enabled
             else self._instructions_legacy
         )
-        return await super().get_instructions(ctx_data)
+        return await super().contribute_instructions(ctx_data)
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the current-entity card (§5).
 
         Carries ctx_data.social_network_current_entity exactly as
-        hook_data_gathering rendered it — known-entity card, first-meeting /
+        gather rendered it — known-entity card, first-meeting /
         no-user-context / load-error fallbacks alike (R4: relocated, never
         dropped; the error text with its exception string is precisely the
         kind of volatile content that must stay out of the system prompt).
@@ -314,7 +314,7 @@ class SocialNetworkModule(XYZBaseModule):
 
     # ============================================================================= Hooks
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Load current interaction entity info when building context
 
@@ -333,7 +333,7 @@ class SocialNetworkModule(XYZBaseModule):
         Returns:
             Enriched ContextData
         """
-        logger.debug("          → SocialNetworkModule.hook_data_gathering() started")
+        logger.debug("          → SocialNetworkModule.gather() started")
 
         try:
             # Get instance_id
@@ -398,7 +398,7 @@ Adapt your communication style according to this persona."""
                     logger.info(f"            ✓ Loaded social network info for {entity.entity_name}")
 
                     # === Option C: Write related_job_ids to extra_data ===
-                    # Allow JobModule to read and load Job context in subsequent hook_data_gathering
+                    # Allow JobModule to read and load Job context in subsequent gather
                     if entity.related_job_ids:
                         ctx_data.extra_data["related_job_ids"] = entity.related_job_ids
                         ctx_data.extra_data["current_entity_id"] = entity.entity_id
@@ -482,12 +482,12 @@ Adapt your communication style according to this persona."""
             except Exception as exc:
                 logger.warning(f"            Failed to load known agent entities: {exc}")
 
-            logger.debug("          ← SocialNetworkModule.hook_data_gathering() completed")
+            logger.debug("          ← SocialNetworkModule.gather() completed")
 
         except Exception as e:
-            logger.exception(f"Error in hook_data_gathering: {e}")
+            logger.exception(f"Error in gather: {e}")
             logger.exception(e)
-            # Set error state value to ensure get_instructions doesn't fail due to missing fields
+            # Set error state value to ensure contribute_instructions doesn't fail due to missing fields
             # Also clearly indicate an error occurred for debugging
             ctx_data.social_network_current_entity = f"""**⚠️ Social network data loading failed.**
 
@@ -498,7 +498,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         return ctx_data
 
-    async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
+    async def after_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Automatically update entity_description after Event execution
 
@@ -510,7 +510,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         Division of responsibilities with extract_entity_info:
         - extract_entity_info: Actively called by Agent, updates structured info (tags, contact_info, identity_info)
-        - hook_after_event_execution: Automatically executed, cumulatively updates natural language description (entity_description)
+        - after_turn: Automatically executed, cumulatively updates natural language description (entity_description)
 
         Refactoring notes (2025-12-24):
         - Uses instance_id to query and update instance_social_entities table
@@ -523,7 +523,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 - trace: Execution trace (event_log, agent_loop_response)
                 - ctx_data: Complete context data
         """
-        logger.debug("          → SocialNetworkModule.hook_after_event_execution() started")
+        logger.debug("          → SocialNetworkModule.after_turn() started")
 
         try:
             # Get instance_id
@@ -669,9 +669,9 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             # _process_mentioned_entities writes go straight to the engine too.
 
         except Exception as e:
-            logger.exception(f"Error in hook_after_event_execution: {e}")
+            logger.exception(f"Error in after_turn: {e}")
 
-        logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
+        logger.debug("          ← SocialNetworkModule.after_turn() completed")
 
 
     async def _process_mentioned_entities(self, repo, instance_id: str, mentioned: list) -> None:
@@ -814,7 +814,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
     # ============================================================================= MCP Server
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration
 
@@ -1172,11 +1172,11 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                         updates["tags"] = merged
 
                     # Protect entity_description: not allowed to update via this function
-                    # entity_description should only be cumulatively updated by hook_after_event_execution
+                    # entity_description should only be cumulatively updated by after_turn
                     if "entity_description" in updates:
                         logger.warning(
                             "Attempted to update entity_description via extract_entity_info. "
-                            "This field is managed by hook_after_event_execution only. Ignoring."
+                            "This field is managed by after_turn only. Ignoring."
                         )
                         updates.pop("entity_description")
 
@@ -1207,7 +1207,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 if "entity_description" in updates:
                     logger.warning(
                         "Ignoring entity_description in updates during entity creation. "
-                        "This field is managed by hook_after_event_execution only."
+                        "This field is managed by after_turn only."
                     )
                     updates.pop("entity_description")
 

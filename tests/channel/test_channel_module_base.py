@@ -58,7 +58,7 @@ class _ConcreteFakeModule(ChannelModuleBase):
     def register_mcp_tools(self, mcp) -> None:
         self._register_calls.append(mcp)
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         return "fake instructions"
 
     async def build_extra_data(self, cred: Any, ctx_data: ContextData) -> dict:
@@ -158,7 +158,7 @@ async def test_hook_data_gathering_injects_extra_data():
     module = _make_module(next_credential=cred)
     ctx = ContextData(agent_id="agent_a", input_content="hi")
 
-    result = await module.hook_data_gathering(ctx)
+    result = await module.gather(ctx)
 
     assert result is ctx
     assert ctx.extra_data["fake_info"] == {"id": "cred-123", "ctx_seen": True}
@@ -174,7 +174,7 @@ async def test_hook_data_gathering_skips_when_no_credential():
     module = _make_module(next_credential=None)
     ctx = ContextData(agent_id="agent_a", input_content="hi")
 
-    await module.hook_data_gathering(ctx)
+    await module.gather(ctx)
 
     assert "fake_info" not in ctx.extra_data
     assert module._build_extra_data_calls == []
@@ -192,7 +192,7 @@ async def test_hook_data_gathering_swallows_exceptions(monkeypatch):
     ctx = ContextData(agent_id="agent_a", input_content="hi")
 
     # MUST NOT raise
-    result = await module.hook_data_gathering(ctx)
+    result = await module.gather(ctx)
 
     assert result is ctx
     assert "fake_info" not in ctx.extra_data
@@ -215,10 +215,10 @@ async def test_hook_after_event_execution_filters_by_working_source():
     nonmatching = _StubParams(WorkingSource.JOB)
     matching = _StubParams(WorkingSource.LARK)
 
-    await module.hook_after_event_execution(nonmatching)
+    await module.after_turn(nonmatching)
     assert module._on_event_executed_calls == []
 
-    await module.hook_after_event_execution(matching)
+    await module.after_turn(matching)
     assert len(module._on_event_executed_calls) == 1
     assert module._on_event_executed_calls[0] is matching
 
@@ -230,14 +230,14 @@ async def test_hook_after_event_execution_accepts_string_working_source():
     module = _make_module()
 
     string_params = _StubParams("lark")  # string, not enum
-    await module.hook_after_event_execution(string_params)
+    await module.after_turn(string_params)
     assert len(module._on_event_executed_calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_get_mcp_config_returns_well_formed_config():
     module = _make_module()
-    cfg = await module.get_mcp_config()
+    cfg = await module.mcp_server()
     assert cfg is not None
     assert cfg.server_name == "fake_module"
     assert cfg.server_url.endswith("/mcp/fake_module/sse")  # the single MCP host + the mount path (batch 5a)

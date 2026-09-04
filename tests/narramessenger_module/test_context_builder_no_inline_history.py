@@ -18,7 +18,7 @@ dead code — every call returned an empty list via the fallback branch.
 
 The 2026-07-09 refactor made this explicit: both methods return ``[]``
 unconditionally. History is served from ChatModule memory during
-``hook_data_gathering``; live roster is fetched on demand via the
+``gather``; live roster is fetched on demand via the
 ``narra_room_members`` MCP tool. Current-turn attachment markers are
 injected at ``context_runtime.build_input_for_framework``; historical
 markers use the same ``Attachment.markers_from_dicts`` helper —

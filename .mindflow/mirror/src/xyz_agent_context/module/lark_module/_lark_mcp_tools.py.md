@@ -130,7 +130,7 @@ New agent-facing `react_to_user_message(agent_id, room_id, message_id, emoji)`.
 Each module maps it to its platform tokens (`_LARK_REACTIONS` → Lark `emoji_type`
 keys), backed by `LarkCLIClient.add_reaction`. Best-effort: returns
 `{success:false, reason}` on any error, never raises. The full menu + the
-platform each renders lives in each channel's get_instructions.
+platform each renders lives in each channel's contribute_instructions.
 
 ## 2026-05-22 — add `lark_unbind` to close the bind/unbind symmetry
 
@@ -146,7 +146,7 @@ Added `lark_unbind(agent_id)` calling the freshly-extracted
 same helper so the cleanup logic (CLI profile, workspace, DB row,
 bus channel reap) doesn't duplicate.
 
-The `lark_module.get_instructions` prompt now ships a
+The `lark_module.contribute_instructions` prompt now ships a
 `_LIFECYCLE_LINE` (rendered in the bound-state path) and a parallel
 note in `_NO_BOT_INSTRUCTION` telling the agent the tool exists and
 to confirm intent before calling (iron rule #7 covers destructive
@@ -183,7 +183,7 @@ previously taught only `auth login --scope X --no-wait` with no mention
 of the follow-up `auth login --device-code D` poll. Agents therefore
 kept re-minting on every turn (demo_user_v1 incident 2026-04-22).
 Rewrote the bullet to (a) reference the fuller "Incremental scope
-authorization" section rendered by `lark_module.get_instructions` and
+authorization" section rendered by `lark_module.contribute_instructions` and
 (b) summarize the two-step, two-turn rule inline for agents that read
 tool docstrings before prompts. Also added an explicit translation for
 `authorization_pending` so agents don't mistake it for a generic
@@ -220,7 +220,7 @@ Current tools:
   Previously 4 tools (`lark_configure_permissions`, `lark_auth`,
   `lark_auth_complete`, `lark_mark_console_done`) — their docstrings
   contained cross-tool "MANDATORY" directives that collided with
-  `get_instructions` coach, making the Agent stall at Click 3. The state
+  `contribute_instructions` coach, making the Agent stall at Click 3. The state
   machine lives in one `event` parameter (`""` | `"admin_approved"` |
   `"user_authorized"` | `"availability_ok"`), so docstring conflicts are
   now structurally impossible.
@@ -268,7 +268,7 @@ Current tools:
   for polling — the only thing we ever poll is `user_authz_device_code`,
   which is minted fresh by `event="admin_approved"`.
 - **`lark_setup` writes `app_id="pending_setup"` + `is_active=False`**
-  before forking the background finalizer. `hook_data_gathering` in
+  before forking the background finalizer. `gather` in
   `lark_module.py` now injects `lark_info` for this pending row (P4 fix);
   without that fix, Agent sees "No Lark bot bound" for the ~15s window
   and tries to call `lark_setup` again.

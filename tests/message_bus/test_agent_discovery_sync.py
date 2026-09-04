@@ -6,7 +6,7 @@
 created and configured — not from its first turn (P1 段02, targets 1 & 2).
 
 Before this, ``bus_agent_registry`` had exactly one writer: an inline block in
-``MessageBusModule.hook_data_gathering`` that ran per turn and hardcoded
+``MessageBusModule.gather`` that ran per turn and hardcoded
 ``capabilities=[]``. Two consequences, both confirmed in prod:
 
   * an agent that was created and configured but had not taken a turn yet was

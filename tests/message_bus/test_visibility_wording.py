@@ -182,7 +182,7 @@ def test_the_block_does_not_confine_the_agent_to_the_trigger_channel():
     """The block teaches both verbs; the turn is not confined to one. It says so.
 
     2026-08-20 — capability follows the agent, not the trigger channel.
-    `get_disallowed_tools` no longer removes the non-default verb's schema, so
+    `disallowed_tools` no longer removes the non-default verb's schema, so
     the block must tell the agent it is not confined to the conversation that
     woke it. The old dead-end wording ("finish this turn; a fresh one will have
     that call") was the prose face of the drop the redesign removed; asserting
@@ -297,7 +297,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # stop the branch being helpfully reinstated by the next reader.
     code = "\n".join(
         ln for ln in
-        inspect.getsource(MessageBusModule.hook_data_gathering).splitlines()
+        inspect.getsource(MessageBusModule.gather).splitlines()
         if not ln.lstrip().startswith("#")
     )
 
@@ -307,7 +307,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # Neither name has any other legitimate use in this method today.
     reinstated = (
         "the retired input-source-tag branch must not be reinstated; "
-        "see the comment at the end of hook_data_gathering"
+        "see the comment at the end of gather"
     )
     assert "input_content" not in code, reinstated
     assert "working_source" not in code, reinstated
@@ -319,7 +319,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # tag" as a step — the copy physically closest to the deleted code, and the
     # one this very test was written to make impossible. A guard that skips the
     # place the claim actually survived is not a guard.
-    raw = inspect.getsource(MessageBusModule.hook_data_gathering)
+    raw = inspect.getsource(MessageBusModule.gather)
     assert "prefix the input" not in raw
     # Paired with a POSITIVE, because the negative alone is one possessive away
     # from banning an honest historical sentence ("a step here used to prefix

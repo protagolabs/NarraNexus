@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-08-20
 @description: The bootstrap-phase judgment shared by the two BACKEND greeting
-writers — the step_1 seed and ChatModule.hook_persist_turn — and by
+writers — the step_1 seed and ChatModule.persist_turn — and by
 context_runtime's Bootstrap prompt injection/auto-delete.
 
 Scope caveat: this is the definition for those three, NOT for the whole repo.

@@ -106,7 +106,7 @@ def _module_class(fake: _FakeMCPServer, server_name: str, seen: list | None = No
         def build_instrumented_mcp_server(self):
             return self.create_mcp_server()
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return _Cfg(server_name)
 
     _FakeModule.__name__ = f"Fake_{server_name}"

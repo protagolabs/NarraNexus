@@ -267,7 +267,7 @@ def test_base_module_wrapper_instruments_and_never_raises():
             return ModuleConfig(name="NoServer", priority=9, enabled=True,
                                 description="t", module_type="capability")
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
     m = NoServer(agent_id=REAL, user_id="u", database_client=None)
@@ -290,7 +290,7 @@ def test_broken_instrumentation_still_serves_the_module(monkeypatch):
             return ModuleConfig(name="WithServer", priority=9, enabled=True,
                                 description="t", module_type="capability")
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
         def create_mcp_server(self):

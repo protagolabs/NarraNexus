@@ -270,7 +270,7 @@ class NexusAgent:
                 "anthropic- or openai-protocol provider to the agent slot"
             )
         # The delivery surface is DECLARED by the platform (modules'
-        # get_expressive_tools → TurnInput → here). No guessing from
+        # expressive_tools → TurnInput → here). No guessing from
         # server names: a rename must never silently mute the agent, and
         # channel reply tools (lark_cli & co.) are part of the surface too.
         expressive = tuple(kwargs.get("expressive_tools") or ())

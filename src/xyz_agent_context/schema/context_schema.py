@@ -55,14 +55,14 @@ class ContextData(BaseModel):
     bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
     user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
 
-    # Runtime LLM identity (populated by BasicInfoModule.hook_data_gathering
+    # Runtime LLM identity (populated by BasicInfoModule.gather
     # via agent_framework.resolve_agent_model_identity). Rendered into the
     # system prompt's "LLM Model" line so the agent states its REAL framework
     # + model instead of a hardcoded brand. See basic_info_module prompts.py.
     agent_info_model_type: Optional[str] = None  # Framework display name, e.g. "Codex CLI"
     model_name: Optional[str] = None  # Configured model string, e.g. "gpt-5"
 
-    # Deployment environment (populated by BasicInfoModule.hook_data_gathering).
+    # Deployment environment (populated by BasicInfoModule.gather).
     # Short tag + verbose description block — both rendered into the system
     # prompt so the agent can reason about cloud vs local constraints.
     deployment_mode: Optional[str] = None  # "cloud" | "local"
@@ -88,7 +88,7 @@ class ContextRuntimeOutput(BaseModel):
     # only their bind tool). Merged into the CLI's disallowed_tools.
     disallowed_tools: List[str] = []
     # Delivery declaration (NexusPower reply contract): fully-qualified
-    # reply tools collected from modules' get_expressive_tools, in module
+    # reply tools collected from modules' expressive_tools, in module
     # priority order (first = the turn's default reply tool).
     expressive_tools: List[str] = []
     # Plugin tools (agent.capabilities.tools) not marked always_visible:

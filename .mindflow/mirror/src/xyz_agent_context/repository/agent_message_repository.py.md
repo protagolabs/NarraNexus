@@ -20,7 +20,7 @@ Verified 2026-08-05 on today's `origin/dev`:
   `get_unresponded_messages()` / `update_response_status()` either.
 - **`agent_messages` is 0 rows** locally and in prod.
 - The chat transcript lives in **`instance_json_format_memory_chat`**, keyed by
-  ChatModule instance id, written by `ChatModule.hook_persist_turn` and replayed
+  ChatModule instance id, written by `ChatModule.persist_turn` and replayed
   by `/simple-chat-history` → [[buildTimeline.ts]]. The `events` table is a
   separate surface: one row per agent run, replayed by `/chat-history` into the
   Narrative / Runtime panels.

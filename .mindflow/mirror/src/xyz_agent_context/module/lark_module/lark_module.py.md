@@ -50,18 +50,18 @@ prompt 里此前只说了「`--markdown` 收内联字符串、不是文件路径
 ## 2026-07-24 — setup residency (B++): unbound gating + lark_info for pending rows
 
 Declares `all_tool_names` + `setup_tool_names = {lark_setup, lark_bind}` per
-the [[channel_module_base]] setup-residency contract. The `get_instructions`
+the [[channel_module_base]] setup-residency contract. The `contribute_instructions`
 unbound branch returns `unbound_setup_line()` instead of the full walkthrough;
 bound-but-info-missing returns "". To keep that latter state transient-only,
-`hook_data_gathering` now injects `lark_info` for ANY credential row —
+`gather` now injects `lark_info` for ANY credential row —
 including `pending_setup` — so a bound agent can't be stuck info-less.
 Zero-arg setup tools serve the guide on demand (see [[_lark_mcp_tools]]).
 
-## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+## 2026-07-10 — early-feedback removed from contribute_instructions (moved to trigger)
 
-The "ack early" block is no longer rendered in `get_instructions` — it moved to
+The "ack early" block is no longer rendered in `contribute_instructions` — it moved to
 the per-turn input in the trigger (`_early_feedback_prefix`, see
-[[channel_trigger_base]]) for higher salience. `get_instructions` no longer
+[[channel_trigger_base]]) for higher salience. `contribute_instructions` no longer
 imports `render_early_feedback`.
 
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
@@ -71,14 +71,14 @@ The LARK CHANNEL early-feedback line is now produced by [[channel_reactions]]
 inline=True)` instead of an inline hardcoded string — the directive + the 11-name
 menu now have one source.
 
-## 2026-07-10 — get_instructions surfaces early-feedback directive
+## 2026-07-10 — contribute_instructions surfaces early-feedback directive
 
 The LARK CHANNEL mode block renders (when `source_message_id` is present) an
 "Early feedback" instruction: for any request needing more than a one-line
 answer, ACK FIRST (react `on_it` via `react_to_user_message`, with the real
 room_id/message_id embedded in the example, OR a quick "on it") THEN do the work;
 skip only for trivial replies. This is a **generic interaction rule**, so it
-lives in the system prompt (this get_instructions output) — NOT per-agent
+lives in the system prompt (this contribute_instructions output) — NOT per-agent
 Awareness (rule #4: generic rules go in the generic prompt; only business
 *scenarios* go in Awareness). It's a product-level default applied to all agents
 equally, so it does not violate rule #15 (which forbids policing a *specific*
@@ -159,13 +159,13 @@ rendering + 7 MCP tools stay here.
   called automatically in base's `__init__`). The class-level
   `_sender_registered` flag is gone — base owns the once-per-channel
   guard.
-- `hook_data_gathering` template (loads credential → calls
+- `gather` template (loads credential → calls
   `build_extra_data` → injects into `ctx_data.extra_data[ctx_data_key]`).
   Lark's `lark_info` dict construction lives in `build_extra_data` now.
-- `hook_after_event_execution` filtering by `working_source`. The
+- `after_turn` filtering by `working_source`. The
   body of post-execution work is in the new `_on_event_executed`
   override hook.
-- `get_mcp_config` (built from class attrs `mcp_server_name` + `mcp_port`).
+- `mcp_server` (built from class attrs `mcp_server_name` + `mcp_port`).
 - `create_mcp_server` (FastMCP creation + `register_mcp_tools` call).
 
 ### What stays here (Lark-specific content, not boilerplate)
@@ -174,11 +174,11 @@ rendering + 7 MCP tools stay here.
   `_THREE_CLICK_BACKGROUND`, `_IDENTITY_GUIDE`,
   `_INCREMENTAL_AUTH_GUIDE`, `_NARRANEXUS_SPECIFICS`,
   `_CONTENT_DELIVERY_GUIDE`, `_IRON_RULES`.
-- `get_instructions(ctx_data)` — 600+ line three-click-flow renderer.
+- `contribute_instructions(ctx_data)` — 600+ line three-click-flow renderer.
 - `register_mcp_tools(mcp)` — calls `register_lark_mcp_tools(mcp)` to
   register all 7 Lark MCP tools.
 - `build_extra_data(cred, ctx_data)` — builds the `lark_info` dict
-  consumed by `get_instructions`. The `is_owner_interacting`
+  consumed by `contribute_instructions`. The `is_owner_interacting`
   trust-signal derivation reads `ctx_data.extra_data["channel_tag"]`,
   which is why the base passes `ctx_data` into this method.
 - `send_to_agent(agent_id, target_id, message, **kw)` — Lark-specific
@@ -332,12 +332,12 @@ assertions:
   `lark_skill` pointer
 - NarraNexus-specifics section teaches per-agent auth (names
   `lark_setup` / `lark_bind`)
-- NarraNexus-specifics section rendered in `get_instructions`
+- NarraNexus-specifics section rendered in `contribute_instructions`
 
 ## 2026-04-23 update — incremental scope authorization guide
 
 Added `_INCREMENTAL_AUTH_GUIDE` constant and wired it into the
-`stage=="completed"` branch of `get_instructions`. Motivated by the
+`stage=="completed"` branch of `contribute_instructions`. Motivated by the
 demo_user_v1 prod incident 2026-04-22 where the agent minted 6
 separate `auth login --scope X --no-wait` URLs inside 13 minutes
 without ever polling the device_code from any of them.
@@ -365,7 +365,7 @@ point at this section rather than restate the incomplete one-liner.
 
 ## 2026-04-22 update — C-mini redesign (three-click authorization)
 
-The `get_instructions` render and `hook_data_gathering` were both reworked
+The `contribute_instructions` render and `gather` were both reworked
 as part of the Lark three-click authorization redesign (2026-04-22,
 author-local design).
 
@@ -381,7 +381,7 @@ author-local design).
   This is the ONLY place the Agent learns about the enterprise-tenant
   three-click flow — upstream `lark-shared` SKILL.md is out of our
   control and describes a single-click model. By not touching SKILL.md
-  and keeping the correct model inline in `get_instructions`, we win
+  and keeping the correct model inline in `contribute_instructions`, we win
   on every rendered turn.
 - **Coach section** is now strict `stage → single tool call` mapping.
   Every branch is gated on DB state, never on user's literal words
@@ -404,7 +404,7 @@ author-local design).
   this system prompt section). Drift in any one undermines the other
   two — see `2026-04-22` post-C-mini link-rewrite change in
   `_lark_skill_loader.md`.
-- **P4 fix in `hook_data_gathering`**: removed the `if cred and cred.is_active`
+- **P4 fix in `gather`**: removed the `if cred and cred.is_active`
   gate. Now injects `lark_info` for ANY credential row (including
   `pending_setup` / `is_active=False`) so the Matrix can show
   `⏳ creating` during the 15s window between `lark_setup` return and
@@ -428,7 +428,7 @@ author-local design).
 
 Entry point for the Lark/Feishu integration. Registers the module with
 the framework, creates the MCP server, injects Lark credential info into
-the agent's context via `hook_data_gathering`, and registers a channel
+the agent's context via `gather`, and registers a channel
 sender so other modules can send Lark messages on behalf of an agent.
 
 ## Design decisions
@@ -446,21 +446,21 @@ sender so other modules can send Lark messages on behalf of an agent.
 - **Static instruction fragments as module-level constants**
   (`_NO_BOT_INSTRUCTION`, `_THREE_CLICK_BACKGROUND`, `_IRON_RULES`):
   wording stays identical across turns, and cheap f-string concatenation
-  lets `get_instructions` focus on state → section routing only.
+  lets `contribute_instructions` focus on state → section routing only.
 
 ## Upstream / downstream
 
 - **Upstream**: `module/__init__.py` (MODULE_MAP), `module_service.py`.
 - **Downstream**: `_lark_mcp_tools.py` (tool registration),
   `_lark_credential_manager.py` (`current_click_stage` drives matrix;
-  `hook_data_gathering` reads `permission_state`),
+  `gather` reads `permission_state`),
   `ChannelSenderRegistry` (send function),
   `_lark_skill_loader.py` (`get_available_skills` inside
   `_build_skill_section`).
 
 ## Gotchas
 
-- `hook_after_event_execution` compares `str(ws)` against
+- `after_turn` compares `str(ws)` against
   `WorkingSource.LARK.value` because `working_source` may arrive as
   either the enum or its string representation.
 - `_build_skill_section` swallows all exceptions in `get_available_skills`

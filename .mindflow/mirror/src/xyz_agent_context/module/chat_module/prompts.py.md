@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/prompts.py
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-17 — 重写：两种社交处境，不再有 working_source 对照表
@@ -11,7 +11,7 @@ last_verified: 2026-08-17
 每轮桌上只有一个，写死任何一个都会在拿到另一个的轮次上是错的）。
 
 删掉的：`working_source` 对照表。它让 agent 从 trigger 名字推断自己在哪——而桌子已经
-回答了这个问题（见 [[chat_module]] 的 `get_expressive_tools`）。
+回答了这个问题（见 [[chat_module]] 的 `expressive_tools`）。
 
 保住并加强的：「纯文本谁也到不了」。**这句话现在第一次是无条件真的**——最后一个例外
 （team 房间收纯文本）随本次改造关闭，所以它可以写成绝对句而不制造矛盾。

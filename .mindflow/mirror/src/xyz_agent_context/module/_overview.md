@@ -13,8 +13,8 @@ last_verified: 2026-04-10
 
 1. `AgentRuntime` 调用 `ModuleService.load_modules()`，进入 `_module_impl/loader.py`
 2. `ModuleLoader` 将 capability modules（规则加载）和 task modules（LLM 决策，通过 `instance_decision.py`）分开处理
-3. 加载完毕后，`HookManager` 将 `hook_data_gathering` 扇出到所有已加载的 module（默认顺序执行，可选并行）
-4. AgentLoop 运行结束，`HookManager` 并行扇出 `hook_after_event_execution`
+3. 加载完毕后，`HookManager` 将 `gather` 扇出到所有已加载的 module（默认顺序执行，可选并行）
+4. AgentLoop 运行结束，`HookManager` 并行扇出 `after_turn`
 5. 任何返回 `trigger_callback=True` 的 `HookCallbackResult` 会激活等待中的依赖实例
 
 ## 关键文件索引
@@ -44,5 +44,5 @@ last_verified: 2026-04-10
 - `MODULE_MAP` 是唯一的模块注册入口。忘记在这里注册新模块，即使类存在也永远不会被加载，且不会有任何报错。
 - `ALWAYS_LOAD_MODULES`（目前只有 `SkillModule`）完全绕过实例决策，以合成的内存实例（ID 固定为 `skill_default`）注入。
 - 存在"虚拟 JobModule 注入"机制：如果 LLM 决策返回零个 JobModule 实例，`loader.py` 仍会插入一个空 `instance_id` 的虚拟实例，确保 `job_create` MCP 工具可访问。
-- `hook_data_gathering` 默认是**顺序执行**——改为 `parallel_data_gathering=True` 需要确保各模块写入 `ContextData` 的不同字段，否则 `ContextDataMerger` 的 last-write-wins 合并策略会静默丢弃数据。
+- `gather` 默认是**顺序执行**——改为 `parallel_data_gathering=True` 需要确保各模块写入 `ContextData` 的不同字段，否则 `ContextDataMerger` 的 last-write-wins 合并策略会静默丢弃数据。
 - MCP 服务器在 SQLite 模式下运行于单进程多线程模式（避免多进程写锁争用），生产环境（MySQL/PostgreSQL）则每个模块独立进程。

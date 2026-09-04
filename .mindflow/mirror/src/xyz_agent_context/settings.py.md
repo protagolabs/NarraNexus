@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -160,7 +160,7 @@ orchestrator env 与**每一个** executor 容器 env（容器不读平台 .env�
 新增 `prompt_turn_context_relocation_enabled: bool = True`(env
 `PROMPT_TURN_CONTEXT_RELOCATION_ENABLED`)。turn-context relocation 的
 kill-switch:开 = 每轮易变内容(temporal / narrative updated_at+current_summary /
-recent_actions / 模块 get_turn_context)搬进当前轮 user message 的 [Turn context]
+recent_actions / 模块 contribute_turn_context)搬进当前轮 user message 的 [Turn context]
 块,system prompt 轮间字节恒定可缓存;关 = context 装配与 R4 之前**逐字节一致**。
 与 `agent_loop_resume_enabled` **相互独立**(relocation 惠及所有框架所有轮次,
 resume 仅 claude_code;并成一个开关会让"排查 resume 关开关"连带回滚 prompt 结构、

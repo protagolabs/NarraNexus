@@ -24,7 +24,7 @@ now be the misinformation, telling the model nothing can deliver on a turn where
 `message_team` is exactly what does.
 
 Drift guards mirror tests/chat_module/test_expressive_declaration.py: the
-declaration derives from get_mcp_config().server_name, and the short names
+declaration derives from mcp_server().server_name, and the short names
 must be tools the bus MCP server actually registers.
 """
 from __future__ import annotations
@@ -56,9 +56,9 @@ def _ctx(working_source, **extra) -> ContextData:
 @pytest.mark.asyncio
 async def test_a_peer_dm_turn_declares_the_peer_send_verb():
     module = _module()
-    mcp_config = await module.get_mcp_config()
+    mcp_config = await module.mcp_server()
 
-    declared = await module.get_expressive_tools(_ctx(WorkingSource.MESSAGE_BUS))
+    declared = await module.expressive_tools(_ctx(WorkingSource.MESSAGE_BUS))
 
     assert declared == [f"mcp__{mcp_config.server_name}__message_agent"]
 
@@ -73,9 +73,9 @@ async def test_a_team_turn_declares_the_room_send_verb():
     the one turn where `message_team` is what does.
     """
     module = _module()
-    mcp_config = await module.get_mcp_config()
+    mcp_config = await module.mcp_server()
 
-    declared = await module.get_expressive_tools(
+    declared = await module.expressive_tools(
         _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
     )
 
@@ -94,7 +94,7 @@ async def test_exactly_one_verb_per_surface():
     module = _module()
 
     for extra in ({}, {"bus_team_room": True}):
-        declared = await module.get_expressive_tools(
+        declared = await module.expressive_tools(
             _ctx(WorkingSource.MESSAGE_BUS, **extra)
         )
         assert len(declared) == 1, declared
@@ -103,7 +103,7 @@ async def test_exactly_one_verb_per_surface():
 @pytest.mark.asyncio
 async def test_bus_turn_with_serialized_source_string_also_declares():
     module = _module()
-    declared = await module.get_expressive_tools(
+    declared = await module.expressive_tools(
         _ctx(WorkingSource.MESSAGE_BUS.value)
     )
     assert any(t.endswith("__message_agent") for t in declared)
@@ -111,14 +111,14 @@ async def test_bus_turn_with_serialized_source_string_also_declares():
 
 @pytest.mark.asyncio
 async def test_chat_turn_declares_nothing():
-    assert await _module().get_expressive_tools(_ctx(WorkingSource.CHAT)) == []
+    assert await _module().expressive_tools(_ctx(WorkingSource.CHAT)) == []
 
 
 @pytest.mark.asyncio
 async def test_no_ctx_declares_nothing():
     """Legacy/no-ctx callers keep the empty default — never advertise bus
     tools as the reply surface of a turn whose origin is unknown."""
-    assert await _module().get_expressive_tools() == []
+    assert await _module().expressive_tools() == []
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_declared_short_names_are_actually_registered():
 #
 # 2026-08-20 — capability follows the agent, not the trigger channel. The
 # trigger channel decides ONLY which verb the reply reminder defaults to
-# (get_expressive_tools). It no longer removes the other verb: every internal
+# (expressive_tools). It no longer removes the other verb: every internal
 # send verb stays reachable on every bus turn, so an agent woken in a DM can
 # still post in a team room it belongs to. The one turn that still clears both
 # verbs is patrol, which delivers by speaking and calls no send tool.
@@ -152,11 +152,11 @@ async def test_a_bus_turn_suppresses_neither_internal_send_verb():
     """
     for extra in ({}, {"bus_team_room": True}):
         module = _module()  # fresh per case: no state may carry between turns
-        config = await module.get_mcp_config()
+        config = await module.mcp_server()
         q = f"mcp__{config.server_name}__"
         ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
 
-        suppressed = await module.get_disallowed_tools(ctx)
+        suppressed = await module.disallowed_tools(ctx)
 
         assert q + "message_agent" not in suppressed
         assert q + "message_team" not in suppressed
@@ -173,8 +173,8 @@ async def test_the_reminder_still_defaults_to_the_turns_own_verb():
     explicit target — the intent gradient that replaces the old hard drop.
 
     ONE instance, three turns of different kinds, in the runtime's order
-    (suppression asked BEFORE declaration). `get_disallowed_tools` no longer
-    branches on the turn, but `get_expressive_tools` still reads
+    (suppression asked BEFORE declaration). `disallowed_tools` no longer
+    branches on the turn, but `expressive_tools` still reads
     `_is_team_turn(ctx_data)` — so it is now the one hook a `self`-cached turn
     kind (a natural "save a getattr" optimisation) would break. The final
     turn returns to `team` so an implementation that answers with the PREVIOUS
@@ -183,7 +183,7 @@ async def test_the_reminder_still_defaults_to_the_turns_own_verb():
     class of bug, which had really shipped.
     """
     module = _module()
-    config = await module.get_mcp_config()
+    config = await module.mcp_server()
     q = f"mcp__{config.server_name}__"
 
     for extra, default in (
@@ -193,8 +193,8 @@ async def test_the_reminder_still_defaults_to_the_turns_own_verb():
     ):
         ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
         # Runtime order: suppression first, declaration second.
-        await module.get_disallowed_tools(ctx)
-        assert await module.get_expressive_tools(ctx) == [q + default]
+        await module.disallowed_tools(ctx)
+        assert await module.expressive_tools(ctx) == [q + default]
 
 
 @pytest.mark.asyncio
@@ -208,9 +208,9 @@ async def test_a_chat_turn_also_suppresses_neither_send_verb():
 
     ctx = _ctx(WorkingSource.CHAT)
 
-    assert await module.get_disallowed_tools(ctx) == []
+    assert await module.disallowed_tools(ctx) == []
     # And it is not declared as the reply reminder on a turn it does not own.
-    assert await module.get_expressive_tools(ctx) == []
+    assert await module.expressive_tools(ctx) == []
 
 
 @pytest.mark.asyncio
@@ -219,11 +219,11 @@ async def test_a_patrol_turn_still_clears_both_send_verbs():
     calls no send tool — so both verbs come off the desk. This invariant is
     unchanged by the redesign and must not regress."""
     module = _module()
-    config = await module.get_mcp_config()
+    config = await module.mcp_server()
     q = f"mcp__{config.server_name}__"
     ctx = _ctx(WorkingSource.MESSAGE_BUS, bus_plain_text_turn=True)
 
-    suppressed = await module.get_disallowed_tools(ctx)
+    suppressed = await module.disallowed_tools(ctx)
 
     assert q + "message_agent" in suppressed
     assert q + "message_team" in suppressed
@@ -231,7 +231,7 @@ async def test_a_patrol_turn_still_clears_both_send_verbs():
 
 @pytest.mark.asyncio
 async def test_suppression_reads_each_turn_on_a_reused_instance():
-    """`get_disallowed_tools` still branches — patrol clears both, otherwise
+    """`disallowed_tools` still branches — patrol clears both, otherwise
     nothing — so a long-lived instance that cached the turn kind on `self`
     would answer a later turn with an earlier turn's suppression.
 
@@ -242,13 +242,13 @@ async def test_suppression_reads_each_turn_on_a_reused_instance():
     bug that actually shipped.
     """
     module = _module()
-    config = await module.get_mcp_config()
+    config = await module.mcp_server()
     q = f"mcp__{config.server_name}__"
     both = [q + "message_agent", q + "message_team"]
 
     patrol = _ctx(WorkingSource.MESSAGE_BUS, bus_plain_text_turn=True)
     bus = _ctx(WorkingSource.MESSAGE_BUS)
 
-    assert await module.get_disallowed_tools(patrol) == both
-    assert await module.get_disallowed_tools(bus) == []
-    assert await module.get_disallowed_tools(patrol) == both
+    assert await module.disallowed_tools(patrol) == both
+    assert await module.disallowed_tools(bus) == []
+    assert await module.disallowed_tools(patrol) == both

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/home_assistant_module/prompts.py
-last_verified: 2026-07-14
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -14,4 +14,4 @@ stub: false
 ## 关键点
 
 - **只放通用逻辑**(铁律 #4)——具体家居布局/习惯/联动在各 agent 的 Awareness,不在这。
-- **不能有裸 `{}`**:`get_instructions` 走 `str.format(**ctx_data)`,花括号会 KeyError/崩。
+- **不能有裸 `{}`**:`contribute_instructions` 走 `str.format(**ctx_data)`,花括号会 KeyError/崩。

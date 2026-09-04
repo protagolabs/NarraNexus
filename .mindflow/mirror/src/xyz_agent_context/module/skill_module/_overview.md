@@ -7,7 +7,7 @@ last_verified: 2026-07-10
 
 ## 目录角色
 
-SkillModule 让 Agent 通过文件系统安装和使用"技能"（Skills）。每个技能是一个目录（`skills/<skill-name>/`），包含 `SKILL.md`（操作手册）、脚本、配置文件等。Agent 在 `hook_data_gathering` 时扫描 `skills/` 目录，把已安装技能的表格注入系统提示，告诉 LLM 当前可用哪些工具。
+SkillModule 让 Agent 通过文件系统安装和使用"技能"（Skills）。每个技能是一个目录（`skills/<skill-name>/`），包含 `SKILL.md`（操作手册）、脚本、配置文件等。Agent 在 `gather` 时扫描 `skills/` 目录，把已安装技能的表格注入系统提示，告诉 LLM 当前可用哪些工具。
 
 这是唯一一个通过文件系统而非数据库管理状态的 Module——技能本身存在磁盘，配置（API Keys 等环境变量）通过 MCP 工具写入到工作空间的配置文件，运行时自动注入到 Agent 进程的环境变量里。
 
@@ -17,7 +17,7 @@ SkillModule 是 `ALWAYS_LOAD_MODULES` 成员之一（见 `_module_impl/loader.py
 
 ## 内置技能（Built-in Skills）
 
-技能来源除了 ClawHub / GitHub / agent 自建 / 前端上传，还有一类**随 app 出厂的内置技能**，vendored 在 `builtin_skills/<name>/`（仓库内）。`_materialize_builtin_skills()` 把每个内置技能 `copytree` 物化到 workspace `skills/<name>/`，并在 `.skill_meta.json` 打 `builtin: true`。它在**两个入口**被调用：`hook_data_gathering`（运行时）和 `list_skills`（读时/API）——后者保证「新建、从未运行的 agent」打开 Skills 面板首次即可见（否则 `GET /api/skills` 走 `_scan_skills` 看不到）。
+技能来源除了 ClawHub / GitHub / agent 自建 / 前端上传，还有一类**随 app 出厂的内置技能**，vendored 在 `builtin_skills/<name>/`（仓库内）。`_materialize_builtin_skills()` 把每个内置技能 `copytree` 物化到 workspace `skills/<name>/`，并在 `.skill_meta.json` 打 `builtin: true`。它在**两个入口**被调用：`gather`（运行时）和 `list_skills`（读时/API）——后者保证「新建、从未运行的 agent」打开 Skills 面板首次即可见（否则 `GET /api/skills` 走 `_scan_skills` 看不到）。
 
 - **为什么物化而非引用仓库路径**：Cloud 的 workspace-read-guard 禁读 workspace 外路径，物化后 `cat skills/<name>/SKILL.md` 才合法；且前端/备份机制天然可见。
 - **幂等 + disable-aware**：`skills/<name>/` 或 `skills/.disabled/<name>/` 任一存在即跳过物化——否则用户禁用/删除后每轮被复活。删除对内置技能被禁止（`remove_skill` 抛 `ValueError`），闭合另一条复活路径。

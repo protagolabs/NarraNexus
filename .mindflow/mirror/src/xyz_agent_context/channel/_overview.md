@@ -27,7 +27,7 @@ stub: false
 
 ## 和外部目录的协作
 
-**上游（生产者）**：具体渠道 Module（目前只有 `module/matrix_module/`）继承 `ChannelContextBuilderBase`，在 `get_mcp_config()` 或 Module init 时调用 `ChannelSenderRegistry.register()`。
+**上游（生产者）**：具体渠道 Module（目前只有 `module/matrix_module/`）继承 `ChannelContextBuilderBase`，在 `mcp_server()` 或 Module init 时调用 `ChannelSenderRegistry.register()`。
 
 **下游（消费者）**：
 - `agent_runtime/` 的触发路径（MatrixTrigger 等）调用 `build_prompt()` 生成输入内容
@@ -38,7 +38,7 @@ stub: false
 ## 如何注册新渠道
 
 1. 在 `module/` 下创建新 Module 目录（如 `slack_module/`）
-2. Module 的 `get_mcp_config()` 或初始化时调用 `ChannelSenderRegistry.register("slack", slack_send_fn)`
+2. Module 的 `mcp_server()` 或初始化时调用 `ChannelSenderRegistry.register("slack", slack_send_fn)`
 3. 继承 `ChannelContextBuilderBase` 并实现三个抽象方法：`get_message_info()`、`get_conversation_history()`、`get_room_members()`
 4. 在 `channel/channel_contact_utils.py` 的 `known_channels` 集合里添加新渠道名，确保 `normalize_contact_info()` 能识别它
 5. 如果渠道有特殊的消息格式头（类似 Matrix 的 `[Matrix · ...]`），需要在 `narrative/_narrative_impl/continuity.py` 的 `_extract_core_content()` 里添加对应剥离逻辑

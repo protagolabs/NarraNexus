@@ -39,7 +39,7 @@ class NexusPluginsModule(XYZBaseModule):
             module_type="capability",
         )
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         if is_cloud_mode():
             return ""
         from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import summary_for_agent
@@ -54,10 +54,10 @@ class NexusPluginsModule(XYZBaseModule):
             f"State: {summary}\n"
         )
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         return ""
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         if is_cloud_mode():
             return None
         return MCPServerConfig(server_name="nexus_plugins_module", server_url=mcp_server_url("nexus_plugins_module"), type="sse")

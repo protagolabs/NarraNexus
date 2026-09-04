@@ -190,7 +190,7 @@ async def test_the_patrol_prompt_carries_the_board_and_the_stalled_facts(db_clie
 async def test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team(
     db_client,
 ):
-    """A patrol turn has BOTH bus send verbs off the desk (`get_disallowed_tools`
+    """A patrol turn has BOTH bus send verbs off the desk (`disallowed_tools`
     returns `[message_agent, message_team]`), so the prompt must (a) forbid both,
     not just `message_team`, and (b) NOT also carry the ordinary-turn instruction
     "Speak in this room by calling message_team(...)". Ordering the very tool it

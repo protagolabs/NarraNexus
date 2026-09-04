@@ -12,7 +12,7 @@ This file originally contained all module-related data models, including instanc
 
 ## Upstream / Downstream
 
-Every `XYZBaseModule` subclass implements `get_config() -> ModuleConfig` and optionally `get_mcp_config() -> Optional[MCPServerConfig]`. `ModuleService` reads `ModuleConfig.priority` to sort module instructions before injecting them into the system prompt. `ModuleRunner` reads `MCPServerConfig` to configure and start the MCP server process for a module. `HookCallbackResult` is returned by module hooks to tell `ModulePoller` whether to fire a downstream callback.
+Every `XYZBaseModule` subclass implements `get_config() -> ModuleConfig` and optionally `mcp_server() -> Optional[MCPServerConfig]`. `ModuleService` reads `ModuleConfig.priority` to sort module instructions before injecting them into the system prompt. `ModuleRunner` reads `MCPServerConfig` to configure and start the MCP server process for a module. `HookCallbackResult` is returned by module hooks to tell `ModulePoller` whether to fire a downstream callback.
 
 ## Design decisions
 

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/schema/turn_profile.py
 stub: false
-last_verified: 2026-08-14
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-14 — durable 白名单改挂 WorkingSource.is_from_human（#307 🟡3）

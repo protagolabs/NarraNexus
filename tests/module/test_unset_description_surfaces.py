@@ -114,7 +114,7 @@ async def test_a_real_self_description_is_passed_through_verbatim(monkeypatch):
 
 
 async def _gather_basic_info(mod, monkeypatch, stored_description):
-    """Run BasicInfoModule.hook_data_gathering against a stubbed agent row."""
+    """Run BasicInfoModule.gather against a stubbed agent row."""
     from types import SimpleNamespace
 
     class _FakeAgentRepo:
@@ -143,7 +143,7 @@ async def _gather_basic_info(mod, monkeypatch, stored_description):
     module = mod.BasicInfoModule(agent_id="agent_me", user_id="user_tc",
                                  database_client=object())
     ctx = ContextData(agent_id="agent_me", input_content="hi")
-    return await module.hook_data_gathering(ctx)
+    return await module.gather(ctx)
 
 
 # ---------------------------------------------------------------------------

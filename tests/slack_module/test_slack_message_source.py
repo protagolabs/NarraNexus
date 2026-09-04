@@ -8,7 +8,7 @@ memory instead of writing a "Background activity (slack)" placeholder.
 Why this matters:
     Without _extract_slack_reply, every Slack turn lands in
     ``instance_json_format_memory_chat`` as an activity row that
-    hook_data_gathering then filters out — agents see zero history
+    gather then filters out — agents see zero history
     from prior Slack turns. Observed live 2026-05-13: 100% of slack
     rows in instance chat_93f340b8 were "Background activity (slack)"
     placeholders. These tests pin the extractor's contract so that

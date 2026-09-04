@@ -13,7 +13,7 @@ Core concept - Thinking vs Speaking:
 
 Included MCP Tools:
 - reply_owner / notify_owner: the two registers of speaking to the owner. The
-  turn's desk carries exactly one; see get_expressive_tools / get_disallowed_tools
+  turn's desk carries exactly one; see expressive_tools / disallowed_tools
 - get_chat_history: Get chat history for a Chat Instance
 
 Note: ChatModule itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network/Memory modules
@@ -52,7 +52,7 @@ from xyz_agent_context.utils import DatabaseClient, utc_now
 # Its two imports from that family (`AgentMessageRepository`,
 # `MessageSourceType`) were dead and are gone. The chat transcript lives in
 # `instance_json_format_memory_chat`, keyed by chat instance_id — that is what
-# `hook_persist_turn` below writes and what `/simple-chat-history` replays.
+# `persist_turn` below writes and what `/simple-chat-history` replays.
 # `agent_messages` has no writer left anywhere and is 0 rows in every
 # deployment; it stays as a tombstone table (铁律 #6). Believing otherwise
 # already cost one misdiagnosis (0802 ordering report).
@@ -104,7 +104,7 @@ def _synthesize_attachment_markers(
     """Thin wrapper around ``Attachment.markers_from_dicts``.
 
     Kept as a module-local alias so existing history-assembly call
-    sites (``hook_data_gathering`` at chat_module.py:508 / :889) don't
+    sites (``gather`` at chat_module.py:508 / :889) don't
     have to import the schema helper directly. The runtime-layer
     current-turn injection (context_runtime.build_input_for_framework)
     calls ``Attachment.markers_from_dicts`` directly — the two
@@ -269,7 +269,7 @@ class ChatModule(XYZBaseModule):
 
     # ============================================================================= MCP Server
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration
 
@@ -286,13 +286,13 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
-    def owns_working_source(self, working_source: Any) -> bool:
+    def claims_source(self, working_source: Any) -> bool:
         """Owner web chat originates CHAT turns (and is the origin-first
         default on turns that fall through with no declared origin owner,
         since priority 1 already sorts it first within its rank)."""
         return working_source_matches(working_source, WorkingSource.CHAT.value)
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+    async def expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The owner-facing tool THIS turn can actually deliver through.
 
         Exactly one of the two, never both — which is the whole reason the old
@@ -304,7 +304,7 @@ class ChatModule(XYZBaseModule):
           conversation, and the "default is not to use this" discipline that
           belongs to it is then the only owner-facing rule on the desk.
 
-        Paired with ``get_disallowed_tools`` below: declaring one while both
+        Paired with ``disallowed_tools`` below: declaring one while both
         schemas stay in context is how a rule ends up arguing with a tool the
         model can still see. 615 calls to two tools documented "Do NOT call"
         (prod, 2026-08-17) is what that argument is worth.
@@ -316,14 +316,14 @@ class ChatModule(XYZBaseModule):
         # lead to DM the owner instead of writing the room's status line (or to
         # fall silent on the contradiction). Withdraw the DECLARATION only; the
         # schema stays on the desk (escalating to the owner mid-sweep is
-        # legitimate — get_disallowed_tools is unchanged).
+        # legitimate — disallowed_tools is unchanged).
         if is_plain_text_turn(ctx_data):
             return []
-        config = await self.get_mcp_config()
+        config = await self.mcp_server()
         name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"
         return [f"mcp__{config.server_name}__{name}"]
 
-    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
+    async def disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Take the owner tool that does NOT apply this turn off the desk.
 
         The declaration above only decides what the reply REMINDER names. The
@@ -334,7 +334,7 @@ class ChatModule(XYZBaseModule):
         Reads the turn from its own ``ctx_data``, not from state the
         declaration left behind: the runtime calls THIS hook first.
         """
-        config = await self.get_mcp_config()
+        config = await self.mcp_server()
         drop = "notify_owner" if self._is_owner_chat_turn(ctx_data) else "reply_owner"
         return [f"mcp__{config.server_name}__{drop}"]
 
@@ -348,7 +348,7 @@ class ChatModule(XYZBaseModule):
         source = getattr(ctx_data, "working_source", None)
         if not source:
             # No declared origin — ChatModule's own fall-through rule (see
-            # `owns_working_source`) says that is the owner's desk. It is also
+            # `claims_source`) says that is the owner's desk. It is also
             # the safer of the two wrong answers: guessing `notify_owner` on a
             # real chat turn hands the agent a tool whose documented discipline
             # is "default is not to use this", and the owner gets silence for
@@ -567,7 +567,7 @@ class ChatModule(XYZBaseModule):
             return f"Handled a message from {who}"
         return "Handled a background activity"
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Data gathering phase - Dual-track memory loading (2026-01-21 P1-2)
 
@@ -590,13 +590,13 @@ class ChatModule(XYZBaseModule):
         current_instance_ids = []
         if self.instance_ids:
             current_instance_ids = self.instance_ids
-            logger.debug(f"ChatModule.hook_data_gathering: Long-term memory Instance IDs: {len(current_instance_ids)}")
+            logger.debug(f"ChatModule.gather: Long-term memory Instance IDs: {len(current_instance_ids)}")
         elif self.instance_id:
             current_instance_ids = [self.instance_id]
-            logger.debug(f"ChatModule.hook_data_gathering: Long-term memory single Instance ID: {self.instance_id}")
+            logger.debug(f"ChatModule.gather: Long-term memory single Instance ID: {self.instance_id}")
 
         if not current_instance_ids:
-            logger.debug("ChatModule.hook_data_gathering: No instance_id, skipping history retrieval")
+            logger.debug("ChatModule.gather: No instance_id, skipping history retrieval")
             ctx_data.chat_history = []
             return ctx_data
 
@@ -743,9 +743,9 @@ class ChatModule(XYZBaseModule):
             evt_ids = [(m.get("meta_data") or {}).get("event_id") for m in all_messages]
             logger.info(f"[ChatHistory] timeline event_ids ({len(evt_ids)}): {evt_ids}")
         else:
-            logger.debug("ChatModule.hook_data_gathering: No history messages retrieved")
+            logger.debug("ChatModule.gather: No history messages retrieved")
 
-        # Splice persisted reasoning (see hook_after_event_execution) back
+        # Splice persisted reasoning (see after_turn) back
         # into assistant message content, wrapped with tag markers so the
         # next turn's LLM can tell "what I thought last turn" apart from
         # "what I said to the user last turn". Tool-call outputs are not
@@ -775,7 +775,7 @@ class ChatModule(XYZBaseModule):
                 ctx_data.extra_data = {}
             ctx_data.extra_data["recent_actions"] = recent_actions
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"ChatModule.hook_data_gathering: recent-actions load failed: {e}")
+            logger.warning(f"ChatModule.gather: recent-actions load failed: {e}")
 
         # Fill merged history messages into ctx_data
         ctx_data.chat_history = all_messages
@@ -1005,7 +1005,7 @@ class ChatModule(XYZBaseModule):
                 meta = msg.get("meta_data", {})
 
                 # Same activity-row filter as long_term — see
-                # hook_data_gathering for the why.
+                # gather for the why.
                 if meta.get("message_type") == "activity":
                     continue
 
@@ -1089,7 +1089,7 @@ class ChatModule(XYZBaseModule):
             logger.warning(f"ChatModule: bootstrap greeting override failed: {e}")
         return BOOTSTRAP_GREETING
 
-    async def hook_persist_turn(self, params: HookAfterExecutionParams) -> None:
+    async def persist_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Synchronous, next-turn-critical persistence: write THIS turn's
         conversation row (user message + assistant reply) to the instance's
@@ -1097,11 +1097,11 @@ class ChatModule(XYZBaseModule):
 
         Runs in-request (before the WS closes / before background hooks fire), so
         a user who fires a reply the instant they see the answer cannot race the
-        write — the next turn's hook_data_gathering is guaranteed to see this
+        write — the next turn's gather is guaranteed to see this
         exchange. (This is the fix for the short-reply "amnesia": previously the
-        write lived in the backgrounded hook_after_event_execution, which could
+        write lived in the backgrounded after_turn, which could
         lag seconds-to-tens-of-seconds.)
-        it is deferred to the background hook_after_event_execution below.
+        it is deferred to the background after_turn below.
 
         Note: assistant messages store the content parameter from the
         notify_owner tool call, not final_output (the Agent's
@@ -1119,7 +1119,7 @@ class ChatModule(XYZBaseModule):
         # If no instance_id or event_memory_module, skip
         if not instance_id or not self.event_memory_module:
             logger.debug(
-                f"ChatModule.hook_after_event_execution: Missing necessary information, skipping "
+                f"ChatModule.after_turn: Missing necessary information, skipping "
                 f"(instance_id={instance_id}, event_memory_module={self.event_memory_module is not None})"
             )
             return
@@ -1193,7 +1193,7 @@ class ChatModule(XYZBaseModule):
                 module_name, instance_id, memory
             )
             logger.info(
-                f"ChatModule.hook_persist_turn: silent batch wrote {appended} "
+                f"ChatModule.persist_turn: silent batch wrote {appended} "
                 f"user rows (no assistant row) to instance_id={instance_id}"
             )
             return
@@ -1277,7 +1277,7 @@ class ChatModule(XYZBaseModule):
         # to the turn, but the Agent's written reasoning (final_output) is
         # the one channel that can carry machine-readable values (device
         # codes, job ids, freshly minted URLs) into the next turn. Capture
-        # it on assistant meta_data so hook_data_gathering can splice it
+        # it on assistant meta_data so gather can splice it
         # back into content when building next turn's chat history. Stored
         # full — truncation was explored and rejected: (a) the Agent writes
         # the reasoning itself, so it's already self-limited; (b) a cap
@@ -1380,7 +1380,7 @@ class ChatModule(XYZBaseModule):
         # Attachments forwarded by the trigger (WebSocket / Lark / etc.)
         # land in ctx_data.extra_data via context_runtime's
         # trigger_extra_data merge. We persist them on the user message
-        # row so that hook_data_gathering can synthesize markers when this
+        # row so that gather can synthesize markers when this
         # turn is replayed in future prompts.
         turn_attachments: List[Dict[str, Any]] = []
         if params.ctx_data and params.ctx_data.extra_data:
@@ -1507,7 +1507,7 @@ class ChatModule(XYZBaseModule):
         # search index is built once in step_4 as kind="event"; design §5.)
 
         logger.debug(
-            f"ChatModule.hook_after_event_execution: Conversation record saved successfully, "
+            f"ChatModule.after_turn: Conversation record saved successfully, "
             f"instance_id={instance_id}, total messages={len(messages)}"
         )
 

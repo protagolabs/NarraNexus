@@ -7,7 +7,7 @@
 What these tests defend is not the wording — it is the property that made the
 wording safe to write once: the label and the reply tool come from data the
 platform already computed for other purposes (`MessageSourceRegistry`, and the
-turn's `get_expressive_tools` output). Nothing here re-derives either, so the
+turn's `expressive_tools` output). Nothing here re-derives either, so the
 sentence cannot end up describing a desk the agent does not have.
 
 The prose this replaced said the same thing in each trigger's own words, and
@@ -110,7 +110,7 @@ def test_the_declaration_and_the_desk_read_the_same_tuple():
     """The anti-drift property, stated as a test.
 
     `render_origin_declaration` is handed the SAME tuple the modules declared
-    and `get_disallowed_tools` enforced — it does not look tools up for itself.
+    and `disallowed_tools` enforced — it does not look tools up for itself.
     So a tool that is not on the desk cannot appear in the sentence, no matter
     what the registry says about the source.
     """

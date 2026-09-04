@@ -24,7 +24,7 @@ Exception hierarchy:
 
 Usage example:
     try:
-        result = await module.hook_data_gathering(ctx_data)
+        result = await module.gather(ctx_data)
     except Exception as e:
         raise DataGatheringError(
             module="JobModule",
@@ -120,7 +120,7 @@ class DataGatheringError(ModuleError):
     """
     Data gathering failure exception
 
-    Raised when a Module's hook_data_gathering fails
+    Raised when a Module's gather fails
 
     Example:
         raise DataGatheringError(
@@ -142,9 +142,9 @@ class HookExecutionError(ModuleError):
     Example:
         raise HookExecutionError(
             module="SocialNetworkModule",
-            message="hook_after_event_execution failed",
+            message="after_turn failed",
             cause=original_exception,
-            hook_name="hook_after_event_execution",
+            hook_name="after_turn",
         )
     """
 

@@ -329,7 +329,7 @@ class ModuleRunner:
         for module_class in module_classes:
             module = module_class(agent_id=agent_id, user_id=user, database_client=db)
             mcp_server = module.build_instrumented_mcp_server()  # _mcp_identity.py
-            config = await module.get_mcp_config()
+            config = await module.mcp_server()
             if mcp_server and config is not None:
                 instances.append((config.server_name, mcp_server))
                 logger.info(f"{module_class.__name__} ready → {mcp_mount_path(config.server_name)}")

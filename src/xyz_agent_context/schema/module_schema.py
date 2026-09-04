@@ -199,7 +199,7 @@ class HookCallbackResult(BaseModel):
     """
     Callback result after Hook execution
 
-    Returned by hook_after_event_execution, used to trigger subsequent instances
+    Returned by after_turn, used to trigger subsequent instances
     """
     # Completed instance_id
     instance_id: str

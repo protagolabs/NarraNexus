@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-08-14
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -63,7 +63,7 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 
 ## Upstream / Downstream
 
-`JobRepository` persists and loads `JobModel`. `JobTrigger` (background service) reads due jobs from the repository and fires them through `AgentRuntime`. `JobModule.hook_after_event_execution()` receives the `PathExecutionResult`, asks the LLM to produce a `JobExecutionResult` (or `OngoingExecutionResult` for ONGOING type), then writes that back to the database via `JobRepository`. The frontend Job panel reads `JobModel` data through `api_schema.JobResponse`.
+`JobRepository` persists and loads `JobModel`. `JobTrigger` (background service) reads due jobs from the repository and fires them through `AgentRuntime`. `JobModule.after_turn()` receives the `PathExecutionResult`, asks the LLM to produce a `JobExecutionResult` (or `OngoingExecutionResult` for ONGOING type), then writes that back to the database via `JobRepository`. The frontend Job panel reads `JobModel` data through `api_schema.JobResponse`.
 
 ## Design decisions
 

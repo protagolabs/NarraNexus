@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
@@ -39,7 +39,7 @@ Direct Matrix 迁移（Commit 7，2026-07-02）后，我们直接从 `/sync` 拿
 
 2026-07-09 直接把两个方法的方法体都压缩到 `return []`，同步 module-level docstring（原来说"从 ParsedMessage.raw 直接读"，与实际实现矛盾——review #3 命中的那条 stale docstring）。行为不变，代码不再撒谎。
 
-当前 turn 的附件 marker 现在由 [[context_runtime.py]] `build_input_for_framework` 在组装 LLM-facing user message 时注入，本 builder 不参与——marker 只进 LLM 视图，不动 `ctx_data.input_content`，因此不会污染持久化 content 和前端 chat 面板回显。历史 turn 的附件仍靠 ChatModule 在 `hook_data_gathering` 遍历历史时合成，跟当前 turn 共用同一个 `Attachment.markers_from_dicts` 底层（见 [[attachment_schema.py]]），格式一致。
+当前 turn 的附件 marker 现在由 [[context_runtime.py]] `build_input_for_framework` 在组装 LLM-facing user message 时注入，本 builder 不参与——marker 只进 LLM 视图，不动 `ctx_data.input_content`，因此不会污染持久化 content 和前端 chat 面板回显。历史 turn 的附件仍靠 ChatModule 在 `gather` 遍历历史时合成，跟当前 turn 共用同一个 `Attachment.markers_from_dicts` 底层（见 [[attachment_schema.py]]），格式一致。
 
 live roster 现在通过 `narra_room_members` MCP 工具按需查（见 [[_narramessenger_mcp_tools]]），不再无脑塞进每次 prompt。
 

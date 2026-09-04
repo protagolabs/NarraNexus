@@ -29,14 +29,14 @@ Slack / Discord 的同类措辞是「every **relevant** message」，本身留�
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
 
-get_expressive_tools：extra_data.rtc_voice 存在时 speak 全限定名置于首位（首位=默认回复工具）；speak 不进 reply_tool_names——普通 turn 无 voice bridge，列出即声明死工具。all_tool_names 增 speak（drift guard 同步）。
+expressive_tools：extra_data.rtc_voice 存在时 speak 全限定名置于首位（首位=默认回复工具）；speak 不进 reply_tool_names——普通 turn 无 voice bridge，列出即声明死工具。all_tool_names 增 speak（drift guard 同步）。
 
 ## 2026-08-04 — 过滤精确化 + `_is_nm_turn` 去重(review)
 
 托管声明过滤从子串改 `endswith("__narra_reply")`(未来 narra_reply_*
-兄弟工具不再连坐);来源判定抽 `_is_nm_turn`,get_instructions 与
-get_expressive_tools 共用。
-## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+兄弟工具不再连坐);来源判定抽 `_is_nm_turn`,contribute_instructions 与
+expressive_tools 共用。
+## 2026-08-03 — `expressive_tools` 增加可选 ctx_data(按来源声明)
 
 回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
 (那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
@@ -46,7 +46,7 @@ get_expressive_tools 共用。
 ## 2026-08-03 — 托管来源回合的回复指令切 `narra_send`
 
 `build_extra_data` 透传 `managed_ingress`(来自 openai_compat 分流的
-trigger_extra_data);`get_instructions` 对 NARRAMESSENGER 来源 + managed
+trigger_extra_data);`contribute_instructions` 对 NARRAMESSENGER 来源 + managed
 的回合渲染 `_managed_reply_action_block`——指令 agent 用
 `narra_send(room_id=…, text=…)` 直发并明确禁用 `narra_reply`(它是
 trigger 捕获式标记,托管模式 MatrixTrigger 不跑,调了等于静默丢失,
@@ -61,7 +61,7 @@ trigger 捕获式标记,托管模式 MatrixTrigger 不跑,调了等于静默丢�
 ## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
 
 Declares `all_tool_names` + `setup_tool_names = {narra_bind}` per the
-[[channel_module_base]] setup-residency contract. The `get_instructions`
+[[channel_module_base]] setup-residency contract. The `contribute_instructions`
 unbound branch now returns `unbound_setup_line()` instead of the full
 onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
 served on demand by empty-arg `narra_bind` (see [[_narramessenger_mcp_tools]]).
@@ -77,7 +77,7 @@ tool and try".
 
 ## 2026-07-20 — `_CLI_CAPABILITY` instruction block
 
-``get_instructions`` injects a ``_CLI_CAPABILITY`` block between ``_BEHAVIOUR``
+``contribute_instructions`` injects a ``_CLI_CAPABILITY`` block between ``_BEHAVIOUR``
 and ``_IRON_RULES``. Companion to the [[_narramessenger_mcp_tools]] passthrough
 work (2026-07-20). Reply/proactive/media guidance unchanged.
 
@@ -148,7 +148,7 @@ flag (see message_source_handler.py.md, 2026-07-03).
 The agent-facing surface of the NarraMessenger channel (`ChannelModuleBase`).
 Owns the sender (`send_to_agent` → `/chat/send`, registered in
 `ChannelSenderRegistry`), the `narra_reply`/`narra_send`/`narra_bind`/
-`narra_status` MCP tools, the per-turn `get_instructions` (system-prompt
+`narra_status` MCP tools, the per-turn `contribute_instructions` (system-prompt
 behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
 `telegram_module.py`.
 
@@ -156,9 +156,9 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
 
 - Prompt text extracted to module-level constants (`_SETUP_INSTRUCTION`,
   `_BEHAVIOUR`, `_IRON_RULES`, `_PROACTIVE_ACTION`) — lark/telegram convention;
-  `get_instructions` only assembles named sections (`_trust_block` +
+  `contribute_instructions` only assembles named sections (`_trust_block` +
   `_reply_action_block` are the dynamic, id-interpolated pieces).
-- `get_instructions` renders by `working_source`: REPLY mode (ws ==
+- `contribute_instructions` renders by `working_source`: REPLY mode (ws ==
   NARRAMESSENGER) shows an **identity block** with sender/room_id/**invocation_id**
   and tells the agent to call `narra_reply(invocation_id, text)`; otherwise the
   proactive `narra_send(room_id, text)` block.
@@ -177,7 +177,7 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
   `narra_send` / `notify_owner`) so ChatModule captures
   NarraMessenger replies into chat history instead of logging "Background
   activity". Registered at import, idempotent.
-- **`get_instructions` is short (~telegram-sized), NOT lark's 600 lines.**
+- **`contribute_instructions` is short (~telegram-sized), NOT lark's 600 lines.**
   Identity + how-to-reply + DM/group behaviour + owner trust block + an
   explicit **output-hygiene iron rule**: never emit identity/trust/instruction
   text as a `narra_send` reply. This directly targets a real bug observed on a

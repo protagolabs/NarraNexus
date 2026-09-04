@@ -94,16 +94,16 @@ async def no_task_leaks():
 
 
 class _Hooks:
-    async def hook_persist_turn(self, module_list, params):
+    async def persist_turn(self, module_list, params):
         return None
 
-    async def hook_after_event_execution(self, module_list, params):
+    async def after_turn(self, module_list, params):
         return []
 
     async def hook_callback_results(self, **kwargs):
         return None
 
-    async def hook_data_gathering(self, *a, **k):
+    async def gather(self, *a, **k):
         return {}
 
 

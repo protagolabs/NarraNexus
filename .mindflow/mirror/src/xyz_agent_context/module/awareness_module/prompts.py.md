@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/prompts.py
-last_verified: 2026-08-04
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-04 — 新增 §5「Your Own Identity Card」（名字 + 一句话描述）
@@ -37,7 +37,7 @@ DB backfill。措辞限定在"机密信息"而非正常工作产出,不影响 ag
 
 ## 上下游关系
 
-- **被谁用**：`AwarenessModule.__init__` 把它赋值给 `self.instructions`；`XYZBaseModule.get_instructions()` 在每轮对话时用 `ctx_data` 字段（包括 `{awareness}`）格式化后注入系统提示
+- **被谁用**：`AwarenessModule.__init__` 把它赋值给 `self.instructions`；`XYZBaseModule.contribute_instructions()` 在每轮对话时用 `ctx_data` 字段（包括 `{awareness}`）格式化后注入系统提示
 - **依赖谁**：无外部依赖，纯文本常量
 
 ## 设计决策

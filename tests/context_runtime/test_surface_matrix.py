@@ -7,15 +7,15 @@
 
 Named rather than "every surface", because it is not every surface — `job` and five
 of the six IM sources are absent. One IM row is representative on purpose: the six
-channel modules all inherit `owns_working_source` from `ChannelModuleBase`, so
+channel modules all inherit `claims_source` from `ChannelModuleBase`, so
 origin-first ordering resolves identically for them, whereas ChatModule and
 MessageBusModule override it and are the pair the desk bug lived in.
 
 Spec §10 item 2. Two independent mechanisms decide what an agent is told to do
 this turn:
 
-  * the DESK — `get_expressive_tools` names the turn's reply tool, and
-    `get_disallowed_tools` removes the other candidates' schemas;
+  * the DESK — `expressive_tools` names the turn's reply tool, and
+    `disallowed_tools` removes the other candidates' schemas;
   * the DECLARATION — `render_origin_declaration` writes the `[Origin] … reply
     with …` line at the top of the turn.
 
@@ -63,7 +63,7 @@ SURFACES = [
      "mcp__message_bus_module__message_team"),
     ("peer DM", "message_bus", None, "mcp__message_bus_module__message_agent"),
     # One IM surface: the six channel modules share `ChannelModuleBase`'s
-    # `owns_working_source`, so this row covers the inherited path that neither
+    # `claims_source`, so this row covers the inherited path that neither
     # ChatModule nor MessageBusModule exercises.
     ("IM (lark)", "lark", None, "mcp__lark_module__lark_cli"),
     ("patrol", "message_bus",
@@ -87,7 +87,7 @@ def _instances():
     bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     lark = LarkModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     # A bound channel: an unbound one suppresses every non-setup tool
-    # (`ChannelModuleBase.get_disallowed_tools`), which is a different property
+    # (`ChannelModuleBase.disallowed_tools`), which is a different property
     # with its own test in `tests/channel/test_setup_residency.py`.
     lark._bound_cache = True  # type: ignore[attr-defined]
     return [

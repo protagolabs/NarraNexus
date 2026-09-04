@@ -15,15 +15,15 @@ last_verified: 2026-09-04
 ## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
 
 Declares `all_tool_names` + `setup_tool_names = {tg_bind}` per the
-[[channel_module_base]] setup-residency contract. The `get_instructions`
+[[channel_module_base]] setup-residency contract. The `contribute_instructions`
 unbound branch now returns `unbound_setup_line()` instead of the full
 onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
 served on demand by zero-arg `tg_bind` (see [[_telegram_mcp_tools]]). While
 unbound, every non-setup tool's schema is stripped from the model context.
 
-## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+## 2026-07-10 — early-feedback removed from contribute_instructions (moved to trigger)
 
-The "ack early" block is gone from `get_instructions`; it's now injected per-turn
+The "ack early" block is gone from `contribute_instructions`; it's now injected per-turn
 by the trigger (`_early_feedback_prefix`, see [[channel_trigger_base]]).
 
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
@@ -32,7 +32,7 @@ The Telegram early-feedback section is now produced by [[channel_reactions]]
 `render_early_feedback(tool_ref="react_to_user_message", …)` instead of an inline
 hardcoded string.
 
-## 2026-07-10 — get_instructions surfaces early-feedback affordance
+## 2026-07-10 — contribute_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when in the Telegram
 channel with a `source_message_id`): a generic SHOULD directive — for non-trivial
@@ -122,13 +122,13 @@ not the abstraction failing.
 ## Upstream / downstream
 
 - **Upstream**: ``ChannelModuleBase`` (Phase 2 base — sender registry,
-  ``hook_data_gathering`` template, MCP server creation glue).
+  ``gather`` template, MCP server creation glue).
 - **Downstream**:
   - ``TelegramCredentialManager`` — credential CRUD with getMe + getChat.
   - ``register_telegram_mcp_tools`` — 5 MCP tools on the FastMCP server.
   - ``TelegramSDKClient`` — raw aiohttp Bot API wrapper.
   - ``WorkingSource.TELEGRAM`` — enum entry that ties Telegram-triggered
-    events back through the ``hook_after_event_execution`` filter.
+    events back through the ``after_turn`` filter.
 
 ## Gotchas
 

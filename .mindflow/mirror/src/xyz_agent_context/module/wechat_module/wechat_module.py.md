@@ -25,14 +25,14 @@ DM 无回复兜底(#254)和 contact_agent 都从这里出站,必须与 MCP
 Declares `all_tool_names` with an EMPTY `setup_tool_names` — WeChat binding is
 a frontend-only QR flow, there is no bind tool for the agent to run, so while
 unbound every wechat tool is suppressed and `unbound_setup_line()` falls back
-to pointing the user at Settings. The `get_instructions` unbound branch
+to pointing the user at Settings. The `contribute_instructions` unbound branch
 returns that one-liner instead of the walkthrough (bound-but-info-missing
 returns ""). Contract: [[channel_module_base]].
 
-## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+## 2026-07-10 — early-feedback removed from contribute_instructions (moved to trigger)
 
 The "ack early" block (and its `is_wechat_channel` gate) is gone from
-`get_instructions`; it's now injected per-turn by the trigger
+`contribute_instructions`; it's now injected per-turn by the trigger
 (`_early_feedback_prefix`, see [[channel_trigger_base]]). WeChat leaves
 `react_tool_ref` unset → the base default (None) → message-only ack, so the
 channel gate is no longer needed here.
@@ -46,7 +46,7 @@ WeChat's "reply via wechat_send" ack — a cross-channel leak). (2) It's rendere
 by the shared [[channel_reactions]] `render_early_feedback(tool_ref=None, …)`
 (message-only variant — WeChat has no reaction API).
 
-## 2026-07-10 — get_instructions surfaces early-feedback affordance
+## 2026-07-10 — contribute_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when a
 `source_message_id` is present): a generic SHOULD directive — for non-trivial
@@ -71,7 +71,7 @@ deliberately mirrors ``telegram_module.py``.
 
 The module implements the channel surface the base expects:
 ``get_credential`` / ``send_to_agent`` / ``register_mcp_tools`` /
-``get_instructions`` / ``build_extra_data``. The four deltas from
+``contribute_instructions`` / ``build_extra_data``. The four deltas from
 Telegram:
 
 1. Binding is a **QR-scan flow** (Channels panel → ``backend/routes/
@@ -108,7 +108,7 @@ Telegram:
   only** — no groups in v1. These map directly to the trigger's
   text-only / PRIVATE-only parsing and the SDK's single-send reply path;
   keep the rule text in lockstep with that coverage.
-- **Three-state trust block.** ``get_instructions`` renders one of:
+- **Three-state trust block.** ``contribute_instructions`` renders one of:
   *no owner claimed yet* (treat sender as untrusted until the first DM
   claims ownership), *owner is the current sender* (may surface
   owner-private context), or *current sender is NOT the owner* (treat
@@ -125,7 +125,7 @@ Telegram:
   the current ``sender_id`` out of ``ctx_data.extra_data["channel_tag"]``
   and compares to ``cred.owner_wx_id``; the result drives which of the
   three trust blocks renders. The dict it returns is what
-  ``get_instructions`` reads back under ``ctx_data_key`` =
+  ``contribute_instructions`` reads back under ``ctx_data_key`` =
   ``"wechat_info"``.
 - **MCP port 7835, ``priority=7``.** Continues the channel-port range
   (Lark=7830, Slack=7831, Telegram=7832, NarraMessenger=7833, Discord=7834,
@@ -136,7 +136,7 @@ Telegram:
 ## Upstream / downstream
 
 - **Upstream**: ``ChannelModuleBase`` (sender registry,
-  ``hook_data_gathering`` template, MCP server creation glue).
+  ``gather`` template, MCP server creation glue).
 - **Downstream**:
   - ``WeChatCredentialManager`` — credential CRUD (``get`` / ``unbind``
     / ``claim_owner`` / ``list_active``).
@@ -144,7 +144,7 @@ Telegram:
     ``wechat_status`` / ``wechat_unbind``) on the FastMCP server.
   - ``wechat_sdk_client.send_text_once`` — the raw iLink HTTP send.
   - ``WorkingSource.WECHAT`` — enum entry tying WeChat-triggered events
-    back through ``hook_after_event_execution``.
+    back through ``after_turn``.
   - ``MessageSourceRegistry`` / ``MessageSourceHandler`` — reply
     recording (the "not Background activity" guard).
 - **Binding flow lives elsewhere**: ``backend/routes/channels/wechat.py`` drives

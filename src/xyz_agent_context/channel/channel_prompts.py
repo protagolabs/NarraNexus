@@ -19,7 +19,7 @@ two instructions and no way to break the tie.
 The rule now lives in exactly two places, both of which are generated rather
 than written: the turn's origin declaration
 (`message_source_handler.render_origin_declaration`), rendered from the same
-tuple `get_expressive_tools` produced; and each owner-facing tool's own
+tuple `expressive_tools` produced; and each owner-facing tool's own
 docstring, which travels attached to the tool it describes and therefore cannot
 be present when the tool is not.
 

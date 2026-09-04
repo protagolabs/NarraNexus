@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     # ===== Turn-context relocation (token optimization phase 3, R4) =====
     # Kill-switch for relocating per-turn volatile content (temporal block,
     # narrative updated_at / current_summary, recent background activity,
-    # module get_turn_context blocks) out of the system prompt into a
+    # module contribute_turn_context blocks) out of the system prompt into a
     # "[Turn context]" block prepended to the CURRENT user message. This
     # keeps the system prompt byte-stable across turns so provider prefix
     # caches (Anthropic byte-prefix, DeepSeek/vLLM block-hash) can hit.

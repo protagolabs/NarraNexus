@@ -43,7 +43,7 @@ async def test_creator_rendered_as_human_name(db_client):
     mod = BasicInfoModule("agent_x", user_id="owner_hex", database_client=db_client)
 
     # Owner chatting with their own agent (no sender override -> falls back to owner).
-    ctx = await mod.hook_data_gathering(_ctx("owner_hex"))
+    ctx = await mod.gather(_ctx("owner_hex"))
 
     assert ctx.creator_name == "Alice"
     assert ctx.creator_id == "owner_hex"        # key preserved for internal use
@@ -60,7 +60,7 @@ async def test_visitor_via_chat_sender(db_client):
     # agent_runtime overrides user_id to the owner; the real sender rides in extra_data.
     mod = BasicInfoModule("agent_x", user_id="owner_hex", database_client=db_client)
 
-    ctx = await mod.hook_data_gathering(
+    ctx = await mod.gather(
         _ctx("owner_hex", extra={"sender_user_id": "visitor_hex"})
     )
 
@@ -76,7 +76,7 @@ async def test_creator_name_falls_back_to_id_when_no_display_name(db_client):
     await _seed_agent(db_client, "agent_x", "owner_hex")
     mod = BasicInfoModule("agent_x", user_id="owner_hex", database_client=db_client)
 
-    ctx = await mod.hook_data_gathering(_ctx("owner_hex"))
+    ctx = await mod.gather(_ctx("owner_hex"))
 
     assert ctx.creator_name == "owner_hex"       # graceful fallback
 

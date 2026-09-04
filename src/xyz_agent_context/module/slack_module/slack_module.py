@@ -7,7 +7,7 @@ Slack is far simpler than Lark: no admin approval flow, no three-click
 identity dance, no per-app workspace. Owner pastes two tokens (Bot Token
 + App-Level Token), we validate via auth.test, and the bot is live.
 
-Therefore ``get_instructions`` is much shorter than Lark's — discovery
+Therefore ``contribute_instructions`` is much shorter than Lark's — discovery
 mode (~10 lines) when not bound, and operational mode (~80 lines) when
 bound. The bulk of capability disclosure goes through the
 ``slack_skill(method)`` MCP tool which serves the OpenAPI-derived per-method
@@ -47,9 +47,9 @@ from .slack_sdk_client import SlackSDKClient, SlackSDKError
 # Slack agents reply via ``slack_cli(method="chat.postMessage",
 # args={"channel": "...", "text": "..."})``. The default
 # MessageSourceHandler only knows about ``notify_owner``,
-# so without this handler ChatModule.hook_after_event_execution treats every
+# so without this handler ChatModule.after_turn treats every
 # Slack turn as "no response" and persists an activity row that the next
-# turn's hook_data_gathering then FILTERS OUT — agents see zero history
+# turn's gather then FILTERS OUT — agents see zero history
 # from prior Slack turns. Observed 2026-05-13: 100% of slack rows in
 # instance_json_format_memory_chat were "Background activity (slack)"
 # placeholders.
@@ -415,7 +415,7 @@ class SlackModule(ChannelModuleBase):
     def register_mcp_tools(self, mcp) -> None:
         register_slack_mcp_tools(mcp)
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
             # Setup-residency (B++): unbound agents get ONE line instead of

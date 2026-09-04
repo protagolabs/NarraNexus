@@ -32,7 +32,7 @@ stub: false
 | `step_3_agent_loop.py` | ContextRuntime 构建 + ClaudeAgentSDK 执行 + 流式输出 | `execution_result`（via step_3_execute_path） |
 | `step_3_direct_trigger.py` | 直接调用 MCP 工具（跳过 LLM） | 返回 `PathExecutionResult` |
 | `step_4_persist_results.py` | 持久化 Event、Narrative、Trajectory、Session、cost | 数据库写入 |
-| `step_5_execute_hooks.py` | 调用所有 Module 的 `hook_after_event_execution` | 触发后处理（内存写入、entity 提取等） |
+| `step_5_execute_hooks.py` | 调用所有 Module 的 `after_turn` | 触发后处理（内存写入、entity 提取等） |
 | `step_display.py` | 纯工具函数：格式化各步骤的展示数据 | 无 |
 
 ## 和外部目录的协作

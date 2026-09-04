@@ -5,7 +5,7 @@
 @description: The "should this agent's bootstrap greeting be seeded?" decision.
 
 Background — the bootstrap greeting reached DB history only lazily, when
-ChatModule.hook_persist_turn ran (it prepends the greeting on a turn whose
+ChatModule.persist_turn ran (it prepends the greeting on a turn whose
 history is still empty AND `bootstrap_active`). step_1 now seeds it up front,
 at the START of the first turn, so the write no longer depends on the turn
 reaching the persist hook. This module answers ONLY "which greeting, if any" —
@@ -50,7 +50,7 @@ async def resolve_bootstrap_greeting_to_seed(
     non-empty `bootstrap_greeting`, and bootstrap is still active (Bootstrap.md
     present + under the auto-delete threshold — via the shared
     lifecycle.is_bootstrap_active). Best-effort: any failure returns None,
-    leaving ChatModule.hook_persist_turn's prepend as the fallback.
+    leaving ChatModule.persist_turn's prepend as the fallback.
     """
     try:
         agent = await AgentRepository(db).get_agent(agent_id)

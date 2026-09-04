@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/greeting_seed.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -29,7 +29,7 @@ drift（早期版本各自复算 `bootstrap_active`，是 drift 源）。
 
 **上游**：`step_1_select_narrative`，选完 narrative 后仅对 **head（`narrative_list[0]`）** 实例调用
 一次（问候语作用域是 (agent, user)，不是 per-narrative）。fast-select / step_4 路径靠
-[[chat_module]] 的 `hook_persist_turn` prepend 兜底。已知边缘：若同一 bootstrap 轮内 agent 路由到
+[[chat_module]] 的 `persist_turn` prepend 兜底。已知边缘：若同一 bootstrap 轮内 agent 路由到
 新 narrative，hook 会再问候 rebind 后的实例（详见 [[step_1_select_narrative]] 注释）。
 
 全程 best-effort：任何异常返回 `None`，hook prepend 仍是兜底。

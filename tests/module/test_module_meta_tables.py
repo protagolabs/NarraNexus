@@ -28,10 +28,10 @@ class AcmeNotesModule(XYZBaseModule):
             decision=ModuleDecisionMeta(capabilities=["Store a note"], use_cases=["Remember something"], instance_type="persistent"),
         )
 
-    async def get_instructions(self, ctx_data):
+    async def contribute_instructions(self, ctx_data):
         return ""
 
-    async def get_turn_context(self, ctx_data):
+    async def contribute_turn_context(self, ctx_data):
         return ""
 
 

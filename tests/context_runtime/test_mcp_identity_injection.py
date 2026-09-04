@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.module._mcp_identity import (
     AGENT_ID_HEADER,
     BEARER_AGENT_PREFIX,
@@ -27,18 +28,24 @@ AGENT = "agent_d8795abf5021"
 
 
 class _FakeModule:
-    """A module that only needs to answer get_mcp_config()."""
+
+
+    # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+
+    contribute_tools = XYZBaseModule.contribute_tools
+    """A module that only needs to answer mcp_server()."""
 
     def __init__(self, name: str, url: str):
         self._name, self._url = name, url
 
-    async def get_mcp_config(self):
+    async def mcp_server(self):
         return SimpleNamespace(server_name=self._name, server_url=self._url)
 
-    async def get_turn_context(self, ctx_data):
+    async def contribute_turn_context(self, ctx_data):
         return ""
 
-    async def get_expressive_tools(self, ctx_data=None):
+    async def expressive_tools(self, ctx_data=None):
         # Accepts ctx_data since #228 — context_runtime calls it WITH the
         # arg and logs "declaration DROPPED" (error) on signature drift, so a
         # stale fake here would silently exercise that error path.

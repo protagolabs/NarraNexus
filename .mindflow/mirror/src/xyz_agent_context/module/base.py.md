@@ -5,20 +5,20 @@ last_verified: 2026-09-04
 
 ## 2026-08-04 (review 修正) — working_source_matches 公共谓词
 
-四处 owns_working_source 覆写各写一套 enum/字符串比较（两种 isinstance
+四处 claims_source 覆写各写一套 enum/字符串比较（两种 isinstance
 极性相反、第二子句全是死代码——WorkingSource 是 (str, Enum)，一个 ==
 两形态通吃）。抽 `working_source_matches(ws, name)` 模块级函数，
 chat/bus/channel 基类共用。
 
-## 2026-08-04 — 新增 owns_working_source 钩子（origin-first 排序的数据源）
+## 2026-08-04 — 新增 claims_source 钩子（origin-first 排序的数据源）
 
-`owns_working_source(working_source) -> bool` 默认 False。声明「本模块是
+`claims_source(working_source) -> bool` 默认 False。声明「本模块是
 该来源轮次的主人」；[[context_runtime]] 的 expressive 收集用它把来源模块
 的声明排最前，使默认回复工具跟随本轮联系渠道（原则：独白=思考、交付走
 工具、工具跟来源走，不写死 owner-chat 默认）。覆写者：chat（CHAT）、
 message_bus（MESSAGE_BUS）、channel 基类（channel_name 匹配）。
 
-## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+## 2026-08-03 — `expressive_tools` 增加可选 ctx_data(按来源声明)
 
 回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
 (那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
@@ -39,31 +39,31 @@ message_bus（MESSAGE_BUS）、channel 基类（channel_name 匹配）。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
-模块契约新增 `get_expressive_tools() -> list[str]`(默认空):模块声明自己
+模块契约新增 `expressive_tools() -> list[str]`(默认空):模块声明自己
 「哪些工具把内容送达人类」(全限定名)。chat/channel 覆写;
-[[context_runtime.py]] 与 get_disallowed_tools 同环收集((priority,
+[[context_runtime.py]] 与 disallowed_tools 同环收集((priority,
 module_class) 全序排、去重、fail-open),经 TurnInput 声明给框架
 (NexusPower 独白契约的投递面)。
 语义纯通用,零场景词汇(铁律 #4)。
 
-## 2026-07-28 — R4a：新增通用面 `get_turn_context(ctx_data) -> str`（默认 ""）
+## 2026-07-28 — R4a：新增通用面 `contribute_turn_context(ctx_data) -> str`（默认 ""）
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
 
 模块契约新增"每轮易变内容"的一等公民出口：每轮变化的数据（召回结果、活计数、
-时间戳、动态列表）放 `get_turn_context`，**`get_instructions` 必须轮间字节稳定**
+时间戳、动态列表）放 `contribute_turn_context`，**`contribute_instructions` 必须轮间字节稳定**
 （system prompt 可缓存的前提）。运行时（[[context_runtime.py]]
 `_build_turn_context_block`）按 module_class 去重、priority 升序收集非空块进当前
 轮 user message 的 `[Turn context]` 块；单模块异常 fail-open（warning + 跳过）。
 R4a 只加基类面，R4b 才逐模块 override（BasicInfo/GeneralMemory/SocialNetwork/
-Job/MessageBus/CommonTools）。**Code review 检查项：新模块给 get_instructions
+Job/MessageBus/CommonTools）。**Code review 检查项：新模块给 contribute_instructions
 塞每轮易变字节 = 打穿全网缓存回归**，用 [SYSPROMPT-BREAKDOWN] 的 ctx_sha256
 （或 claude 适配器 [SYSPROMPT-SHA] 的 sys_sha256，R4c 起为实发字节权威哈希）
 两轮对比定位。语义纯通用，零场景词汇（铁律 #4）。
 
-## 2026-07-24 — generic `get_disallowed_tools()` surface (setup-residency B++)
+## 2026-07-24 — generic `disallowed_tools()` surface (setup-residency B++)
 
-New async `get_disallowed_tools()` on the base, default `[]`: a module may ask
+New async `disallowed_tools()` on the base, default `[]`: a module may ask
 the runtime to strip fully-qualified MCP tools (`mcp__<server>__<tool>`) from
 the model context this turn. The generic layer stays scenario-free (rule #4) —
 this file only defines the surface; the unbound-channel gating lives in the
@@ -80,16 +80,16 @@ works on both a live object and a class-name string via MODULE_MAP (see
 True. New capabilities should follow this same pattern rather than adding
 class-name checks in the orchestration layer.
 
-## 2026-05-20 — new `hook_persist_turn` (synchronous, next-turn-critical)
+## 2026-05-20 — new `persist_turn` (synchronous, next-turn-critical)
 
-Added a second post-turn hook alongside `hook_after_event_execution`. The split
+Added a second post-turn hook alongside `after_turn`. The split
 exists because the OLD single background hook caused short-reply "amnesia":
-ChatModule wrote the conversation row in `hook_after_event_execution`, which the
+ChatModule wrote the conversation row in `after_turn`, which the
 runtime dispatches to a background task (can lag 3–19s); a user replying instantly
 raced that write and the next turn read history missing the exchange.
-`hook_persist_turn` runs SYNCHRONOUSLY in-request (see [[agent_runtime.py]] Step
+`persist_turn` runs SYNCHRONOUSLY in-request (see [[agent_runtime.py]] Step
 4.6, [[hook_manager.py]]) for the minimal state the NEXT turn must read (ChatModule
-writes the conversation row here — see [[chat_module.py]]); `hook_after_event_execution`
+writes the conversation row here — see [[chat_module.py]]); `after_turn`
 stays background for heavy/non-critical work (embeddings, entity extraction, LLM
 summaries). Default for both is no-op.
 
@@ -101,18 +101,18 @@ summaries). Default for both is no-op.
 
 ## 上下游关系
 
-- **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `MODULE_MAP` 按名实例化子类；`HookManager` 循环调用 `hook_data_gathering` / `hook_after_event_execution`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
+- **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `MODULE_MAP` 按名实例化子类；`HookManager` 循环调用 `gather` / `after_turn`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
 - **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
 
 ## 设计决策
 
 **MCP 数据库连接用类变量隔离**：MCP 服务器作为独立进程/线程运行，不能共享主进程连接池。`_mcp_db_client` 是类变量，每个具体子类在自己的运行环境里各持一个连接，第一次调用 `get_mcp_db_client()` 时懒创建。被否决的方案是让 MCP 工具通过内部 HTTP API 向主进程取数据——会引入额外网络跳转且 MCP 工具的低延迟要求不允许。
 
-**`hook_data_gathering` 和 `hook_after_event_execution` 均有默认空实现**：大多数模块只需要实现其中一个。强制所有子类都实现两个 hook 会造成不必要的样板，且某些仅提供 MCP 工具的模块（如 `BasicInfoModule`）根本不需要 hook。
+**`gather` 和 `after_turn` 均有默认空实现**：大多数模块只需要实现其中一个。强制所有子类都实现两个 hook 会造成不必要的样板，且某些仅提供 MCP 工具的模块（如 `BasicInfoModule`）根本不需要 hook。
 
-**`get_instructions()` 用 `ContextData` 做动态格式化**：指令字符串里可以有 `{awareness}`、`{jobs_information}` 等占位符，在 `get_instructions()` 调用时用当前 `ctx_data` 字段填充。子类只需在 `__init__` 里赋值 `self.instructions`。
+**`contribute_instructions()` 用 `ContextData` 做动态格式化**：指令字符串里可以有 `{awareness}`、`{jobs_information}` 等占位符，在 `contribute_instructions()` 调用时用当前 `ctx_data` 字段填充。子类只需在 `__init__` 里赋值 `self.instructions`。
 
-**`get_mcp_config()` 是抽象方法但允许返回 `None`**：这迫使子类明确表态"我有/没有 MCP 服务器"，而不是漏掉这个决定。没有 MCP 服务器的模块（如 `MemoryModule`）直接 `return None`。
+**`mcp_server()` 是抽象方法但允许返回 `None`**：这迫使子类明确表态"我有/没有 MCP 服务器"，而不是漏掉这个决定。没有 MCP 服务器的模块（如 `MemoryModule`）直接 `return None`。
 
 ## Gotcha / 边界情况
 
@@ -123,9 +123,9 @@ summaries). Default for both is no-op.
 
 - 忘记调用 `super().__init__()` 会导致 `self.agent_id`、`self.db` 等属性 `AttributeError`，错误往往在 hook 执行时才暴露，难以追踪。
 - 在 MCP 工具里用 `self.db`（同步 wrapper）而非 `await get_mcp_db_client()` 会遇到事件循环不匹配或跨进程连接共享问题，症状是随机 `RuntimeError` 或连接超时。
-- 在 `hook_data_gathering` 里修改了 `ctx_data` 字段后没有 `return ctx_data`，修改会被静默丢弃（特别是并行模式下每个模块拿到的是副本）。
+- 在 `gather` 里修改了 `ctx_data` 字段后没有 `return ctx_data`，修改会被静默丢弃（特别是并行模式下每个模块拿到的是副本）。
 
-## 2026-08-18 — `get_disallowed_tools` 改为接收 `ctx_data`（修 P0：团队房间说不出话）
+## 2026-08-18 — `disallowed_tools` 改为接收 `ctx_data`（修 P0：团队房间说不出话）
 
 原签名不带 ctx。当模块需要「声明一个动词、同时压掉它的对偶」时（[[message_bus_module]]
 的 `message_team`/`message_agent`、[[chat_module]] 的 `reply_owner`/`notify_owner`），
@@ -145,7 +145,7 @@ summaries). Default for both is no-op.
 
 ## 2026-09-04 · the one MCP address (batch 5a)
 
-`mcp_port()` (`MCP_PORT`, default 7801), `mcp_base_url()` (`MCP_BASE_URL` for a reverse proxy, else `http://<MCP_HOST>:<MCP_PORT>`), `mcp_mount_path(server_name)` = `/mcp/<server_name>`, `mcp_server_url(server_name)` = base + mount + `/sse`. Every module's `get_mcp_config` builds its URL from these — no module owns a port, and the agent side (context_runtime → adapters) only ever learns this one base. Codex's adapter still rewrites the trailing `/sse` to the streamable `/mcp` endpoint under the same mount.
+`mcp_port()` (`MCP_PORT`, default 7801), `mcp_base_url()` (`MCP_BASE_URL` for a reverse proxy, else `http://<MCP_HOST>:<MCP_PORT>`), `mcp_mount_path(server_name)` = `/mcp/<server_name>`, `mcp_server_url(server_name)` = base + mount + `/sse`. Every module's `mcp_server` builds its URL from these — no module owns a port, and the agent side (context_runtime → adapters) only ever learns this one base. Codex's adapter still rewrites the trailing `/sse` to the streamable `/mcp` endpoint under the same mount.
 
 ## 2026-09-04 · `get_config` is static (batch 5b)
 
@@ -154,3 +154,7 @@ Declared `@staticmethod @abstractmethod`: the platform reads a module's `ModuleC
 ## 2026-09-04 · `on_instance_activated` hook (batch 5b.2)
 
 Classmethod no-op the narrative instance handler calls when a blocked instance of this module becomes ACTIVE; JobModule overrides it to reschedule the job. The platform names no module.
+
+## 2026-09-04 · a module IS a Capability (batch 5c)
+
+The nine lifecycle methods carry their stage names — `claims_source` (Ingress), `gather` / `contribute_instructions` / `contribute_turn_context` / `contribute_tools` (Assemble), `persist_turn` (Commit), `after_turn` (Reflect); the old names (`hook_data_gathering`, `get_instructions`, `get_turn_context`, `get_mcp_config`, `get_expressive_tools`, `get_disallowed_tools`, `hook_persist_turn`, `hook_after_event_execution`, `owns_working_source`) are gone (rule #2, no aliases). `meta` derives `CapabilityMeta` from `ModuleConfig`; `participations()` answers each MODULE-tier stage with the module itself; `contribute_tools` composes `mcp_server` / `expressive_tools` / `disallowed_tools` into a `ToolSurface` fail-open per part, logging a stale override SIGNATURE loudly (`_is_signature_typeerror` moved here). `LegacyModuleAdapter` is deleted.

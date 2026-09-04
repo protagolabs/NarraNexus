@@ -104,31 +104,31 @@ class BasicInfoModule(XYZBaseModule):
 
     # ============================================================================= Instructions
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Render the module instruction, selecting the template by the R4
         relocation flag.
 
         Flag ON  → stable template ({current_time} span replaced by a static
                    pointer) so the output is byte-stable across turns; the
-                   volatile span travels via get_turn_context() instead.
+                   volatile span travels via contribute_turn_context() instead.
         Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
 
         Same include_volatile split as the narrative prompt builder
         (PromptBuilder.build_main_prompt), with the flag read here because
-        the get_instructions signature is fixed by the base-module contract.
+        the contribute_instructions signature is fixed by the base-module contract.
         """
         self.instructions = (
             BASIC_INFO_MODULE_INSTRUCTIONS_STABLE
             if settings.prompt_turn_context_relocation_enabled
             else BASIC_INFO_MODULE_INSTRUCTIONS
         )
-        return await super().get_instructions(ctx_data)
+        return await super().contribute_instructions(ctx_data)
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the "Real World Information" section.
 
         Wording is byte-identical to the legacy in-template section (R4:
-        relocated, never dropped). Empty when hook_data_gathering did not
+        relocated, never dropped). Empty when gather did not
         populate current_time — the temporal ground truth is best-effort,
         same as before.
         """
@@ -140,7 +140,7 @@ class BasicInfoModule(XYZBaseModule):
 
     # ============================================================================= Hooks
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Collect basic information
 
@@ -278,7 +278,7 @@ class BasicInfoModule(XYZBaseModule):
 
     # ============================================================================= MCP Server
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         Return MCP Server configuration.
 

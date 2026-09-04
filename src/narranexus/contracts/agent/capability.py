@@ -16,15 +16,13 @@ contract with more or fewer cells of the capability × stage matrix filled
 
 A ``StageParticipant`` is what a capability exposes for one stage. Every
 method is optional (structural Protocol): a participant declares only the
-cells it fills, and the runtime calls only what is declared. The legacy
-``XYZBaseModule`` maps onto this one-to-one (see the module adapter in the
-legacy package): ``owns_working_source`` → ``claims_source``,
-``get_instructions`` → ``contribute_instructions``,
-``get_turn_context`` → ``contribute_turn_context``,
-``hook_data_gathering`` → ``gather``, ``get_mcp_config`` /
-``get_expressive_tools`` / ``get_disallowed_tools`` → ``contribute_tools``,
-``hook_persist_turn`` → ``persist_turn``, ``hook_after_event_execution`` →
-``after_turn``.
+cells it fills, and the runtime calls only what is declared. ``XYZBaseModule``
+IS a capability (batch 5c): its lifecycle methods carry these very names
+(``claims_source`` / ``gather`` / ``contribute_instructions`` /
+``contribute_turn_context`` / ``contribute_tools`` — composed from the module's
+``mcp_server`` / ``expressive_tools`` / ``disallowed_tools`` — / ``persist_turn``
+/ ``after_turn``) and ``participations()`` returns the module itself for each
+stage it fills; there is no adapter.
 """
 from __future__ import annotations
 

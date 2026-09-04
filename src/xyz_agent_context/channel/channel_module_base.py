@@ -4,7 +4,7 @@
 @description: Abstract base for IM channel Modules.
 
 Phase 2 of the IM channel abstraction. Owns the boilerplate every IM
-Module needs (sender registry self-registration, ``hook_data_gathering``
+Module needs (sender registry self-registration, ``gather``
 template, MCP server creation glue) WITHOUT constraining each channel's
 specific MCP tools or LLM instructions — those are abstract methods the
 subclass owns fully.
@@ -12,9 +12,9 @@ subclass owns fully.
 Lifecycle owned by the base
 ---------------------------
 ``__init__``                     → registers ``self.send_to_agent`` in ChannelSenderRegistry
-``hook_data_gathering``          → loads credential, calls ``build_extra_data``, injects into ctx_data.extra_data
-``hook_after_event_execution``   → filters by working_source, delegates to ``_on_event_executed`` hook
-``get_mcp_config``               → standard MCPServerConfig from class attrs
+``gather``          → loads credential, calls ``build_extra_data``, injects into ctx_data.extra_data
+``after_turn``   → filters by working_source, delegates to ``_on_event_executed`` hook
+``mcp_server``               → standard MCPServerConfig from class attrs
 ``create_mcp_server``            → builds FastMCP, calls subclass ``register_mcp_tools``
 
 Subclass MUST set class attrs
@@ -31,7 +31,7 @@ Subclass MUST implement
 ``get_credential(agent_id) -> Optional[Any]``
 ``send_to_agent(agent_id, target_id, message, **kw) -> dict``
 ``register_mcp_tools(mcp) -> None``
-``get_instructions(ctx_data) -> str``
+``contribute_instructions(ctx_data) -> str``
 ``build_extra_data(cred, ctx_data) -> dict``
 
 Subclass MAY override
@@ -40,7 +40,7 @@ Subclass MAY override
 
 What this base does NOT abstract (deliberately)
 -----------------------------------------------
-- ``get_instructions`` content. Lark's is 600+ lines (three-click flow,
+- ``contribute_instructions`` content. Lark's is 600+ lines (three-click flow,
   iron rules, identity guide); Telegram's might be 150 lines. Each
   channel's instructions are its product surface.
 - MCP tool registration. ``register_mcp_tools`` is abstract; each
@@ -99,7 +99,7 @@ class ChannelModuleBase(XYZBaseModule):
     # The tools whose calls DELIVER content to humans on this channel
     # (short names; must be a subset of ``all_tool_names`` — pinned by a
     # cross-channel test). Forwarded fully-qualified to the framework as
-    # the turn's expressive surface via ``get_expressive_tools``.
+    # the turn's expressive surface via ``expressive_tools``.
     reply_tool_names: tuple[str, ...] = ()
 
     # ── Class-level guard so multi-instance instantiation doesn't double-register ──
@@ -154,7 +154,7 @@ class ChannelModuleBase(XYZBaseModule):
         """
 
     @abstractmethod
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Per-turn LLM instruction. Channel content is fully subclass-owned.
 
         Subclass implementations vary in length from ~30 lines (Telegram
@@ -182,7 +182,7 @@ class ChannelModuleBase(XYZBaseModule):
         """Subclass override hook for channel-specific post-execution logic.
 
         Default no-op. Called only when ``working_source`` matches —
-        the base's ``hook_after_event_execution`` does that filtering.
+        the base's ``after_turn`` does that filtering.
         """
 
     async def cleanup_for_agent(self, agent_id: str, db) -> dict[str, int]:
@@ -244,7 +244,7 @@ class ChannelModuleBase(XYZBaseModule):
     # Concrete — base provides; subclasses inherit
     # ────────────────────────────────────────────────────────────────────
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """Load credential → build extra_data → inject into ctx_data.
 
         Failures are swallowed and logged: a missing credential or a
@@ -261,7 +261,7 @@ class ChannelModuleBase(XYZBaseModule):
         except Exception as e:
             self._bound_cache = True  # fail-open: see is_bound()
             logger.warning(
-                f"{type(self).__name__} hook_data_gathering failed: {e}"
+                f"{type(self).__name__} gather failed: {e}"
             )
         return ctx_data
 
@@ -278,7 +278,7 @@ class ChannelModuleBase(XYZBaseModule):
         user-visible loss of function; wrongly keeping an unbound one only
         costs tokens (binding rule #16 spirit).
 
-        Memoized per instance: ``hook_data_gathering`` (step 2) already
+        Memoized per instance: ``gather`` (step 2) already
         loads the credential before instructions/tool-gating (context
         build) run, so the common path costs zero extra queries.
         """
@@ -292,7 +292,7 @@ class ChannelModuleBase(XYZBaseModule):
                 self._bound_cache = True
         return self._bound_cache
 
-    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
+    async def disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Unbound → suppress every tool except the setup surface."""
         if await self.is_bound():
             return []
@@ -302,7 +302,7 @@ class ChannelModuleBase(XYZBaseModule):
             if name not in self.setup_tool_names
         ]
 
-    def owns_working_source(self, working_source: Any) -> bool:
+    def claims_source(self, working_source: Any) -> bool:
         """Channel modules originate the turns whose working_source equals
         their ``channel_name`` (the WorkingSource enum reuses the channel
         names: "wechat", "lark", ...). Origin-first collection then makes
@@ -310,7 +310,7 @@ class ChannelModuleBase(XYZBaseModule):
         defaults to ``wechat_send``, not the owner-chat tool."""
         return working_source_matches(working_source, self.channel_name)
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+    async def expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Bound → this channel's reply tools, fully qualified. Unbound
         contributes nothing (those schemas are suppressed above anyway).
         Subclasses may consult ``ctx_data`` to drop tools that cannot
@@ -346,7 +346,7 @@ class ChannelModuleBase(XYZBaseModule):
             f"Awareness (setup happens in the dashboard, not in chat)."
         )
 
-    async def hook_after_event_execution(
+    async def after_turn(
         self, params: HookAfterExecutionParams
     ) -> None:
         """Filter by ``working_source``, then delegate to ``_on_event_executed``.
@@ -363,7 +363,7 @@ class ChannelModuleBase(XYZBaseModule):
             return
         await self._on_event_executed(params)
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """Standard MCP config built from class attrs."""
         return MCPServerConfig(
             server_name=self.mcp_server_name,

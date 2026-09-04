@@ -15,7 +15,7 @@ data layer, not the prompts, was at fault:
     "A new agent ready for configuration" and never again — no config change,
     skill install or rename touched it;
   * ``bus_agent_registry`` was written from ONE inline block in
-    ``MessageBusModule.hook_data_gathering``, snapshotting that placeholder and
+    ``MessageBusModule.gather``, snapshotting that placeholder and
     hardcoding ``capabilities=[]``. All 488 rows in prod looked like that;
   * so ``bus_search_agents`` (matching ``capabilities LIKE ? OR description
     LIKE ?``) answered nothing for every query, ``bus_get_agent_profile``

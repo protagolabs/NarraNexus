@@ -856,7 +856,7 @@ After the stream completes, step 3 appends a synthetic
 - `ChatModule._extract_user_visible_response` picks the synthetic call
   up like any organic reply, so the assistant row persists the
   helper-generated text — NOT `io_data.final_output` (reasoning).
-- `ChatModule.hook_after_event_execution` lifts the `reply_via` tag
+- `ChatModule.after_turn` lifts the `reply_via` tag
   onto the persisted row's `meta_data.reply_via`.
 
 Why this design (per 5/11 product review):
@@ -918,11 +918,11 @@ Chat history is injected into the system prompt (not as native multi-turn messag
 - **skill_env_vars missing key**: If AwarenessModule didn't populate `extra_data`, the dict lookup returns `None` gracefully — don't add a default, the SDK handles `None`.
 - **ContextRuntime vs agent loop ordering**: ContextRuntime.run() must complete before agent_loop() starts; the context is not streamed incrementally.
 - **Sub-step 3.4 (tool execution)**: Tool calls are processed inside `agent_loop()` via MCP — sub-step 3.4 in the progress messages is a checkpoint yield, not a separate function call.
-- **ErrorMessage is appended to `agent_loop_response` AND yielded (Bug 8)**: the `except Exception` handler doesn't just push the error to the frontend — it also appends the `ErrorMessage` to `agent_loop_response` before moving on to `state.finalize()` and the `PathExecutionResult` yield. That append is what lets downstream hooks (ChatModule detects it in `hook_after_event_execution` and stores the failed turn with `meta_data.status="failed"` instead of a normal user/assistant pair) see the failure signal. Without the append, hooks see a silently-truncated turn and happily persist it as "success with empty reply", which was exactly the Bug 8 contamination.
+- **ErrorMessage is appended to `agent_loop_response` AND yielded (Bug 8)**: the `except Exception` handler doesn't just push the error to the frontend — it also appends the `ErrorMessage` to `agent_loop_response` before moving on to `state.finalize()` and the `PathExecutionResult` yield. That append is what lets downstream hooks (ChatModule detects it in `after_turn` and stores the failed turn with `meta_data.status="failed"` instead of a normal user/assistant pair) see the failure signal. Without the append, hooks see a silently-truncated turn and happily persist it as "success with empty reply", which was exactly the Bug 8 contamination.
 
 ## Common New-Developer Mistakes
 
-- Trying to add module data gathering here: all data gathering belongs in `ContextRuntime` (which calls `hook_data_gathering` on each module). This step only orchestrates.
+- Trying to add module data gathering here: all data gathering belongs in `ContextRuntime` (which calls `gather` on each module). This step only orchestrates.
 - Assuming `ctx.execution_result` is set inside this generator: the router (`step_3_execute_path.py`) sets it after intercepting the `PathExecutionResult` yield.
 - Forgetting that `skill_env_vars` must be a `dict[str, str]` — passing any other type will cause the SDK subprocess to reject it silently.
 
@@ -934,7 +934,7 @@ team 房间是唯一"你的纯文本**就是**消息"的表面 —— 它的回�
 下一轮的历史加载器会丢掉 activity 行。这就是 team 房间每轮冷启动的成因。
 
 投递因此搬进 turn 里(见 [[message_bus_trigger]] 同日条目):会话行由
-`hook_persist_turn` 在 `run()` 返回**之前**写完,trigger 事后再贴,账已经结了。
+`persist_turn` 在 `run()` 返回**之前**写完,trigger 事后再贴,账已经结了。
 
 **但不能乐观地合成伪帧。** 本文件下面 IM DM fallback 那段自己立了规矩:
 帧只在**渠道确认发送之后**才发出,因为给一条从未离开进程的消息记"已回复",和我们

@@ -17,7 +17,7 @@ JobModule 的执行链跨越两个进程：
 
 | 文件 | 职责 |
 |------|------|
-| `job_module.py` | Module 主体：hook_data_gathering 加载 Job 列表；hook_after_event_execution 分析执行结果；委托 MCP 给 `_job_mcp_tools.py` |
+| `job_module.py` | Module 主体：gather 加载 Job 列表；after_turn 分析执行结果；委托 MCP 给 `_job_mcp_tools.py` |
 | `job_trigger.py` | 后台轮询服务：Worker Pool 模式，5 个并发 Worker；原子锁防重复执行；调用 AgentRuntime |
 | `_job_mcp_tools.py` | MCP 工具：job_create、job_retrieval_*、job_update、job_pause、job_cancel |
 | `_job_lifecycle.py` | LLM 分析：handle_job_execution_result（JOB 触发的执行结果分析）；update_ongoing_jobs_from_chat（CHAT 触发的 ONGOING 任务进度更新） |

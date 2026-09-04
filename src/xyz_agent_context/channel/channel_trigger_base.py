@@ -523,7 +523,7 @@ class ChannelTriggerBase(ABC):
             partial-result list. The agent run continues against
             ``message.content`` text — attachment loss is graceful
             degradation, not a worker crash. Mirrors the never-raise
-            contract on ``ChannelModuleBase.hook_data_gathering``.
+            contract on ``ChannelModuleBase.gather``.
 
         Cross-platform ``kind`` field vocabulary is INTENTIONALLY
         non-normalized: each subclass uses its platform's native taxonomy:
@@ -1664,7 +1664,7 @@ class ChannelTriggerBase(ABC):
         ``attachments`` is the list returned by ``fetch_attachments``
         (may be empty). When non-empty it is serialised into
         ``trigger_extra_data["attachments"]`` so ChatModule's
-        ``hook_data_gathering`` can synthesise markers into chat_history.
+        ``gather`` can synthesise markers into chat_history.
         Mirrors ``backend/routes/websocket.py`` which uses the same key.
         """
         # Lazy import — see top-of-file comment about circular dependency.
@@ -1718,7 +1718,7 @@ class ChannelTriggerBase(ABC):
             builder=builder,
             attachments=attachments,
             # The inbound platform message id, surfaced per-turn so a channel
-            # module's get_instructions can tell the agent which message to
+            # module's contribute_instructions can tell the agent which message to
             # react to / reply in-thread (the react_to_user_message tool). Kept
             # here (not in ChannelTag) so it stays ephemeral, not persisted.
             source_message_id=message.message_id or "",
@@ -1796,9 +1796,9 @@ class ChannelTriggerBase(ABC):
         - Narrative selection runs once on the merged content (topic
           centroid). Modules load; instances sync.
         - step_3 (agent LLM) is skipped.
-        - hook_persist_turn writes N user rows (from batch_messages) with
+        - persist_turn writes N user rows (from batch_messages) with
           no assistant row.
-        - hook_after_event_execution runs (observation extraction from
+        - after_turn runs (observation extraction from
           the merged content; entity update per unique sender).
 
         Args:

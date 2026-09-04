@@ -45,7 +45,7 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
     Lark agents reply via `lark_cli im +messages-send` / `+messages-reply`,
     not via `notify_owner`. The reply payload sits inside
     `arguments.command` as the value of `--text` or `--markdown`. Without
-    this extractor, ChatModule.hook_after_event_execution treats every Lark
+    this extractor, ChatModule.after_turn treats every Lark
     turn as is_no_response=True and writes an activity row that loses the
     real reply content — the actual P0 we are fixing.
 
@@ -502,9 +502,9 @@ class LarkModule(ChannelModuleBase):
     """Lark/Feishu integration module.
 
     Subclass of ``ChannelModuleBase`` (Phase 2). The base owns the structural
-    boilerplate (sender registry self-registration, ``hook_data_gathering``
-    template, ``get_mcp_config`` / ``create_mcp_server`` glue). This class
-    owns the Lark-specific 90% of the code: the 600+ line ``get_instructions``
+    boilerplate (sender registry self-registration, ``gather``
+    template, ``mcp_server`` / ``create_mcp_server`` glue). This class
+    owns the Lark-specific 90% of the code: the 600+ line ``contribute_instructions``
     rendering the three-click flow + iron rules + identity model, and the
     ``build_extra_data`` building the ``lark_info`` dict consumed by the
     instructions.
@@ -592,7 +592,7 @@ class LarkModule(ChannelModuleBase):
     # Instructions
     # =========================================================================
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Render per-turn Lark instruction. Fixed section order:
 
           1. Header (mode, bot, owner, sender trust signal)
@@ -613,7 +613,7 @@ class LarkModule(ChannelModuleBase):
             # by lark_setup() / lark_bind() called with empty credential
             # args. A bound agent whose credential data failed to load this
             # turn gets nothing rather than a misleading onboarding prompt.
-            # (hook_data_gathering injects lark_info for ANY credential row,
+            # (gather injects lark_info for ANY credential row,
             # including pending_setup, so "no lark_info" + "bound" only
             # happens on a transient load failure.)
             if await self.is_bound():
@@ -816,7 +816,7 @@ class LarkModule(ChannelModuleBase):
     # =========================================================================
 
     async def build_extra_data(self, cred, ctx_data: ContextData) -> dict:
-        """Build the ``lark_info`` dict consumed by ``get_instructions``.
+        """Build the ``lark_info`` dict consumed by ``contribute_instructions``.
 
         Note (P4 from design spec): we inject ``lark_info`` for ANY credential
         row — including ``pending_setup`` / ``is_active=False``. Without this,

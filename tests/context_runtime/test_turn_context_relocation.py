@@ -4,7 +4,7 @@
 @date: 2026-07-25
 @description: R4a turn-context relocation — per-turn volatile content
 (temporal block, narrative updated_at/current_summary, recent background
-activity, module get_turn_context blocks) moves out of the system prompt
+activity, module contribute_turn_context blocks) moves out of the system prompt
 into a "[Turn context]" block prepended to the CURRENT user message, so
 the system prompt stays byte-stable across turns (provider prefix caches).
 
@@ -15,9 +15,9 @@ Locks the R4a contract:
   appended to the system prompt, current user message == input_content);
 - kill-switch ON   → volatile sections appear ONLY in the LLM-facing
   current message, in a fixed order, and ``ctx_data.input_content`` (the
-  string ChatModule.hook_persist_turn persists and the frontend renders)
+  string ChatModule.persist_turn persists and the frontend renders)
   is NEVER touched;
-- module get_turn_context blocks: deduplicated by module_class, stable
+- module contribute_turn_context blocks: deduplicated by module_class, stable
   priority-ascending order, per-module fail-open;
 - ctx_sha256 instrumentation: the [SYSPROMPT-BREAKDOWN] line hashes
   ContextRuntime's final system prompt string — stable across turns when
@@ -255,7 +255,7 @@ async def test_flag_on_history_rows_unchanged(db_client, monkeypatch):
 
 
 # =========================================================================
-# Module get_turn_context plumbing
+# Module contribute_turn_context plumbing
 # =========================================================================
 
 class _FakeModule:
@@ -265,7 +265,7 @@ class _FakeModule:
         self.fail = fail
         self.calls = 0
 
-    async def get_turn_context(self, ctx_data) -> str:
+    async def contribute_turn_context(self, ctx_data) -> str:
         self.calls += 1
         if self.fail:
             raise RuntimeError("volatile source exploded")
@@ -313,7 +313,7 @@ async def test_base_module_get_turn_context_defaults_to_empty():
 
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     # Unbound call: the default implementation must not depend on self state.
-    assert await XYZBaseModule.get_turn_context(object(), ctx) == ""
+    assert await XYZBaseModule.contribute_turn_context(object(), ctx) == ""
 
 
 # =========================================================================
@@ -354,7 +354,7 @@ def _time_embedding_instructions(fake_now: datetime):
     """Stand-in for what a Module emits under flag OFF.
 
     BasicInfoModule renders its "Real World Information" section — the
-    per-turn current time — straight into `get_instructions()` when the
+    per-turn current time — straight into `contribute_instructions()` when the
     relocation flag is off. That copy, not the User Temporal Context block,
     is the thing that varies second to second in the legacy layout.
     """

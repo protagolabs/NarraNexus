@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/attachment_storage.py
-last_verified: 2026-08-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -27,7 +27,7 @@ knows on-disk paths. Three jobs:
    synthesis, and system-prompt formatting)
 3. `format_attachments_for_system_prompt` renders the current-turn
    attachment list as a Markdown block listing names + types + paths
-   (called by `CommonToolsModule.get_instructions` to inject "the user
+   (called by `CommonToolsModule.contribute_instructions` to inject "the user
    uploaded these files NOW" into the system prompt)
 
 Centralizing path knowledge here keeps the seam clean: swap this file
@@ -43,7 +43,7 @@ Upstream callers:
 - `xyz_agent_context.schema.attachment_schema.Attachment.synthesize_marker`
   reads via `resolve_attachment_path`
 - `xyz_agent_context.module.common_tools_module.common_tools_module
-  .CommonToolsModule.get_instructions` reads via
+  .CommonToolsModule.contribute_instructions` reads via
   `format_attachments_for_system_prompt`
 
 Downstream:

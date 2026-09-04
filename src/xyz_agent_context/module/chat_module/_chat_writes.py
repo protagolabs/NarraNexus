@@ -4,7 +4,7 @@
 @date: 2026-08-20
 @description: The single writer for the bootstrap greeting chat row.
 
-The greeting is persisted by TWO callers — ChatModule.hook_persist_turn (the
+The greeting is persisted by TWO callers — ChatModule.persist_turn (the
 lazy prepend on a turn whose history is still empty) and the step_1
 provision-time seed (driven by bootstrap/greeting_seed) — so the row's shape
 and its timestamp constraints live HERE, in the chat module that owns the
@@ -119,7 +119,7 @@ async def seed_bootstrap_greeting(
     """Persist `greeting` as `instance_id`'s FIRST message, idempotently.
 
     No-op (returns False) if the instance already holds ANY message — the same
-    `len(messages) == 0` guard ChatModule.hook_persist_turn uses. That makes
+    `len(messages) == 0` guard ChatModule.persist_turn uses. That makes
     this safe to call every turn for the primary instance: a fresh instance is
     seeded once; on later turns (or after the hook already wrote the greeting)
     the history is non-empty and this skips, so the greeting is never doubled

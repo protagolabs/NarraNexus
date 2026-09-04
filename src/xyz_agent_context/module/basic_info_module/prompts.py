@@ -15,7 +15,7 @@
 # know which one it's in so it doesn't try to install global tools on a
 # shared server or refuse to help on the user's own computer.
 #
-# BasicInfoModule.hook_data_gathering picks the right block based on
+# BasicInfoModule.gather picks the right block based on
 # xyz_agent_context.utils.deployment_mode.get_deployment_mode() and
 # stores it on ctx_data.deployment_context; the system-prompt template
 # below renders it via the ``{deployment_context}`` placeholder.
@@ -122,9 +122,9 @@ and share the URL, or upload via the channel's file API.
 #
 # Placeholder descriptions:
 # - {agent_id}: Agent ID
-# - {agent_name}: Agent name, filled into ctx_data by hook_data_gathering()
-# - {agent_description}: Agent description, filled into ctx_data by hook_data_gathering()
-# - {creator_id}: Creator ID, filled into ctx_data by hook_data_gathering()
+# - {agent_name}: Agent name, filled into ctx_data by gather()
+# - {agent_description}: Agent description, filled into ctx_data by gather()
+# - {creator_id}: Creator ID, filled into ctx_data by gather()
 # - {is_creator}: Whether the current user is the creator (True/False)
 # - {user_id}: Current user ID
 # - {user_role}: User role description ("Creator (Boss)" or "User/Customer")
@@ -367,7 +367,7 @@ feedback unless the user asked you to.
 # With the relocation flag ON (settings.prompt_turn_context_relocation_enabled)
 # the module renders BASIC_INFO_MODULE_INSTRUCTIONS_STABLE into the system
 # prompt (the section becomes a static pointer) and emits the original
-# section — wording preserved verbatim — through get_turn_context() into the
+# section — wording preserved verbatim — through contribute_turn_context() into the
 # "[Turn context]" block of the current user message. Flag OFF renders the
 # untouched legacy template above, functionally equivalent to the pre-R4 layout.
 #

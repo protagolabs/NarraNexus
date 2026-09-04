@@ -52,7 +52,7 @@ async def step_3_direct_trigger(
             continue
         # Match module_class (class name)
         if instance.module_class == module_class:
-            mcp_config = await module.get_mcp_config()
+            mcp_config = await module.mcp_server()
             if mcp_config:
                 mcp_server_url = mcp_config.server_url
                 target_module = module

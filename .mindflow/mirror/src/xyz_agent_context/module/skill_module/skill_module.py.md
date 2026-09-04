@@ -37,8 +37,8 @@ SKILL.md 换键名逐个跑真实 `_parse_skill_md`。
 
 ## 2026-07-28 — R4d：所有目录遍历改为按名排序（等长重排型缓存断点）
 
-`_scan_skills()` 的结果 → `hook_data_gathering` 拼出的 skills 表格 →
-`ctx_data.extra_data["skills_table"]` → `get_instructions()` → **system prompt
+`_scan_skills()` 的结果 → `gather` 拼出的 skills 表格 →
+`ctx_data.extra_data["skills_table"]` → `contribute_instructions()` → **system prompt
 可缓存前缀**。而 `Path.iterdir()` 给的是文件系统 readdir 顺序，**APFS 不是字母序**：
 一个真实 workspace 实测返回 `officecli, home-assistant-setup,
 netmind-transcribe, netmind-vision`。`_materialize_builtin_skills()` 每轮都跑，
@@ -78,7 +78,7 @@ Needs Config 误报);未声明的技能保留 body 扫描 fallback。2)新公开
 ## 2026-07-21 — 平台可解析 env(NETMIND_API_KEY 运行时注入,stage 9)
 
 新常量 `PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` + 私有
-`_resolve_platform_env(env, skills)`:hook_data_gathering 收集 skill env 后,
+`_resolve_platform_env(env, skills)`:gather 收集 skill env 后,
 对「技能声明了但用户未显式配置」的平台变量,从该 user 的
 `user_providers`(source=netmind, protocol=openai)行取 api_key **仅注入本次
 运行的子进程环境,永不落盘**——key 轮换即时生效、cloud workspace 零额外密钥
@@ -128,22 +128,22 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 ## 上下游关系
 
-- **被谁用**：`_module_impl/loader.py` 的 `ALWAYS_LOAD_MODULES` 列表确保它总是以 `skill_default` 虚拟实例加载；`HookManager` 调用 `hook_data_gathering`；`AgentRuntime` 从 `ctx_data.extra_data["skill_env_vars"]` 读取环境变量注入子进程
+- **被谁用**：`_module_impl/loader.py` 的 `ALWAYS_LOAD_MODULES` 列表确保它总是以 `skill_default` 虚拟实例加载；`HookManager` 调用 `gather`；`AgentRuntime` 从 `ctx_data.extra_data["skill_env_vars"]` 读取环境变量注入子进程
 - **依赖谁**：文件系统（`settings.base_working_path`）；`SkillInfo` schema；`_skill_mcp_tools.create_skill_mcp_server`
 
 ## 设计决策
 
 **技能状态用文件系统表达**：与其他 Module 用数据库表存状态不同，SkillModule 完全依赖文件系统——技能的存在靠目录结构，配置靠 `.skill_config.json` 文件，元数据靠 `.skill_meta.json`。这让技能可以手动安装（复制目录）、备份（zip 打包）、移植（复制到另一台机器），不需要数据库迁移。
 
-**`ALWAYS_LOAD_MODULES` 的虚拟实例**：SkillModule 不需要 LLM 决策是否加载（不像 JobModule 需要实例决策）。`_module_impl/loader.py` 里 `ALWAYS_LOAD_MODULES = ["SkillModule"]`，强制注入 `instance_id="skill_default"` 的合成实例。这个虚拟 `instance_id` 在 `hook_after_event_execution` 里是安全的——SkillModule 没有实现该 hook，不会因空 `instance_id` 出问题。
+**`ALWAYS_LOAD_MODULES` 的虚拟实例**：SkillModule 不需要 LLM 决策是否加载（不像 JobModule 需要实例决策）。`_module_impl/loader.py` 里 `ALWAYS_LOAD_MODULES = ["SkillModule"]`，强制注入 `instance_id="skill_default"` 的合成实例。这个虚拟 `instance_id` 在 `after_turn` 里是安全的——SkillModule 没有实现该 hook，不会因空 `instance_id` 出问题。
 
-**工作空间规则按部署模式分叉（`WORKSPACE_RULES_CLOUD` / `WORKSPACE_RULES_LOCAL`）**：NarraNexus 同时跑在共享云端和用户自己的机器上，两种环境的约束根本不同——云端必须严格沙箱（workspace-only、禁全局安装、凭证不出技能目录），本地是用户自己机器应该放松（允许全局安装，但附带「告诉用户装了什么」的 advisory）。`_resolve_workspace_rules(ctx_data)` 在 `get_instructions` 时根据 `ctx_data.deployment_mode`（由 BasicInfoModule 填）选择一个块渲染进模板。缺省时 fallback 到云端（更严格的那份），宁可过严也不能让本地版提示意外流入云端 Agent。对应的硬约束由 `agent_framework/adapters/_tool_policy_guard.py` 在 PreToolUse hook 里强制执行（工作空间越界 / 全局安装等），两者需同步改动。
+**工作空间规则按部署模式分叉（`WORKSPACE_RULES_CLOUD` / `WORKSPACE_RULES_LOCAL`）**：NarraNexus 同时跑在共享云端和用户自己的机器上，两种环境的约束根本不同——云端必须严格沙箱（workspace-only、禁全局安装、凭证不出技能目录），本地是用户自己机器应该放松（允许全局安装，但附带「告诉用户装了什么」的 advisory）。`_resolve_workspace_rules(ctx_data)` 在 `contribute_instructions` 时根据 `ctx_data.deployment_mode`（由 BasicInfoModule 填）选择一个块渲染进模板。缺省时 fallback 到云端（更严格的那份），宁可过严也不能让本地版提示意外流入云端 Agent。对应的硬约束由 `agent_framework/adapters/_tool_policy_guard.py` 在 PreToolUse hook 里强制执行（工作空间越界 / 全局安装等），两者需同步改动。
 
 **扫描包含无 SKILL.md 的目录**：`_scan_skills()` 不只扫描有 `SKILL.md` 的标准技能目录，也扫描只有 `.skill_meta.json` 的目录（Agent 自行创建的技能）。这支持了 Agent 自主学习和创建新技能的场景，而不仅限于从 ClawHub 安装的标准技能。
 
-**内置技能物化（`_materialize_builtin_skills`）**：把 `BUILTIN_SKILLS_DIR`（`= Path(__file__).parent / "builtin_skills"`）里的 vendored 技能 `copytree` 到 workspace `skills/<name>/`，`.skill_meta.json` 打 `builtin: true`（`source_type="builtin"`）。**两个触发入口**：`hook_data_gathering` 顶部（运行时）和 `list_skills` 顶部（读时）。为什么两处都要——物化只在 `hook_data_gathering` 会导致「新建、从未运行的 agent」打开 Skills 面板看不到内置技能（`GET /api/skills` → `list_skills` → `_scan_skills` 不物化）；所以 `list_skills` 也物化一次，保证 API/UI 首次即可见。副作用刻意不放在 `_scan_skills`（保持 scan 纯只读，它被 backup 等多处调用）。幂等性判据是 **disable-aware**：`skills/<name>/` 或 `skills/.disabled/<name>/` 任一存在即跳过——否则用户禁用（move 到 `.disabled/`）后每轮被复活。`_scan_skills` / `_parse_skill_md` 都从 `.skill_meta.json` 回填 `SkillInfo.builtin`。`remove_skill` 对内置技能抛 `ValueError`（`_dir_is_builtin` 同时查 live 与 `.disabled/` 目录），路由层 `routes/skills.py` 把它翻成 400。首个内置技能是 `officecli`，其二进制由 shell/构建层预装进 PATH（见 `_overview.md`）。
+**内置技能物化（`_materialize_builtin_skills`）**：把 `BUILTIN_SKILLS_DIR`（`= Path(__file__).parent / "builtin_skills"`）里的 vendored 技能 `copytree` 到 workspace `skills/<name>/`，`.skill_meta.json` 打 `builtin: true`（`source_type="builtin"`）。**两个触发入口**：`gather` 顶部（运行时）和 `list_skills` 顶部（读时）。为什么两处都要——物化只在 `gather` 会导致「新建、从未运行的 agent」打开 Skills 面板看不到内置技能（`GET /api/skills` → `list_skills` → `_scan_skills` 不物化）；所以 `list_skills` 也物化一次，保证 API/UI 首次即可见。副作用刻意不放在 `_scan_skills`（保持 scan 纯只读，它被 backup 等多处调用）。幂等性判据是 **disable-aware**：`skills/<name>/` 或 `skills/.disabled/<name>/` 任一存在即跳过——否则用户禁用（move 到 `.disabled/`）后每轮被复活。`_scan_skills` / `_parse_skill_md` 都从 `.skill_meta.json` 回填 `SkillInfo.builtin`。`remove_skill` 对内置技能抛 `ValueError`（`_dir_is_builtin` 同时查 live 与 `.disabled/` 目录），路由层 `routes/skills.py` 把它翻成 400。首个内置技能是 `officecli`，其二进制由 shell/构建层预装进 PATH（见 `_overview.md`）。
 
-**物化的并发安全（2026-07-14）**：`hook_data_gathering` 与 `list_skills` 两个入口可能并发跑物化（同一 workspace 的多协程，或多进程）。两者都通过了上面的 `.exists()` 判据后，若直接 `copytree(src, dest)` 会撞车、败者抛 `FileExistsError` 被宽 `except` 吞成 warning、掩盖真实竞态。现改为**先 `tempfile.mkdtemp` 私有暂存目录 → `os.rename` 原子换入**：`mkdtemp` 保证每个 racer 拿到唯一暂存名，`os.rename` 落到已存在的 `dest` 会干净失败（`OSError`），败者删掉自己的暂存拷贝并跳过 → 物化恰好一次、无伪 warning。暂存目录以 `.` 前缀命名，`_scan_skills` / `_builtin_skill_relpaths` 都跳过 `.` 开头目录，不会被误当技能。
+**物化的并发安全（2026-07-14）**：`gather` 与 `list_skills` 两个入口可能并发跑物化（同一 workspace 的多协程，或多进程）。两者都通过了上面的 `.exists()` 判据后，若直接 `copytree(src, dest)` 会撞车、败者抛 `FileExistsError` 被宽 `except` 吞成 warning、掩盖真实竞态。现改为**先 `tempfile.mkdtemp` 私有暂存目录 → `os.rename` 原子换入**：`mkdtemp` 保证每个 racer 拿到唯一暂存名，`os.rename` 落到已存在的 `dest` 会干净失败（`OSError`），败者删掉自己的暂存拷贝并跳过 → 物化恰好一次、无伪 warning。暂存目录以 `.` 前缀命名，`_scan_skills` / `_builtin_skill_relpaths` 都跳过 `.` 开头目录，不会被误当技能。
 
 **`_dir_is_builtin` 委托（2026-07-14）**：原本这里自带一份判定，和 `bundle/skill_backup.py` 逐字重复。现改为薄委托到 [[skill_secrets.py]] 的 `dir_is_builtin`，三处同源、`builtin` 语义不再漂移。
 
@@ -151,7 +151,7 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 **凭证 fail-closed + 单一真源（2026-08-13，round 3/4 收口）**：三个模块级函数分工——`configured_env_var_names(env_config)` 是「某 env 是否已配置」的**唯一真源**（present ∧ 可解密 ∧ **解出来非空**），**解密委托给 [[secret_box]] 的 total `decrypt_env_config`**（状态查询与注入两条路共用同一个解密器），再在状态侧过滤空明文：`{name for name, value in plain.items() if value}`。**为什么要这层真值过滤**：`encrypt("")` 是合法 Fernet token、`decrypt` 成功返回 `""`——scrubbed-bundle 还原 + legacy 迁移会留下这种形状，「可解密」≠「可用」，空凭据必须读作未配置（否则卡片绿、运行期注入空 key、opaque 失败，8/1 事故的空串版本）。真值过滤**只放状态侧**：注入路径的 `plain` 要拿去做 legacy 回写 `encrypt_env_config(plain)`，从 plain 删 key 等于迁移时静默删字段；空明文也**不能计入 `failed`**（会翻转 `if not failed` 卡住真正需要迁移的 legacy 值）。函数入口保留一层 `isinstance(env_config, dict)` 快速返回（省掉对垃圾输入调 `get_secret_box()`），解密净化仍单点在 `decrypt_env_config`。`get_secret_box()` 失败降 `logger.debug`（进程级事实、不 per-skill 刷屏），唯一带上下文的 ERROR 留给注入路径。历史上这个判定散落六处（list/detail/MCP/hook/install/enrich）导致只改一处修不干净；现全部改调它。
 `env_config_status(requires_env, env_config)` 是 `_parse_skill_md` **两个 return** 的单一来源，一次算出 `(env_configured, env_platform_assumed)`：前者=必填 var 全部「自存可解密 ∨ 属 `PLATFORM_RESOLVED_ENV`」；后者=其中「属平台且**非自存**」的子集，随 `SkillInfo` 带给 API 层做 DB 校验（见 [[skills.py]] 的 enrich 反向假阴性修复）。自存的平台 var 被排除出 assumed，永不被误降。
-`get_all_skill_env_vars`：`get_secret_box()` 现包 try——key 配错时 fail-closed 返回 `{}`（注入空、不抛出 hook_data_gathering、不拖垮整个 agent 的 skills 贡献），并发 ops ERROR。其余用 `decrypt_env_config` 三元组 `(plain, needs_rewrite, failed)`——解不开或损坏（非 str）的值**永不注入**、`failed` 里点名重录；任一 failed 时**跳过 legacy 迁移**（避免覆写还能用旧钥恢复的密文）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)`。
+`get_all_skill_env_vars`：`get_secret_box()` 现包 try——key 配错时 fail-closed 返回 `{}`（注入空、不抛出 gather、不拖垮整个 agent 的 skills 贡献），并发 ops ERROR。其余用 `decrypt_env_config` 三元组 `(plain, needs_rewrite, failed)`——解不开或损坏（非 str）的值**永不注入**、`failed` 里点名重录；任一 failed 时**跳过 legacy 迁移**（避免覆写还能用旧钥恢复的密文）。`PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)`。
 
 **meta 读取统一走 `_load_meta_dict`（2026-08-13 round 4，🟢5）**：`.skill_meta.json` 是 agent 可写文件，可能缺失、非 JSON、或是合法 JSON 但**非 object**（数组/字符串/数字）——后者 `json.loads` 成功但随后的 `.get()` 抛 `AttributeError`。`_parse_skill_md` 的一串 `.get()` 在 frontmatter `try` **之外**，会一路抛穿 `_scan_skills` → `list_skills` → 列表 500 / hook 整份贡献丢失（正是「malformed meta 不得 crash」契约要挡的 blast radius）。新增静态 `_load_meta_dict(meta_file)` 把三处读点（`_parse_skill_md`、`_read_skill_meta`、`_scan_skills` 里无 SKILL.md 的分支）统一成「读→非 dict 一律 `{}` + 点名 warning」。非 dict 的坏 meta 本就无可恢复字段，`{}` 兜底不丢信息、且留 breadcrumb；不是静默降级。
 

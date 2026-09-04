@@ -98,8 +98,8 @@ def test_a_missing_target_is_a_question_not_a_refusal():
 
 def test_instructions_stay_byte_stable_across_calls():
     """These parts feed the cacheable system prompt — they must not vary per
-    call (prefix caching is byte-wise; see get_turn_context vs
-    get_instructions in module/base.py)."""
+    call (prefix caching is byte-wise; see contribute_turn_context vs
+    contribute_instructions in module/base.py)."""
     assert _bus_instructions() == _bus_instructions()
 
 

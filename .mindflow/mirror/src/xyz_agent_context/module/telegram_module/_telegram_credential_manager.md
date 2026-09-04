@@ -44,7 +44,7 @@ deltas captured here so the structural symmetry stays load-bearing.
   or a privacy-restricted account — all logged and dropped, the bind
   itself succeeds. Without owner fields the trust signal is OFF and
   every Telegram sender is treated as untrusted (documented in
-  ``telegram_module.get_instructions``). Better than refusing to bind
+  ``telegram_module.contribute_instructions``). Better than refusing to bind
   the bot.
 - **Token base64-encoded at rest, decoded on load.** Same shape as
   Slack. Encoding != encryption — at-rest encryption is out of scope

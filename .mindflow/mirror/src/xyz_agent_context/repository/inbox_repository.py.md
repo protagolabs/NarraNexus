@@ -12,7 +12,7 @@ stub: false
 
 ## Upstream / Downstream
 
-`JobModule.hook_after_event_execution()` calls `create_message()` when a Job completes and `should_notify=True`. The inbox API route reads messages via `get_messages()` and `get_total_count()` for pagination, and marks messages read via `mark_as_read()` and `mark_all_as_read()`. The frontend notification badge reads `get_unread_count()`.
+`JobModule.after_turn()` calls `create_message()` when a Job completes and `should_notify=True`. The inbox API route reads messages via `get_messages()` and `get_total_count()` for pagination, and marks messages read via `mark_as_read()` and `mark_all_as_read()`. The frontend notification badge reads `get_unread_count()`.
 
 ## Design decisions
 

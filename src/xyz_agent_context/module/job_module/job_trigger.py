@@ -1381,7 +1381,7 @@ The task was executed but produced no text output.
 
             elif job.job_type == JobType.ONGOING:
                 # ONGOING job: execute continuously until end_condition is met or max_iterations reached
-                # Note: end_condition is primarily checked by hook_after_event_execution (entry point 1)
+                # Note: end_condition is primarily checked by after_turn (entry point 1)
                 # JobTrigger (entry point 2) is only responsible for:
                 #   1) Updating iteration_count
                 #   2) Checking max_iterations
@@ -1415,7 +1415,7 @@ The task was executed but produced no text output.
                     )
                 else:
                     # Continue execution
-                    # First check if entry point 1 (hook_after_event_execution) has already updated the status
+                    # First check if entry point 1 (after_turn) has already updated the status
                     current_job = await repo.get_job(job.job_id)
                     current_status = current_job.status if current_job else JobStatus.RUNNING
 

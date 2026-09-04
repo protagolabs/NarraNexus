@@ -347,7 +347,7 @@ class AgentRuntime:
             silent: When True, skip step_3 (agent LLM invocation) entirely.
                 The run still executes step_0..step_2.5 (event created, narrative
                 selected, modules loaded, instances synced), then constructs a
-                minimal empty PathExecutionResult so step_4 / hook_persist_turn /
+                minimal empty PathExecutionResult so step_4 / persist_turn /
                 step_5 can run against a consistent ctx. Used by IM triggers for
                 group non-@ messages (or reconnect burst backfill): the agent
                 does not reply, but ChatModule still writes conversation history,
@@ -589,7 +589,7 @@ class AgentRuntime:
         NOTE: We intentionally do NOT close the database client here.
         The client is a global singleton from get_db_client(), shared across
         all requests and background tasks (hooks). Closing it here would
-        break background hook_after_event_execution tasks that are still
+        break background after_turn tasks that are still
         writing chat history, awareness updates, etc.
 
         The database connection is managed by the application lifecycle

@@ -136,7 +136,7 @@ priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
 ## 2026-08-04 — expressive 收集改 origin-first 排序
 
 排序键从 (priority, module_class) 变为 (origin_rank, priority, module_class)：
-拥有本轮 working_source 的模块（`owns_working_source(ws)`，见 [[base]]）
+拥有本轮 working_source 的模块（`claims_source(ws)`，见 [[base]]）
 origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
 （NexusPower constitution 的 example + claude 适配器 reminder 首位），
 从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
@@ -175,7 +175,7 @@ bearer——字段数约定见 [[_mcp_identity]])。
 fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,
 改为 logger.error 且注明 declaration DROPPED(教训 #3:别把报警吞成
 背景噪音——ChatModule 曾因此静默哑掉)。
-## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+## 2026-08-03 — `expressive_tools` 增加可选 ctx_data(按来源声明)
 
 回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
 (那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
@@ -194,7 +194,7 @@ fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 `build_input_for_framework` 在 MCP 收集环里同批收集各模块
-`get_expressive_tools()`(fail-open,姿态同 disallowed),收集后按
+`expressive_tools()`(fail-open,姿态同 disallowed),收集后按
 **(priority, module_class) 全序排**(R4d 同源,与 _build_turn_context_block /
 _sorted_module_instructions 完全一致)再去重——**首位即默认回复工具**且会被
 冻进框架稳定前缀,所以顺序必须由优先级驱动、跨回合确定。**不能**依赖
@@ -319,7 +319,7 @@ LLM-facing 的 current_user_content，**绝不动 `ctx_data.input_content`** →
   [[prompt_builder.py]] 模板拆分）。
 - 新增 `_build_turn_context_block(active_instances, ctx_data, narrative_list)`：
   固定顺序 temporal（块名 "User Temporal Context" 不变，job MCP docstring 引用它）
-  → narrative turn 块 → 模块 `get_turn_context` 块（module_class 去重、priority
+  → narrative turn 块 → 模块 `contribute_turn_context` 块（module_class 去重、priority
   升序稳定排序，与 `_build_module_instructions_prompt` 同语义）→ recent_actions。
   逐 part fail-open（warning + 跳过，不打死轮次）。R4a 阶段无模块 override
   （R4b 才逐模块搬），模块块为空。
@@ -355,7 +355,7 @@ module 级的"这段模板没动"仍然是准确的窄声明，只有 assembly �
 
 ## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
 
-返回值新增第三项：汇总各模块 `get_disallowed_tools()`（见 [[base.py]] 通用面 /
+返回值新增第三项：汇总各模块 `disallowed_tools()`（见 [[base.py]] 通用面 /
 [[channel_module_base]] channel 覆写）的全限定工具名列表，排序去重。单模块收集
 失败 **fail-open**（warning + 跳过——宁可多花 token 也不误伤已绑定 channel）。
 用途：未绑定 channel 的工具 schema 不进模型上下文，经 [[context_schema.py]]
@@ -385,13 +385,13 @@ headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skil
 `model_name="sonnet-4"`，经 basic_info [[prompts.py]] 的 "LLM Model" 段灌进系统
 prompt → **每个** agent（含 codex_cli+gpt5）都自称 Claude Sonnet-4，被问模型就照读
 （违反铁律#9）。两行 kwargs 已删；这两个字段改由 [[basic_info_module.py]]
-`hook_data_gathering` 经 [[providers/model_identity.py]] 按真实 slot 动态填。
+`gather` 经 [[providers/model_identity.py]] 按真实 slot 动态填。
 ContextRuntime 从此不掺和模型身份（本就不该知道），字段也在 [[context_schema.py]]
 正式声明了。
 
 ## 2026-07-09 — current-turn attachment marker injection
 
-`build_input_for_framework` 追加"当前 turn user message"时，读 `ctx_data.extra_data["attachments"]`，通过 `Attachment.markers_from_dicts(agent_id=ctx_data.agent_id, user_id=ctx_data.user_id)` 合成 marker 拼在 LLM 视图的 content 尾部。**关键：不动 `ctx_data.input_content`**——那个字符串会被 `ChatModule.hook_persist_turn` 原样写成用户消息的 `content`，`backend/routes/agents/chat_history.py` 又会把它回显到前端。marker 只走 LLM 视图，绝对路径不进 UI 也不进 DB。
+`build_input_for_framework` 追加"当前 turn user message"时，读 `ctx_data.extra_data["attachments"]`，通过 `Attachment.markers_from_dicts(agent_id=ctx_data.agent_id, user_id=ctx_data.user_id)` 合成 marker 拼在 LLM 视图的 content 尾部。**关键：不动 `ctx_data.input_content`**——那个字符串会被 `ChatModule.persist_turn` 原样写成用户消息的 `content`，`backend/routes/agents/chat_history.py` 又会把它回显到前端。marker 只走 LLM 视图，绝对路径不进 UI 也不进 DB。
 
 `ctx_data.user_id` 已被 `AgentRuntime` 覆写为 agent owner（`_agent.created_by`，agent_runtime.py:245），marker 里的路径拿到的就是 owner workspace 的绝对路径——跟 trigger 落盘时的路径一致，agent Read 直接命中。
 
@@ -414,7 +414,7 @@ The `_build_user_identity_block` method, its "Part 0b: User Identity" injection
 in `build_complete_system_prompt`, and the `USER_IDENTITY_CONTEXT` import are
 all gone. That block was a redundant second place to inject owner/sender
 identity — the canonical identity injection lives in [[basic_info_module.py]]
-(`hook_data_gathering` + basic_info `prompts.py`), which is where the human-name
+(`gather` + basic_info `prompts.py`), which is where the human-name
 fix now lives. Removing it avoids two competing identity sources in the system
 prompt. See the 2026-06-11 entry below for what the now-deleted block did.
 
@@ -480,7 +480,7 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 **Receives from:**
 - `step_3_agent_loop.py` (inside `agent_runtime/_agent_runtime_steps/`) is the exclusive runtime caller. It constructs a `ContextRuntime` instance with the `agent_id`, `user_id`, and a `DatabaseClient`, then calls `.run()` with the Narrative list and active module instances produced by earlier pipeline steps.
 - `NarrativeService` (`narrative/`) — called inside `build_complete_system_prompt()` to format the main Narrative's summary prompt via `combine_main_narrative_prompt()`.
-- `HookManager` (`module/hook_manager.py`) — invoked in `run()` Step 1-2 to fire `hook_data_gathering` on every loaded module, which allows modules like `ChatModule` to populate `ctx_data.chat_history`.
+- `HookManager` (`module/hook_manager.py`) — invoked in `run()` Step 1-2 to fire `gather` on every loaded module, which allows modules like `ChatModule` to populate `ctx_data.chat_history`.
 - `AgentRepository` (`repository/`) — queried directly inside the Bootstrap injection block to look up who created the agent, bypassing `BasicInfoModule` to avoid a module-load dependency. **Bootstrap deletion is now profile-driven (2026-06-16)**: the auto-delete threshold is no longer a hard-coded `>= 3` — it comes from `bootstrap.profiles.auto_delete_threshold_from_meta(agent_record.agent_metadata)` (missing key → historical default 3; `None` → never rule-delete, semantic-only). The injection prompt stays the global `BOOTSTRAP_INJECTION_PROMPT`.
 - `prompts.py` — all section header strings are imported from the sibling file.
 - `schema` (`ContextData`, `ModuleInstructions`, `ContextRuntimeOutput`, `WorkingSource`) — provides the typed containers that flow through the pipeline.
@@ -515,11 +515,11 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 
 ## 新人易踩的坑
 
-The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `messages = []`. This is not a bug — it is a documented transitional state. Do not "fix" it by restoring `extract_narrative_data()` without understanding that `ChatModule.hook_data_gathering()` in Step 1-2 is now the authoritative source of conversation history. Enabling both simultaneously would produce duplicate message history.
+The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `messages = []`. This is not a bug — it is a documented transitional state. Do not "fix" it by restoring `extract_narrative_data()` without understanding that `ChatModule.gather()` in Step 1-2 is now the authoritative source of conversation history. Enabling both simultaneously would produce duplicate message history.
 
 `ContextRuntime.__init__()` accepts a `database_client` parameter but falls back to `get_db_client_sync()` if none is provided. In test environments where no database is available, omitting this parameter produces a `DatabaseClient` that fails on the first `await` rather than at construction time — the same lazy-init gotcha documented in `database.py`.
 
-## 2026-08-18 — 收集环把 `ctx_data` 传给 `get_disallowed_tools`
+## 2026-08-18 — 收集环把 `ctx_data` 传给 `disallowed_tools`
 
 同环内 **先压制、后声明**，此顺序此前是隐式契约。压制 hook 不带 ctx，需要按轮次决策的模块
 只能读声明 hook 遗留的实例状态 —— 在这个顺序下永远是空的（详见 [[base.py]] 2026-08-18）。
@@ -527,7 +527,7 @@ The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `
 
 ## 2026-08-18 (二) — 压制 hook 也要有 TypeError 响亮分支
 
-声明侧 `get_expressive_tools` 早有 `except TypeError → logger.error`，起因是一次签名漂移
+声明侧 `expressive_tools` 早有 `except TypeError → logger.error`，起因是一次签名漂移
 静默清空了 ChatModule 的整个声明面。压制 hook 的 `ctx_data` 参数是 2026-08-18 才长出来的，
 于是它正处在同样的位置上 —— 而后果更重：压制 fail-open 会让**两个**发送动词都留在桌上，
 在 patrol 轮上就是一张自己的提示明令禁止的桌子（即 C1 那一类缺陷复现，藏在没人 grep 的
@@ -547,3 +547,7 @@ signature mismatch。
 
 两个分支同批改 —— 只改一个会让另一个的文案在对比之下更具误导性。fail-open 姿态不变，只改
 消息与是否 `logger.exception`。
+
+## 2026-09-04 · one `contribute_tools` call per module (batch 5c)
+
+The tool-surface loop asks each module for its `ToolSurface` once (MCP server → identity headers, suppressed tools, declared reply tools, origin-first by `claims_source`); the three separate calls and their fail-open arms moved into `XYZBaseModule.contribute_tools`. `gather` / `contribute_instructions` / `contribute_turn_context` are the renamed hooks.

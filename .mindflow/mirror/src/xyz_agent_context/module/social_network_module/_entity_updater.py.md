@@ -129,7 +129,7 @@ agent_framework 的 embedding 工具（该子系统现已整体移除）。
 
 ## 为什么存在
 
-从 `social_network_module.py` 分离出来（2026-03-06），把所有"需要调用 LLM 来更新实体信息"的逻辑集中维护。`social_network_module.py` 里的 `hook_after_event_execution` 只做编排——它调用这里的函数来完成摘要生成、描述追加、Persona 推断等具体操作。
+从 `social_network_module.py` 分离出来（2026-03-06），把所有"需要调用 LLM 来更新实体信息"的逻辑集中维护。`social_network_module.py` 里的 `after_turn` 只做编排——它调用这里的函数来完成摘要生成、描述追加、Persona 推断等具体操作。
 
 核心操作（2026-05-27 修订）：
 1. `summarize_new_entity_info`：从本次对话提炼新信息（LLM）
@@ -141,7 +141,7 @@ agent_framework 的 embedding 工具（该子系统现已整体移除）。
 
 ## 上下游关系
 
-- **被谁用**：`SocialNetworkModule.hook_after_event_execution()` 按顺序调用这里的函数
+- **被谁用**：`SocialNetworkModule.after_turn()` 按顺序调用这里的函数
 - **依赖谁**：`OpenAIAgentsSDK.llm_function(output_type=...)`（所有 LLM 调用）；`SocialNetworkRepository`（DB 读写）；`prompts.py` 里的 LLM 提示词（`ENTITY_SUMMARY_INSTRUCTIONS` 等）
 
 ## 设计决策
@@ -161,4 +161,4 @@ agent_framework 的 embedding 工具（该子系统现已整体移除）。
 
 ## 新人易踩的坑
 
-- 这里所有 LLM 调用都是 `await` 的异步调用，但 `hook_after_event_execution` 本身是异步的且是 fire-and-forget 风格（见 `MemoryModule` 的类似模式）。如果 LLM API 超时，这里的错误会被上层的 try/except 静默捕获，实体更新失败但不影响主流程。
+- 这里所有 LLM 调用都是 `await` 的异步调用，但 `after_turn` 本身是异步的且是 fire-and-forget 风格（见 `MemoryModule` 的类似模式）。如果 LLM API 超时，这里的错误会被上层的 try/except 静默捕获，实体更新失败但不影响主流程。

@@ -76,7 +76,7 @@ _resolve_agent_creator），三处已全部收敛为对本方法的委托；第�
 
 ## Upstream / Downstream
 
-Agent management routes in `backend/routes/` create and update agents via this repository. `BasicInfoModule.hook_data_gathering()` reads `agent_name`, `agent_description`, and `created_by` to populate `ContextData`. Auth middleware reads agent records to verify ownership. The entity model is `schema.entity_schema.Agent`.
+Agent management routes in `backend/routes/` create and update agents via this repository. `BasicInfoModule.gather()` reads `agent_name`, `agent_description`, and `created_by` to populate `ContextData`. Auth middleware reads agent records to verify ownership. The entity model is `schema.entity_schema.Agent`.
 
 ## Design decisions
 

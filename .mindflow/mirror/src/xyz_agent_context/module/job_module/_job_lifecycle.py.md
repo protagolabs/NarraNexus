@@ -13,11 +13,11 @@ shapes unchanged.
 
 ## 为什么存在
 
-从 `job_module.py` 分离出来（2026-03-06），把 `hook_after_event_execution` 里的 LLM 分析逻辑独立维护。这个文件集中了"Job 执行完之后应该发生什么"的核心决策——用 LLM 分析执行结果并决定 Job 的下一个状态，以及检测 ONGOING Job 的结束条件。
+从 `job_module.py` 分离出来（2026-03-06），把 `after_turn` 里的 LLM 分析逻辑独立维护。这个文件集中了"Job 执行完之后应该发生什么"的核心决策——用 LLM 分析执行结果并决定 Job 的下一个状态，以及检测 ONGOING Job 的结束条件。
 
 ## 上下游关系
 
-- **被谁用**：`JobModule.hook_after_event_execution()` 通过 `handle_job_execution_result` 和 `update_ongoing_jobs_from_chat` 委托调用
+- **被谁用**：`JobModule.after_turn()` 通过 `handle_job_execution_result` 和 `update_ongoing_jobs_from_chat` 委托调用
 - **依赖谁**：`OpenAIAgentsSDK.llm_function()`（LLM 分析）；`JobRepository`（DB 更新）；`_job_analysis`（构建分析提示词）；`prompts.ONGOING_CHAT_ANALYSIS_PROMPT`
 
 ## 两条处理路径

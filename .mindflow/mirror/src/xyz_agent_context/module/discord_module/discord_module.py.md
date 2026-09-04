@@ -16,15 +16,15 @@ last_verified: 2026-09-04
 ## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
 
 Declares `all_tool_names` + `setup_tool_names = {discord_bind}` per the
-[[channel_module_base]] setup-residency contract. The `get_instructions`
+[[channel_module_base]] setup-residency contract. The `contribute_instructions`
 unbound branch now returns `unbound_setup_line()` instead of the full
 onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
 served on demand by zero-arg `discord_bind` (see [[_discord_mcp_tools]]). While
 unbound, every non-setup tool's schema is stripped from the model context.
 
-## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+## 2026-07-10 — early-feedback removed from contribute_instructions (moved to trigger)
 
-The "ack early" block is gone from `get_instructions`; it's now injected per-turn
+The "ack early" block is gone from `contribute_instructions`; it's now injected per-turn
 by the trigger (`_early_feedback_prefix`, see [[channel_trigger_base]]).
 
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
@@ -33,7 +33,7 @@ The Discord early-feedback section is now produced by [[channel_reactions]]
 `render_early_feedback(tool_ref="react_to_user_message", …)` instead of an inline
 hardcoded string.
 
-## 2026-07-10 — get_instructions surfaces early-feedback affordance
+## 2026-07-10 — contribute_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when in the Discord
 channel with a `source_message_id`): a generic SHOULD directive — for non-trivial
@@ -88,11 +88,11 @@ shared mechanism. Sibling of ``slack_module.py`` / ``telegram_module.py``.
 ## Upstream / downstream
 
 - **Upstream**: ``ChannelModuleBase`` (sender self-registration,
-  ``hook_data_gathering`` template, MCP server glue).
+  ``gather`` template, MCP server glue).
 - **Downstream**: ``DiscordCredentialManager`` (CRUD + auth),
   ``register_discord_mcp_tools`` (the 6 tools), ``DiscordSDKClient`` (the
   sender), ``WorkingSource.DISCORD`` (ties messages back through
-  ``hook_after_event_execution``).
+  ``after_turn``).
 
 ## Gotchas
 

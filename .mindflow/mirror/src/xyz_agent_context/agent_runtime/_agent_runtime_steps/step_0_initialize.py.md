@@ -34,7 +34,7 @@ WorkingSource 1:1，见 [[models]]），未知值兜底 CHAT（宁可标签缺�
 
 ## 设计决策
 
-**Awareness 读两次**：Step 0.5 从 `instance_awareness` 表预加载 awareness 存入 `ctx.awareness`，但 `AwarenessModule.hook_data_gathering()` 在 Step 3 的数据收集阶段会再次从数据库读。这是已知的重复读，注释里有 TODO，说明优化方向是把 `ctx.awareness` 传给 ContextRuntime 来避免二次读取。目前代价可接受（读一次 DB）。
+**Awareness 读两次**：Step 0.5 从 `instance_awareness` 表预加载 awareness 存入 `ctx.awareness`，但 `AwarenessModule.gather()` 在 Step 3 的数据收集阶段会再次从数据库读。这是已知的重复读，注释里有 TODO，说明优化方向是把 `ctx.awareness` 传给 ContextRuntime 来避免二次读取。目前代价可接受（读一次 DB）。
 
 **ModuleService 在 Step 0 初始化而非 AgentRuntime 构造时**：因为 ModuleService 需要 `agent_id` 和 `user_id`，这两个值只在 `run()` 时才有。如果在构造函数里初始化需要额外参数，破坏了 AgentRuntime 作为无状态 orchestrator 的设计。
 
@@ -45,7 +45,7 @@ WorkingSource 1:1，见 [[models]]），未知值兜底 CHAT（宁可标签缺�
 
 ## 新人易踩的坑
 
-- `ctx.awareness` 和 `AwarenessModule` 里读到的 awareness 内容理论上相同，但前者在 Step 0 读，后者在 Step 3 hook_data_gathering 时读。如果中间有 awareness 更新（极罕见），两者可能不一致。
+- `ctx.awareness` 和 `AwarenessModule` 里读到的 awareness 内容理论上相同，但前者在 Step 0 读，后者在 Step 3 gather 时读。如果中间有 awareness 更新（极罕见），两者可能不一致。
 - Step 0 产出的 `ctx.event` 是"已持久化到数据库的新 Event"，但 `final_output` 还是空的，Step 4 里才会 `update_event_in_db` 填入最终输出。不要在 Step 4 之前就认为 Event 包含完整数据。
 
 ## 2026-09-04 · awareness by role (batch 5b.2)

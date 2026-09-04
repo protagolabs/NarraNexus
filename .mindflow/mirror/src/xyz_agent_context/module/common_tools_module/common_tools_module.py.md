@@ -44,20 +44,20 @@ artifact 没有数量配额 → 注册得越多，system prompt 每轮越长，�
 上限值放在模块常量而非 artifact 领域层：约束来自 **prompt 预算**，属于本模块的关切。
 
 
-## 2026-07-28 — R4b：两个附录搬进 get_turn_context
+## 2026-07-28 — R4b：两个附录搬进 contribute_turn_context
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
 
-`get_instructions` 原本 = COMMON_TOOLS_INSTRUCTIONS + 本轮附件附录 + live
+`contribute_instructions` 原本 = COMMON_TOOLS_INSTRUCTIONS + 本轮附件附录 + live
 artifact registry；后两者每轮/会话中途变（附件随上传、registry 随
 register_artifact，prod 稳定性 14/17）。现拆为：
 
 - `_volatile_sections(ctx_data)` — 两个附录的渲染原样提取（附件经
   `format_attachments_for_system_prompt`，registry 经
   `_render_artifact_state_block`，DB 失败返回 "" 的 fail-open 语义不变）。
-- `get_instructions` — flag 开 → 只返回常量 `self.instructions`（轮间字节
+- `contribute_instructions` — flag 开 → 只返回常量 `self.instructions`（轮间字节
   稳定）；关 → legacy 三段拼接（逐字节一致）。
-- `get_turn_context` — 两个附录（各自带稳定标题："Files attached to the
+- `contribute_turn_context` — 两个附录（各自带稳定标题："Files attached to the
   current message" / "Your registered artifacts (live)"）。
 
 附件双渲染（本块 + user message 的 Read marker）保持——flag 开后两处都在
@@ -94,7 +94,7 @@ owner-facing 可视内容、只有 web chat 能看到。owner-facing「该不该
 
 Two coupled additions:
 
-1. `get_instructions` now appends a **"Your registered artifacts"** block
+1. `contribute_instructions` now appends a **"Your registered artifacts"** block
    built from `ArtifactRepository.list_pinned(agent_id)` — the agent sees
    id / kind / title / workspace-relative path of every pinned artifact
    live RIGHT NOW. (The `{agent_id}_{user_id}/` prefix is stripped from
@@ -171,7 +171,7 @@ Upstream:
 - `xyz_agent_context.module.module_runner` instantiates the MCP server
   on port 7807 (single shared process for all agents)
 - `xyz_agent_context.context_runtime.context_runtime` calls
-  `get_instructions(ctx_data)` per turn when assembling the system prompt
+  `contribute_instructions(ctx_data)` per turn when assembling the system prompt
 
 Downstream:
 - `_common_tools_mcp_tools.create_common_tools_mcp_server` creates the
@@ -211,8 +211,8 @@ the user uploaded files in this run. We read
 `ctx_data.extra_data["attachments"]` (populated by the trigger layer)
 and render a `#### Files attached to the current message` block listing
 absolute paths. With the relocation flag ON (default) the appendices are
-emitted via `get_turn_context()` into the current message and
-`get_instructions` stays byte-constant; flag OFF appends them to the
+emitted via `contribute_turn_context()` into the current message and
+`contribute_instructions` stays byte-constant; flag OFF appends them to the
 instruction as before. The marker in chat history says the same thing again
 at the user-message level — double reinforcement so the model can't
 miss it.

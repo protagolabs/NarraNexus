@@ -135,7 +135,7 @@ state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 a
 `MessageBubble` 调用一致 → 显示 agent 名字缩写。
 
 注：这条静态气泡只在 `historyMessages.length === 0`（首轮之前、还没有 chat 实例）时显示；
-用户首次交互后，问候语由后端持久化（`step_1` 开局 seed / `hook_persist_turn` 兜底，见
+用户首次交互后，问候语由后端持久化（`step_1` 开局 seed / `persist_turn` 兜底，见
 [[step_1_select_narrative]] / [[_chat_writes]]）成真实消息，走正常 timeline 渲染。发送时压进
 session 的那条 client 副本（`Date.now()-1`，无 event_id）靠 `buildTimeline.ts` 的
 `(role,content)+5min` 窗口去重 —— 后端 seed 的时间戳锚在 turn 起点满足其中的**时间**条件。

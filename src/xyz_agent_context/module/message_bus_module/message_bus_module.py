@@ -178,7 +178,7 @@ class MessageBusModule(XYZBaseModule):
     # MCP Server
     # =========================================================================
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="message_bus_module",
             server_url=mcp_server_url("message_bus_module"),
@@ -217,7 +217,7 @@ class MessageBusModule(XYZBaseModule):
     # Reply surface (origin-aware declaration)
     # =========================================================================
 
-    def owns_working_source(self, working_source: Any) -> bool:
+    def claims_source(self, working_source: Any) -> bool:
         """This module is the origin of MESSAGE_BUS turns — the collection
         sorts the origin module's declaration first, so the bus delivery
         tool becomes the turn's default reply tool."""
@@ -245,7 +245,7 @@ class MessageBusModule(XYZBaseModule):
         """
         return is_plain_text_turn(ctx_data)
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+    async def expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The ONE verb the reply reminder defaults to this turn.
 
         Declared only on a bus turn — advertising it on an owner-chat turn
@@ -253,11 +253,11 @@ class MessageBusModule(XYZBaseModule):
         DEFAULT reply target (`message_team` in a room, `message_agent` in a
         DM), so the path of least resistance is "answer where you were spoken
         to". It does NOT bound what the agent can reach: the other send verbs
-        stay on the desk (`get_disallowed_tools` no longer removes them), the
+        stay on the desk (`disallowed_tools` no longer removes them), the
         reminder just does not name them. Reaching another conversation is a
         deliberate act, one `tool_search` away.
         """
-        if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
+        if not self.claims_source(getattr(ctx_data, "working_source", None)):
             return []
         if self._is_plain_text_turn(ctx_data):
             # Nothing to declare: the turn's reply IS its plain text. Declaring
@@ -265,11 +265,11 @@ class MessageBusModule(XYZBaseModule):
             # name the one tool the patrol prompt forbids — and on NexusPower
             # the mute-turn nudge then told a correctly-silent lead to call it.
             return []
-        config = await self.get_mcp_config()
+        config = await self.mcp_server()
         name = "message_team" if self._is_team_turn(ctx_data) else "message_agent"
         return [f"mcp__{config.server_name}__{name}"]
 
-    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
+    async def disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Take off the desk only the verbs no turn of this KIND can deliver
         through — never the ones the trigger channel simply is not the default
         for.
@@ -293,7 +293,7 @@ class MessageBusModule(XYZBaseModule):
         Reads the turn from its own ``ctx_data``, not from state the
         declaration left behind: the runtime calls THIS hook first.
         """
-        config = await self.get_mcp_config()
+        config = await self.mcp_server()
         if self._is_plain_text_turn(ctx_data):
             return [
                 f"mcp__{config.server_name}__message_agent",
@@ -635,11 +635,11 @@ class MessageBusModule(XYZBaseModule):
 
         return parts
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Usage rules, plus (flag OFF only) the live data lists.
 
         With the R4 relocation flag ON the output is byte-stable across
-        turns and the lists travel via get_turn_context(); flag OFF keeps
+        turns and the lists travel via contribute_turn_context(); flag OFF keeps
         the legacy single-block rendering, byte-identical to pre-R4.
         """
         parts = self._static_instruction_parts()
@@ -647,7 +647,7 @@ class MessageBusModule(XYZBaseModule):
             parts = parts + self._volatile_context_parts(ctx_data)
         return "\n".join(parts)
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the Known Agents /
         Unread Messages lists, under a stable heading."""
         volatile = self._volatile_context_parts(ctx_data)
@@ -766,7 +766,7 @@ class MessageBusModule(XYZBaseModule):
             logger.warning(f"team address book fetch failed (names query): {e}")
             return []
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Inject MessageBus context into agent data.
 
@@ -957,7 +957,7 @@ class MessageBusModule(XYZBaseModule):
             #     FIELD, seeded at `context_runtime.py:147`, while `extra_data`
             #     is filled from `trigger_extra_data` alone (the correct read is
             #     `working_source_matches(ctx_data.working_source, …)`, which
-            #     `get_expressive_tools` in this same file already does);
+            #     `expressive_tools` in this same file already does);
             #   * it wrote to `extra_data["input_content"]`, which had no reader
             #     in the codebase. The input the model actually receives is the
             #     FIELD `ctx_data.input_content` (`context_runtime.py:1032`).
@@ -971,10 +971,10 @@ class MessageBusModule(XYZBaseModule):
             # tags that genuinely reach the model, on the unread list.
 
         except Exception as e:
-            logger.exception(f"MessageBusModule hook_data_gathering failed: {e}")
+            logger.exception(f"MessageBusModule gather failed: {e}")
         return ctx_data
 
-    async def hook_after_event_execution(
+    async def after_turn(
         self, params: HookAfterExecutionParams
     ) -> None:
         """
@@ -1085,7 +1085,7 @@ class MessageBusModule(XYZBaseModule):
                     f"{replied_channels} but no matching unread messages to mark"
                 )
         except Exception as e:
-            logger.exception(f"MessageBusModule hook_after_event_execution failed: {e}")
+            logger.exception(f"MessageBusModule after_turn failed: {e}")
 
 
 # =============================================================================

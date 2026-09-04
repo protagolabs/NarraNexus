@@ -6,9 +6,9 @@ last_verified: 2026-09-04
 
 ## 2026-08-19 — plain-text（巡查）回合不声明任何回复工具
 
-`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合无任何回复工具适用,声明会让回复提醒命名它、与「写纯文本别调工具」互斥。覆盖全部 6 个渠道模块。只撤声明,schema 不动。同类见 [[chat_module]]。
+`expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合无任何回复工具适用,声明会让回复提醒命名它、与「写纯文本别调工具」互斥。覆盖全部 6 个渠道模块。只撤声明,schema 不动。同类见 [[chat_module]]。
 
-## 2026-08-04 — owns_working_source：channel_name 即来源名
+## 2026-08-04 — claims_source：channel_name 即来源名
 
 WorkingSource 的 IM 值复用 channel_name（"wechat"/"lark"/...），故基类
 统一实现，比较走 [[base]] 的 working_source_matches（(str, Enum) 一个
@@ -16,7 +16,7 @@ WorkingSource 的 IM 值复用 channel_name（"wechat"/"lark"/...），故基类
 [[context_runtime]] origin-first 排序，WeChat 触发轮的默认回复工具是
 wechat_send 而非 owner-chat 工具。
 
-## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+## 2026-08-03 — `expressive_tools` 增加可选 ctx_data(按来源声明)
 
 回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
 (那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
@@ -26,7 +26,7 @@ wechat_send 而非 owner-chat 工具。
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 新类属性 `reply_tool_names`(短名,⊆ all_tool_names,cross-channel 测试钉住);
-`get_expressive_tools()`:bound → 全限定 reply 工具,unbound → 空(与
+`expressive_tools()`:bound → 全限定 reply 工具,unbound → 空(与
 setup-residency 同门控——未绑定时这些 schema 本来就被压掉)。测试:
 tests/channel/test_setup_residency.py 第 6 节。
 
@@ -37,7 +37,7 @@ expose their tools' schemas. New contract on this base: `all_tool_names` /
 `setup_tool_names` class attrs each subclass declares; `is_bound()` — memoized
 per instance, FAIL-OPEN on errors (wrongly gating a bound channel is
 user-visible loss; wrongly keeping an unbound one only costs tokens);
-`get_disallowed_tools()` — unbound → every non-setup tool as
+`disallowed_tools()` — unbound → every non-setup tool as
 `mcp__<server>__<tool>` (overrides the generic surface in [[base.py]]); and
 `unbound_setup_line()` — the one-liner subclasses return while unbound.
 Drift guard: tests/channel/test_setup_residency.py. Plan: W2 B++ in
@@ -47,7 +47,7 @@ reference/self_notebook/plans/2026-07-23-token-consumption-optimization.plan.md.
 
 Phase 2 of the IM channel abstraction. Captures the structural
 boilerplate every IM Module needs (sender registry self-registration,
-``hook_data_gathering`` template, MCP server creation glue) without
+``gather`` template, MCP server creation glue) without
 constraining each channel's product-surface decisions (LLM
 instructions, MCP tool count/shape, credential schema).
 
@@ -57,7 +57,7 @@ IM integration: subclass two bases + write platform-specific content.
 
 ## Design decisions
 
-- **Mechanism only, no content.** ``get_instructions`` is abstract —
+- **Mechanism only, no content.** ``contribute_instructions`` is abstract —
   Lark writes 600 lines (three-click flow + iron rules + identity
   guide), Telegram might write 150 lines (no admin approval, no
   identity model). Same with MCP tools and credential schema. The
@@ -74,7 +74,7 @@ IM integration: subclass two bases + write platform-specific content.
   signature carries ``ctx_data`` so subclasses with similar
   per-turn-derived fields work without contortions.
 
-- **``hook_after_event_execution`` filter uses both enum and string
+- **``after_turn`` filter uses both enum and string
   comparison.** Python 3.11+ changed ``str(enum_member)`` to return
   the qualified name; ``str(WorkingSource.LARK) == "lark"`` is False.
   The base uses direct ``ws == self.working_source or ws == self.working_source.value``
@@ -86,7 +86,7 @@ IM integration: subclass two bases + write platform-specific content.
   the channel runs without agent-callable tools.
 
 - **Get-then-insert idempotency** (inherited from ChannelInboxWriter
-  pattern): ``hook_data_gathering`` swallows credential-load
+  pattern): ``gather`` swallows credential-load
   exceptions and logs a warning; the agent loop's ability to gather
   context for OTHER modules must not break because Lark's DB hiccupped.
 
@@ -117,7 +117,7 @@ IM integration: subclass two bases + write platform-specific content.
   a default — each subclass writes its own (priority, description,
   module_type vary per channel).
 
-## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+## 2026-08-18 — `disallowed_tools(ctx_data)` 签名同步
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
@@ -128,4 +128,4 @@ IM integration: subclass two bases + write platform-specific content.
 
 ## 2026-09-04 · no `mcp_port` (batch 5a)
 
-A channel module declares `mcp_server_name` only; `get_mcp_config` advertises `mcp_server_url(mcp_server_name)` and the host mounts it there. A plugin channel therefore never picks a port.
+A channel module declares `mcp_server_name` only; `mcp_server` advertises `mcp_server_url(mcp_server_name)` and the host mounts it there. A plugin channel therefore never picks a port.

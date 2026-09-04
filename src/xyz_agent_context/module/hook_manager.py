@@ -5,17 +5,17 @@
 @description: Hook Manager - Manages Agent Runtime Hooks
 
 Performance optimization:
-- hook_after_event_execution: Parallel execution (modules are typically independent)
-- hook_data_gathering: Supports both parallel and sequential modes
+- after_turn: Parallel execution (modules are typically independent)
+- gather: Supports both parallel and sequential modes
 
 Benefits of parallel execution:
 - Before (sequential): Total time = A + B + C = 300ms
 - After (parallel): Total time = max(A, B, C) = 100ms
 
 Hook types:
-1. hook_data_gathering: Data collection phase, called when building Context
-2. hook_after_event_execution: Post-event processing, returns HookCallbackResult
-3. process_hook_callbacks: Processes callback results returned by hook_after_event_execution
+1. gather: Data collection phase, called when building Context
+2. after_turn: Post-event processing, returns HookCallbackResult
+3. process_hook_callbacks: Processes callback results returned by after_turn
 """
 
 import asyncio
@@ -53,7 +53,7 @@ class HookManager:
         """
         self.parallel_data_gathering = parallel_data_gathering
 
-    async def hook_data_gathering(
+    async def gather(
         self,
         module_list: List[XYZBaseModule],
         ctx_data: ContextData
@@ -90,7 +90,7 @@ class HookManager:
             logger.debug(f"          [{i+1}/{len(module_list)}] {module_name}")
             try:
                 with timed(f"hook.{module_name}.data_gathering", slow_threshold_ms=500):
-                    ctx_data = await module.hook_data_gathering(ctx_data)
+                    ctx_data = await module.gather(ctx_data)
             except Exception as e:
                 # Use structured exception to log the error, but continue executing other modules
                 error = DataGatheringError(
@@ -132,7 +132,7 @@ class HookManager:
             local_ctx = ctx_data.model_copy(deep=True)
             module_name = module.config.name
             with timed(f"hook.{module_name}.data_gathering", slow_threshold_ms=500):
-                return await module.hook_data_gathering(local_ctx)
+                return await module.gather(local_ctx)
 
         results = await asyncio.gather(
             *[gather_one(module) for module in module_list],
@@ -162,7 +162,7 @@ class HookManager:
         logger.debug(f"        Merging {len(valid_results)} results")
         return ContextDataMerger.merge(ctx_data, valid_results)
 
-    async def hook_after_event_execution(
+    async def after_turn(
         self,
         module_list: List[XYZBaseModule],
         params: HookAfterExecutionParams
@@ -188,7 +188,7 @@ class HookManager:
         if not module_list:
             return []
 
-        logger.debug(f"        Parallel hook_after_event_execution for {len(module_list)} modules")
+        logger.debug(f"        Parallel after_turn for {len(module_list)} modules")
 
         # Execute all modules' post-processing hooks in parallel
         async def execute_one(module: XYZBaseModule) -> tuple[Optional[HookCallbackResult], Optional[HookExecutionError]]:
@@ -196,13 +196,13 @@ class HookManager:
             module_name = module.config.name
             try:
                 with timed(f"hook.{module_name}.after_event_execution", slow_threshold_ms=2000):
-                    result = await module.hook_after_event_execution(params)
+                    result = await module.after_turn(params)
                 return (result, None)
             except Exception as e:
                 # Return structured error
                 error = HookExecutionError(
                     module=module.config.name,
-                    hook_name="hook_after_event_execution",
+                    hook_name="after_turn",
                     message="Hook execution failed",
                     cause=e,
                     agent_id=params.agent_id,
@@ -238,7 +238,7 @@ class HookManager:
 
         return callback_results
 
-    async def hook_persist_turn(
+    async def persist_turn(
         self,
         module_list: List[XYZBaseModule],
         params: HookAfterExecutionParams
@@ -246,10 +246,10 @@ class HookManager:
         """
         Run each Module's synchronous, next-turn-critical persistence hook.
 
-        Unlike `hook_after_event_execution` (dispatched to the background), this
+        Unlike `after_turn` (dispatched to the background), this
         is awaited inside the request, before the WebSocket closes — so the
         conversation row a fast follow-up turn reads is already durable. Modules
-        that don't override `hook_persist_turn` default to a cheap no-op.
+        that don't override `persist_turn` default to a cheap no-op.
 
         Errors are logged non-fatally: a failed persist hook must not crash the
         turn (the user already has their answer), but it IS surfaced so the
@@ -262,10 +262,10 @@ class HookManager:
             module_name = module.config.name
             try:
                 with timed(f"hook.{module_name}.persist_turn", slow_threshold_ms=1000):
-                    await module.hook_persist_turn(params)
+                    await module.persist_turn(params)
             except Exception as e:  # noqa: BLE001
                 logger.warning(
-                    f"hook_persist_turn failed (non-fatal): {module_name}\n"
+                    f"persist_turn failed (non-fatal): {module_name}\n"
                     f"          Cause: {type(e).__name__}: {e}"
                 )
 
@@ -282,7 +282,7 @@ class HookManager:
         execute_callback_instance: Callable
     ) -> None:
         """
-        Process callback results returned by hook_after_event_execution
+        Process callback results returned by after_turn
 
         This method is responsible for:
         1. Checking dependencies and activating waiting instances
@@ -290,7 +290,7 @@ class HookManager:
         3. Sending user notifications
 
         Args:
-            hook_callback_results: Result list returned by hook_after_event_execution
+            hook_callback_results: Result list returned by after_turn
             narrative: Current Narrative (optional)
             narrative_service: Narrative service
             execute_callback_instance: Function to execute callback instance

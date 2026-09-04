@@ -12,7 +12,7 @@ last_verified: 2026-09-04
 
 ## 2026-08-21 — hook 兜底 prepend:sibling 抑制 + 不再盖 event_id(深圳复测 B2)
 
-`hook_persist_turn` 的首轮问候 prepend 补两刀:
+`persist_turn` 的首轮问候 prepend 补两刀:
 ① 先查 [[_chat_writes]]`.agent_chat_has_history`——该 (agent,user) 在
 别的 instance 已有历史就不种(新 narrative 的空 instance 不再被当
 「首次接触」重新问候;检查失败 fail-open,最坏是旧行为的一次重种)。
@@ -23,7 +23,7 @@ last_verified: 2026-09-04
 
 ## 2026-08-20 — bootstrap 问候 prepend 改用共享行构造器
 
-`hook_persist_turn` 里首轮 prepend 问候语那段,行结构改成调用 [[_chat_writes]] 的
+`persist_turn` 里首轮 prepend 问候语那段,行结构改成调用 [[_chat_writes]] 的
 `build_bootstrap_greeting_row(greeting, base_dt, instance_id, event_id=...)`,不再内联手写。
 「问候行长什么样 + 时间戳规则」现在只有一处定义,和 `step_1` 的开局 seed 共用同一构造器,不会
 两处漂移。guard 仍是 `len(messages)==0 and bootstrap_active`——seed 已经先写过时它自然跳过(不双写)。
@@ -34,12 +34,12 @@ aware 对象、无可观察差异,但不再依赖这个前提);内联版用的 `
 
 ## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具
 
-`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合靠说话投递，声明 `notify_owner` 会让回复提醒渲染成「reply with notify_owner」，与巡查 prompt「写纯文本、别调工具」互斥。只撤**声明**，schema 仍在桌上（`get_disallowed_tools` 不变，中途升级给 owner 合法）。同类修复见 [[channel_module_base]]。
+`expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合靠说话投递，声明 `notify_owner` 会让回复提醒渲染成「reply with notify_owner」，与巡查 prompt「写纯文本、别调工具」互斥。只撤**声明**，schema 仍在桌上（`disallowed_tools` 不变，中途升级给 owner 合法）。同类修复见 [[channel_module_base]]。
 
 ## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
 
-`get_expressive_tools` 现在按轮次返回 `reply_owner`（owner 自己的聊天轮）或
-`notify_owner`（其余全部），**永远只有一个**；新增的 `get_disallowed_tools` 把另一个的
+`expressive_tools` 现在按轮次返回 `reply_owner`（owner 自己的聊天轮）或
+`notify_owner`（其余全部），**永远只有一个**；新增的 `disallowed_tools` 把另一个的
 schema 也从模型上下文里移走。
 
 只声明不移除是不够的：声明只决定回复提醒**念**哪个名字，schema 是另一条路进上下文的。
@@ -66,7 +66,7 @@ bus 轮猜成 owner 聊天只是语气偏了；把 owner 聊天猜成 `notify_ow
 `AgentMessageRepository` 和 `MessageSourceType` 在本文件里从未被使用，删除。
 它们是一条误导性的线索：`agent_messages` 表**没有写入者、恒为 0 行**（墓碑表，
 见 [[agent_message_repository]] 2026-08-05），ChatModule 从来没往那里写过。
-本模块的聊天正文一直写在 `instance_json_format_memory_chat`（`hook_persist_turn`
+本模块的聊天正文一直写在 `instance_json_format_memory_chat`（`persist_turn`
 → `event_memory_module.add_instance_json_format_memory`，按 chat instance_id
 分片），也正是 `/simple-chat-history` 回放的那份。0802【对话时序错乱】的分析
 被这条线索带偏过一次，故在 import 处留了一段注释钉住事实。
@@ -104,13 +104,13 @@ else 分支据此二分：交付过 → [DELIVERED-BG] 日志 + activity meta
 行为逐字节不变。no-match 日志改说 "no owner-visible reply tool matched"
 并打印生效的 owner 名单（原名单语义已拆分，照旧打印会误导排查）。
 
-## 2026-08-04 — owns_working_source(CHAT) + 声明语义更新
+## 2026-08-04 — claims_source(CHAT) + 声明语义更新
 
 origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第一；
 非 chat 轮凭 priority 1 紧随来源模块之后——仍全场在列（Owner Relay
 合法经它交付），但不再是所有轮次的默认。docstring 同步改口。
 
-## 2026-08-04 — get_expressive_tools 补上 ctx_data(review 抓漏)
+## 2026-08-04 — expressive_tools 补上 ctx_data(review 抓漏)
 
 签名扫尾漏了本类:基类/调用点已改带参,本覆写仍是 (self)-only →
 每次调用 TypeError → 收集点 fail-open 吞掉 → owner chat 默认回复工具
@@ -119,14 +119,14 @@ origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第�
 bug,不许长得像"某模块声明崩了,无所谓")。
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
-覆写 `get_expressive_tools()`:从 `get_mcp_config().server_name` 派生全名
+覆写 `expressive_tools()`:从 `mcp_server().server_name` 派生全名
 (不写字面量——改 server 名静默失效 = 把 agent 变哑,正是本 PR 删掉的失败
 模式;测试钉在真实注册面上)。Chat priority=1 → **(priority, module_class)
 全序排后首位** → 成为本回合默认回复工具(NexusPower constitution 的例子名)。
 
 ## 2026-07-30 — 被打断 turn 的持久化标记
 
-`hook_persist_turn` 读 `params.io_data.interrupted`:无回复时占位文案改为
+`persist_turn` 读 `params.io_data.interrupted`:无回复时占位文案改为
 "(Interrupted by user)"(它不是 no_response,IM 源也照常写行),assistant
 meta_data 加 `interrupted: true`。此前用户 Stop 的 turn 根本到不了这里
 (runtime 在 Step 4 前 raise)——见 [[agent_runtime]] 2026-07-30 条目。
@@ -137,9 +137,9 @@ Historical-turn marker synthesis (call sites at `chat_module.py:508` and `:889`)
 
 Malformed attachment dicts are no longer silently dropped: the schema helper emits a WARNING (`skipping malformed attachment dict: <type>: <msg>`). Silent drops would recreate the "agent claims no file received" class of failure the 2026-07-09 fix addresses.
 
-## 2026-07-02 — silent-batch write path in `hook_persist_turn`
+## 2026-07-02 — silent-batch write path in `persist_turn`
 
-`hook_persist_turn` now branches at the top: if
+`persist_turn` now branches at the top: if
 `params.ctx_data.extra_data["batch_messages"]` is a non-empty list, we
 skip the normal single-turn write (user + assistant) and instead
 append ONE `user` row per batch entry, with each row's own
@@ -185,7 +185,7 @@ narrative's full history surfaced as the unified timeline.
 
 ## 2026-05-25 — Accept any `helper_llm_*` reply_via tag
 
-The reply_via copy loop in `hook_persist_turn` was strict-equality on
+The reply_via copy loop in `persist_turn` was strict-equality on
 `"helper_llm_fallback"`. As of the fallback-context redesign the synthetic
 ProgressMessage tag is one of `helper_llm_no_reply` (clean turn, agent
 forgot to call send_message) or `helper_llm_after_error` (loop crashed
@@ -196,15 +196,15 @@ T5 builds on this to relax the fatal-detection branch so a recovered
 turn is persisted as a normal user+assistant pair rather than a failed
 user-only row.
 
-## 2026-05-20 — conversation write moved to synchronous `hook_persist_turn`
+## 2026-05-20 — conversation write moved to synchronous `persist_turn`
 
 The conversation-row write (build user+assistant messages → `add_instance_json_format_memory`)
-moved OUT of `hook_after_event_execution` into the new SYNCHRONOUS `hook_persist_turn`
+moved OUT of `after_turn` into the new SYNCHRONOUS `persist_turn`
 (see [[base.py]] / [[hook_manager.py]] / [[agent_runtime.py]] Step 4.6). Reason: the
 old write lived in the backgrounded hook, which lags 3–19s; a user replying instantly
 raced it and the next turn read history missing the exchange ("short-reply amnesia").
-`hook_persist_turn` now writes it in-request, before the WS closes. What stays in the
-background `hook_after_event_execution` is ONLY the heavy Part-B embedding
+`persist_turn` now writes it in-request, before the WS closes. What stays in the
+background `after_turn` is ONLY the heavy Part-B embedding
 (`_embed_message_pair`), which re-locates this turn's user+assistant pair by `event_id`
 (robust to a later turn appending more messages before the background task runs).
 
@@ -228,7 +228,7 @@ is superseded by this resolution.)
 
 ## 2026-05-20 (Fix #2 P1) — unified time-sorted chat history, tagged by narrative
 
-`hook_data_gathering` no longer produces a long-term list + a separate
+`gather` no longer produces a long-term list + a separate
 cross-narrative blob. It now builds ONE timeline: the current narrative loaded
 in FULL (the old 40-cap removed) + cross-narrative via `_load_short_term_memory`,
 merged by timestamp, capped at `MERGED_HISTORY_MAX` (30, latest by time). Every
@@ -274,7 +274,7 @@ any other agent reply), and finally emits a synthetic
 `send_message_to_user_directly` ProgressMessage carrying
 `details.reply_via="helper_llm_fallback"`.
 
-`hook_after_event_execution` is now a pure consumer:
+`after_turn` is now a pure consumer:
 - the synthetic ProgressMessage flows through
   `_extract_user_visible_response` like any organic send_message call,
   so `assistant_content` is the helper_llm reply text (not reasoning).
@@ -349,7 +349,7 @@ Both changes are read-side only — no schema, no migration.
 
 
 
-`hook_after_event_execution` used to stamp the injected
+`after_turn` used to stamp the injected
 `BOOTSTRAP_GREETING` row with `utc_now()` (the moment the hook runs,
 i.e. after the agent loop finishes), while the user's first message
 carries `event.created_at` (turn-start). Because the agent loop spans
@@ -374,7 +374,7 @@ key inside the 5-minute SAME_MESSAGE_WINDOW.
 
 ## 2026-04-28 changes — half-finished features parked
 
-Two writer paths in `hook_after_event_execution` were exercising
+Two writer paths in `after_turn` were exercising
 features whose reader half was never built. Cleaned up to stop the
 ongoing waste and the noise floor they were creating.
 
@@ -394,7 +394,7 @@ call) so we left it on as future-data investment.
 The block that built a one-line "Conversation rounds: N | Latest …"
 report and called `event_memory_module.update_report_memory(...)` is
 commented out (in place, with explanation) inside
-`hook_after_event_execution`. Two reasons stacked:
+`after_turn`. Two reasons stacked:
   1. The reader half (`get_report_memory`) has zero callers anywhere
      — no Narrative orchestration code consumes the reports.
   2. The writer was failing in production anyway because the live
@@ -413,9 +413,9 @@ lands. Don't uncomment without first reconciling the
 
 ## 2026-04-23 update — 持久化 Agent reasoning 以跨 turn
 
-`hook_after_event_execution` 现在除了保存 `send_message_to_user_directly` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
+`after_turn` 现在除了保存 `send_message_to_user_directly` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
 
-`hook_data_gathering` 在所有 load + sort 完成后，遍历 `all_messages`：对每条 assistant 消息，如果 `meta_data.reasoning` 非空，把 content 包成：
+`gather` 在所有 load + sort 完成后，遍历 `all_messages`：对每条 assistant 消息，如果 `meta_data.reasoning` 非空，把 content 包成：
 ```
 <my_reasoning>
 {reasoning}
@@ -441,7 +441,7 @@ lands. Don't uncomment without first reconciling the
 
 ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `reply_owner` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
 
-**Hook 实现**：同时实现了 `hook_data_gathering`（双轨记忆加载）和 `hook_after_event_execution`（对话持久化）。
+**Hook 实现**：同时实现了 `gather`（双轨记忆加载）和 `after_turn`（对话持久化）。
 
 **MCP 端口**：7804
 
@@ -460,14 +460,14 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 **背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `reply_owner` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
 
-**失败轮隔离（Bug 8）**：当 agent loop 抛错时，`_detect_error_in_agent_loop` 从 `params.agent_loop_response` 扫出 `ErrorMessage`（`step_3_agent_loop.py` 在 catch Exception 分支里把 ErrorMessage 既 yield 也 append，保证下游 hook 看得到），`hook_after_event_execution` 只存 user 消息，`meta_data` 里打 `status="failed"` + `error_type=...`，**不写任何 assistant 行**（partial 输出也丢）。下一轮 `hook_data_gathering` + `_load_short_term_memory` 都会过 `_apply_failed_turn_filter`：失败的 user 行被重写成"Previous turn failed... Do NOT retry"的注解（保留原问题文本，方便代词解析），遗留的失败 assistant 行被丢。目的是让 LLM 看到"那轮断了"而不是"那轮我只说了一半还没说完"——后者正是污染下轮 prompt 让 LLM 重复执行上轮查询的根因。
+**失败轮隔离（Bug 8）**：当 agent loop 抛错时，`_detect_error_in_agent_loop` 从 `params.agent_loop_response` 扫出 `ErrorMessage`（`step_3_agent_loop.py` 在 catch Exception 分支里把 ErrorMessage 既 yield 也 append，保证下游 hook 看得到），`after_turn` 只存 user 消息，`meta_data` 里打 `status="failed"` + `error_type=...`，**不写任何 assistant 行**（partial 输出也丢）。下一轮 `gather` + `_load_short_term_memory` 都会过 `_apply_failed_turn_filter`：失败的 user 行被重写成"Previous turn failed... Do NOT retry"的注解（保留原问题文本，方便代词解析），遗留的失败 assistant 行被丢。目的是让 LLM 看到"那轮断了"而不是"那轮我只说了一半还没说完"——后者正是污染下轮 prompt 让 LLM 重复执行上轮查询的根因。
 
 **MCP 工具逻辑抽取到 `_chat_mcp_tools.py`**：2026-03-06 拆分，保持 `chat_module.py` 专注于 Hook 生命周期，MCP 工具注册逻辑独立维护。
 
 ## Gotcha / 边界情况
 
 - **Bootstrap greeting 注入**：如果 `ctx_data.bootstrap_active=True` 且是第一轮对话（历史为空），会在写入历史前先插入一条问候语作为第一条 assistant 消息。这是一次性逻辑，仅发生在 Agent 第一次被激活时。问候语经 `_resolve_bootstrap_greeting()` 解析：优先读 `agents.agent_metadata.bootstrap_greeting`（场景化 provisioner 写入，如 Arena onboarding），缺失时退回通用 `BOOTSTRAP_GREETING` 常量——通用常量保持场景无关（铁律 #4）。
-- **`channel_tag` 的传递**：`hook_after_event_execution` 里从 `ctx_data.extra_data["channel_tag"]` 读取渠道信息（Matrix 房间、发送者等）并写入每条消息的 `meta_data`。如果 `channel_tag` 是 Pydantic 对象（而非 dict），会调用 `.to_dict()` 转换。忘记这个转换会导致 JSON 序列化失败。
+- **`channel_tag` 的传递**：`after_turn` 里从 `ctx_data.extra_data["channel_tag"]` 读取渠道信息（Matrix 房间、发送者等）并写入每条消息的 `meta_data`。如果 `channel_tag` 是 Pydantic 对象（而非 dict），会调用 `.to_dict()` 转换。忘记这个转换会导致 JSON 序列化失败。
 
 ## 新人易踩的坑
 
@@ -521,7 +521,7 @@ assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_deliver
 留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
 做投递分类。
 
-## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+## 2026-08-18 — `disallowed_tools(ctx_data)` 签名同步
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。

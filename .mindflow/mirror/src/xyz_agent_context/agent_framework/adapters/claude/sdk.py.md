@@ -492,7 +492,7 @@ context (silent-ingested rows in particular, since they're keyed
 `_source != "chat"` and drop in Tier-1).
 
 Direct cause: `SKIP_MODULE_DECISION_LLM = True` forces the loader to
-inline all 15 modules' `get_instructions()` on every turn, regardless
+inline all 15 modules' `contribute_instructions()` on every turn, regardless
 of relevance. Sampled sizes: ChatModule 13K, CommonTools 8K, Slack 8K,
 MessageBus 6K, Telegram 6K, Skill 4K, Discord 3K, Lark 2K,
 NarraMessenger 0.8K, WeChat 0.7K, plus BasicInfo / SocialNetwork /

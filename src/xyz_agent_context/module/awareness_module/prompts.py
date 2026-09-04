@@ -10,7 +10,7 @@
 # Used in AwarenessModule.__init__() for self.instructions
 #
 # Placeholder descriptions:
-# - {awareness}: Current Awareness Profile content, dynamically filled by get_instructions()
+# - {awareness}: Current Awareness Profile content, dynamically filled by contribute_instructions()
 # ============================================================================
 AWARENESS_MODULE_INSTRUCTIONS = """
 #### AGENT SELF-AWARENESS SYSTEM

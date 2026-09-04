@@ -14,7 +14,7 @@ Fix location: ``context_runtime.build_input_for_framework`` augments
 the LLM-facing current-turn user message with markers synthesised via
 ``Attachment.markers_from_dicts`` — while leaving
 ``ctx_data.input_content`` (the string persisted by
-``ChatModule.hook_persist_turn`` and echoed to the frontend chat
+``ChatModule.persist_turn`` and echoed to the frontend chat
 panel) untouched. Same seam covers WS chat and every IM channel: they
 already stash attachments in ``trigger_extra_data["attachments"]``.
 

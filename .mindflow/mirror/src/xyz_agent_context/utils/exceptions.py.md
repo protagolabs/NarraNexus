@@ -8,7 +8,7 @@ Before this hierarchy, errors from module hooks (e.g., a `JobModule` that fails 
 
 ## Upstream / Downstream
 
-**Raised by:** `module/hook_manager.py` (wraps exceptions from `hook_data_gathering` and `hook_after_event_execution`), individual module implementations, and `agent_runtime/` when pipeline steps fail.
+**Raised by:** `module/hook_manager.py` (wraps exceptions from `gather` and `after_turn`), individual module implementations, and `agent_runtime/` when pipeline steps fail.
 
 **Caught by:** `agent_runtime/` (to decide whether to abort the run or skip a module), `backend/routes/` (to map typed errors to HTTP status codes), and test code that asserts specific failure modes.
 

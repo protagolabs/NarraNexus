@@ -24,7 +24,7 @@ miloco-miot 是因为其 License 禁商用/软件(设计记录为作者本地)�
   未绑定则返回可读的 `NOT_CONFIGURED` 提示让 agent 转告用户。
 - **场景逻辑不在这**(铁律 #4):模块只做通用查/控;"客厅灯 8 点开"这类进各 agent 的 Awareness。
 - **写操作要确认**:prompts + 工具 docstring 要求 agent 对高影响动作(门锁/安防/车库)先向用户确认。
-- `get_instructions` 用 base 默认(`self.instructions.format(...)`),故 prompts 里不能有裸 `{}`。
+- `contribute_instructions` 用 base 默认(`self.instructions.format(...)`),故 prompts 里不能有裸 `{}`。
 
 ## 上下游
 

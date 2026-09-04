@@ -6,7 +6,7 @@
 
 Generic capability description only (binding rule #4): what the agent can do
 and how to do it safely. Concrete home layout / routines / scene logic live in
-each agent's Awareness, NOT here. No `{}` placeholders — get_instructions runs
+each agent's Awareness, NOT here. No `{}` placeholders — contribute_instructions runs
 str.format on this, so braces would break it.
 """
 

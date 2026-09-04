@@ -175,11 +175,11 @@ class _RecordingHookManager:
         self.after_execution_calls = 0
         self.writes: list[str] = []
 
-    async def hook_persist_turn(self, module_list, params):
+    async def persist_turn(self, module_list, params):
         self.persist_turn_calls += 1
         return None
 
-    async def hook_after_event_execution(self, module_list, params):
+    async def after_turn(self, module_list, params):
         self.after_execution_calls += 1
         if self._gate is not None:
             await self._gate.wait()
@@ -193,7 +193,7 @@ class _RecordingHookManager:
     async def hook_callback_results(self, **kwargs):
         return None
 
-    async def hook_data_gathering(self, *a, **k):
+    async def gather(self, *a, **k):
         return {}
 
 

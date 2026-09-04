@@ -35,7 +35,7 @@ sink 里是 `{kind, parts}` 而不是契约的 `{kind, text}`（直接读的人�
 `collect_run` 增加可选的 `segments_sink`：传进来的话，它**就是**累积用的那个列表，所以持有
 同一个引用的调用方能在 run 返回之前看到 segments。
 
-为什么需要：#291 之后团队房间的回复**在 turn 内部发出**（chat 行由 `hook_persist_turn` 在
+为什么需要：#291 之后团队房间的回复**在 turn 内部发出**（chat 行由 `persist_turn` 在
 `run()` 返回前写，之后再发的帖子不会被记成一次回复）。而 `RunCollection` 那时还不存在，
 `turn.segments` 拿不到。deliverer 被调用时，这一轮回复的 delta 已经全部流过，所以 sink 里
 就是它正在发的那段文字的边界。

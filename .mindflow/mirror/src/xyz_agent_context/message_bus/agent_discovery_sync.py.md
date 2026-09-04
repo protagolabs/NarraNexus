@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -58,7 +58,7 @@ P1 段02（prod 实锤 2026-08-03）：用户两个 agent 界面都显示"配置
 1. `agents.agent_description` 只在**创建时**写过一次占位符
    （`"A new agent ready for configuration"`），之后任何配置 / skill / 改名都
    不更新；
-2. `bus_agent_registry` 只有**一个**写入者——`MessageBusModule.hook_data_gathering`
+2. `bus_agent_registry` 只有**一个**写入者——`MessageBusModule.gather`
    里的一段内联代码，它把那个占位符快照进去，并把 `capabilities` **硬编码成
    `[]`**。prod 全表 488 条都是这样；
 3. 于是 `bus_search_agents`（`capabilities LIKE ? OR description LIKE ?`）对

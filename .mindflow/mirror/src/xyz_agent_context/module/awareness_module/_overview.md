@@ -15,7 +15,7 @@ AwarenessModule 给 Agent 提供"自我意识"——它存储 Agent 关于用户
 
 | 文件 | 职责 |
 |------|------|
-| `awareness_module.py` | Module 主体：hook_data_gathering 加载 profile；MCP 服务器（port 7801）提供更新工具 |
+| `awareness_module.py` | Module 主体：gather 加载 profile；MCP 服务器（port 7801）提供更新工具 |
 | `prompts.py` | `AWARENESS_MODULE_INSTRUCTIONS`：向 Agent 解释 Awareness 的三个维度和更新时机 |
 
 ## 和外部目录的协作
@@ -23,4 +23,4 @@ AwarenessModule 给 Agent 提供"自我意识"——它存储 Agent 关于用户
 - `repository/InstanceAwarenessRepository`（`instance_awareness` 表）负责读写 awareness 文本，AwarenessModule 是唯一的消费方
 - `repository/InstanceRepository` 用于通过 `agent_id + module_class` 查找 `instance_id`（fallback 路径）
 - `repository/AgentRepository` 被 MCP 工具 `update_agent_profile` 直接调用（名字与描述都经它写）
-- `ctx_data.awareness` 字段由本模块在 `hook_data_gathering` 时填充，被 `prompts.py` 的 `{awareness}` 占位符消费
+- `ctx_data.awareness` 字段由本模块在 `gather` 时填充，被 `prompts.py` 的 `{awareness}` 占位符消费

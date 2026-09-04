@@ -79,7 +79,7 @@ class AwarenessModule(XYZBaseModule):
         
     # ============================================================================= Hooks
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """
         Get awareness data from the instance_awareness table.
 
@@ -149,7 +149,7 @@ class AwarenessModule(XYZBaseModule):
 
     # ============================================================================= MCP Server
     
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """
         """
         return MCPServerConfig(

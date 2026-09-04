@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-26
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -107,7 +107,7 @@ reach 现由 [[inbox_recorder.py]] 自动记录,指令 #5 里「→ Store channe
 没有的工具，agent 拿到两条指令且无从裁决。
 
 规则现在只活在两个地方，且两处都是**生成的而非写死的**：本轮的来源声明
-（[[message_source_handler]] 的 `render_origin_declaration`，由 `get_expressive_tools`
+（[[message_source_handler]] 的 `render_origin_declaration`，由 `expressive_tools`
 产出的同一个 tuple 渲染）；以及每个 owner 工具自己的 docstring——它随工具一起进上下文，
 所以工具不在时它也不可能在。
 

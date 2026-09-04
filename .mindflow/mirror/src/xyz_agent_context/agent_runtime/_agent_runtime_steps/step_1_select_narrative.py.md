@@ -22,7 +22,7 @@ ctx 可能被复用,漏写会让上一轮的冻结判决泄漏到下一轮。
 首轮（非连续轮）`select()` 走 BM25 取 top-k（`MAX_NARRATIVES_IN_CONTEXT`，常规 2–3），新 agent 的
 每个 narrative 都没有 chat 实例 → 循环里一次性建 2–3 个。若把 seed 放进 `_ensure_user_chat_instance`
 就会写 2–3 条一样的问候语（首屏重复）。head 是 authored/primary thread，也正是
-`ChatModule.hook_persist_turn` 落库用的那个实例，其余是读侧 BM25 邻居。
+`ChatModule.persist_turn` 落库用的那个实例，其余是读侧 BM25 邻居。
 
 `_ensure_user_chat_instance` 因此**不再** seed（回退了 per-narrative 的写法）。fast-select
 (`step_1_fast_select`) 和 `step_4_persist_results` 这两个 `_ensure_user_chat_instance` 调用点也不

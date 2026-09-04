@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/hook_manager.py
-last_verified: 2026-08-14
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-14 — `_parallel_data_gathering` 的死导入修复
@@ -22,9 +22,9 @@ test_hook_manager_parallel_import.py 真正驱动该分支，防止「文档写�
 注意范围：`spawn` 不改变进程退出时任务被取消这一事实，链路的**持久**保证仍然属于
 `ModulePoller`，不属于这里。
 
-## 2026-05-20 — `hook_persist_turn` runner (synchronous phase)
+## 2026-05-20 — `persist_turn` runner (synchronous phase)
 
-Added `hook_persist_turn(module_list, params)` mirroring `hook_after_event_execution`
+Added `persist_turn(module_list, params)` mirroring `after_turn`
 but for the SYNCHRONOUS, next-turn-critical persistence phase (see [[base.py]] 2026-05-20).
 The runtime awaits it right after Step 4 and before dispatching the background hooks
 (see [[agent_runtime.py]] Step 4.6). Parallel `asyncio.gather` across modules; a
@@ -36,7 +36,7 @@ already has their answer). Reuses `build_after_execution_params(ctx)` extracted 
 
 ## 为什么存在
 
-`HookManager` 把"如何跨多个模块调度同名 hook"的并发策略从 `AgentRuntime` 里分离出来。它持有两个关键决策：数据收集阶段是否并行、以及如何把 `hook_after_event_execution` 返回的回调结果转化为依赖链激活。
+`HookManager` 把"如何跨多个模块调度同名 hook"的并发策略从 `AgentRuntime` 里分离出来。它持有两个关键决策：数据收集阶段是否并行、以及如何把 `after_turn` 返回的回调结果转化为依赖链激活。
 
 ## 上下游关系
 
@@ -45,11 +45,11 @@ already has their answer). Reuses `build_after_execution_params(ctx)` extracted 
 
 ## 设计决策
 
-**`hook_data_gathering` 默认顺序执行**：`SocialNetworkModule` 在 `hook_data_gathering` 里向 `ctx_data.extra_data` 写入 `related_job_ids`，`JobModule` 在同一阶段读取它——这是一个显式的模块间数据传递约定。如果并行执行，双方拿到的都是原始副本，跨模块数据传递会失效。顺序执行是唯一安全默认值，代价是约 3 个模块 × 100ms = 300ms 的串行时间。
+**`gather` 默认顺序执行**：`SocialNetworkModule` 在 `gather` 里向 `ctx_data.extra_data` 写入 `related_job_ids`，`JobModule` 在同一阶段读取它——这是一个显式的模块间数据传递约定。如果并行执行，双方拿到的都是原始副本，跨模块数据传递会失效。顺序执行是唯一安全默认值，代价是约 3 个模块 × 100ms = 300ms 的串行时间。
 
-**`hook_after_event_execution` 始终并行**：执行后的处理（保存对话历史、更新 Job 状态、更新社交图谱）之间互不干扰，可以安全地并行执行，从约 300ms 降至约 100ms。
+**`after_turn` 始终并行**：执行后的处理（保存对话历史、更新 Job 状态、更新社交图谱）之间互不干扰，可以安全地并行执行，从约 300ms 降至约 100ms。
 
-**`HookCallbackResult` 触发依赖链**：任何模块的 `hook_after_event_execution` 都可以返回一个 `HookCallbackResult`（`trigger_callback=True`），`hook_callback_results()` 会调用 `NarrativeService.handle_instance_completion()` 检查依赖，并用 `asyncio.create_task` 在后台触发等待中的实例，不阻塞当前轮次。
+**`HookCallbackResult` 触发依赖链**：任何模块的 `after_turn` 都可以返回一个 `HookCallbackResult`（`trigger_callback=True`），`hook_callback_results()` 会调用 `NarrativeService.handle_instance_completion()` 检查依赖，并用 `asyncio.create_task` 在后台触发等待中的实例，不阻塞当前轮次。
 
 **单模块失败不中断其他模块**：每个 hook 调用用 try/except 包裹，失败用结构化异常记录后继续。这是有意的——单模块故障不应崩溃整个 Agent 轮次。
 
@@ -63,3 +63,7 @@ already has their answer). Reuses `build_after_execution_params(ctx)` extracted 
 
 - 把模块间数据传递依赖（如 `SocialNetworkModule` → `JobModule` 通过 `extra_data`）理解为"模块相互引用"——实际上模块本身不互相 import，依赖通过 `ContextData` 的字段（`extra_data` 字典）传递，顺序执行保证了先写后读。
 - 修改 `parallel_data_gathering=True` 而不仔细检查模块间的 `extra_data` 依赖，会导致 `JobModule` 读不到 `SocialNetworkModule` 写入的 `related_job_ids`，症状是 Job 上下文缺失，排查困难。
+
+## 2026-09-04 · stage-named dispatch (batch 5c)
+
+`gather` / `persist_turn` / `after_turn` dispatch to the modules' same-named participations (timing labels unchanged).

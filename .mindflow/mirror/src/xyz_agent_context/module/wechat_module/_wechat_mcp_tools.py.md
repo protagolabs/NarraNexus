@@ -109,7 +109,7 @@ stays uniform across IM channels:
   exists on the inbound message — the agent must pass through the
   values from the message context verbatim, it cannot synthesize them.
 - Adding a new tool here requires also advertising it in the module's
-  ``get_instructions`` template — the agent only knows what the prompt
+  ``contribute_instructions`` template — the agent only knows what the prompt
   tells it. The ``MessageSourceRegistry`` reply-tool-name tuple in
   ``wechat_module.py`` must also be kept in sync, or a new reply tool's
   output gets logged as "Background activity" instead of a real reply.

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-07-30
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -31,7 +31,7 @@ Impact today. Zero user-visible behaviour change:
 - `_job_lifecycle.py` is the only site that reads `params.instance`,
   and it only fires on `working_source=JOB`, which still takes the
   JOB branch.
-- `ChatModule.hook_persist_turn` uses `self.instance_id` (bound
+- `ChatModule.persist_turn` uses `self.instance_id` (bound
   during step_2 module load), not `params.instance` — chat history
   writes were never dependent on this field.
 - The change eliminates a persistent per-turn WARN on IM channels.
@@ -44,22 +44,22 @@ Impact today. Zero user-visible behaviour change:
 The current-instance resolution + HookAfterExecutionParams construction was lifted
 out of `step_5_execute_hooks` into a module-level `build_after_execution_params(ctx)`
 so the new SYNCHRONOUS persistence phase ([[agent_runtime.py]] Step 4.6 →
-[[hook_manager.py]] `hook_persist_turn`) builds identical params without duplicating
+[[hook_manager.py]] `persist_turn`) builds identical params without duplicating
 the resolution logic. Step 5 (background) now just calls it. Pure read over ctx.
 
 # step_5_execute_hooks.py — Pipeline Step 5: Execute Module Post-turn Hooks
 
 ## Why It Exists
 
-After the turn is persisted (Step 4), each active Module gets a chance to run its `hook_after_event_execution` callback. These hooks handle Module-specific post-processing: saving chat messages to ChatModule, triggering Job scheduling in JobModule, updating social graph data, etc. Running hooks after persistence ensures they operate on committed data and don't block the WebSocket response.
+After the turn is persisted (Step 4), each active Module gets a chance to run its `after_turn` callback. These hooks handle Module-specific post-processing: saving chat messages to ChatModule, triggering Job scheduling in JobModule, updating social graph data, etc. Running hooks after persistence ensures they operate on committed data and don't block the WebSocket response.
 
 ## Upstream / Downstream
 
 **Called by:** `agent_runtime.py` — dispatched as a background `asyncio.Task` after Step 4 completes, so the WebSocket can close while hooks run
 
 **Calls:**
-- `hook_manager.run_hooks()` — iterates all active Module instances and calls `hook_after_event_execution` on each
-- Each Module's `hook_after_event_execution(params: HookAfterExecutionParams)` implementation
+- `hook_manager.run_hooks()` — iterates all active Module instances and calls `after_turn` on each
+- Each Module's `after_turn(params: HookAfterExecutionParams)` implementation
 
 **Produces:**
 - `callback_results` dict — returned via the final `yield` in the generator; collected by the background task wrapper in `agent_runtime.py`

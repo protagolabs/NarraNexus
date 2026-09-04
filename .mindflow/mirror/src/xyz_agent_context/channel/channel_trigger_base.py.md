@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-28
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-28（接线 review）— 清扫作用域与闸门次序
@@ -335,7 +335,7 @@ says ``audio/`` no longer classifies as ``video/``.
 
 ## 2026-07-10 — "ack early" moved into the per-turn input (salience)
 
-The early-feedback directive used to live in each module's `get_instructions`
+The early-feedback directive used to live in each module's `contribute_instructions`
 (system prompt) where models deprioritized it. It now rides in the **per-turn
 input** instead: `_build_and_run_agent` prepends `_early_feedback_prefix(message)`
 to `tagged_prompt` (right after the channel tag), so the "ACK FIRST" line sits
@@ -349,7 +349,7 @@ override injects the same prefix.
 
 `_build_and_run_agent` adds `source_message_id` (the inbound platform message
 id) to `trigger_extra_data`. It merges into `ctx_data.extra_data`, so a channel
-module's get_instructions can tell the agent which message to react to /
+module's contribute_instructions can tell the agent which message to react to /
 reply in-thread (the agent-facing `react_to_user_message` tool). Kept here, not
 in ChannelTag, so it stays ephemeral (not persisted into chat-history tags).
 
@@ -484,7 +484,7 @@ principle (see ``.mindflow/project/references/architecture.md``).
   attachment was written to.
 - **Attachment list flows via ``trigger_extra_data["attachments"]``.**
   Mirrors ``backend/routes/websocket.py:644-648`` so ChatModule's
-  ``hook_data_gathering`` (which reads
+  ``gather`` (which reads
   ``ctx_data.extra_data["attachments"]``) treats IM-uploaded and
   WS-uploaded files identically. The base only sets the key when the
   list is non-empty — keeps text-only audits noise-free.

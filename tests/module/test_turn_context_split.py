@@ -3,22 +3,22 @@
 @author: NarraNexus
 @date: 2026-07-25
 @description: R4b — per-module relocation of per-turn volatile spans from
-get_instructions into get_turn_context.
+contribute_instructions into contribute_turn_context.
 
 Locks the uniform R4b module contract for the six capability modules whose
 instructions used to change every turn (BasicInfo / GeneralMemory /
 SocialNetwork / Job / MessageBus / CommonTools):
 
-- flag ON  → get_instructions is BYTE-STABLE across consecutive turns for a
+- flag ON  → contribute_instructions is BYTE-STABLE across consecutive turns for a
   fixed module config: two builds where only the volatile state differs
   (time, recalled memories, entity card, jobs table, bus lists, attachments)
   produce identical bytes — the core new guarantee that makes the system
   prompt prefix cacheable;
-- flag ON  → get_turn_context carries the moved span (verbatim-equivalent
+- flag ON  → contribute_turn_context carries the moved span (verbatim-equivalent
   wording, stable per-module heading) — relocated, never dropped (铁律 #16);
-- flag OFF → get_instructions renders the legacy full text, byte-identical
+- flag OFF → contribute_instructions renders the legacy full text, byte-identical
   to the pre-R4 layout;
-- get_turn_context is fail-open at the module level: a bare ContextData
+- contribute_turn_context is fail-open at the module level: a bare ContextData
   (hooks never ran, volatile fields unset) yields "" without raising.
 """
 from __future__ import annotations
@@ -101,8 +101,8 @@ def test_basic_info_stable_template_anchors():
 @pytest.mark.asyncio
 async def test_basic_info_instructions_byte_stable_when_flag_on(flag_on):
     mod = _basic_info_module()
-    out1 = await mod.get_instructions(_basic_ctx("2026-07-25 10:00:00 +08:00 (Saturday, Asia/Shanghai)"))
-    out2 = await mod.get_instructions(_basic_ctx("2026-07-25 10:07:42 +08:00 (Saturday, Asia/Shanghai)"))
+    out1 = await mod.contribute_instructions(_basic_ctx("2026-07-25 10:00:00 +08:00 (Saturday, Asia/Shanghai)"))
+    out2 = await mod.contribute_instructions(_basic_ctx("2026-07-25 10:07:42 +08:00 (Saturday, Asia/Shanghai)"))
     assert out1 == out2
     assert "10:00:00" not in out1
     # Static identity/session content still renders.
@@ -114,7 +114,7 @@ async def test_basic_info_instructions_byte_stable_when_flag_on(flag_on):
 async def test_basic_info_turn_context_carries_time_and_ground_truth(flag_on):
     mod = _basic_info_module()
     t = "2026-07-25 10:00:00 +08:00 (Saturday, Asia/Shanghai)"
-    block = await mod.get_turn_context(_basic_ctx(t))
+    block = await mod.contribute_turn_context(_basic_ctx(t))
     assert block.startswith("##### Real World Information")
     assert f"- Current date and time: {t}" in block
     # Anti-hallucination guidance moved verbatim, not dropped.
@@ -129,14 +129,14 @@ async def test_basic_info_flag_off_is_legacy_byte_identical(flag_off):
     )
     mod = _basic_info_module()
     ctx = _basic_ctx("2026-07-25 10:00:00 +08:00 (Saturday, Asia/Shanghai)")
-    out = await mod.get_instructions(ctx)
+    out = await mod.contribute_instructions(ctx)
     assert out == BASIC_INFO_MODULE_INSTRUCTIONS.format(**ctx.model_copy().model_dump())
     assert "- Current date and time: 2026-07-25 10:00:00" in out
 
 
 @pytest.mark.asyncio
 async def test_basic_info_turn_context_fail_open_on_bare_ctx(flag_on):
-    assert await _basic_info_module().get_turn_context(_ctx()) == ""
+    assert await _basic_info_module().contribute_turn_context(_ctx()) == ""
 
 
 # =========================================================================
@@ -157,9 +157,9 @@ def _memory_ctx(memories) -> ContextData:
 @pytest.mark.asyncio
 async def test_memory_instructions_byte_stable_when_flag_on(flag_on):
     mod = _memory_module()
-    out1 = await mod.get_instructions(_memory_ctx(["[observation] (2026-07-24 09:00) Alice works at Google"]))
-    out2 = await mod.get_instructions(_memory_ctx(["[observation] (2026-07-25 11:30) Bob prefers terse replies"]))
-    out_empty = await mod.get_instructions(_memory_ctx([]))
+    out1 = await mod.contribute_instructions(_memory_ctx(["[observation] (2026-07-24 09:00) Alice works at Google"]))
+    out2 = await mod.contribute_instructions(_memory_ctx(["[observation] (2026-07-25 11:30) Bob prefers terse replies"]))
+    out_empty = await mod.contribute_instructions(_memory_ctx([]))
     # Constant bytes — including the previously flapping empty-recall turn.
     assert out1 == out2 == out_empty
     assert out1.startswith("## What you remember")
@@ -169,20 +169,20 @@ async def test_memory_instructions_byte_stable_when_flag_on(flag_on):
 @pytest.mark.asyncio
 async def test_memory_turn_context_carries_recalled_list(flag_on):
     mod = _memory_module()
-    block = await mod.get_turn_context(
+    block = await mod.contribute_turn_context(
         _memory_ctx(["[observation] (2026-07-24 09:00) Alice works at Google"])
     )
     assert block.startswith("## What you remember")
     assert "- [observation] (2026-07-24 09:00) Alice works at Google" in block
     assert "trust the most recent one" in block
     # No recall → nothing to contribute this turn.
-    assert await mod.get_turn_context(_memory_ctx([])) == ""
+    assert await mod.contribute_turn_context(_memory_ctx([])) == ""
 
 
 @pytest.mark.asyncio
 async def test_memory_flag_off_is_legacy_byte_identical(flag_off):
     mod = _memory_module()
-    out = await mod.get_instructions(
+    out = await mod.contribute_instructions(
         _memory_ctx(["[observation] (2026-07-24 09:00) Alice works at Google"])
     )
     assert out == (
@@ -193,12 +193,12 @@ async def test_memory_flag_off_is_legacy_byte_identical(flag_off):
         "- [observation] (2026-07-24 09:00) Alice works at Google\n"
     )
     # Legacy empty-recall behavior: empty string, not a header.
-    assert await mod.get_instructions(_memory_ctx([])) == ""
+    assert await mod.contribute_instructions(_memory_ctx([])) == ""
 
 
 @pytest.mark.asyncio
 async def test_memory_turn_context_fail_open_on_bare_ctx(flag_on):
-    assert await _memory_module().get_turn_context(_ctx()) == ""
+    assert await _memory_module().contribute_turn_context(_ctx()) == ""
 
 
 # =========================================================================
@@ -235,8 +235,8 @@ def test_social_stable_template_anchors():
 @pytest.mark.asyncio
 async def test_social_instructions_byte_stable_when_flag_on(flag_on):
     mod = _social_module()
-    out1 = await mod.get_instructions(_ctx(social_network_current_entity=_entity_card(3)))
-    out2 = await mod.get_instructions(_ctx(social_network_current_entity=_entity_card(4)))
+    out1 = await mod.contribute_instructions(_ctx(social_network_current_entity=_entity_card(3)))
+    out2 = await mod.contribute_instructions(_ctx(social_network_current_entity=_entity_card(4)))
     assert out1 == out2
     assert "Previous interactions" not in out1
     # agent_id baked, {{...}} escapes rendered as in the legacy path.
@@ -247,13 +247,13 @@ async def test_social_instructions_byte_stable_when_flag_on(flag_on):
 @pytest.mark.asyncio
 async def test_social_turn_context_carries_entity_card(flag_on):
     mod = _social_module()
-    block = await mod.get_turn_context(_ctx(social_network_current_entity=_entity_card(3)))
+    block = await mod.contribute_turn_context(_ctx(social_network_current_entity=_entity_card(3)))
     assert block.startswith("##### Current User Information\n")
     assert "- Previous interactions: 3" in block
 
     # Hook fallback texts ride the same channel (first-meeting card here).
     fallback = "**First time meeting this user.**"
-    block2 = await mod.get_turn_context(_ctx(social_network_current_entity=fallback))
+    block2 = await mod.contribute_turn_context(_ctx(social_network_current_entity=fallback))
     assert fallback in block2
 
 
@@ -264,7 +264,7 @@ async def test_social_flag_off_is_legacy_byte_identical(flag_off):
     )
     mod = _social_module()
     ctx = _ctx(social_network_current_entity=_entity_card(3))
-    out = await mod.get_instructions(ctx)
+    out = await mod.contribute_instructions(ctx)
     legacy_template = SOCIAL_NETWORK_MODULE_INSTRUCTIONS.replace("{agent_id}", AGENT_ID)
     assert out == legacy_template.format(**ctx.model_copy().model_dump())
     assert "- Previous interactions: 3" in out
@@ -272,7 +272,7 @@ async def test_social_flag_off_is_legacy_byte_identical(flag_off):
 
 @pytest.mark.asyncio
 async def test_social_turn_context_fail_open_on_bare_ctx(flag_on):
-    assert await _social_module().get_turn_context(_ctx()) == ""
+    assert await _social_module().contribute_turn_context(_ctx()) == ""
 
 
 # =========================================================================
@@ -312,8 +312,8 @@ def test_job_stable_template_anchors():
 @pytest.mark.asyncio
 async def test_job_instructions_byte_stable_when_flag_on(flag_on):
     mod = _job_module()
-    out1 = await mod.get_instructions(_ctx(jobs_information=_JOBS_TABLE_A))
-    out2 = await mod.get_instructions(_ctx(jobs_information=_JOBS_TABLE_B))
+    out1 = await mod.contribute_instructions(_ctx(jobs_information=_JOBS_TABLE_A))
+    out2 = await mod.contribute_instructions(_ctx(jobs_information=_JOBS_TABLE_B))
     assert out1 == out2
     assert "job_aaaa1111" not in out1
     assert "##### Current Job Status" in out1  # static pointer keeps the heading
@@ -322,11 +322,11 @@ async def test_job_instructions_byte_stable_when_flag_on(flag_on):
 @pytest.mark.asyncio
 async def test_job_turn_context_carries_jobs_table(flag_on):
     mod = _job_module()
-    block = await mod.get_turn_context(_ctx(jobs_information=_JOBS_TABLE_A))
+    block = await mod.contribute_turn_context(_ctx(jobs_information=_JOBS_TABLE_A))
     assert block.startswith("##### Current Job Status\n\n")
     assert "`job_aaaa1111`" in block
     # The empty-state line is content too — relocated, not dropped.
-    empty = await mod.get_turn_context(_ctx(jobs_information="*No jobs for this conversation.*"))
+    empty = await mod.contribute_turn_context(_ctx(jobs_information="*No jobs for this conversation.*"))
     assert "*No jobs for this conversation.*" in empty
 
 
@@ -335,7 +335,7 @@ async def test_job_flag_off_is_legacy_byte_identical(flag_off):
     from xyz_agent_context.module.job_module.job_module import JOB_MODULE_INSTRUCTIONS
     mod = _job_module()
     ctx = _ctx(jobs_information=_JOBS_TABLE_A)
-    out = await mod.get_instructions(ctx)
+    out = await mod.contribute_instructions(ctx)
     assert out == JOB_MODULE_INSTRUCTIONS.format(**ctx.model_copy().model_dump())
     assert "`job_aaaa1111`" in out
     assert "If there are jobs listed above:" in out
@@ -343,7 +343,7 @@ async def test_job_flag_off_is_legacy_byte_identical(flag_off):
 
 @pytest.mark.asyncio
 async def test_job_turn_context_fail_open_on_bare_ctx(flag_on):
-    assert await _job_module().get_turn_context(_ctx()) == ""
+    assert await _job_module().contribute_turn_context(_ctx()) == ""
 
 
 # =========================================================================
@@ -377,9 +377,9 @@ def _bus_ctx(n_unread: int = 1) -> ContextData:
 @pytest.mark.asyncio
 async def test_bus_instructions_byte_stable_when_flag_on(flag_on):
     mod = _bus_module()
-    out1 = await mod.get_instructions(_bus_ctx(n_unread=1))
-    out2 = await mod.get_instructions(_bus_ctx(n_unread=3))
-    out_empty = await mod.get_instructions(_ctx())
+    out1 = await mod.contribute_instructions(_bus_ctx(n_unread=1))
+    out2 = await mod.contribute_instructions(_bus_ctx(n_unread=3))
+    out_empty = await mod.contribute_instructions(_ctx())
     assert out1 == out2 == out_empty
     # Usage rules stay in the stable half...
     assert "### Reply Discipline — CRITICAL (prevents infinite loops)" in out1
@@ -392,7 +392,7 @@ async def test_bus_instructions_byte_stable_when_flag_on(flag_on):
 @pytest.mark.asyncio
 async def test_bus_turn_context_carries_lists(flag_on):
     mod = _bus_module()
-    block = await mod.get_turn_context(_bus_ctx(n_unread=2))
+    block = await mod.contribute_turn_context(_bus_ctx(n_unread=2))
     # Renamed 2026-08-17: "MessageBus" is a subsystem the agent is no longer
     # told exists (the redesign's acceptance criterion is that the word appears
     # in no agent-visible text). What the assertion protects is unchanged — the
@@ -420,7 +420,7 @@ async def test_bus_turn_context_carries_lists(flag_on):
 
     assert f"- `{_bus_tag('agent_peer')}` ping 0" in block
     # Nothing live → no block.
-    assert await mod.get_turn_context(_ctx()) == ""
+    assert await mod.contribute_turn_context(_ctx()) == ""
 
 
 @pytest.mark.asyncio
@@ -447,7 +447,7 @@ async def test_a_team_rooms_messages_are_tagged_with_the_team_name(flag_on):
     )
     ctx.extra_data["bus_room_labels"] = {"ch_room": "Ops"}
 
-    block = await mod.get_turn_context(ctx)
+    block = await mod.contribute_turn_context(ctx)
 
     assert f"`{_bus_tag('agent_peer', 'Ops')}` in the room" in block
     assert f"`{_bus_tag('agent_peer')}` ping 0" in block
@@ -458,7 +458,7 @@ async def test_a_team_rooms_messages_are_tagged_with_the_team_name(flag_on):
 async def test_bus_flag_off_is_legacy_byte_identical(flag_off):
     mod = _bus_module()
     ctx = _bus_ctx(n_unread=1)
-    out = await mod.get_instructions(ctx)
+    out = await mod.contribute_instructions(ctx)
     # Pre-R4 rendering = static rules + the three lists in one block.
     expected = "\n".join(
         mod._static_instruction_parts() + mod._volatile_context_parts(ctx)
@@ -491,9 +491,9 @@ async def test_tools_instructions_byte_stable_when_flag_on(flag_on, db_client):
         COMMON_TOOLS_INSTRUCTIONS,
     )
     mod = _tools_module(db_client)
-    out1 = await mod.get_instructions(_attachment_ctx("report.txt"))
-    out2 = await mod.get_instructions(_attachment_ctx("notes.txt"))
-    out_bare = await mod.get_instructions(_ctx())
+    out1 = await mod.contribute_instructions(_attachment_ctx("report.txt"))
+    out2 = await mod.contribute_instructions(_attachment_ctx("notes.txt"))
+    out_bare = await mod.contribute_instructions(_ctx())
     assert out1 == out2 == out_bare == COMMON_TOOLS_INSTRUCTIONS
     assert "report.txt" not in out1
     assert "Your registered artifacts" not in out1
@@ -502,7 +502,7 @@ async def test_tools_instructions_byte_stable_when_flag_on(flag_on, db_client):
 @pytest.mark.asyncio
 async def test_tools_turn_context_carries_attachments_and_registry(flag_on, db_client):
     mod = _tools_module(db_client)
-    block = await mod.get_turn_context(_attachment_ctx("report.txt"))
+    block = await mod.contribute_turn_context(_attachment_ctx("report.txt"))
     assert "#### Files attached to the current message" in block
     assert "name=report.txt" in block
     # Live artifact registry block (empty registry still renders its
@@ -518,7 +518,7 @@ async def test_tools_flag_off_is_legacy_byte_identical(flag_off, db_client):
     )
     mod = _tools_module(db_client)
     ctx = _attachment_ctx("report.txt")
-    out = await mod.get_instructions(ctx)
+    out = await mod.contribute_instructions(ctx)
     expected = "\n\n".join(
         [COMMON_TOOLS_INSTRUCTIONS, *await mod._volatile_sections(ctx)]
     )
@@ -530,4 +530,4 @@ async def test_tools_flag_off_is_legacy_byte_identical(flag_off, db_client):
 @pytest.mark.asyncio
 async def test_tools_turn_context_fail_open_on_bare_ctx(flag_on):
     # No attachments and no DB (artifact lookup unavailable) → "".
-    assert await _tools_module(db=None).get_turn_context(_ctx()) == ""
+    assert await _tools_module(db=None).contribute_turn_context(_ctx()) == ""

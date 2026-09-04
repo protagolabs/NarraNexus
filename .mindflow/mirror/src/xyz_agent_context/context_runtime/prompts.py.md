@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 

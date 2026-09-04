@@ -115,7 +115,7 @@ async def test_turn_context_module_blocks_use_the_same_total_order(monkeypatch):
         def __init__(self, name: str, priority: int):
             self.config = SimpleNamespace(name=name, priority=priority)
 
-        async def get_turn_context(self, ctx_data) -> str:
+        async def contribute_turn_context(self, ctx_data) -> str:
             return f"## {self.config.name} turn block"
 
     def _instances(order):

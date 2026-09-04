@@ -7,7 +7,7 @@ kwarg propagation through the client seam.
 
 Silent mode is used by IM triggers (Matrix / Lark / Slack) to run the
 memory-only path for group non-@ messages and reconnect burst backfill:
-narrative selection, module load, instance sync, hook_persist_turn,
+narrative selection, module load, instance sync, persist_turn,
 step_5 hooks all fire; step_3 (agent LLM) is skipped. See
 `AgentRuntime.run(silent=True)` docstring for the full contract.
 

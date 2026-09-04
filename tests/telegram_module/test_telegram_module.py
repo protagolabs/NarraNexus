@@ -102,7 +102,7 @@ async def test_build_extra_data_owner_match_sets_trust_signal():
     assert extra["owner_user_id"] == "555"
 
 
-# ── get_instructions branching ────────────────────────────────────────
+# ── contribute_instructions branching ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
     pointer; the full @BotFather walkthrough is served on demand by
     tg_bind() called with no arguments."""
     module = _make_module()
-    text = await module.get_instructions(_ctx(extra=None))
+    text = await module.contribute_instructions(_ctx(extra=None))
 
     assert "tg_bind" in text
     assert "not connected" in text
@@ -200,7 +200,7 @@ async def test_get_instructions_returns_full_block_when_bound_no_owner():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "@acme_bot" in text
     assert "1001" in text
@@ -231,7 +231,7 @@ async def test_get_instructions_owner_match_renders_trust_block():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "Bin Liang" in text
     assert "is_owner_interacting=True" in text
@@ -254,7 +254,7 @@ async def test_get_instructions_owner_mismatch_renders_visitor_block():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "is_owner_interacting=False" in text
     assert "Treat as a visitor" in text

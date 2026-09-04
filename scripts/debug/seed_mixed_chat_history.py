@@ -5,7 +5,7 @@
 @description: Seed a fresh ChatModule instance with synthetic rows that
 cover every WorkingSource × message_type combination, then leave it
 referenced from a real narrative + instance_narrative_link so the
-backend picks it up via hook_data_gathering.
+backend picks it up via gather.
 
 The point is to verify the per-source dispatch end-to-end:
 - Lark "real reply" rows (working_source=lark, message_type=chat) MUST

@@ -261,7 +261,7 @@ class CommonToolsModule(XYZBaseModule):
             module_type="capability",
         )
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         return ctx_data
 
     async def _volatile_sections(self, ctx_data: ContextData) -> List[str]:
@@ -309,13 +309,13 @@ class CommonToolsModule(XYZBaseModule):
 
         return sections
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         """Static base instruction, plus (flag OFF only) the two dynamic
         appendices.
 
         With the R4 relocation flag ON the output is the constant
         COMMON_TOOLS_INSTRUCTIONS (byte-stable across turns) and the
-        appendices travel via get_turn_context(); flag OFF keeps the legacy
+        appendices travel via contribute_turn_context(); flag OFF keeps the legacy
         single-block rendering, functionally equivalent to pre-R4.
         """
         sections = [self.instructions]
@@ -323,7 +323,7 @@ class CommonToolsModule(XYZBaseModule):
             sections.extend(await self._volatile_sections(ctx_data))
         return "\n\n".join(sections)
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the attachments appendix and the live
         artifact registry (each block carries its own stable heading)."""
         sections = await self._volatile_sections(ctx_data)
@@ -462,7 +462,7 @@ class CommonToolsModule(XYZBaseModule):
         )
         return "\n".join(lines)
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="common_tools_module",
             server_url=mcp_server_url("common_tools_module"),

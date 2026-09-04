@@ -67,7 +67,7 @@ Job 的创建需要同时写两张表（`module_instances` + `jobs`），还要�
 
 **`create_jobs_batch()` 的拓扑排序是伪实现**：批量创建 Jobs 时应该按依赖顺序（先建被依赖的 Job）。目前代码里有 Kahn 算法的框架，但核心循环里 `pass` 了，实际是按 `depends_on` 数量排序。这在简单的链式依赖里能工作，但有循环依赖时会静默失败。
 
-**`related_entity_id` → SocialNetwork 双向同步**：创建 Job 时如果指定了 `related_entity_id`，会调用 `SocialNetworkRepository.append_related_job_ids()` 把 job_id 写到 Entity 的 `related_job_ids` 字段。这个同步是"尽力而为"——失败只记录 error 日志，不中断 Job 创建。如果同步失败，`hook_data_gathering` 里 SocialNetworkModule 就无法把 `related_job_ids` 写入 `ctx_data.extra_data`，JobModule 就拿不到与当前用户关联的 Job 列表。
+**`related_entity_id` → SocialNetwork 双向同步**：创建 Job 时如果指定了 `related_entity_id`，会调用 `SocialNetworkRepository.append_related_job_ids()` 把 job_id 写到 Entity 的 `related_job_ids` 字段。这个同步是"尽力而为"——失败只记录 error 日志，不中断 Job 创建。如果同步失败，`gather` 里 SocialNetworkModule 就无法把 `related_job_ids` 写入 `ctx_data.extra_data`，JobModule 就拿不到与当前用户关联的 Job 列表。
 
 **`update_job()` 里的 Type A/B/C 操作**：`append_to_payload` 是 Type A（补充指示），直接 concat 到现有 payload；修改 `next_run_time` 是 Type B（立即执行）；修改 `status` 是 Type C（暂停/取消）。Type A 会在 payload 末尾追加一个带 `## Manager Supplementary Guidance` 标题的分节——这是系统约定的格式，`_job_context_builder.py` 不做特殊处理，原样传给 Agent 执行。
 

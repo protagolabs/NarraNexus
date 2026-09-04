@@ -131,7 +131,7 @@ async def step_0_initialize(
     # =========================================================================
     # 0.5 Get Agent Awareness
     # TODO: [Duplicate reads] The ctx.awareness preloaded here and the ctx_data.awareness
-    #       set in AwarenessModule.hook_data_gathering() are two different objects. Currently
+    #       set in AwarenessModule.gather() are two different objects. Currently
     #       reads from database twice.
     #       Future optimization: pass ctx.awareness to ContextRuntime to avoid AwarenessModule querying again.
     # =========================================================================

@@ -86,7 +86,7 @@ async def test_build_extra_data_shape():
     }
 
 
-# ── get_instructions branching ────────────────────────────────────────
+# ── contribute_instructions branching ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
     guide is served on demand by slack_bind() with no arguments."""
     module = _make_module()
     module._bound_cache = False  # deterministic: no DB in unit tests
-    text = await module.get_instructions(_ctx(extra=None))
+    text = await module.contribute_instructions(_ctx(extra=None))
 
     assert "slack_bind" in text
     assert "not connected" in text
@@ -149,7 +149,7 @@ async def test_get_instructions_returns_full_block_when_slack_info_present():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "Acme Workspace" in text
     assert "U0BOT" in text
@@ -165,7 +165,7 @@ async def test_get_instructions_returns_full_block_when_slack_info_present():
 async def test_get_instructions_uses_unknown_workspace_when_team_name_missing():
     module = _make_module()
     ctx = _ctx(extra={"slack_info": {"bot_user_id": "U0BOT"}})
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert "(unknown workspace)" in text
 
 

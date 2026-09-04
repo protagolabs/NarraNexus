@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
 from xyz_agent_context.schema import ContextData
 from xyz_agent_context.settings import settings
@@ -23,17 +24,23 @@ AGENT_ID = "agent_mcp_order"
 
 
 class _FakeModule:
+
+
+    # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+
+    contribute_tools = XYZBaseModule.contribute_tools
     def __init__(self, name: str, priority: int, server_name: str, url: str):
         self.config = SimpleNamespace(name=name, priority=priority)
         self._mcp = SimpleNamespace(server_name=server_name, server_url=url)
 
-    async def get_mcp_config(self):
+    async def mcp_server(self):
         return self._mcp
 
-    async def get_disallowed_tools(self):
+    async def disallowed_tools(self):
         return []
 
-    async def get_turn_context(self, ctx_data) -> str:
+    async def contribute_turn_context(self, ctx_data) -> str:
         return ""
 
 

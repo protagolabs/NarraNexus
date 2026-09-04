@@ -50,7 +50,7 @@ class TurnInput:
     # and ignore it via **kwargs.
     agent_id: str = "agent"
     # The turn's delivery surface: fully-qualified reply tools declared
-    # by the platform (modules' get_expressive_tools, priority order —
+    # by the platform (modules' expressive_tools, priority order —
     # the first entry is the default reply tool). Empty = mute turn.
     expressive_tools: tuple[str, ...] = ()
     # The turn's origin declaration — ONE already-rendered line

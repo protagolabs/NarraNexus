@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_direct_trigger.py
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 stub: false
 ---
 # step_3_direct_trigger.py — Pipeline Step 3 Sub-path: Direct MCP Tool Trigger

@@ -21,7 +21,7 @@ This schema represents the agent's outbound delivery mechanism — the "sent mai
 
 ## Upstream / Downstream
 
-`InboxRepository` is the sole persistence path. `JobModule.hook_after_event_execution()` writes `InboxMessage` records when a Job completes and `should_notify=True`. The frontend inbox endpoint reads these records filtered by `user_id`, ordered by `created_at DESC`, to render the notification feed. `InboxMessageType.CHANNEL_MESSAGE` is reserved for messages delivered via Matrix/Slack and then also copied into the inbox for the user to review.
+`InboxRepository` is the sole persistence path. `JobModule.after_turn()` writes `InboxMessage` records when a Job completes and `should_notify=True`. The frontend inbox endpoint reads these records filtered by `user_id`, ordered by `created_at DESC`, to render the notification feed. `InboxMessageType.CHANNEL_MESSAGE` is reserved for messages delivered via Matrix/Slack and then also copied into the inbox for the user to review.
 
 `MessageSource` is a generic source reference embedded as JSON in the database row — it lets readers trace an inbox message back to the originating Job or Event without a hard foreign key.
 

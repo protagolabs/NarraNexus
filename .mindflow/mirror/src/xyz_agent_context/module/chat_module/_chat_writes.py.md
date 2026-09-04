@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_writes.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -22,7 +22,7 @@ prepend 用同一 helper。出生问候从此只属于第一段对话。
 
 ## 2026-08-20 — bootstrap 问候行的唯一写入方
 
-问候语现在有**两个**写入触发点：`ChatModule.hook_persist_turn` 的懒 prepend（首轮历史为空时），
+问候语现在有**两个**写入触发点：`ChatModule.persist_turn` 的懒 prepend（首轮历史为空时），
 以及 `step_1` 的开局 seed（经 [[greeting_seed]] 判定后调用）。为避免「问候行长什么样」这份知识在
 两处复制后漂移，行结构 + 时间戳约束集中在本文件（它和 [[_chat_reads]] 一样住在拥有
 `instance_json_format_memory_chat` 表的 chat 模块里）。

@@ -9,9 +9,9 @@ distils each interaction into discrete, durable OBSERVATIONS — objective WORLD
 facts ("Alice works at Google") and subjective EXPERIENCE facts ("this user
 prefers terse replies"). It is a thin adapter over the unified MemoryEngine:
 
-  - hook_after_event_execution  → extract facts (LLM) → engine.retain(observation)
+  - after_turn  → extract facts (LLM) → engine.retain(observation)
                                    (raw facts; the background worker consolidates them)
-  - hook_data_gathering         → engine.recall(observation, current input) → ctx
+  - gather         → engine.recall(observation, current input) → ctx
 
 All persistence/dedup/consolidation/recall live in the engine — this module
 only owns the extraction prompt wiring and the prompt-injection rendering.
@@ -38,11 +38,11 @@ _RECALL_LIMIT = 8
 _RECALL_TOKENS = 800
 _VALID_SUBTYPES = {"world", "experience"}
 
-# R4 turn-context relocation (2026-07-25): with the flag ON, get_instructions
+# R4 turn-context relocation (2026-07-25): with the flag ON, contribute_instructions
 # returns this CONSTANT header (same bytes whether or not anything was
 # recalled — the old ""-when-empty behavior made the module's system-prompt
 # section flap between 0 and non-0 bytes) and the recalled list travels via
-# get_turn_context() in the current message instead.
+# contribute_turn_context() in the current message instead.
 GENERAL_MEMORY_STATIC_INSTRUCTIONS = (
     "## What you remember\n"
     "Things you have learned are recalled fresh every turn and provided "
@@ -96,7 +96,7 @@ class GeneralMemoryModule(XYZBaseModule):
         return MemoryEngine(self.db, self.agent_id)
 
     # ── read: inject relevant unified memory into context ───────────────────
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
+    async def gather(self, ctx_data: ContextData) -> ContextData:
         """Recall across ALL memory kinds (observations, entities, chat,
         narratives, jobs, bus) relevant to the current input and inject them.
         This is the single point where the unified memory feeds the agent loop
@@ -117,14 +117,14 @@ class GeneralMemoryModule(XYZBaseModule):
                 f"[{h.kind}] {_recalled_at(h.record)} {h.record.content_text}" for h in hits
             ]
         except Exception as e:  # noqa: BLE001 — memory recall must never break a turn
-            logger.warning(f"GeneralMemoryModule.hook_data_gathering: recall failed: {e}")
+            logger.warning(f"GeneralMemoryModule.gather: recall failed: {e}")
         return ctx_data
 
     def _render_recalled_memories(self, ctx_data: ContextData) -> str:
-        """Render the recalled-memories block (legacy get_instructions body).
+        """Render the recalled-memories block (legacy contribute_instructions body).
 
         Wording is unchanged from the pre-R4 in-prompt rendering — with the
-        relocation flag ON the same bytes are emitted via get_turn_context()
+        relocation flag ON the same bytes are emitted via contribute_turn_context()
         instead of the system prompt (relocated, never dropped).
         """
         memories = ctx_data.extra_data.get("relevant_memories") or []
@@ -139,19 +139,19 @@ class GeneralMemoryModule(XYZBaseModule):
             f"{body}\n"
         )
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         if not settings.prompt_turn_context_relocation_enabled:
             return self._render_recalled_memories(ctx_data)
         # Byte-stable across turns: the volatile recall list lives in the
         # turn context; this header is the same constant every turn.
         return GENERAL_MEMORY_STATIC_INSTRUCTIONS
 
-    async def get_turn_context(self, ctx_data: ContextData) -> str:
+    async def contribute_turn_context(self, ctx_data: ContextData) -> str:
         """Per-turn volatile span: the full recalled-memories list."""
         return self._render_recalled_memories(ctx_data)
 
     # ── write: distil this turn into observations (background-heavy hook) ────
-    async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
+    async def after_turn(self, params: HookAfterExecutionParams) -> None:
         user_input = params.io_data.input_content or ""
         agent_output = params.io_data.final_output or ""
         event_id = params.execution_ctx.event_id
@@ -170,7 +170,7 @@ class GeneralMemoryModule(XYZBaseModule):
                     source_ids=[event_id] if event_id else [], proof_count=1,
                 ))
         except Exception as e:  # noqa: BLE001 — extraction is best-effort enrichment
-            logger.warning(f"GeneralMemoryModule.hook_after_event_execution: extract failed: {e}")
+            logger.warning(f"GeneralMemoryModule.after_turn: extract failed: {e}")
 
     async def _extract_facts(self, user_input: str, agent_output: str) -> List[_Fact]:
         prompt = get_spec("observation").extract_prompt or ""
@@ -180,7 +180,7 @@ class GeneralMemoryModule(XYZBaseModule):
         )
         return result.final_output.facts
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
+    async def mcp_server(self) -> Optional[MCPServerConfig]:
         """Hosts the agent-wide `remember` / `grep_memory` tools."""
         return MCPServerConfig(
             server_name="general_memory_module",

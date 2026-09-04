@@ -141,7 +141,7 @@ recent dialogue is recent dialogue regardless of channel.
 # ============================================================================
 # Turn-context block (R4 turn-context relocation, 2026-07-25)
 # Per-turn volatile content (temporal block, narrative volatile state, module
-# get_turn_context blocks, recent background activity) is prepended to the
+# contribute_turn_context blocks, recent background activity) is prepended to the
 # CURRENT user message under this header, keeping the system prompt
 # byte-stable across turns so provider prefix caches can hit. The header
 # labels the block as background data — it deliberately does NOT instruct the

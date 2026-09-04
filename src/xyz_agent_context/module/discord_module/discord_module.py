@@ -10,7 +10,7 @@ bot to a server. One token, no OAuth scope dance at bind time.
 The agent-facing surface is messaging-first: dedicated ``discord_send`` /
 ``discord_reply`` / ``discord_read_history`` tools plus binding
 management — no generic REST dispatcher and no API-doc corpus. So
-``get_instructions`` is compact: discovery mode when not bound,
+``contribute_instructions`` is compact: discovery mode when not bound,
 operational mode (≤ 80 lines) when bound.
 
 The single load-bearing manual step is the **Message Content Intent**:
@@ -49,9 +49,9 @@ from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 #
 # Discord agents reply via ``discord_send(channel_id, text)`` or
 # ``discord_reply(channel_id, message_id, text)``. Without this handler
-# ChatModule.hook_after_event_execution treats every Discord turn as "no
+# ChatModule.after_turn treats every Discord turn as "no
 # response" and persists an activity row that the next turn's
-# hook_data_gathering then filters out — the agent would see zero history
+# gather then filters out — the agent would see zero history
 # from prior Discord turns.
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -243,7 +243,7 @@ class DiscordModule(ChannelModuleBase):
     def register_mcp_tools(self, mcp) -> None:
         register_discord_mcp_tools(mcp)
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
             # Setup-residency (B++): unbound agents get ONE line instead of

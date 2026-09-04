@@ -228,7 +228,7 @@ def format_attachments_for_system_prompt(
 ) -> str:
     """Render the current-turn attachment list as a system-prompt block.
 
-    Used by CommonToolsModule.get_instructions to inject the resolved
+    Used by CommonToolsModule.contribute_instructions to inject the resolved
     absolute paths of files the user uploaded with the latest message.
     The agent reads this block alongside the static Read instruction, so
     it knows which paths are "live" right now without having to scan

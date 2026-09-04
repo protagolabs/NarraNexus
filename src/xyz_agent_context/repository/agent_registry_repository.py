@@ -8,7 +8,7 @@ directory an agent is found in by other agents.
 Why it lives here and not in the message_bus module
 ---------------------------------------------------
 The table used to be written from exactly one place: an inline block inside
-``MessageBusModule.hook_data_gathering``. That made discovery a side effect of
+``MessageBusModule.gather``. That made discovery a side effect of
 taking a turn — an agent created and configured but not yet run was absent from
 the directory, and the only writer hardcoded ``capabilities=[]`` (P1 section 02).
 

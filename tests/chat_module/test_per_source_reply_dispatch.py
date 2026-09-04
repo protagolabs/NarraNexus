@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-05-11
 @description: Integration tests for MessageSource dispatch in
-ChatModule.hook_after_event_execution.
+ChatModule.after_turn.
 
 Validates that for each WorkingSource value, the right reply tool is
 recognised (so the row gets written as a real chat message rather than
@@ -152,7 +152,7 @@ async def test_chat_trigger_send_message_recognised_as_reply(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -189,7 +189,7 @@ async def test_lark_trigger_lark_cli_send_recognised_as_reply(chat_module):
         },
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -225,7 +225,7 @@ async def test_lark_trigger_non_send_lark_cli_does_not_count_as_reply(chat_modul
         agent_loop_response=[list_call],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -251,7 +251,7 @@ async def test_message_bus_trigger_send_message_recognised(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -273,7 +273,7 @@ async def test_message_bus_trigger_no_reply_writes_activity(chat_module):
         agent_loop_response=[],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -298,7 +298,7 @@ async def test_job_trigger_send_message_recognised(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -317,26 +317,26 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
     """End-to-end: write one chat row + one activity row, then load.
     long_term must drop the activity row."""
     # First turn: real chat reply.
-    await chat_module.hook_persist_turn(_hook_params(
+    await chat_module.persist_turn(_hook_params(
         working_source=WorkingSource.CHAT,
         agent_loop_response=[_progress_send_message("real chat")],
         input_content="user msg 1",
     ))
     # Second turn: lark trigger, no reply → activity row.
-    await chat_module.hook_persist_turn(_hook_params(
+    await chat_module.persist_turn(_hook_params(
         working_source=WorkingSource.LARK,
         agent_loop_response=[],  # no reply tool
         input_content="lark trigger payload",
     ))
 
-    # Now hook_data_gathering should drop the activity row.
+    # Now gather should drop the activity row.
     from xyz_agent_context.schema import ContextData
     ctx_data = ContextData(
         agent_id="a_disp",
         user_id="u_disp",
         input_content="next turn",
     )
-    ctx_data = await chat_module.hook_data_gathering(ctx_data)
+    ctx_data = await chat_module.gather(ctx_data)
     history = ctx_data.chat_history or []
     activities = [m for m in history
                   if (m.get("meta_data") or {}).get("message_type") == "activity"]
@@ -383,7 +383,7 @@ async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
         working_source=WorkingSource.MESSAGE_BUS, agent_loop_response=[frame],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -419,7 +419,7 @@ async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
             },
         },
     )
-    await chat_module.hook_persist_turn(_hook_params(
+    await chat_module.persist_turn(_hook_params(
         working_source=WorkingSource.MESSAGE_BUS,
         agent_loop_response=[frame],
         input_content="[Team] how is the OCR going?",
@@ -428,7 +428,7 @@ async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
     ctx_data = ContextData(
         agent_id="a_disp", user_id="u_disp", input_content="and the index?",
     )
-    ctx_data = await chat_module.hook_data_gathering(ctx_data)
+    ctx_data = await chat_module.gather(ctx_data)
 
     said = " ".join(
         str(m.get("content") or "") for m in (ctx_data.chat_history or [])

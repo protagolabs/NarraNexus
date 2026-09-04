@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 

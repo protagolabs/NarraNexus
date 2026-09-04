@@ -4,7 +4,7 @@
 @date: 2026-05-20
 @description: MCP server + narrative-awareness tools for BasicInfoModule (Fix #2 P3).
 
-The agent's conversation history (built by ChatModule.hook_data_gathering) is a
+The agent's conversation history (built by ChatModule.gather) is a
 single time-sorted timeline merging the current thread (full) with the latest
 ~30 lines across the user's OTHER threads, each line tagged
 `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`, plus a separate

@@ -30,7 +30,7 @@ Agent 重试或向用户道歉。(设计记录为作者本地,不入库)
 ## Why it exists
 
 Gives the agent visibility + agency over the unified chat timeline built by
-[[chat_module.py]] (`hook_data_gathering`). The system pre-picks a narrative for
+[[chat_module.py]] (`gather`). The system pre-picks a narrative for
 each turn, but that pick is imperfect (esp. for short replies). These four tools
 let the agent inspect threads/events and correct the routing.
 

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -35,7 +35,7 @@ owner 反馈「team 协作太啰嗦、agent 之间交互繁琐」,实测 dev 一
 
 PR#339 合并后 🟢 收尾 + PR#341 增量审的 3 Important 深修——**`_build_team_prompt` 内部的 patrol 自相矛盾这次修到根**:
 
-- **patrol 注入点名两个动词**：原只写 `do NOT call message_team`,但 patrol 轮 `get_disallowed_tools` 把 message_team + message_agent **两个都摘**。改为 `do NOT call message_team or message_agent — neither of those two calls is available on this turn`(措辞去掉 agent 面不该出现的内部词 `bus`/`desk`,Minor)。让 [[message_bus_module.py]] 静态块那句 `unless this turn's own prompt says otherwise` 的对冲在两个动词上都由本轮 prompt 显式否定兜住。**只点这两个 bus 动词**——`reply_owner`/`notify_owner` 在 patrol 不被摘（ChatModule patrol `return []`），写进去成假声明。
+- **patrol 注入点名两个动词**：原只写 `do NOT call message_team`,但 patrol 轮 `disallowed_tools` 把 message_team + message_agent **两个都摘**。改为 `do NOT call message_team or message_agent — neither of those two calls is available on this turn`(措辞去掉 agent 面不该出现的内部词 `bus`/`desk`,Minor)。让 [[message_bus_module.py]] 静态块那句 `unless this turn's own prompt says otherwise` 的对冲在两个动词上都由本轮 prompt 显式否定兜住。**只点这两个 bus 动词**——`reply_owner`/`notify_owner` 在 patrol 不被摘（ChatModule patrol `return []`），写进去成假声明。
 - **⚠️ 交付机制块下放非 patrol 分支（Important）**：同函数 165 行后那段 `Speak in this room by calling message_team(...). Rules:` + `Nothing you write outside that call reaches the room` + `make no call at all` + `Put ONLY the message in text` + action-tools,原来**无条件**执行——patrol 轮也拿到,于是同一 prompt 既禁 message_team 又命令调 message_team,且「outside the call 到不了房间」在 patrol 上字面为假（平台就是把纯文本贴成房间）。**用 `if patrol_stalled is None:` 把这几条 delivery-mechanism 收进非 patrol**;surface-无关的写作/@mention/Dunhuang 规则保持无条件(patrol 也 @ stalled owner、也不许承诺)。判别式复用现成的 `patrol_stalled is not None`,不新引第二个 flag。
 - **测试锁**：`test_patrol_turn.py::test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team`——断言 patrol prompt 的「do NOT call」行同时含两个动词,且**不含**「Speak in this room by calling message_team」「Nothing you write outside that call reaches the room」。非 patrol 的团队-prompt 契约测试(`test_visibility_wording.py` 里那几个)都不传 `patrol_stalled`、走非 patrol 分支,不受影响。`test_expressive_collection.py:361` docstring 引文同步补全。
 
@@ -43,7 +43,7 @@ PR#339 合并后 🟢 收尾 + PR#341 增量审的 3 Important 深修——**`_b
 
 配合 `message_bus_module` 删掉 trigger-channel 的发送动词 drop（详见该文件 mirror 同日条目）。本文件两处改动，均无控制流变化；其中「## Answer the peer」是**发给 agent 的 prompt 正文**，措辞改了 = agent 收到的指令随之变（属提示面变化，非纯注释）：
 
-- **`BUS_TEAM_ROOM_EXTRA_KEY` 注释**（trigger_extra_data 组装处）：从「get_disallowed_tools drops message_agent off the desk / 否则 post team replies into the wrong conversation」改为「这只是**默认 reply reminder** 的标记；不再删 peer 动词，每个内部发送动词每轮都可达；删掉这个标记只是把 reminder 默认翻成 peer 动词」。`team_room=is_team` 传参不变。
+- **`BUS_TEAM_ROOM_EXTRA_KEY` 注释**（trigger_extra_data 组装处）：从「disallowed_tools drops message_agent off the desk / 否则 post team replies into the wrong conversation」改为「这只是**默认 reply reminder** 的标记；不再删 peer 动词，每个内部发送动词每轮都可达；删掉这个标记只是把 reminder 默认翻成 peer 动词」。`team_room=is_team` 传参不变。
 - **「## Answer the peer — REQUIRED」注入** 第 1 点：从「reply to the asker … This is the point of the turn」软化为「usually the point；如果对方要求的事需要去别处行动（发团队群、私聊别人），你这一轮也能做——你的 teams 和 peers 都在 context 里」。不再把 `message_agent(to=sender)` 锁成唯一出口。
 
 `is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)` 与 patrol 标记逻辑不变。
@@ -521,7 +521,7 @@ Owner Relay,P1 原样复发。
 ### 为什么第 1 步必须 per-send —— 整轮盖章曾让 P1 换个位置复发
 
 第一版把整轮盖成 `message_bus_errand`。但**一轮不只包含差事**:
-`MessageBusModule.hook_data_gathering` 每轮调 `bus.get_unread`,而
+`MessageBusModule.gather` 每轮调 `bus.get_unread`,而
 [[local_bus]] 的实现是跨**所有** channel JOIN 成员表,把别的 channel 的未读
 注进 `extra_data`;模块提示词紧接着**要求**回答它们(「A question is never
 ping-pong — answer it」)。于是「A 在差事延续轮次里顺手回答了 C 在另一个

@@ -355,7 +355,7 @@ async def step_1_select_narrative(
     # Seed the bootstrap greeting into the HEAD narrative's chat instance, ONCE
     # per turn. The greeting's scope is (agent, user) — not per-narrative — so it
     # goes only to narrative_list[0], the authored/primary thread and the very
-    # instance ChatModule.hook_persist_turn persists into (the rest are BM25
+    # instance ChatModule.persist_turn persists into (the rest are BM25
     # read-side neighbours). Doing it here, at the start of the first turn, means
     # the greeting lands even if the turn never reaches the persist hook.
     #

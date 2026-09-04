@@ -38,7 +38,7 @@ class TurnProfile(BaseModel, frozen=True):
     # consistent — a fast turn must never vanish from history.
     narrative_persistence: Literal["ephemeral", "durable"] = "ephemeral"
     # NOTE deliberately absent: a reply_tool field. The reply surface is
-    # declared by modules (get_expressive_tools orders speak first on
+    # declared by modules (expressive_tools orders speak first on
     # voice turns via extra_data) — a profile field nothing consumes
     # would be exactly the declared-but-unimplemented schema trap
     # turn_input.py warns about.

@@ -15,26 +15,26 @@ stub: false
 
 PR#339 合并后增量 review 的 4 处 🟢 收尾（均非阻塞）：
 
-- **承载 context 承诺的失败必须可见 → `hook_data_gathering` 全部同类 sink 升 `warning` 且各自独立 message**（PR#341 两轮审 Important:判据对全部成立,不能只落一部分）：`team address book fetch failed (names query)` / `team address book wiring failed (db handle)` / `known agents fetch failed (agents scan)`（静态块承诺「everyone else you can reach is in Known Agents」+ 2026-08-02 P1 第 1 步靠它）/ `unread fetch failed`（静态块说「unread 已在 context,不用再取」）/ `team room labels failed`（`_room_labels`,team 房间会被误标成私聊）/ `agent discovery sync failed`（P1 section 02 的补救）。另外 **`_get_shared_db()` 自己的 debug 升 `warning`**（`shared DB client unavailable`）——它是 4 个调用点里「db 为 None 静默跳过」这条路的唯一可见点（调用方 `if db:` 落空不进各自 except）,一处覆盖 address book / discovery / known-agents。**只改级别/加日志,不动 `except` 的 fail-open,`if db:` 不改 assert/抛出,`_room_labels` 手写 raw SQL 不碰**（改 SQL 升级成需双方言验证）。
-- **patrol 注入只点名 `message_team`** → 改成 `do NOT call message_team or message_agent — no bus send tool is on the desk this turn`,与 `get_disallowed_tools` patrol 分支（两个都摘）对齐,让静态块那句 `unless this turn's own prompt says otherwise` 的对冲两个动词都真正被覆盖。**不写 `reply_owner`/`notify_owner`**——patrol 不摘它们（ChatModule patrol `return []`）,写进去就成假声明。改在 trigger 的 patrol 注入,不动静态块（不许按房间分叉）。
+- **承载 context 承诺的失败必须可见 → `gather` 全部同类 sink 升 `warning` 且各自独立 message**（PR#341 两轮审 Important:判据对全部成立,不能只落一部分）：`team address book fetch failed (names query)` / `team address book wiring failed (db handle)` / `known agents fetch failed (agents scan)`（静态块承诺「everyone else you can reach is in Known Agents」+ 2026-08-02 P1 第 1 步靠它）/ `unread fetch failed`（静态块说「unread 已在 context,不用再取」）/ `team room labels failed`（`_room_labels`,team 房间会被误标成私聊）/ `agent discovery sync failed`（P1 section 02 的补救）。另外 **`_get_shared_db()` 自己的 debug 升 `warning`**（`shared DB client unavailable`）——它是 4 个调用点里「db 为 None 静默跳过」这条路的唯一可见点（调用方 `if db:` 落空不进各自 except）,一处覆盖 address book / discovery / known-agents。**只改级别/加日志,不动 `except` 的 fail-open,`if db:` 不改 assert/抛出,`_room_labels` 手写 raw SQL 不碰**（改 SQL 升级成需双方言验证）。
+- **patrol 注入只点名 `message_team`** → 改成 `do NOT call message_team or message_agent — no bus send tool is on the desk this turn`,与 `disallowed_tools` patrol 分支（两个都摘）对齐,让静态块那句 `unless this turn's own prompt says otherwise` 的对冲两个动词都真正被覆盖。**不写 `reply_owner`/`notify_owner`**——patrol 不摘它们（ChatModule patrol `return []`）,写进去就成假声明。改在 trigger 的 patrol 注入,不动静态块（不许按房间分叉）。
 - **suppression 侧跨轮次防泄漏守卫补回**：`test_bus_expressive_declaration.py::test_suppression_reads_each_turn_on_a_reused_instance`——一个实例 patrol→bus→patrol,最后回 patrol 让「replay 上一轮 `[]`」蒙混不过。
 - **命名/文档漂移**：cross-channel 锁测试改名 `test_the_block_does_not_confine_the_agent_to_the_trigger_channel`（旧名 says…available 与软化后的断言脱节）；`last_verified` 刷到 2026-08-21。
 
 ## 2026-08-20 — 通信能力跟着 agent 走，不再被触发渠道绑死
 
-**背景（实锤事故）**：老板让 Loki 转达「以后回执发到 Arena 群，别只私聊回我」。Loki 逐个私聊群发，四个成员全都懂这条指令，却没一个发进群——两个退回 `message_agent(to=Loki)` 私聊回，一个 `tool_search("message team room send")` 搜不到 `message_team` 直接空手结束（`system_undelivered`）。根因：`get_disallowed_tools` 按**触发渠道**把非默认的发送动词塞进 `disallowed_tools`，而 dispatcher `visible = 频道工具 − disallowed`，于是那个动词**既不能调也搜不到**。「不是本轮默认」被实现成了「本轮禁止」。
+**背景（实锤事故）**：老板让 Loki 转达「以后回执发到 Arena 群，别只私聊回我」。Loki 逐个私聊群发，四个成员全都懂这条指令，却没一个发进群——两个退回 `message_agent(to=Loki)` 私聊回，一个 `tool_search("message team room send")` 搜不到 `message_team` 直接空手结束（`system_undelivered`）。根因：`disallowed_tools` 按**触发渠道**把非默认的发送动词塞进 `disallowed_tools`，而 dispatcher `visible = 频道工具 − disallowed`，于是那个动词**既不能调也搜不到**。「不是本轮默认」被实现成了「本轮禁止」。
 
 **改动**：把「触发渠道 = 能力边界」拆成三件独立的事——①你在哪被叫醒（context 线索，不变）②你能触达谁（standing，各模块各报）③你桌上有啥（默认只有触发渠道对应的那一个 reminder）。
 
-- `get_disallowed_tools`：**删掉 trigger-channel drop**。**非 patrol 轮次一律不 suppress（`return []`）——bus / owner-chat / job / IM 皆然**（无条件,不检查 `owns_working_source`;这与「能力跟着 agent 走」一致:owner 私聊里也能让 agent 发团队群。owner-chat 的旧防御靠的是 `get_expressive_tools` 不声明 reminder,那半仍在)。`message_agent`/`message_team` 双双留在桌上/可搜。唯一仍清空两者的是 **patrol**（靠说话投递、不调发送工具），保留。静态指令那句「你能跨渠道」带 **"unless this turn's own prompt says otherwise"** 对冲,才在 patrol 面（两个动词确实被摘）上不为假——byte-stable 不许按房间分叉。
-- `get_expressive_tools`：**行为不变**——仍只声明触发渠道对应的那一个默认 reminder（省力路径 = 在被问的地方回答）。改用 `_is_team_turn` 保持 DRY。反误发不靠删工具，靠「默认省力 / 跨渠道要 search+显式 target」的意图梯度（Owner 定：误发是 agent 智能问题，随水位自愈，不加硬闸）。
+- `disallowed_tools`：**删掉 trigger-channel drop**。**非 patrol 轮次一律不 suppress（`return []`）——bus / owner-chat / job / IM 皆然**（无条件,不检查 `claims_source`;这与「能力跟着 agent 走」一致:owner 私聊里也能让 agent 发团队群。owner-chat 的旧防御靠的是 `expressive_tools` 不声明 reminder,那半仍在)。`message_agent`/`message_team` 双双留在桌上/可搜。唯一仍清空两者的是 **patrol**（靠说话投递、不调发送工具），保留。静态指令那句「你能跨渠道」带 **"unless this turn's own prompt says otherwise"** 对冲,才在 patrol 面（两个动词确实被摘）上不为假——byte-stable 不许按房间分叉。
+- `expressive_tools`：**行为不变**——仍只声明触发渠道对应的那一个默认 reminder（省力路径 = 在被问的地方回答）。改用 `_is_team_turn` 保持 DRY。反误发不靠删工具，靠「默认省力 / 跨渠道要 search+显式 target」的意图梯度（Owner 定：误发是 agent 智能问题，随水位自愈，不加硬闸）。
 - **通讯录**：新增 standing `bus_teams`。取数抽成 producer `_team_address_book(db, team_ids)`（对标 `_room_labels`：producer 与 renderer 分开，好单测），hook 传入 known-agents 已解析的 `my_team_ids`——**成员关系不二次查询**，producer 只多读一次 team 名称。`_volatile_context_parts` 渲染「### Your teams」带 `team_id`。补掉第二个盲区：DM 轮次里 `bus_room_labels` 只给触发窗口内的房间，`message_team(team_id=…)` 之前没地址。cap `MAX_TEAMS_IN_CONTEXT=30` **在 fetch 侧就截**，且 `sorted(team_ids)` 后再截（超 cap 时哪些团队存活可复现，不看查询行序）。地址簿放在**自己的 try（步骤 2b）**、`my_team_ids` 提到 known-agents try 外：known-agents 段末尾的 `agents` 全表扫描抛异常也不会连带丢掉通讯录。测试 `test_bus_address_book.py` 覆盖三层：producer（真 db，删 producer body 变红；含 except→`[]`、cap）、hook 装填（membership→producer→extra_data，删 hook 调用变红）、renderer（含 cap 与 heading 一致）。
 
-**文案扫一类（本文件三处 + 兄弟文件）**：静态指令「exactly ONE of these two calls per turn / a fresh one will have that call」改成「The conversation that woke you is only where a plain reply goes by default … you are not confined to it. Unless this turn's own prompt says otherwise …」（`unless…otherwise` 对冲让它在 patrol 面也为真）；`get_disallowed_tools`/`get_expressive_tools` docstring、`BUS_TEAM_ROOM_EXTRA_KEY` 注释（在 trigger）、「## Answer the peer」注入（在 trigger）、被删 channel-list 的注释一并改。测试锁：`test_visibility_wording.py::test_the_block_does_not_confine_the_agent_to_the_trigger_channel`（2026-08-21 改名）、`test_bus_expressive_declaration.py`（desk 系列重写）、新 `test_bus_address_book.py`。删掉任一处代码 → 对应测试变红。
+**文案扫一类（本文件三处 + 兄弟文件）**：静态指令「exactly ONE of these two calls per turn / a fresh one will have that call」改成「The conversation that woke you is only where a plain reply goes by default … you are not confined to it. Unless this turn's own prompt says otherwise …」（`unless…otherwise` 对冲让它在 patrol 面也为真）；`disallowed_tools`/`expressive_tools` docstring、`BUS_TEAM_ROOM_EXTRA_KEY` 注释（在 trigger）、「## Answer the peer」注入（在 trigger）、被删 channel-list 的注释一并改。测试锁：`test_visibility_wording.py::test_the_block_does_not_confine_the_agent_to_the_trigger_channel`（2026-08-21 改名）、`test_bus_expressive_declaration.py`（desk 系列重写）、新 `test_bus_address_book.py`。删掉任一处代码 → 对应测试变红。
 
 **ChatModule 未动**：它的 reply_owner/notify_owner drop 是同一个 party（owner）的两种 register（同步 chat vs 异步 inbox），是模式相关而非「另一个会话」，且 bus 轮次本就保留 `notify_owner`——留待后续统一时再评估。
 
-## 2026-08-19 — hook_after_event_execution 复用 primary_room_of
+## 2026-08-19 — after_turn 复用 primary_room_of
 
 `replied_teams → 房间 channel` 的解析从手写第五份 `created_by==team_<id> marker` 查询改为调 `team_rooms.primary_room_of(db, tid)`（marker 组合的唯一来源）。行为等价（`primary_room_of(None,...)` 内部 try/except 返回 None，保留旧「拿不到 db 就跳过」语义），去掉了会随 `primary_room_of` 演进而漂移的副本。
 
@@ -76,7 +76,7 @@ PR#339 合并后增量 review 的 4 处 🟢 收尾（均非阻塞）：
 team → `message_team`，peer → `message_agent`。新增
 `test_exactly_one_verb_per_surface`——那条不变量是整个改造的立论，此前无人守。
 
-`get_disallowed_tools` 已覆写但**目前返回空**：基类钩子不收 `ctx_data`，拿不到本轮的
+`disallowed_tools` 已覆写但**目前返回空**：基类钩子不收 `ctx_data`，拿不到本轮的
 team 标记。docstring 明写了这一点，所以 spec §4.5 的桌面表**尚未完全强制**——声明是目前
 唯一的收窄手段。别读成已经做完。
 
@@ -103,7 +103,7 @@ P1——现在一个 surface 一个动词），改为断言它指向本轮；「
 
 ### 一个功能 bug：改名让读游标死锁
 
-`hook_after_event_execution` 靠在 trace 里匹配 `message_team` / `message_agent`
+`after_turn` 靠在 trace 里匹配 `message_team` / `message_agent`
 判断「这一轮回复了吗」，据此推进 `last_read_at`。两个工具改名后它**仍在匹配旧名**，于是
 **什么都不算回复、游标永不推进**——正是刚在 IM inbox 侧修掉的那种永久未读死锁，被一次改名
 在 peer 侧重新引入。现在匹配 `message_agent` / `message_team`，后者还要把 team 解析成房间
@@ -161,7 +161,7 @@ docstring 里的实现名保留（agent 看不到）。
 - **两个分支同时成立的规则不是规则。** 初稿写的是「给了投递工具就用工具；说了替你
   上墙就写纯文本」——而 team 轮次上**两个前件都为真**（team gate 只清空
   expressive **声明**，工具 schema 仍在上下文里，因为本模块没有
-  `get_disallowed_tools`），句子又没给优先级，模型能直接照着工具列表走的恰好是双发
+  `disallowed_tools`），句子又没给优先级，模型能直接照着工具列表走的恰好是双发
   那条。改成**例外式**：team 那条放最前、写成禁令，工具那条做兜底。
 - **`[MessageBus · …]` 格式有三份，且示例是错的。** 示例写四段（display name +
   id），两个渲染点都是三段。以前只是装饰，现在规则要求"读标签里的发送者"，它就成了
@@ -171,13 +171,13 @@ docstring 里的实现名保留（agent 看不到）。
 
 ### 第三轮（预审 Critical）—— input 源标签**从来没有存在过**
 
-`hook_data_gathering` 第 5 步那段"给输入加 `[MessageBus · …]` 前缀"的代码，**两处
+`gather` 第 5 步那段"给输入加 `[MessageBus · …]` 前缀"的代码，**两处
 断链，一次都没跑过**：
 
 1. 它 gate 在 `extra_data["working_source"]` 上——**全仓没人往这个键写**。
    `working_source` 是 ContextData 的**字段**（`context_runtime.py:147` 播种），而
    `extra_data` 只装 `trigger_extra_data`。正确读法在同一文件往上八行
-   （`get_expressive_tools` 用 `working_source_matches(ctx_data.working_source, …)`）。
+   （`expressive_tools` 用 `working_source_matches(ctx_data.working_source, …)`）。
 2. 就算 gate 过了，它写的是 `extra_data["input_content"]`——**全仓唯一的读者就是它
    自己那两行**。模型真正收到的是**字段** `ctx_data.input_content`
    （`context_runtime.py:1032`）。
@@ -250,7 +250,7 @@ team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松（
 `test_the_delivery_rule_defers_the_mechanism_to_the_surface`）。
 
 **未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
-（`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
+（`disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
 ② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
 `bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
 team 房间，房间消息在 scrollback 之外被二次渲染。
@@ -258,7 +258,7 @@ team 房间，房间消息在 scrollback 之外被二次渲染。
 ### ⚠️ 这一轮**没有**让 team 房间的矛盾归零 —— [[chat_module/prompts]] 里还有更大的一份
 
 `CHAT_MODULE_INSTRUCTIONS` 无条件进系统提示（`chat_module.py:232` → 基类
-`get_instructions`，**没有任何 team gate**；全仓消费 `BUS_TEAM_ROOM_EXTRA_KEY` 的
+`contribute_instructions`，**没有任何 team gate**；全仓消费 `BUS_TEAM_ROOM_EXTRA_KEY` 的
 只有 `context_runtime` 和本模块）。它说的是：
 
 > "Your plain text output is your **private self-thinking** — the user CANNOT see it"
@@ -302,7 +302,7 @@ profile needs updating` 有两重问题：工具本身已删（见
 
 两处（P1 段02）：
 
-1. `hook_data_gathering` 里那段内联注册（硬编码 `capabilities=[]`、把
+1. `gather` 里那段内联注册（硬编码 `capabilities=[]`、把
    `agent_description` 原样当描述发布）换成调 [[agent_discovery_sync]] 的
    `sync_agent_discovery`。那段代码是"`bus_search_agents` 对任何查询都返回空"
    和"配置好的 agent 被报成待配置"的直接原因（prod 全表 488 行）。现在这里只是
@@ -316,13 +316,13 @@ profile needs updating` 有两重问题：工具本身已删（见
 ## 2026-08-04 — bus 轮次的回复面声明（origin-aware）+「干完活必须交付」纪律
 
 P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）
-的声明侧修复。新增 `get_expressive_tools(ctx_data)` 覆写：**只在**
+的声明侧修复。新增 `expressive_tools(ctx_data)` 覆写：**只在**
 working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_agent`
-（fully-qualified，派生自 get_mcp_config().server_name）。三重门：
+（fully-qualified，派生自 mcp_server().server_name）。三重门：
 ① 非 bus 轮不声明（chat 轮广告 bus 工具会诱导经 bus 回 owner）；
 ② team 房（extra_data `bus_team_room`，由 [[message_bus_trigger]] 盖章）不声明——
 纯文本自动上墙、prompt 禁投递工具，声明会诱导双发；③ 无 ctx 不声明。
-配套 `owns_working_source`：收集点（[[context_runtime]]）把来源模块的声明排
+配套 `claims_source`：收集点（[[context_runtime]]）把来源模块的声明排
 到最前，默认回复工具从此跟着「谁联系的你」走。
 
 Reply Discipline 同批加一条「**Finished work is never ping-pong — deliver it**」：
@@ -359,20 +359,20 @@ Reply Discipline 同批加了一条「问题从来不是 ping-pong,必须回答�
 [[message_bus_trigger]] 那侧把假的 Owner Relay 指令换掉。这条文案保留是
 因为它本身正确、且对强模型有用,**不要**把它当成该问题的修复。
 
-## 2026-07-28 — R4b：三个数据列表搬进 get_turn_context
+## 2026-07-28 — R4b：三个数据列表搬进 contribute_turn_context
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
 
-`get_instructions` 原本 = 使用规则 + Known Agents / Your Channels / Unread
+`contribute_instructions` 原本 = 使用规则 + Known Agents / Your Channels / Unread
 Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会话中途改变
 （prod 稳定性 11/17）。现拆为：
 
 - `_static_instruction_parts()` — 使用规则（仅烘焙 self.agent_id，会话内恒定）。
 - `_volatile_context_parts(ctx_data)` — 三个列表，渲染逻辑（MAX_* 上限、顺序、
   文案）零改动。
-- `get_instructions` — flag 开 → 只拼 static（轮间字节稳定）；关 → static +
+- `contribute_instructions` — flag 开 → 只拼 static（轮间字节稳定）；关 → static +
   volatile 同块拼接（legacy 逐字节一致）。
-- `get_turn_context` — `### MessageBus — Current State` 稳定标题 + 三个列表；
+- `contribute_turn_context` — `### MessageBus — Current State` 稳定标题 + 三个列表；
   三个列表全空 → ""。
 
 "unread messages are already injected into your context automatically"（规则
@@ -414,7 +414,7 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 
 ## 为什么存在
 
-`MessageBusModule` 是 `XYZBaseModule` 的子类，遵循 Module 热插拔协议。它负责两件事：在每次 AgentRuntime 执行前（`hook_data_gathering()`）把 MessageBus 的状态（未读消息、频道列表、已知 Agent）注入上下文；在 MCP 服务器里暴露 MessageBus 操作工具供 LLM 调用。
+`MessageBusModule` 是 `XYZBaseModule` 的子类，遵循 Module 热插拔协议。它负责两件事：在每次 AgentRuntime 执行前（`gather()`）把 MessageBus 的状态（未读消息、频道列表、已知 Agent）注入上下文；在 MCP 服务器里暴露 MessageBus 操作工具供 LLM 调用。
 
 如果没有这个 Module，Agent 就对 MessageBus 的存在毫无感知——不知道有新消息，也不能主动发消息或管理频道。
 
@@ -422,29 +422,29 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 
 **被谁加载**：ModuleService 根据 `MODULE_MAP` 在 AgentRuntime 初始化时按需加载；MCP 服务器通过 `module_runner.py` 启动时实例化。
 
-**调用谁**：实例化一个 `LocalMessageBus`（通过 `get_db_client()` 取 backend）；调用 `_message_bus_mcp_tools.py` 里的工具函数暴露 MCP 工具；在 `hook_data_gathering()` 里调用 `bus.get_unread()`、`bus.get_channel_members()` 等取数据。
+**调用谁**：实例化一个 `LocalMessageBus`（通过 `get_db_client()` 取 backend）；调用 `_message_bus_mcp_tools.py` 里的工具函数暴露 MCP 工具；在 `gather()` 里调用 `bus.get_unread()`、`bus.get_channel_members()` 等取数据。
 
 ## 设计决策
 
 Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有一个全局共享的 MessageBusModule 实例，不是每个 Narrative 各自一个。这是因为 MessageBus 是 Agent 级别的通信能力，不需要按 Narrative 隔离。
 
 未读列表里每一行以 `[MessageBus · {sender} · {channel}]` 开头（类似 Matrix 的
-`[Matrix · ...]` 前缀）。**2026-08-17 更正**：此处原先写的是"`hook_data_gathering()`
+`[Matrix · ...]` 前缀）。**2026-08-17 更正**：此处原先写的是"`gather()`
 注入的**消息**以该前缀开头"，并声称 `continuity.py` 的 `_extract_core_content()`
 依赖它、改格式要同步改它——**两句都不成立**。给**输入**加前缀的那段代码从未执行过
 （见同日条目，已删除）；`continuity.py` 在本分支不存在，全仓也没有任何解析该标签的
 消费者（`git grep '\[MessageBus'` 只剩生产端和文案）。格式的唯一定义点现在是
 `_bus_tag()`，指令里那个示例由它生成，所以文案与实现不会再分叉。
 
-~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`hook_data_gathering()` 注入的信息会更精简。~~
-**2026-08-11 更正:这句是反的,而且从来没实现过。** `hook_data_gathering` 里没有任何
+~~在 `WorkingSource.MESSAGE_BUS` 触发路径下，`gather()` 注入的信息会更精简。~~
+**2026-08-11 更正:这句是反的,而且从来没实现过。** `gather` 里没有任何
 `working_source` 分支 —— Known Agents / Your Channels / Unread Messages 三份列表对
 **每一个**场景一视同仁地注入,包括 owner 私聊、job、以及各 IM 渠道的轮次。本文件里
 唯一读 `working_source` 的地方只用来给 input 加 `[MessageBus · …]` 源标签。
 
 > **2026-08-17 更正（重要，别照着删代码）**：上面这句现在两半都不成立。给 input 加
 > 源标签的那段**从未执行过、已删除**（见同日条目）。本文件如今读 `working_source`
-> 的是 `owns_working_source` → `get_expressive_tools`——**那是活的**，它让 bus 轮次
+> 的是 `claims_source` → `expressive_tools`——**那是活的**，它让 bus 轮次
 > 的默认回复工具跟着"谁联系的你"走，正是 2026-08-01 briefing squad P0（只声明
 > owner-chat 工具导致干完的活落进 owner 窗口、求助者永远收不到）的修复。看到"源标签
 > 分支已删"就顺手清 `working_source` 读点的话，会把那个 P0 重新打开。
@@ -458,11 +458,11 @@ Instance 级别是 **Agent-level**（`is_public=True`），即每个 Agent 有�
 
 `MESSAGE_BUS_MCP_PORT = 7820` 是该 Module 的 MCP 服务器端口，如果其他 Module 使用了这个端口会发生冲突。新增 Module 时注意检查端口占用。
 
-Module 实例是 Agent-level 的，但 `hook_data_gathering()` 运行时的 `agent_id` 来自 `ctx_data.agent_id`——同一个 Module 实例可能为不同的请求提供服务，不要在实例变量里缓存 agent_id 相关的状态。
+Module 实例是 Agent-level 的，但 `gather()` 运行时的 `agent_id` 来自 `ctx_data.agent_id`——同一个 Module 实例可能为不同的请求提供服务，不要在实例变量里缓存 agent_id 相关的状态。
 
 ## 新人易踩的坑
 
-`MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.hook_data_gathering()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
+`MessageBusTrigger`（外部驱动 Agent 处理消息）和 `MessageBusModule.gather()`（Agent 主动查询 bus 状态）是两个独立的机制，可以同时工作。不要误以为开启了 Module 就不需要跑 `MessageBusTrigger`——前者是"Agent 主动感知 bus"，后者是"bus 主动推送消息给 Agent"。
 
 ## 2026-08-11 — 未读注入:窗口取最新、总数单独查、源标签取对头
 
@@ -510,7 +510,7 @@ owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"�
 修一份留一份,正是这次改动开篇要消灭的「同一个上下文窗口里两句矛盾的话」,只是位置
 挪了一百行。铁律 #8 说的"加功能时顺手扫一遍相邻代码",这次没扫到。
 
-## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+## 2026-08-18 — `disallowed_tools(ctx_data)` 签名同步
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
@@ -520,7 +520,7 @@ owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"�
 `### Your Channels` 块把裸 `channel_id` 和 `channel_type` 印进每一轮上下文 —— 正是本次
 改造要拿掉的词汇（spec §3.1「没有 channel」/ §8 验收标准）。它存在的唯一理由是让
 `read_history(channel_id=...)` 可调用；该工具改成按把手取（`with_agent` / `team_id`，见
-[[_message_bus_mcp_tools.py]]）之后，这个列表没有读者了，连带 `hook_data_gathering` 里
+[[_message_bus_mcp_tools.py]]）之后，这个列表没有读者了，连带 `gather` 里
 那条每轮白跑的 top-20 查询和 `MAX_CHANNELS_IN_CONTEXT` 一并删除。
 
 更硬的一处是 `_bus_tag`：它的第二个字段原本是 `channel_id`，出现在**每一条**未读消息行上，
@@ -545,7 +545,7 @@ owner 聊天轮和 job 轮。两处因此站不住：
    团队房间、也没有那行开头。改成有条件的真话：「当其中一种唤醒了你时，开头会说是哪种」。
    spec §6.1/P7 想要的那个由 registry 统一渲染的来源声明仍未建（见 §13 待补条目），这句话
    在它建成前不能替它做承诺。
-2. 块教两个发送动词，而 `get_disallowed_tools` 每轮撤掉其中一个的 schema —— 于是「提示点名
+2. 块教两个发送动词，而 `disallowed_tools` 每轮撤掉其中一个的 schema —— 于是「提示点名
    一个不存在的工具」这个本改造要消灭的失败，出现在本改造自己的介绍里。字节稳定排除了分支，
    唯一可用的修法是说真话：明写每轮只有一个、并给出想联系另一种处境时的下一步（结束本轮）。
 

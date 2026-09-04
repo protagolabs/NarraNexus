@@ -934,7 +934,7 @@ group thread.
 - [[channel_trigger_base]] — base class; `_build_and_run_agent_silent_batch`
   is the shared silent-mode entry point.
 - [[agent_runtime.py]] — `silent=True` runtime mode.
-- [[chat_module.py]] — silent-batch write path in `hook_persist_turn`.
+- [[chat_module.py]] — silent-batch write path in `persist_turn`.
 - [[narramessenger_trigger]] — polling transport, coexists with this.
 - [[_narramessenger_credential_manager]] — where matrix creds live
   (`connection_mode='matrix'` rows).

@@ -150,7 +150,7 @@ class WeChatModule(ChannelModuleBase):
     def register_mcp_tools(self, mcp) -> None:
         register_wechat_mcp_tools(mcp)
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
             # Setup-residency (B++): unbound agents get ONE line pointing

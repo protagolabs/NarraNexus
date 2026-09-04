@@ -15,7 +15,7 @@ a team room. Two consequences, and neither is negotiable:
    six review rounds on exactly this shape of bug.
 2. **It must not name the owner-facing tool.** There are two of them —
    `reply_owner` and `notify_owner` — and the turn's desk carries exactly one
-   (see `ChatModule.get_expressive_tools` / `get_disallowed_tools`). A literal
+   (see `ChatModule.expressive_tools` / `disallowed_tools`). A literal
    here would be the wrong name on every turn that got the other, and prose
    naming a tool the model cannot see is the failure this whole redesign was
    about: 615 calls in prod to two tools documented "Do NOT call".

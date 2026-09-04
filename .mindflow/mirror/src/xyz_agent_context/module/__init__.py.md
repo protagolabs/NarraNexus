@@ -62,7 +62,7 @@ stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 
 
 **`rebuild_module_instance_model()` 在 import 时调用**：`ModuleInstance` schema 里有 `Optional["XYZBaseModule"]` forward reference，在所有 Module 类都定义完之后才能 resolve。这个调用必须在 `__init__.py` 里执行，因为这是所有类都已 import 之后最早的时机。
 
-**`MemoryModule` 排在 `MODULE_MAP` 第一位**：注释说"最高优先级，确保在其他模块之前执行"。这依赖 `ModuleLoader` 在顺序执行 `hook_data_gathering` 时保留 `MODULE_MAP` 的顺序，`MemoryModule` 需要先把 EverMemOS 查询结果缓存到 `ctx_data.extra_data`，后续的 `ChatModule` 才能读取。
+**`MemoryModule` 排在 `MODULE_MAP` 第一位**：注释说"最高优先级，确保在其他模块之前执行"。这依赖 `ModuleLoader` 在顺序执行 `gather` 时保留 `MODULE_MAP` 的顺序，`MemoryModule` 需要先把 EverMemOS 查询结果缓存到 `ctx_data.extra_data`，后续的 `ChatModule` 才能读取。
 
 ## Gotcha / 边界情况
 

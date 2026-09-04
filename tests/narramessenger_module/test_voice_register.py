@@ -132,11 +132,11 @@ async def test_expressive_surface_leads_with_speak_on_voice_turns(monkeypatch):
     voice_ctx = SimpleNamespace(
         working_source="narramessenger", extra_data={"rtc_voice": RTC}
     )
-    tools = await module.get_expressive_tools(voice_ctx)
+    tools = await module.expressive_tools(voice_ctx)
     assert tools[0] == "mcp__narramessenger_module__speak"
     assert "mcp__narramessenger_module__narra_reply" in tools
 
     normal_ctx = SimpleNamespace(working_source="narramessenger", extra_data={})
-    normal = await module.get_expressive_tools(normal_ctx)
+    normal = await module.expressive_tools(normal_ctx)
     assert "mcp__narramessenger_module__speak" not in normal
     assert normal[0] == "mcp__narramessenger_module__narra_reply"

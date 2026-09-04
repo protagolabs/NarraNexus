@@ -36,7 +36,7 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
     """
     Build the HookAfterExecutionParams for a completed turn.
 
-    Shared by the synchronous persistence phase (`hook_persist_turn`, run by
+    Shared by the synchronous persistence phase (`persist_turn`, run by
     agent_runtime right after Step 4) and the background phase (Step 5 below),
     so the current-instance resolution lives in exactly one place. Read-only over
     ctx; resolves the "current instance" (the ChatModule/JobModule whose hooks
@@ -61,7 +61,7 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
         #   Extended from the CHAT-only branch on 2026-07-02 so IM
         #   channels stop resolving to ``params.instance=None`` (which
         #   would silently break any future hook that reads it —
-        #   ChatModule.hook_persist_turn is unaffected because it uses
+        #   ChatModule.persist_turn is unaffected because it uses
         #   ``self.instance_id``, but ``_job_lifecycle`` and any
         #   symmetric hooks added later would trip).
         if ctx.working_source == WorkingSource.JOB:
@@ -164,19 +164,19 @@ async def step_5_execute_hooks(
     )
 
     # Build structured Hook parameters (shared with the synchronous
-    # hook_persist_turn phase — see build_after_execution_params above).
+    # persist_turn phase — see build_after_execution_params above).
     hook_params = build_after_execution_params(ctx)
 
     # Get information about hooks to be executed
     hooks_to_execute = []
     for module in ctx.module_list:
-        if hasattr(module, 'hook_after_event_execution'):
+        if hasattr(module, 'after_turn'):
             hooks_to_execute.append(module.config.name)
             ctx.substeps_5.append(f"[5.{len(hooks_to_execute)}] Preparing to execute: {module.config.name}")
 
     logger.info(f"  Hooks to execute: {hooks_to_execute}")
 
-    callback_results = await hook_manager.hook_after_event_execution(
+    callback_results = await hook_manager.after_turn(
         ctx.module_list, hook_params
     )
 

@@ -1809,7 +1809,7 @@ class MessageBusTrigger:
                     team_id=team_id if is_team else "",
                     # The team-room marker for this turn. It rides
                     # trigger_extra_data so MessageBusModule can read it:
-                    # get_expressive_tools points the reply reminder at
+                    # expressive_tools points the reply reminder at
                     # `message_team` (not the peer `message_agent`). It no longer
                     # drops the peer verb — every internal send verb stays
                     # reachable on every turn (capability follows the agent). So
@@ -3607,7 +3607,7 @@ class MessageBusTrigger:
             # mid-turn injection). See run_registry / steer_channel.
             steering=steering,
             # Same seam. A team room's reply has to be POSTED inside the turn:
-            # the chat rows are written by hook_persist_turn before run()
+            # the chat rows are written by persist_turn before run()
             # returns, so a post that lands after it cannot be recorded as a
             # reply — which is why every team turn used to file as "no reply
             # sent" and start the next one cold.
@@ -3616,7 +3616,7 @@ class MessageBusTrigger:
                 "retrieval_anchor": retrieval_anchor,
                 # Default-reply marker: on a team-room turn the DEFAULT reply
                 # verb is `message_team`, not the peer `message_agent`.
-                # MessageBusModule reads it (get_expressive_tools) to point the
+                # MessageBusModule reads it (expressive_tools) to point the
                 # reply reminder at message_team. It no longer removes the peer
                 # verb: every internal send verb stays reachable on every turn
                 # (capability follows the agent, not the trigger channel).

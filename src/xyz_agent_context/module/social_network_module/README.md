@@ -21,7 +21,7 @@ Social Network Module provides **social network recording and search** capabilit
    - `search_social_network` - Search the social network (by expertise area)
    - `get_contact_info` - Get contact information
 
-3. **Hook: hook_data_gathering**
+3. **Hook: gather**
    - Automatically loads current interaction entity info when building context
    - Lets the Agent know "what I already know about the other party"
 
@@ -31,7 +31,7 @@ Social Network Module provides **social network recording and search** capabilit
 
 ### Pending (Phase 2)
 
-- `hook_after_event_execution` - Automatic post-event summarization
+- `after_turn` - Automatic post-event summarization
 - Semantic search (using vector embeddings)
 - Intent recognition (during data-gathering phase)
 - Automatic relationship strength calculation
@@ -281,7 +281,7 @@ utils/database_table_management/
 ## Next Steps (Phase 2)
 
 ### 1. Automatic Summarization
-- Implement `hook_after_event_execution`
+- Implement `after_turn`
 - Detect identity information in conversations
 - Automatically call LLM for information extraction
 
@@ -291,7 +291,7 @@ utils/database_table_management/
 - Implement natural language search
 
 ### 3. Intent Recognition
-- Recognize in `hook_data_gathering`:
+- Recognize in `gather`:
   - Whether other entities are mentioned
   - Whether expert search is needed
 - Prompt Agent to proactively call tools

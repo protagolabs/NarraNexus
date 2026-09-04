@@ -10,7 +10,7 @@ Hook Schema - Hook system data models
 Design Goals
 =============================================================================
 
-Structuring the **kwargs parameters of hook_after_event_execution into several data models:
+Structuring the **kwargs parameters of after_turn into several data models:
 
 1. HookExecutionContext - Execution context (required)
    - event_id, agent_id, user_id, working_source
@@ -24,7 +24,7 @@ Structuring the **kwargs parameters of hook_after_event_execution into several d
 4. ctx_data: ContextData - Complete context (existing, optional)
 
 Usage example:
-    await hook_manager.hook_after_event_execution(
+    await hook_manager.after_turn(
         execution_ctx=HookExecutionContext(...),
         io_data=HookIOData(...),
         trace=HookExecutionTrace(...),  # optional
@@ -297,7 +297,7 @@ class HookExecutionTrace:
 @dataclass
 class HookAfterExecutionParams:
     """
-    Complete parameter package for hook_after_event_execution
+    Complete parameter package for after_turn
 
     Packages all parameters into a single object for convenient passing and usage.
     Modules can access individual parts as needed.
@@ -311,7 +311,7 @@ class HookAfterExecutionParams:
 
     Usage:
         # In a Module's hook
-        async def hook_after_event_execution(self, params: HookAfterExecutionParams):
+        async def after_turn(self, params: HookAfterExecutionParams):
             if params.execution_ctx.working_source == "job":
                 # Handle post-Job execution logic
                 job_id = params.ctx_data.extra_data.get("job_id")

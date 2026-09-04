@@ -38,12 +38,12 @@ def test_config_tools_and_cloud_silence(env, monkeypatch):
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert names == TOOLS
     ctx = ContextData(agent_id="a1", user_id="u1", input_content="hi")
-    text = asyncio.run(module.get_instructions(ctx))
+    text = asyncio.run(module.contribute_instructions(ctx))
     assert "plugin_scaffold" in text and "approval" in text
-    assert asyncio.run(module.get_mcp_config()).server_name == "nexus_plugins_module"
+    assert asyncio.run(module.mcp_server()).server_name == "nexus_plugins_module"
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
-    assert asyncio.run(module.get_instructions(ctx)) == ""
-    assert asyncio.run(module.get_mcp_config()) is None
+    assert asyncio.run(module.contribute_instructions(ctx)) == ""
+    assert asyncio.run(module.mcp_server()) is None
 
 
 @pytest.mark.parametrize("tool", sorted(TOOLS))

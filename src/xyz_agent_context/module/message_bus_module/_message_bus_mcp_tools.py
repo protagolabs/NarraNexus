@@ -72,7 +72,7 @@ def _send_turn_source(*, to_agent: str = "", channel_id: str = "") -> Optional[s
 
     Why per-send and not per-turn: a bus turn is not homogeneous. Unread bus
     messages are injected from ALL channels every turn
-    (``MessageBusModule.hook_data_gathering`` → ``bus.get_unread``), and the
+    (``MessageBusModule.gather`` → ``bus.get_unread``), and the
     module prompt REQUIRES answering them ("A question is never ping-pong").
     So an errand-continuation turn routinely also answers an unrelated peer C.
     Stamping the whole turn made C's answer look like a question, and C — which

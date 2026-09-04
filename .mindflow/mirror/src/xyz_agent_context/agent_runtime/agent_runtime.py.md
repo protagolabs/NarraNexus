@@ -109,7 +109,7 @@ break 恰好把这段尾流扔掉。改为 `_stream_step3_with_interrupt_drain`:
 「下一条消息」与 `await_cancelled()` 竞速(取消可能落在无界 await 期间——不竞速就是
 挂死洞,同时刻只允许一个 anext task 在飞),取消后有界排空(INTERRUPT_DRAIN_BUDGET_S,
 超时 aclose 放弃,Stop 永远能完成)。(2) `raise_if_cancelled` 从 Step 4 之前移到
-4.6 之后:被打断 turn 照常走 step_4(event_log)+hook_persist_turn(聊天行),带
+4.6 之后:被打断 turn 照常走 step_4(event_log)+persist_turn(聊天行),带
 `execution_result.interrupted=True`;尾流没到就按 silent 先例伪造最小结果保住
 user 行。Step 5/6 后台钩子仍被跳过,BackgroundRun 的 CANCELLED 终态路径不变。
 
@@ -125,7 +125,7 @@ user 行。Step 5/6 后台钩子仍被跳过,BackgroundRun 的 CANCELLED 终态�
 normally (event created, narrative selected, modules loaded, instances
 synced) but step_3 (agent LLM invocation) is skipped; a minimal
 `PathExecutionResult(final_output="", ctx_data=<from ctx>)` is
-fabricated so step_4 / hook_persist_turn / step_5 read a consistent
+fabricated so step_4 / persist_turn / step_5 read a consistent
 result. This is the memory-only path used by IM triggers (Matrix /
 Lark / Slack, via [[channel_trigger_base]]) for group non-@ messages
 and reconnect burst backfill: chat_history writes, observation
@@ -141,7 +141,7 @@ runs byte-identical — no regression on the WS / A2A / job paths. See
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 
-`run()` now awaits `hook_manager.hook_persist_turn(ctx.module_list,
+`run()` now awaits `hook_manager.persist_turn(ctx.module_list,
 build_after_execution_params(ctx))` AFTER Step 4 (`step_4_persist_results`) and
 BEFORE `asyncio.create_task(_run_hooks_background())`. Why: Steps 5–6 run in a
 background task that can lag 3–19s; the conversation row written there (ChatModule)

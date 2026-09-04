@@ -189,7 +189,7 @@ def test_get_all_skill_env_vars_survives_corrupt_meta_value(module, key):
 
 def test_get_all_skill_env_vars_empty_when_box_unavailable(module, key, monkeypatch):
     # 🟡2: a process-level key failure must fail CLOSED (inject nothing), not
-    # raise out of hook_data_gathering and drop the agent's whole contribution.
+    # raise out of gather and drop the agent's whole contribution.
     box = sb.get_secret_box()
     _make_skill(module, "healthy", {"GOOD": box.encrypt("real")})
 

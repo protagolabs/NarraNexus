@@ -6,7 +6,7 @@
 
 Found in PR #229 review: stamping the whole turn with
 ``BUS_ERRAND_TURN_SOURCE`` moved the P1 one seat over instead of fixing it.
-A bus turn is not homogeneous — ``MessageBusModule.hook_data_gathering``
+A bus turn is not homogeneous — ``MessageBusModule.gather``
 injects unread bus messages from ALL channels every turn (``bus.get_unread``
 JOINs across channel membership) and the module prompt REQUIRES answering
 them ("A question is never ping-pong — answer it"). So an errand-continuation

@@ -10,7 +10,7 @@ owns the agent-facing surface:
   - ``narra_reply`` (reply — a marker the trigger delivers) / ``narra_send``
     (proactive text) / ``narra_send_media`` (image/file) MCP tools — the
     agent's Matrix-native send path
-  - ``get_instructions`` (system-prompt behaviour, incl. an output-hygiene
+  - ``contribute_instructions`` (system-prompt behaviour, incl. an output-hygiene
     rule against leaking identity/trust text as a reply)
   - ``build_extra_data`` (the is_owner_interacting trust signal)
 
@@ -95,7 +95,7 @@ except ValueError:
 
 # ───────────────────────────────────────────────────────────────────────────
 # Prompt fragments. Kept as module-level constants (lark/telegram convention)
-# so the wording lives in ONE place and ``get_instructions`` only assembles
+# so the wording lives in ONE place and ``contribute_instructions`` only assembles
 # them. Edit the text here, not inside the method.
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -270,7 +270,7 @@ class NarramessengerModule(ChannelModuleBase):
     def register_mcp_tools(self, mcp) -> None:
         register_narramessenger_mcp_tools(mcp)
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    async def contribute_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
             # Setup-residency (B++): unbound agents get ONE line instead of
@@ -367,14 +367,14 @@ class NarramessengerModule(ChannelModuleBase):
             and working_source == WorkingSource.NARRAMESSENGER.value
         )
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+    async def expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Managed (platform-forwarded) narramessenger turns declare only
         ``narra_send``: ``narra_reply`` is a trigger-captured marker whose
         delivery step is not running under managed mode, so listing it as
         part of the reply surface would tell the model a dead tool can
         deliver — exactly the conflicting-signal setup that makes weaker
         models answer in prose instead of calling anything."""
-        tools = await super().get_expressive_tools(ctx_data)
+        tools = await super().expressive_tools(ctx_data)
         extra = getattr(ctx_data, "extra_data", None) or {}
         if self._is_nm_turn(getattr(ctx_data, "working_source", None)) and extra.get(
             "managed_ingress"

@@ -1003,7 +1003,7 @@ async def test_nm_managed_turn_instructs_narra_send():
         extra_data={module.ctx_data_key: _nm_info(managed_ingress=True)},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert 'narra_send(room_id="!r:hs"' in text
     assert "Do NOT" in text and "narra_reply" in text
 
@@ -1014,7 +1014,7 @@ async def test_nm_native_turn_keeps_narra_reply():
         extra_data={module.ctx_data_key: _nm_info()},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert 'narra_reply(text="<your reply>")' in text
 
 
@@ -1278,7 +1278,7 @@ async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
         extra_data={"managed_ingress": True},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    tools = await module.get_expressive_tools(managed_ctx)
+    tools = await module.expressive_tools(managed_ctx)
     assert any("narra_send" in t for t in tools)
     assert not any("narra_reply" in t for t in tools)
 
@@ -1286,10 +1286,10 @@ async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
         extra_data={},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    native = await module.get_expressive_tools(native_ctx)
+    native = await module.expressive_tools(native_ctx)
     assert any("narra_reply" in t for t in native)
     # No-ctx callers (tests, other frameworks) keep the full declaration.
-    assert await module.get_expressive_tools() == native
+    assert await module.expressive_tools() == native
 
 
 def test_is_mention_and_chat_type_survive_typescript_stringification():

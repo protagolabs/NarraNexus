@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
@@ -328,7 +328,7 @@ real failure reason on the job row.
 
 ## 设计决策
 
-**`_finalize_job_execution` 的 ONGOING 处理**：ONGOING Job 完成一次执行后，优先由 `hook_after_event_execution`（入口 1，LLM 分析）决定下次执行时间和状态；`job_trigger` 只更新 `iteration_count`，并在入口 1 失败（状态仍为 RUNNING）时作为 fallback 机械更新。两入口的协调通过数据库状态判断，没有显式锁。
+**`_finalize_job_execution` 的 ONGOING 处理**：ONGOING Job 完成一次执行后，优先由 `after_turn`（入口 1，LLM 分析）决定下次执行时间和状态；`job_trigger` 只更新 `iteration_count`，并在入口 1 失败（状态仍为 RUNNING）时作为 fallback 机械更新。两入口的协调通过数据库状态判断，没有显式锁。
 
 **启动恢复**：服务启动时调用 `repo.recover_all_running_jobs()` 把所有 `RUNNING` 状态的 Job 恢复为可调度状态，避免上次进程被杀后 Job 永久卡在 `RUNNING`。
 

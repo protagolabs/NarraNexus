@@ -2,7 +2,7 @@
 @file_name: commit.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Commit stage default strategy: step_4 (trajectory, event, narrative stats) + modules' ``hook_persist_turn`` + the [turn-timing] line.
+@description: Commit stage default strategy: step_4 (trajectory, event, narrative stats) + modules' ``persist_turn`` + the [turn-timing] line.
 """
 from __future__ import annotations
 
@@ -28,9 +28,9 @@ class DefaultCommit:
         ):
             yield msg
         try:
-            await s.hook_manager.hook_persist_turn(ctx.module_list, build_after_execution_params(ctx))
+            await s.hook_manager.persist_turn(ctx.module_list, build_after_execution_params(ctx))
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
+            logger.warning(f"persist_turn phase failed (non-fatal): {e}")
         t = s.timings
         now = time.monotonic()
         logger.info(
