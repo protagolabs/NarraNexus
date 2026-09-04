@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/netmind_free.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/netmind_free.py
 last_verified: 2026-09-03
 stub: false
 ---

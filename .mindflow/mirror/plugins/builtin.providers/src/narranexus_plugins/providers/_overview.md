@@ -1,5 +1,5 @@
 ---
-code_dir: src/narranexus/platform/agent_framework/providers/driver/drivers
+code_dir: plugins/builtin.providers/src/narranexus_plugins/providers
 last_verified: 2026-05-13
 stub: false
 ---

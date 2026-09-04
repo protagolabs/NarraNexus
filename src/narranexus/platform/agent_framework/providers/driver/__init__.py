@@ -56,9 +56,9 @@ from narranexus.platform.agent_framework.providers.driver.resolver import (
     resolve_user_runtime_llm_configs,
 )
 
-# Import drivers/ to trigger registration via @register decorators.
-# The order doesn't matter — every Driver self-registers on import.
-from narranexus.platform.agent_framework.providers.driver import drivers  # noqa: F401
+# The driver implementations are the builtin.providers plugin (plugins/, batch
+# 6b): ``registry.ensure_builtin_drivers`` registers them on first lookup through
+# the kernel — the platform never imports the drivers package by name.
 
 
 __all__ = [

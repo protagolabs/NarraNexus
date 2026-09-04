@@ -30,7 +30,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Literal, Optional, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from narranexus.kernel.plugins.registry import Contribution
 
 from narranexus.platform.agent_framework.api_config import (
     AnthropicHelperConfig,
@@ -272,11 +275,16 @@ class Driver(Protocol):
 # =============================================================================
 
 class _DriverBase:
+
     """Common helper boilerplate so concrete drivers stay short.
 
     Concrete drivers can inherit from this *or* duck-type. The Protocol
     check is satisfied by either path.
     """
+
+    #: Set by ``registry.register`` (the ``@register`` decorator): the plugin
+    #: contribution the builtin manifest names for this driver class.
+    contribution: "ClassVar[Contribution[type]]"
 
     def __init__(self, card: ProviderCard) -> None:
         self.card = card

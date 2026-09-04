@@ -91,7 +91,7 @@ class TestRemoteDriverContract(FrameworkDriverContractTests):
 
 
 def _provider_driver_classes() -> list[type]:
-    import narranexus.platform.agent_framework.providers.driver.drivers  # noqa: F401 registers
+    import narranexus_plugins.providers  # noqa: F401 registers
     from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
 
     keys = [
@@ -118,7 +118,7 @@ class TestBuiltinProviderDriversSatisfyContract:
 
 
 def _netmind_driver_cls() -> type:
-    import narranexus.platform.agent_framework.providers.driver.drivers  # noqa: F401 registers
+    import narranexus_plugins.providers  # noqa: F401 registers
     from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
 
     cls = get_driver_class("netmind")
@@ -131,7 +131,7 @@ class TestNetmindProviderContract(ProviderDriverContractTests):
 
 
 def _memory_specs():
-    import narranexus.platform.memory.specs  # noqa: F401 registers
+    import narranexus_plugins.memory_kinds.specs  # noqa: F401 registers
     from narranexus.platform.memory.spec import all_kinds, get_spec
 
     return [get_spec(k) for k in sorted(all_kinds())]
@@ -145,7 +145,7 @@ def test_builtin_memory_kinds_satisfy_contract(spec):
 class TestEventMemoryKindContract(MemoryKindContractTests):
     @staticmethod
     def spec_factory():
-        import narranexus.platform.memory.specs  # noqa: F401
+        import narranexus_plugins.memory_kinds.specs  # noqa: F401
         from narranexus.platform.memory.spec import get_spec
 
         return get_spec("event")

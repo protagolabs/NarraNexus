@@ -99,16 +99,35 @@ def contribution_for(kind: str) -> Contribution[MemoryKindSpec]:
 
 
 def get_spec(kind: str) -> MemoryKindSpec:
+    ensure_builtin_kinds()
     spec = MEMORY_KIND_REGISTRY.try_get(kind)
     if spec is None:
         raise KeyError(f"No MemoryKindSpec registered for kind={kind!r}")
     return spec
 
 
+def ensure_builtin_kinds() -> None:
+    """Register the memory kinds the builtin manifests name, once, on first use.
+
+    builtin.memory_kinds lives under plugins/ (batch 6b): the platform never
+    imports it by name — the kernel resolves the manifest's contributions. Lazy
+    (not at import) so importing the plugin package first cannot recurse into a
+    half-initialised module; the objects registered are the same ones the
+    plugin registers at import, so either order ends in the same registry.
+    """
+    if MEMORY_KIND_REGISTRY.names():
+        return
+    from narranexus.kernel.plugins.builtins import register_builtin_provides
+
+    register_builtin_provides("agent.capabilities.memory_kinds")
+
+
 def all_kinds() -> List[str]:
+    ensure_builtin_kinds()
     return list(MEMORY_KIND_REGISTRY.names())
 
 
 def passive_kinds() -> List[str]:
     """Kinds eligible for the passive per-turn injection (distilled knowledge)."""
+    ensure_builtin_kinds()
     return [e.name for e in MEMORY_KIND_REGISTRY.entries() if e.factory().passive]

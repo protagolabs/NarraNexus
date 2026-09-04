@@ -12,7 +12,7 @@ registered SystemDriver would be a footgun.
 """
 from __future__ import annotations
 
-from narranexus.platform.agent_framework.providers.driver.drivers import (  # noqa: F401
+from narranexus_plugins.providers import (  # noqa: F401 — @register side effects; the manifest names the same objects
     custom_anthropic,
     custom_openai,
     netmind,

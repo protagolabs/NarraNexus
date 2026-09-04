@@ -29,10 +29,9 @@ from narranexus.platform.memory.coordinator import (
     format_memory_hits,
 )
 
-# Import for side effect: registering all kind specs. Importing the memory
-# package (directly or via any submodule) therefore guarantees every kind's
-# MemoryKindSpec is available — callers never have to remember to register.
-from narranexus.platform.memory import specs as _specs  # noqa: E402,F401
+# The memory kinds themselves are the builtin.memory_kinds plugin (plugins/,
+# batch 6b): ``spec.ensure_builtin_kinds`` registers them on first lookup through
+# the kernel — the platform never imports the plugin by name.
 
 __all__ = [
     "MemoryRecord",
@@ -45,6 +44,7 @@ __all__ = [
     "MemoryKindSpec",
     "RecallWeights",
     "register_spec",
+    "ensure_builtin_kinds",
     "get_spec",
     "all_kinds",
     "passive_kinds",

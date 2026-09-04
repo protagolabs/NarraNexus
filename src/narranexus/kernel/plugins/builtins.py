@@ -26,7 +26,7 @@ _NP = "narranexus.platform.agent_framework.nexus_power.extension_points"
 _NP_PROTO = "narranexus.platform.agent_framework.nexus_power.contracts.protocols"
 _MODULE = "narranexus.platform.module_system"
 _PLUG = "narranexus_plugins"  # the builtin module packages (workspace members under plugins/, batch 6b)
-_DRIVERS = "narranexus.platform.agent_framework.providers.driver.drivers"
+_DRIVERS = "narranexus_plugins.providers"
 
 BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
     {
@@ -110,7 +110,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Memory kinds",
         "description": "event / bus / narrative / entity / job / observation memory kinds.",
         "hosts": ["backend", "mcp", "workers"],
-        "provides": {"agent.capabilities.memory_kinds": ["narranexus.platform.memory.specs:CONTRIBUTIONS"]},
+        "provides": {"agent.capabilities.memory_kinds": ["narranexus_plugins.memory_kinds.specs:CONTRIBUTIONS"]},
         "quality": "gold",
     },
     {
@@ -328,6 +328,35 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "quality": "gold",
     },
 )
+
+
+def register_builtin_provides(slot: str, registries: Any = None) -> int:
+    """Register every builtin manifest's contributions for ``slot`` into the
+    registries (the process-wide ones by default) — what a host boot does for
+    all slots, available to a platform package that needs one slot populated
+    at import (memory kinds, provider drivers) WITHOUT naming any plugin:
+    the manifests name the code, the loader resolves it. Idempotent (the
+    contribution objects are the same ones the modules register at import).
+    Returns the number of contributions registered.
+    """
+    from narranexus.kernel.plugins.loader import _as_contributions, resolve_symbol
+
+    regs = registries
+    if regs is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        regs = KERNEL_REGISTRIES
+    count = 0
+    for data in BUILTIN_MANIFEST_DATA:
+        refs = data.get("provides", {}).get(slot)
+        if not refs:
+            continue
+        registry = regs.registry_for(slot)
+        for spec in ([refs] if isinstance(refs, str) else refs):
+            for contribution in _as_contributions(resolve_symbol(spec), spec):
+                registry.register_contribution(contribution, owner=data["id"], replace=True)
+                count += 1
+    return count
 
 
 def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:

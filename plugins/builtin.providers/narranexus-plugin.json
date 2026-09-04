@@ -1,0 +1,25 @@
+{
+  "id": "builtin.providers",
+  "version": "1.0.0",
+  "displayName": "LLM providers",
+  "description": "Provider drivers: custom anthropic/openai, NetMind, Yunwu, OpenRouter, OAuth subscriptions, system pool.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "model.providers": [
+      "narranexus_plugins.providers.custom_anthropic:CONTRIBUTION",
+      "narranexus_plugins.providers.custom_openai:CONTRIBUTION",
+      "narranexus_plugins.providers.netmind:CONTRIBUTION",
+      "narranexus_plugins.providers.netmind_free:CONTRIBUTION",
+      "narranexus_plugins.providers.yunwu:CONTRIBUTION",
+      "narranexus_plugins.providers.openrouter:CONTRIBUTION",
+      "narranexus_plugins.providers.claude_oauth:CONTRIBUTION",
+      "narranexus_plugins.providers.codex_oauth:CONTRIBUTION",
+      "narranexus_plugins.providers.system:CONTRIBUTIONS"
+    ]
+  },
+  "quality": "gold"
+}

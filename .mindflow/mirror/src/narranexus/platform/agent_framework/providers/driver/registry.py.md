@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/registry.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -37,3 +37,7 @@ above instead of half-working.
 `"x" in DRIVER_REGISTRY` 仍成立（Registry 实现 `__contains__`），但 `DRIVER_REGISTRY["x"]` 不再
 支持——唯一的调用方 `tests/agent_framework/test_codex_oauth_driver.py` 已改用 `get_driver_class`
 （rule 2 不留兼容垫片）。`register` 多了 keyword-only `owner`（默认 `builtin.providers`）。
+
+## 2026-09-04 · lazy builtin drivers (batch 6b.2)
+
+`ensure_builtin_drivers()` registers the manifest-named drivers on the first `get_driver_class`; the driver implementations are the `builtin.providers` plugin (`narranexus_plugins.providers`).

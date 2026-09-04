@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/codex_oauth.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/codex_oauth.py
 stub: false
 last_verified: 2026-09-03
 ---

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
-from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
+from narranexus_plugins.providers.codex_oauth import (
     CodexOAuthDriver,
 )
 from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY, get_driver_class
@@ -132,7 +132,7 @@ def test_codex_oauth_build_codex_config_forces_cli_credential_ref():
 def test_custom_openai_driver_build_codex_config_uses_api_key():
     """A user's plain OpenAI key (custom_openai) drives a codex agent via
     the generic _DriverBase.build_codex_config — api-key path, no ref."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.custom_openai import (
+    from narranexus_plugins.providers.custom_openai import (
         CustomOpenAIDriver,
     )
 
@@ -152,7 +152,7 @@ def test_custom_openai_driver_build_codex_config_uses_api_key():
 def test_non_openai_driver_build_codex_config_raises():
     """An anthropic-protocol card cannot drive a codex agent — Codex CLI
     has no anthropic endpoint."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.custom_anthropic import (
+    from narranexus_plugins.providers.custom_anthropic import (
         CustomAnthropicDriver,
     )
 

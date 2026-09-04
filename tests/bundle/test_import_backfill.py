@@ -17,7 +17,7 @@ import pytest
 
 from narranexus.platform.memory.backfill import backfill_agent_search_indexes
 from narranexus.platform.memory import MemoryCoordinator, MemoryEngine
-import narranexus.platform.memory.specs  # noqa: F401 — registers kinds
+import narranexus_plugins.memory_kinds.specs  # noqa: F401 — registers kinds
 
 AGENT = "agent_backfill01"
 

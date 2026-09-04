@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/custom_openai.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/custom_openai.py
 last_verified: 2026-09-03
 stub: false
 ---

@@ -119,7 +119,7 @@ def _card(**kw):
 
 
 def test_claude_oauth_driver_builds_cli_helper():
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     cfg = ClaudeOAuthDriver(_card()).build_cli_helper_config("haiku")
@@ -131,7 +131,7 @@ def test_claude_oauth_driver_builds_cli_helper():
 
 
 def test_codex_oauth_driver_builds_cli_helper():
-    from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
+    from narranexus_plugins.providers.codex_oauth import (
         CodexOAuthDriver,
     )
     card = _card(source="codex_oauth", protocol="openai", driver_type="codex_oauth")
@@ -371,7 +371,7 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"
@@ -389,7 +389,7 @@ async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_probe_fails_when_neither_file_nor_keychain(monkeypatch, tmp_path):
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"

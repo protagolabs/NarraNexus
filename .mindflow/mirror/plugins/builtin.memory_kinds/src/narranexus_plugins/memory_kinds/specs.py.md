@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/memory/specs.py
+code_file: plugins/builtin.memory_kinds/src/narranexus_plugins/memory_kinds/specs.py
 last_verified: 2026-09-03
 stub: false
 ---

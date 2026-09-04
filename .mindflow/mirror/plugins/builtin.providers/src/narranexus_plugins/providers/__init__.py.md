@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/__init__.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/__init__.py
 last_verified: 2026-06-17
 stub: false
 ---

@@ -118,7 +118,7 @@ def test_billing_policy_oauth_token_is_external_oauth():
 
 
 def test_build_claude_config_passes_token_through():
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -129,7 +129,7 @@ def test_build_claude_config_passes_token_through():
 
 
 def test_build_cli_helper_config_passes_token_through():
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -141,7 +141,7 @@ def test_build_cli_helper_config_passes_token_through():
 
 def test_build_claude_config_oauth_unchanged():
     """The legacy host-CLI oauth path must keep its blank-key contract."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -159,7 +159,7 @@ def test_build_claude_config_oauth_unchanged():
 
 @pytest.mark.asyncio
 async def test_probe_oauth_token_present_is_ok():
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -176,7 +176,7 @@ async def test_probe_oauth_missing_auth_ref_detail_is_actionable():
     Test dialog showed "auth_ref is missing or not a claude-cli: reference"
     verbatim). With creation now writing the sentinel this only ever surfaces
     for genuinely corrupt rows, and the cure is recreating the provider."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -195,7 +195,7 @@ async def test_probe_misrouted_card_does_not_advise_removal():
     'remove and re-add Claude Code (OAuth)' there is destructive and wrong;
     the probe must say the card is misconfigured instead (review round 3,
     Minor 1)."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -215,7 +215,7 @@ async def test_probe_misrouted_token_card_gets_source_verdict_not_token_advice()
     free string) misrouted into this driver must get the 'not a Claude
     Code (OAuth) card' verdict, not 'run `claude setup-token`' advice for
     a card that setup-token cannot fix (review round 4, Minor 1)."""
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -315,7 +315,7 @@ async def test_from_row_keeps_garbage_auth_ref_verbatim_so_probe_can_reject_it()
     that branch is not dead code after the read-time derivation landed
     (review round 2, Minor 4)."""
     from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -347,7 +347,7 @@ def test_from_row_does_not_derive_auth_ref_for_token_rows():
 
 @pytest.mark.asyncio
 async def test_probe_oauth_token_missing_is_not_ok():
-    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -542,7 +542,7 @@ async def test_test_provider_routes_oauth_token_to_live_verify(monkeypatch):
     """The 2026-07-23 incident's probe lied ("logged in ✓") because it only
     checked credential existence. For token rows the credential is in OUR
     hands, so the explicit test button must make a real end-to-end CLI call."""
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as claude_oauth_mod,
     )
 
@@ -571,7 +571,7 @@ async def test_test_provider_oauth_also_runs_live_verify(monkeypatch):
     keep a static unconditional pass — which is exactly how expired CLI
     credentials tested green and ProviderReadiness re-armed jobs onto them.
     Host oauth now runs the same live verification as oauth_token."""
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as claude_oauth_mod,
     )
 

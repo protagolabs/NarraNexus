@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/memory/spec.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -30,3 +30,7 @@ Part of the unified memory system (`refactor/agent-memory`). The unified design 
 (author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
+
+## 2026-09-04 · lazy builtin kinds (batch 6b.2)
+
+`ensure_builtin_kinds()` registers the manifest-named kinds on the first `get_spec` / `all_kinds` / `passive_kinds` — lazy so importing the plugin package first cannot recurse into a half-initialised module; the plugin's import-time `register_spec` registers the same objects, so either order yields one registry.

@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/custom_anthropic.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/yunwu.py
 last_verified: 2026-09-03
 stub: false
 ---
@@ -15,13 +15,11 @@ Implements the new helper-slot builder for anthropic-protocol rows
 the helper_llm slot directly via the Messages-API helper.
 
 
-# custom_anthropic.py — user-configured Anthropic provider
+# yunwu.py — Yunwu aggregator one-key card
 
-Anything ``source='user'`` + ``protocol='anthropic'``. Maps the card's
-api_key + base_url + auth_type straight into a ClaudeConfig. The
-``supports_anthropic_server_tools`` flag flows through from the
-ProviderCard — the tool-policy hook reads it elsewhere to allow/deny
-WebSearch.
+Same dual-row pattern as ``netmind.py``: one anthropic row + one
+openai row sharing a ``linked_group``. Differs only in base_url and
+auth_type values (Yunwu uses api_key for both protocols, unlike
+NetMind's bearer_token-for-anthropic quirk).
 
-Agent slot only — ``build_openai_config`` / ``build_embedding_config``
-raise NotImplementedError from ``_DriverBase``.
+Aggregator semantics: ``supports_anthropic_server_tools=False``.

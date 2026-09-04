@@ -957,9 +957,11 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
     # which codex driver class is registered (v1 or v2 share the
     # auth file path).
     if framework == "codex_cli":
-        from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
-            CodexOAuthDriver,
-        )
+        from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
+
+        CodexOAuthDriver = get_driver_class("codex_oauth")
+        if CodexOAuthDriver is None:
+            raise HTTPException(status_code=503, detail="codex_oauth driver is not available (builtin.providers disabled?)")
         # A fake DB row through from_row, so auth_ref comes from the same
         # derive.py truth table every real row uses (read-time fallback) —
         # not a third hand-written copy that silently drifts when the
@@ -985,9 +987,11 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         return {"ok": health.ok, "detail": detail}
 
     if framework == "claude_code":
-        from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
-            ClaudeOAuthDriver,
-        )
+        from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
+
+        ClaudeOAuthDriver = get_driver_class("claude_oauth")
+        if ClaudeOAuthDriver is None:
+            raise HTTPException(status_code=503, detail="claude_oauth driver is not available (builtin.providers disabled?)")
         # Same shape as the codex stub above: from_row derives auth_ref
         # from the shared truth table; explicit auth_type="oauth" required.
         stub = ProviderCard.from_row({

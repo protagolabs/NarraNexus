@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/claude_oauth.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/claude_oauth.py
 last_verified: 2026-09-03
 stub: false
 ---

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/__init__.py
-last_verified: 2026-07-20
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-07-20 — 取消 CallContext 导出（死代码清理）
@@ -21,3 +21,7 @@ The import order matters only in one way: registry must be imported
 before drivers (so the decorator exists). Python's module loader
 gives us that for free because ``drivers/__init__.py`` imports
 ``provider_driver.registry`` transitively via ``base``.
+
+## 2026-09-04 · no drivers import (batch 6b.2)
+
+The `drivers/` package left the platform; registration happens lazily through the kernel.

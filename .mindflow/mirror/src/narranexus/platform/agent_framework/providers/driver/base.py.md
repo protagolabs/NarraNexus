@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/base.py
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -102,3 +102,7 @@ drivers leave it as ``None``.
 ## 2026-07-07 — build_cli_helper_config
 
 Driver Protocol + `_DriverBase` 新增 `build_cli_helper_config`（默认 NotImplementedError）。仅 OAuth driver 覆盖它，为 helper 槽产出 `CliHelperConfig`（订阅同时覆盖两槽）。
+
+## 2026-09-04 · `contribution` declared (batch 6b.2)
+
+`_DriverBase.contribution` is a declared ClassVar (set by `@register`), so the driver modules — now the `builtin.providers` plugin package under pyright's scope — type-check.

@@ -530,3 +530,7 @@ add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 The four edge-triggered job re-arms fire `onDidChangeUserRunnability` (`backend/host_events.notify_user_runnability_changed`) instead of importing job_recovery.
+
+## 2026-09-04 · OAuth drivers from the registry (batch 6b.2)
+
+The codex_oauth / claude_oauth probes resolve their driver class with `get_driver_class` (503 when builtin.providers is disabled) instead of importing the driver modules.

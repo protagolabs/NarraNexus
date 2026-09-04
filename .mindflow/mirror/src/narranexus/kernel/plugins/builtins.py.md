@@ -85,3 +85,7 @@ Their bespoke routers were retired (the generic `/api/channels` router serves th
 ## 2026-09-04 · builtin module packages live under plugins/ (batch 6b)
 
 The 17 module builtins' contributions are named through `_PLUG = "narranexus_plugins"` — each is a uv workspace member at `plugins/<id>/src/narranexus_plugins/<pkg>/` with its own `pyproject.toml`, `narranexus-plugin.json` (an on-disk copy of the entry here; the package test asserts equality until distributions generate this list in 6c), `api.py` facade, README, CHANGELOG and tests. The platform-side contribution tables (`module_system.contributions`) stay in the engine.
+
+## 2026-09-04 · `register_builtin_provides(slot)` (batch 6b.2)
+
+A platform package that needs one slot populated at first use (memory kinds, provider drivers) asks the kernel to register every builtin manifest's contributions for that slot — the manifests name the code, the loader resolves it, the platform never imports a plugin by name. `builtin.memory_kinds` and `builtin.providers` are workspace packages now (`narranexus_plugins.memory_kinds` / `narranexus_plugins.providers`).

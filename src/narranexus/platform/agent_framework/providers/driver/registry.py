@@ -58,13 +58,30 @@ def register(driver_cls, *, owner: str = "builtin.providers"):
     return driver_cls
 
 
+def ensure_builtin_drivers() -> None:
+    """Register the drivers the builtin manifests name, once, on first lookup.
+
+    builtin.providers lives under plugins/ (batch 6b): the platform never
+    imports the drivers package by name — the kernel resolves the manifest's
+    contributions. Lazy (not at import) so importing the plugin package first
+    cannot recurse into a half-initialised module; the objects registered are
+    the same ones ``@register`` attaches at import.
+    """
+    if DRIVER_REGISTRY.names():
+        return
+    from narranexus.kernel.plugins.builtins import register_builtin_provides
+
+    register_builtin_provides("model.providers")
+
+
 def get_driver_class(driver_type: str) -> Optional[Type]:
     """Look up a Driver class by its registry key.
 
     Returns ``None`` for unknown keys — the resolver treats that as a
     fatal config error (raises ``LLMConfigNotConfigured``).
     """
+    ensure_builtin_drivers()
     return DRIVER_REGISTRY.try_get(driver_type)
 
 
-__all__ = ["DRIVER_REGISTRY", "register", "get_driver_class"]
+__all__ = ["DRIVER_REGISTRY", "ensure_builtin_drivers", "register", "get_driver_class"]

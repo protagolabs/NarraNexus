@@ -960,7 +960,7 @@ async def test_framework_probe_claude_leg2_not_ok_when_no_credentials(
     tmp_path, monkeypatch
 ):
     from backend.routes.providers import _probe_agent_framework_auth
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as claude_oauth_mod,
     )
 

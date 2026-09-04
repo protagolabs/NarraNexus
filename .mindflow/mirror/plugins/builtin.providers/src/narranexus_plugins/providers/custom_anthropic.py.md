@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/openrouter.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/custom_anthropic.py
 last_verified: 2026-09-03
 stub: false
 ---
@@ -15,13 +15,13 @@ Implements the new helper-slot builder for anthropic-protocol rows
 the helper_llm slot directly via the Messages-API helper.
 
 
-# openrouter.py — OpenRouter aggregator one-key card
+# custom_anthropic.py — user-configured Anthropic provider
 
-Same dual-row pattern as ``netmind.py`` / ``yunwu.py``.
+Anything ``source='user'`` + ``protocol='anthropic'``. Maps the card's
+api_key + base_url + auth_type straight into a ClaudeConfig. The
+``supports_anthropic_server_tools`` flag flows through from the
+ProviderCard — the tool-policy hook reads it elsewhere to allow/deny
+WebSearch.
 
-OpenRouter's openai-protocol endpoint serves chat-completions but
-**not** whisper / embeddings well (see transcription resolver — that
-file deliberately skips OpenRouter for /audio). For the LLM-only
-slots that this Driver handles, the standard OpenAIConfig works.
-
-Aggregator semantics: ``supports_anthropic_server_tools=False``.
+Agent slot only — ``build_openai_config`` / ``build_embedding_config``
+raise NotImplementedError from ``_DriverBase``.

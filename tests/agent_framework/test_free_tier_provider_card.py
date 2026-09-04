@@ -130,7 +130,7 @@ def test_source_derives_a_driver_type():
 
 def test_driver_type_resolves_to_a_registered_driver():
     import narranexus.platform.agent_framework.providers.driver  # noqa: F401 — registers
-    from narranexus.platform.agent_framework.providers.driver.drivers.netmind import (
+    from narranexus_plugins.providers.netmind import (
         NetMindDriver,
     )
     from narranexus.platform.agent_framework.providers.driver.registry import (

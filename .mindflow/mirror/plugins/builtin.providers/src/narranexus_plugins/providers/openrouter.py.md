@@ -1,5 +1,5 @@
 ---
-code_file: src/narranexus/platform/agent_framework/providers/driver/drivers/yunwu.py
+code_file: plugins/builtin.providers/src/narranexus_plugins/providers/openrouter.py
 last_verified: 2026-09-03
 stub: false
 ---
@@ -15,11 +15,13 @@ Implements the new helper-slot builder for anthropic-protocol rows
 the helper_llm slot directly via the Messages-API helper.
 
 
-# yunwu.py — Yunwu aggregator one-key card
+# openrouter.py — OpenRouter aggregator one-key card
 
-Same dual-row pattern as ``netmind.py``: one anthropic row + one
-openai row sharing a ``linked_group``. Differs only in base_url and
-auth_type values (Yunwu uses api_key for both protocols, unlike
-NetMind's bearer_token-for-anthropic quirk).
+Same dual-row pattern as ``netmind.py`` / ``yunwu.py``.
+
+OpenRouter's openai-protocol endpoint serves chat-completions but
+**not** whisper / embeddings well (see transcription resolver — that
+file deliberately skips OpenRouter for /audio). For the LLM-only
+slots that this Driver handles, the standard OpenAIConfig works.
 
 Aggregator semantics: ``supports_anthropic_server_tools=False``.

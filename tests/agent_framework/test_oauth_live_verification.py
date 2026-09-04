@@ -39,10 +39,10 @@ from narranexus.platform.agent_framework.providers.driver.base import (
     VERIFY_UNKNOWN,
     ProviderCard,
 )
-from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
+from narranexus_plugins.providers.codex_oauth import (
     CodexOAuthDriver,
 )
-from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
+from narranexus_plugins.providers.claude_oauth import (
     ClaudeOAuthDriver,
 )
 
@@ -107,7 +107,7 @@ async def _no_keychain() -> bool:
 @pytest.mark.asyncio
 async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path):
     """Missing auth.json → verified-dead, no CLI spawn."""
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         codex_oauth as mod,
     )
 
@@ -131,7 +131,7 @@ async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path)
 async def test_codex_verify_live_dead_without_cli(monkeypatch, tmp_path):
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         codex_oauth as mod,
     )
 
@@ -153,7 +153,7 @@ async def test_codex_verify_live_unknown_on_control_plane(monkeypatch):
     monkeypatch.setenv("BROKER_URL", "http://broker:8030")
 
     inspected = []
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         codex_oauth as mod,
     )
 
@@ -185,7 +185,7 @@ class _FakeDriver:
 def _wire_codex_oneshot(monkeypatch, tmp_path, events):
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         codex_oauth as mod,
     )
 
@@ -266,7 +266,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
     dead code returning []."""
     captured = {}
 
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         codex_oauth as mod,
     )
 
@@ -316,7 +316,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
 async def test_claude_host_oauth_verify_live_dead_without_credentials(
     monkeypatch, tmp_path
 ):
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as mod,
     )
 
@@ -341,7 +341,7 @@ async def test_claude_host_oauth_verify_live_stages_then_succeeds(
     dir, whose credentials only exist after staging. A healthy host login
     must verify OK — which requires the staging call the agent adapter
     makes before every spawn."""
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as mod,
     )
     from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk
@@ -442,7 +442,7 @@ async def test_claude_cli_not_found_is_unknown(monkeypatch, tmp_path):
     """A missing/broken CLI install (SDK CLINotFoundError) is environmental —
     resolve_cli_path fail-opens to the bundled CLI, so "cannot launch" says
     nothing about the credential. Must not block readiness as dead."""
-    from narranexus.platform.agent_framework.providers.driver.drivers import (
+    from narranexus_plugins.providers import (
         claude_oauth as mod,
     )
     from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk

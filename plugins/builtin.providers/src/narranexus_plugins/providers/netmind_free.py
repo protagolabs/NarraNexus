@@ -17,7 +17,7 @@ here automatically.
 """
 from __future__ import annotations
 
-from narranexus.platform.agent_framework.providers.driver.drivers.netmind import (
+from narranexus_plugins.providers.netmind import (
     NetMindDriver,
 )
 from narranexus.platform.agent_framework.providers.driver.registry import register
