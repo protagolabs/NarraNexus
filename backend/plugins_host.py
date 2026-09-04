@@ -136,6 +136,59 @@ def mount_plugin_routes(app: Any, registries: Registries) -> MountReport:
     return report
 
 
+def mount_user_plugin_routes(app: Any, registries: Registries, manifests: Any = None) -> dict[str, LazyRouterApp]:
+    """Mount a ``LazyRouterApp`` at ``/api/x/<id>`` for every user plugin that declares
+    ``backend.routes`` (discovered from registry.json at import; the code is not touched).
+    The first request under the prefix resolves the plugin's route contributions from the
+    registries (registered by the lifespan boot) and includes every router it owns."""
+    from narranexus.kernel.deployment import is_cloud_mode
+    from narranexus.kernel.plugins.compat import host_version
+    from narranexus.kernel.plugins.loader import discover
+
+    if manifests is None:
+        if is_cloud_mode():
+            return {}
+        manifests = [m for m in discover(cloud=False, host_version=host_version()).manifests if not m.is_builtin]
+    mounted: dict[str, LazyRouterApp] = {}
+    for manifest in manifests:
+        if manifest.is_builtin or ROUTES_SLOT not in manifest.provides:
+            continue
+        prefix = plugin_route_prefix(manifest.id)
+
+        def _activate(pid: str = manifest.id, prefix: str = prefix) -> Awaitable[RouterSpec]:
+            async def run() -> RouterSpec:
+                from fastapi import APIRouter
+
+                specs = []
+                for entry in registries.registry_for(ROUTES_SLOT).entries():
+                    if entry.owner != pid:
+                        continue
+                    spec = entry.factory()
+                    if not isinstance(spec, RouterSpec):
+                        raise TypeError(f"{pid}: route {entry.name!r} is not a RouterSpec")
+                    problem = _check_prefix(pid, spec)
+                    if problem:
+                        raise ValueError(f"{pid}: route {entry.name!r} refused: {problem}")
+                    specs.append(spec)
+                if not specs:
+                    raise LookupError(f"{pid}: no backend.routes contribution loaded (plugin not booted or isolated)")
+                combined = APIRouter()
+                for spec in specs:
+                    sub = spec.prefix[len(prefix):]  # /api/x/<id>/extra → /extra under the lazy mount
+                    combined.include_router(spec.router, prefix=sub, tags=list(spec.tags) or [pid])
+                    if spec.auth == "none":
+                        _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix + "/")
+                        _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix)
+                return RouterSpec(combined, prefix, tags=specs[0].tags)
+
+            return run()
+
+        mounted[manifest.id] = mount_lazy_router(app, manifest.id, prefix, _activate)
+    if mounted:
+        logger.info(f"[plugins] lazy routers mounted for user plugin(s): {sorted(mounted)}")
+    return mounted
+
+
 # ------------------------------------------------------------------ boot-at-import
 
 

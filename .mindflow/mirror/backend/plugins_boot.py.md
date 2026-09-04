@@ -17,3 +17,5 @@ stub: false
 `HOST_SERVICES` is `KERNEL_REGISTRIES.services` (no separate locator), so builtin services and user-plugin services share one namespace.
 
 Batch 6c: `distribution()` resolves `NARRANEXUS_DIST` once per process (None = all builtins) and `boot_backend_plugins()` passes it to `boot`; `write_runtime_bindings(res)` resolves the slot bindings (default < distribution < `<plugin home>/narranexus.toml` < `NX_BIND__*` env) and snapshots them to `<plugin home>/run/bindings.resolved.json` — a `BindingConflict` is loud, an unbound slot only logged.
+
+Batch 6 fix: `set_host_db(db)` / `host_db()` — plugin contexts get the lifespan's async client (a sync client cannot be built inside the loop); the settings store is built without a loop-bound client (`DbSettingsStore()` drives its own loop).

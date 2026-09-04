@@ -163,6 +163,9 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database connection pool...")
     db = await get_db_client()
     logger.info("Database connection pool initialized")
+    from backend.plugins_boot import set_host_db
+
+    set_host_db(db)  # plugin contexts / settings stores share the lifespan's async client
 
     # Plugin platform boot (spec §9.2): builtins fail-fast, user plugins
     # isolated, plugin tables registered — all BEFORE auto_migrate so a
@@ -818,6 +821,12 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES  # noqa: E402
 # table is complete before serving; the lifespan boot repeats this idempotently.
 app.state.disabled_builtins = register_builtins_for_import(KERNEL_REGISTRIES)
 app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)
+# User plugins (registry.json) mount a lazy router under /api/x/<id> now — before
+# the SPA fallback below, which would otherwise swallow their paths — and build
+# the real router on the first request, after the lifespan boot registered it.
+from backend.plugins_host import mount_user_plugin_routes  # noqa: E402
+
+app.state.user_plugin_routes = mount_user_plugin_routes(app, KERNEL_REGISTRIES)
 
 
 # ─── Frontend static files & SPA fallback ────────────────

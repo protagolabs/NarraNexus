@@ -47,6 +47,23 @@ def registry_store() -> RegistryStore:
     return RegistryStore(path=registry_path())
 
 
+_HOST_DB: dict[str, Any] = {}
+
+
+def set_host_db(db: Any) -> None:
+    """The lifespan's async database client; plugin contexts and settings stores use it (a sync client
+    cannot be built from inside the event loop)."""
+    _HOST_DB["db"] = db
+
+
+def host_db() -> Any:
+    if "db" in _HOST_DB:
+        return _HOST_DB["db"]
+    from narranexus.platform.utils.db.db_factory import get_db_client_sync
+
+    return get_db_client_sync()
+
+
 def _settings_for(manifest: Manifest) -> PluginSettings:
     from narranexus.contracts.settings import SettingsSchema
 
@@ -60,10 +77,9 @@ def _settings_for(manifest: Manifest) -> PluginSettings:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[plugins] {manifest.id}: settings schema unavailable: {exc}")
     try:
-        from narranexus.platform.utils.db.db_factory import get_db_client_sync
         from narranexus.platform.utils.db.plugin_settings_store import DbSettingsStore
 
-        store: Any = DbSettingsStore(get_db_client_sync())
+        store: Any = DbSettingsStore()  # no loop-bound client: the store drives its own loop + client
     except Exception as exc:  # noqa: BLE001 — settings still work from env/defaults
         logger.warning(f"[plugins] {manifest.id}: settings store unavailable, using memory: {exc}")
         store = MemorySettingsStore()
@@ -71,8 +87,6 @@ def _settings_for(manifest: Manifest) -> PluginSettings:
 
 
 def _context_factory(manifest: Manifest) -> PluginContext:
-    from narranexus.platform.utils.db.db_factory import get_db_client_sync
-
     rec = registry_store().read().plugins.get(manifest.id)
     path = Path(rec.path) if rec else Path(".")
     return build_context(
@@ -84,7 +98,7 @@ def _context_factory(manifest: Manifest) -> PluginContext:
         registries=KERNEL_REGISTRIES,
         provides=tuple(manifest.provides),
         settings=_settings_for(manifest),
-        db_client=get_db_client_sync(),
+        db_client=host_db(),
         bus=HOST_BUS,
         services=HOST_SERVICES.scoped(manifest.id),
     )
@@ -164,4 +178,4 @@ async def fire_startup() -> None:
     await activator().fire("onStartup")
 
 
-__all__ = ["HOST_BUS", "HOST_SERVICES", "activator", "boot_backend_plugins", "distribution", "fire_startup", "registry_store", "write_runtime_bindings"]
+__all__ = ["HOST_BUS", "HOST_SERVICES", "activator", "boot_backend_plugins", "distribution", "fire_startup", "host_db", "registry_store", "set_host_db", "write_runtime_bindings"]

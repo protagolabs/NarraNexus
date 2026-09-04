@@ -27,3 +27,5 @@ include；之后直通。认证中间件在主 app 上先跑，所以未登录�
 `register_builtins_for_import` applies the same on-demand dependency probe as the boot, so a deps-missing builtin's routes/workers are not mounted at import either.
 
 Batch 6c.3: `register_builtins_for_import` follows the distribution (`plugins_boot.distribution()`): builtins outside it drop their registrations before routes mount, bundled plugins are prepared and loaded at import like builtins.
+
+Batch 6 fix (found running the stack): `mount_user_plugin_routes(app, registries, manifests=None)` mounts a `LazyRouterApp` at `/api/x/<id>` for every registry.json plugin declaring `backend.routes` at import time (before the SPA fallback); the first request resolves and combines the plugin's registered routers (prefix-checked, auth=none exemptions honoured), a plugin whose contributions never loaded answers 503, cloud mounts nothing.

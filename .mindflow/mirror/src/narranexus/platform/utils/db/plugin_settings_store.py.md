@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/utils/db/plugin_settings_store.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -10,3 +10,5 @@ stub: false
 `asyncio.run`，在 loop 线程里被调则丢到工作线程私有 loop（不阻塞事件循环）。secret 用平台 `SecretBox`
 （Fernet）加密后落 `value_json`、`is_secret=1`，读出时解密——库转储里永远没有明文插件凭据。
 放在 `utils/db` 而不是内核，因为内核禁止 import `xyz_agent_context`（secret_box 在市场实现包里）。
+
+Batch 6 fix: without an injected client the store runs every operation on a private long-lived loop thread (`_PrivateLoop`) with that loop's own `get_db_client()`, so the sync `SettingsStore` protocol works from the host event-loop thread (plugin activation) and from plain sync code without touching the host's loop-bound client; an injected client keeps the previous `_run` behaviour.

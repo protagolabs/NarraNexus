@@ -484,3 +484,5 @@ jobs / skills / home-assistant / the six IM channel routers are no longer import
 Mounts the generic channel router at `/api/channels` (shell-level: any channel in ingress.channels).
 
 Batch 6b.3: the team marketplace router and seed are no longer wired here — the router is a `backend.routes` contribution of builtin.teams and the seed runs on the `onDidStartBackend` host event emitted at the end of `_seed_marketplaces` (registry-host check via `is_registry_host()`).
+
+Batch 6 fix: the lifespan hands its db client to `plugins_boot.set_host_db`; `mount_user_plugin_routes` runs at import after the builtin routers.
