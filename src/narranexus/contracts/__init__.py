@@ -52,6 +52,7 @@ API_VERSIONS: dict[str, int] = {
     "stage_strategy": 0,
     "pipeline_profile": 0,
     "context_provider": 0,
+    "module": 0,
 }
 
 STABILITY: dict[str, Stability] = {kind: Stability.ALPHA for kind in API_VERSIONS}

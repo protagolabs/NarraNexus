@@ -4,6 +4,12 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3c.1）— 每个内置模块一份 manifest（17 份）
+
+`builtin.chat/awareness/basic_info/social_network/job/skills/message_bus/common_tools/general_memory/home_assistant`
++ 六个 `builtin.channels.*`，各 provides `agent.capabilities.modules: PLUGIN_<ID>`；`builtin.nexus_plugins_module`
+补 provides。`test_disable_builtin_degrades_cleanly` 逐个禁用验证。
+
 ## 2026-09-04（批 3b）— `slot_tree_with_builtins()`
 
 用户插件的校验树 = 内核树 + 每个内置 manifest `declares` 的位（如 `builtin.turn` 的六个阶段位）；否则第三方

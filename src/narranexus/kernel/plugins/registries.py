@@ -30,6 +30,7 @@ SLOT_KINDS: dict[str, str] = {
     "agent.capabilities.memory_kinds": "memory",
     "agent.capabilities.tools": "tool",
     "agent.capabilities.context_providers": "context_provider",
+    "agent.capabilities.modules": "module",
     "turn.profiles": "pipeline_profile",
     "turn.pipeline.ingress": "stage_strategy",
     "turn.pipeline.recall": "stage_strategy",
@@ -103,6 +104,12 @@ class Registries:
     @property
     def frozen(self) -> bool:
         return self._frozen
+
+    def remove_owner(self, owner: str) -> int:
+        """Remove ``owner``'s contributions from every registry and block its hooks (disabled builtin)."""
+        removed = sum(reg.remove_owner(owner) for reg in self._by_path.values())
+        removed += self.hooks.block(owner)
+        return removed
 
     def snapshot(self) -> dict[str, dict[str, str]]:
         """slot path -> {entry name -> owner}; deterministic, for reports and tests."""

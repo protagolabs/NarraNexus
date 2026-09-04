@@ -4,6 +4,8 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3c.1）— `remove_owner` 跨全部注册表 + 钩子 block；`agent.capabilities.modules` kind 映射
+
 ## 2026-09-04（批 3a）— 七个阶段位、profiles、context_providers 的 kind 映射
 
 ## 2026-09-03（批 2e）— 每个 `Registries` 默认声明宿主钩子词表

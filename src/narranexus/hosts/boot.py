@@ -46,6 +46,7 @@ class BootReport:
     users: LoadReport | None = None
     rejected: dict[str, str] = field(default_factory=dict)
     isolated: dict[str, str] = field(default_factory=dict)
+    disabled_builtins: tuple[str, ...] = ()
     activation_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
     duration_ms: float = 0.0
     _marker: BootMarker | None = None
@@ -110,6 +111,12 @@ def boot(
     report.rejected = dict(found.rejected)
     if report.rejected:
         _persist_rejections(store, report.rejected)
+
+    # ---- disabled builtins: undo their import-time registrations before anything is frozen
+    report.disabled_builtins = tuple(found.disabled_builtins)
+    for pid in found.disabled_builtins:
+        removed = registries.remove_owner(pid)
+        logger.info(f"[plugins] {pid}: disabled ({removed} contribution(s) removed)")
 
     # ---- stage 1: builtins (fail-fast inside load())
     builtins = [m for m in found.manifests if m.is_builtin]

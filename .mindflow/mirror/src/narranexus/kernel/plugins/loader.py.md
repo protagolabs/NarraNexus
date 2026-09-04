@@ -4,6 +4,11 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3c.1）— `discover` 读 `builtin_overrides`
+
+`{"builtin.x": {"enabled": false}}` 的内置从加载集剔除并记入 `Discovery.disabled_builtins`；`protected` 的内置
+忽略覆盖。
+
 ## 2026-09-04（批 3b）— manifest 校验改用 `slot_tree_with_builtins()`（含内置声明的位）
 
 ## 2026-09-03（批 2b.5）— `discover` 读 `registry.json`

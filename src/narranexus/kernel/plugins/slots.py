@@ -202,6 +202,8 @@ def build_kernel_slot_tree() -> SlotTree:
              default=KERNEL_OWNER, doc="Capability namespace; children are the four capability tiers."),
         Slot("agent.capabilities.memory_kinds", many, "narranexus.contracts.memory:MemoryKindContract", KERNEL_OWNER,
              doc="Memory kinds (recall / commit / reflect participants)."),
+        Slot("agent.capabilities.modules", many, "narranexus.contracts.agent.capability:Capability", KERNEL_OWNER,
+             doc="L4 capabilities (legacy XYZBaseModule classes through LegacyModuleAdapter); meta carries mcp_port / always_load / channel."),
         Slot("agent.capabilities.context_providers", many, "narranexus.contracts.agent.capability:ContextProvider", KERNEL_OWNER,
              doc="Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section."),
         Slot("agent.capabilities.tools", many, "narranexus.contracts.tool:ToolProvider", KERNEL_OWNER,

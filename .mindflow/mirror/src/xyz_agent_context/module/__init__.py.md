@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
+
+## 2026-09-04（批 3c.1）— 门面不再 import 任何内置模块
+
+17 行 eager import 删除；`MODULE_MAP = ModuleMapView(...)`；`from xyz_agent_context.module import ChatModule`
+经 PEP 562 `__getattr__` 惰性从视图取（被禁用/导入失败 → AttributeError）。这是 spec §20 批 3 出口判据
+「platform 不再 import 任何 builtin」在模块层的落地。
 
 ## 2026-09-03（批 2f.1）— `MODULE_MAP["NexusPluginsModule"]`
 ## 2026-08-10 — 导出 IDENTITY_TOKEN_HEADER / stamp_identity_token / BEARER_AGENT_PREFIX / parse_bearer_identity

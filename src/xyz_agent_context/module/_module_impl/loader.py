@@ -66,11 +66,10 @@ class ModuleLoader:
     # auto-enrolled via `_channel_modules()` so adding a new IM means
     # subclassing ChannelModuleBase + registering in MODULE_MAP, with
     # zero changes here.
+    # Derived from the module contributions table (meta.always_load); the
+    # live list below also drops a builtin disabled through registry.json.
     CORE_ALWAYS_LOAD = [
-        "SkillModule",
-        "CommonToolsModule",
-        "GeneralMemoryModule",  # unified memory: learns observations + injects cross-kind recall every turn
-        "NexusPluginsModule",  # agent self-extension (plugin_* tools); no-op on cloud (empty instructions, no MCP)
+        spec.class_name for spec in __import__("xyz_agent_context.module.contributions", fromlist=["MODULE_SPECS"]).MODULE_SPECS if spec.always_load and not spec.channel
     ]
 
     @classmethod
@@ -86,8 +85,8 @@ class ModuleLoader:
 
     @classmethod
     def always_load_modules(cls, module_map: Dict[str, type]) -> List[str]:
-        """Effective always-load list: core + every ChannelModuleBase subclass."""
-        return list(cls.CORE_ALWAYS_LOAD) + cls._channel_modules(module_map)
+        """Effective always-load list: core (present in module_map) + every ChannelModuleBase subclass."""
+        return [name for name in cls.CORE_ALWAYS_LOAD if name in module_map] + cls._channel_modules(module_map)
 
     # Backward-compat alias preserved for any external readers; internal sites
     # below use ``always_load_modules(self.module_map)`` instead.

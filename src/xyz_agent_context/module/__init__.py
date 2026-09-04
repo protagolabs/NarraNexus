@@ -52,44 +52,35 @@ from ._mcp_identity import (
 # =============================================================================
 # Concrete Module implementations (must be after XYZBaseModule definition)
 # =============================================================================
-from xyz_agent_context.module.awareness_module.awareness_module import AwarenessModule
-from xyz_agent_context.module.basic_info_module.basic_info_module import BasicInfoModule
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.module.social_network_module.social_network_module import SocialNetworkModule
-from xyz_agent_context.module.job_module.job_module import JobModule
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
-from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
-from xyz_agent_context.module.lark_module.lark_module import LarkModule
-from xyz_agent_context.module.slack_module.slack_module import SlackModule
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
-from xyz_agent_context.module.wechat_module.wechat_module import WeChatModule
-from xyz_agent_context.module.narramessenger_module.narramessenger_module import NarramessengerModule
-from xyz_agent_context.module.discord_module.discord_module import DiscordModule
-from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
-from xyz_agent_context.module.general_memory_module.general_memory_module import GeneralMemoryModule
-from xyz_agent_context.module.home_assistant_module.home_assistant_module import HomeAssistantModule
-from xyz_agent_context.module.nexus_plugins_module.nexus_plugins_module import NexusPluginsModule
 
 # Module mapping table.
-MODULE_MAP = {
-    "AwarenessModule": AwarenessModule,
-    "BasicInfoModule": BasicInfoModule,
-    "ChatModule": ChatModule,
-    "SocialNetworkModule": SocialNetworkModule,
-    "JobModule": JobModule,
-    "SkillModule": SkillModule,
-    "MessageBusModule": MessageBusModule,
-    "LarkModule": LarkModule,
-    "SlackModule": SlackModule,
-    "TelegramModule": TelegramModule,
-    "WeChatModule": WeChatModule,
-    "NarramessengerModule": NarramessengerModule,
-    "DiscordModule": DiscordModule,
-    "CommonToolsModule": CommonToolsModule,
-    "GeneralMemoryModule": GeneralMemoryModule,
-    "HomeAssistantModule": HomeAssistantModule,
-    "NexusPluginsModule": NexusPluginsModule,
-}
+from xyz_agent_context.module.contributions import MODULES_SLOT, register_all as _register_module_contributions
+from xyz_agent_context.module._module_map import ModuleMapView
+
+# All builtin modules register themselves into the kernel registry
+# (agent.capabilities.modules); the manifests in narranexus.kernel.plugins.builtins
+# name the same Contribution objects. MODULE_MAP is a live VIEW of that registry:
+# a builtin disabled through registry.json's builtin_overrides disappears from
+# it (and from the derived MCP port / always-load tables) at boot.
+_register_module_contributions()
+MODULE_MAP = ModuleMapView(MODULES_SLOT)
+
+_MODULE_CLASS_NAMES = frozenset(MODULE_MAP._registry().names())
+
+
+def __getattr__(name: str):
+    """``from xyz_agent_context.module import ChatModule`` keeps working, lazily.
+
+    The platform no longer imports any builtin module at import time (spec
+    §20 batch 3 exit criterion); the class is resolved through the registry
+    view the first time a caller asks for it.
+    """
+    if name in _MODULE_CLASS_NAMES:
+        try:
+            return MODULE_MAP[name]
+        except KeyError:
+            raise AttributeError(f"module {name!r} is disabled or failed to import") from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def module_class_provides_chat_history(module_class: str) -> bool:

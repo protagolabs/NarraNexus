@@ -11,6 +11,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `agent.capabilities.context_providers` | context_provider | 0 | `narranexus.contracts.agent.capability:ContextProvider` | `"agent.capabilities.context_providers": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.mcp_servers` | mcp_server | 0 | `narranexus.contracts.mcp_server:McpServerSpec` | `"agent.capabilities.mcp_servers": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.memory_kinds` | memory | 0 | `narranexus.contracts.memory:MemoryKindContract` | `"agent.capabilities.memory_kinds": ["pkg.module:SYMBOL"]` |
+| `agent.capabilities.modules` | module | 0 | `narranexus.contracts.agent.capability:Capability` | `"agent.capabilities.modules": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.tools` | tool | 0 | `narranexus.contracts.tool:ToolProvider` | `"agent.capabilities.tools": ["pkg.module:SYMBOL"]` |
 | `backend.hooks` | hook | 0 | `narranexus.kernel.plugins.hooks:HookImplSpec` | `"backend.hooks": ["pkg.module:SYMBOL"]` |
 | `backend.routes` | route | 0 | `narranexus.contracts.route:RouterSpec` | `"backend.routes": ["pkg.module:SYMBOL"]` |

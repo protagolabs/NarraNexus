@@ -4,6 +4,8 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04（批 3c.1）— `agent.capabilities.modules`（many，契约 `Capability`）
+
 ## 2026-09-04（批 3a）— `turn.profiles`、`agent.capabilities.context_providers`；`turn.pipeline.act` 改 many
 
 阶段位放的是**命名的策略**（profile 点名其一），所以 act 与六个由 `builtin.turn` 声明的兄弟位一样是 many。

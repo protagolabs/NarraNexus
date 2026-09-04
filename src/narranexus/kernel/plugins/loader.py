@@ -65,6 +65,7 @@ class Discovery:
     paths: dict[str, Path] = field(default_factory=dict)  # user plugin id -> plugin dir
     rejected: dict[str, str] = field(default_factory=dict)  # user plugin id -> reason (state name: detail)
     safe_mode: bool = False
+    disabled_builtins: tuple[str, ...] = ()  # registry.json builtin_overrides[id].enabled == False
 
 
 def discover(
@@ -101,6 +102,15 @@ def discover(
     except Exception as exc:  # noqa: BLE001 — a corrupt registry must not stop the host; builtins still boot
         logger.error(f"[plugins] {store.path}: unreadable, loading builtins only: {exc}")
         return found
+    # A builtin switched off in registry.json (builtin_overrides) is dropped
+    # from the load set; the boot also removes its import-time registrations.
+    disabled = tuple(sorted(pid for pid, o in reg.builtin_overrides.items() if o.get("enabled") is False))
+    protected = {m.id for m in found.manifests if m.protected}
+    disabled = tuple(pid for pid in disabled if pid not in protected)
+    if disabled:
+        found.manifests = [m for m in found.manifests if m.id not in disabled]
+        found.disabled_builtins = disabled
+        logger.info(f"[plugins] builtins disabled by override: {list(disabled)}")
     if reg.safe_mode:
         logger.warning(f"[plugins] SAFE MODE: user plugins skipped ({reg.safe_mode_reason or 'no reason recorded'})")
         found.safe_mode = True

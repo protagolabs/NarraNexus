@@ -1,7 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
+
+## 2026-09-04（批 3c.1）— 端口表从贡献表派生
+
+`CORE_MCP_MODULES`/`CORE_MODULE_PORTS` 由 `MODULE_SPECS` 计算（名字保留：port preflight 测试与调用方 import 它们）；
+`all_mcp_modules()`/`all_module_ports()` 只列 MODULE_MAP 里还在的（禁用感知）。三条直接类 import 删除。
 
 ## 2026-09-03（批 2f.1）— `NexusPluginsModule` 进 `CORE_MCP_MODULES`，端口 7811
 

@@ -83,9 +83,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, MODULE_MAP
-from xyz_agent_context.module.awareness_module.awareness_module import AwarenessModule
-from xyz_agent_context.module.social_network_module import SocialNetworkModule
-from xyz_agent_context.module.job_module.job_module import JobModule
+from xyz_agent_context.module.contributions import MODULE_SPECS
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client_sync
@@ -119,32 +117,12 @@ def _no_signal_capture():
 # Telegram, ...) are auto-discovered via `discover_channel_modules` so adding
 # a new IM channel needs zero edits here — just subclass ChannelModuleBase
 # with `mcp_port = NNNN` and register in MODULE_MAP.
-CORE_MCP_MODULES = [
-    "AwarenessModule",  # port: 7801
-    "ChatModule",  # port: 7804
-    "SocialNetworkModule",  # port: 7802
-    "JobModule",  # port: 7803
-    "SkillModule",  # port: 7806
-    "CommonToolsModule",  # port: 7807
-    "BasicInfoModule",  # port: 7808 (narrative-awareness tools — Fix #2 P3)
-    "GeneralMemoryModule",  # port: 7809 (remember / grep_memory tools)
-    "HomeAssistantModule",  # port: 7810 (smart-home query/control via Home Assistant)
-    "NexusPluginsModule",  # port: 7811 (agent self-extension: plugin_* tools, local only)
-    "MessageBusModule",  # port: 7820
-]
-CORE_MODULE_PORTS = {
-    "AwarenessModule": 7801,
-    "ChatModule": 7804,
-    "SocialNetworkModule": 7802,
-    "JobModule": 7803,
-    "SkillModule": 7806,
-    "CommonToolsModule": 7807,
-    "BasicInfoModule": 7808,
-    "GeneralMemoryModule": 7809,
-    "HomeAssistantModule": 7810,
-    "NexusPluginsModule": 7811,
-    "MessageBusModule": 7820,
-}
+# Derived from the module contributions table (one row per builtin module):
+# the core (non-channel) MCP modules and their ports. Kept as module-level
+# names because the port preflight test and callers import them; the LIVE,
+# disable-aware answers are all_mcp_modules() / all_module_ports().
+CORE_MCP_MODULES = [spec.class_name for spec in MODULE_SPECS if not spec.channel]
+CORE_MODULE_PORTS = {spec.class_name: spec.mcp_port for spec in MODULE_SPECS if not spec.channel and spec.mcp_port}
 
 
 def discover_channel_modules(

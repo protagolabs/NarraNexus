@@ -170,6 +170,15 @@ class Registry(Generic[T]):
     def names(self) -> tuple[str, ...]:
         return tuple(self._entries)
 
+    def remove_owner(self, owner: str) -> int:
+        """Drop every entry ``owner`` registered (a disabled builtin at boot). Refused after freeze."""
+        if self._frozen:
+            raise RegistryFrozen(f"{self.kind}: cannot remove {owner!r} after freeze()")
+        victims = [k for k, e in self._entries.items() if e.owner == owner]
+        for k in victims:
+            del self._entries[k]
+        return len(victims)
+
     def entries(self) -> tuple[Entry[T], ...]:
         return tuple(self._entries.values())
 

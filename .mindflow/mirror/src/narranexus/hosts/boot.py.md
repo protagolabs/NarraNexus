@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/hosts/boot.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3c.1）— 禁用的内置：在冻结前 `registries.remove_owner`
+
+import 时登记的贡献（模块类等）在 stage1 之前按 owner 移除并 block 其钩子，`BootReport.disabled_builtins` 记录。
 
 ## 2026-09-03（批 2b.5）— 分阶段启动（spec §9.2）
 

@@ -1,8 +1,10 @@
 ---
 code_file: src/narranexus/kernel/plugins/registry.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3c.1）— `remove_owner(owner)`（冻结前；禁用内置用）
 
 ## 2026-09-03（批 2b.5）— 同对象幂等注册在 freeze 后也是 no-op
 
