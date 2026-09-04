@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a.4）— `PLUGIN_EXEMPT_PREFIXES`
+
+插件路由声明 `auth="none"` 时由 `plugins_host` 在启动期填入的豁免前缀集合（运行期可变，所以是 set 而不是
+常量元组）。两处判断（JWT 门与本地模式 X-User-Id 门）都并入 `_is_plugin_exempt`，其余路径仍 fail-closed。
+
 ## 2026-09-03 — `_is_cloud_mode()` 转发到 `narranexus.kernel.deployment.is_cloud_mode`
 
 函数与 docstring 里的 DMG 安全理由保留，实现改为一行转发；优先级（显式 env > DATABASE_URL >

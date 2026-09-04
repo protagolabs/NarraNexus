@@ -806,6 +806,16 @@ else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
 
 
+# ─── Plugin routers (backend.routes contributions) ───────
+# After every shell router (a plugin cannot shadow one) and before the SPA
+# fallback (the catch-all cannot swallow one). With no user plugins loaded this
+# mounts nothing, so the route snapshot is unchanged.
+from backend.plugins_host import mount_plugin_routes  # noqa: E402
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES  # noqa: E402
+
+app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)
+
+
 # ─── Frontend static files & SPA fallback ────────────────
 # Mounted after all API routes so /api/* and /ws/* take priority.
 

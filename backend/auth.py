@@ -417,6 +417,17 @@ def _is_marketplace_public_read(request: "Request") -> bool:
     )
 
 
+# Prefixes plugin routers declared with ``auth="none"`` (RouterSpec). Filled by
+# ``backend.plugins_host.mount_plugin_routes`` at boot — the ONLY way a plugin
+# obtains an unauthenticated endpoint, and always explicit in its manifest
+# code. A set (not the tuple below) because it is populated at runtime.
+PLUGIN_EXEMPT_PREFIXES: set[str] = set()
+
+
+def _is_plugin_exempt(path: str) -> bool:
+    return any(path.startswith(p) for p in PLUGIN_EXEMPT_PREFIXES)
+
+
 AUTH_EXEMPT_PREFIXES = (
     # Account-state READ (GET /api/admin/account-state/{user_id}): a
     # path-parameter route, so it cannot be an exact entry in
@@ -691,6 +702,7 @@ async def auth_middleware(request: Request, call_next):
             local_path.startswith("/api/")
             and local_path not in AUTH_EXEMPT_PATHS
             and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
+            and not _is_plugin_exempt(local_path)
         ):
             header_uid = request.headers.get("x-user-id")
             if not header_uid and _is_marketplace_public_read(request):
@@ -720,7 +732,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Check exemptions
-    if path in AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
+    if path in AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES) or _is_plugin_exempt(path):
         response = await call_next(request)
         return response
 

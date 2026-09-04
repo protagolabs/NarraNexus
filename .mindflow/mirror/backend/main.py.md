@@ -1,8 +1,13 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.4）— 挂载插件路由
+
+`app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)` 放在壳路由之后、静态/SPA 之前
+（顺序即安全边界，见 `plugins_host.py`）。
 
 ## 2026-08-28 — plugins_router 注册
 

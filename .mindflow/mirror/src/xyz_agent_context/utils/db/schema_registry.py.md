@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-31
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.4）— `register_table(spec, owner)` + `TABLE_OWNERS` + `plugin_settings` 表
+
+插件表从契约层 `TableSpec` 转成 `TableDef` 进 `TABLES`（同一 `auto_migrate`，不激活也建表）；
+`TABLE_OWNERS` 记每张表的 owner（核心表 = `builtin.kernel`），先查「已被别人注册」再查 `ext_<owner>_` 前缀，
+同 owner 重复注册幂等。`plugin_settings`（plugin_id+key 唯一）存插件设置行，secret 由平台 store 加密。
+`tables.json` 快照只多了这一张表。
 
 ## 2026-08-31 — `event_stream.kind` 的长度余量写进注释
 

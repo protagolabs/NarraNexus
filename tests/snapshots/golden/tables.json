@@ -6861,6 +6861,62 @@
       ]
     ]
   },
+  "plugin_settings": {
+    "columns": [
+      [
+        "id",
+        "INTEGER",
+        "BIGINT UNSIGNED",
+        false,
+        true
+      ],
+      [
+        "plugin_id",
+        "TEXT",
+        "VARCHAR(128)",
+        false,
+        false
+      ],
+      [
+        "key",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "value_json",
+        "TEXT",
+        "MEDIUMTEXT",
+        true,
+        false
+      ],
+      [
+        "is_secret",
+        "INTEGER",
+        "TINYINT",
+        false,
+        false
+      ],
+      [
+        "updated_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ]
+    ],
+    "indexes": [
+      [
+        "idx_plugin_settings_plugin_key",
+        [
+          "plugin_id",
+          "key"
+        ],
+        true
+      ]
+    ]
+  },
   "product_analytics_events": {
     "columns": [
       [

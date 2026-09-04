@@ -269,18 +269,60 @@ WORKER_SPECS: dict[str, WorkerSpec] = {
 }
 
 
+PLUGIN_WORKERS_SLOT = "backend.workers"
+
+
+def _adapt_plugin_worker(owner: str, name: str, contract_spec: Any) -> WorkerSpec:
+    """Wrap a contracts ``WorkerSpec`` as a supervisor ``WorkerSpec`` named ``<owner>:<name>``."""
+
+    async def _factory(ctx: SupervisorContext) -> WorkerHandle:
+        handle = await contract_spec.factory(ctx)
+        return WorkerHandle(run=handle.run, stop=handle.stop)
+
+    return WorkerSpec(f"{owner}:{name}", _factory, stable_after_s=float(contract_spec.stable_after_s))
+
+
+def plugin_worker_specs(registries: Any = None) -> list[WorkerSpec]:
+    """Plugin workers targeting the workers process, in registry order.
+
+    A factory that fails to build its spec logs and is skipped — one broken
+    plugin must not keep the builtin workers from starting.
+    """
+    if registries is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        registries = KERNEL_REGISTRIES
+    out: list[WorkerSpec] = []
+    for entry in registries.registry_for(PLUGIN_WORKERS_SLOT).entries():
+        try:
+            spec = entry.factory()
+        except Exception as exc:  # noqa: BLE001 — isolate the plugin
+            logger.warning(f"[supervisor] {entry.owner}: worker {entry.name!r} spec failed: {exc}")
+            continue
+        if getattr(spec, "host", "workers") != "workers":
+            continue
+        out.append(_adapt_plugin_worker(entry.owner, entry.name, spec))
+    return out
+
+
 def build_specs(
     only: Optional[set[str]] = None,
     exclude: Optional[set[str]] = None,
+    *,
+    registries: Any = None,
 ) -> list[WorkerSpec]:
-    """Resolve --only / --exclude over WORKER_SPECS. Default (neither) = all.
+    """Resolve --only / --exclude over WORKER_SPECS plus plugin workers. Default (neither) = all.
 
     Unknown names warn but do not abort — the supervisor comes up with the valid
     subset (mirrors ``start_channel_triggers``' unknown-name handling). An empty
     result is allowed (the caller idles on ``stop_event`` rather than exiting, so
     a misconfigured container restarts predictably instead of crash-looping).
+    Plugin workers (``backend.workers`` contributions with ``host="workers"``)
+    follow the four builtin ones, named ``<owner>:<name>``; ``--only`` /
+    ``--exclude`` address them by that full name.
     """
-    names = set(ALL_WORKERS)
+    plugin_specs = plugin_worker_specs(registries)
+    names = set(ALL_WORKERS) | {s.name for s in plugin_specs}
     for label, sel in (("--only", only), ("--exclude", exclude)):
         if sel:
             unknown = sel - names
@@ -293,8 +335,9 @@ def build_specs(
         names &= only
     if exclude:
         names -= exclude
-    # Preserve the canonical ALL_WORKERS order for deterministic startup.
-    return [WORKER_SPECS[n] for n in ALL_WORKERS if n in names]
+    # Preserve the canonical ALL_WORKERS order for deterministic startup; plugin
+    # workers follow in registry (declaration) order.
+    return [WORKER_SPECS[n] for n in ALL_WORKERS if n in names] + [s for s in plugin_specs if s.name in names]
 
 
 # =============================================================================

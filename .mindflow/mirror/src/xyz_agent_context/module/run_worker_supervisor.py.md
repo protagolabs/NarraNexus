@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/run_worker_supervisor.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2a.4）— 插件 worker 进 supervisor
+
+`build_specs(..., registries=)` 在四个内置之后追加 `backend.workers` 里 `host="workers"` 的贡献，
+名字 `<owner>:<name>`（`--only/--exclude` 用全名）；契约 `WorkerSpec.factory` 返回的句柄适配成本模块的
+`WorkerHandle`。spec 工厂抛错只跳过该插件。无插件时列表与 `workers.json` 快照完全不变。
 
 ## Why it exists
 

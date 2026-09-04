@@ -23,6 +23,7 @@ from loguru import logger
 if TYPE_CHECKING:
     # Type-only: the name is referenced only in annotations, so keep the
     # runtime import graph unchanged.
+    from narranexus.contracts.table import TableSpec
     from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
@@ -71,10 +72,59 @@ class TableDef:
 
 TABLES: Dict[str, TableDef] = {}
 
+# table name -> plugin id that owns it. Core tables registered through
+# ``_register`` are owned by the kernel; plugin tables arrive through
+# ``register_table`` and carry their owner so uninstall/purge can list them.
+TABLE_OWNERS: Dict[str, str] = {}
+KERNEL_TABLE_OWNER = "builtin.kernel"
+
 
 def _register(table: TableDef) -> None:
     """Register a table definition in the global registry."""
     TABLES[table.name] = table
+    TABLE_OWNERS.setdefault(table.name, KERNEL_TABLE_OWNER)
+
+
+def register_table(spec: "TableSpec", *, owner: str) -> TableDef:
+    """Register a plugin's ``TableSpec`` (contract data) as a ``TableDef``.
+
+    Enforces the ``ext_<owner>_`` prefix for non-builtin owners, refuses to
+    re-register a name under a different owner, and is idempotent for the same
+    owner (the loader may run more than once in a process, e.g. tests).
+    """
+    from narranexus.contracts.table import TableSpec  # noqa: PLC0415 — type check only
+
+    if not isinstance(spec, TableSpec):
+        raise TypeError(f"register_table expects a contracts TableSpec, got {type(spec).__name__}")
+    existing_owner = TABLE_OWNERS.get(spec.name)
+    if existing_owner is not None and existing_owner != owner:
+        raise ValueError(f"table {spec.name!r} is already registered by {existing_owner!r}")
+    spec.check_owner(owner)
+    table = TableDef(
+        name=spec.name,
+        columns=[
+            Column(
+                name=c.name,
+                sqlite_type=c.sqlite_type,
+                mysql_type=c.mysql_type,
+                nullable=c.nullable,
+                default=c.default,
+                primary_key=c.primary_key,
+                auto_increment=c.auto_increment,
+                unique=c.unique,
+            )
+            for c in spec.columns
+        ],
+        indexes=[Index(name=i.name, columns=list(i.columns), unique=i.unique) for i in spec.indexes],
+        primary_key=list(spec.primary_key) if spec.primary_key else None,
+    )
+    TABLES[table.name] = table
+    TABLE_OWNERS[table.name] = owner
+    return table
+
+
+def tables_owned_by(owner: str) -> List[str]:
+    return sorted(name for name, o in TABLE_OWNERS.items() if o == owner)
 
 
 def get_registered_tables() -> List[TableDef]:
@@ -3064,6 +3114,27 @@ _register(
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[Index("idx_nts_hash", ["text_hash"], unique=True)],
+    )
+)
+
+
+# plugin_settings: one row per (plugin, key) of a plugin's declared settings
+# (contracts.settings.SettingsSchema). Secrets are stored Fernet-encrypted by
+# the platform settings store (is_secret=1) and never echoed back. Env
+# ``NXP_<ID>_<KEY>`` overrides win over rows at read time; rows are the
+# user-edited values from the plugin factory UI.
+_register(
+    TableDef(
+        name="plugin_settings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("plugin_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("key", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("value_json", "TEXT", "MEDIUMTEXT"),
+            Column("is_secret", "INTEGER", "TINYINT", nullable=False, default="0"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_plugin_settings_plugin_key", ["plugin_id", "key"], unique=True)],
     )
 )
 
