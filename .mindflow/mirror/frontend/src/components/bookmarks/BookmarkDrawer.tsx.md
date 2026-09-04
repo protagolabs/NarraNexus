@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 标题下拉切换器整体退役(Owner)
+
+标题恢复**纯文本**:`activeTab / onSelectTab / switcherCategories` 三个 props、
+下拉 JSX、`switcherOpen` 状态与 [[../../hooks/useDismissOnOutside]] 依赖、
+组件泛型 `<T extends string>`、`DrawerSwitcherTab/Category` 两个导出类型
+全部删除,`DrawerHeader` 也不再是泛型。i18n `bookmarks.drawer.switchPanel`
+与 `chat.team.drawerCategory`(各 10 locale)一并清除,`drawerPanelSwitcher.test.tsx`
+删除。
+
+**为什么不是「只在 artifacts 面板隐藏」**:抽屉是单聊与团队房间共用的一个壳,
+按 tab 分叉会让同一个头部在不同面板长出两种交互。「开哪个面板」的唯一
+所有者回到**打开抽屉的那个入口**——单聊是 [[../chat/ChatHeader]] 的图标 + ⋯
+菜单,团队房间是 member bar 的 toggle。
+
+**连带必修**:团队房间的 `files` 面板此前**只有**下拉这一条入口(member bar
+只有 members/artifacts 两枚),直接删下拉会把共享文件面板变成不可达代码。
+所以同批给 [[../chat/team/TeamChatPanel]] 加了 `files-toggle`(FolderOpen +
+计数),并在 roster.test 里钉死这条入口。删入口型 UI 时先数一遍**被它独占
+的路径**,否则删的不是一个控件而是一个功能。
 
 ## 2026-08-19(三)— 切换器 props 成判别对;条目可带计数
 

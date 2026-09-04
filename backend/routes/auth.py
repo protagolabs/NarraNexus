@@ -60,6 +60,7 @@ from xyz_agent_context.schema import (
     OnboardingProgress,
     OnboardingResponse,
     UpdateOnboardingRequest,
+    BoundChannel,
 )
 from backend.auth import (
     create_token,
@@ -75,6 +76,8 @@ from backend.auth_errors import (
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.agent_profile import apply_agent_profile_change
+from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from xyz_agent_context.bundle.channel_credential_tables import channel_binding_tables
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -794,6 +797,89 @@ async def get_agents(request: Request):
                     f"[/api/auth/agents] last_assistant enrichment failed: {e}"
                 )
 
+        # Effective agent-slot identity for the directory table, from the ONE
+        # overlay the runtime uses (AgentSlotService → model_identity). Only the
+        # caller's own agents are resolved: a public agent owned by someone
+        # else reports nothing here. No literal framework fallback in this
+        # route — the platform default lives in model_identity.
+        llm_by_agent: dict[str, dict] = {
+            aid: {"agent_framework": None, "model": None} for aid in agent_ids
+        }
+        if agent_ids:
+            try:
+                # Only the caller's own agents; the service re-checks ownership
+                # itself, so a public agent in `agent_ids` comes back absent.
+                overview = await AgentSlotService(db_client).owner_agents_overview(
+                    user_id, agent_ids=agent_ids
+                )
+                for aid, slots_view in overview.items():
+                    if aid not in llm_by_agent:
+                        continue
+                    agent_view = slots_view.get("agent") or {}
+                    llm_by_agent[aid] = {
+                        "agent_framework": agent_view.get("agent_framework"),
+                        "model": agent_view.get("model") or None,
+                    }
+            except Exception as e:  # noqa: BLE001
+                # Degrade to "unknown" rather than 500 the directory (that would
+                # lock the app out at startup) — but this is NOT an expected
+                # path, so it logs at error, not warning.
+                logger.error(f"[/api/auth/agents] llm summary enrichment failed: {e}")
+
+        # Channel presence for the directory table: one UNION query across the
+        # channel-table registry (bundle/channel_credential_tables — the same
+        # list export/import and preflight use, so a new IM channel is one
+        # entry there), not one query per agent. Each branch carries the
+        # table's on/off column so the UI can tell "configured" from "live".
+        # Only owned agents participate: exposing a public agent's
+        # integrations would leak private account metadata to viewers.
+        binding_tables = channel_binding_tables()
+        channel_order = [channel for channel, _table, _active in binding_tables]
+        bound_channels_by_agent: dict[str, list[BoundChannel]] = {
+            aid: [] for aid in agent_ids
+        }
+        owned_agent_ids = [
+            row["agent_id"] for row in rows if row.get("created_by") == user_id
+        ]
+        if owned_agent_ids:
+            owned_placeholders = ",".join(["%s"] * len(owned_agent_ids))
+            union_parts = [
+                f"SELECT '{channel}' AS channel_name, agent_id, "
+                f"{active_col if active_col else '1'} AS active "
+                f"FROM {table} WHERE agent_id IN ({owned_placeholders})"
+                for channel, table, active_col in binding_tables
+            ]
+            try:
+                # Every UNION branch carries the same IN(...) list, so the
+                # parameter tuple is the id list repeated once per branch.
+                channel_rows = await db_client.execute(
+                    " UNION ALL ".join(union_parts),
+                    tuple(owned_agent_ids) * len(binding_tables),
+                )
+                # channel → active; a channel with any live row counts as live.
+                channel_state: dict[str, dict[str, bool]] = {
+                    aid: {} for aid in owned_agent_ids
+                }
+                for channel_row in channel_rows or []:
+                    aid = channel_row.get("agent_id")
+                    channel_name = channel_row.get("channel_name")
+                    if aid not in channel_state or channel_name not in channel_order:
+                        continue
+                    active = bool(channel_row.get("active"))
+                    channel_state[aid][channel_name] = channel_state[aid].get(channel_name, False) or active
+                for aid, state in channel_state.items():
+                    bound_channels_by_agent[aid] = [
+                        BoundChannel(channel=channel, active=state[channel])
+                        for channel in channel_order
+                        if channel in state
+                    ]
+            except Exception as e:  # noqa: BLE001
+                # Same shape as above: the column degrades to "—" for everyone,
+                # which is exactly why it must be loud in the log.
+                logger.error(
+                    f"[/api/auth/agents] channel summary enrichment failed: {e}"
+                )
+
         agents = []
         for row in rows:
             description = row.get('agent_description')
@@ -866,6 +952,9 @@ async def get_agents(request: Request):
                 created_at=format_for_api(row.get('agent_create_time')),
                 is_public=bool(row.get('is_public', 0)),
                 created_by=created_by,
+                agent_framework=llm_by_agent[row['agent_id']]["agent_framework"],
+                model=llm_by_agent[row['agent_id']]["model"],
+                bound_channels=bound_channels_by_agent[row['agent_id']],
                 bootstrap_active=bootstrap_active,
                 bootstrap_greeting=bootstrap_greeting,
                 active_run=active_run,
@@ -1837,6 +1926,7 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
         first_agent_created=bool(raw.get("first_agent_created", False)),
         template_applied=bool(raw.get("template_applied", False)),
         dismissed=bool(raw.get("dismissed", False)),
+        landing_completed=bool(raw.get("landing_completed", False)),
     )
 
 
@@ -1900,11 +1990,11 @@ async def get_session(http_request: Request):
 async def get_onboarding(http_request: Request):
     """Return the authenticated user's onboarding checklist state.
 
-    2026-08-19: the checklist card that read this on chat-page mount is
-    retired (the auto-provisioned guide agent carries onboarding now), so
-    this GET currently has no frontend caller. Kept deliberately: the POST
-    below still writes this state (useCreateAgent / bundle import), and this
-    is its only read API — for ops queries and any future progress surface.
+    2026-08-19: the checklist card that read this on chat-page mount was
+    retired, leaving this GET without a frontend caller for a while.
+    2026-08-27: it has one again — the root redirect reads
+    `landing_completed` here to decide whether a user still owes the
+    one-time welcome flow (WelcomePage), and the flow POSTs the flag back.
     Identity comes from auth_middleware (was a client-supplied query param).
     """
     user_id = await resolve_current_user_id(http_request)
@@ -1948,6 +2038,8 @@ async def update_onboarding(http_request: Request, request: UpdateOnboardingRequ
             template_applied=current.template_applied
             or request.template_applied is True,
             dismissed=current.dismissed or request.dismissed is True,
+            landing_completed=current.landing_completed
+            or request.landing_completed is True,
         )
 
         metadata = dict(user.metadata or {})

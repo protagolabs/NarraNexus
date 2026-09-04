@@ -4,6 +4,13 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (合并 dev #383 后) — 抽屉不再有切换器，`switcherCategories` 随之删除
+
+`<BookmarkDrawer>` 取 #383 的形状（不传 `activeTab / onSelectTab / switcherCategories`），
+`visibleCategories` 的 import 与 `useMemo` 删除；`useStudioLifecycle` 与 `pendingPanelMode`
+的 toggle 语义保留。studio 的再入口改到 [[../chat/ChatHeader.tsx]] 的 ⋯ 菜单条件项。
+早条里「`switcherCategories` 传 `{ studioOpen, studioResumable }`」随之作废。
+
 ## 2026-09-04 (评审二轮) — studio 生命周期交给 `useStudioLifecycle`
 
 评审 🟡#10：「关抽屉即结束」只盖住了 X 这一条路径，⌘K toggle 关抽屉 / 抽屉内切 tab / 切
@@ -26,6 +33,24 @@ agent 三条都漏 flag，切 agent 不关抽屉还会留下一个标题 Builder
   关了，用户看不到任何变化发生。「关掉配置面板 = 结束 studio」语义自洽。
   `BuilderConfigPanel.finish()` 走的是 `closeStudio` + `requestPanel` toggle，不
   经过这里，不会双重清理。
+
+## 2026-09-03 — 不再给抽屉喂切换器注册表
+
+`activeTab / onSelectTab / switcherCategories={STRIP_CATEGORIES}` 三个 props
+撤掉(标题下拉退役,见 [[../bookmarks/BookmarkDrawer]]),`STRIP_CATEGORIES`
+的 import 一并删除——本文件只保留 `tabLabelKey / tabDescKey` 用于头部标题和
+? 说明。注册表本身还活着:[[../chat/ChatHeader]] 的图标 + ⋯ 菜单是现在
+**唯一**的面板入口,`drawerTab` 状态仍由 uiStore.requestPanel 与该菜单驱动。
+
+## 2026-08-27 — 子页浮动 X 对 /app/agents/ 让位
+
+子页右上角那颗通用关闭 X 加了 `hasOwnCloseControl` 例外
+(`pathname.startsWith('/app/agents/')`)。原因是
+[[../../pages/AgentProfilePage]] 自带两个更准的控件:左上角按来源
+(`location.state.from`)决定回对话还是回目录的面包屑,以及右上角的
+Chat + "⋮" 操作对。通用 X 既重复了前者,又会盖在后者上面。
+判据是路径前缀而不是精确匹配——将来 `/app/agents/*` 下的整页表单
+(如果做)同样自带自己的取消/提交条。
 
 ## 2026-08-19(二)— 手机永不钉 + 透明宽度地板
 
@@ -126,7 +151,7 @@ MainLayout 就是同一个原因,注释里写着)。自门控(看过 / 遥测未
 附近）被压在工具栏下面露不全。用 index.css 的 `.h-dvh-safe`（100vh
 兜底 + 100dvh 覆盖）而不是 Tailwind 的 h-dvh：Tauri 声明 macOS 12.0
 最低版本，而 WebKit 12.3 才支持 dvh——纯 dvh 在 12.0-12.2 会整条丢弃、
-根容器塌成 auto 高度。App.tsx（PageFallback）和 SetupPage 的整屏根
+根容器塌成 auto 高度。App.tsx（PageFallback）和 WelcomePage 的整屏根
 同批换成该类。artifact 滑不动修复批次的次要项（Base recvpm05jsLg3o）。
 
 > 2026-07-30: mounts [[MigrationGuide]] beside the OnboardingChecklist (the
@@ -359,3 +384,13 @@ The artifact WS lifecycle (`connectWs` / `disconnectWs`) lives in `ChatView`'s `
 lib/guideCoachmark 报 'pending'（登录响应 is_new_user 置位）时渲染，点掉
 永不再现。原注释里"flex-col 是为了 checklist 摞在聊天上方"的理由随之失效，
 但 flex-col 本身仍被 ChatPanel 高度链依赖，保留。
+
+## 2026-08-27 — first-run leftovers
+
+Two one-shot new-user surfaces hang off this layout, both now only for people who
+SKIPPED part of the first-run flow ([[WelcomePage]]):
+
+- [[NoProviderNotice]] — a top strip for a local user with no provider wired,
+  explaining why their agent can't reply. Self-clears once a provider exists.
+- [[MigrationGuide]] / [[GuideAgentCoachmark]] — bubbles pointing at the sidebar
+  "+", armed only when the user declined the matching step of the flow.

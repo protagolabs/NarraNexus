@@ -3,13 +3,14 @@
  * @author:
  * @date: 2026-06-10
  * @description: The sidebar's Chats list — team rows + a flat agent list
- * with collapsible sections, per-row quick actions (rename / edit / clear /
- * delete), unread + running indicators. Creation, import and export moved
- * to the sidebar's global nav (Chat UI v4); this file owns the list only.
+ * with collapsible sections, unread + running indicators. Agent rows are
+ * navigation only: every agent mutation (rename / clear data / delete) lives
+ * on the agent profile page. Team rows keep their own ⋮ menu, since a team
+ * has no profile page to move those actions to. Creation, import and export
+ * moved to the sidebar's global nav (Chat UI v4).
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import type { UpdateAgentResponse } from '../../types/api';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -22,31 +23,11 @@ import { Button, useConfirm } from '@/components/ui';
 import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore, useTeamsStore, useUIStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
-import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRead } from '@/lib/unread';
 import { AgentGroupSection } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
-import { ClearAgentDataDialog } from './ClearAgentDataDialog';
-import { EditAgentDialog } from './EditAgentDialog';
 import { TeamChatRow } from './TeamChatRow';
-
-/**
- * Feature flag — temporary, 2026-05-18.
- * Hides the "set agent public/private" toggle button in the sidebar
- * while the public-agent feature is paused for product redesign.
- *
- * Scope of the flag:
- *  - HIDES: the per-agent Globe/Lock toggle button (set-public entry point)
- *  - KEEPS: the read-only Globe badge that marks other users' already-public
- *           agents, and the dashboard's PublicCard for displaying them —
- *           these aren't user-actionable controls, they're status indicators
- *           for legacy `is_public=1` rows that may still exist.
- *  - KEEPS: the backend endpoint and the `handleTogglePublic` function so
- *           re-enabling is a one-line flip when the feature ships again.
- *
- * Flip this to `true` to bring the toggle back. */
-const SHOW_AGENT_PUBLIC_TOGGLE = false;
 
 /** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
 function CategoryHeader({
@@ -93,14 +74,6 @@ export function AgentList() {
   const { t } = useTranslation();
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  const [clearTarget, setClearTarget] = useState<typeof rawAgents[0] | null>(null);
-  const [clearBusy, setClearBusy] = useState(false);
-  const [editTarget, setEditTarget] = useState<typeof rawAgents[0] | null>(null);
-  const [editBusy, setEditBusy] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
@@ -118,8 +91,8 @@ export function AgentList() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh } =
+  const { userId, agentId, agents: rawAgents, setAgentId, refreshAgents } = useConfigStore();
+  const { setActiveAgent, isAgentStreaming, completedAgentIds } =
     useChatStore();
   const agentSessions = useChatStore((s) => s.agentSessions);
   const teams = useTeamsStore((s) => s.teams);
@@ -262,271 +235,13 @@ export function AgentList() {
     navigate('/app/agents/new');
   };
 
-  // #43: create a new agent already assigned to this team, then open the
-  // team's group chat so the membership change is immediately visible. The
-  // entry point now lives in the TEAMS-row ⋮ menu (TeamRowMenu) since the old
-  // AgentGroupSection-header "+" no longer exists in the TEAMS/AGENTS layout.
+  // #43: create a new agent already assigned to this team; useCreateAgent
+  // opens the team's group chat so the membership change is immediately
+  // visible. The entry point now lives in the TEAMS-row ⋮ menu (TeamRowMenu)
+  // since the old AgentGroupSection-header "+" no longer exists in the
+  // TEAMS/AGENTS layout.
   const handleCreateAgentInTeam = async (teamId: string) => {
-    const id = await createAgent({ teamId });
-    if (id) navigate(`/app/teams/${teamId}/chat`);
-  };
-
-  /**
-   * Report what a successful update still wants the user to know.
-   *
-   * Two things the backend computes are not failures, so they never reach the
-   * error branch, and reporting neither is what made the UI the one rename path
-   * where both happened silently:
-   *
-   * - `name_clash_with` — another of this owner's agents already answers to the
-   *   name. Deliberate often enough that blocking it would be wrong; silent is
-   *   how two agents came to share one name (Shenzhen P1).
-   * - `identity_record_updated === false` — the name IS stored but the agent's
-   *   identity memory was not corrected, so it may keep introducing itself by
-   *   the old name. That state IS the incident.
-   *
-   * One function for all three call sites on purpose: three copies is how the
-   * fourth call site gets added without one.
-   */
-  const warnAboutUpdateSideEffects = async (res: UpdateAgentResponse) => {
-    const notes: string[] = [];
-    if (res.name_clash_with) {
-      notes.push(t('layout.editAgentDialog.renameClashWarn', { agentId: res.name_clash_with }));
-    }
-    if (res.identity_record_updated === false) {
-      notes.push(t('layout.editAgentDialog.renameMemoryWarn'));
-    }
-    if (!notes.length) return;
-    await alert({
-      title: t('layout.editAgentDialog.renameWarnTitle'),
-      message: notes.join('\n\n'),
-    });
-  };
-
-  const handleTogglePublic = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newIsPublic = !agent.is_public;
-    try {
-      const res = await api.updateAgent(agent.agent_id, undefined, undefined, newIsPublic);
-      if (res.success) {
-        // Same contract as the two rename paths: optimistic paint, then
-        // invalidate. Reached only when SHOW_AGENT_PUBLIC_TOGGLE is flipped
-        // back on — and that flip is a one-line change, so this is kept in
-        // step rather than left as a copy of the pattern this PR removed.
-        setAgents(rawAgents.map(a =>
-          a.agent_id === agent.agent_id ? { ...a, is_public: newIsPublic } : a
-        ));
-        await refreshAgents();
-        await warnAboutUpdateSideEffects(res);
-      } else {
-        console.error('Failed to toggle public:', res.error);
-        await alert({
-          title: t('layout.editAgentDialog.saveFailedTitle'),
-          message: res.error || 'Failed to update agent',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error toggling public:', err);
-      await alert({
-        title: t('layout.editAgentDialog.saveFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    }
-  };
-
-  const handleStartEdit = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingAgentId(agent.agent_id);
-    setEditingName(agent.name || agent.agent_id);
-  };
-
-  const handleEditAgent = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditTarget(agent);
-  };
-
-  const doEditAgent = async (name: string, description: string) => {
-    if (!editTarget) return;
-    setEditBusy(true);
-    try {
-      const res = await api.updateAgent(editTarget.agent_id, name, description);
-      if (res.success && res.agent) {
-        // Paint the server's own values immediately, then re-read the list so
-        // the persisted copy is server truth and not a locally-patched object.
-        // `agents` is persisted to localStorage with no `partialize`, so a
-        // hand-patched row is what a later page load would show — which is how
-        // a rename could appear to revert.
-        //
-        // The two fields take the response differently ON PURPOSE; do not
-        // "unify" them. `description` is taken as-is (`?? ''`): the response
-        // always carries the key, and a cleared description comes back as ''
-        // or null — falling back to the local value there would put the text
-        // the user just deleted back into the persisted store. `name` keeps a
-        // local fallback because it is the row title and a null would render
-        // the raw agent_id.
-        setAgents(rawAgents.map(a =>
-          a.agent_id === editTarget.agent_id
-            ? { ...a, name: res.agent?.name ?? a.name, description: res.agent?.description ?? '' }
-            : a
-        ));
-        setEditTarget(null);
-        await refreshAgents();
-        await warnAboutUpdateSideEffects(res);
-      } else {
-        await alert({
-          title: t('layout.editAgentDialog.saveFailedTitle'),
-          message: res.error || 'Failed to update agent',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      await alert({
-        title: t('layout.editAgentDialog.saveFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    } finally {
-      setEditBusy(false);
-    }
-  };
-
-  const handleCancelEdit = (e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    setEditingAgentId(null);
-    setEditingName('');
-  };
-
-  const handleSaveEdit = async (targetAgentId: string, e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    if (!editingName.trim()) return;
-
-    setSavingName(true);
-    try {
-      const res = await api.updateAgent(targetAgentId, editingName.trim());
-      if (res.success && res.agent) {
-        // Same contract as doEditAgent: optimistic paint, then invalidate.
-        setAgents(rawAgents.map(a =>
-          a.agent_id === targetAgentId
-            ? { ...a, name: res.agent?.name ?? a.name }
-            : a
-        ));
-        setEditingAgentId(null);
-        setEditingName('');
-        await refreshAgents();
-        await warnAboutUpdateSideEffects(res);
-      } else {
-        // A rename that did not happen must say so. Console-only meant the row
-        // silently snapped back to the old name, which the user reads as "the
-        // platform lost my edit" — and retries, learning nothing each time.
-        console.error('Failed to update agent:', res.error);
-        await alert({
-          title: t('layout.editAgentDialog.saveFailedTitle'),
-          message: res.error || 'Failed to update agent',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error updating agent:', err);
-      await alert({
-        title: t('layout.editAgentDialog.saveFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    } finally {
-      setSavingName(false);
-    }
-  };
-
-  const handleDeleteAgent = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    const ok = await confirm({
-      title: t('layout.agentList.deleteAgentTitle'),
-      message: t('layout.agentList.deleteAgentMessage', { name: agent.name || agent.agent_id }),
-      confirmText: t('layout.agentList.deleteAction'),
-      danger: true,
-    });
-    if (!ok) return;
-
-    setDeletingAgentId(agent.agent_id);
-    try {
-      const res = await api.deleteAgent(agent.agent_id);
-      if (res.success) {
-        const remaining = rawAgents.filter(a => a.agent_id !== agent.agent_id);
-        setAgents(remaining);
-        clearAgent(agent.agent_id);
-        if (agentId === agent.agent_id) {
-          if (remaining.length > 0) {
-            setAgentId(remaining[0].agent_id);
-            setActiveAgent(remaining[0].agent_id);
-          } else {
-            setAgentId('');
-          }
-        }
-      } else {
-        console.error('Failed to delete agent:', res.error);
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: t('layout.agentList.deleteAgentFailedMessage', { error: res.error }),
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error deleting agent:', err);
-      await alert({
-        title: t('layout.agentList.deleteFailedTitle'),
-        message: t('layout.agentList.deleteAgentError'),
-        danger: true,
-      });
-    } finally {
-      setDeletingAgentId(null);
-    }
-  };
-
-  const handleClearData = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setClearTarget(agent);
-  };
-
-  const doClearData = async (scopes: { conversations: boolean; memory: boolean }) => {
-    if (!clearTarget) return;
-    setClearBusy(true);
-    try {
-      const res = await api.clearHistory(clearTarget.agent_id, scopes);
-      if (res.success) {
-        // Drop the in-memory session AND force any mounted ChatPanel to
-        // re-fetch server history (which is now empty) so the view doesn't
-        // keep showing stale messages without a manual refresh.
-        if (scopes.conversations) {
-          clearAgent(clearTarget.agent_id);
-          requestHistoryRefresh();
-        }
-        if (res.disk_errors?.length) {
-          await alert({
-            title: t('layout.clearAgentData.title', { name: clearTarget.name || clearTarget.agent_id }),
-            message: t('layout.clearAgentData.toastDiskWarn', { count: res.disk_errors.length }),
-            danger: true,
-          });
-        }
-      } else {
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: res.error || 'Failed to clear agent data',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error clearing agent data:', err);
-      await alert({
-        title: t('layout.agentList.deleteFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    } finally {
-      setClearBusy(false);
-      setClearTarget(null);
-    }
+    await createAgent({ teamId });
   };
 
   const handleDeleteTeam = async (teamId: string) => {
@@ -575,23 +290,6 @@ export function AgentList() {
   return (
     <div>
       {confirmDialog}
-      {clearTarget && (
-        <ClearAgentDataDialog
-          agentName={clearTarget.name || clearTarget.agent_id}
-          busy={clearBusy}
-          onCancel={() => setClearTarget(null)}
-          onConfirm={doClearData}
-        />
-      )}
-      {editTarget && (
-        <EditAgentDialog
-          initialName={editTarget.name || ''}
-          initialDescription={editTarget.description || ''}
-          busy={editBusy}
-          onCancel={() => setEditTarget(null)}
-          onSave={doEditAgent}
-        />
-      )}
       {/* Header — v4: label + count with search (⌘K palette) and refresh.
           Creation / import / export moved to the sidebar's global nav. */}
       <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-2.5 pb-1.5">
@@ -713,19 +411,6 @@ export function AgentList() {
                     getIsStreaming={getIsStreaming}
                     completedAgentIds={completedAgentIds}
                     currentUserId={userId}
-                    showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
-                    editingAgentId={editingAgentId}
-                    editingName={editingName}
-                    onEditNameChange={setEditingName}
-                    onSaveEdit={handleSaveEdit}
-                    onCancelEdit={handleCancelEdit}
-                    savingName={savingName}
-                    onStartEdit={handleStartEdit}
-                    onEditAgent={handleEditAgent}
-                    onClearData={handleClearData}
-                    onDelete={handleDeleteAgent}
-                    onTogglePublic={handleTogglePublic}
-                    deletingAgentId={deletingAgentId}
                   />
                 )
               )}

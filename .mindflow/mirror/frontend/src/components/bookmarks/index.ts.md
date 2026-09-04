@@ -1,8 +1,10 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 不再导出 `visibleCategories`（见 [[tabs]] 同日条）
 
 ## 2026-09-03 — 再导出 `visibleCategories` / `visibleTabs` / `TabVisibilityContext`
 

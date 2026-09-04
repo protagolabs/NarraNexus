@@ -22,6 +22,7 @@ import {
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { owesWelcomeFlow } from '@/lib/onboardingGate';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -30,7 +31,7 @@ import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const SetupPage = lazy(() => import('@/pages/SetupPage'));
+const WelcomePage = lazy(() => import('@/pages/WelcomePage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const MarketplacePage = lazy(() => import('@/pages/MarketplacePage'));
@@ -39,6 +40,7 @@ const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
 const ChooseCreateMethodPage = lazy(() => import('@/pages/ChooseCreateMethodPage'));
+const AgentProfilePage = lazy(() => import('@/pages/AgentProfilePage'));
 const AccountPage = lazy(() => import('@/pages/AccountPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
@@ -79,12 +81,39 @@ function useResolveAppMode() {
   }, [mode, setMode]);
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({
+  children,
+  // /welcome gates itself (it IS the flow) and /pay must not be interrupted —
+  // that route carries a payment intent through login and back out to Stripe.
+  skipWelcomeGate = false,
+}: {
+  children: React.ReactNode;
+  skipWelcomeGate?: boolean;
+}) {
   const { isLoggedIn, userId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
+  const [owesWelcome, setOwesWelcome] = useState<boolean | null>(null);
   const location = useLocation();
   useResolveAppMode();
+
+  /** Whether this route has to consult the first-run gate at all. Derived, not
+   *  state, so the "no" cases need no setState (and no effect). */
+  const gateNeeded = !skipWelcomeGate && isLoggedIn && Boolean(userId);
+
+  // First-run gate. Here rather than only in RootRedirect because `/` is just
+  // one way in: a ?next=/app/chat login, a bookmark or a refresh lands on a
+  // protected route directly, and a new account must not skip the welcome flow
+  // by arriving through one of those. Answer is cached per session
+  // (lib/onboardingGate), so this costs one request per login, not per mount.
+  useEffect(() => {
+    if (!gateNeeded) return;
+    let alive = true;
+    owesWelcomeFlow(userId)
+      .then((owes) => { if (alive) setOwesWelcome(owes); })
+      .catch(() => { if (alive) setOwesWelcome(false); });
+    return () => { alive = false; };
+  }, [gateNeeded, userId]);
 
   useEffect(() => {
     if (!isLoggedIn || !userId) {
@@ -132,7 +161,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
   }
-  if (validating) return <PageFallback />;
+  if (validating || (gateNeeded && owesWelcome === null)) return <PageFallback />;
+  if (gateNeeded && owesWelcome) {
+    // Remember where they were headed so the flow can hand them back to it.
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/welcome?next=${next}`} replace />;
+  }
   return <>{children}</>;
 }
 
@@ -154,7 +188,7 @@ function RootRedirect() {
   const { isLoggedIn, userId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [checking, setChecking] = useState(true);
-  const [needsSetup, setNeedsSetup] = useState(false);
+  const [needsWelcome, setNeedsWelcome] = useState(false);
   useResolveAppMode();
 
   useEffect(() => {
@@ -162,25 +196,13 @@ function RootRedirect() {
       setChecking(false);
       return;
     }
-    // Check if user has any providers configured. Use api.getProviders
-    // so the X-User-Id / JWT headers travel with the request — bare
-    // fetch sends neither, and the backend used to silently fall back
-    // to "first user in users table" which scoped this probe to the
-    // wrong account on multi-user local installs.
-    const checkProviders = async () => {
-      try {
-        const data = await api.getProviders();
-        if (data.success && data.data?.providers) {
-          const count = Object.keys(data.data.providers).length;
-          setNeedsSetup(count === 0);
-        }
-      } catch {
-        // Backend not ready — don't block, just go to chat
-        setNeedsSetup(false);
-      }
-      setChecking(false);
-    };
-    checkProviders();
+    // Does this user still owe the one-time welcome flow? Same cached,
+    // server-side answer ProtectedRoute uses — see lib/onboardingGate for why
+    // it is not a provider count any more.
+    owesWelcomeFlow(userId)
+      .then(setNeedsWelcome)
+      .catch(() => setNeedsWelcome(false))
+      .finally(() => setChecking(false));
   }, [isLoggedIn, userId]);
 
   // Warm the MainLayout chunk the moment we know the user is logged in, in
@@ -205,14 +227,12 @@ function RootRedirect() {
   if (checking) {
     return <PageFallback />;
   }
-  // Only local installs walk the user through provider setup on first
-  // login. On cloud, first login provisions a free-tier provider card
-  // (a $10 gateway wallet), so a fresh account can chat immediately — the
-  // provider screen confused users who had no key to enter. They can still
-  // add their own provider later from Settings; the balance panel (and the
-  // auto-provisioned guide agent) surface that path.
-  if (needsSetup && mode === 'local') {
-    return <Navigate to="/setup" replace />;
+  // Both modes get the welcome flow now — its steps adapt (cloud has a
+  // free-tier provider already and no importable filesystem, so it lands on
+  // "meet your first agent"). WelcomePage itself bails out to /app/chat when
+  // its step list comes back empty, so this redirect can never trap anyone.
+  if (needsWelcome) {
+    return <Navigate to="/welcome" replace />;
   }
   return <Navigate to="/app/chat" replace />;
 }
@@ -539,11 +559,20 @@ function App() {
         {/* NM design system gallery — public dev tool, no auth required */}
         <Route path="/nm-playground" element={<NMPlaygroundPage />} />
 
-        {/* Setup — requires login */}
+        {/* First-run flow — requires login */}
         <Route
-          path="/setup"
-          element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
+          path="/welcome"
+          element={
+            <ProtectedRoute skipWelcomeGate>
+              <WelcomePage />
+            </ProtectedRoute>
+          }
         />
+
+        {/* /setup was the provider-only first-run page; it is now step 1 of
+            /welcome. Kept as a redirect because docs and old bookmarks point
+            here. */}
+        <Route path="/setup" element={<Navigate to="/welcome" replace />} />
 
         {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
             ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
@@ -551,7 +580,11 @@ function App() {
             checkout session and redirects. */}
         <Route
           path="/pay"
-          element={<ProtectedRoute><PayPage /></ProtectedRoute>}
+          element={
+            <ProtectedRoute skipWelcomeGate>
+              <PayPage />
+            </ProtectedRoute>
+          }
         />
 
         {/* Protected app routes */}
@@ -582,6 +615,10 @@ function App() {
               in the same useCreateAgent() call (see the page's header). */}
           <Route path="agents/new" element={<ChooseCreateMethodPage />} />
           <Route path="teams/new" element={<CreateTeamPage />} />
+          {/* Agent profile — the one page that owns an agent's identity,
+              capabilities and settings. Reached from the chat header's
+              avatar/name and from the Dashboard agent table. */}
+          <Route path="agents/:agentId" element={<AgentProfilePage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           {/* Team group chat — element null; MainLayout renders TeamChatView
               in the main slot (like /app/chat) so it isn't a sub-page overlay. */}

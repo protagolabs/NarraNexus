@@ -1,6 +1,9 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-08-28
+last_verified: 2026-09-03
+stub: false
+---
+
 ---
 
 ## 2026-08-28 — Sign-in tab 抽出为 SubscriptionConnect(P0:landing 只配订阅走不通)
@@ -188,7 +191,7 @@ staff in cloud"),非 blocked 走原 `<select>`。两 status 都没加载到时 *
 ## 2026-06-11 (later) — 移除内嵌 OneKeyOnboard(去重)
 
 Section 1 顶部原本渲染 `<OneKeyOnboard>`。现在 SettingsPage 在面板级始终内嵌
-OneKeyOnboard、SetupPage 作首屏 hero,二者都把 ProviderSettings 放在
+OneKeyOnboard、WelcomePage 作首屏 hero,二者都把 ProviderSettings 放在
 Advanced 折叠里——于是 Advanced 里这个就成了重复。已删除(连同 import)。
 Section 1 剩下的是"简单一键预设之外"的部分:model sync、CLI OAuth 登录、
 Custom(base_url)端点。`refreshConfig` 仍被其它地方使用,保留。
@@ -326,7 +329,7 @@ This mirrors the backend's `provider_driver/resolver._CODEX_FRAMEWORK_VALUES` �
 
 之前 `authFetch` 只发 JWT Bearer，不发 X-User-Id。Local 模式下 backend middleware 看到 header 缺失就 fallback 到"users 表第一行"，导致 binliang3 在 Settings 页面填的 NetMind API key 全部写到了 binliang（最老账号）名下。后端这次彻底关掉了 fallback（缺 header 直接 401），所以这里也必须配合发上来。
 
-同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `SetupPage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
+同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `WelcomePage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
 
 `syncProviderDefaults` 的签名也从 `(userId: string)` 改成 `()`——参数没意义了。
 
@@ -469,3 +472,18 @@ reset path.
 ## 2026-07-07 (bug#3 跟进) — helper 下拉不再隐藏 OAuth provider
 
 `renderSlotRow` 的 matching 过滤移除了 `helper_llm && auth_type==='oauth'` 排除项:订阅(claude_oauth/codex_oauth)现在可以进 helper 槽(后端经 CliHelperSDK 走 CLI 一次性)。SLOT_DEFS 的 helper 描述改为 'API key or subscription'。此前后端 auto-bind 已把槽绑好,但前端下拉过滤让 UI 显示 'No provider configured' —— 本次对齐。
+
+## 2026-09-03 — the add-a-provider modal has two tabs, not three
+
+The "API key" tab was removed (Owner decision). It rendered the same
+[[OneKeyOnboard]] card that step 1 of the first-run flow already puts in front of
+every user, so inside Settings it duplicated the path they arrived through — and
+it was the tab the modal opened on, hiding the two methods that only exist here.
+What remains is exactly what one pasted key CANNOT express:
+
+- **CLI sign-in** — Claude Code / Codex CLI OAuth, no key at all;
+- **Custom** — a user-supplied base_url + protocol.
+
+Pasting a key still works, in the one place it belongs: Settings → Providers'
+one-key card (and the welcome flow). `settings.provider.tabApiKey` was deleted
+with the tab (binding rule #2).

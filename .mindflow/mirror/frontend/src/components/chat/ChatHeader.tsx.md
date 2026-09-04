@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (合并 dev #383 后) — `builder` 成为 ⋯ 菜单的**条件项**
+
+#383 把抽屉标题下拉整体退役，`visibleCategories` 失去承载它的 UI；桌面端用户收起
+studio 面板后原本只剩 ⌘K 能回去。现在 ⋯ 菜单第一项按 [[../bookmarks/tabs.ts]] 的
+`visibleTabs({ studioOpen, studioResumable })` 判定是否列出 `builder`：与「常驻入口会提供一个
+对话没在驱动的面板」那条理由自洽——只有这个 agent 走过 AI 创建路径且没按完成时才出现。
+`DETAIL_GROUP_A` 取 #383 的瘦身版（awareness / social / memory 归档案页）。
 
 ## 2026-09-03 (更正同日早条) — `builder` 不进 ⋯ 菜单
 
@@ -21,6 +29,33 @@ agent 上都提供一个「对话并不驱动它」的表单，读起来像坏�
 不从 `STRIP_CATEGORIES` 派生。所以在 [[tabs.ts]] 里注册一个新 tab **不够** ——
 不同步改这里的话，那个 tab 只能从抽屉自身的切换器进得去，⋯ 菜单里根本看不到。
 本次就是这么漏的一轮。
+
+## 2026-08-27 — 左上角身份块 = Profile 入口;切换下拉退役,⋯ 菜单瘦身
+
+Owner 定调:点左上角进 [[../../pages/AgentProfilePage]]。三处连带改动:
+
+- **agent 切换下拉整个删掉**(连 `useConfigStore`/`useChatStore` 依赖、
+  `switcherOpen`/`handleSwitchAgent` 一起)。头像+名字合成**一个**按钮
+  → `navigate('/app/agents/<id>', { state: { from: 'chat' } })`,
+  `state.from` 是 profile 面包屑区分「回对话/回目录」的唯一依据。
+  代价明确记在这里:侧栏折叠时**没有**快速切 agent 的入口了,切换只剩
+  [[../layout/AgentList]] 一条路——这是 Owner 拍板接受的取舍
+  (2026-08-27),不是漏改。
+- **⋯ 菜单从 9 项砍到 5 项**:awareness / social / memory 三个 tab 和
+  「Model & framework」入口都删了,它们在 profile 的 Capabilities /
+  Settings 里各有归宿,留在这儿是第二扇通往同一个房间的门。
+  `DETAIL_GROUP_B`、`onOpenAgentConfig` prop 随之消失
+  (面板本体没动,见 [[ChatPanel]] 同日条)。
+- **`sessionLabel` prop 删除**:那条 mono「会话 · 时间」侧标随身份块改造
+  一起下线,ChatPanel 里算它的 `useMemo` 也删了。
+
+i18n:新增 `chat.header.viewProfile`(10 语言全补,`chat.header` 是
+localeParity 的 COMPLETE_NAMESPACE);删除
+`chat.header.sessionLabel/switchAgent/modelFramework`(10 语言)。
+测试:`chatHeaderAgentSwitcher.test.tsx` 删除,换成
+`chatHeaderProfileLink.test.tsx`(导航目标 / agentId 转义 / 无 agent 时
+不导航);`chatHeaderTooltips.test.tsx` 补 MemoryRouter——本组件现在用
+`useNavigate`,裸渲染会抛。
 
 ## 2026-08-20 — 面板入口按钮换 Radix 悬停 tooltip
 
@@ -80,8 +115,8 @@ Chat UI v4 把三层头部(品牌行 / tab 行 / 安全横幅)压成一行,并�
 
 ## 结构
 
-左:侧栏展开钮(仅 sidebarCollapsed 时)→ RingAvatar(silicon)→
-agent 名按钮(Agent 切换下拉,见 08-19 条)→ mono "会话 · 时间"。
+左:侧栏展开钮(仅 sidebarCollapsed 时)→ 身份块按钮
+(RingAvatar + agent 名,整块点进 Profile 页,见 08-27 条)。
 右:ExecutionPopover(流式时)→ Chat/Inner Thoughts segmented(状态在
 ChatPanel)→ Jobs / Inbox / Artifacts 图标(徽标来自
 deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
@@ -91,7 +126,8 @@ deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
 - **只做门,不做房间**:所有条目通过 uiStore.requestPanel 打开 ChatView
   里既有的 BookmarkDrawer 面板;面板内部零改动(Owner 2026-08-06 口头
   确认:设计稿未提到的界面细节保持不变)。
-- ⋯ 菜单顺序 = 旧 strip 类目摊平:config 六项 | Network(rail.socialShort)
-  + Memory | Model & framework(AgentLlmConfigPanel 的新入口)。
+- ⋯ 菜单 = 旧 strip 的 config 类目,去掉已被 Profile 页接管的四项
+  (awareness / social / memory / Model & framework,见 08-27 条),
+  只剩 workspace / channels / skills / mcp / smarthome 五项。
 - Artifacts 图标 `openPanel('artifacts')` 开抽屉面板(collapsed 机制已退役)。
 - 徽标/markTabOpened 语义沿用 tabs.ts 注册表,不另造信号源。

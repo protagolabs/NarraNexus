@@ -202,7 +202,6 @@
         "download": "{{name}} 다운로드",
         "loading": "불러오는 중…"
       },
-      "drawerCategory": "팀 룸",
       "manage": {
         "title": "팀 관리",
         "patrol": "리더 점검",
@@ -284,12 +283,12 @@
       "ops": "회 작업"
     },
     "header": {
-      "sessionLabel": "세션 · {{time}}",
       "detailMenuTitle": "에이전트 상세 — 패널",
-      "modelFramework": "모델 및 프레임워크",
-      "switchAgent": "에이전트 전환"
+      "viewProfile": "에이전트 프로필 보기"
     },
-    "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요."
+    "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요.",
+    "activityEmpty": "아직 백그라운드 활동이 없습니다",
+    "activityEmptyHint": "에이전트가 스스로 시작한 실행(작업, 채널, 팀원)이 여기에 표시됩니다."
   },
   "awareness": {
     "common": {
@@ -618,19 +617,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "대기열",
-      "jobs": "작업",
-      "totalInQueue": "대기열에 작업 {{count}}개"
-    },
-    "jobState": {
-      "running": "실행 중",
-      "active": "활성",
-      "pending": "대기 중",
-      "blocked": "차단됨",
-      "paused": "일시정지",
-      "failed": "실패"
-    },
     "jobStateLabel": {
       "running": "실행 중",
       "active": "활성",
@@ -655,25 +641,6 @@
         "up": "어제보다 느림",
         "down": "어제보다 빠름",
         "flat": "어제와 동일"
-      }
-    },
-    "jobs": {
-      "title": "작업 ({{count}})",
-      "running": "{{count}}개 실행 중",
-      "step": "단계 {{current}}/{{total}}",
-      "next": "다음 {{time}}",
-      "action": {
-        "retry": "재시도",
-        "pause": "일시정지",
-        "resume": "재개",
-        "failed": "{{label}} 실패"
-      },
-      "detail": {
-        "manual": "(수동)",
-        "nextRun": "다음 실행",
-        "iterations": "반복 횟수",
-        "trigger": "트리거",
-        "lastError": "최근 오류"
       }
     },
     "sessions": {
@@ -729,16 +696,10 @@
       "noAgentsShort": "아직 에이전트가 없습니다."
     },
     "agentRow": {
-      "saveTitle": "저장 (Enter)",
-      "cancelTitle": "취소 (Esc)",
       "publicBy": "공개 · {{name}} 작성"
     },
     "agentRowMenu": {
       "options": "에이전트 옵션",
-      "rename": "이름 변경",
-      "edit": "편집…",
-      "setPrivate": "비공개로 설정",
-      "setPublic": "공개로 설정",
       "clearData": "데이터 지우기",
       "delete": "삭제"
     },
@@ -1079,8 +1040,7 @@
     "drawer": {
       "unpin": "패널 고정 해제",
       "pin": "패널 고정",
-      "close": "패널 닫기",
-      "switchPanel": "패널 전환"
+      "close": "패널 닫기"
     },
     "coach": {
       "title": "아티팩트가 여기에 표시됩니다",
@@ -1295,7 +1255,23 @@
       "noTeamsLabel": "아직 팀이 없습니다",
       "noTeamsHint": "사이드바의 새로 만들기 메뉴에서 만드세요.",
       "manageTeam": "관리",
-      "teamsTip": "팀은 사이드바 새로 만들기 메뉴에서 생성하고, 여기서 이름·색상·멤버를 편집합니다."
+      "teamsTip": "팀은 사이드바 새로 만들기 메뉴에서 생성하고, 여기서 이름·색상·멤버를 편집합니다.",
+      "colLeader": "리더",
+      "colCreatedBy": "만든 사람",
+      "colChannels": "채널",
+      "colFramework": "프레임워크",
+      "colModel": "모델",
+      "colLastActive": "최근 활동",
+      "noLeader": "리더 없음",
+      "teamProfileNoDescription": "팀 설명이 없습니다.",
+      "agentProfileNoDescription": "설명이 없습니다.",
+      "memberRuntimeLabel": "런타임",
+      "memberModelLabel": "모델",
+      "memberOwnerLabel": "소유자",
+      "memberPrivate": "비공개",
+      "memberPublic": "공개",
+      "openProfile": "{{name}} 프로필 열기",
+      "channelOff": "{{name}} · 꺼짐"
     },
     "createUser": {
       "title": "새 사용자 만들기",
@@ -1310,14 +1286,6 @@
       "enterUserId": "사용자 ID를 입력하세요",
       "failed": "사용자 생성에 실패했습니다",
       "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요."
-    },
-    "setup": {
-      "sectionLabel": "설정 · LLM 제공자 구성",
-      "title": "LLM 제공자 구성",
-      "subtitle": "NarraNexus가 언어 모델에 연결할 수 있도록 API 키를 설정하세요.",
-      "skipForNow": "나중에 하기",
-      "getStarted": "시작하기",
-      "done": "완료"
     },
     "settings": {
       "title": "설정",
@@ -1453,7 +1421,8 @@
       "addedToTeamResultWithFailures": "{{success}}개 추가됨, {{failedCount}}개 실패 ({{failedIds}}).",
       "removedFromTeamTitle": "팀에서 제거됨",
       "removedFromTeamMessage": "팀에서 에이전트 {{count}}개를 제거했습니다.",
-      "removedFromTeamResultWithFailures": "{{success}}개 제거됨, {{failedCount}}개 실패 ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "{{success}}개 제거됨, {{failedCount}}개 실패 ({{failedIds}}).",
+      "openChat": "채팅 열기"
     },
     "bundleImport": {
       "installTemplate": "템플릿 설치",
@@ -1806,6 +1775,109 @@
     },
     "account": {
       "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."
+    },
+    "agentProfile": {
+      "breadcrumb": "에이전트",
+      "backToChat": "채팅",
+      "overview": "개요",
+      "capabilities": "기능",
+      "settings": "설정",
+      "views": "에이전트 프로필 보기",
+      "chat": "채팅",
+      "running": "실행 중",
+      "idleStatus": "대기 중",
+      "currentTask": "현재 작업",
+      "idle": "현재 실행 중인 작업이 없습니다.",
+      "jobs": "Jobs",
+      "jobsCount": "Job {{count}}개",
+      "inbox": "Inbox",
+      "inboxCount": "대화 {{count}}개",
+      "overviewCardLabel": "에이전트 개요",
+      "jobsNoun": "개 Job",
+      "inboxNoun": "개 대화",
+      "jobsRunningFlag": "실행 중",
+      "inboxUnreadFlag": "새 항목 {{count}}개",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}}개 연결됨",
+      "noSkills": "설치된 Skill이 없습니다",
+      "noMcp": "MCP 서버가 없습니다",
+      "moreCount": "외 {{count}}개",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model 및 Framework",
+      "modelFrameworkHint": "에이전트의 다음 실행에 사용되는 실제 런타임 설정입니다.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "설정",
+      "general": "일반",
+      "generalHint": "이 에이전트가 워크스페이스에서 표시되는 방식을 관리합니다.",
+      "avatar": "아바타",
+      "avatarHint": "작업 할당, 활동, 채팅에 표시됩니다.",
+      "name": "이름",
+      "description": "설명",
+      "saveGeneral": "변경사항 저장",
+      "saving": "저장 중…",
+      "saved": "저장됨",
+      "saveFailed": "변경사항을 저장할 수 없습니다.",
+      "missingAgent": "선택된 에이전트가 없습니다",
+      "notFound": "에이전트를 찾을 수 없습니다",
+      "activity": "활동",
+      "activityLast24h": "지난 24시간",
+      "activityToday": "오늘",
+      "activityAxisStart": "24시간 전",
+      "activityAxisNow": "지금"
+    },
+    "welcome": {
+      "logout": "로그아웃",
+      "continue": "계속",
+      "rail": {
+        "model": {
+          "title": "모델 연결",
+          "detail": "키 하나면 충분합니다 — 언제든 바꿀 수 있어요."
+        },
+        "import": {
+          "title": "에이전트 가져오기",
+          "detail_one": "이 컴퓨터에서 {{count}}개 발견.",
+          "detail_other": "이 컴퓨터에서 {{count}}개 발견."
+        },
+        "agent": {
+          "title": "{{name}} 만나기",
+          "detail": "첫 에이전트가 기다리고 있어요."
+        }
+      },
+      "model": {
+        "title": "먼저 모델을 연결하세요.",
+        "skip": "지금은 건너뛰기 — 설정에서 키를 추가할 수 있어요",
+        "advanced": "고급 설정 — 구독 로그인, 사용자 지정 엔드포인트, 슬롯별 모델",
+        "subscriptionTitle": "Claude 또는 ChatGPT 구독 사용",
+        "subscriptionSubtitle": "API 키 없이 — 이미 가진 구독으로 로그인하세요."
+      },
+      "import": {
+        "title": "이미 있는 에이전트를 가져오세요.",
+        "subtitle": "모두 이 컴퓨터에서 읽습니다 — 업로드되는 것은 없어요.",
+        "lede": "체크한 항목은 각각 NarraNexus 에이전트가 되고, 대화 기록은 기억으로 유지됩니다.",
+        "importAndContinue_one": "{{count}}개 가져오고 계속",
+        "importAndContinue_other": "{{count}}개 가져오고 계속",
+        "skip": "이 단계 건너뛰기"
+      },
+      "agent": {
+        "title": "{{name}} 만나기.",
+        "subtitle": "로그인할 때 당신을 위해 만들어진 첫 에이전트. 둘이 나눈 이야기를 모두 기억합니다 — 그것이 NarraNexus와 일회용 채팅의 차이입니다.",
+        "role": "당신의 가이드 · 실리콘",
+        "capMemory": "스토리라인으로 남는 긴 기억",
+        "capCheckin": "매일 안부를 묻습니다",
+        "cta": "NarraNexus 시작하기",
+        "skip": "바로 앱으로",
+        "preparingTitle": "첫 에이전트를 준비하는 중…",
+        "preparingSubtitle": "이름과 성격을 고르고 있어요. 몇 초면 됩니다.",
+        "notReady": "첫 에이전트가 아직 만들어지는 중입니다 — 곧 사이드바에 나타납니다.",
+        "fallbackName": "당신의 에이전트",
+        "rename": "이름 바꾸기"
+      }
     }
   },
   "rail": {
@@ -1871,9 +1943,6 @@
       "cancelled": "취소됨"
     },
     "metrics": {
-      "active": "활성",
-      "success": "성공",
-      "failed": "실패",
       "rate": "비율"
     },
     "view": {
@@ -1982,17 +2051,6 @@
       "waiting": "대기 중...",
       "noTimeData": "시간 데이터 없음"
     },
-    "distribution": {
-      "title": "상태 분포",
-      "total": "총 {{count}}개",
-      "legend": {
-        "completed": "완료 {{count}}개",
-        "running": "실행 중 {{count}}개",
-        "active": "활성 {{count}}개",
-        "paused": "일시중지 {{count}}개",
-        "failed": "실패 {{count}}개"
-      }
-    },
     "editSchedule": {
       "title": "실행 시간 변경",
       "hint": "이 작업의 실행 시점을 조정합니다. 변경 사항은 다음 실행부터 적용됩니다.",
@@ -2012,6 +2070,18 @@
       "modeLabel": "트리거 방식",
       "modeInterval": "간격",
       "modeCron": "Cron 표현식"
+    },
+    "row": {
+      "every": "{{interval}}마다",
+      "daily": "매일 {{time}}",
+      "hourly": "매시 :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "1회 {{time}}",
+      "afterDeps": "{{n}}개 작업 대기",
+      "next": "다음 {{time}}",
+      "elapsed": "경과 {{duration}}",
+      "failedAt": "실패 {{time}}",
+      "lastRun": "마지막 {{time}}"
     }
   },
   "artifacts": {

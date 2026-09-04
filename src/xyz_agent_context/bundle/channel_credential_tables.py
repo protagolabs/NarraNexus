@@ -72,3 +72,65 @@ CHANNEL_CREDENTIAL_TABLES: Dict[str, _CredTableSpec] = {
         "identity_cols": [],
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Channel keys for user-facing projections (the agents directory / profile)
+# ---------------------------------------------------------------------------
+#
+# ``CHANNEL_KEY_BY_TABLE`` maps each credential table above to the channel key
+# the frontend brands it under. It lives here — not in a route — so adding an
+# IM channel is ONE entry in this module: bundle export/import, preflight and
+# the directory's "bound channels" column all follow. Keep the keys aligned
+# with the frontend's channel brand map.
+CHANNEL_KEY_BY_TABLE: Dict[str, str] = {
+    "lark_credentials": "lark",
+    "channel_slack_credentials": "slack",
+    "channel_telegram_credentials": "telegram",
+    "channel_discord_credentials": "discord",
+    "channel_wechat_credentials": "wechat",
+    "channel_narramessenger_credentials": "narramessenger",
+}
+# A registry-consistency contract, not a debug assertion: `python -O` strips
+# `assert`, and this must fail at import in every build rather than surface as
+# a KeyError inside the first request that touches it.
+if set(CHANNEL_KEY_BY_TABLE) != set(CHANNEL_CREDENTIAL_TABLES):
+    raise RuntimeError(
+        "channel_credential_tables: CHANNEL_KEY_BY_TABLE and "
+        "CHANNEL_CREDENTIAL_TABLES must list the same tables"
+    )
+
+
+class _BindingTableSpec(TypedDict):
+    channel: str
+    # Column that says the binding is switched on; None = presence is the
+    # whole story (the table has no on/off switch).
+    active_col: "str | None"
+
+
+# Per-agent channel BINDING tables that are NOT bundle credential objects (no
+# secret to export, so they are not in CHANNEL_CREDENTIAL_TABLES) but still
+# count as "this agent is reachable on channel X" for the directory.
+BINDING_ONLY_TABLES: Dict[str, _BindingTableSpec] = {
+    "instance_homeassistant_bindings": {"channel": "home_assistant", "active_col": None},
+}
+
+
+def channel_binding_tables() -> List[tuple]:
+    """``(channel_key, table, active_col | None)`` for every table that binds
+    an agent to a channel — credential-backed and binding-only alike. The
+    directory query is built from this so it cannot drift from the bundle
+    registry above.
+
+    The RETURN ORDER is also the display order of the directory's channel
+    icons (credential tables in registry order, then binding-only tables).
+    Re-ordering ``CHANNEL_CREDENTIAL_TABLES`` therefore re-orders the UI."""
+    out: List[tuple] = [
+        (CHANNEL_KEY_BY_TABLE[table], table, spec["active_col"])
+        for table, spec in CHANNEL_CREDENTIAL_TABLES.items()
+    ]
+    out.extend(
+        (spec["channel"], table, spec["active_col"])
+        for table, spec in BINDING_ONLY_TABLES.items()
+    )
+    return out

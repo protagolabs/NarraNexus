@@ -260,7 +260,6 @@
         "download": "下载 {{name}}",
         "loading": "加载中…"
       },
-      "drawerCategory": "团队房间",
       "manage": {
         "title": "团队管理",
         "patrol": "组长巡查",
@@ -353,10 +352,8 @@
       "ops": "次操作"
     },
     "header": {
-      "sessionLabel": "会话 · {{time}}",
       "detailMenuTitle": "Agent 详情 — 面板入口",
-      "modelFramework": "模型与框架",
-      "switchAgent": "切换 agent"
+      "viewProfile": "查看 Agent 资料"
     },
     "composerPrivacyHint": "请勿分享敏感个人信息。",
     "steer": {
@@ -372,7 +369,9 @@
         "run_ended": "运行已先结束",
         "unknown": "未能送达"
       }
-    }
+    },
+    "activityEmpty": "还没有后台活动",
+    "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。"
   },
   "awareness": {
     "common": {
@@ -702,19 +701,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "队列",
-      "jobs": "任务",
-      "totalInQueue": "队列中有 {{count}} 个任务"
-    },
-    "jobState": {
-      "running": "运行中",
-      "active": "活动",
-      "pending": "等待中",
-      "blocked": "受阻",
-      "paused": "已暂停",
-      "failed": "失败"
-    },
     "jobStateLabel": {
       "running": "运行中",
       "active": "活动",
@@ -739,25 +725,6 @@
         "up": "比昨天更慢",
         "down": "比昨天更快",
         "flat": "与昨天持平"
-      }
-    },
-    "jobs": {
-      "title": "任务（{{count}}）",
-      "running": "{{count}} 个运行中",
-      "step": "第 {{current}}/{{total}} 步",
-      "next": "下次 {{time}}",
-      "action": {
-        "retry": "重试",
-        "pause": "暂停",
-        "resume": "恢复",
-        "failed": "{{label}}失败"
-      },
-      "detail": {
-        "manual": "（手动）",
-        "nextRun": "下次运行",
-        "iterations": "迭代次数",
-        "trigger": "触发器",
-        "lastError": "最近错误"
       }
     },
     "sessions": {
@@ -813,31 +780,12 @@
       "noAgentsShort": "暂无智能体。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "取消（Esc）",
       "publicBy": "公开 · 由 {{name}}"
     },
     "agentRowMenu": {
       "options": "智能体选项",
-      "rename": "重命名",
-      "edit": "编辑…",
-      "setPrivate": "设为私有",
-      "setPublic": "设为公开",
       "clearData": "清理数据",
       "delete": "删除"
-    },
-    "editAgentDialog": {
-      "title": "编辑智能体",
-      "nameLabel": "名称",
-      "descriptionLabel": "描述",
-      "descriptionPlaceholder": "这个智能体是做什么的？会展示给它自己和其他智能体。",
-      "tooLong": "不能超过 {{max}} 个字符。",
-      "save": "保存",
-      "cancel": "取消",
-      "saveFailedTitle": "更新失败",
-      "renameWarnTitle": "已改名，但有一件事要知道",
-      "renameClashWarn": "你名下还有一个 agent（{{agentId}}）也叫这个名字。改名已经生效——如果不是有意的，请决定这个名字归谁。",
-      "renameMemoryWarn": "名字改好了，但这个 agent 的身份记忆没能更新，它可能仍然自述旧名。"
     },
     "clearAgentData": {
       "title": "清理数据 · {{name}}",
@@ -919,44 +867,76 @@
     },
     "importAgent": {
       "title": "导入 Agent",
-      "previewTitle": "导入前确认",
       "doneTitle": "导入完成",
       "detecting": "正在扫描本机…",
       "noneFound": "在标准位置未找到其他框架的 Agent。可在下方输入路径扫描指定文件夹。",
-      "manualPathLabel": "或扫描指定文件夹",
+      "manualPathLabel": "或扫描文件夹",
       "scan": "扫描",
       "unnamed": "未命名 Agent",
       "skills": "技能",
       "memories": "记忆",
       "mcpServers": "MCP 服务",
-      "willCopy": "将复制",
-      "willMatch": "来自市场",
-      "deferred": "暂未导入",
-      "secretWarning": "部分 MCP 服务携带明文凭证,导入前请确认。",
-      "narrative": "叙事",
-      "notes": "说明",
-      "credentialNote": "以下凭证未导入(请在设置中重新填写):{{keys}}",
+      "credentialNote": "以下凭证未导入（请在设置中重新填写）：{{keys}}",
       "unmappedNote": "有 {{count}} 个文件被识别但未映射。",
-      "confirmImport": "导入",
-      "openAgent": "打开 Agent",
-      "awareness": "认知(Awareness)",
-      "skillsCopied": "已复制技能",
-      "skillsInstalled": "已安装技能",
-      "mcpAdded": "已添加 MCP 服务",
-      "doneMsg": "Agent 已创建并填充完成。",
-      "skillsUnmatchedNote": "无本地来源且市场无匹配的技能:{{names}}",
-      "stdioSkippedNote": "已捕获但暂未接入的本地(stdio)MCP 服务:{{names}}",
-      "sourceTitle": "选择来源",
-      "frameworkHint": "在本机检测到以下框架的 agent。选择一个,或直接扫描某个文件夹。",
-      "sourceHint": "选择要导入的 {{framework}} 来源。",
-      "countProjects": "{{count}} 个 project",
-      "countSources": "{{count}} 个来源",
-      "defaultSkills": "默认技能",
-      "sessionsHint": "{{count}} 个会话将各自成为一条 Narrative(导入时总结),其对话轮作为记忆保留。",
+      "skillsUnmatchedNote": "无本地来源且市场无匹配的技能：{{names}}",
+      "stdioSkippedNote": "已捕获但暂未接入的本地（stdio）MCP 服务：{{names}}",
       "narrativesCreated": "叙事",
       "turnsRetained": "记忆轮次",
       "untitledSession": "未命名会话",
-      "turnCount": "{{count}} 轮"
+      "turnCount": "{{count}} 轮",
+      "runningTitle": "正在导入 Agent",
+      "lede": "勾选要搬进 NarraNexus 的 agent。全部只从本机读取，不会上传任何内容。",
+      "agentsFound_one": "个 agent",
+      "agentsFound_other": "个 agent",
+      "toolsCount_one": "{{count}} 个工具",
+      "toolsCount_other": "{{count}} 个工具",
+      "rescan": "重新扫描",
+      "selectAll": "全选 {{count}} 个",
+      "selectGroup": "全选 {{framework}} 的 agent",
+      "groupCountSelected": "已选 {{selected}} / {{total}}",
+      "groupCount": "{{count}} 个",
+      "selectedOf": "已选 {{selected}} / {{total}}",
+      "sessionCount_one": "{{count}} 个会话",
+      "sessionCount_other": "{{count}} 个会话",
+      "noSessions": "无会话",
+      "sharedConfig": "共享配置",
+      "nameLabel": "名称",
+      "sessionsLabel": "会话 · {{selected}}/{{total}}",
+      "secretWarning_one": "有 1 个 MCP 服务携带明文凭证，会原样导入——导入后请在设置中确认。",
+      "secretWarning_other": "有 {{count}} 个 MCP 服务携带明文凭证，会原样导入——导入后请在设置中确认。",
+      "footerSelected": "已选 {{count}} 个 · {{sessions}} 个会话",
+      "importCount": "导入 {{count}} 个",
+      "runningHint": "正在逐个导入——请保持窗口打开。",
+      "stoppingHint": "正在不做 AI 总结地收尾当前这个 agent，几秒就好。",
+      "runningProgress": "已完成 {{done}} / {{total}}",
+      "stopAfterThis": "停止",
+      "stopping": "即将停止…",
+      "importedCount_one": "个 agent 已导入",
+      "importedCount_other": "个 agent 已导入",
+      "failedCount": "{{count}} 个失败",
+      "skippedCount": "{{count}} 个未开始",
+      "importRemaining": "继续导入剩下 {{count}} 个",
+      "openNamed": "打开 {{name}}",
+      "doneMeta": "{{narratives}} 条叙事 · {{turns}} 轮记忆",
+      "retry": "重试",
+      "status": {
+        "queued": "排队中",
+        "scanning": "扫描中",
+        "importing": "导入中",
+        "done": "完成",
+        "failed": "失败",
+        "skipped": "未开始"
+      },
+      "hurriedNote": "因为你中途停止，有 {{count}} 个会话用的是朴素总结（原始对话内容完整保留）。"
+    },
+    "agentRename": {
+      "warnTitle": "已改名，但有一件事要知道",
+      "clashWarn": "你名下还有一个 agent（{{agentId}}）也叫这个名字。改名已经生效——如果不是有意的，请决定这个名字归谁。",
+      "memoryWarn": "名字改好了，但这个 agent 的身份记忆没能更新，它可能仍然自述旧名。"
+    },
+    "noProvider": {
+      "message": "还没接模型，你的 agent 暂时回不了消息。",
+      "action": "现在接"
     }
   },
   "settings": {
@@ -1116,10 +1096,6 @@
     "provider": {
       "oneKeyTitle": "一把密钥即可开始",
       "oneKeyDescription": "选择服务商并粘贴 API 密钥，系统会自动配置 Agent、模型和端点。",
-      "officialAnthropic": "Anthropic（官方）",
-      "officialOpenai": "OpenAI（官方）",
-      "officialAnthropicDesc": "Anthropic 官方 API 密钥（sk-ant-...），Agent 和 Helper 都使用 Claude。",
-      "officialOpenaiDesc": "OpenAI 官方 API 密钥，Agent 使用 Codex CLI（gpt-5.5）。",
       "netmindDesc": "一把密钥同时覆盖 Anthropic 和 OpenAI 端点。",
       "proxyDesc": "代理官方 Claude 和 OpenAI API。",
       "getProviderKey": "获取 {{provider}} API 密钥",
@@ -1270,7 +1246,6 @@
       "addProviderTitle": "添加服务商",
       "addProviderSubtitle": "选择添加服务商的方式。",
       "backToMethods": "返回",
-      "tabApiKey": "API key",
       "tabSignin": "CLI 登录",
       "tabCustom": "自定义",
       "protocolLabel": "协议",
@@ -1298,7 +1273,11 @@
       "freeTierHowToTitle": "关于你的免费额度",
       "freeTierHowToSwitch": "「Free Tier」这张卡已经绑好了 Agent 和 Helper 槽位。想改用自己的 key:在下方添加 provider,然后在「模型默认设置」里把 Agent / Helper 槽位指向它 —— 下一条消息即刻生效。",
       "freeTierAnytime": "随时都能切,不需要先把免费额度用完;切走也不会作废,余额留着,还能再切回来。",
-      "freeTierNoDelete": "免费额度还有余额时,这张卡不能删除 —— 它是那笔余额的唯一钥匙。用完之后就可以删了。"
+      "freeTierNoDelete": "免费额度还有余额时,这张卡不能删除 —— 它是那笔余额的唯一钥匙。用完之后就可以删了。",
+      "claudeCodeSdk": "Claude Code SDK",
+      "codexSdk": "Codex SDK",
+      "claudeCodeSdkDesc": "Anthropic API key（sk-ant-…）。Agent 与 Helper 都跑在 Claude Code SDK 上。",
+      "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。"
     }
   },
   "system": {
@@ -1402,8 +1381,7 @@
     "drawer": {
       "unpin": "取消固定面板",
       "pin": "固定面板",
-      "close": "关闭面板",
-      "switchPanel": "切换面板"
+      "close": "关闭面板"
     },
     "coach": {
       "title": "可视化产物会显示在这里",
@@ -1561,10 +1539,9 @@
   },
   "onboarding": {
     "migrationGuide": {
-      "title": "导入已有的 agent",
-      "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
-      "import": "导入",
-      "later": "以后再说"
+      "later": "以后再说",
+      "lede_one": "这台电脑上已经有 1 个其他工具的 agent，要搬进 NarraNexus 吗？",
+      "lede_other": "这台电脑上已经有 {{count}} 个其他工具的 agent，勾选要搬进 NarraNexus 的。"
     },
     "guideCoachmark": {
       "text": "你的第一个 Agent 已经就位——也可以随时用这个按钮创建属于你自己的新 Agent。",
@@ -1659,7 +1636,23 @@
       "modelChip": {
         "inherit": "默认",
         "override": "自定义"
-      }
+      },
+      "colLeader": "负责人",
+      "colCreatedBy": "创建者",
+      "colChannels": "渠道",
+      "colFramework": "框架",
+      "colModel": "模型",
+      "colLastActive": "最近活跃",
+      "noLeader": "暂无负责人",
+      "teamProfileNoDescription": "暂无团队介绍。",
+      "agentProfileNoDescription": "暂无简介。",
+      "memberRuntimeLabel": "运行时",
+      "memberModelLabel": "模型",
+      "memberOwnerLabel": "所有者",
+      "memberPrivate": "私有",
+      "memberPublic": "公开",
+      "openProfile": "打开 {{name}} 的档案",
+      "channelOff": "{{name}} · 已关闭"
     },
     "createUser": {
       "title": "创建新用户",
@@ -1674,19 +1667,6 @@
       "enterUserId": "请输入用户 ID",
       "failed": "创建用户失败",
       "connectionFailed": "连接失败，请重试。"
-    },
-    "setup": {
-      "oneKeyLabel": "设置 · 一键开始",
-      "welcome": "欢迎使用 NarraNexus",
-      "subscriptionTitle": "使用 Claude 或 ChatGPT 订阅",
-      "subscriptionSubtitle": "无需 API 密钥 — 直接用你已有的订阅登录。",
-      "advancedSetup": "高级设置 — 订阅登录、自定义端点、各槽位模型",
-      "sectionLabel": "设置 · 配置 LLM 服务商",
-      "title": "配置 LLM 服务商",
-      "subtitle": "设置你的 API 密钥，让 NarraNexus 能够连接语言模型。",
-      "skipForNow": "暂时跳过",
-      "getStarted": "开始使用",
-      "done": "完成"
     },
     "settings": {
       "title": "设置",
@@ -1900,7 +1880,8 @@
       "addedToTeamResultWithFailures": "已加入 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。",
       "removedFromTeamTitle": "已移出团队",
       "removedFromTeamMessage": "已从团队移出 {{count}} 个 agent。",
-      "removedFromTeamResultWithFailures": "已移出 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。"
+      "removedFromTeamResultWithFailures": "已移出 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。",
+      "openChat": "打开对话"
     },
     "bundleImport": {
       "installTemplate": "安装模板",
@@ -2263,6 +2244,109 @@
     },
     "account": {
       "powerOnlyHint": "账户、账单与订阅是 NetMind 账号功能 — 使用 NetMind 账号登录后这里才会显示。"
+    },
+    "agentProfile": {
+      "breadcrumb": "智能体",
+      "backToChat": "对话",
+      "overview": "概览",
+      "capabilities": "能力",
+      "settings": "设置",
+      "views": "智能体档案视图",
+      "chat": "私信",
+      "running": "运行中",
+      "idleStatus": "空闲",
+      "currentTask": "当前 Task",
+      "idle": "当前没有正在运行的 Task。",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} 个 Job",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} 个会话",
+      "overviewCardLabel": "Agent 概览",
+      "jobsNoun": "个 Job",
+      "inboxNoun": "个会话",
+      "jobsRunningFlag": "运行中",
+      "inboxUnreadFlag": "{{count}} 条未读",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "已连接 {{count}}",
+      "noSkills": "尚未安装 Skill",
+      "noMcp": "尚未接入 MCP",
+      "moreCount": "还有 {{count}} 个",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model 与 Framework",
+      "modelFrameworkHint": "Agent 下一次运行时使用的实际运行配置。",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "配置",
+      "general": "通用",
+      "generalHint": "管理该智能体在工作区内的展示方式。",
+      "avatar": "头像",
+      "avatarHint": "显示在任务分配、动态和聊天中。",
+      "name": "名称",
+      "description": "描述",
+      "saveGeneral": "保存更改",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "saveFailed": "无法保存更改。",
+      "missingAgent": "尚未选择 Agent",
+      "notFound": "未找到 Agent",
+      "activity": "活动",
+      "activityLast24h": "过去 24 小时",
+      "activityToday": "今日",
+      "activityAxisStart": "24 小时前",
+      "activityAxisNow": "现在"
+    },
+    "welcome": {
+      "logout": "退出登录",
+      "continue": "继续",
+      "rail": {
+        "model": {
+          "title": "接一个模型",
+          "detail": "一个 key 就够，之后随时能换。"
+        },
+        "import": {
+          "title": "搬进已有的 agent",
+          "detail_one": "本机扫到 {{count}} 个。",
+          "detail_other": "本机扫到 {{count}} 个。"
+        },
+        "agent": {
+          "title": "认识 {{name}}",
+          "detail": "你的第一个 agent，已经在等你。"
+        }
+      },
+      "model": {
+        "title": "先接一个模型。",
+        "skip": "先跳过——之后可以在设置里接",
+        "advanced": "高级设置 — 订阅登录、自定义端点、各槽位模型",
+        "subscriptionTitle": "使用 Claude 或 ChatGPT 订阅",
+        "subscriptionSubtitle": "无需 API 密钥 — 直接用你已有的订阅登录。"
+      },
+      "import": {
+        "title": "把你已经有的 agent 搬进来。",
+        "subtitle": "全部只从本机读取，不会上传任何内容。",
+        "lede": "勾中的每一个都会变成一个 NarraNexus agent，它的对话历史作为记忆保留。",
+        "importAndContinue_one": "导入 {{count}} 个并继续",
+        "importAndContinue_other": "导入 {{count}} 个并继续",
+        "skip": "这一步跳过"
+      },
+      "agent": {
+        "title": "认识一下 {{name}}。",
+        "subtitle": "你的第一个 agent，登录时就为你建好了。它会记住你们聊过的一切——这是 NarraNexus 和一次性对话工具的区别。",
+        "role": "你的向导 · 硅基",
+        "capMemory": "长记忆：叙事而非片段",
+        "capCheckin": "每天一次主动 check-in",
+        "cta": "开始使用 NarraNexus",
+        "skip": "直接进主界面",
+        "preparingTitle": "正在为你准备第一个 agent…",
+        "preparingSubtitle": "给它挑名字和性格，几秒就好。",
+        "notReady": "你的第一个 agent 还在创建中，稍后会出现在侧栏。",
+        "fallbackName": "你的 agent",
+        "rename": "改个名字"
+      }
     }
   },
   "rail": {
@@ -2328,9 +2412,6 @@
       "cancelled": "已取消"
     },
     "metrics": {
-      "active": "进行中",
-      "success": "成功",
-      "failed": "失败",
       "rate": "成功率"
     },
     "view": {
@@ -2439,17 +2520,6 @@
       "waiting": "等待中…",
       "noTimeData": "无时间数据"
     },
-    "distribution": {
-      "title": "状态分布",
-      "total": "共 {{count}} 个",
-      "legend": {
-        "completed": "{{count}} 个已完成",
-        "running": "{{count}} 个运行中",
-        "active": "{{count}} 个进行中",
-        "paused": "{{count}} 个已暂停",
-        "failed": "{{count}} 个已失败"
-      }
-    },
     "editSchedule": {
       "title": "修改执行时间",
       "hint": "调整该任务的执行时间，修改在下次运行时生效。",
@@ -2469,6 +2539,18 @@
       "modeLabel": "触发方式",
       "modeInterval": "间隔",
       "modeCron": "Cron 表达式"
+    },
+    "row": {
+      "every": "每 {{interval}}",
+      "daily": "每天 {{time}}",
+      "hourly": "每小时 :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "单次 {{time}}",
+      "afterDeps": "被 {{n}} 个任务阻塞",
+      "next": "下次 {{time}}",
+      "elapsed": "已运行 {{duration}}",
+      "failedAt": "失败于 {{time}}",
+      "lastRun": "上次 {{time}}"
     }
   },
   "artifacts": {

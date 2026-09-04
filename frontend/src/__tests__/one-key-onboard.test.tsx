@@ -27,8 +27,27 @@ function typeKey(value: string) {
   return input;
 }
 
+// The provider picker is a list of radio ROWS (2026-08-27 first-run design),
+// not a <select>: click the row, read `aria-checked` to assert the selection.
+const PROVIDER_ROW_LABEL: Record<string, RegExp> = {
+  anthropic: /Claude Code SDK/,
+  openai: /Codex SDK/,
+  netmind: /NetMind\.AI Power/,
+  yunwu: /^Yunwu/,
+  openrouter: /^OpenRouter/,
+};
+
 function selectProvider(value: string) {
-  fireEvent.change(screen.getByRole('combobox'), { target: { value } });
+  fireEvent.click(screen.getByRole('radio', { name: PROVIDER_ROW_LABEL[value] }));
+}
+
+function selectedProvider(): string | undefined {
+  return Object.keys(PROVIDER_ROW_LABEL).find(
+    (id) =>
+      screen
+        .getByRole('radio', { name: PROVIDER_ROW_LABEL[id] })
+        .getAttribute('aria-checked') === 'true',
+  );
 }
 
 describe('OneKeyOnboard', () => {
@@ -38,7 +57,7 @@ describe('OneKeyOnboard', () => {
     onboardMock.mockResolvedValue({ success: true });
     const onComplete = vi.fn();
     render(<OneKeyOnboard onComplete={onComplete} />);
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('netmind');
+    expect(selectedProvider()).toBe('netmind');
     typeKey('nm-key-123');
 
     fireEvent.click(screen.getByText('Start using NarraNexus'));
@@ -66,9 +85,7 @@ describe('OneKeyOnboard', () => {
 
     const nudge = screen.getByText(/Looks like an? OpenAI key/);
     fireEvent.click(nudge);
-    expect(
-      (screen.getByRole('combobox') as HTMLSelectElement).value,
-    ).toBe('openai');
+    expect(selectedProvider()).toBe('openai');
   });
 
   test('OpenAI-looking key under Anthropic shows the switch nudge', () => {
@@ -78,9 +95,7 @@ describe('OneKeyOnboard', () => {
 
     const nudge = screen.getByText(/Looks like an? OpenAI key/);
     fireEvent.click(nudge);
-    expect(
-      (screen.getByRole('combobox') as HTMLSelectElement).value,
-    ).toBe('openai');
+    expect(selectedProvider()).toBe('openai');
   });
 
   test('sk-ant- key under NetMind shows the Claude switch nudge', () => {
@@ -90,9 +105,7 @@ describe('OneKeyOnboard', () => {
 
     const nudge = screen.getByText(/Looks like a Claude key/);
     fireEvent.click(nudge);
-    expect(
-      (screen.getByRole('combobox') as HTMLSelectElement).value,
-    ).toBe('anthropic');
+    expect(selectedProvider()).toBe('anthropic');
   });
 
   test('shows a success summary with the wired models', async () => {

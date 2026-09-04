@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_identity.py
-last_verified: 2026-07-10
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `FRAMEWORK_DISPLAY_NAMES` 注释改为实话
+
+它是 agent 在 system prompt 里的**自称**，不是 UI 标签；前端标签在
+[[../../../../frontend/src/lib/frameworkBrand.ts]]，文案刻意不同（"Claude Code" vs SDK 名）。
+二轮时我把注释改成「整体不要求一致」，三轮核对后更准的说法是：`codex_cli` / `nexus_power`
+与选择器一字不差，只有 `claude_code` 刻意不同（prompt 侧自称 SDK 名）；注释按此事实写。改这里的值等于改
+prompt，需单独确认。
+
+## 2026-09-03 (评审修订) — 覆盖规则抽成纯函数，供目录投影共用
+
+`slot_rebinds` / `effective_agent_slot` / `framework_of` + `DEFAULT_AGENT_FRAMEWORK`：
+`resolve_agent_model_identity` 自己也改走它们。动机是 PR #383 评审 C1——
+`/api/auth/agents` 手写了第四份解析并写错；现在 [[slot_service.py]] 的
+`owner_agents_overview` 与这里同一份规则。`DEFAULT_AGENT_FRAMEWORK` 也被
+[[user_service.py]] 的 owner 级读取引用——改平台默认只动一处。
 
 # providers/model_identity.py — 解析 agent 真实的 (framework, model) 供 prompt 展示
 

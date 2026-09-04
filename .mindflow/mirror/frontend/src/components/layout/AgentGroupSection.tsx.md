@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 行上的 ⋮ 菜单整个拿掉,行变成纯导航
+
+Owner:侧边栏 chat 行不该带操作入口。`AgentRowMenu` 连同它驱动的
+inline 快速改名一起删除——两者都只能从这个 kebab 触发,留着就是没有
+入口的死代码。随之消失的还有 2026-06-11 那个 z-lift(`menuOpen &&
+relative z-30`):没有浮层要盖住下一行,行不再需要抬栈。
+
+props 从 19 个降到 9 个:`showPublicToggle` / `editing*` / `onSaveEdit` /
+`onCancelEdit` / `savingName` / `onStartEdit` / `onEditAgent` /
+`onClearData` / `onDelete` / `onTogglePublic` / `deletingAgentId` 全部
+删除。`currentUserId` **保留**——它还有第二个用途:判断 `isOwner` 以决定
+是否给别人的 public agent 挂那个只读 Globe 徽章。
+
+改名 / 描述去 [[../../pages/AgentProfilePage.tsx]] 的 Settings tab,
+清数据 + 删除去同一页头部的 ⋮(见该页 md 同日条目)。
 
 ## 2026-08-18 — 行悬停改 --nm-row-hover(选中色的减淡档)
 

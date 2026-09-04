@@ -1,6 +1,15 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
+stub: false
+---
+
+## 2026-09-04 (合并 dev #383) — 两边删除取并集
+
+本分支删了 `useCreateAgent`（「+」改为进 [[../../pages/ChooseCreateMethodPage.tsx]]），#383 删了
+`useChatStore` / `usePreloadStore` / `clearPreload`（会话清理收进 `lib/sessionWipe`）。合并后
+两组都不在。
+
 stub: false
 ---
 
@@ -194,3 +203,10 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
   `features.showSystemPage` (runtimeStore). The mode-switch popup is a raw
   positioned `div`, not a Popover — it doesn't close on outside-click; you toggle
   it by clicking the button again.
+
+## 2026-08-27 — session wipe extracted
+
+`wipeAllSessionData` moved to [[sessionWipe]]: the first-run flow's rail also
+offers "log out", and a second hand-rolled half-logout is how cloud data bled
+into a later local session before. The sidebar still owns the confirm dialog and
+the `window.location.href` reload — only the wipe itself is shared.

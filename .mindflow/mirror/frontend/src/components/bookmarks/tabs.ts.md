@@ -4,6 +4,11 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 — `visibleCategories` 删除
+
+dev（#383）退役了抽屉切换器，分组形态再无生产消费者；只留扁平的 `visibleTabs`，消费方是
+ChatHeader ⋯ 菜单与 ⌘K。
+
 ## 2026-09-04 — `conditional: 'studio'` 也在「可恢复」时提供
 
 `TabVisibilityContext` 多 `studioResumable`；`tabOffered` = open || resumable。条件仍然落在
