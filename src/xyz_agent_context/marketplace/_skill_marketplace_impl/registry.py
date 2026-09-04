@@ -68,9 +68,9 @@ class RegistryService:
 
     async def publish(self, zip_path: Path, publisher: str) -> SkillCatalogEntry:
         """Validate -> scan gate -> upload artifact -> write catalog + scan rows."""
-        from xyz_agent_context.module.skill_module import SkillModule
+        from xyz_agent_context.utils.plugin_services import skill_workspace
 
-        staging_module = SkillModule(agent_id="__registry__", user_id=None)
+        staging_module = skill_workspace("__registry__", None)
         temp_dir = Path(tempfile.mkdtemp())
         try:
             skill_root = staging_module.extract_skill_package(zip_path, temp_dir)

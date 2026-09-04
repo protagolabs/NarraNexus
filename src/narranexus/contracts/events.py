@@ -27,6 +27,10 @@ HOST_EVENTS: tuple[str, ...] = (
     "onDidReplyChannelMessage",
     "onDidActivatePlugin",
     "onDidResolveBootstrapGreeting",
+    "onDidChangeUserRunnability",
+    "onDidChangeAgentName",
+    "onDidSettleAgentName",
+    "onWillExportManagedChannels",
 )
 
 
@@ -88,6 +92,46 @@ class BootstrapGreetingEvent(TypedDict):
     turn_started_at: Any
 
 
+class UserRunnabilityEvent(TypedDict):
+    """Payload for ``onDidChangeUserRunnability``: something that gates whether
+    a user's agents can run changed (login, quota top-up, provider/slot save).
+    builtin.job re-arms that user's PAUSED_NO_QUOTA jobs on it."""
+
+    user_id: str
+
+
+class AgentNameChangeEvent(TypedDict):
+    """Payload for ``onDidChangeAgentName``: the rename transaction changed the
+    agent row's name; whoever keeps an identity record (builtin.awareness)
+    records the change. ``db`` is the caller's client (same connection)."""
+
+    db: Any
+    agent_id: str
+    old_name: str
+    new_name: str
+
+
+class AgentNameSettledEvent(TypedDict):
+    """Payload for ``onDidSettleAgentName``: the agent row now holds ``name``
+    (after a rename, or a bundle import that landed under a different name);
+    whoever keeps an identity record reconciles a profile that still asserts
+    another name. Implementations return the reconcile result (False = miss)."""
+
+    db: Any
+    agent_id: str
+    name: str
+
+
+class ManagedChannelCredentialsEvent(TypedDict):
+    """Payload for ``onWillExportManagedChannels``: the host is about to export
+    the managed-channel inventory to Manyfold; every IM channel
+    builtin returns its enabled bindings with decoded credentials as uniform
+    rows (provider / agent_id / enabled / external_id / credentials / config)
+    for the Manyfold inventory; the route concatenates the results."""
+
+    db: Any
+
+
 EventPayload = dict[str, Any]
 
 # Which payload shape each host event carries; the kernel declares one hook
@@ -103,6 +147,10 @@ HOST_EVENT_PAYLOADS: dict[str, type] = {
     "onDidReplyChannelMessage": ChannelMessageEvent,
     "onDidActivatePlugin": PluginEvent,
     "onDidResolveBootstrapGreeting": BootstrapGreetingEvent,
+    "onDidChangeUserRunnability": UserRunnabilityEvent,
+    "onDidChangeAgentName": AgentNameChangeEvent,
+    "onDidSettleAgentName": AgentNameSettledEvent,
+    "onWillExportManagedChannels": ManagedChannelCredentialsEvent,
 }
 
 
@@ -119,6 +167,10 @@ __all__ = [
     "ArtifactEvent",
     "ChannelMessageEvent",
     "BootstrapGreetingEvent",
+    "UserRunnabilityEvent",
+    "AgentNameChangeEvent",
+    "AgentNameSettledEvent",
+    "ManagedChannelCredentialsEvent",
     "PluginEvent",
     "EventPayload",
 ]

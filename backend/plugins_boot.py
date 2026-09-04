@@ -28,14 +28,16 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest
 from narranexus.kernel.plugins.paths import registry_path
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-from narranexus.kernel.plugins.services import HOST_VERSION, ServiceLocator
+from narranexus.kernel.plugins.services import HOST_VERSION
 from narranexus.kernel.settings import PluginSettings
 from narranexus.kernel.settings.plugin_settings import MemorySettingsStore
 
 from xyz_agent_context.utils.db.schema_registry import register_table
 
 HOST_BUS = EventBus()
-HOST_SERVICES = ServiceLocator()
+# The backend process locator is the kernel registries' one (builtins expose
+# their services there at import; user plugins through PluginContext.services).
+HOST_SERVICES = KERNEL_REGISTRIES.services
 _ACTIVATOR: Activator | None = None
 
 

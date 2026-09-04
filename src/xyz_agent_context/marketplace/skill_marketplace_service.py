@@ -24,7 +24,7 @@ from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
     RegistryService,
     RemoteMarketplaceSource,
 )
-from xyz_agent_context.module.skill_module import SkillModule
+from xyz_agent_context.utils.plugin_services import skill_workspace
 from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 
 __all__ = ["SkillMarketplaceService", "PublishRejectedError"]
@@ -112,7 +112,7 @@ class SkillMarketplaceService:
     def _annotate_installed(self, items: List[Dict[str, Any]], agent_id: str, user_id: str) -> None:
         from xyz_agent_context.repository.skill_catalog_repository import _semver_key
 
-        module = SkillModule(agent_id=agent_id, user_id=user_id)
+        module = skill_workspace(agent_id, user_id)
         installed_versions: Dict[str, Optional[str]] = {}
         for skill in module.list_skills(include_disabled=True):
             meta = module.read_skill_meta(skill.name)
@@ -141,7 +141,7 @@ class SkillMarketplaceService:
         return await self._remote().get_detail(skill_id, version)
 
     async def check_updates(self, agent_id: str, user_id: str) -> List[Dict[str, Any]]:
-        module = SkillModule(agent_id=agent_id, user_id=user_id)
+        module = skill_workspace(agent_id, user_id)
         installed = []
         for skill in module.list_skills(include_disabled=True):
             meta = module.read_skill_meta(skill.name)

@@ -96,15 +96,15 @@ router = APIRouter()
 _run_is_live = run_is_live
 
 
-def _schedule_login_rearm(user_id: str) -> None:
+async def _schedule_login_rearm(user_id: str) -> None:
     """On login, kick a background edge-recovery: if the user is now provider-
-    ready (e.g. they topped up / fixed config while away), revive their
-    PAUSED_NO_QUOTA jobs. Non-blocking — login responds immediately."""
+    ready (e.g. they topped up / fixed config while away), builtin.job revives
+    their PAUSED_NO_QUOTA jobs (its hook schedules the work; login responds
+    immediately)."""
     try:
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(user_id)
+        from backend.host_events import notify_user_runnability_changed
+
+        await notify_user_runnability_changed(user_id)
     except Exception:  # noqa: BLE001 — never let recovery wiring break login
         pass
 
@@ -140,7 +140,7 @@ async def login(request: LoginRequest):
 
         await user_repo.update_last_login(request.user_id)
         logger.info(f"User {request.user_id} logged in (local)")
-        _schedule_login_rearm(request.user_id)
+        await _schedule_login_rearm(request.user_id)
         # A local login is never a signup (create-user is); is_new=False routes
         # it through the backfill brake.
         _schedule_guide_agent_provisioning(request.user_id, is_new=False)

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -703,3 +703,7 @@ fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
   永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
 - 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
   取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_schedule_login_rearm` is async and fires `onDidChangeUserRunnability`; builtin.job's hook schedules the re-arm (login still responds immediately).

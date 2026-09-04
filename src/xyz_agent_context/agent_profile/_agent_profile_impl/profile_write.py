@@ -37,39 +37,36 @@ from xyz_agent_context.schema import (
 )
 
 
-def _awareness_identity_writers():
-    """Awareness's two identity-record writers.
-
-    Imported inside the function, not at module scope, and be precise about what
-    that buys: not isolation. Python imports parent packages, so this loads the
-    whole MODULE_MAP — measured, 22 sibling module packages. What it buys is that
-    neither this package nor the routes above it hold a module-scope dependency
-    on the Module layer, which is what made unregistering AwarenessModule stop
-    the backend from starting.
-
-    No ImportError guard. The earlier one covered only a deployment shipping
-    without the package at all — while three other call points added by the same
-    change (the two awareness write seams and the bundle importer) import it
-    bare, so the "degrades gracefully" contract held at one call site in four.
-    A contract that is true a quarter of the time misleads either way. The real
-    degradation is an agent with no AwarenessModule instance, and both writers
-    already answer that with None.
-    """
-    from xyz_agent_context.module import awareness_module
-
-    return awareness_module
-
-
 async def _record_identity(
     db, agent_id: str, old_name: str, new_name: str
 ) -> Optional[bool]:
-    aw = _awareness_identity_writers()
-    return await aw.record_identity_change(db, agent_id, old_name, new_name)
+    """Fire ``onDidChangeAgentName``; builtin.awareness records the change in
+    the identity note. The awareness writers are not imported here (the
+    platform imports no builtin): with the plugin disabled there is no
+    listener and the result is None — the same answer the writers give for an
+    agent without an AwarenessModule instance."""
+    from xyz_agent_context.utils.host_hooks import call_host_hook
+
+    outcome = await call_host_hook(
+        "onDidChangeAgentName", db=db, agent_id=agent_id, old_name=old_name, new_name=new_name
+    )
+    _raise_first(outcome)
+    return outcome.first
 
 
 async def _reconcile_identity(db, agent_id: str, current_name: str) -> Optional[bool]:
-    aw = _awareness_identity_writers()
-    return await aw.reconcile_identity_record(db, agent_id, current_name)
+    from xyz_agent_context.utils.host_hooks import call_host_hook
+
+    outcome = await call_host_hook("onDidSettleAgentName", db=db, agent_id=agent_id, name=current_name)
+    _raise_first(outcome)
+    return outcome.first
+
+
+def _raise_first(outcome) -> None:
+    """A listener's exception is the caller's to handle (the transaction logs and
+    continues, exactly as it did when it awaited the writer directly)."""
+    if outcome.errors:
+        raise outcome.errors[0][1]
 
 
 @dataclass(frozen=True)

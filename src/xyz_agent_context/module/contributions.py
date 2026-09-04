@@ -152,6 +152,22 @@ def _resolve_symbol(ref: str):
 # ``backend.hooks`` implementations builtins ship (owner, "pkg.mod:HOOKS").
 HOOK_SPECS: tuple[tuple[str, str], ...] = (
     ("builtin.chat", f"{_MOD}.chat_module.plugin_hooks:HOOKS"),
+    ("builtin.job", f"{_MOD}.job_module.plugin_hooks:HOOKS"),
+    ("builtin.awareness", f"{_MOD}.awareness_module.plugin_hooks:HOOKS"),
+    # Manyfold credential inventory, in the order the route always listed them.
+    ("builtin.channels.telegram", f"{_MOD}.telegram_module.plugin_hooks:HOOKS"),
+    ("builtin.channels.discord", f"{_MOD}.discord_module.plugin_hooks:HOOKS"),
+    ("builtin.channels.slack", f"{_MOD}.slack_module.plugin_hooks:HOOKS"),
+    ("builtin.channels.wechat", f"{_MOD}.wechat_module.plugin_hooks:HOOKS"),
+    ("builtin.channels.lark", f"{_MOD}.lark_module.plugin_hooks:HOOKS"),
+    ("builtin.channels.narramessenger", f"{_MOD}.narramessenger_module.plugin_hooks:HOOKS"),
+)
+
+# Services builtins expose on ``Registries.services`` (owner, "pkg.mod:SERVICES"),
+# each a tuple of (ServiceRef, impl); see kernel/plugins/service_refs.py.
+SERVICE_SPECS: tuple[tuple[str, str], ...] = (
+    ("builtin.skills", f"{_MOD}.skill_module.services:SERVICES"),
+    ("builtin.job", f"{_MOD}.job_module.services:SERVICES"),
 )
 
 
@@ -176,6 +192,10 @@ def register_all(registries: Any = None) -> None:
     for plugin_id, ref in HOOK_SPECS:
         for impl in _resolve_symbol(ref):
             regs.hooks.add(impl.hook, impl.fn, owner=plugin_id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper)
+    for plugin_id, ref in SERVICE_SPECS:
+        for service_ref, impl in _resolve_symbol(ref):
+            if regs.services.try_require(service_ref) is None:
+                regs.services.expose(service_ref, impl, owner=plugin_id)
 
 
 # Per-plugin tuples the builtin manifests name (``xyz_agent_context.module.contributions:PLUGIN_<ID>``).
@@ -212,6 +232,7 @@ __all__ = [
     "DATA_ACCESS_SLOT",
     "DATA_ACCESS_SPECS",
     "HOOK_SPECS",
+    "SERVICE_SPECS",
     "MODULES_SLOT",
     "MODULE_SPECS",
     "TRIGGERS_SLOT",

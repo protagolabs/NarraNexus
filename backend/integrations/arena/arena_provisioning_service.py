@@ -547,16 +547,16 @@ class ArenaProvisioningService:
 
     async def _create_paused_jobs(self, agent_id: str, user_id: str) -> list:
         """Create the routines, then pause each. create→PENDING→pause→PAUSED."""
-        from xyz_agent_context.module.job_module.job_service import JobInstanceService
         from xyz_agent_context.repository.job_repository import JobRepository
         from xyz_agent_context.repository.user_repository import UserRepository
+        from xyz_agent_context.utils.plugin_services import job_instances
 
         # Schedules display/fire in the creator's timezone (the cron 08:00 job
         # especially); fall back to UTC if the user has no timezone set.
         user = await UserRepository(self.db).get_user(user_id)
         tz = (user.timezone if user and getattr(user, "timezone", None) else "UTC")
 
-        job_service = JobInstanceService(self.db)
+        job_service = job_instances(self.db)
         job_repo = JobRepository(self.db)
         created = []
         for spec in ARENA_JOBS:

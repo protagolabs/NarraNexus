@@ -19,6 +19,7 @@ from httpx import ASGITransport
 
 import backend.routes.manyfold.sync as mod
 from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+from xyz_agent_context.module.job_module import run_once as ro
 from xyz_agent_context.repository.job_repository import JobRepository
 
 
@@ -425,6 +426,8 @@ def job_stubs(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(mod, "get_db_client", _fake_db)
+    # The execution body lives in builtin.job's run_once module (jobs.run_once service).
+    monkeypatch.setattr(ro, "get_db_client", _fake_db)
 
     async def _get_job(self, job_id):
         job = state["job"]
@@ -451,8 +454,8 @@ def job_stubs(db_client, monkeypatch):
     monkeypatch.setattr(JobTrigger, "_rearm_cooled_jobs", _rearm)
     monkeypatch.setattr(JobTrigger, "_resume_eligible_no_quota_jobs", _resume)
     # Collapse the drain window so the no-more-due exit is immediate.
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 0)
-    monkeypatch.setattr(mod, "_DRAIN_POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_POLL_INTERVAL_S", 0)
     return state
 
 
@@ -491,16 +494,16 @@ async def test_execute_job_once_skips(job_stubs):
 
 @pytest.mark.asyncio
 async def test_execute_job_once_drains_due_jobs_up_to_cap(job_stubs, monkeypatch):
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 5)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 5)
     job_stubs["job"] = _fake_job()
     job_stubs["due"] = [
-        _fake_job(job_id=f"dep_{i}") for i in range(mod._DRAIN_LIMIT + 2)
+        _fake_job(job_id=f"dep_{i}") for i in range(ro._DRAIN_LIMIT + 2)
     ]
     outcome = await mod.execute_job_once("agent_1", "j1")
     assert outcome.ok is True
-    assert outcome.drained == mod._DRAIN_LIMIT
+    assert outcome.drained == ro._DRAIN_LIMIT
     assert job_stubs["executed"][0] == "j1"
-    assert len(job_stubs["executed"]) == 1 + mod._DRAIN_LIMIT
+    assert len(job_stubs["executed"]) == 1 + ro._DRAIN_LIMIT
 
 
 @pytest.mark.asyncio

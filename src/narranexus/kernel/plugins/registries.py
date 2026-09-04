@@ -78,6 +78,12 @@ class Registries:
             self.hooks.declare(HookSpec(name, params, firstresult=firstresult, doc=f"stage hook {name}"))
         self._by_path: dict[str, Registry[Any]] = {}
         self._frozen = False
+        # Named services plugins expose to each other and to the platform
+        # (see kernel/plugins/service_refs.py); one locator per process, so a
+        # builtin's service and a user plugin's activate(ctx) share it.
+        from narranexus.kernel.plugins.services import ServiceLocator
+
+        self.services: ServiceLocator = ServiceLocator()
 
     def registry_for(self, path: str) -> Registry[Any]:
         """The registry backing ``path`` (created on first use; the slot must exist)."""
@@ -111,6 +117,7 @@ class Registries:
         """Remove ``owner``'s contributions from every registry and block its hooks (disabled builtin)."""
         removed = sum(reg.remove_owner(owner) for reg in self._by_path.values())
         removed += self.hooks.block(owner)
+        removed += self.services.release_owner(owner)
         return removed
 
     def snapshot(self) -> dict[str, dict[str, str]]:

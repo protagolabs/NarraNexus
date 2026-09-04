@@ -50,9 +50,9 @@ class SkillSyncService:
 
     async def reconcile_workspace(self, agent_id: str, user_id: str) -> Dict[str, int]:
         """Reconcile one workspace; returns counters for observability."""
-        from xyz_agent_context.module.skill_module import SkillModule
+        from xyz_agent_context.utils.plugin_services import skill_workspace
 
-        module = SkillModule(agent_id=agent_id, user_id=user_id)
+        module = skill_workspace(agent_id, user_id)
         stats = {"added": 0, "external_removed": 0, "modified": 0, "disabled": 0, "restored": 0}
         skills_dir = module.skills_dir
         if skills_dir is None:

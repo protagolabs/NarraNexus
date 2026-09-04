@@ -34,7 +34,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.skill_module import SkillModule
+from narranexus.contracts.skill import SkillWorkspace
+from xyz_agent_context.utils.plugin_services import skill_workspace
 from xyz_agent_context.schema.skill_schema import SkillInfo
 
 from .scanner import scan_skill_dir
@@ -97,12 +98,12 @@ class InstallPipeline:
         self,
         agent_id: str,
         user_id: str,
-        skill_module: Optional[SkillModule] = None,
+        skill_module: Optional[SkillWorkspace] = None,
         db_client=None,
     ):
         self.agent_id = agent_id
         self.user_id = user_id
-        self.skill_module = skill_module or SkillModule(agent_id=agent_id, user_id=user_id)
+        self.skill_module = skill_module or skill_workspace(agent_id, user_id)
         self._db_client = db_client
 
     # -- public entrances ----------------------------------------------------

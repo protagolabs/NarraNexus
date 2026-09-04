@@ -42,6 +42,7 @@ from xyz_agent_context.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )
+from backend.host_events import notify_user_runnability_changed
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
 from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
 
@@ -359,11 +360,8 @@ async def add_provider(req: AddProviderRequest, request: Request):
             pass
 
         # Edge-triggered recovery: a newly-added provider (with default slots)
-        # can make the user runnable — revive their PAUSED_NO_QUOTA jobs.
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(uid)
+        # can make the user runnable — builtin.job revives PAUSED_NO_QUOTA jobs.
+        await notify_user_runnability_changed(uid)
         await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "provider_ids": new_ids, "data": _config_to_response(config)}
@@ -419,10 +417,7 @@ async def onboard(req: OnboardRequest, request: Request):
         pass
 
     # Edge-triggered recovery: the user just became runnable.
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(uid)
+    await notify_user_runnability_changed(uid)
     await _resume_agent_circuit_breakers(uid)
 
     return {
@@ -511,10 +506,7 @@ async def use_subscription(request: Request):
         set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
     except Exception:
         pass
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(uid)
+    await notify_user_runnability_changed(uid)
     await _resume_agent_circuit_breakers(uid)
 
     service = await _get_service()
@@ -752,11 +744,8 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
             pass
 
         # Edge-triggered recovery: completing/changing the agent slot can make
-        # the user runnable — revive their PAUSED_NO_QUOTA jobs (non-blocking).
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(uid)
+        # the user runnable — builtin.job revives PAUSED_NO_QUOTA jobs (non-blocking).
+        await notify_user_runnability_changed(uid)
         await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}

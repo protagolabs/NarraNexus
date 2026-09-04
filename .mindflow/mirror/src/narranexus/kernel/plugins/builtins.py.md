@@ -61,3 +61,7 @@ awareness/social_network/basic_info/job/chat also provide `agent.capabilities.da
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 Channel builtins provide `backend.routes.channels.<ch>:ROUTES`; builtin.job adds `backend.routes.jobs:ROUTES` + `backend.routes.dashboard.jobs:ROUTES`; builtin.skills `backend.routes.skills:ROUTES`; builtin.home_assistant `backend.routes.home_assistant:ROUTES`.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+builtin.job / builtin.awareness / the six channel builtins provide `backend.hooks` (`<module>.plugin_hooks:HOOKS`).

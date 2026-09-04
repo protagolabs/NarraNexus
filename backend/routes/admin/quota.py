@@ -99,11 +99,10 @@ async def topup(request: Request, payload: TopupRequest) -> dict:
         raise HTTPException(status_code=503, detail="wallet service unavailable") from e
 
     # Edge-triggered recovery: fresh headroom can make the user runnable again —
-    # revive their PAUSED_NO_QUOTA jobs in the background (non-blocking).
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(payload.user_id)
+    # builtin.job revives their PAUSED_NO_QUOTA jobs in the background.
+    from backend.host_events import notify_user_runnability_changed
+
+    await notify_user_runnability_changed(payload.user_id)
     return balance_to_dict(balance)
 
 

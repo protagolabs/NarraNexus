@@ -18,3 +18,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `DATA_ACCESS_SPECS` (owner → `<module>/data_access.py:DATA_ACCESS`) registered by `register_all` alongside modules/triggers/hooks; `_resolve_symbol` is the shared lazy import.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`HOOK_SPECS` covers job (runnability), awareness (identity), six channels (credential export); `SERVICE_SPECS` exposes skills/job services; `register_all` registers both (services skipped when already exposed).

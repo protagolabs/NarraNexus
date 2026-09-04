@@ -87,20 +87,20 @@ bound only from the distribution or default layers.
 | `builtin.memory_kinds` | 1.0.0 | backend, mcp, workers | `agent.capabilities.memory_kinds` | gold |
 | `builtin.nexus_plugins_module` | 1.0.0 | backend, mcp | `agent.capabilities.modules` | gold |
 | `builtin.turn` | 1.0.0 | backend | `turn.pipeline`, `turn.pipeline.ingress`, `turn.pipeline.recall`, `turn.pipeline.compose`, `turn.pipeline.assemble`, `turn.pipeline.act`, `turn.pipeline.commit`, `turn.pipeline.reflect`, `turn.profiles` | gold |
-| `builtin.awareness` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
+| `builtin.awareness` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes`, `backend.hooks` | gold |
 | `builtin.basic_info` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
 | `builtin.chat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `agent.capabilities.data_access`, `backend.routes` | gold |
 | `builtin.social_network` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
-| `builtin.job` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `agent.capabilities.data_access`, `backend.routes` | gold |
+| `builtin.job` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `agent.capabilities.data_access`, `backend.routes`, `backend.hooks` | gold |
 | `builtin.skills` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes` | gold |
 | `builtin.message_bus` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.common_tools` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.general_memory` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.home_assistant` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes` | gold |
-| `builtin.channels.lark` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
-| `builtin.channels.slack` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
-| `builtin.channels.telegram` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
-| `builtin.channels.wechat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
-| `builtin.channels.narramessenger` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
-| `builtin.channels.discord` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes` | gold |
+| `builtin.channels.lark` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
+| `builtin.channels.slack` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
+| `builtin.channels.telegram` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
+| `builtin.channels.wechat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
+| `builtin.channels.narramessenger` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
+| `builtin.channels.discord` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks` | gold |
 | `builtin.teams` | 1.0.0 | backend | `backend.routes`, `backend.workers` | gold |

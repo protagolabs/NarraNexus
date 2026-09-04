@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/marketplace/_skill_marketplace_impl/registry.py
-last_verified: 2026-07-22
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -54,3 +54,7 @@ lives in `skill_marketplace_service.py`, not here.
 `RemoteMarketplaceSource` trusts `X-Skill-Version` / `X-Package-Hash`
 response headers so the hash verify in the pipeline checks against what the
 registry claims, not what the body happens to be.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+The staging workspace for publish comes from the `skills.workspaces` service.

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -89,3 +89,7 @@ profile 的读—改—写现在跨进程可达，`merge_identity_change_note` �
 **别再新增 `agents.agent_name` 的写入方**。要写，调本包。护栏命令与 8 行允许清单
 在 [[_awareness_writes]]。已知缺口（bundle 导入不刷名录、且原样搬运身份记录）记在
 `reference/self_notebook/todo/2026-08-18-bundle-import-identity-gap.md`。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_record_identity` / `_reconcile_identity` fire `onDidChangeAgentName` / `onDidSettleAgentName` (`utils/host_hooks`) with the transaction's db; the `_awareness_identity_writers` import seam is gone. Listener exceptions are re-raised so the transaction's existing log-and-continue handling is unchanged; no listener (awareness disabled) → None, matching the no-instance answer.

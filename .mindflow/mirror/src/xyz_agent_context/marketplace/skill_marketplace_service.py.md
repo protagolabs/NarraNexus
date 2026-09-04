@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/marketplace/skill_marketplace_service.py
-last_verified: 2026-07-22
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -51,3 +51,7 @@ whichever side the catalog lives on.
 - `check_updates` (agent-scoped) builds the installed list from disk, then
   asks the registry (local or remote batch endpoint).
 - Cheap to construct — one instance per request/tool call, no caching.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+Workspaces come from the `skills.workspaces` service.

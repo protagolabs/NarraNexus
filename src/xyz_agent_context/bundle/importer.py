@@ -1060,11 +1060,12 @@ async def _confirm_inner(
         # every import, renamed or not. AFTER the awareness insert above: the
         # correction has to land in a row that exists.
         if renamed:
-            from xyz_agent_context.module.awareness_module import (
-                reconcile_identity_record,
-            )
+            # builtin.awareness owns the identity record; it listens for this
+            # host event (module/awareness_module/plugin_hooks.py).
+            from xyz_agent_context.utils.host_hooks import call_host_hook
 
-            if await reconcile_identity_record(db, new_aid, final_name) is False:
+            outcome = await call_host_hook("onDidSettleAgentName", db=db, agent_id=new_aid, name=final_name)
+            if outcome.first is False:
                 logger.warning(
                     f"bundle_import.agent.identity_not_corrected new_id={new_aid} "
                     f"renamed_from={original_name!r} to={final_name!r} — the "
@@ -1401,7 +1402,7 @@ async def _confirm_inner(
     # Archive paths are built via `prepare_archive_target`, never by f-string.
     skill_install_failures: List[Dict[str, str]] = []
 
-    from xyz_agent_context.module.skill_module.skill_module import SkillModule
+    from xyz_agent_context.utils.plugin_services import skill_workspace
     from xyz_agent_context.bundle.skill_backup import (
         backup_after_api_install,
         prepare_archive_target,
@@ -1476,7 +1477,7 @@ async def _confirm_inner(
                 # cache that dir. Subsequent agents copy from the cache.
                 first_aid = target_aids[0]
                 if cached_dir is None:
-                    sm = SkillModule(agent_id=first_aid, user_id=user_id)
+                    sm = skill_workspace(first_aid, user_id)
                     info = await asyncio.to_thread(sm.install_from_github, src_url, branch)
                     cached_dir = Path(info.path)
                     if key:
@@ -1514,7 +1515,7 @@ async def _confirm_inner(
                 cached_dir = install_cache.get(key) if key else None
                 first_aid = target_aids[0]
                 if cached_dir is None:
-                    sm = SkillModule(agent_id=first_aid, user_id=user_id)
+                    sm = skill_workspace(first_aid, user_id)
                     # Pin the dest folder to the bundle's known skill_dir so it
                     # isn't re-derived (wrongly) from SKILL.md frontmatter.
                     info = await asyncio.to_thread(
@@ -1575,7 +1576,7 @@ async def _confirm_inner(
                 tgt = prepare_archive_target(user_id, skill_name, suffix="_full.zip")
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
-                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
+                    sm = skill_workspace(new_aid, user_id)
                     # Pin the dest folder to the bundle's known skill_dir so the
                     # full_copy overwrites skills/<skill_dir>/ (restoring the
                     # credential the workspace snapshot had stripped) instead of

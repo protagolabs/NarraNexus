@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-08-04
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -64,3 +64,7 @@ auto-migration" from Phase 2 comment #3.
 只验 hash 不重扫)→ source.record_install 计数。mode 决策(Local vs Remote
 source)由 skill_marketplace_service 统一传入;`_default_marketplace_source`
 仅作直接调用时的兜底。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`skill_module` is typed as the `SkillWorkspace` Protocol and defaults to the `skills.workspaces` service.

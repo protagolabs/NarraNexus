@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/skill_sync_service.py
-last_verified: 2026-08-04
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -47,3 +47,7 @@ walk must follow.
 Enable/disable via the UI routes does NOT write the audit table directly —
 the reconciler is what converges those states (acceptable lag ≤ interval;
 DB is audit-only).
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+Workspaces come from the `skills.workspaces` service, not `SkillModule` directly.

@@ -1,6 +1,6 @@
 ---
 code_file: backend/onboarding/provisioning.py
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -130,3 +130,7 @@ marker. Zero raw SQL.
 - Integration coverage (real DB, no collaborator mocks):
   `tests/backend/onboarding/test_onboarding_provisioning_integration.py`
   pins the persisted rows; the unit file pins parameter pipes only.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_create_checkin_job` creates through the `jobs.instances` service (`utils/plugin_services.job_instances`); with builtin.job disabled the require fails and the existing warning path records it.

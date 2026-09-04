@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 SkillKind = Literal["plugin", "marketplace", "workspace", "builtin"]
 
@@ -34,4 +34,28 @@ class SkillSpec:
         return self.path / "SKILL.md"
 
 
-__all__ = ["SkillKind", "SkillSpec"]
+@runtime_checkable
+class SkillWorkspace(Protocol):
+    """One agent's skills directory as the platform uses it (service ``skills.workspaces``).
+
+    The bundle importer, the marketplace install pipeline / registry and the
+    skill sync service drive a workspace through exactly these members; the
+    builtin skill module's ``SkillModule`` is the implementation.
+    """
+
+    skills_dir: Path | None
+
+    def list_skills(self, include_disabled: bool = False) -> Any: ...
+    def get_skill(self, name: str) -> Any: ...
+    def read_skill_meta(self, name: str) -> Any: ...
+    def merge_skill_meta(self, name: str, fields: Any) -> Any: ...
+    def parse_skill_package(self, skill_root: Path) -> Any: ...
+    def extract_skill_package(self, zip_path: Path, temp_dir: Path) -> Any: ...
+    def fetch_github_repo(self, url: str, branch: Any, temp_dir: Path) -> Any: ...
+    def install_from_dir(self, *args: Any, **kwargs: Any) -> Any: ...
+    def install_from_github(self, url: str, branch: Any) -> Any: ...
+    def install_skill(self, zip_path: Path, *, target_dir_name: Any = None) -> Any: ...
+    def remove_skill(self, name: str) -> Any: ...
+
+
+__all__ = ["SkillKind", "SkillSpec", "SkillWorkspace"]

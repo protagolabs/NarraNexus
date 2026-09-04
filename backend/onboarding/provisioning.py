@@ -339,8 +339,8 @@ def _safe_timezone(raw: Optional[str]) -> str:
 async def _create_checkin_job(
     db: AsyncDatabaseClient, agent_id: str, user_id: str
 ) -> str:
-    from xyz_agent_context.module.job_module.job_service import JobInstanceService
     from xyz_agent_context.repository.user_repository import UserRepository
+    from xyz_agent_context.utils.plugin_services import job_instances
 
     user = await UserRepository(db).get_user(user_id)
     tz = _safe_timezone(getattr(user, "timezone", None) if user else None)
@@ -354,7 +354,7 @@ async def _create_checkin_job(
     end_local = end_utc.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
     end_date = (end_local - timedelta(days=1)).date().isoformat()
 
-    result = await JobInstanceService(db).create_job_with_instance(
+    result = await job_instances(db).create_job_with_instance(
         agent_id=agent_id,
         user_id=user_id,
         title=CHECKIN_JOB_TITLE,

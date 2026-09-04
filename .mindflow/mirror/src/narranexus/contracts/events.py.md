@@ -19,3 +19,7 @@ stub: false
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `onDidResolveBootstrapGreeting` (`BootstrapGreetingEvent`: agent_id/user_id/instance_id/greeting/turn_started_at) — fired by step 1 after the platform resolves a bootstrap greeting; builtin.chat's `plugin_hooks` seeds it. First host event that is a *request to a capability owner* rather than pure observation.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`onDidChangeUserRunnability` (user_id), `onDidChangeAgentName` (db, agent_id, old_name, new_name), `onDidSettleAgentName` (db, agent_id, name), `onWillExportManagedChannels` (db) — the request-style host events that replaced the last platform→builtin imports; `db` rides in the payload so listeners write on the caller's client.

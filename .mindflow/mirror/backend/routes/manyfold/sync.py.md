@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-26
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -165,3 +165,7 @@ automations（镜像闹钟）和 channel 连接接管，事件发生时按需唤
 - message_bus 运行中经 MCP 建的 job 没有 HTTP 请求经过 middleware，
   webhook 不会发——依赖 Manyfold 的 turn 结束 pull / boot pull 兜底，
   这是已知 v1 边界。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`/manyfold/channels` collects rows from every channel builtin through `onWillExportManagedChannels` (provider order pinned by `_PROVIDER_ORDER`); `execute_job_once` runs through builtin.job's `jobs.run_once` service (`RunJobOutcome` now subclasses `contracts.job.JobRunOutcome`; `jobs_unavailable` when the builtin is disabled). The route imports no channel or job module.

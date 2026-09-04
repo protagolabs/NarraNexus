@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -394,3 +394,7 @@ bundle 是不可信输入：上限重新施加，且无论 payload 声称什么�
 于是 `write_imported_bulletin` 写进去的行会留在一个下一行就被删掉的 `team_id` 上——
 **任何查询路径都读不到**，正是 `_wipe_team_data` 自己论证过的那种孤儿行。
 #259 在紧挨着的一行把 `team_work_items` 加了进去，对比之下这个缺口才显出来。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+Skill installs go through `skills.workspaces` (`utils/plugin_services.skill_workspace`); the renamed-agent identity fix fires `onDidSettleAgentName` on the importer's db and reads the reconcile result from the hook outcome.
