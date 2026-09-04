@@ -49,12 +49,12 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
-from xyz_agent_context.repository.channel_trigger_audit_repository import (
+from narranexus.platform.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
-from xyz_agent_context.repository.event_repository import EventRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.db.dialect_time import event_time_str
+from narranexus.platform.repository.event_repository import EventRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.dialect_time import event_time_str
 from backend.routes.admin.logs import (
     _filter_by_level,
     _list_files,

@@ -38,7 +38,7 @@ FastAPI 在 solve_dependencies **之前**就 `await request.body()` /
 
 MAX_OFFICE_EDIT_BYTES / MAX_OFFICE_ASSET_BYTES / PUT_CONTENT_MARGIN 的
 权威在本文件,routes 反向 import(routes→middleware 合法,反向禁止);
-MAX_ARTIFACT_BYTES 从 xyz_agent_context.artifact 引入。「门还挂着吗」
+MAX_ARTIFACT_BYTES 从 narranexus.platform.artifact 引入。「门还挂着吗」
 不再靠读注释:test_body_size_gate.py 遍历真实路由表验证每条 BODY_CAPS
 命中已注册路由 + 中间件确实挂载 + 顺序在 access_log 内。
 

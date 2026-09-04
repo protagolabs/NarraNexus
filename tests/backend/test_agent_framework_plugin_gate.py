@@ -44,7 +44,7 @@ class _StubService:
 @pytest.fixture
 def make_client(monkeypatch):
     def _make(*, cloud: bool = False, service: _StubService | None = None):
-        from xyz_agent_context.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
+        from narranexus.platform.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
         monkeypatch.delenv(DEPLOYMENT_MODE_ENV_VAR, raising=False)
         monkeypatch.setenv(
             "DATABASE_URL",
@@ -183,7 +183,7 @@ async def test_ensure_codex_installed_activates_plugin_pyenv_first(tmp_path, mon
     has it, so without this the branch is skipped."""
     import sys
 
-    from xyz_agent_context.agent_framework import plugin_paths
+    from narranexus.platform.agent_framework import plugin_paths
 
     monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "plugins"))
     monkeypatch.setitem(sys.modules, "codex_cli_bin", None)  # → ImportError on import

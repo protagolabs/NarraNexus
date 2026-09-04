@@ -25,7 +25,7 @@ import contextlib
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module import _work_board_mcp_tools as mod
+from narranexus.platform.module_system.message_bus_module import _work_board_mcp_tools as mod
 
 
 class _Headers:
@@ -40,7 +40,7 @@ class _Headers:
 def injected_team(team_id: str | None):
     """Install an ambient MCP request whose header names the caller's team."""
     from mcp.server.lowlevel.server import request_ctx
-    from xyz_agent_context.module._mcp_identity import TEAM_ID_HEADER
+    from narranexus.platform.module_system._mcp_identity import TEAM_ID_HEADER
 
     headers = {TEAM_ID_HEADER.lower(): team_id} if team_id else {}
     request = type("Req", (), {"headers": _Headers(headers)})()

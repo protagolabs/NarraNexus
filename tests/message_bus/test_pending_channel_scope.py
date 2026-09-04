@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 
 ROOM_A = "ch_busy_a"

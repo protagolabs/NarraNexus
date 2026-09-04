@@ -37,7 +37,7 @@ def test_every_kind_contract_has_a_version():
 
 
 def test_legacy_driver_module_re_exports_the_contract_protocol():
-    from xyz_agent_context.agent_framework.loop import driver
+    from narranexus.platform.agent_framework.loop import driver
 
     assert driver.AgentLoopDriver is AgentLoopDriver
 
@@ -49,9 +49,9 @@ def test_framework_meta_is_frozen():
 
 
 def _helper_sdk_classes() -> list[type]:
-    from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-    from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
-    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+    from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
+    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
     return [AnthropicHelperSDK, CliHelperSDK, OpenAIAgentsSDK]
 
@@ -77,7 +77,7 @@ def test_host_event_names_follow_on_did_or_on_will_verb_subject():
 class TestNexusPowerDriverContract(FrameworkDriverContractTests):
     @staticmethod
     def driver_factory():
-        from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import NexusAgent
+        from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import NexusAgent
 
         return NexusAgent()
 
@@ -85,14 +85,14 @@ class TestNexusPowerDriverContract(FrameworkDriverContractTests):
 class TestRemoteDriverContract(FrameworkDriverContractTests):
     @staticmethod
     def driver_factory():
-        from xyz_agent_context.agent_framework.loop.remote_driver import RemoteAgentLoopDriver
+        from narranexus.platform.agent_framework.loop.remote_driver import RemoteAgentLoopDriver
 
         return RemoteAgentLoopDriver(framework="nexus_power", executor_url="http://127.0.0.1:1", working_path=".")
 
 
 def _provider_driver_classes() -> list[type]:
-    import xyz_agent_context.agent_framework.providers.driver.drivers  # noqa: F401 registers
-    from xyz_agent_context.agent_framework.providers.driver.registry import get_driver_class
+    import narranexus.platform.agent_framework.providers.driver.drivers  # noqa: F401 registers
+    from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
 
     keys = [
         "custom_anthropic", "custom_openai", "netmind", "netmind_free", "yunwu",
@@ -118,8 +118,8 @@ class TestBuiltinProviderDriversSatisfyContract:
 
 
 def _netmind_driver_cls() -> type:
-    import xyz_agent_context.agent_framework.providers.driver.drivers  # noqa: F401 registers
-    from xyz_agent_context.agent_framework.providers.driver.registry import get_driver_class
+    import narranexus.platform.agent_framework.providers.driver.drivers  # noqa: F401 registers
+    from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
 
     cls = get_driver_class("netmind")
     assert cls is not None
@@ -131,8 +131,8 @@ class TestNetmindProviderContract(ProviderDriverContractTests):
 
 
 def _memory_specs():
-    import xyz_agent_context.memory.specs  # noqa: F401 registers
-    from xyz_agent_context.memory.spec import all_kinds, get_spec
+    import narranexus.platform.memory.specs  # noqa: F401 registers
+    from narranexus.platform.memory.spec import all_kinds, get_spec
 
     return [get_spec(k) for k in sorted(all_kinds())]
 
@@ -145,7 +145,7 @@ def test_builtin_memory_kinds_satisfy_contract(spec):
 class TestEventMemoryKindContract(MemoryKindContractTests):
     @staticmethod
     def spec_factory():
-        import xyz_agent_context.memory.specs  # noqa: F401
-        from xyz_agent_context.memory.spec import get_spec
+        import narranexus.platform.memory.specs  # noqa: F401
+        from narranexus.platform.memory.spec import get_spec
 
         return get_spec("event")

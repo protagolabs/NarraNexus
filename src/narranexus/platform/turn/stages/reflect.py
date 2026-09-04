@@ -24,10 +24,10 @@ class BackgroundReflect:
     stage = Stage.REFLECT
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
-        from xyz_agent_context.schema import ProgressMessage, ProgressStatus
-        from xyz_agent_context.utils.background_tasks import spawn as _spawn_bg
-        from xyz_agent_context.utils.cost_tracker import clear_cost_context
+        from narranexus.platform.agent_runtime import agent_runtime as ar
+        from narranexus.platform.schema import ProgressMessage, ProgressStatus
+        from narranexus.platform.utils.background_tasks import spawn as _spawn_bg
+        from narranexus.platform.utils.cost_tracker import clear_cost_context
 
         ctx, s = inputs.ctx, inputs.services
         _bg_start = time.monotonic()
@@ -35,10 +35,10 @@ class BackgroundReflect:
         _event_id = str(ctx.event.id) if ctx.event and ctx.event.id else ""
 
         async def _run_hooks_background():
-            from xyz_agent_context.agent_framework.llm.failure import is_credential_error
-            from xyz_agent_context.agent_framework.providers.resolver import ProviderResolverError, inject_owner_helper_credentials
-            from xyz_agent_context.services.background_llm_alerts import alert_background_llm_failure
-            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from narranexus.platform.agent_framework.llm.failure import is_credential_error
+            from narranexus.platform.agent_framework.providers.resolver import ProviderResolverError, inject_owner_helper_credentials
+            from narranexus.platform.services.background_llm_alerts import alert_background_llm_failure
+            from narranexus.platform.utils.db.db_factory import get_db_client
 
             owner_user_id = None
             try:

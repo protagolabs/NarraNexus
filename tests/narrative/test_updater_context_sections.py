@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl import updater as updater_mod
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative._narrative_impl import updater as updater_mod
+from narranexus.platform.narrative.models import (
     DynamicSummaryEntry,
     Event,
     EventLogEntry,

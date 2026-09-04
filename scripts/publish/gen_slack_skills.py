@@ -35,7 +35,7 @@ holds a single operation under ``post`` or ``get``. Args live in flat
 
 Output layout::
 
-    src/xyz_agent_context/module/slack_module/skills/
+    src/narranexus/platform/module_system/slack_module/skills/
     ├── chat.postMessage.md
     ├── conversations.history.md
     ├── ...

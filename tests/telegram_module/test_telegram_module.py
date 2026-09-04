@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import module_registry
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus.platform.module_system import module_registry
+from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
-from xyz_agent_context.schema import ContextData, ModuleConfig
+from narranexus.platform.module_system.telegram_module.telegram_module import TelegramModule
+from narranexus.platform.schema import ContextData, ModuleConfig
 
 
 def _ctx(extra: dict | None = None) -> ContextData:
@@ -123,7 +123,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
 def test_no_bot_instruction_keeps_discovery_walkthrough_wording():
     """The discovery constant (now served by tg_bind's zero-arg form)
     must keep the setup walkthrough content."""
-    from xyz_agent_context.module.telegram_module.telegram_module import (
+    from narranexus.platform.module_system.telegram_module.telegram_module import (
         _NO_BOT_INSTRUCTION,
     )
 
@@ -146,7 +146,7 @@ async def test_no_bot_instruction_does_not_recommend_disable_privacy():
     Setup-residency note (2026-07-24): the walkthrough left the per-turn
     prompt; it is served by tg_bind() with no arguments. The wording
     guards below now assert against the constants directly."""
-    from xyz_agent_context.module.telegram_module.telegram_module import (
+    from narranexus.platform.module_system.telegram_module.telegram_module import (
         _NO_BOT_INSTRUCTION,
         _TELEGRAM_IRON_RULES,
     )

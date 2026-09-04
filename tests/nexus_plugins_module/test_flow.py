@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.guards import GuardError
+from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.guards import GuardError
 
 
 def test_happy_path(env, svc):
@@ -95,7 +95,7 @@ def test_protected_and_cloud_refusals(env, svc, monkeypatch):
     with pytest.raises(GuardError, match="another agent|not registered"):
         svc.observe("me.other")
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
-    from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
+    from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
 
     with pytest.raises(GuardError, match="local feature"):
         SelfExtensionService("a1", "u1", workspace=env["workspace"], store=env["store"])
@@ -110,7 +110,7 @@ def test_validate_flags_declared_vs_actual(env, svc):
 
 
 def test_budget_exhaustion(env, svc):
-    from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.guards import REGISTER_BUDGET_PER_WINDOW
+    from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.guards import REGISTER_BUDGET_PER_WINDOW
 
     for i in range(REGISTER_BUDGET_PER_WINDOW):
         svc.install(f"acme/p{i}")

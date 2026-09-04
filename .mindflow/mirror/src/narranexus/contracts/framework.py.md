@@ -19,7 +19,7 @@ Protocol 方法体是 `...`；每个 adapter 都自己实现 `capabilities()`，
 
 ## 2026-09-03 — `AgentLoopDriver` 的正式家（从 loop/driver.py 搬来）
 
-批 0 把 agent-loop 框架的 Protocol 从 `xyz_agent_context/agent_framework/loop/driver.py`
+批 0 把 agent-loop 框架的 Protocol 从 `narranexus/platform/agent_framework/loop/driver.py`
 搬到契约层，旧模块 re-export 同一个对象（`tests/nx_kernel/contracts/test_kind_contracts.py`
 钉住 `driver.AgentLoopDriver is AgentLoopDriver`）。Protocol 正文与 docstring 逐字保留：
 `agent_loop(messages, mcp_servers, *, streaming, extra_env, cancellation, **kwargs)` 异步生成器 +

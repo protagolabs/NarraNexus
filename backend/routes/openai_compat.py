@@ -58,14 +58,14 @@ from backend.routes.manyfold.sync import (
     parse_run_job_control,
     retag_managed_input,
 )
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
 )
-from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.schema import WorkingSource
+from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import API_KEY_INVALID, AuthError
 
 
@@ -187,7 +187,7 @@ async def _resolve_agent_creator(agent_id: str) -> Optional[str]:
     Delegates to the shared AgentRepository.resolve_owner seam (one home
     for ownership semantics); this wrapper only keeps the Optional
     contract its callers branch on."""
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.repository.agent_repository import AgentRepository
 
     owner = await AgentRepository(await get_db_client()).resolve_owner(agent_id)
     return owner or None
@@ -233,7 +233,7 @@ def _ensure_source_handlers_registered() -> None:
     reply tools even when this request is the process's first
     agent-related code path. Cached by sys.modules after the first call."""
     try:
-        from xyz_agent_context.module import module_registry  # noqa: F401
+        from narranexus.platform.module_system import module_registry  # noqa: F401
     except Exception as e:  # pragma: no cover - broken module tree
         logger.warning(f"MessageSource registration import failed: {e}")
 
@@ -628,7 +628,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
     # answers with a receipt completion and never starts the agent.
     managed_ingress = None
     if working_source is not WorkingSource.MANYFOLD:
-        from xyz_agent_context.module.managed_channel_ingress import (
+        from narranexus.platform.module_system.managed_channel_ingress import (
             get_managed_channel_ingress,
         )
 

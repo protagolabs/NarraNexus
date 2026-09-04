@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
-from xyz_agent_context.agent_framework.plugin_paths import node_prefix, plugin_pyenv
+from narranexus.platform.agent_framework.plugin_paths import node_prefix, plugin_pyenv
 
 from ._installers.base import InstalledState, PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller

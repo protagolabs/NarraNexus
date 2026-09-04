@@ -89,7 +89,7 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     mcp, _ = _boot("mcp")
     assert mcp.registry_for("agent.capabilities.tools").names() == ("tools",)
     workers, _ = _boot("workers")
-    from xyz_agent_context.module.run_worker_supervisor import build_specs
+    from narranexus.platform.module_system.run_worker_supervisor import build_specs
 
     assert [s.name for s in build_specs(registries=workers)][-1] == f"{PID}:greeter"
 

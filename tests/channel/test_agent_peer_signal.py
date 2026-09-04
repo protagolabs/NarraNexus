@@ -32,10 +32,10 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
-from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER, ChannelTag
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.module_system.channel_trigger_map import CHANNEL_TRIGGER_MAP
+from narranexus.platform.schema.channel_tag import AGENT_PEER_MARKER, ChannelTag
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 def _msg(sender_id: str) -> ParsedMessage:
@@ -135,7 +135,7 @@ def _modules_that_build_receive_path_tags():
     import importlib
     import inspect as _inspect
 
-    import xyz_agent_context.channel.channel_trigger_base as base
+    import narranexus.platform.channel.channel_trigger_base as base
 
     mods = {base}
     for cls in CHANNEL_TRIGGER_MAP.values():
@@ -152,7 +152,7 @@ def test_the_guard_sees_every_registered_channel():
     """CHANNEL_TRIGGER_MAP is defensively imported (a channel whose optional
     dependency is missing is skipped silently). If that happens in CI, the
     guard below would quietly stop checking that channel."""
-    from xyz_agent_context.module.channel_trigger_map import (
+    from narranexus.platform.module_system.channel_trigger_map import (
         REGISTERED_TRIGGER_CLASS_NAMES,
     )
 
@@ -164,7 +164,7 @@ def test_the_guard_sees_every_registered_channel():
 def _trigger_modules():
     import inspect as _inspect
 
-    import xyz_agent_context.channel.channel_trigger_base as base
+    import narranexus.platform.channel.channel_trigger_base as base
 
     mods = {base}
     for cls in CHANNEL_TRIGGER_MAP.values():
@@ -338,10 +338,10 @@ async def test_the_managed_path_puts_the_marker_in_what_the_model_reads(
         build_inbound_run_context,
         retag_managed_input,
     )
-    from xyz_agent_context.module.managed_channel_ingress import (
+    from narranexus.platform.module_system.managed_channel_ingress import (
         ManagedChannelIngress,
     )
-    from xyz_agent_context.schema.hook_schema import WorkingSource
+    from narranexus.platform.schema.hook_schema import WorkingSource
 
     _, run_input, extra = build_inbound_run_context(
         channel_provider="narramessenger",
@@ -387,10 +387,10 @@ async def test_the_managed_path_leaves_a_human_turn_untouched(monkeypatch):
         build_inbound_run_context,
         retag_managed_input,
     )
-    from xyz_agent_context.module.managed_channel_ingress import (
+    from narranexus.platform.module_system.managed_channel_ingress import (
         ManagedChannelIngress,
     )
-    from xyz_agent_context.schema.hook_schema import WorkingSource
+    from narranexus.platform.schema.hook_schema import WorkingSource
 
     _, run_input, extra = build_inbound_run_context(
         channel_provider="narramessenger",
@@ -548,7 +548,7 @@ def test_the_flag_is_dropped_from_the_wire_when_false():
 def test_the_prompt_clause_names_the_marker():
     """The protocol text and the marker must agree — a clause naming a
     marker the tag never renders is a branch the model cannot take."""
-    from xyz_agent_context.channel.channel_prompts import (
+    from narranexus.platform.channel.channel_prompts import (
         COMMUNICATION_PROTOCOL_DIRECT,
     )
 

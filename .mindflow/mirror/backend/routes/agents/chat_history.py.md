@@ -190,7 +190,7 @@ in `wipe_service`, not this route.
 - **被谁用**：`backend/routes/agents/core.py` 聚合；前端聊天面板、历史记录页面、调试视图
 - **依赖谁**：
   - `InstanceRepository` — 查询 ChatModule 实例
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `narratives`、`events`、`instance_narrative_links`、`instance_json_format_memory_chat`、`module_instances`、`cost_records` 表（**不含** `agent_messages`——那是墓碑表，见 [[agent_message_repository]] 2026-08-05）
+  - `narranexus.platform.utils.db.db_factory.get_db_client` — 直接查询 `narratives`、`events`、`instance_narrative_links`、`instance_json_format_memory_chat`、`module_instances`、`cost_records` 表（**不含** `agent_messages`——那是墓碑表，见 [[agent_message_repository]] 2026-08-05）
 
 ## 设计决策
 

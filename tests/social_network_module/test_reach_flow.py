@@ -16,8 +16,8 @@ Two halves:
 """
 from __future__ import annotations
 
-from xyz_agent_context.module.social_network_module import format_contact_result
-from xyz_agent_context.module.social_network_module.prompts import (
+from narranexus.platform.module_system.social_network_module import format_contact_result
+from narranexus.platform.module_system.social_network_module.prompts import (
     SOCIAL_NETWORK_MODULE_INSTRUCTIONS,
 )
 

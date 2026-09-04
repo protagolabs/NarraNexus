@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     validate_slot_binding,
 )
-from xyz_agent_context.schema.provider_schema import framework_can_drive_provider
+from narranexus.platform.schema.provider_schema import framework_can_drive_provider
 
 
 def _card(source: str, protocol: str, auth_type: str) -> dict:

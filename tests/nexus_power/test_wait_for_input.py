@@ -21,48 +21,48 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.assembly import (
+from narranexus.platform.agent_framework.nexus_power.assembly import (
     LoopAssembly,
     _steer_channels,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus.platform.agent_framework.nexus_power.contracts.events import Usage
+from narranexus.platform.agent_framework.nexus_power.contracts.model import (
     ModelEvent,
     ModelParams,
     ProviderProfile,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+from narranexus.platform.agent_framework.nexus_power.contracts.tooling import (
     ToolCall,
     ToolContext,
     ToolResult,
     ToolSpec,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
     ExpressionContract,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
     NullSteeringInlet,
     QueueSteeringInlet,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.loop import (
     NexusPowerLoop,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
     DEFAULT_WAIT_SECONDS,
     MAX_WAIT_SECONDS,
     MIN_WAIT_SECONDS,
@@ -358,7 +358,7 @@ async def test_wait_consumption_emits_a_steer_consumed_event():
     # _steer_id) consumed via the WAIT path must emit a steer_consumed event, so
     # a message steered into a WAITING run advances the producer's cursor exactly
     # like DRAIN_STEERING.
-    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+    from narranexus.platform.agent_framework.nexus_power.contracts.events import (
         TYPE_STEER_CONSUMED,
     )
 

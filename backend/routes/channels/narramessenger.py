@@ -28,18 +28,18 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from xyz_agent_context.agent_framework.loop.broker_client import (
+from narranexus.platform.agent_framework.loop.broker_client import (
     ExecutorEnsureResult,
     broker_url,
     ensure_executor,
     executor_healthy,
     wait_until_ready,
 )
-from xyz_agent_context.agent_runtime.executor_reaper import no_live_recorded_run_for
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.agent_runtime.executor_reaper import no_live_recorded_run_for
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
-from xyz_agent_context.repository.agent_repository import AgentRepository
+from narranexus.platform.repository.agent_repository import AgentRepository
 
 
 # One canonical owner check (backend/routes/_ownership.py); module-level
@@ -53,7 +53,7 @@ _SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
 
 
 async def _get_db():
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     return await get_db_client()
 
 

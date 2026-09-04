@@ -16,7 +16,7 @@ Write endpoints (2026-08-10, PR-2 · MCP data-access seam backend half):
 - POST /{agent_id}/social-network/create-agent - create a new agent owned by the caller
 
 Every write endpoint mirrors the corresponding tool in
-`xyz_agent_context/module/social_network_module/_social_mcp_tools.py`
+`narranexus/platform/module_system/social_network_module/_social_mcp_tools.py`
 (same repository/module calls, same data semantics) so an HTTP caller and an
 agent's own MCP tool call produce identical results — this route is the
 non-agent-triggered path to the same data.
@@ -29,15 +29,15 @@ from fastapi import APIRouter, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.repository import (
     SocialNetworkRepository,
     InstanceRepository,
     AgentRepository,
 )
-from xyz_agent_context.bootstrap.provision import provision_new_agent
-from xyz_agent_context.module.social_network_module import (
+from narranexus.platform.bootstrap.provision import provision_new_agent
+from narranexus.platform.module_system.social_network_module import (
     SocialNetworkModule,
     social_instance_not_found_msg,
     format_contact_result,
@@ -47,7 +47,7 @@ from xyz_agent_context.module.social_network_module import (
     create_agent_text_reject,
     default_created_by_description,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     StrippedText,
     normalize_agent_text,
     SocialNetworkEntityInfo,

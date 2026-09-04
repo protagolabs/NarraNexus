@@ -27,20 +27,20 @@ from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, Header
 
-from xyz_agent_context.agent_framework.loop.broker_client import broker_url
-from xyz_agent_context.agent_runtime.admission import get_admission_controller
-from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
-from xyz_agent_context.repository.executor_audit_repository import (
+from narranexus.platform.agent_framework.loop.broker_client import broker_url
+from narranexus.platform.agent_runtime.admission import get_admission_controller
+from narranexus.platform.agent_runtime.executor_reaper import reaper_status
+from narranexus.platform.repository.executor_audit_repository import (
     ExecutorAuditRepository,
 )
-from xyz_agent_context.repository.service_audit_repository import (
+from narranexus.platform.repository.service_audit_repository import (
     EVENT_STARTED,
     ServiceAuditRepository,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 # Re-exported so tests can override the admin secret via ``mod.settings``; the
 # shared ``require_admin_secret`` helper reads the same ``settings`` singleton.
-from xyz_agent_context.settings import settings  # noqa: F401
+from narranexus.platform.settings import settings  # noqa: F401
 
 from ._admin_secret import require_admin_secret
 
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/runtime", tags=["admin", "runtime"])
 
 # The consolidated worker supervisor's ServiceAuditor service name (see
-# xyz_agent_context/module/run_worker_supervisor.py). Its heartbeat `detail`
+# narranexus/platform/module_system/run_worker_supervisor.py). Its heartbeat `detail`
 # carries the per-worker liveness snapshot the System page's Workers card wants.
 _WORKER_SUPERVISOR_SERVICE = "worker_supervisor"
 

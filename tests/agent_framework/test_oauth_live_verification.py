@@ -33,16 +33,16 @@ import types
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.agent_framework.providers.driver.base import (
+from narranexus.platform.agent_framework.providers.driver.base import (
     VERIFY_DEAD,
     VERIFY_OK,
     VERIFY_UNKNOWN,
     ProviderCard,
 )
-from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
+from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
     CodexOAuthDriver,
 )
-from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
     ClaudeOAuthDriver,
 )
 
@@ -107,7 +107,7 @@ async def _no_keychain() -> bool:
 @pytest.mark.asyncio
 async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path):
     """Missing auth.json → verified-dead, no CLI spawn."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
 
@@ -116,7 +116,7 @@ async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path)
     )
     spawned = []
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.get_agent_loop_driver",
+        "narranexus.platform.agent_framework.get_agent_loop_driver",
         lambda **kw: spawned.append(kw),
     )
 
@@ -131,7 +131,7 @@ async def test_codex_verify_live_dead_without_credentials(monkeypatch, tmp_path)
 async def test_codex_verify_live_dead_without_cli(monkeypatch, tmp_path):
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
 
@@ -153,7 +153,7 @@ async def test_codex_verify_live_unknown_on_control_plane(monkeypatch):
     monkeypatch.setenv("BROKER_URL", "http://broker:8030")
 
     inspected = []
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
 
@@ -185,14 +185,14 @@ class _FakeDriver:
 def _wire_codex_oneshot(monkeypatch, tmp_path, events):
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
 
     monkeypatch.setattr(mod, "resolve_codex_credentials_path", lambda ref: auth)
     monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/codex")
 
-    import xyz_agent_context.agent_framework as fw
+    import narranexus.platform.agent_framework as fw
 
     monkeypatch.setattr(
         fw, "get_agent_loop_driver", lambda **kw: _FakeDriver(events)
@@ -266,7 +266,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
     dead code returning []."""
     captured = {}
 
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         codex_oauth as mod,
     )
 
@@ -275,7 +275,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
     monkeypatch.setattr(mod, "resolve_codex_credentials_path", lambda ref: auth)
     monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/codex")
 
-    import xyz_agent_context.agent_framework as fw
+    import narranexus.platform.agent_framework as fw
 
     monkeypatch.setattr(
         fw,
@@ -297,7 +297,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
     verdict, _ = await driver.verify_live()
 
     assert verdict == VERIFY_OK
-    from xyz_agent_context.agent_framework.providers.model_catalog import (
+    from narranexus.platform.agent_framework.providers.model_catalog import (
         get_default_models,
     )
 
@@ -316,7 +316,7 @@ async def test_codex_verify_live_uses_curated_default_model(monkeypatch, tmp_pat
 async def test_claude_host_oauth_verify_live_dead_without_credentials(
     monkeypatch, tmp_path
 ):
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         claude_oauth as mod,
     )
 
@@ -341,10 +341,10 @@ async def test_claude_host_oauth_verify_live_stages_then_succeeds(
     dir, whose credentials only exist after staging. A healthy host login
     must verify OK — which requires the staging call the agent adapter
     makes before every spawn."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         claude_oauth as mod,
     )
-    from xyz_agent_context.agent_framework.adapters.claude import sdk as claude_sdk
+    from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk
 
     creds = tmp_path / ".credentials.json"
     creds.write_text("{}")
@@ -442,10 +442,10 @@ async def test_claude_cli_not_found_is_unknown(monkeypatch, tmp_path):
     """A missing/broken CLI install (SDK CLINotFoundError) is environmental —
     resolve_cli_path fail-opens to the bundled CLI, so "cannot launch" says
     nothing about the credential. Must not block readiness as dead."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         claude_oauth as mod,
     )
-    from xyz_agent_context.agent_framework.adapters.claude import sdk as claude_sdk
+    from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk
 
     creds = tmp_path / ".credentials.json"
     creds.write_text("{}")
@@ -490,9 +490,9 @@ async def test_claude_cli_not_found_is_unknown(monkeypatch, tmp_path):
 
 @pytest_asyncio.fixture
 async def db_client():
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     backend = SQLiteBackend(":memory:")
     await backend.initialize()
@@ -526,7 +526,7 @@ async def _seed_oauth_row(
 
 @pytest.mark.asyncio
 async def test_oauth_row_delegates_to_driver_verify_live(db_client, monkeypatch):
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -549,7 +549,7 @@ async def test_oauth_row_delegates_to_driver_verify_live(db_client, monkeypatch)
 @pytest.mark.asyncio
 async def test_oauth_row_without_driver_type_resolves_by_protocol(db_client, monkeypatch):
     """Legacy rows predate the driver_type column: openai → codex_oauth."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -571,7 +571,7 @@ async def test_oauth_row_without_driver_type_resolves_by_protocol(db_client, mon
 @pytest.mark.asyncio
 async def test_oauth_row_never_passes_unconditionally(db_client, monkeypatch):
     """The literal regression: a dead credential must not test green."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -592,7 +592,7 @@ async def test_oauth_unknown_verdict_does_not_block(db_client, monkeypatch):
     """Review item 4: "cannot verify here" must NOT read as "credential is
     dead" — a False here would permanently block ProviderReadiness's edge
     recovery (the only path that re-arms PAUSED_NO_QUOTA jobs)."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -615,10 +615,10 @@ async def test_oauth_unknown_verdict_does_not_block(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_registry_test_provider_fails_closed_for_oauth():
-    from xyz_agent_context.agent_framework.providers.registry import (
+    from narranexus.platform.agent_framework.providers.registry import (
         ProviderRegistry,
     )
-    from xyz_agent_context.schema.provider_schema import (
+    from narranexus.platform.schema.provider_schema import (
         AuthType,
         ProviderConfig,
         ProviderProtocol,
@@ -652,7 +652,7 @@ async def test_misrouted_custom_row_gets_source_verdict_through_test_provider(
     borrowed from the HOST's claude credentials. This is the only test
     that exercises the fallback-routing + driver-guard seam without
     monkeypatching verify_live (review round 5, Important 3)."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 

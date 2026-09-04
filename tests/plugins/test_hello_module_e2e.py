@@ -18,8 +18,8 @@ from narranexus.kernel.plugins.importer import import_plugin_module, plugin_find
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME, registry_path
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module.contributions import register_all
-from xyz_agent_context.module.registry import ModuleRegistry
+from narranexus.platform.module_system.contributions import register_all
+from narranexus.platform.module_system.registry import ModuleRegistry
 
 PLUGIN = Path(__file__).resolve().parent / "hello_module"
 PID = "acme.hello_module"
@@ -46,26 +46,26 @@ def test_a_module_plugin_installs_and_takes_part_in_a_turn(home: Path, db_client
     # 1. the registry is the platform's only module table — the plugin module sits next to the builtins
     registry = ModuleRegistry(regs)
     assert registry["AcmeNotesModule"] is plugin.AcmeNotesModule and registry.owner_of("AcmeNotesModule") == PID and "ChatModule" in registry
-    monkeypatch.setattr("xyz_agent_context.module.registry.module_registry", registry)
-    monkeypatch.setattr("xyz_agent_context.module.module_registry", registry)
+    monkeypatch.setattr("narranexus.platform.module_system.registry.module_registry", registry)
+    monkeypatch.setattr("narranexus.platform.module_system.module_registry", registry)
 
     # 2. the decision prompt and the display know it from its own declaration
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_display import module_display
-    from xyz_agent_context.module._module_impl.instance_decision import module_overview_text
-    from xyz_agent_context.module._module_impl.metadata import get_all_modules_metadata
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_display import module_display
+    from narranexus.platform.module_system._module_impl.instance_decision import module_overview_text
+    from narranexus.platform.module_system._module_impl.metadata import get_all_modules_metadata
 
     assert "- **AcmeNotesModule**: Keeps the user's short notes" in module_overview_text()
     assert "## AcmeNotesModule" in get_all_modules_metadata() and module_display("AcmeNotesModule")["icon"] == "📝"
 
     # 3. its agent-level instance is created from its declaration, prefixed as declared
-    from xyz_agent_context.module import InstanceFactory
+    from narranexus.platform.module_system import InstanceFactory
 
     instances = asyncio.run(InstanceFactory(db_client).create_agent_level_instances("agent_n"))
     notes_inst = next(i for i in instances if i.module_class == "AcmeNotesModule")
     assert notes_inst.instance_id.startswith("notes_") and notes_inst.description == "Personal notes"
 
     # 4. the MCP host mounts it by path — no port of its own
-    from xyz_agent_context.module.module_runner import ModuleRunner
+    from narranexus.platform.module_system.module_runner import ModuleRunner
 
     module = plugin.AcmeNotesModule("agent_n", "u1", db_client)
     server = ModuleRunner._build_host_server([("hello_module", module.build_instrumented_mcp_server())], 7801)
@@ -73,9 +73,9 @@ def test_a_module_plugin_installs_and_takes_part_in_a_turn(home: Path, db_client
     assert asyncio.run(module.mcp_server()).server_url.endswith("/mcp/hello_module/sse")
 
     # 5. per-agent enablement: a plugin module is OFF for existing agents until the owner enables it
-    from xyz_agent_context.module._module_impl.loader import ModuleLoader
-    from xyz_agent_context.module.capability_service import CapabilityService
-    from xyz_agent_context.schema.module_schema import InstanceStatus, ModuleInstance
+    from narranexus.platform.module_system._module_impl.loader import ModuleLoader
+    from narranexus.platform.module_system.capability_service import CapabilityService
+    from narranexus.platform.schema.module_schema import InstanceStatus, ModuleInstance
 
     loader = ModuleLoader(agent_id="agent_n", user_id="u1", database_client=db_client, module_map=dict(registry))
     insts = [ModuleInstance(instance_id=i.instance_id, module_class=i.module_class, description="", status=InstanceStatus.ACTIVE, agent_id="agent_n", dependencies=[]) for i in instances]

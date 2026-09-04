@@ -37,7 +37,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 @pytest.fixture
 def archives_root(tmp_path, monkeypatch):
-    from xyz_agent_context.bundle import skill_backup
+    from narranexus.platform.bundle import skill_backup
 
     root = tmp_path / "skill_archives"
     monkeypatch.setattr(skill_backup, "SKILL_ARCHIVES_ROOT", root)
@@ -60,7 +60,7 @@ TRAVERSAL_NAMES = [
 
 @pytest.mark.parametrize("skill_name", TRAVERSAL_NAMES)
 def test_archive_target_rejects_traversal(archives_root, skill_name):
-    from xyz_agent_context.bundle.skill_backup import archive_target
+    from narranexus.platform.bundle.skill_backup import archive_target
 
     with pytest.raises(ValueError) as exc:
         archive_target("u1", skill_name)
@@ -69,7 +69,7 @@ def test_archive_target_rejects_traversal(archives_root, skill_name):
 
 @pytest.mark.parametrize("suffix", [".zip", ".tar.gz", "_full.zip"])
 def test_archive_target_composes_inside_the_user_dir(archives_root, suffix):
-    from xyz_agent_context.bundle.skill_backup import archive_target
+    from narranexus.platform.bundle.skill_backup import archive_target
 
     p = archive_target("u1", "legit-skill", suffix=suffix)
     assert p == archives_root / "u1" / f"legit-skill{suffix}"
@@ -79,7 +79,7 @@ def test_archive_target_is_pure(archives_root):
     """It must not mkdir. The route's "a 4xx leaves no trace" promise depends on
     validation being side-effect free — with the mkdir inside, every later 400
     (bad source_type, missing file, oversize) still littered a user dir."""
-    from xyz_agent_context.bundle.skill_backup import archive_target
+    from narranexus.platform.bundle.skill_backup import archive_target
 
     archive_target("u1", "legit-skill")
     assert not archives_root.exists(), "validation created directories"
@@ -87,7 +87,7 @@ def test_archive_target_is_pure(archives_root):
 
 def test_prepare_archive_target_creates_the_parent(archives_root):
     """The write-time variant is the one that may touch the filesystem."""
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
 
     p = prepare_archive_target("u1", "legit-skill")
     assert p.parent.is_dir()
@@ -96,7 +96,7 @@ def test_prepare_archive_target_creates_the_parent(archives_root):
 
 def test_archive_target_rejects_a_traversing_user_id(archives_root):
     """user_id comes from JWT/header resolution, but it is a path segment too."""
-    from xyz_agent_context.bundle.skill_backup import archive_target
+    from narranexus.platform.bundle.skill_backup import archive_target
 
     with pytest.raises(ValueError) as exc:
         archive_target("../elsewhere", "legit-skill")
@@ -108,7 +108,7 @@ def test_read_guard_rejects_symlinked_user_dir(archives_root):
     pointing out of the tree cannot make "inside the user's dir" vacuously true.
     Today the write side already refuses such a dir — this is the depth that
     stops mattering the moment some other path learns to write the column."""
-    from xyz_agent_context.bundle.skill_backup import is_within_user_archive_dir
+    from narranexus.platform.bundle.skill_backup import is_within_user_archive_dir
 
     outside = archives_root.parent / "outside"
     outside.mkdir(parents=True, exist_ok=True)
@@ -125,7 +125,7 @@ def test_read_guard_rejects_symlinked_user_dir(archives_root):
 
 def test_archive_target_rejects_symlink_escape(archives_root):
     """A symlinked user dir must not become a way out of the archives root."""
-    from xyz_agent_context.bundle.skill_backup import archive_target
+    from narranexus.platform.bundle.skill_backup import archive_target
 
     outside = archives_root.parent / "outside"
     outside.mkdir(parents=True, exist_ok=True)
@@ -194,7 +194,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
@@ -203,14 +203,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -242,7 +242,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     d = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     d.mkdir(parents=True, exist_ok=True)
@@ -292,8 +292,8 @@ def _bundle_contains(bundle: Path, needle: bytes) -> bool:
 
 async def _export_with_poisoned_row(db_client, ws_root, tmp_path, poisoned_path: Path, tag: str):
     """Seed one poisoned `skill_archives` row, export, return (result, bundle)."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = f"agent_{tag}", "test_user"
     await _seed_agent(db_client, aid, f"Agent{tag}", uid)
@@ -382,9 +382,9 @@ async def test_legitimate_archive_row_still_exports(
     db_client, tmp_workspace_root, tmp_path, archives_root
 ):
     """The guard must not break the normal zip-method export path."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_sec07002", "test_user"
     await _seed_agent(db_client, aid, "Sec07Agent2", uid)
@@ -441,10 +441,10 @@ async def test_imported_zip_skill_registers_archive(
     re-exported as `zip`, it degraded to `full_copy` — which ships secrets when
     the user picks full mode. Now the importer registers `tgt` directly.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_sec07003", "test_user"
     await _seed_agent(db_client, aid, "Sec07Agent3", uid)
@@ -504,10 +504,10 @@ async def test_shared_skill_import_records_a_real_sha(
     """
     import re
 
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     uid = "test_user"
     aids = ["agent_sec07004", "agent_sec07005"]
@@ -588,9 +588,9 @@ async def test_export_rejects_a_traversing_skill_dir(
     same request body and lands in a filesystem path too. It must not be able to
     put (or, since the corrupt-archive fix added an `unlink`, remove) a file
     outside the bundle staging dir."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = f"agent_dirtrav_{method}", "test_user"
     await _seed_agent(db_client, aid, "TravAgent", uid)
@@ -659,9 +659,9 @@ async def test_same_skill_dir_on_one_agent_gets_distinct_bundle_filenames(
     `{dir}__{agent_id}.zip`: the second overwrote the first (whose manifest
     sha256 then described someone else's bytes), and a failure would delete it.
     Names must be unique per bundle."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_dupdir01", "test_user"
     await _seed_agent(db_client, aid, "DupDirAgent", uid)
@@ -705,9 +705,9 @@ async def test_absent_skill_dir_falls_back_to_skill_name(
 ):
     """`skill_dir=None`/"" is not an attack, it means "not specified" — the
     builder falls back to `skill_name`, which goes through the same gate."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_nodir01", "test_user"
     await _seed_agent(db_client, aid, "NoDirAgent", uid)
@@ -760,9 +760,9 @@ async def test_archive_local_zip_enforces_the_shared_gate(
     """
     import io as _io
 
-    from xyz_agent_context.bundle import skill_backup
-    from xyz_agent_context.utils import file_safety
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.bundle import skill_backup
+    from narranexus.platform.utils import file_safety
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
@@ -822,7 +822,7 @@ async def test_full_copy_cannot_pack_another_users_workspace(
     lands inside the staging dir, so a regression really does ship the bytes.
     Deeper payloads fail on the write instead and would prove nothing.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_sec08", "test_user"
     await _seed_agent(db_client, aid, "Sec08Agent", uid)

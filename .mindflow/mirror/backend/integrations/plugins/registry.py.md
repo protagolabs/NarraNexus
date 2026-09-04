@@ -26,7 +26,7 @@ stub: false
 - **被谁用**：`service.PluginService.__init__` 默认调用它初始化
   `self._specs`;Phase 3 路由（未实现）会直接 import `PLUGIN_SPECS` 渲染
   插件列表页。
-- **依赖谁**：`xyz_agent_context.agent_framework.adapters.claude.
+- **依赖谁**：`narranexus.platform.agent_framework.adapters.claude.
   cli_binary.PINNED_CLI_VERSION`——Claude 的 npm 版本号从这里拼,不是字面
   量。`spec.py` 提供 dataclass 形状。
 

@@ -27,13 +27,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.session_service import SessionService
-from xyz_agent_context.narrative._narrative_impl.continuity import ContinuityDetector
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.session_service import SessionService
+from narranexus.platform.narrative._narrative_impl.continuity import ContinuityDetector
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     _turn_delivered_user_message,
 )
-from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
 
 # --------------------------------------------------------------------------
@@ -145,7 +145,7 @@ async def test_continuity_short_circuits_only_when_no_visible_history(monkeypatc
 
     async def _fake_call_llm(**kwargs):
         called["n"] += 1
-        from xyz_agent_context.narrative.models import ContinuityResult
+        from narranexus.platform.narrative.models import ContinuityResult
         return ContinuityResult(is_continuous=True, confidence=0.9, reason="stub")
 
     monkeypatch.setattr(detector, "_call_llm", _fake_call_llm)

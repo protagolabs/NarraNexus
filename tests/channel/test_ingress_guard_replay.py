@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.channel.ingress_guard import IngressGuard, content_fingerprint
+from narranexus.platform.channel.ingress_guard import IngressGuard, content_fingerprint
 
 pytestmark = pytest.mark.asyncio
 
@@ -240,6 +240,6 @@ async def test_disabling_the_guard_is_a_visible_single_switch():
     replay says it would run everything" are claims about two different
     systems.
     """
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
 
     assert ChannelTriggerBase.INGRESS_GUARD_ENABLED is True

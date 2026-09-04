@@ -22,8 +22,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend.routes.teams import _member_activity
-from xyz_agent_context.message_bus import _bus_activity as act
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus import _bus_activity as act
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 ROOM = "ch_team"
 MEMBERS = ["agent_a", "agent_b", "agent_c"]
@@ -246,7 +246,7 @@ async def test_payload_carries_event_id_when_present(db_client):
 @pytest.mark.asyncio
 async def test_note_event_id_persists_and_start_resets(db_client):
     """note_event_id lands on the activity row; a new turn clears it."""
-    from xyz_agent_context.message_bus import _bus_activity
+    from narranexus.platform.message_bus import _bus_activity
 
     act = _bus_activity.TurnActivity(db_client, "agent_x", "chan_1")
     await act.start()

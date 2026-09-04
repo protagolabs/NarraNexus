@@ -65,7 +65,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeInfo,
     NarrativeType,
@@ -148,7 +148,7 @@ def test_the_bloated_thread_stops_dominating_a_pool() -> None:
     outranks the thread the query is really about. That is what made the bypass
     rate 3.7x higher in sequences containing one.
     """
-    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
+    from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
 
     fossil = _narrative(
         name="Firstrade 入金方式攻略",
@@ -180,7 +180,7 @@ def test_the_bloated_thread_stops_dominating_a_pool() -> None:
 async def test_the_continuity_prompt_does_not_carry_the_fossil() -> None:
     """The second read site. Only the SDK edge is doubled — the prompt that
     reaches it is assembled by the real production code."""
-    from xyz_agent_context.narrative._narrative_impl.continuity import ContinuityDetector
+    from narranexus.platform.narrative._narrative_impl.continuity import ContinuityDetector
 
     fossil = "Created based on query: " + "历史包袱" * 1000
     n = _narrative(name="Lark 绑定闭环", summary="授权已绑定", description=fossil)
@@ -215,7 +215,7 @@ async def test_the_continuity_prompt_does_not_carry_the_fossil() -> None:
 
 @pytest.mark.asyncio
 async def test_the_continuity_prompt_keeps_the_description_while_unsummarised() -> None:
-    from xyz_agent_context.narrative._narrative_impl.continuity import ContinuityDetector
+    from narranexus.platform.narrative._narrative_impl.continuity import ContinuityDetector
 
     n = _narrative(name="Untitled", summary="",
                    description="Created based on query: 帮我排查部署脚本报错")
@@ -248,8 +248,8 @@ async def test_a_new_narrative_never_stores_an_unbounded_description() -> None:
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
-    from xyz_agent_context.narrative.config import config
+    from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
+    from narranexus.platform.narrative.config import config
 
     retrieval = NarrativeRetrieval.__new__(NarrativeRetrieval)
     captured: dict = {}
@@ -281,8 +281,8 @@ async def test_every_creation_door_is_bounded_not_just_the_routing_one(db_client
     HTTP route. Clamping in `crud.create` covers all three with one line; a fix
     on the routing door alone leaves two open.
     """
-    from xyz_agent_context.narrative._narrative_impl.crud import NarrativeCRUD
-    from xyz_agent_context.narrative.config import config
+    from narranexus.platform.narrative._narrative_impl.crud import NarrativeCRUD
+    from narranexus.platform.narrative.config import config
 
     crud = NarrativeCRUD("agent_x")
     crud.set_database_client(db_client)
@@ -301,10 +301,10 @@ def test_the_bound_does_not_clip_a_curated_default_bucket() -> None:
     chars, so a 200-char bound would silently truncate curated prompt content —
     exactly the kind of quiet change the P1 prompt freeze exists to stop.
     """
-    from xyz_agent_context.narrative._narrative_impl.default_narratives import (
+    from narranexus.platform.narrative._narrative_impl.default_narratives import (
         DEFAULT_NARRATIVES_CONFIG,
     )
-    from xyz_agent_context.narrative.config import config
+    from narranexus.platform.narrative.config import config
 
     longest = max(len(c.get("description") or "") for c in DEFAULT_NARRATIVES_CONFIG)
     assert longest <= config.DESCRIPTION_MAX_LENGTH, (
@@ -406,8 +406,8 @@ def test_the_placeholder_prefix_has_exactly_one_definition() -> None:
     """
     import inspect
 
-    from xyz_agent_context.narrative import models
-    from xyz_agent_context.narrative._narrative_impl import crud as crud_mod
+    from narranexus.platform.narrative import models
+    from narranexus.platform.narrative._narrative_impl import crud as crud_mod
 
     assert hasattr(models, "PROVISIONAL_SUMMARY_PREFIXES")
     src = inspect.getsource(crud_mod.NarrativeCRUD.create)
@@ -428,8 +428,8 @@ async def test_a_freshly_created_narrative_can_still_be_found_by_its_query(db_cl
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from xyz_agent_context.narrative._narrative_impl.crud import NarrativeCRUD
-    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
+    from narranexus.platform.narrative._narrative_impl.crud import NarrativeCRUD
+    from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
 
     crud = NarrativeCRUD("agent_x")
     crud.set_database_client(db_client)

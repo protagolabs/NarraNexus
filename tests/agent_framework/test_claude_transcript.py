@@ -29,7 +29,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.claude.transcript import (
+from narranexus.platform.agent_framework.adapters.claude.transcript import (
     MAX_ORDERED_RECORDS as _MAX_ORDERED_RECORDS,
     build_records,
     cwd_slug,

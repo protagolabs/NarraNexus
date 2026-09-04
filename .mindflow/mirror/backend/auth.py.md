@@ -35,7 +35,7 @@ resolver，正确——它根本不是用户面请求。
 middleware 在 JWT 验签通过、`request.state.user_id` 已就位之后、provider/quota
 resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.status`，若落在共享的
 `NON_TRANSACTING_USER_STATUSES = {banned, blocked, deleted}`（从
-`xyz_agent_context.schema` 顶层 import，[[entity_schema.py]] 的单一真相源，取代
+`narranexus.platform.schema` 顶层 import，[[entity_schema.py]] 的单一真相源，取代
 原来本文件里那份本地 `_NON_TRANSACTING_STATES` 字面量），立即返回 **403**
 （`ACCOUNT_SUSPENDED` code，见 [[auth_errors]]）。这样一个「仍然有效」的 JWT，
 在其命名的账户被停用后就不能再交易——账户停用机制（[[suspend.py]]）把
@@ -207,7 +207,7 @@ LLM 调用。
 JWT 校验不受影响——安全豁免只加在 JWT 通过之后。
 
 **为什么这样改是安全的**：`resolve_and_set` 的唯一副作用是把 LLM
-provider 配置写进 `xyz_agent_context.agent_framework.api_config` 的
+provider 配置写进 `narranexus.platform.agent_framework.api_config` 的
 ContextVar（`set_user_config` / `set_provider_source`），不写
 `request.state`，所以不存在"跳过它会让下游 GET handler 缺东西"的问题
 ——GET/HEAD handler 从不读这些 ContextVar，因为它们从不触发 agent

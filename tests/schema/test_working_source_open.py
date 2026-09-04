@@ -12,9 +12,9 @@ import pickle
 import pytest
 from pydantic import BaseModel
 
-import xyz_agent_context.module  # noqa: F401 — the builtin channel descriptors register their sources (lark, …)
-from xyz_agent_context.narrative.models import TriggerType
-from xyz_agent_context.schema.hook_schema import WorkingSource
+import narranexus.platform.module_system  # noqa: F401 — the builtin channel descriptors register their sources (lark, …)
+from narranexus.platform.narrative.models import TriggerType
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 def test_core_members_and_enum_surface():
@@ -79,7 +79,7 @@ def test_builtin_channel_sources_come_from_their_descriptors():
     ``module/lark_module/descriptor.py`` registered it."""
     import inspect
 
-    from xyz_agent_context.schema import hook_schema
+    from narranexus.platform.schema import hook_schema
 
     source = inspect.getsource(hook_schema)
     assert "channel=True" not in source and '("LARK", "lark")' not in source  # no seeded channel table

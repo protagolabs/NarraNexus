@@ -20,31 +20,31 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     framework_allowed_in_cloud,
     netmind_slots_only,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
     OFFICIAL_BASE_URLS,
 )
-from xyz_agent_context.agent_framework.plugin_paths import framework_installed
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.agent_framework.plugin_paths import framework_installed
+from narranexus.platform.schema.provider_schema import (
     LLMConfig,
     SlotName,
     SLOT_REQUIRED_PROTOCOLS,
 )
-from xyz_agent_context.utils.deployment_mode import (
+from narranexus.platform.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )
 from backend.host_events import notify_user_runnability_changed
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
 
 router = APIRouter()
 
@@ -153,7 +153,7 @@ async def _resume_agent_circuit_breakers(uid: str) -> None:
     slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
     fired on these paths. Best-effort — never fails the reconfigure."""
     try:
-        from xyz_agent_context.agent_framework.loop.circuit_breaker import (
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
             reset_for_owner,
         )
         await reset_for_owner(uid)
@@ -200,8 +200,8 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.agent_framework.providers.user_service import UserProviderService
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -238,7 +238,7 @@ async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
     Best-effort — a lookup failure just omits the field. The account is stored
     on ``user_providers`` at key-mint time (netmind_provisioner)."""
     try:
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
         db = await get_db_client()
         rows = await db.get(
             "user_providers", filters={"user_id": uid, "source": "netmind"}
@@ -350,7 +350,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
 
         # Hot-reload for current process (local mode)
         try:
-            from xyz_agent_context.agent_framework.api_config import (
+            from narranexus.platform.agent_framework.api_config import (
                 get_user_runtime_llm_configs,
                 set_user_config,
             )
@@ -407,7 +407,7 @@ async def onboard(req: OnboardRequest, request: Request):
 
     # Hot-reload for current process (mirror add_provider / set_slot)
     try:
-        from xyz_agent_context.agent_framework.api_config import (
+        from narranexus.platform.agent_framework.api_config import (
             get_user_runtime_llm_configs,
             set_user_config,
         )
@@ -440,7 +440,7 @@ async def use_subscription(request: Request):
     wherever Power login is enabled (cloud OR a local opt-in deployment); further
     gated by ``settings.netmind_use_subscription_enabled``.
     """
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     from backend.integrations.netmind.netmind_key_client import (
         KeyAuthError,
         KeyUpstreamError,
@@ -498,7 +498,7 @@ async def use_subscription(request: Request):
     # Hot-reload + edge-triggered recovery (mirror /onboard) so the new provider
     # is live immediately for this session.
     try:
-        from xyz_agent_context.agent_framework.api_config import (
+        from narranexus.platform.agent_framework.api_config import (
             get_user_runtime_llm_configs,
             set_user_config,
         )
@@ -596,8 +596,8 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework.providers import model_health, model_sync
-    from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+    from narranexus.platform.agent_framework.providers import model_health, model_sync
+    from narranexus.platform.agent_framework.providers.model_probe_ledger import (
         load_ledger,
         load_ledger_db,
         save_ledger,
@@ -644,7 +644,7 @@ async def sync_default_models(request: Request):
             # catalog: overwrite from the ledger's netmind_free entry (written
             # by the daily pass's gate). Entry absent = the gate has never run
             # here — leave the card alone rather than append ungated defaults.
-            from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+            from narranexus.platform.agent_framework.providers.model_probe_ledger import (
                 passing_models,
             )
 
@@ -734,7 +734,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
 
         # Hot-reload for current process
         try:
-            from xyz_agent_context.agent_framework.api_config import (
+            from narranexus.platform.agent_framework.api_config import (
                 get_user_runtime_llm_configs,
                 set_user_config,
             )
@@ -790,7 +790,7 @@ async def slot_override_stats(request: Request):
     """How many of the caller's agents hold a per-agent override, per slot —
     the blast radius shown before a bulk 'apply defaults to all agents'."""
     uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     stats = await AgentSlotService(db).count_owner_overrides(uid)
     return {"success": True, "data": stats}
@@ -802,7 +802,7 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     agents, so they revert to inheriting the owner default on their next run.
     Semantics = clear-to-inherit (not stamp-a-snapshot)."""
     uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     # Validation (fail-closed on a bad slot), dedup, single agent-list fetch
     # and per-slot clear all live in the service — the route just validates
@@ -820,7 +820,7 @@ async def slot_agents_overview(request: Request):
     """Effective (agent + helper_llm) model per owned agent, in one call —
     feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
     uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     overview = await AgentSlotService(db).owner_agents_overview(uid)
     return {"success": True, "data": {"agents": overview}}
@@ -836,7 +836,7 @@ async def slot_agents_overview(request: Request):
 # "claude_code" so existing users are unaffected.
 
 
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 # Single source of truth — keep the route's whitelist in sync with the
@@ -862,7 +862,7 @@ async def _ensure_codex_installed() -> dict:
         ``"install_failed"`` with an actionable reason on failure (consumed
         by the frontend — only ``reason`` text is safe to change here).
     """
-    from xyz_agent_context.agent_framework import plugin_paths  # noqa: PLC0415
+    from narranexus.platform.agent_framework import plugin_paths  # noqa: PLC0415
 
     plugin_paths.activate_pyenv()
     try:
@@ -914,7 +914,7 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
     if user_id:
         required_proto = "openai" if framework == "codex_cli" else "anthropic"
         try:
-            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from narranexus.platform.utils.db.db_factory import get_db_client
             db = await get_db_client()
             slot = await db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": "agent"}
@@ -951,13 +951,13 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
             )
 
     # ── Leg 2: CLI OAuth credentials on the host ─────────────────────
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
 
     # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
     # which codex driver class is registered (v1 or v2 share the
     # auth file path).
     if framework == "codex_cli":
-        from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
+        from narranexus.platform.agent_framework.providers.driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
         # A fake DB row through from_row, so auth_ref comes from the same
@@ -985,7 +985,7 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         return {"ok": health.ok, "detail": detail}
 
     if framework == "claude_code":
-        from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+        from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
             ClaudeOAuthDriver,
         )
         # Same shape as the codex stub above: from_row derives auth_ref

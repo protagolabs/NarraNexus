@@ -29,7 +29,7 @@ from backend.auth import (
     resolve_current_user_id,
     resolve_optional_user_id,
 )
-from xyz_agent_context.marketplace.skill_marketplace_service import (
+from narranexus.platform.marketplace.skill_marketplace_service import (
     PublishRejectedError,
     SkillMarketplaceService,
 )
@@ -207,7 +207,7 @@ async def publish_skill(
         # but is allowed in local mode — the backend is loopback-bound and the
         # OS user is the security boundary (same trust model as the rest of
         # the local API). Lets dev/desktop hosts run their own registry.
-        from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+        from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
         if is_cloud_mode():
             raise HTTPException(status_code=403, detail="Publishing is not enabled on this server")

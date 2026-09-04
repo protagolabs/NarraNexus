@@ -41,14 +41,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
+from narranexus.platform.agent_framework.adapters.claude.prompts import (
     append_reply_reminder,
 )
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.channel.message_source_handler import (
     render_origin_declaration,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
     BUS_TEAM_ROOM_EXTRA_KEY,
 )
@@ -77,9 +77,9 @@ def _instances():
     Deliberately fresh: the defect this file exists for was a module answering
     about the PREVIOUS turn, which a loop reusing instances would hide.
     """
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.lark_module.lark_module import LarkModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+    from narranexus.platform.module_system.lark_module.lark_module import LarkModule
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 

@@ -20,7 +20,7 @@ import re
 
 import pytest
 
-from xyz_agent_context.module.basic_info_module._narrative_reads import (
+from narranexus.platform.module_system.basic_info_module._narrative_reads import (
     fetch_event_view,
     fetch_narrative_view,
     narrative_chat_history,

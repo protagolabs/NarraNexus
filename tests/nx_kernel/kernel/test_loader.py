@@ -57,9 +57,9 @@ def test_freeze_propagates_and_applies_to_later_registries():
 
 
 def test_legacy_registries_are_the_kernel_ones():
-    from xyz_agent_context.agent_framework.loop.driver import FRAMEWORK_REGISTRY
-    from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY
-    from xyz_agent_context.memory.spec import MEMORY_KIND_REGISTRY
+    from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY
+    from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY
+    from narranexus.platform.memory.spec import MEMORY_KIND_REGISTRY
 
     assert FRAMEWORK_REGISTRY is KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
     assert DRIVER_REGISTRY is KERNEL_REGISTRIES.registry_for("model.providers")
@@ -105,7 +105,7 @@ def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot():
 
 
 def test_loading_twice_into_the_process_registries_is_idempotent():
-    from xyz_agent_context.agent_framework import available_agent_loop_frameworks
+    from narranexus.platform.agent_framework import available_agent_loop_frameworks
 
     before = available_agent_loop_frameworks()
     report = load(KERNEL_REGISTRIES, builtin_manifests(), role="backend")

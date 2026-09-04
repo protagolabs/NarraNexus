@@ -6,7 +6,7 @@
 
 A framework driver runs one agent turn as a stream of raw, provider-agnostic
 event dicts. This is the canonical home of the ``AgentLoopDriver`` Protocol
-that ``xyz_agent_context.agent_framework.loop.driver`` used to define; the
+that ``narranexus.platform.agent_framework.loop.driver`` used to define; the
 legacy module now re-exports it so every existing import keeps resolving to
 the same object.
 

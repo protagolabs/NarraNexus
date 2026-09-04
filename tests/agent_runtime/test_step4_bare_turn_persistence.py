@@ -41,7 +41,7 @@ def _step4_module():
     import importlib
 
     return importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps"
+        "narranexus.platform.agent_runtime._agent_runtime_steps"
         ".step_4_persist_results"
     )
 

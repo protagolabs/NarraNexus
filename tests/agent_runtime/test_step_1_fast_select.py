@@ -33,9 +33,9 @@ import importlib
 # The steps package re-exports the function under the same name, which
 # shadows the submodule on attribute access — resolve the module itself.
 mod = importlib.import_module(
-    "xyz_agent_context.agent_runtime._agent_runtime_steps.step_1_fast_select"
+    "narranexus.platform.agent_runtime._agent_runtime_steps.step_1_fast_select"
 )
-from xyz_agent_context.agent_runtime._agent_runtime_steps.context import RunContext
+from narranexus.platform.agent_runtime._agent_runtime_steps.context import RunContext
 
 
 def _ctx(**overrides):
@@ -86,13 +86,13 @@ def _session(**overrides):
 
 
 def _durable_profile():
-    from xyz_agent_context.schema.turn_profile import TurnProfile
+    from narranexus.platform.schema.turn_profile import TurnProfile
 
     return TurnProfile.fast_for("chat")
 
 
 def _ephemeral_profile():
-    from xyz_agent_context.schema.turn_profile import TurnProfile
+    from narranexus.platform.schema.turn_profile import TurnProfile
 
     return TurnProfile.voice_fast()
 

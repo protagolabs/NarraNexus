@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from xyz_agent_context.utils.db import schema_registry
+from narranexus.platform.utils.db import schema_registry
 
 # Identity-shaped column names we scan schema_registry for.
 _IDENTITY_COLUMN_NAMES = {
@@ -286,7 +286,7 @@ async def execute_migration(
 def _rename_workspaces(
     base_working_path: str, agent_ids: List[str], old_id: str, new_id: str
 ) -> int:
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
     renamed = 0
     for agent_id in agent_ids:
         old_dir = agent_workspace_path(agent_id, old_id, base=base_working_path)

@@ -21,9 +21,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import xyz_agent_context.agent_framework.providers.model_identity as model_identity
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
+import narranexus.platform.agent_framework.providers.model_identity as model_identity
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
 
 AGENT_ID = "agent_nhr"
 USER_ID = "u_nhr"

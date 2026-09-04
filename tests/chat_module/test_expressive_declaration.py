@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
+from narranexus.platform.module_system.chat_module.chat_module import ChatModule
 
 
 def _module() -> ChatModule:

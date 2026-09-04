@@ -10,8 +10,8 @@ capability expansion.
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import McpServerSpec
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+from narranexus.platform.agent_framework.nexus_power.contracts.model import McpServerSpec
+from narranexus.platform.agent_framework.nexus_power.contracts.tooling import (
     PolicyContext,
     ToolAnnotations,
     ToolCall,
@@ -19,17 +19,17 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
     ToolResult,
     ToolSpec,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.builtin import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.builtin import (
     BuiltinToolset,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.dispatcher import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.dispatcher import (
     ToolDispatcher,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.expansion import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.expansion import (
     CapabilityExpander,
     Expandable,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
     DisallowedToolsLayer,
     PolicyEngine,
     ShellConfinementLayer,
@@ -215,7 +215,7 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     tiebreak); filter semantics keep the full token list. Expressive
     (reply) tools that pass the filter hold reserved seats, so the
     turn's reply surface can never be crowded out by fillers."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling import (
         dispatcher as dispatcher_mod,
     )
 
@@ -303,7 +303,7 @@ async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
     placement — strong matches keep their rank order, and the missing
     reply tool replaces only the weakest non-expressive seat at the
     tail."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling import (
         dispatcher as dispatcher_mod,
     )
 
@@ -472,7 +472,7 @@ def test_mcp_channel_registers_batches_append_only():
     earlier one — never interleaves or resorts."""
     from types import SimpleNamespace
 
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.mcp_channel import (
+    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.mcp_channel import (
         McpToolChannel,
     )
 

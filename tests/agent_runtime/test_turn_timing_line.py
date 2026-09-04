@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from xyz_agent_context.agent_runtime.agent_runtime import _turn_timing_line
+from narranexus.platform.agent_runtime.agent_runtime import _turn_timing_line
 
 _TIMING_RE = re.compile(
     r"^\[turn-timing\] agent=(?P<agent>\S+) event=(?P<event>\S+) "

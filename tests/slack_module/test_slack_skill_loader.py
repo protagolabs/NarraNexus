@@ -12,8 +12,8 @@ Why this file exists:
 """
 from __future__ import annotations
 
-from xyz_agent_context.module.slack_module import _slack_skill_loader as loader_mod
-from xyz_agent_context.module.slack_module._slack_skill_loader import (
+from narranexus.platform.module_system.slack_module import _slack_skill_loader as loader_mod
+from narranexus.platform.module_system.slack_module._slack_skill_loader import (
     SlackSkillLoader,
     get_skill_loader,
 )

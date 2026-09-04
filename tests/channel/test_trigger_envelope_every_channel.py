@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.channel_prompts import (
+from narranexus.platform.channel.channel_prompts import (
     ROOM_TYPE_DIRECT,
     ROOM_TYPE_GROUP,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.channel_tag import ChannelTag
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.channel_tag import ChannelTag
 
 
 class _FakeBuilder:
@@ -171,7 +171,7 @@ class TestNoTriggerHandRollsTheDict:
     def test_channel_tag_dict_literal_appears_only_in_the_shared_builder(self):
         import pathlib
 
-        root = pathlib.Path(__file__).resolve().parents[2] / "src" / "xyz_agent_context"
+        root = pathlib.Path(__file__).resolve().parents[2] / "src" / "narranexus" / "platform"
         offenders = []
         for path in root.rglob("*.py"):
             if "__pycache__" in str(path):

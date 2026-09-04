@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.module.telegram_module.telegram_module import (
+from narranexus.platform.module_system.telegram_module.telegram_module import (
     _extract_telegram_reply,
 )
 
@@ -135,10 +135,10 @@ def test_telegram_handler_is_registered_in_message_source_registry():
     for the full failure-mode rationale (registry-clearing fixture in
     a sibling test file + Python module caching)."""
     import importlib
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
     )
-    from xyz_agent_context.module.telegram_module import telegram_module
+    from narranexus.platform.module_system.telegram_module import telegram_module
 
     if "telegram" not in MessageSourceRegistry._handlers:  # type: ignore[attr-defined]
         importlib.reload(telegram_module)

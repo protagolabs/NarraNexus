@@ -31,15 +31,15 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     ErrorMessage,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -271,7 +271,7 @@ def test_filter_drops_failed_assistant_rows_defensively():
 
     Unit-tests the filter directly rather than going through
     `_load_short_term_memory` (which hits the real DB singleton)."""
-    from xyz_agent_context.module.chat_module.chat_module import (
+    from narranexus.platform.module_system.chat_module.chat_module import (
         _apply_failed_turn_filter,
     )
 

@@ -49,7 +49,7 @@ fi
 # Always clean up orphan processes from a previous run
 pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
 pkill -f "run_worker_supervisor" 2>/dev/null || true
 for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -213,7 +213,7 @@ draw_panel() {
   status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
-  status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
+  status_line "MCP Server"          "pgrep -f 'narranexus.platform.module_system.module_runner mcp' >/dev/null"
   status_line "Workers"             "pgrep -f 'run_worker_supervisor' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
@@ -235,7 +235,7 @@ while true; do
       # tmux kill-session sends SIGHUP but some processes may ignore it.
       pkill -f "sqlite_proxy_server" 2>/dev/null || true
       pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-      pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+      pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
       pkill -f "run_worker_supervisor" 2>/dev/null || true
       # Kill processes on known ports
       for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
@@ -270,7 +270,7 @@ tmux new-session -d -s "$SESSION" -n "Control" \
 # ``$VENV_PY`` directly here because it's defined below — declare it
 # inline.
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m narranexus.platform.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."
@@ -298,7 +298,7 @@ tmux new-window -t "$SESSION" -n "Backend" \
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m narranexus.platform.module_system.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Worker Supervisor (poller / jobs / message-bus / all IM channel triggers) ---
 # One supervisor process runs every long-running background worker in a single
@@ -314,7 +314,7 @@ if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
   echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
 fi
 tmux new-window -t "$SESSION" -n "Workers" \
-  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m narranexus.platform.module_system.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
@@ -353,7 +353,7 @@ add_fail() { failed="${failed}$1"$'\n'; }
 [ "$backend_ok" = true ] || add_fail "Backend API|backend|HTTP :8000 never became reachable"
 { lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ':8100 '; } \
   || add_fail "SQLite Proxy|sqlite_proxy|:8100 never came up"
-pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
+pgrep -f 'narranexus.platform.module_system.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
 pgrep -f 'run_worker_supervisor' >/dev/null 2>&1 || add_fail "Workers|worker_supervisor|process not running (crashed on startup?)"
 
 if [ -n "$failed" ]; then

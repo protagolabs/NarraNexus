@@ -25,9 +25,9 @@ from pydantic import BaseModel, Field
 
 from backend.routes._ownership import check_owned
 from narranexus.contracts.channel import ChannelDescriptor
-from xyz_agent_context.channel.credential_store import GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
-from xyz_agent_context.channel.webhook_inbox import WebhookInbox
-from xyz_agent_context.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
+from narranexus.platform.channel.credential_store import GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
+from narranexus.platform.channel.webhook_inbox import WebhookInbox
+from narranexus.platform.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
 
 router = APIRouter()
 
@@ -49,7 +49,7 @@ class SetActiveBody(AgentBody):
 
 
 async def _db():
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
 
     return await get_db_client()
 
@@ -100,7 +100,7 @@ async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[s
     if d.credential_manager_ref:
         # The channel's own service validates with the external platform and persists
         # through its manager (generic store); its envelope is returned verbatim.
-        from xyz_agent_context.module.data_access.channel_store import DirectStore
+        from narranexus.platform.module_system.data_access.channel_store import DirectStore
 
         result = await DirectStore().bind(channel, body.agent_id, body.fields)
         if result.get("success"):
@@ -168,7 +168,7 @@ async def channel_test(request: Request, channel: str, body: AgentBody) -> dict[
     if auth_err:
         return {"success": False, "error": auth_err}
     if d.credential_manager_ref and d.has_test:
-        from xyz_agent_context.module.data_access.channel_store import DirectStore
+        from narranexus.platform.module_system.data_access.channel_store import DirectStore
 
         return await DirectStore().test_connection(channel, body.agent_id)
     record = await GenericCredentialStore(await _db()).get(channel, body.agent_id)
@@ -185,7 +185,7 @@ async def channel_unbind(request: Request, channel: str, body: AgentBody) -> dic
         return {"success": False, "error": auth_err}
     db = await _db()
     if d.credential_manager_ref:
-        from xyz_agent_context.module.data_access.channel_store import DirectStore
+        from narranexus.platform.module_system.data_access.channel_store import DirectStore
 
         result = await DirectStore().unbind(channel, body.agent_id)
         return result

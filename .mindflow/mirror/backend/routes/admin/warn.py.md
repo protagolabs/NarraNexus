@@ -86,7 +86,7 @@ varchar_width("ban_audit", "actor")`（schema 单一真相，与 misuse 端点�
 - `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与
   [[suspend.py]] / [[gateway_key_misuse.py]] / [[migration.py]] / [[runtime.py]] 同一把
   `admin_secret_key`，常量时间比较，见 [[_admin_secret.py]]）。本模块保留
-  `from xyz_agent_context.settings import settings` 再导出，只为测试能用 `mod.settings`
+  `from narranexus.platform.settings import settings` 再导出，只为测试能用 `mod.settings`
   覆盖 secret。
 - [[user_repository]]：`UserRepository(db).get_user(user_id)` 查用户存在性 + 取
   `prev_status`（未知用户 → 404）。
@@ -95,8 +95,8 @@ varchar_width("ban_audit", "actor")`（schema 单一真相，与 misuse 端点�
 - `user_notifications` 表（见 [[schema_registry.py]]，self-heal 首创的投递面）：直接
   `db.insert` 一行 `kind="abuse_warning"`、`severity="warning"`、`payload` 为固定
   `{"code","message"}` JSON。
-- `xyz_agent_context.utils.db.db_factory.get_db_client`：取全局 async DB client。
-- `xyz_agent_context.utils.timezone.utc_now` / `coerce_utc`：dedup 窗口计算基准 +
+- `narranexus.platform.utils.db.db_factory.get_db_client`：取全局 async DB client。
+- `narranexus.platform.utils.timezone.utc_now` / `coerce_utc`：dedup 窗口计算基准 +
   `created_at` 归一化（`coerce_utc` 与 misuse 端点共用，见 [[timezone.py]]）。
 
 ## 设计决策

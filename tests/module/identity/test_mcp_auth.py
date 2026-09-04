@@ -24,13 +24,13 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.identity.mcp_auth import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus.platform.module_system.identity.mcp_auth import (
     IdentityAuthMiddleware,
     auth_mode,
     verified_caller,
 )
-from xyz_agent_context.module.identity.tokens import ISSUER_LOCAL, sign_identity_token
+from narranexus.platform.module_system.identity.tokens import ISSUER_LOCAL, sign_identity_token
 
 AGENT = "agent_39b2b72b823b"
 
@@ -39,7 +39,7 @@ AGENT = "agent_39b2b72b823b"
 def _clean_module_state():
     """The module keeps process-global aggregation/cache dicts; leaking them
     between tests is a classic ordering hazard (round-3 review, minor #5)."""
-    from xyz_agent_context.module.identity import mcp_auth
+    from narranexus.platform.module_system.identity import mcp_auth
 
     yield
     mcp_auth._owner_cache.clear()
@@ -213,7 +213,7 @@ def test_contextvar_resets_between_requests(tmp_path, monkeypatch):
 def test_build_mcp_server_installs_identity_auth_middleware():
     from mcp.server.fastmcp import FastMCP
 
-    from xyz_agent_context.module.module_runner import ModuleRunner
+    from narranexus.platform.module_system.module_runner import ModuleRunner
 
     server = ModuleRunner._build_host_server([("probe_module", FastMCP("probe_module"))], 7999)
     installed = [m.cls for m in server.config.app.user_middleware]
@@ -229,8 +229,8 @@ def test_build_mcp_server_installs_identity_auth_middleware():
 def _policy_env(_policy_owner_stubs, monkeypatch):
     """_policy_owner_stubs + a verified caller in the connection ContextVar
     (the pre-per-message fallback path)."""
-    from xyz_agent_context.module.identity import mcp_auth
-    from xyz_agent_context.module.identity.tokens import VerifiedIdentity
+    from narranexus.platform.module_system.identity import mcp_auth
+    from narranexus.platform.module_system.identity.tokens import VerifiedIdentity
 
     token = mcp_auth._verified_var.set(
         VerifiedIdentity(user_id="usr_1", issuer="narranexus-local", expires_at=2**33)
@@ -242,7 +242,7 @@ def _policy_env(_policy_owner_stubs, monkeypatch):
 def _policy_server():
     from mcp.server.fastmcp import FastMCP
 
-    from xyz_agent_context.module._mcp_identity import install_caller_identity
+    from narranexus.platform.module_system._mcp_identity import install_caller_identity
 
     mcp = FastMCP("policy_module")
     ran: dict = {}
@@ -316,7 +316,7 @@ async def test_unknown_agent_is_allowed(_policy_env, monkeypatch):
 async def test_no_verified_identity_keeps_baseline(monkeypatch):
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
     fns, ran = _policy_server()
     out = await fns["dict_tool"](agent_id="agent_of_usr2")
@@ -327,7 +327,7 @@ async def test_no_verified_identity_keeps_baseline(monkeypatch):
 async def test_local_mode_is_single_tenant_noop(_policy_env, monkeypatch):
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: False
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: False
     )
     fns, ran = _policy_server()
     out = await fns["dict_tool"](agent_id="agent_of_usr2")
@@ -341,7 +341,7 @@ def test_every_agent_id_tool_is_async():
     would silently bypass the policy."""
     import inspect
 
-    from xyz_agent_context.module import module_registry
+    from narranexus.platform.module_system import module_registry
 
     offenders = []
     checked = 0
@@ -410,8 +410,8 @@ def test_per_message_verdict_is_final_over_stale_snapshot(
     exact mismatch this fixes (proof from one source, facts from another)."""
     from tests.module.test_mcp_caller_identity import injected
 
-    from xyz_agent_context.module.identity import mcp_auth
-    from xyz_agent_context.module.identity.tokens import VerifiedIdentity
+    from narranexus.platform.module_system.identity import mcp_auth
+    from narranexus.platform.module_system.identity.tokens import VerifiedIdentity
 
     _provision(tmp_path, monkeypatch)
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
@@ -438,14 +438,14 @@ def _policy_owner_stubs(monkeypatch):
     owners = {"agent_of_usr1": "usr_1", "agent_of_usr2": "usr_2"}
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
 
     async def fake_get_db_client():
         return object()
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+        "narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client
     )
 
     class FakeAgentRepo:
@@ -462,12 +462,12 @@ def _policy_owner_stubs(monkeypatch):
         async def record(self, **kw):
             recorded.append(kw)
 
-    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
+    monkeypatch.setattr("narranexus.platform.repository.AgentRepository", FakeAgentRepo)
     monkeypatch.setattr(
-        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
         FakeAuditRepo,
     )
-    from xyz_agent_context.module.identity import mcp_auth
+    from narranexus.platform.module_system.identity import mcp_auth
 
     mcp_auth._owner_cache.clear()
     return recorded
@@ -496,11 +496,11 @@ def _sse_json_payloads(text: str) -> list[dict]:
 def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypatch):
     from mcp.server.fastmcp import FastMCP
 
-    from xyz_agent_context.module._mcp_identity import install_caller_identity
-    from xyz_agent_context.module.identity.mcp_auth import (
+    from narranexus.platform.module_system._mcp_identity import install_caller_identity
+    from narranexus.platform.module_system.identity.mcp_auth import (
         verified_caller_for_tool_call,
     )
-    from xyz_agent_context.module.module_runner import ModuleRunner
+    from narranexus.platform.module_system.module_runner import ModuleRunner
 
     priv = _provision(tmp_path, monkeypatch)
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "enforce")
@@ -613,7 +613,7 @@ def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
     60s. Only positive resolutions are cached."""
     import asyncio
 
-    from xyz_agent_context.module.identity import mcp_auth
+    from narranexus.platform.module_system.identity import mcp_auth
 
     answers = ["", "usr_owner"]  # first call fails/unknown, second recovers
     calls = {"n": 0}
@@ -626,7 +626,7 @@ def test_owner_cache_never_pins_the_empty_sentinel(monkeypatch):
             calls["n"] += 1
             return answers.pop(0) if answers else "usr_owner"
 
-    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FlakyRepo)
+    monkeypatch.setattr("narranexus.platform.repository.AgentRepository", FlakyRepo)
     mcp_auth._owner_cache.clear()
 
     assert asyncio.run(mcp_auth._resolve_owner_cached(object(), "agent_x")) == ""
@@ -653,7 +653,7 @@ def test_tokenless_measurement_names_the_declared_caller(tmp_path, monkeypatch):
 
 def _audit_capture(tmp_path, monkeypatch):
     """audit mode + stubbed audit sink; returns the rows list."""
-    from xyz_agent_context.module.identity import mcp_auth
+    from narranexus.platform.module_system.identity import mcp_auth
 
     _provision(tmp_path, monkeypatch)
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
@@ -670,10 +670,10 @@ def _audit_capture(tmp_path, monkeypatch):
             rows.append(kw)
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_get_db_client
+        "narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client
     )
     monkeypatch.setattr(
-        "xyz_agent_context.repository.executor_audit_repository.ExecutorAuditRepository",
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
         FakeAuditRepo,
     )
     monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
@@ -703,7 +703,7 @@ def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
     rejects nothing — both dimensions must be hard-capped."""
     import asyncio
 
-    from xyz_agent_context.module.identity import mcp_auth
+    from narranexus.platform.module_system.identity import mcp_auth
 
     class _H(dict):
         def get(self, k, default=None):
@@ -738,7 +738,7 @@ def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
 def test_placeholder_explicit_header_falls_through_to_bearer(tmp_path, monkeypatch):
     """Round-5 minor #1: the canonical two-stage read — an explicit
     placeholder must not shadow a real bearer user_id off the worklist."""
-    from xyz_agent_context.module._mcp_identity import USER_ID_HEADER
+    from narranexus.platform.module_system._mcp_identity import USER_ID_HEADER
 
     rows = _audit_capture(tmp_path, monkeypatch)
     headers = {
@@ -754,7 +754,7 @@ def test_enforce_rejects_explicit_header_user_mismatch(tmp_path, monkeypatch):
     """Pre-push round-6 self-review: the forgery check must cover BOTH
     declaration channels — consumers read the explicit X-NarraNexus-User-Id
     first, so a mismatch there must 401 exactly like the bearer-field one."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         IDENTITY_TOKEN_HEADER,
         USER_ID_HEADER,
     )
@@ -772,7 +772,7 @@ def test_enforce_rejects_explicit_header_user_mismatch(tmp_path, monkeypatch):
 
 
 def test_placeholder_declarations_do_not_trip_the_mismatch(tmp_path, monkeypatch):
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         IDENTITY_TOKEN_HEADER,
         USER_ID_HEADER,
     )

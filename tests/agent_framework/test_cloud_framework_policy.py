@@ -17,11 +17,11 @@ cloud-legal all three kept rejecting it.
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     CLOUD_ALLOWED_FRAMEWORKS,
     framework_allowed_in_cloud,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     ProviderProtocol,
     get_slot_required_protocols,
 )
@@ -30,7 +30,7 @@ from xyz_agent_context.schema.provider_schema import (
 @pytest.fixture()
 def cloud(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.cloud_policy.is_cloud_mode",
+        "narranexus.platform.agent_framework.providers.cloud_policy.is_cloud_mode",
         lambda: True,
     )
 
@@ -38,7 +38,7 @@ def cloud(monkeypatch):
 @pytest.fixture()
 def local(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.cloud_policy.is_cloud_mode",
+        "narranexus.platform.agent_framework.providers.cloud_policy.is_cloud_mode",
         lambda: False,
     )
 
@@ -138,7 +138,7 @@ class _Db:
 
 
 async def _pin(owner_framework: str, pinned: str, **kw):
-    from xyz_agent_context.agent_framework.providers.slot_service import (
+    from narranexus.platform.agent_framework.providers.slot_service import (
         AgentSlotService,
     )
 
@@ -159,7 +159,7 @@ async def test_pin_nexus_power_is_allowed_in_cloud(cloud):
 
 @pytest.mark.asyncio
 async def test_pin_cli_framework_is_refused_in_cloud(cloud):
-    from xyz_agent_context.agent_framework.providers.cloud_policy import (
+    from narranexus.platform.agent_framework.providers.cloud_policy import (
         CloudPolicyViolation,
     )
 

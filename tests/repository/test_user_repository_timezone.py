@@ -37,7 +37,7 @@ i.e. would test nothing.
 
 import pytest
 
-from xyz_agent_context.repository import UserRepository
+from narranexus.platform.repository import UserRepository
 
 
 @pytest.mark.asyncio

@@ -28,16 +28,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
-from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
-from xyz_agent_context.module.discord_module.discord_module import DiscordModule
-from xyz_agent_context.module.lark_module.lark_module import LarkModule
-from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+from narranexus.platform.channel.channel_module_base import ChannelModuleBase
+from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
+from narranexus.platform.module_system.discord_module.discord_module import DiscordModule
+from narranexus.platform.module_system.lark_module.lark_module import LarkModule
+from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
     NarramessengerModule,
 )
-from xyz_agent_context.module.slack_module.slack_module import SlackModule
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
-from xyz_agent_context.module.wechat_module.wechat_module import WeChatModule
+from narranexus.platform.module_system.slack_module.slack_module import SlackModule
+from narranexus.platform.module_system.telegram_module.telegram_module import TelegramModule
+from narranexus.platform.module_system.wechat_module.wechat_module import WeChatModule
 
 
 CHANNEL_MODULES = [
@@ -133,8 +133,8 @@ async def test_a_bound_channel_tool_stays_reachable_on_a_foreign_turn(cls, monke
     social graph. Re-introducing a working_source gate on disallowed_tools
     turns this red; it is the guarantee the reachability flow relies on.
     """
-    from xyz_agent_context.schema import ContextData
-    from xyz_agent_context.schema.hook_schema import WorkingSource
+    from narranexus.platform.schema import ContextData
+    from narranexus.platform.schema.hook_schema import WorkingSource
 
     module = _make_module(cls)
     monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=object()))
@@ -188,16 +188,16 @@ def _bind_tool(register_fn, tool_name: str):
 
 
 def _bind_registrations():
-    from xyz_agent_context.module.discord_module._discord_mcp_tools import (
+    from narranexus.platform.module_system.discord_module._discord_mcp_tools import (
         register_discord_mcp_tools,
     )
-    from xyz_agent_context.module.narramessenger_module._narramessenger_mcp_tools import (
+    from narranexus.platform.module_system.narramessenger_module._narramessenger_mcp_tools import (
         register_narramessenger_mcp_tools,
     )
-    from xyz_agent_context.module.slack_module._slack_mcp_tools import (
+    from narranexus.platform.module_system.slack_module._slack_mcp_tools import (
         register_slack_mcp_tools,
     )
-    from xyz_agent_context.module.telegram_module._telegram_mcp_tools import (
+    from narranexus.platform.module_system.telegram_module._telegram_mcp_tools import (
         register_telegram_mcp_tools,
     )
 
@@ -226,7 +226,7 @@ async def test_lark_entry_tools_zero_credential_args_return_setup_guide():
     """Lark's entry points keep their orchestrator shape; calling them
     with empty credential args must yield the discovery guide, not an
     error."""
-    from xyz_agent_context.module.lark_module._lark_mcp_tools import (
+    from narranexus.platform.module_system.lark_module._lark_mcp_tools import (
         register_lark_mcp_tools,
     )
 

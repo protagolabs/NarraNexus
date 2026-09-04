@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
     _resolve_conversation,
 )
 
@@ -36,7 +36,7 @@ def _patch_db(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -80,7 +80,7 @@ async def test_a_conversation_i_am_not_in_is_not_found(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_team_resolves_to_its_room_for_a_member(db_client, monkeypatch):
-    from xyz_agent_context.message_bus.team_rooms import team_room_marker
+    from narranexus.platform.message_bus.team_rooms import team_room_marker
 
     _patch_db(monkeypatch, db_client)
     await db_client.insert("team_members", {"team_id": TEAM, "agent_id": ME})
@@ -105,7 +105,7 @@ async def test_a_team_i_am_not_in_is_refused_before_the_room_is_looked_up(
 ):
     """The room is public-ish (its channel row is findable by team id); the
     membership row is what gates it, and it is checked first."""
-    from xyz_agent_context.message_bus.team_rooms import team_room_marker
+    from narranexus.platform.message_bus.team_rooms import team_room_marker
 
     _patch_db(monkeypatch, db_client)
     await db_client.insert("team_members", {"team_id": TEAM, "agent_id": PEER})
@@ -187,8 +187,8 @@ def test_the_dm_lookup_sql_has_exactly_one_definition():
     """
     import inspect
 
-    from xyz_agent_context.message_bus import local_bus
-    from xyz_agent_context.module.message_bus_module import _message_bus_mcp_tools
+    from narranexus.platform.message_bus import local_bus
+    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
 
     src = inspect.getsource(local_bus) + inspect.getsource(_message_bus_mcp_tools)
     assert src.count("channel_type = 'direct'") == 1, (
@@ -215,8 +215,8 @@ async def test_history_returns_the_recent_page_not_the_rooms_founding_messages(
     Driven through the registered tool, because the defect was the tool choosing
     the wrong primitive — the primitives themselves were both correct.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
         register_message_bus_mcp_tools,
     )
 
@@ -260,8 +260,8 @@ async def test_the_limit_has_a_ceiling_the_model_does_not_choose(
     window and killing the turn mid-work. Every other agent-facing read in this
     module is capped; this was the one that left the cap to the model.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
         READ_HISTORY_MAX,
         register_message_bus_mcp_tools,
     )
@@ -321,7 +321,7 @@ async def test_sending_to_myself_does_not_land_in_a_peers_channel(db_client):
     The read resolver rejected this from the start; the write path shared the SQL
     and not the invariant.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     await _dm(db_client, ME, PEER, "ch_dm_self")
     bus = LocalMessageBus(backend=db_client._backend)

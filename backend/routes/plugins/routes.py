@@ -34,7 +34,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
 from backend.integrations.plugins.errors import PluginBusyError
 from backend.integrations.plugins.service import PluginService

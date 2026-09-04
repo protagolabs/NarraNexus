@@ -29,14 +29,14 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.message_bus.errand import (
+from narranexus.platform.message_bus.errand import (
     close_delivered_errands,
     is_promise_only,
     record_handoffs,
 )
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
+from narranexus.platform.utils.timezone import utc_now
 
 
 TEAM = "team_dunhuang"
@@ -289,7 +289,7 @@ async def test_the_user_opens_one_whoever_the_lead_is(db_client, repo):
 
 
 def test_opens_handoffs_is_user_or_lead_only():
-    from xyz_agent_context.message_bus.errand import opens_handoffs
+    from narranexus.platform.message_bus.errand import opens_handoffs
 
     assert opens_handoffs("usr_x", None) is True
     assert opens_handoffs("usr_x", LEAD) is True
@@ -307,8 +307,8 @@ async def test_the_post_path_reads_the_lead_from_the_team_row(db_client, repo, m
     books A3, the member's books nothing. Both @mentions are DELIVERED (the
     bus row carries them) — activation is untouched by the gate.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.team_posting import post_team_reply
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.team_posting import post_team_reply
 
     await db_client.insert("teams", {
         "team_id": TEAM, "name": "T", "owner_user_id": "usr_1",
@@ -408,7 +408,7 @@ async def test_one_message_cannot_open_unbounded_hand_offs(db_client, repo):
     Also a latency bound: since the reply moved inside the turn, this
     book-keeping runs while the runtime waits on the delivery callback.
     """
-    from xyz_agent_context.message_bus.errand import MAX_HANDOFFS_PER_MESSAGE
+    from narranexus.platform.message_bus.errand import MAX_HANDOFFS_PER_MESSAGE
 
     many = [f"agent_{i}" for i in range(MAX_HANDOFFS_PER_MESSAGE + 4)]
 
@@ -428,11 +428,11 @@ async def test_an_undeliverable_errand_does_not_live_forever(db_client, repo):
     cadence permanently — `stalled` is ACTIVE, so the team never goes quiet."""
     from datetime import timedelta
 
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         expire_stale_errands,
     )
-    from xyz_agent_context.utils.timezone import utc_now
+    from narranexus.platform.utils.timezone import utc_now
 
     opened = (await _open_errand(db_client, from_agent=LEAD, to_agent=A3))[0]
     fresh = (await _open_errand(
@@ -465,7 +465,7 @@ async def test_expiry_survives_both_timestamp_shapes_in_the_column(db_client, re
     Both shapes are seeded here explicitly so the Python-side ageing cannot
     regress back into a dialect-dependent predicate.
     """
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         expire_stale_errands,
     )
@@ -497,11 +497,11 @@ async def test_a_leaders_own_task_is_never_expired(db_client, repo):
     class of accident from letting an inferred errand lapse."""
     from datetime import timedelta
 
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         expire_stale_errands,
     )
-    from xyz_agent_context.utils.timezone import utc_now
+    from narranexus.platform.utils.timezone import utc_now
 
     item = await repo.create_item(
         team_id=TEAM, channel_id=CHANNEL, title="the whole pipeline",
@@ -529,8 +529,8 @@ async def test_a_team_with_no_lead_still_gets_its_errands_recycled(db_client, re
     `teams_with_active_work()` is the right scope precisely because it looks at
     neither the lead nor `patrol_enabled`.
     """
-    from xyz_agent_context.message_bus.errand import ERRAND_TTL_HOURS
-    from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
+    from narranexus.platform.message_bus.errand import ERRAND_TTL_HOURS
+    from narranexus.platform.message_bus.patrol import teams_due_for_patrol
 
     await db_client.insert("teams", {
         "team_id": TEAM, "owner_user_id": "usr_1", "name": "Leaderless",
@@ -558,8 +558,8 @@ async def test_the_recycle_happens_before_the_cadence_is_judged(db_client, repo)
     decides which room a patrol is aimed at, so reading the board before the
     recycle would let a row that no longer exists drive both.
     """
-    from xyz_agent_context.message_bus.errand import ERRAND_TTL_HOURS
-    from xyz_agent_context.message_bus.patrol import teams_due_for_patrol
+    from narranexus.platform.message_bus.errand import ERRAND_TTL_HOURS
+    from narranexus.platform.message_bus.patrol import teams_due_for_patrol
 
     await db_client.insert("teams", {
         "team_id": TEAM, "owner_user_id": "usr_1", "name": "Desk",
@@ -588,7 +588,7 @@ async def test_one_sweep_retires_a_bounded_number(db_client, repo):
     The remainder is retired on the next cycle — deferred, never dropped, which
     the second call asserts.
     """
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         MAX_EXPIRIES_PER_SWEEP,
         expire_stale_errands,
@@ -623,7 +623,7 @@ async def test_liveness_in_one_room_does_not_reprieve_another(db_client, repo):
     errand that should have stayed, and the report would read it as expired
     rather than delivered.
     """
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         expire_stale_errands,
     )
@@ -661,7 +661,7 @@ async def test_a_hand_off_still_being_worked_on_is_not_expired(db_client, repo):
     nothing and the closure report would book a real hand-off as "expired".
     `detect_stalled_items` reaches for the same evidence for the same reason.
     """
-    from xyz_agent_context.message_bus.errand import (
+    from narranexus.platform.message_bus.errand import (
         ERRAND_TTL_HOURS,
         expire_stale_errands,
     )
@@ -690,11 +690,11 @@ async def test_a_hand_off_still_being_worked_on_is_not_expired(db_client, repo):
 def test_the_board_section_declares_what_it_hides():
     """Truncation that reads as completeness would have the lead conclude the
     rest was already closed."""
-    from xyz_agent_context.message_bus.message_bus_trigger import (
+    from narranexus.platform.message_bus.message_bus_trigger import (
         TEAM_BOARD_MAX_ITEMS,
         MessageBusTrigger,
     )
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     board = [
         {"status": "open", "title": f"task {i}", "assignee_id": A3,
@@ -737,7 +737,7 @@ async def test_a_real_team_reply_records_its_errand(db_client, monkeypatch, repo
     takes — the exact failure this test was written to catch, one contract
     change later.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     from ._team_turn import speak_in_room
 
@@ -745,7 +745,7 @@ async def test_a_real_team_reply_records_its_errand(db_client, monkeypatch, repo
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
     for aid, name in ((LEAD, "Leader"), (A4, "A4")):
         await db_client.insert(
@@ -779,7 +779,7 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
     Letting a board write fail the hop would trade a working delivery for
     bookkeeping — the opposite of the trade this whole feature is making.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     from ._team_turn import speak_in_room
 
@@ -787,7 +787,7 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
     await db_client.insert(
         "agents", {"agent_id": LEAD, "agent_name": "L", "created_by": "usr_1"}
@@ -800,7 +800,7 @@ async def test_bookkeeping_never_breaks_a_delivered_reply(db_client, monkeypatch
         raise RuntimeError("board is on fire")
 
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.errand.record_handoffs", _boom
+        "narranexus.platform.message_bus.errand.record_handoffs", _boom
     )
 
     bus = LocalMessageBus(backend=db_client._backend)
@@ -839,7 +839,7 @@ async def test_the_hook_sits_outside_the_post(db_client, monkeypatch):
     underneath it. Production cannot reach this — `_record_errands` never
     raises — which is why the raise is caught here rather than asserted away.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     from ._team_turn import speak_in_room
 
@@ -847,7 +847,7 @@ async def test_the_hook_sits_outside_the_post(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
     await db_client.insert(
         "agents", {"agent_id": LEAD, "agent_name": "L", "created_by": "usr_1"}
@@ -860,7 +860,7 @@ async def test_the_hook_sits_outside_the_post(db_client, monkeypatch):
         raise RuntimeError("book-keeping blew up loudly")
 
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.team_posting._record_errands", _boom
+        "narranexus.platform.message_bus.team_posting._record_errands", _boom
     )
 
     bus = LocalMessageBus(backend=db_client._backend)
@@ -888,8 +888,8 @@ def test_the_team_prompt_names_the_alternatives_to_a_promise():
     finish now, or say how far you got, or schedule it — and the test asserts
     the exits, not just the prohibition.
     """
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     trigger = MessageBusTrigger.__new__(MessageBusTrigger)
     msg = BusMessage(
@@ -917,7 +917,7 @@ def test_the_team_prompt_names_the_alternatives_to_a_promise():
 def test_the_group_im_protocol_carries_the_same_rule():
     """The 1:1 protocol has had this line since the DM work; the group one did
     not, so the same promise was compliant in every group channel."""
-    from xyz_agent_context.channel.channel_prompts import (
+    from narranexus.platform.channel.channel_prompts import (
         COMMUNICATION_PROTOCOL_DIRECT,
         COMMUNICATION_PROTOCOL_GROUP,
     )
@@ -947,7 +947,7 @@ def test_the_protocol_does_not_model_the_thing_it_forbids():
     """
     import re
 
-    from xyz_agent_context.channel.channel_prompts import (
+    from narranexus.platform.channel.channel_prompts import (
         COMMUNICATION_PROTOCOL_GROUP,
     )
 

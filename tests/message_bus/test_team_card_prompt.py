@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 ROSTER = [
@@ -74,7 +74,7 @@ def test_a_long_intro_is_cut_and_says_so():
     """`intro_md` is MEDIUMTEXT — an owner can paste a manual into it. An
     unbounded field in a per-turn prompt would crowd out the scrollback and the
     roster, which are the parts that decide what the agent DOES this turn."""
-    from xyz_agent_context.message_bus.message_bus_trigger import TEAM_INTRO_MAX_CHARS
+    from narranexus.platform.message_bus.message_bus_trigger import TEAM_INTRO_MAX_CHARS
 
     long_intro = "x" * (TEAM_INTRO_MAX_CHARS + 500)
     text = _prompt(team={"name": "Desk", "intro_md": long_intro})

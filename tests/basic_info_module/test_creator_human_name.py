@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.schema.context_schema import ContextData
-from xyz_agent_context.module.basic_info_module.basic_info_module import BasicInfoModule
+from narranexus.platform.schema.context_schema import ContextData
+from narranexus.platform.module_system.basic_info_module.basic_info_module import BasicInfoModule
 
 
 async def _seed_user(db, user_id, display_name=None):
@@ -82,7 +82,7 @@ async def test_creator_name_falls_back_to_id_when_no_display_name(db_client):
 
 
 def test_template_uses_creator_name_not_creator_id():
-    from xyz_agent_context.module.basic_info_module.prompts import (
+    from narranexus.platform.module_system.basic_info_module.prompts import (
         BASIC_INFO_MODULE_INSTRUCTIONS,
     )
     assert "{creator_name}" in BASIC_INFO_MODULE_INSTRUCTIONS

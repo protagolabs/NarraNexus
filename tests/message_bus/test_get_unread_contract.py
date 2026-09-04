@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 
 CHANNEL = "ch_room"
@@ -135,7 +135,7 @@ async def test_the_mark_read_path_must_see_beyond_the_injection_window(
     """
     from types import SimpleNamespace
 
-    from xyz_agent_context.module.message_bus_module import message_bus_module as mod
+    from narranexus.platform.module_system.message_bus_module import message_bus_module as mod
 
     await _room(db_client)
     await db_client.insert("bus_channels", {

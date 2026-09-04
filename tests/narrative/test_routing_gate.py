@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl.routing_gate import (
+from narranexus.platform.narrative._narrative_impl.routing_gate import (
     GateDecision,
     evaluate_gate,
 )

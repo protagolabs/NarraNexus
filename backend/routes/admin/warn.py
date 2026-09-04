@@ -38,12 +38,12 @@ from pydantic import BaseModel, Field
 # Re-exported so the admin secret can be overridden per-test via ``mod.settings``
 # (this module's namespace); the shared ``require_admin_secret`` helper reads the
 # same ``settings`` singleton object.
-from xyz_agent_context.settings import settings  # noqa: F401
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.db.schema_registry import varchar_width
-from xyz_agent_context.utils.timezone import coerce_utc, utc_now
-from xyz_agent_context.repository.user_repository import UserRepository
-from xyz_agent_context.repository.ban_audit_repository import ACTION_WARN, BanAuditRepository
+from narranexus.platform.settings import settings  # noqa: F401
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.schema_registry import varchar_width
+from narranexus.platform.utils.timezone import coerce_utc, utc_now
+from narranexus.platform.repository.user_repository import UserRepository
+from narranexus.platform.repository.ban_audit_repository import ACTION_WARN, BanAuditRepository
 
 from ._admin_secret import require_admin_secret
 

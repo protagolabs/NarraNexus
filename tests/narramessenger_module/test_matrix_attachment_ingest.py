@@ -26,20 +26,20 @@ from typing import Any
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
     MatrixMediaError,
     MatrixTrigger,
 )
-from xyz_agent_context.schema.attachment_schema import AttachmentCategory
-from xyz_agent_context.schema.parsed_message import MessageContentType
+from narranexus.platform.schema.attachment_schema import AttachmentCategory
+from narranexus.platform.schema.parsed_message import MessageContentType
 
 
 HOMESERVER = "matrix.netmind.chat"
@@ -216,7 +216,7 @@ def test_parse_event_media_without_mxc_dropped():
 
 @pytest.fixture
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
     )
@@ -234,7 +234,7 @@ def trigger_with_owner(db_client, isolated_workspace):
         })
         trigger = MatrixTrigger()
         trigger._db = db_client
-        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
             ChannelTriggerAuditRepository,
         )
         trigger._audit_repo = ChannelTriggerAuditRepository(
@@ -274,7 +274,7 @@ async def test_fetch_attachments_downloads_and_persists_image(
     # announce to the agent (resolve_attachment_path == the marker's
     # path=). This is the prompt-download-location contract: the agent's
     # Read tool must find the file where the marker says it is.
-    from xyz_agent_context.utils.attachment_storage import (
+    from narranexus.platform.utils.attachment_storage import (
         resolve_attachment_path,
     )
     on_disk = resolve_attachment_path("agent_x", "user_owner", att.file_id)

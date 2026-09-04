@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING, Dict
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
 async def _apply(db: "AsyncDatabaseClient") -> Dict:
-    from xyz_agent_context.channel.credential_legacy import copy_legacy_tables
+    from narranexus.platform.channel.credential_legacy import copy_legacy_tables
 
     counts = await copy_legacy_tables(db)
     return {"channels": counts, "rows": sum(counts.values())}

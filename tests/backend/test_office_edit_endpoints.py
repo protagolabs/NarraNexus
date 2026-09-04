@@ -26,9 +26,9 @@ from fastapi.testclient import TestClient
 
 import backend.routes.office_watch.proxy as owp
 from backend.routes.office_watch._token import mint
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -43,7 +43,7 @@ async def _async_return(value):
 @pytest.fixture
 def proxy_client(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.transcription_hmac_secret",
+        "narranexus.platform.settings.settings.transcription_hmac_secret",
         "test-secret",
         raising=False,
     )
@@ -146,7 +146,7 @@ def test_post_oversize_body_is_413(proxy_client):
 async def commit_env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     (base / WS_REL).mkdir(parents=True)
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
 
     from backend.routes.agents.artifacts import router as agents_router

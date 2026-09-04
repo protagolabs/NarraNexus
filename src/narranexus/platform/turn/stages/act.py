@@ -18,8 +18,8 @@ from narranexus.platform.turn.inputs import StageInputs
 
 
 def _empty_result(ctx: Any):
-    from xyz_agent_context.schema import PathExecutionResult
-    from xyz_agent_context.schema.context_schema import ContextData
+    from narranexus.platform.schema import PathExecutionResult
+    from narranexus.platform.schema.context_schema import ContextData
 
     return PathExecutionResult(
         final_output="",
@@ -48,7 +48,7 @@ class AgentLoopAct:
     stage = Stage.ACT
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import agent_runtime as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar._stream_step3_with_interrupt_drain(ar.step_3_execute_path(ctx, s.db_client, s.response_processor), ctx.cancellation):

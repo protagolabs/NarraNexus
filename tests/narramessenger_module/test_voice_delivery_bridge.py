@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._voice_delivery import (
+from narranexus.platform.module_system.narramessenger_module._voice_delivery import (
     LIVE_MARKER_KEY,
     VoiceDeliveryBridge,
     sanitize_for_tts,

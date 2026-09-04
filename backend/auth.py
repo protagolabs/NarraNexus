@@ -26,7 +26,7 @@ from loguru import logger
 
 from narranexus.kernel.deployment import is_cloud_mode as _kernel_is_cloud_mode
 
-from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
+from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
@@ -154,7 +154,7 @@ async def _resolve_manyfold_default_user_id() -> Optional[str]:
     path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
     of the frontend) keep working without 401.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
@@ -177,7 +177,7 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     """
     if not user_id.startswith("mf_"):
         return
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     existing = await db.get_one("users", {"user_id": user_id})
     if existing:
@@ -225,7 +225,7 @@ def _is_cloud_mode() -> bool:
 
 
 def _is_nx_service_bearer(auth_header: str) -> bool:
-    from xyz_agent_context.module import BEARER_AGENT_PREFIX
+    from narranexus.platform.module_system import BEARER_AGENT_PREFIX
 
     return auth_header.startswith(f"Bearer {BEARER_AGENT_PREFIX}")
 
@@ -240,8 +240,8 @@ def _verify_nx_service_bearer(request: "Request"):
     per-reason logging (0806 discipline: every reject must be diagnosable
     from server logs).
     """
-    from xyz_agent_context.module.identity.tokens import load_public_key_pem
-    from xyz_agent_context.module.identity.verify import verify_caller_identity
+    from narranexus.platform.module_system.identity.tokens import load_public_key_pem
+    from narranexus.platform.module_system.identity.verify import verify_caller_identity
 
     public_key = load_public_key_pem()
     if public_key is None:
@@ -451,7 +451,7 @@ AUTH_EXEMPT_PREFIXES = (
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
     # NetMind can't fetch (it has no JWT). See
     # backend/routes/transcription/public.py and
-    # src/xyz_agent_context/agent_framework/llm/transcription/url_signer.py.
+    # src/narranexus/platform/agent_framework/llm/transcription/url_signer.py.
     "/api/public/",
 )
 
@@ -575,8 +575,8 @@ async def _account_state(user_id: str) -> str:
         return cached[0]
 
     try:
-        from xyz_agent_context.repository.user_repository import UserRepository
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.repository.user_repository import UserRepository
+        from narranexus.platform.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
         user = await UserRepository(db).get_user(user_id)
@@ -684,7 +684,7 @@ async def auth_middleware(request: Request, call_next):
             if user_id:
                 request.state.user_id = user_id
                 request.state.manyfold_authed = True
-                from xyz_agent_context.agent_framework.api_config import (
+                from narranexus.platform.agent_framework.api_config import (
                     set_current_user_id,
                 )
                 set_current_user_id(user_id)
@@ -736,7 +736,7 @@ async def auth_middleware(request: Request, call_next):
             request.state.user_id = header_uid
             # Mirror cloud mode: tag the cost-tracker ContextVar so usage
             # records get attributed to the right user even in local mode.
-            from xyz_agent_context.agent_framework.api_config import set_current_user_id
+            from narranexus.platform.agent_framework.api_config import set_current_user_id
             set_current_user_id(header_uid)
         response = await call_next(request)
         return response
@@ -795,7 +795,7 @@ async def auth_middleware(request: Request, call_next):
         request.state.user_id = identity.user_id
         request.state.role = "user"
         request.state.nx_service_authed = True
-        from xyz_agent_context.agent_framework.api_config import set_current_user_id
+        from narranexus.platform.agent_framework.api_config import set_current_user_id
 
         set_current_user_id(identity.user_id)
         return await call_next(request)
@@ -843,8 +843,8 @@ async def auth_middleware(request: Request, call_next):
     # Safe/read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
     # EVERY path, since reads never spend anything. JWT auth above still
     # applies in both cases.
-    from xyz_agent_context.agent_framework.api_config import set_current_user_id
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.api_config import set_current_user_id
+    from narranexus.platform.agent_framework.providers.resolver import (
         ProviderResolverError,
     )
 
@@ -961,7 +961,7 @@ async def ensure_local_default_user() -> str:
     Returns the user_id of an existing row when one is present, or
     creates 'local-default' and returns it. Idempotent.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     if row:

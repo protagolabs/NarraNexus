@@ -12,9 +12,9 @@ import pytest
 
 from narranexus.kernel.plugins.builtins import builtin_manifests
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module import module_registry
-from xyz_agent_context.module.registry import ModuleRegistry
-from xyz_agent_context.module.contributions import MODULES_SLOT, MODULE_SPECS, register_all
+from narranexus.platform.module_system import module_registry
+from narranexus.platform.module_system.registry import ModuleRegistry
+from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS, register_all
 
 
 def test_module_map_lists_every_builtin_module_and_meta():
@@ -28,7 +28,7 @@ def test_module_map_lists_every_builtin_module_and_meta():
 def test_package_re_exports_no_module_class():
     """Batch 5d: the registry is the only way to name a module — the package
     neither imports a builtin nor re-exports its class."""
-    mod = importlib.import_module("xyz_agent_context.module")
+    mod = importlib.import_module("narranexus.platform.module_system")
     assert module_registry["ChatModule"].__name__ == "ChatModule"
     with pytest.raises(AttributeError):
         _ = mod.ChatModule
@@ -49,11 +49,11 @@ def test_every_module_has_a_builtin_manifest_and_view_drops_removed_owner():
 
 
 def test_derived_tables_follow_the_view():
-    from xyz_agent_context.module._module_impl.loader import ModuleLoader
-    from xyz_agent_context.module.module_runner import CORE_MCP_MODULES, all_mcp_modules
+    from narranexus.platform.module_system._module_impl.loader import ModuleLoader
+    from narranexus.platform.module_system.module_runner import CORE_MCP_MODULES, all_mcp_modules
 
     assert set(CORE_MCP_MODULES) == {s.class_name for s in MODULE_SPECS if not s.channel}
-    from xyz_agent_context.module import module_registry
+    from narranexus.platform.module_system import module_registry
 
     assert {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule", "LarkModule"} <= set(ModuleLoader.always_load_modules(module_registry))
     assert "LarkModule" in all_mcp_modules() and "ChatModule" in all_mcp_modules()

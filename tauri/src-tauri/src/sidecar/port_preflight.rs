@@ -185,7 +185,7 @@ fn process_cmdline(pid: u32) -> Option<String> {
 /// True iff the given command-line is something this app would have spawned
 /// as one of its sidecars. The patterns intentionally match BOTH bundled-
 /// python paths (resources/python/.../python3) AND module-launch fragments
-/// (`-m backend.main`, `-m xyz_agent_context.utils.sqlite_proxy`, etc.) so
+/// (`-m backend.main`, `-m narranexus.platform.utils.sqlite_proxy`, etc.) so
 /// the heuristic catches dmg-bundled spawns *and* `bash run.sh` dev-mode
 /// spawns alike. Anything outside this whitelist is treated as third-party
 /// and never auto-killed.
@@ -194,11 +194,18 @@ fn is_narranexus_sidecar_cmdline(cmdline: &str) -> bool {
         // Module launches (most reliable — backend / sqlite_proxy / mcp /
         // worker supervisor all launch via `python -m <one of these>`).
         "backend.main",
-        "xyz_agent_context.utils.sqlite_proxy",
-        "xyz_agent_context.module.module_runner",
+        "narranexus.platform.utils.sqlite_proxy",
+        "narranexus.platform.module_system.module_runner",
         // The consolidated worker supervisor (poller + job + message-bus + all
         // IM channel triggers). run_channel_triggers is still launchable
         // standalone (cloud `--only channels`), so match it too.
+        "narranexus.platform.module_system.run_worker_supervisor",
+        "narranexus.platform.module_system.run_channel_triggers",
+        // Sidecars of the previous release (the one-release xyz_agent_context
+        // alias, batch 6a): an orphan from an older build still names the old
+        // module paths, and it must still be recognised as ours.
+        "xyz_agent_context.utils.sqlite_proxy",
+        "xyz_agent_context.module.module_runner",
         "xyz_agent_context.module.run_worker_supervisor",
         "xyz_agent_context.module.run_channel_triggers",
         // Uvicorn invocation: when the backend is spawned as
@@ -275,13 +282,13 @@ mod tests {
 
     #[test]
     fn classifier_recognises_sqlite_proxy() {
-        let cmd = "python3 -m xyz_agent_context.utils.sqlite_proxy --port 8100";
+        let cmd = "python3 -m narranexus.platform.utils.sqlite_proxy --port 8100";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]
     fn classifier_recognises_module_runner_mcp() {
-        let cmd = "python3 -m xyz_agent_context.module.module_runner mcp";
+        let cmd = "python3 -m narranexus.platform.module_system.module_runner mcp";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
@@ -291,14 +298,14 @@ mod tests {
         // every IM channel trigger). Per-channel trigger processes
         // (run_lark_trigger / run_slack_trigger / ...) no longer spawn
         // standalone — they live inside this supervisor now.
-        let cmd = "python3 -m xyz_agent_context.module.run_worker_supervisor";
+        let cmd = "python3 -m narranexus.platform.module_system.run_worker_supervisor";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]
     fn classifier_recognises_standalone_channel_triggers() {
         // Cloud `--only channels` still launches this entrypoint standalone.
-        let cmd = "python3 -m xyz_agent_context.module.run_channel_triggers";
+        let cmd = "python3 -m narranexus.platform.module_system.run_channel_triggers";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 

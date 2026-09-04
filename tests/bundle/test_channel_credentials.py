@@ -49,7 +49,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
     return ws
@@ -57,14 +57,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
 
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
     db_factory._clients_by_loop.clear()
 
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -93,7 +93,7 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
 
 async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1,
                           app_id: str | None = None):
-    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
         LarkCredential, LarkCredentialManager, _encode_secret,
     )
 
@@ -105,7 +105,7 @@ async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int =
 
 
 async def _seed_wechat_cred(db, agent_id: str, owner_user_id: str, enabled: int = 1):
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     await GenericCredentialStore(db).upsert("wechat", agent_id, {
         # bot_wx_id (the channel-wide identity) is empty: WeChat learns it on the
@@ -118,7 +118,7 @@ async def _seed_wechat_cred(db, agent_id: str, owner_user_id: str, enabled: int 
 
 async def _seed_slack_cred(db, agent_id: str, team_id: str, bot_user_id: str,
                            owner_user_id: str, enabled: int = 1):
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     await GenericCredentialStore(db).upsert("slack", agent_id, {
         "bot_token": "xoxb-token", "app_token": "xapp-token", "bot_user_id": bot_user_id,
@@ -128,7 +128,7 @@ async def _seed_slack_cred(db, agent_id: str, team_id: str, bot_user_id: str,
 
 async def _rows(db, channel: str):
     """Generic credential rows for one channel (public fields decoded for assertions)."""
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     return await GenericCredentialStore(db).list_all(channel)
 
@@ -145,7 +145,7 @@ def _read_member(bundle_path: Path, member: str):
 
 async def test_default_export_excludes_credentials(db_client, tmp_workspace_root, tmp_path):
     """Opt-in flag off (default) → no credential file, manifest flag False."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_cred0001", "test_user"
     await _seed_agent(db_client, aid, "Creddy", uid)
@@ -163,7 +163,7 @@ async def test_default_export_excludes_credentials(db_client, tmp_workspace_root
 
 async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, tmp_path):
     """Opt-in flag on → the lark row ships under its table key; manifest True."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_cred0002", "test_user"
     await _seed_agent(db_client, aid, "Creddy2", uid)
@@ -193,8 +193,8 @@ async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, 
 async def test_import_forces_inactive_and_remaps_agent(db_client, tmp_workspace_root, tmp_path):
     """Imported credential lands with enabled=0 (even though source=1) and its
     agent_id is remapped to the freshly-minted agent."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     aid, uid = "agent_cred0003", "test_user"
     await _seed_agent(db_client, aid, "Creddy3", uid)
@@ -223,8 +223,8 @@ async def test_import_forces_inactive_and_remaps_agent(db_client, tmp_workspace_
 async def test_import_preserves_im_owner_identity(db_client, tmp_workspace_root, tmp_path):
     """owner_user_id is an IM-side id and must NOT be reattributed to the
     recipient NarraNexus user_id by the generic user-attribution rewrite."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     aid, uid = "agent_cred0004", "test_user"
     await _seed_agent(db_client, aid, "Creddy4", uid)
@@ -245,8 +245,8 @@ async def test_import_preserves_im_owner_identity(db_client, tmp_workspace_root,
 async def test_credential_clash_is_skipped(db_client, tmp_workspace_root, tmp_path):
     """Same-DB roundtrip: the imported Slack credential collides with the
     source's own (team_id, bot_user_id) binding → skipped, not overwritten."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     aid, uid = "agent_cred0005", "test_user"
     await _seed_agent(db_client, aid, "Creddy5", uid)
@@ -274,8 +274,8 @@ async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspa
     carrying app_id X must be detected as a clash when X is already bound in the
     target env under a DIFFERENT profile_name — the exact case profile_name missed.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     SHARED_APP = "cli_shared_app"
     src, uid = "agent_larksrc01", "test_user"
@@ -289,7 +289,7 @@ async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspa
 
     # Free prof_src so ONLY app_id (not profile_name) can match in the target env,
     # then bind the same Lark app under a different agent + profile.
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     await GenericCredentialStore(db_client).unbind("lark", src)
     other = "agent_larkother1"
@@ -310,8 +310,8 @@ async def test_legacy_per_table_bundle_still_imports(db_client, tmp_workspace_ro
     """A bundle exported before 4d carries ``{"<legacy table>": [rows]}``; the
     importer normalizes it through the same legacy column map and lands the
     credential in the generic store, inactive."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     aid, uid = "agent_cred0006", "test_user"
     await _seed_agent(db_client, aid, "Creddy6", uid)

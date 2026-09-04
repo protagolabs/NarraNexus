@@ -17,14 +17,14 @@ from narranexus.contracts.agent.stages import CommitContext, Stage
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn.stages import slot_path
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.utils.background_tasks import pending
+from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.utils.background_tasks import pending
 
 
 @pytest.fixture(autouse=True)
 def patch_get_db(monkeypatch, db_client):
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     async def _fake_get_db():
         return db_client
@@ -35,7 +35,7 @@ def patch_get_db(monkeypatch, db_client):
 @pytest.fixture(autouse=True)
 def stub_preparation_steps(monkeypatch):
     """Steps 1/1.5/2/2.5 call helper LLMs; the default Recall is stubbed here (the swapped one is real)."""
-    from xyz_agent_context.agent_runtime import agent_runtime as ar
+    from narranexus.platform.agent_runtime import agent_runtime as ar
 
     async def _fake_step_1(ctx, narrative_service, session_service):
         ctx.narrative_list = []
@@ -63,7 +63,7 @@ def stub_preparation_steps(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def patch_llm_config(monkeypatch):
-    from xyz_agent_context.agent_framework import api_config
+    from narranexus.platform.agent_framework import api_config
 
     class _Configs:
         def __getattr__(self, _name):
@@ -80,7 +80,7 @@ def helper_injection_succeeds(monkeypatch):
     async def _inject(_agent_id, _db):
         return "owner_1"
 
-    monkeypatch.setattr("xyz_agent_context.agent_framework.providers.resolver.inject_owner_helper_credentials", _inject)
+    monkeypatch.setattr("narranexus.platform.agent_framework.providers.resolver.inject_owner_helper_credentials", _inject)
 
 
 @pytest.fixture(autouse=True)
@@ -188,8 +188,8 @@ def test_scenario_2_context_providers_are_selected_by_the_profile_filter():
 
 @pytest.mark.asyncio
 async def test_context_provider_sections_are_ordered_stable_then_volatile_and_isolated():
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema.context_schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema.context_schema import ContextData
 
     class Stable:
         name = "policy"

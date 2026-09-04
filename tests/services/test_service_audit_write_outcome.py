@@ -18,10 +18,10 @@ These tests drive the real repository against a failing db handle.
 
 import pytest
 
-from xyz_agent_context.repository.service_audit_repository import (
+from narranexus.platform.repository.service_audit_repository import (
     ServiceAuditRepository,
 )
-from xyz_agent_context.services.service_audit import ServiceAuditor
+from narranexus.platform.services.service_audit import ServiceAuditor
 
 pytestmark = pytest.mark.asyncio
 

@@ -8,7 +8,7 @@ Layering, enforced by import-linter (see pyproject ``[tool.importlinter]``):
 
     narranexus.contracts   imports nothing from kernel / platform / legacy
     narranexus.kernel      imports contracts only
-    xyz_agent_context.*    may import both (legacy package; migrates in
+    narranexus.platform.*    may import both (legacy package; migrates in
                            later batches of the plugin-platform roadmap)
 
 The package is deliberately tiny in batch 0: the value is the boundary,

@@ -25,10 +25,10 @@ from fastapi import APIRouter, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
+from narranexus.platform.module_system.wechat_module._wechat_credential_manager import (
     WeChatCredentialManager,
 )
-from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
+from narranexus.platform.module_system.wechat_module.wechat_sdk_client import (
     fetch_qrcode,
     poll_qrcode_status,
 )
@@ -62,7 +62,7 @@ class QrPollRequest(AgentRequest):
 
 
 async def _get_db():
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
 
     return await get_db_client()
 
@@ -72,7 +72,7 @@ async def _agent_owner_user_id(agent_id: str) -> str:
     ``get_one("agents", ...)`` — that's the drift #258 exists to end). A
     failed lookup (None) degrades to "" here: this value labels the binding
     row, it is not an authorization decision."""
-    from xyz_agent_context.repository import AgentRepository
+    from narranexus.platform.repository import AgentRepository
 
     db = await _get_db()
     return (await AgentRepository(db).resolve_owner(agent_id)) or ""

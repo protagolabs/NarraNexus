@@ -33,11 +33,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus.platform.module_system.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.schema import ContextData
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 def _module() -> MessageBusModule:

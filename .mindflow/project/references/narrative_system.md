@@ -2,9 +2,9 @@
 doc_type: reference
 last_verified: 2026-04-10
 scope:
-  - src/xyz_agent_context/narrative/
-  - src/xyz_agent_context/narrative/_narrative_impl/
-  - src/xyz_agent_context/narrative/_event_impl/
+  - src/narranexus/platform/narrative/
+  - src/narranexus/platform/narrative/_narrative_impl/
+  - src/narranexus/platform/narrative/_event_impl/
 related_playbooks:
   - ../playbooks/debug_runtime.md
 ---

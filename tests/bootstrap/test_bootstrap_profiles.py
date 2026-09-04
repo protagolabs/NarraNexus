@@ -9,7 +9,7 @@
 
 # Importing the arena service registers the "arena" profile as a side effect.
 import backend.integrations.arena.arena_provisioning_service  # noqa: F401
-from xyz_agent_context.bootstrap.profiles import (
+from narranexus.platform.bootstrap.profiles import (
     BootstrapContext,
     DEFAULT_AUTO_DELETE_AFTER_EVENTS,
     auto_delete_threshold_from_meta,

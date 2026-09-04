@@ -15,7 +15,7 @@ source of truth.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+from narranexus.platform.agent_framework.adapters.claude.prompts import (
     append_reply_reminder,
 )
 

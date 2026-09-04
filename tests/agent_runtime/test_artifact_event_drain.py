@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
 
 
 def _tool_output_event() -> dict:

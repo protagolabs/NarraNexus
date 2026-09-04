@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from xyz_agent_context.module.hook_manager import HookManager
+from narranexus.platform.module_system.hook_manager import HookManager
 
 
 def _module(name: str, persist=None):

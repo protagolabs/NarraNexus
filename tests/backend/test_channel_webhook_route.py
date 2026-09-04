@@ -20,8 +20,8 @@ from backend.routes.channels import generic as generic_mod
 from narranexus.contracts.channel import ChannelDescriptor, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.channel import credential_codec
-from xyz_agent_context.channel.webhook_inbox import WebhookInbox
+from narranexus.platform.channel import credential_codec
+from narranexus.platform.channel.webhook_inbox import WebhookInbox
 
 DESC = ChannelDescriptor(name="wh_route", display_name="WH", transport="webhook", credential_schema=CredentialSchema(fields=(CredentialField("api_token", "secret"),), supports_test=False), has_test=False)
 H = {"X-User-Id": "u1"}
@@ -41,7 +41,7 @@ def client(db_client, monkeypatch, tmp_path: Path):
         return "u1"
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
-    import xyz_agent_context.module  # noqa: F401
+    import narranexus.platform.module_system  # noqa: F401
 
     dispose = KERNEL_REGISTRIES.registry_for("ingress.channels").register_contribution(Contribution("wh_route", lambda: DESC), owner="acme.wh")
     app = FastAPI()

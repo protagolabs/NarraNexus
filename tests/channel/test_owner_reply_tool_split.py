@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pathlib
 
-from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
 
 def test_an_owner_chat_turn_counts_reply_owner_as_speaking():

@@ -30,20 +30,20 @@ import json
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus.platform.module_system.lark_module._lark_credential_manager import (
     AUTH_STATUS_BOT_READY,
     AUTH_STATUS_BRAND_MISMATCH,
     LarkCredential,
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module.lark_trigger import (
+from narranexus.platform.module_system.lark_module.lark_trigger import (
     LarkTrigger,
     _is_brand_mismatch_error,
 )
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_TRANSPORT_DISCONNECTED,
 )
-from xyz_agent_context.repository.channel_trigger_audit_repository import (
+from narranexus.platform.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
 

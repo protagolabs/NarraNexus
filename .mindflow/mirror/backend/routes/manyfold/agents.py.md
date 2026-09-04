@@ -65,7 +65,7 @@ stub: false
 
 ## 2026-08-18 (四改) — import 改指领域包
 
-同 [[auth]]：`apply_agent_profile_change` 改从 `xyz_agent_context.agent_profile`
+同 [[auth]]：`apply_agent_profile_change` 改从 `narranexus.platform.agent_profile`
 导入。另外三改那条注释里「唯一一个既不刷名录也不走事务的写入方」**是假的**，
 第三轮审查用一条 grep 证伪：`bundle/importer.py` 也是，而且它导入时会改名
 （去重后缀/截断/空名兜底）并原样搬运 `instance_awareness` 里的身份记录。注释已
@@ -141,7 +141,7 @@ agent 自己的工具同一套事务。归一化随之内含（事务按构造�
 两点:
 
 1. 四个符号(`AGENT_TEXT_MAX_LENGTH` / `StrippedText` / `normalize_agent_row_text`
-   / `normalize_agent_text`)改从 `xyz_agent_context.schema` 门面引。此前深引
+   / `normalize_agent_text`)改从 `narranexus.platform.schema` 门面引。此前深引
    `entity_schema`,而 mirror md 里给的理由是「成环」—— **假的**:成环只对
    [[api_schema]] 成立(包内,门面反过来导出它的模型);本文件在 `backend/` 下,
    引门面从不成环。当时的真实原因只是 `StrippedText` 没进门面,现在进了。

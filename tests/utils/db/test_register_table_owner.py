@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.contracts.table import ColumnSpec, IndexSpec, TableSpec
-from xyz_agent_context.utils.db import schema_registry as sr
+from narranexus.platform.utils.db import schema_registry as sr
 
 
 @pytest.fixture

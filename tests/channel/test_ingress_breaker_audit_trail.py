@@ -21,17 +21,17 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_INGRESS_BREAKER_CLEARED,
     EVENT_INGRESS_BREAKER_TRIPPED,
     EVENT_INGRESS_DROPPED_BREAKER,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.repository.channel_trigger_audit_repository import (
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 pytestmark = pytest.mark.asyncio
 
@@ -193,7 +193,7 @@ def test_the_verdict_owns_the_event_mapping(transition, admit):
     guarantees the two agree is the source-level check below — a name
     claiming end-to-end coverage it does not have is worse than no name.
     """
-    from xyz_agent_context.channel.ingress_guard import IngressVerdict
+    from narranexus.platform.channel.ingress_guard import IngressVerdict
 
     verdict = IngressVerdict(
         admit=admit,
@@ -225,8 +225,8 @@ def test_neither_call_site_keeps_its_own_copy_of_the_mapping():
     """
     import inspect
 
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-    from xyz_agent_context.module.managed_channel_ingress import (
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.module_system.managed_channel_ingress import (
         ManagedChannelIngress,
     )
 
@@ -267,8 +267,8 @@ async def test_retention_only_sweeps_its_own_channel(db_client):
     only when someone goes looking. The two sweeps beside it in
     `_run_cleanup` are both scoped for exactly this reason.
     """
-    from xyz_agent_context.repository import ChannelIngressBreakerRepository
-    from xyz_agent_context.utils.timezone import utc_now
+    from narranexus.platform.repository import ChannelIngressBreakerRepository
+    from narranexus.platform.utils.timezone import utc_now
     from datetime import timedelta
 
     repo = ChannelIngressBreakerRepository(db_client)
@@ -315,7 +315,7 @@ def test_every_transition_the_guard_produces_maps_to_an_event():
     would hand back a drop event for any unmapped value and this assertion
     would be vacuously true.
     """
-    from xyz_agent_context.channel.ingress_guard import (
+    from narranexus.platform.channel.ingress_guard import (
         INGRESS_TRANSITIONS,
         IngressVerdict,
     )

@@ -15,9 +15,9 @@ import pytest
 from narranexus.contracts.job import JobRunOutcome
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.service_refs import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
-from xyz_agent_context.module.contributions import register_all
-from xyz_agent_context.utils import plugin_services
-from xyz_agent_context.utils.host_hooks import call_host_hook
+from narranexus.platform.module_system.contributions import register_all
+from narranexus.platform.utils import plugin_services
+from narranexus.platform.utils.host_hooks import call_host_hook
 
 CHANNEL_OWNERS = {f"builtin.channels.{c}" for c in ("telegram", "discord", "slack", "wechat", "lark", "narramessenger")}
 
@@ -38,7 +38,7 @@ def test_builtins_expose_their_services_and_release_them_with_the_owner():
 
 
 def test_platform_accessors_resolve_the_builtin_implementations():
-    from xyz_agent_context.module.skill_module import SkillModule
+    from narranexus.platform.module_system.skill_module import SkillModule
 
     assert isinstance(plugin_services.skill_workspace("agent_x", "user_y"), SkillModule)
     assert hasattr(plugin_services.job_instances(object()), "create_job_with_instance")
@@ -47,7 +47,7 @@ def test_platform_accessors_resolve_the_builtin_implementations():
 
 @pytest.mark.asyncio
 async def test_run_once_service_delegates_to_the_job_module(monkeypatch):
-    from xyz_agent_context.module.job_module import run_once as ro
+    from narranexus.platform.module_system.job_module import run_once as ro
 
     monkeypatch.setattr(ro, "run_job_once", AsyncMock(return_value=JobRunOutcome(job_id="j1", ok=True, status="completed")))
     outcome = await plugin_services.try_job_run_once()("a1", "j1")
@@ -72,7 +72,7 @@ async def test_manyfold_run_job_degrades_without_builtin_job(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_user_runnability_event_rearms_jobs_through_the_hook(monkeypatch):
-    from xyz_agent_context.module.job_module import job_recovery
+    from narranexus.platform.module_system.job_module import job_recovery
 
     seen: list[str] = []
     monkeypatch.setattr(job_recovery, "schedule_user_no_quota_rearm", seen.append)
@@ -84,8 +84,8 @@ async def test_user_runnability_event_rearms_jobs_through_the_hook(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_identity_record_events_reach_awareness_with_the_callers_db(monkeypatch):
-    from xyz_agent_context.agent_profile._agent_profile_impl import profile_write
-    from xyz_agent_context.module import awareness_module as aw
+    from narranexus.platform.agent_profile._agent_profile_impl import profile_write
+    from narranexus.platform.module_system import awareness_module as aw
 
     record = AsyncMock(return_value=True)
     reconcile = AsyncMock(return_value=False)
@@ -100,7 +100,7 @@ async def test_identity_record_events_reach_awareness_with_the_callers_db(monkey
 
 @pytest.mark.asyncio
 async def test_identity_events_are_silent_when_awareness_is_disabled(monkeypatch):
-    from xyz_agent_context.agent_profile._agent_profile_impl import profile_write
+    from narranexus.platform.agent_profile._agent_profile_impl import profile_write
 
     regs = _regs()
     regs.remove_owner("builtin.awareness")
@@ -111,8 +111,8 @@ async def test_identity_events_are_silent_when_awareness_is_disabled(monkeypatch
 
 @pytest.mark.asyncio
 async def test_listener_exceptions_propagate_to_the_rename_transaction(monkeypatch):
-    from xyz_agent_context.agent_profile._agent_profile_impl import profile_write
-    from xyz_agent_context.module import awareness_module as aw
+    from narranexus.platform.agent_profile._agent_profile_impl import profile_write
+    from narranexus.platform.module_system import awareness_module as aw
 
     async def boom(*a):
         raise RuntimeError("identity write failed")
@@ -124,7 +124,7 @@ async def test_listener_exceptions_propagate_to_the_rename_transaction(monkeypat
 
 @pytest.mark.asyncio
 async def test_every_channel_answers_the_credential_export_hook(monkeypatch):
-    from xyz_agent_context.module.telegram_module import _telegram_credential_manager as tg
+    from narranexus.platform.module_system.telegram_module import _telegram_credential_manager as tg
 
     class FakeManager:
         def __init__(self, db):
@@ -155,11 +155,11 @@ async def test_every_channel_answers_the_credential_export_hook(monkeypatch):
 
 def test_platform_sources_import_no_builtin():
     from backend.routes.manyfold import sync
-    from xyz_agent_context.agent_profile._agent_profile_impl import profile_write
-    from xyz_agent_context.bundle import importer
+    from narranexus.platform.agent_profile._agent_profile_impl import profile_write
+    from narranexus.platform.bundle import importer
 
     for mod in (sync, profile_write, importer):
         src = inspect.getsource(mod)
-        assert "xyz_agent_context.module." + "awareness_module" not in src
+        assert "narranexus.platform.module_system." + "awareness_module" not in src
         assert "_credential_manager" not in src
         assert "skill_module" + ".skill_module" not in src

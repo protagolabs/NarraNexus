@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.module.data_access.channel_store import (
+from narranexus.platform.module_system.data_access.channel_store import (
     SUPPORTED_CHANNELS,
     _read_method_name,
 )
@@ -23,31 +23,31 @@ _DT = datetime(2026, 8, 11, 3, 4, 5, tzinfo=timezone.utc)
 
 
 def _cases():
-    from xyz_agent_context.module.discord_module._discord_credential_manager import (
+    from narranexus.platform.module_system.discord_module._discord_credential_manager import (
         DiscordCredential,
         _cred_from_raw as discord_from_raw,
     )
-    from xyz_agent_context.module.slack_module._slack_credential_manager import (
+    from narranexus.platform.module_system.slack_module._slack_credential_manager import (
         SlackCredential,
         _cred_from_raw as slack_from_raw,
     )
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
         TelegramCredential,
         _cred_from_raw as telegram_from_raw,
     )
-    from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
+    from narranexus.platform.module_system.wechat_module._wechat_credential_manager import (
         WeChatCredential,
         _cred_from_raw as wechat_from_raw,
     )
-    from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+    from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
         NarramessengerCredential,
         _cred_from_raw as narra_from_raw,
     )
-    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
         LarkCredential,
         _cred_from_raw as lark_from_raw,
     )
-    from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import (
+    from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.binding import (
         _HABindingCred,
         _cred_from_raw as ha_from_raw,
     )

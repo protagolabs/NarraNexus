@@ -27,8 +27,8 @@ import aiohttp
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from xyz_agent_context.module.slack_module import slack_sdk_client as sdk_mod
-from xyz_agent_context.module.slack_module.slack_sdk_client import (
+from narranexus.platform.module_system.slack_module import slack_sdk_client as sdk_mod
+from narranexus.platform.module_system.slack_module.slack_sdk_client import (
     SlackSDKClient,
     SlackSDKError,
 )

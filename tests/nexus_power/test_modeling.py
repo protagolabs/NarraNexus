@@ -10,38 +10,38 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus.platform.agent_framework.nexus_power.contracts.events import Usage
+from narranexus.platform.agent_framework.nexus_power.contracts.model import (
     CachePlan,
     ModelParams,
     ModelRequest,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus.platform.agent_framework.nexus_power.contracts.tooling import ToolResult
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
     estimate_message_tokens,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
     LiteLLMModelClient,
     _extract_usage,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
     output_budget,
     resolve_profile,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     _KNOWN_MODELS,
     get_context_window,
     get_max_output_tokens,
     get_model_meta,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import ModelEvent
+from narranexus.platform.agent_framework.nexus_power.contracts.model import ModelEvent
 
 
 def test_profile_resolution():

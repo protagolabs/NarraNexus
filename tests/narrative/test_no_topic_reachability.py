@@ -39,9 +39,9 @@ from unittest.mock import AsyncMock, create_autospec
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl import _retrieval_llm
-from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
-from xyz_agent_context.narrative.models import NarrativeType
+from narranexus.platform.narrative._narrative_impl import _retrieval_llm
+from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
+from narranexus.platform.narrative.models import NarrativeType
 
 
 def _fake_sdk(monkeypatch, *, category: str, calls: list):
@@ -133,12 +133,12 @@ async def test_retrieval_returns_the_verdict_instead_of_creating(monkeypatch):
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.retrieval.get_db_client",
+        "narranexus.platform.narrative._narrative_impl.retrieval.get_db_client",
         _fake_db,
     )
     # Imported lazily inside the function, so patch it where it lives.
     monkeypatch.setattr(
-        "xyz_agent_context.repository.NarrativeRepository",
+        "narranexus.platform.repository.NarrativeRepository",
         lambda db: SimpleNamespace(get_default_narratives=AsyncMock(return_value=[])),
     )
 
@@ -169,8 +169,8 @@ async def test_create_branch_calls_create_from_query_correctly(monkeypatch):
     """
     from datetime import datetime, timezone
 
-    from xyz_agent_context.narrative.models import Narrative, NarrativeInfo
-    from xyz_agent_context.narrative.narrative_service import NarrativeService
+    from narranexus.platform.narrative.models import Narrative, NarrativeInfo
+    from narranexus.platform.narrative.narrative_service import NarrativeService
 
     now = datetime.now(timezone.utc)
     created = Narrative(

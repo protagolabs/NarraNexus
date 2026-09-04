@@ -25,13 +25,13 @@ class DefaultIngress:
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
         # Steps are looked up on the agent_runtime module (not imported here) so
         # the existing test seams that monkeypatch ``agent_runtime.step_*`` keep working.
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import agent_runtime as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_0_initialize(ctx, s.db_client, s.event_service, s.session_service):
             yield msg
 
-        from xyz_agent_context.agent_framework.api_config import (
+        from narranexus.platform.agent_framework.api_config import (
             LLMResolverError,
             get_agent_owner_runtime_llm_configs,
             set_user_config,
@@ -55,7 +55,7 @@ class DefaultIngress:
                     ctx.event.final_output = error_marker
             except Exception as persist_err:  # noqa: BLE001 — best-effort
                 logger.warning(f"Failed to persist error marker on event {getattr(ctx.event, 'id', '?')}: {persist_err}")
-            from xyz_agent_context.schema import ErrorMessage
+            from narranexus.platform.schema import ErrorMessage
 
             s.aborted = True
             yield ErrorMessage(error_message=str(e), error_type=type(e).__name__)

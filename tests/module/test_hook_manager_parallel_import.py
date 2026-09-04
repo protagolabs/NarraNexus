@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.hook_manager import HookManager
-from xyz_agent_context.schema.context_schema import ContextData
+from narranexus.platform.module_system.hook_manager import HookManager
+from narranexus.platform.schema.context_schema import ContextData
 
 
 class _EchoModule:

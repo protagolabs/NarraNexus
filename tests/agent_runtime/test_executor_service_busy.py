@@ -22,7 +22,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from xyz_agent_context.agent_runtime import executor_service as es
+from narranexus.platform.agent_runtime import executor_service as es
 
 
 @pytest.fixture(autouse=True)
@@ -227,7 +227,7 @@ async def test_the_watch_passthrough_bounds_its_read_gap(monkeypatch):
         url = type("U", (), {"query": ""})()
         headers: dict = {}
 
-    from xyz_agent_context.utils.office_watch import WATCH_PORT_MIN
+    from narranexus.platform.utils.office_watch import WATCH_PORT_MIN
 
     resp = await es.watch_passthrough(WATCH_PORT_MIN, "events", _Req())
 

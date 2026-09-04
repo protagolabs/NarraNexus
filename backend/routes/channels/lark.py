@@ -19,11 +19,11 @@ from pydantic import BaseModel, Field
 
 from loguru import logger
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus.platform.module_system.lark_module._lark_credential_manager import (
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module._lark_service import determine_auth_status
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+from narranexus.platform.module_system.lark_module._lark_service import determine_auth_status
+from narranexus.platform.module_system.lark_module.lark_cli_client import LarkCLIClient
 
 
 # One canonical owner check (backend/routes/_ownership.py); module-level
@@ -59,7 +59,7 @@ class AuthCompleteRequest(BaseModel):
 
 async def _get_db():
     """Get database client via factory (same pattern as other routes)."""
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     return await get_db_client()
 
 
@@ -113,7 +113,7 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
 
     # Update auth status on success
     if result.get("success"):
-        from xyz_agent_context.module.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
+        from narranexus.platform.module_system.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
         await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
 
         # Try to get bot name via bot-info API (bot identity has no "self"

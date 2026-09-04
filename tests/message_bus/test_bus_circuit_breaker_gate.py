@@ -14,8 +14,8 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.agent_framework.loop.circuit_breaker as cb
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+import narranexus.platform.agent_framework.loop.circuit_breaker as cb
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
 
 class _SpyBus:

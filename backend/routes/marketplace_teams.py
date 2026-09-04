@@ -21,7 +21,7 @@ from fastapi.responses import Response
 from loguru import logger
 
 from backend.auth import reject_cross_origin, resolve_current_user_id
-from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
+from narranexus.platform.marketplace.team_marketplace_service import TeamMarketplaceService
 from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 router = APIRouter()
@@ -30,7 +30,7 @@ router = APIRouter()
 def _require_publisher(request: Request) -> None:
     """Cloud: staff role required. Local: loopback-trust, but reject a
     cross-origin (CSRF) POST — same guard as the skill publish endpoint."""
-    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+    from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
     if not is_cloud_mode():
         reject_cross_origin(request)

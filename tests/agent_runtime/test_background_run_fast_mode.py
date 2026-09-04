@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
-import xyz_agent_context.agent_runtime.agent_runtime as agent_runtime_module
-import xyz_agent_context.agent_runtime.background_run as background_run_module
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
+import narranexus.platform.agent_runtime.agent_runtime as agent_runtime_module
+import narranexus.platform.agent_runtime.background_run as background_run_module
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
 
 
 class _FakeRuntime:

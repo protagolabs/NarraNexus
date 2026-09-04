@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
+from narranexus.platform.module_system.telegram_module.telegram_module import TelegramModule
 
 
 @pytest.mark.asyncio
@@ -33,7 +33,7 @@ async def test_cleanup_for_agent_removes_credentials_and_inbox(db_client):
     agent_id = "agent_a"
 
     # Arrange — credential row + telegram inbox + a foreign slack_ inbox
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     await GenericCredentialStore(db_client).upsert(
         "telegram", agent_id, {"bot_token": "encoded", "bot_user_id": "1001", "bot_username": "acme_bot"}, enabled=True

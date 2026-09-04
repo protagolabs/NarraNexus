@@ -11,7 +11,7 @@ from pathlib import Path
 from narranexus.contracts.skill import SkillSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
+from narranexus.platform.module_system.skill_module.skill_module import SkillModule
 
 
 def _skill(dir_: Path, name: str, desc: str) -> Path:
@@ -29,7 +29,7 @@ def _registries(*dirs: Path):
 
 
 def test_plugin_skills_follow_workspace_and_workspace_wins(tmp_path: Path, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     ws = tmp_path / "workspace"
     plugin_dir = tmp_path / "plugin"
@@ -47,7 +47,7 @@ def test_plugin_skills_follow_workspace_and_workspace_wins(tmp_path: Path, monke
 
 
 def test_plugin_skills_listed_even_without_a_workspace(tmp_path: Path, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     plugin_dir = tmp_path / "plugin"
     _skill(plugin_dir / "zeta", "zeta", "plugin zeta")
@@ -58,7 +58,7 @@ def test_plugin_skills_listed_even_without_a_workspace(tmp_path: Path, monkeypat
 
 
 def test_no_plugins_no_change(tmp_path: Path, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     monkeypatch.setattr(pc, "_registries", lambda r=None: Registries())
     module = SkillModule("agent_test", None, None)

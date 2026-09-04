@@ -21,8 +21,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.module.capability_service import CapabilityService
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.module_system.capability_service import CapabilityService
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 

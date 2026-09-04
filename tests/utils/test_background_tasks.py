@@ -26,7 +26,7 @@ import gc
 import pytest
 from loguru import logger
 
-from xyz_agent_context.utils.background_tasks import spawn, pending, drain
+from narranexus.platform.utils.background_tasks import spawn, pending, drain
 
 
 @pytest.fixture
@@ -174,7 +174,7 @@ async def test_a_task_from_a_closed_loop_is_neither_reported_nor_waited_on():
     """
     import threading
 
-    from xyz_agent_context.utils import background_tasks as _bt
+    from narranexus.platform.utils import background_tasks as _bt
 
     box: dict[str, asyncio.Task] = {}
 

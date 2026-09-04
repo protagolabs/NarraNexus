@@ -65,7 +65,7 @@ talking to Slack within ~5 seconds.
   which made owners think the visible ``NarraNexus`` strings were
   fixed.
 - **Manifest YAML is duplicated with the backend.** Backend source of
-  truth is ``src/xyz_agent_context/module/slack_module/slack_module.py``
+  truth is ``src/narranexus/platform/module_system/slack_module/slack_module.py``
   ``SLACK_APP_MANIFEST_YAML``. Hard-coding here avoids one API
   round-trip on every disclosure expand. When Slack adds a scope we
   need, ``grep "files:read" src/ frontend/src`` finds both copies — the

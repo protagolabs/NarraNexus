@@ -41,7 +41,7 @@ from typing import Awaitable, Callable, Dict, List, Set, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ async def _applied_ids(db: "AsyncDatabaseClient") -> Set[str]:
 
 
 async def _record(db: "AsyncDatabaseClient", migration_id: str, stats: Dict) -> None:
-    from xyz_agent_context import __version__
+    from narranexus.platform import __version__
     await db.insert("schema_migrations", {
         "migration_id": migration_id,
         "app_version": __version__,

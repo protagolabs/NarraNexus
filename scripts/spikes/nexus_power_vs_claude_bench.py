@@ -41,8 +41,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/bench.db"
 os.environ["NARRANEXUS_DEPLOYMENT_MODE"] = "local"
 os.environ.setdefault("NEXUS_POWER_INPROCESS", "0")  # exercise the real runner
 
-from xyz_agent_context.agent_framework import get_agent_loop_driver  # noqa: E402
-from xyz_agent_context.agent_framework.api_config import (  # noqa: E402
+from narranexus.platform.agent_framework import get_agent_loop_driver  # noqa: E402
+from narranexus.platform.agent_framework.api_config import (  # noqa: E402
     ClaudeConfig,
     OpenAIConfig,
     set_user_config,

@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.context_runtime.prompts import USER_TEMPORAL_CONTEXT
-from xyz_agent_context.settings import settings
+from narranexus.platform.context_runtime.prompts import USER_TEMPORAL_CONTEXT
+from narranexus.platform.settings import settings
 
 
 def test_user_temporal_context_template_fields():
@@ -53,7 +53,7 @@ def test_user_temporal_context_forbids_mental_date_arithmetic():
 
 @pytest.mark.asyncio
 async def test_build_user_temporal_block_uses_user_timezone(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     # Seed a user row with a specific timezone
     await db_client.insert("users", {
@@ -79,7 +79,7 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
 
 @pytest.mark.asyncio
 async def test_build_user_temporal_block_absent_user_returns_empty(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.db = db_client
@@ -90,7 +90,7 @@ async def test_build_user_temporal_block_absent_user_returns_empty(db_client):
 
 
 async def _seeded_runtime(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     await db_client.insert("users", {
         "user_id": "u_tz_site",
@@ -107,7 +107,7 @@ async def _seeded_runtime(db_client):
 
 
 def _ctx(user_id: str = "u_tz_site"):
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.schema import ContextData
 
     return ContextData(agent_id="agent_tz_site", user_id=user_id, input_content="hi")
 

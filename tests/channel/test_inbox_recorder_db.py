@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import InboxRecorder, im_thread_id
+from narranexus.platform.channel.inbox_recorder import InboxRecorder, im_thread_id
 
 
 async def _record(db, *, original="hello", response="hi back",
@@ -150,7 +150,7 @@ async def test_a_create_that_fails_for_a_real_reason_still_raises(db_client):
     handler would quietly absorb every insert failure and the inbox would lose
     messages with no audit event at all, which is worse than the bug it fixes.
     """
-    from xyz_agent_context.channel.inbox_recorder import InboxRecorder
+    from narranexus.platform.channel.inbox_recorder import InboxRecorder
 
     rec = InboxRecorder("slack", "Slack")
 
@@ -187,7 +187,7 @@ def test_no_call_site_hands_the_silence_sentinel_to_the_recorder():
     """
     import inspect
 
-    from xyz_agent_context.channel import channel_trigger_base
+    from narranexus.platform.channel import channel_trigger_base
 
     src = inspect.getsource(channel_trigger_base)
     for line in src.splitlines():

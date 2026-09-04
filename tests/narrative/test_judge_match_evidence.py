@@ -45,12 +45,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.memory.bm25 import (
+from narranexus.platform.memory.bm25 import (
     bm25_explain,
     bm25_rank,
 )
-from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeInfo,
     NarrativeType,
@@ -188,7 +188,7 @@ def _retrieval_with_stubs(monkeypatch, narratives_by_id):
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.retrieval.get_db_client", _fake_db
+        "narranexus.platform.narrative._narrative_impl.retrieval.get_db_client", _fake_db
     )
 
     class _Repo:
@@ -198,7 +198,7 @@ def _retrieval_with_stubs(monkeypatch, narratives_by_id):
         async def get_default_narratives(self, agent_id, user_id):
             return []
 
-    monkeypatch.setattr("xyz_agent_context.repository.NarrativeRepository", _Repo)
+    monkeypatch.setattr("narranexus.platform.repository.NarrativeRepository", _Repo)
     return retrieval, captured
 
 
@@ -243,7 +243,7 @@ async def test_search_candidates_carry_matched_content(monkeypatch):
 @pytest.mark.asyncio
 async def test_judge_prompt_renders_matched_content(monkeypatch):
     """The end of the wire: the assembled prompt text the helper LLM reads."""
-    from xyz_agent_context.narrative._narrative_impl import _retrieval_llm
+    from narranexus.platform.narrative._narrative_impl import _retrieval_llm
 
     captured: dict = {}
 
@@ -291,7 +291,7 @@ async def test_missing_evidence_alarms_only_for_bm25_sourced_candidates(monkeypa
     block legitimately contains rows that never went through BM25 and owe no
     evidence. An alarm that fires on those gets silenced by whoever reads the
     logs, and then the real regression walks through (incident lesson #3)."""
-    from xyz_agent_context.narrative._narrative_impl import _retrieval_llm
+    from narranexus.platform.narrative._narrative_impl import _retrieval_llm
 
     warnings: list[str] = []
 
@@ -436,7 +436,7 @@ def test_dead_single_match_cluster_no_longer_exists():
     closed loop with no external entry point, and `_prepare_candidates` was a
     THIRD copy of the candidate-labelling logic — still reading topic_hint. A
     dead third copy is where the next drift comes from."""
-    from xyz_agent_context.narrative._narrative_impl import (
+    from narranexus.platform.narrative._narrative_impl import (
         _retrieval_llm,
         prompts,
         retrieval as narrative_retrieval,
@@ -468,14 +468,14 @@ def test_no_narrative_labelling_path_reads_the_frozen_topic_hint():
     `PromptBuilder.build_summary_prompt` was a fifth copy of the labelling
     logic (callerless, and injecting `Topic: {topic_hint}`); it is deleted
     rather than repaired, since a dead copy is where the next drift starts."""
-    from xyz_agent_context.narrative._narrative_impl.prompt_builder import PromptBuilder
+    from narranexus.platform.narrative._narrative_impl.prompt_builder import PromptBuilder
 
     assert not hasattr(PromptBuilder, "build_summary_prompt")
 
     import ast
     import inspect
 
-    from xyz_agent_context.narrative._narrative_impl import (
+    from narranexus.platform.narrative._narrative_impl import (
         prompt_builder,
         retrieval as narrative_retrieval,
     )

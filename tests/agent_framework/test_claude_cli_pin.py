@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.claude import cli_binary
-from xyz_agent_context.agent_framework.adapters.claude.cli_binary import (
+from narranexus.platform.agent_framework.adapters.claude import cli_binary
+from narranexus.platform.agent_framework.adapters.claude.cli_binary import (
     PINNED_CLI_VERSION,
     resolve_cli_path,
 )
@@ -81,7 +81,7 @@ def test_dockerfile_pins_the_same_version():
 
 
 def test_gate_off_uses_bundled(monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", False)
     assert resolve_cli_path() is None
@@ -90,7 +90,7 @@ def test_gate_off_uses_bundled(monkeypatch):
 def test_missing_explicit_path_is_ignored_not_honoured(monkeypatch, tmp_path):
     """A typo'd CLAUDE_CLI_PATH must degrade to the bundled binary. Passing it
     through would surface as CLINotFoundError on every single turn."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", True)
     monkeypatch.setattr(settings, "claude_cli_path", str(tmp_path / "nope"))
@@ -98,7 +98,7 @@ def test_missing_explicit_path_is_ignored_not_honoured(monkeypatch, tmp_path):
 
 
 def test_explicit_path_wins_when_it_exists(monkeypatch, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho 9.9.9\n")
@@ -109,7 +109,7 @@ def test_explicit_path_wins_when_it_exists(monkeypatch, tmp_path):
 
 
 def test_no_claude_on_path_uses_bundled(monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", True)
     monkeypatch.setattr(settings, "claude_cli_path", "")
@@ -120,7 +120,7 @@ def test_no_claude_on_path_uses_bundled(monkeypatch):
 def test_version_mismatch_uses_bundled(monkeypatch, tmp_path):
     """The pin's whole purpose: an unverified version is worse than the
     known-quantity bundled one."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho '1.0.0 (Claude Code)'\n")
@@ -132,7 +132,7 @@ def test_version_mismatch_uses_bundled(monkeypatch, tmp_path):
 
 
 def test_matching_version_is_adopted(monkeypatch, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\necho '{PINNED_CLI_VERSION} (Claude Code)'\n")
@@ -145,7 +145,7 @@ def test_matching_version_is_adopted(monkeypatch, tmp_path):
 
 def test_unreadable_version_uses_bundled(monkeypatch, tmp_path):
     """A binary that exists but cannot report a version is not trustworthy."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho 'no version here'\nexit 0\n")
@@ -158,7 +158,7 @@ def test_unreadable_version_uses_bundled(monkeypatch, tmp_path):
 
 def test_probe_failure_never_raises(monkeypatch, tmp_path):
     """Anything the subprocess call can do — timeout, OSError — is absorbed."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     def _boom(*_a, **_k):
         raise OSError("simulated exec failure")
@@ -173,7 +173,7 @@ def test_probe_failure_never_raises(monkeypatch, tmp_path):
 def test_decision_is_resolved_once(monkeypatch, tmp_path):
     """The probe spawns a subprocess; a hot agent loop must not pay it per
     turn."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\necho '{PINNED_CLI_VERSION}'\n")

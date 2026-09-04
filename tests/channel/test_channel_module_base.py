@@ -12,9 +12,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
-from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
-from xyz_agent_context.schema import ContextData, ModuleConfig, WorkingSource
+from narranexus.platform.channel.channel_module_base import ChannelModuleBase
+from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
+from narranexus.platform.schema import ContextData, ModuleConfig, WorkingSource
 
 
 # ────────────────────────────────────────────────────────────────────

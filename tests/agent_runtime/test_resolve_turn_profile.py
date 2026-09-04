@@ -12,9 +12,9 @@ Locks:
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.agent_runtime import _resolve_turn_profile
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.turn_profile import TurnProfile
+from narranexus.platform.agent_runtime.agent_runtime import _resolve_turn_profile
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.turn_profile import TurnProfile
 
 
 def test_default_resolves_to_none():

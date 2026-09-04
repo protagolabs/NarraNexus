@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.discord_module import _discord_mcp_tools as mcp_mod
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
+from narranexus.platform.module_system.discord_module import _discord_mcp_tools as mcp_mod
+from narranexus.platform.module_system.discord_module._discord_credential_manager import (
     DiscordCredential,
 )
-from xyz_agent_context.module.discord_module._discord_text_sanitizer import (
+from narranexus.platform.module_system.discord_module._discord_text_sanitizer import (
     DISCORD_MESSAGE_LIMIT,
     split_discord_message,
 )
-from xyz_agent_context.module.discord_module.discord_module import _extract_discord_reply
+from narranexus.platform.module_system.discord_module.discord_module import _extract_discord_reply
 
 
 # ── text sanitizer ─────────────────────────────────────────────────────

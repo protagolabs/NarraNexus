@@ -11,8 +11,8 @@ from cryptography.fernet import Fernet
 
 from narranexus.contracts.settings import SettingField, SettingsSchema
 from narranexus.kernel.settings import PluginSettings
-from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import SecretBox
-from xyz_agent_context.utils.db.plugin_settings_store import DbSettingsStore
+from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import SecretBox
+from narranexus.platform.utils.db.plugin_settings_store import DbSettingsStore
 
 SCHEMA = SettingsSchema({"api_key": SettingField("string", secret=True), "retries": SettingField("integer", default=3)})
 
@@ -40,9 +40,9 @@ def test_sync_bridge_from_no_running_loop(tmp_path):
     """PluginSettings (sync) over the DB store when no event loop runs (CLI / boot paths)."""
     import asyncio
 
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     class _Client:
         """Fresh client per call: each asyncio.run() gets its own loop."""

@@ -35,13 +35,13 @@ import os
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.services.team_summary_worker import TeamSummaryWorker
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 

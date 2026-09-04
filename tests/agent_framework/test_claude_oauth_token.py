@@ -23,14 +23,14 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.settings import settings
+from narranexus.platform.agent_framework.api_config import ClaudeConfig
+from narranexus.platform.settings import settings
 
 TOKEN = "sk-ant-oat01-test-token-value"
 
 
 def _card(**kw):
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
 
     base = dict(
         provider_id="p1", user_id="u1", name="Claude Code (OAuth)",
@@ -48,7 +48,7 @@ def _card(**kw):
 
 
 def test_auth_type_enum_has_oauth_token():
-    from xyz_agent_context.schema.provider_schema import AuthType
+    from narranexus.platform.schema.provider_schema import AuthType
 
     assert AuthType.OAUTH_TOKEN.value == "oauth_token"
 
@@ -92,7 +92,7 @@ def test_other_auth_types_blank_oauth_token_env():
 
 
 def test_resolve_cli_alias_keeps_alias_for_oauth_token():
-    from xyz_agent_context.agent_framework.providers.model_catalog import (
+    from narranexus.platform.agent_framework.providers.model_catalog import (
         resolve_cli_alias,
     )
 
@@ -105,7 +105,7 @@ def test_resolve_cli_alias_keeps_alias_for_oauth_token():
 
 
 def test_billing_policy_oauth_token_is_external_oauth():
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_billing_policy,
     )
 
@@ -118,7 +118,7 @@ def test_billing_policy_oauth_token_is_external_oauth():
 
 
 def test_build_claude_config_passes_token_through():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -129,7 +129,7 @@ def test_build_claude_config_passes_token_through():
 
 
 def test_build_cli_helper_config_passes_token_through():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -141,7 +141,7 @@ def test_build_cli_helper_config_passes_token_through():
 
 def test_build_claude_config_oauth_unchanged():
     """The legacy host-CLI oauth path must keep its blank-key contract."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -159,7 +159,7 @@ def test_build_claude_config_oauth_unchanged():
 
 @pytest.mark.asyncio
 async def test_probe_oauth_token_present_is_ok():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -176,7 +176,7 @@ async def test_probe_oauth_missing_auth_ref_detail_is_actionable():
     Test dialog showed "auth_ref is missing or not a claude-cli: reference"
     verbatim). With creation now writing the sentinel this only ever surfaces
     for genuinely corrupt rows, and the cure is recreating the provider."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -195,7 +195,7 @@ async def test_probe_misrouted_card_does_not_advise_removal():
     'remove and re-add Claude Code (OAuth)' there is destructive and wrong;
     the probe must say the card is misconfigured instead (review round 3,
     Minor 1)."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -215,7 +215,7 @@ async def test_probe_misrouted_token_card_gets_source_verdict_not_token_advice()
     free string) misrouted into this driver must get the 'not a Claude
     Code (OAuth) card' verdict, not 'run `claude setup-token`' advice for
     a card that setup-token cannot fix (review round 4, Minor 1)."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -255,7 +255,7 @@ def test_derive_auth_ref_truth_table(source, auth_type, expected):
     (insert, read-time, backfill, codex config builders) now consumes.
     Assertions use `is None`, not falsiness — three call sites depend on
     the None-vs-\"\" distinction (review round 5, Important 2)."""
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_auth_ref,
     )
 
@@ -272,8 +272,8 @@ def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
     sentinel at read time so Test works on them immediately, the same
     read-time philosophy test_provider already applies to the sibling
     driver_type column. Persisting stays the backfill's job."""
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         CLAUDE_CLI_CREDENTIALS_REF,
         CODEX_CLI_CREDENTIALS_REF,
         resolve_claude_credentials_path,
@@ -299,7 +299,7 @@ def test_from_row_does_not_derive_auth_ref_for_non_cli_sources():
     free-string auth_type="oauth") must NOT inherit the claude sentinel —
     that would let a card with no credential of its own verify green
     against the HOST's claude subscription (review round 2, Important 1)."""
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
 
     card = ProviderCard.from_row({
         "provider_id": "p1", "source": "user",
@@ -314,8 +314,8 @@ async def test_from_row_keeps_garbage_auth_ref_verbatim_so_probe_can_reject_it()
     still reach the probe's actionable missing-reference message — proves
     that branch is not dead code after the read-time derivation landed
     (review round 2, Minor 4)."""
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -335,7 +335,7 @@ def test_from_row_does_not_derive_auth_ref_for_token_rows():
     """oauth_token rows carry no credential-file sentinel — the token IS the
     credential. Read-time derivation must not invent one, or token cards
     would walk into the file/Keychain probe branch."""
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
 
     card = ProviderCard.from_row({
         "provider_id": "p1", "source": "claude_oauth",
@@ -347,7 +347,7 @@ def test_from_row_does_not_derive_auth_ref_for_token_rows():
 
 @pytest.mark.asyncio
 async def test_probe_oauth_token_missing_is_not_ok():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus.platform.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
 
@@ -361,7 +361,7 @@ async def test_probe_oauth_token_missing_is_not_ok():
 
 
 def test_resolver_routes_oauth_token_helper_to_cli():
-    from xyz_agent_context.agent_framework.providers.driver.resolver import (
+    from narranexus.platform.agent_framework.providers.driver.resolver import (
         _resolve_slot_target,
     )
 
@@ -409,7 +409,7 @@ class _FakeDB:
 
 
 def _service():
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -487,7 +487,7 @@ async def test_add_claude_oauth_host_cli_row_is_complete_at_insert():
     2026-08-27) — while the codex_oauth and setup-token branches already
     wrote all three fields at insert time.
     """
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         CLAUDE_CLI_CREDENTIALS_REF,
     )
 
@@ -505,7 +505,7 @@ def test_cli_subscription_row_fields_raises_on_out_of_scope_source():
     derive_driver_type happily classifies source='user' as custom_anthropic,
     so a None check alone would let the helper stamp external_oauth billing
     onto a card it must not serve."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _cli_subscription_row_fields,
     )
 
@@ -518,8 +518,8 @@ def test_cli_subscription_row_fields_raises_on_half_wired_source(monkeypatch):
     CLI_SUBSCRIPTION_SOURCES before derive_driver_type grew its branch must
     raise loudly — otherwise _insert_provider would write driver_type=NULL,
     the exact state this helper exists to eliminate."""
-    from xyz_agent_context.agent_framework.providers.driver import derive
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.driver import derive
+    from narranexus.platform.agent_framework.providers.user_service import (
         _cli_subscription_row_fields,
     )
 
@@ -542,7 +542,7 @@ async def test_test_provider_routes_oauth_token_to_live_verify(monkeypatch):
     """The 2026-07-23 incident's probe lied ("logged in ✓") because it only
     checked credential existence. For token rows the credential is in OUR
     hands, so the explicit test button must make a real end-to-end CLI call."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         claude_oauth as claude_oauth_mod,
     )
 
@@ -571,7 +571,7 @@ async def test_test_provider_oauth_also_runs_live_verify(monkeypatch):
     keep a static unconditional pass — which is exactly how expired CLI
     credentials tested green and ProviderReadiness re-armed jobs onto them.
     Host oauth now runs the same live verification as oauth_token."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers import (
+    from narranexus.platform.agent_framework.providers.driver.drivers import (
         claude_oauth as claude_oauth_mod,
     )
 

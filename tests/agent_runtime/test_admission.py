@@ -14,8 +14,8 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.agent_runtime.admission as adm
-from xyz_agent_context.agent_runtime.admission import AgentAdmissionController
+import narranexus.platform.agent_runtime.admission as adm
+from narranexus.platform.agent_runtime.admission import AgentAdmissionController
 
 
 async def _blocks(coro_factory) -> asyncio.Task:
@@ -130,7 +130,7 @@ async def test_reacquire_clears_idle():
 
 def test_cloud_defaults(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.get_deployment_mode", lambda: "cloud"
+        "narranexus.platform.utils.deployment_mode.get_deployment_mode", lambda: "cloud"
     )
     for k in ("MAX_CONCURRENT_USERS", "MAX_LOOPS_PER_USER", "MAX_CONCURRENT_LOOPS", "MIN_FREE_MEM_MB"):
         monkeypatch.delenv(k, raising=False)

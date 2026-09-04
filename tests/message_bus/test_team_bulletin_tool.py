@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.team_bulletin import (
+from narranexus.platform.message_bus.team_bulletin import (
     post_team_bulletin,
     remove_team_bulletin,
 )
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
 
@@ -180,7 +180,7 @@ def test_the_tools_take_no_team_argument():
     in — the thing this design removes rather than validates."""
     import inspect
 
-    from xyz_agent_context.module.message_bus_module import _message_bus_mcp_tools as m
+    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools as m
 
     src = inspect.getsource(m)
     pin = src[src.index("async def team_pin_rule(") :]
@@ -191,7 +191,7 @@ def test_the_tools_take_no_team_argument():
 
 def test_the_agent_is_told_the_tool_exists():
     """A tool the prompt never mentions is a tool that never gets used."""
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     prompt = MessageBusTrigger(bus=None)._build_team_prompt(
         "agent_b",
@@ -210,7 +210,7 @@ def test_the_agent_is_told_the_tool_exists():
 def test_the_prompt_discourages_using_the_bulletin_as_a_notepad():
     """The budget is small and shared with the user's rules; an agent that
     pins findings crowds out the rules it is meant to obey."""
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     prompt = MessageBusTrigger(bus=None)._build_team_prompt(
         "agent_b",

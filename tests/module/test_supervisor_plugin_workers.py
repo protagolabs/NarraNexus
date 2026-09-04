@@ -11,13 +11,13 @@ import asyncio
 from narranexus.contracts.worker import WorkerSpec as ContractWorkerSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module import run_worker_supervisor as sup
+from narranexus.platform.module_system import run_worker_supervisor as sup
 
 
 def _registries(*specs):
     # Builtin triggers (the "jobs" worker) are registry contributions too, so a
     # realistic process registry carries them before any plugin worker.
-    from xyz_agent_context.module.contributions import register_all
+    from narranexus.platform.module_system.contributions import register_all
 
     registries = Registries()
     register_all(registries)

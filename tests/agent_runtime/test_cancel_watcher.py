@@ -21,9 +21,9 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.agent_runtime.cancel_watcher import CancelWatcher
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.agent_runtime.cancel_watcher import CancelWatcher
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.utils.timezone import utc_now
 
 
 async def _seed_run(db, event_id: str, *, started_at, cancel_requested_at=None):

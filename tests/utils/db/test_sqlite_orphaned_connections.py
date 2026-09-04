@@ -45,8 +45,8 @@ import threading
 import aiosqlite
 import pytest
 
-from xyz_agent_context.utils.db import db_backend_sqlite, db_factory
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db import db_backend_sqlite, db_factory
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
 
 
 def _live_threads() -> set[str]:
@@ -254,7 +254,7 @@ async def test_evicting_a_closed_loops_client_closes_its_connection(monkeypatch,
     the last reference, so whatever it drops without closing is orphaned by
     definition.
     """
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(
         settings, "database_url", f"sqlite:///{tmp_path / 'evict.db'}"

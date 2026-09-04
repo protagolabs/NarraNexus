@@ -22,15 +22,15 @@ import json
 
 import pytest
 
-from xyz_agent_context.channel.credential_store import GenericCredentialStore
+from narranexus.platform.channel.credential_store import GenericCredentialStore
 
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from xyz_agent_context.module.telegram_module.telegram_trigger import (
+from narranexus.platform.module_system.telegram_module.telegram_trigger import (
     TelegramTrigger,
 )
-from xyz_agent_context.schema.parsed_message import ChatType
+from narranexus.platform.schema.parsed_message import ChatType
 
 
 def _cred(bot_user_id: str = "1001", bot_username: str = "acme_bot") -> TelegramCredential:
@@ -313,7 +313,7 @@ def _cred_pending(owner_username: str = "ctong201") -> TelegramCredential:
 def _make_parsed(raw: dict, sender_id: str = "8612707834"):
     """Helper — produce ParsedMessage with .raw + .sender_id matching
     what TelegramTrigger.parse_event would emit."""
-    from xyz_agent_context.schema.parsed_message import ParsedMessage, MessageContentType, ChatType
+    from narranexus.platform.schema.parsed_message import ParsedMessage, MessageContentType, ChatType
     return ParsedMessage(
         message_id="7",
         chat_id="8612707834",
@@ -334,7 +334,7 @@ async def test_late_owner_resolution_fires_on_username_match(
     """First DM whose from.username matches the stored owner_username
     should populate owner_user_id + owner_name. This is the Telegram-
     specific equivalent of Slack's bind-time users.lookupByEmail."""
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
         TelegramCredentialManager,
     )
 
@@ -378,7 +378,7 @@ async def test_late_owner_resolution_ignores_username_mismatch(
     """SECURITY: a stranger DM'ing the bot first must NOT be able to
     claim owner. owner_username is the lock; only matching usernames
     unlock."""
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
         TelegramCredentialManager,
     )
 
@@ -413,7 +413,7 @@ async def test_late_owner_resolution_ignores_username_mismatch(
 async def test_late_owner_resolution_case_insensitive(db_client):
     """Telegram usernames are case-preserving but case-insensitive at
     match time (@CTONG201 == @ctong201). The lock must match the same way."""
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
         TelegramCredentialManager,
     )
 
@@ -444,7 +444,7 @@ async def test_late_owner_resolution_skips_when_no_owner_username(db_client):
     """If owner_username wasn't set at bind, there's no lock — late
     resolution must not fire, otherwise first-DM-wins becomes the
     de-facto policy (security regression)."""
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
         TelegramCredentialManager,
     )
 
@@ -597,7 +597,7 @@ async def test_processing_indicator_falls_back_when_no_cached_client(
     """If `_sdk_clients` doesn't have a client for this credential
     (corner cases: tests, subscriber not yet spawned), the indicator
     MUST still fire — it just creates a short-lived client."""
-    from xyz_agent_context.module.telegram_module import telegram_trigger as tt_mod
+    from narranexus.platform.module_system.telegram_module import telegram_trigger as tt_mod
 
     stub = _StubTelegramClient()
     monkeypatch.setattr(tt_mod, "TelegramSDKClient", lambda _t: stub)

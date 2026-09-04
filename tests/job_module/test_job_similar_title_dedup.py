@@ -18,7 +18,7 @@ title could block yours. The contract now:
 """
 import pytest
 
-from xyz_agent_context.module.job_module.job_service import JobInstanceService
+from narranexus.platform.module_system.job_module.job_service import JobInstanceService
 
 BASE = dict(
     description="d",

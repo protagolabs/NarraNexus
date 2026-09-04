@@ -34,11 +34,11 @@ from typing import Any
 import pytest
 
 from tests.voice_sim.hybrid_sim import LIVE_KEY, build_voice_content
-from xyz_agent_context.module.narramessenger_module import matrix_trigger as mt
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.module_system.narramessenger_module import matrix_trigger as mt
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 HOMESERVER = "matrix.netmind.chat"
 AGENT_MXID = f"@agent-sim:{HOMESERVER}"
@@ -148,7 +148,7 @@ def harness(monkeypatch):
 
 
 def _install_runtime(monkeypatch, runtime: ScriptedRuntime):
-    import xyz_agent_context.agent_runtime.client as client_mod
+    import narranexus.platform.agent_runtime.client as client_mod
 
     monkeypatch.setattr(client_mod, "get_agent_runtime_client", lambda: runtime)
 

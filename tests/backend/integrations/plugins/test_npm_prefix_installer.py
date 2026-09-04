@@ -50,7 +50,7 @@ def plugin_home(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_install_invokes_npm_with_prefix_and_pinned_requirement(plugin_home, monkeypatch):
-    from xyz_agent_context.agent_framework.plugin_paths import node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import node_prefix
 
     captured_cmd: list[str] = []
 
@@ -78,7 +78,7 @@ async def test_install_invokes_npm_with_prefix_and_pinned_requirement(plugin_hom
 
 
 def test_detect_reports_not_installed_when_binary_absent(plugin_home):
-    from xyz_agent_context.agent_framework.plugin_paths import node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import node_prefix
 
     installer = NpmPrefixInstaller()
     component = InstallComponent(kind="npm", requirement="@anthropic-ai/claude-code@2.1.220")
@@ -89,7 +89,7 @@ def test_detect_reports_not_installed_when_binary_absent(plugin_home):
 
 
 def test_detect_reports_update_available_when_cli_reports_older_version(plugin_home, monkeypatch):
-    from xyz_agent_context.agent_framework.plugin_paths import claude_cli_path, node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import claude_cli_path, node_prefix
 
     cli_path = claude_cli_path()
     cli_path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,7 +113,7 @@ def test_detect_reports_update_available_when_cli_reports_older_version(plugin_h
 
 
 def test_detect_reports_no_update_when_cli_version_matches_pin(plugin_home, monkeypatch):
-    from xyz_agent_context.agent_framework.plugin_paths import claude_cli_path, node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import claude_cli_path, node_prefix
 
     cli_path = claude_cli_path()
     cli_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +141,7 @@ def test_detect_reports_installed_with_unknown_version_when_probe_output_unreada
     unreadable binary is not "not installed"), with version=None. Revert to
     the old "installed follows version-readable" semantics and this goes
     red."""
-    from xyz_agent_context.agent_framework.plugin_paths import claude_cli_path, node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import claude_cli_path, node_prefix
 
     cli_path = claude_cli_path()
     cli_path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,7 +172,7 @@ async def test_uninstall_removes_only_the_package_not_the_whole_prefix(plugin_ho
     node_prefix tree — otherwise a future second npm plugin in the same prefix
     would be collateral damage. Delete the precise-uninstall change and this
     goes red (it would rmtree instead of shelling npm)."""
-    from xyz_agent_context.agent_framework.plugin_paths import node_prefix
+    from narranexus.platform.agent_framework.plugin_paths import node_prefix
 
     captured_cmd: list[str] = []
 

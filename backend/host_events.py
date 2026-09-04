@@ -18,7 +18,7 @@ from loguru import logger
 
 async def emit_host_event(event: str, /, **payload: Any) -> Any:
     """Call every implementation of host ``event``; never raises (a listener's failure is logged by the caller)."""
-    from xyz_agent_context.utils.host_hooks import call_host_hook
+    from narranexus.platform.utils.host_hooks import call_host_hook
 
     try:
         return await call_host_hook(event, **payload)

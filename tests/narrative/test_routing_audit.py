@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.memory.bm25 import bm25_rank
-from xyz_agent_context.narrative.models import RoutingAudit, RoutingCandidate
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.memory.bm25 import bm25_rank
+from narranexus.platform.narrative.models import RoutingAudit, RoutingCandidate
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
     text_hash,
 )
@@ -166,10 +166,10 @@ def test_record_pool_captures_participants_not_in_the_bm25_pool():
     """
     from datetime import datetime, timezone
 
-    from xyz_agent_context.narrative.models import (
+    from narranexus.platform.narrative.models import (
         Narrative, NarrativeInfo, NarrativeSearchResult, NarrativeType,
     )
-    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
+    from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
 
     now = datetime.now(timezone.utc)
     invited = Narrative(

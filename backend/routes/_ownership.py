@@ -39,8 +39,8 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 # Deny reasons — the ONE decision both public surfaces map from. A failed
 # LOOKUP is not a reason either surface renders as prose: _deny_reason raises

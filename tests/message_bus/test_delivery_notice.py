@@ -22,13 +22,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.message_bus.delivery_notice import (
+from narranexus.platform.message_bus.delivery_notice import (
     DELIVERY_FAILED_MSG_TYPE,
     UNDELIVERED_MSG_TYPE,
     announce_delivery_failure,
     announce_undelivered,
 )
-from xyz_agent_context.message_bus.system_messages import (
+from narranexus.platform.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
     trigger_label,
 )

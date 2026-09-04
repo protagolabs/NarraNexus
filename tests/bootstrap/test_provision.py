@@ -15,7 +15,7 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.bootstrap.provision as prov
+import narranexus.platform.bootstrap.provision as prov
 
 
 class _Spy:
@@ -62,18 +62,18 @@ def wired(monkeypatch):
 
     monkeypatch.setattr(prov, "AgentRepository", FakeAgentRepo)
     monkeypatch.setattr(
-        "xyz_agent_context.module._module_impl.instance_factory.InstanceFactory",
+        "narranexus.platform.module_system._module_impl.instance_factory.InstanceFactory",
         FakeInstanceFactory,
     )
     monkeypatch.setattr(prov, "sync_agent_discovery", fake_sync)
     monkeypatch.setattr(
-        "xyz_agent_context.bootstrap.profiles.apply_bootstrap", fake_apply_bootstrap
+        "narranexus.platform.bootstrap.profiles.apply_bootstrap", fake_apply_bootstrap
     )
     monkeypatch.setattr(
-        "xyz_agent_context.bootstrap.profiles.get_profile", fake_get_profile
+        "narranexus.platform.bootstrap.profiles.get_profile", fake_get_profile
     )
     monkeypatch.setattr(
-        "xyz_agent_context.marketplace.skill_marketplace_service.SkillMarketplaceService",
+        "narranexus.platform.marketplace.skill_marketplace_service.SkillMarketplaceService",
         FakeSkillSvc,
     )
     return spy
@@ -114,7 +114,7 @@ def test_best_effort_steps_swallow_and_warn(wired, monkeypatch):
             raise RuntimeError("factory down")
 
     monkeypatch.setattr(
-        "xyz_agent_context.module._module_impl.instance_factory.InstanceFactory", Boom
+        "narranexus.platform.module_system._module_impl.instance_factory.InstanceFactory", Boom
     )
     res = asyncio.run(_run(wired))
     assert any("instance_factory" in w for w in res.warnings)

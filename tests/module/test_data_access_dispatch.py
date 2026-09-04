@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from narranexus.contracts.data_access import DataAccessSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module.contributions import DATA_ACCESS_SLOT, register_all
-from xyz_agent_context.module.data_access import store as st
+from narranexus.platform.module_system.contributions import DATA_ACCESS_SLOT, register_all
+from narranexus.platform.module_system.data_access import store as st
 
 PLATFORM_METHODS = {"remember", "grep_memory", "memory_retain"}  # memory engine is platform, not a builtin
 
@@ -108,9 +108,9 @@ def test_provider_exception_is_wrapped_never_raised():
 
 def test_store_no_longer_imports_builtin_modules():
     src = inspect.getsource(st)
-    assert "xyz_agent_context.module." + "job_module" not in src
-    assert "xyz_agent_context.module." + "social_network_module" not in src
-    assert "xyz_agent_context.module." + "chat_module" not in src
+    assert "narranexus.platform.module_system." + "job_module" not in src
+    assert "narranexus.platform.module_system." + "social_network_module" not in src
+    assert "narranexus.platform.module_system." + "chat_module" not in src
 
 
 # ---- twin routes travel with their plugins

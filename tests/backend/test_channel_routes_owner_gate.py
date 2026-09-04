@@ -34,7 +34,7 @@ def client(monkeypatch):
         return {"agent_mine": "u1", "agent_theirs": "u2"}.get(agent_id, "")
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
-    import xyz_agent_context.module  # noqa: F401 — registers the builtin channel descriptors
+    import narranexus.platform.module_system  # noqa: F401 — registers the builtin channel descriptors
 
     app = FastAPI()
 

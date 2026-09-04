@@ -86,7 +86,7 @@ dependencies = [
 # Optional coding-agent framework SDKs. On the lightweight LOCAL build
 # (`bash run.sh` + the desktop DMG) these are NOT installed — the user installs
 # them on demand from Settings → Plugins, into ~/.narranexus/plugins (see
-# src/xyz_agent_context/agent_framework/plugin_paths.py and
+# src/narranexus/platform/agent_framework/plugin_paths.py and
 # backend/integrations/plugins/). `claude-agent-sdk` also carries the ~186 MB
 # bundled `claude` CLI, so keeping BOTH out of the base install is the bulk of
 # the local slim-down.
@@ -182,7 +182,7 @@ ignore = [
 # change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
 
 [tool.ruff.lint.isort]
-known-first-party = ["xyz_agent_context", "backend"]
+known-first-party = ["narranexus", "backend"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -202,13 +202,13 @@ root_packages = ["narranexus", "xyz_agent_context", "backend"]
 name = "contracts is a leaf: no kernel, no legacy, no backend"
 type = "forbidden"
 source_modules = ["narranexus.contracts"]
-forbidden_modules = ["narranexus.kernel", "xyz_agent_context", "backend"]
+forbidden_modules = ["narranexus.kernel", "narranexus.platform", "xyz_agent_context", "backend"]
 
 [[tool.importlinter.contracts]]
-name = "kernel never imports the legacy package or backend"
+name = "kernel never imports the platform, the legacy alias or backend"
 type = "forbidden"
 source_modules = ["narranexus.kernel"]
-forbidden_modules = ["xyz_agent_context", "backend"]
+forbidden_modules = ["narranexus.platform", "xyz_agent_context", "backend"]
 
 [[tool.importlinter.contracts]]
 name = "narranexus layers: kernel above contracts"
@@ -227,102 +227,102 @@ type = "forbidden"
 source_modules = [
     "narranexus",
     "backend",
-    "xyz_agent_context.agent_framework",
-    "xyz_agent_context.agent_profile",
-    "xyz_agent_context.agent_runtime",
-    "xyz_agent_context.analytics",
-    "xyz_agent_context.artifact",
-    "xyz_agent_context.bootstrap",
-    "xyz_agent_context.bundle",
-    "xyz_agent_context.channel",
-    "xyz_agent_context.context_runtime",
-    "xyz_agent_context.integrations",
-    "xyz_agent_context.marketplace",
-    "xyz_agent_context.memory",
-    "xyz_agent_context.message_bus",
-    "xyz_agent_context.migration",
-    "xyz_agent_context.narrative",
-    "xyz_agent_context.prompts_index",
-    "xyz_agent_context.repository",
-    "xyz_agent_context.schema",
-    "xyz_agent_context.services",
-    "xyz_agent_context.settings",
-    "xyz_agent_context.utils",
-    "xyz_agent_context.module._mcp_identity",
-    "xyz_agent_context.module._module_impl",
-    "xyz_agent_context.module.registry",
-    "xyz_agent_context.module.base",
-    "xyz_agent_context.module.capability_service",
-    "xyz_agent_context.module.channel_trigger_map",
-    "xyz_agent_context.module.contributions",
-    "xyz_agent_context.module.data_access",
-    "xyz_agent_context.module.hook_manager",
-    "xyz_agent_context.module.identity",
-    "xyz_agent_context.module.managed_channel_ingress",
-    "xyz_agent_context.module.module_runner",
-    "xyz_agent_context.module.module_service",
-    "xyz_agent_context.module.plugins_boot",
-    "xyz_agent_context.module.run_channel_triggers",
-    "xyz_agent_context.module.run_worker_supervisor",
+    "narranexus.platform.agent_framework",
+    "narranexus.platform.agent_profile",
+    "narranexus.platform.agent_runtime",
+    "narranexus.platform.analytics",
+    "narranexus.platform.artifact",
+    "narranexus.platform.bootstrap",
+    "narranexus.platform.bundle",
+    "narranexus.platform.channel",
+    "narranexus.platform.context_runtime",
+    "narranexus.platform.integrations",
+    "narranexus.platform.marketplace",
+    "narranexus.platform.memory",
+    "narranexus.platform.message_bus",
+    "narranexus.platform.migration",
+    "narranexus.platform.narrative",
+    "narranexus.platform.prompts_index",
+    "narranexus.platform.repository",
+    "narranexus.platform.schema",
+    "narranexus.platform.services",
+    "narranexus.platform.settings",
+    "narranexus.platform.utils",
+    "narranexus.platform.module_system._mcp_identity",
+    "narranexus.platform.module_system._module_impl",
+    "narranexus.platform.module_system.registry",
+    "narranexus.platform.module_system.base",
+    "narranexus.platform.module_system.capability_service",
+    "narranexus.platform.module_system.channel_trigger_map",
+    "narranexus.platform.module_system.contributions",
+    "narranexus.platform.module_system.data_access",
+    "narranexus.platform.module_system.hook_manager",
+    "narranexus.platform.module_system.identity",
+    "narranexus.platform.module_system.managed_channel_ingress",
+    "narranexus.platform.module_system.module_runner",
+    "narranexus.platform.module_system.module_service",
+    "narranexus.platform.module_system.plugins_boot",
+    "narranexus.platform.module_system.run_channel_triggers",
+    "narranexus.platform.module_system.run_worker_supervisor",
 ]
 forbidden_modules = [
-    "xyz_agent_context.module.awareness_module",
-    "xyz_agent_context.module.basic_info_module",
-    "xyz_agent_context.module.chat_module",
-    "xyz_agent_context.module.common_tools_module",
-    "xyz_agent_context.module.discord_module",
-    "xyz_agent_context.module.general_memory_module",
-    "xyz_agent_context.module.home_assistant_module",
-    "xyz_agent_context.module.job_module",
-    "xyz_agent_context.module.lark_module",
-    "xyz_agent_context.module.message_bus_module",
-    "xyz_agent_context.module.narramessenger_module",
-    "xyz_agent_context.module.nexus_plugins_module",
-    "xyz_agent_context.module.skill_module",
-    "xyz_agent_context.module.slack_module",
-    "xyz_agent_context.module.social_network_module",
-    "xyz_agent_context.module.telegram_module",
-    "xyz_agent_context.module.wechat_module",
+    "narranexus.platform.module_system.awareness_module",
+    "narranexus.platform.module_system.basic_info_module",
+    "narranexus.platform.module_system.chat_module",
+    "narranexus.platform.module_system.common_tools_module",
+    "narranexus.platform.module_system.discord_module",
+    "narranexus.platform.module_system.general_memory_module",
+    "narranexus.platform.module_system.home_assistant_module",
+    "narranexus.platform.module_system.job_module",
+    "narranexus.platform.module_system.lark_module",
+    "narranexus.platform.module_system.message_bus_module",
+    "narranexus.platform.module_system.narramessenger_module",
+    "narranexus.platform.module_system.nexus_plugins_module",
+    "narranexus.platform.module_system.skill_module",
+    "narranexus.platform.module_system.slack_module",
+    "narranexus.platform.module_system.social_network_module",
+    "narranexus.platform.module_system.telegram_module",
+    "narranexus.platform.module_system.wechat_module",
 ]
 unmatched_ignore_imports_alerting = "none"
 ignore_imports = [
     # builtin.channels.* routers
-    "backend.routes.channels.lark -> xyz_agent_context.module.lark_module.**",
-    "backend.routes.channels.lark -> xyz_agent_context.module.lark_module",
-    "backend.routes.channels.slack -> xyz_agent_context.module.slack_module.**",
-    "backend.routes.channels.slack -> xyz_agent_context.module.slack_module",
-    "backend.routes.channels.telegram -> xyz_agent_context.module.telegram_module.**",
-    "backend.routes.channels.telegram -> xyz_agent_context.module.telegram_module",
-    "backend.routes.channels.wechat -> xyz_agent_context.module.wechat_module.**",
-    "backend.routes.channels.wechat -> xyz_agent_context.module.wechat_module",
-    "backend.routes.channels.narramessenger -> xyz_agent_context.module.narramessenger_module.**",
-    "backend.routes.channels.narramessenger -> xyz_agent_context.module.narramessenger_module",
-    "backend.routes.channels.discord -> xyz_agent_context.module.discord_module.**",
-    "backend.routes.channels.discord -> xyz_agent_context.module.discord_module",
+    "backend.routes.channels.lark -> narranexus.platform.module_system.lark_module.**",
+    "backend.routes.channels.lark -> narranexus.platform.module_system.lark_module",
+    "backend.routes.channels.slack -> narranexus.platform.module_system.slack_module.**",
+    "backend.routes.channels.slack -> narranexus.platform.module_system.slack_module",
+    "backend.routes.channels.telegram -> narranexus.platform.module_system.telegram_module.**",
+    "backend.routes.channels.telegram -> narranexus.platform.module_system.telegram_module",
+    "backend.routes.channels.wechat -> narranexus.platform.module_system.wechat_module.**",
+    "backend.routes.channels.wechat -> narranexus.platform.module_system.wechat_module",
+    "backend.routes.channels.narramessenger -> narranexus.platform.module_system.narramessenger_module.**",
+    "backend.routes.channels.narramessenger -> narranexus.platform.module_system.narramessenger_module",
+    "backend.routes.channels.discord -> narranexus.platform.module_system.discord_module.**",
+    "backend.routes.channels.discord -> narranexus.platform.module_system.discord_module",
     # builtin.job routers
-    "backend.routes.jobs -> xyz_agent_context.module.job_module.**",
-    "backend.routes.jobs -> xyz_agent_context.module.job_module",
-    "backend.routes.agents.jobs -> xyz_agent_context.module.job_module.**",
-    "backend.routes.agents.jobs -> xyz_agent_context.module.job_module",
-    "backend.routes.dashboard.jobs -> xyz_agent_context.module.job_module.**",
-    "backend.routes.dashboard.jobs -> xyz_agent_context.module.job_module",
+    "backend.routes.jobs -> narranexus.platform.module_system.job_module.**",
+    "backend.routes.jobs -> narranexus.platform.module_system.job_module",
+    "backend.routes.agents.jobs -> narranexus.platform.module_system.job_module.**",
+    "backend.routes.agents.jobs -> narranexus.platform.module_system.job_module",
+    "backend.routes.dashboard.jobs -> narranexus.platform.module_system.job_module.**",
+    "backend.routes.dashboard.jobs -> narranexus.platform.module_system.job_module",
     # builtin.skills / builtin.home_assistant routers
-    "backend.routes.skills -> xyz_agent_context.module.skill_module.**",
-    "backend.routes.skills -> xyz_agent_context.module.skill_module",
-    "backend.routes.home_assistant -> xyz_agent_context.module.home_assistant_module.**",
-    "backend.routes.home_assistant -> xyz_agent_context.module.home_assistant_module",
+    "backend.routes.skills -> narranexus.platform.module_system.skill_module.**",
+    "backend.routes.skills -> narranexus.platform.module_system.skill_module",
+    "backend.routes.home_assistant -> narranexus.platform.module_system.home_assistant_module.**",
+    "backend.routes.home_assistant -> narranexus.platform.module_system.home_assistant_module",
     # data-access twins
-    "backend.routes.agents.awareness -> xyz_agent_context.module.awareness_module.**",
-    "backend.routes.agents.awareness -> xyz_agent_context.module.awareness_module",
-    "backend.routes.agents.profile -> xyz_agent_context.module.awareness_module.**",
-    "backend.routes.agents.profile -> xyz_agent_context.module.awareness_module",
-    "backend.routes.agents.social_network -> xyz_agent_context.module.social_network_module.**",
-    "backend.routes.agents.social_network -> xyz_agent_context.module.social_network_module",
-    "backend.routes.agents.narrative -> xyz_agent_context.module.basic_info_module.**",
-    "backend.routes.agents.narrative -> xyz_agent_context.module.basic_info_module",
-    "backend.routes.agents.chat_history -> xyz_agent_context.module.chat_module.**",
-    "backend.routes.agents.chat_history -> xyz_agent_context.module.chat_module",
+    "backend.routes.agents.awareness -> narranexus.platform.module_system.awareness_module.**",
+    "backend.routes.agents.awareness -> narranexus.platform.module_system.awareness_module",
+    "backend.routes.agents.profile -> narranexus.platform.module_system.awareness_module.**",
+    "backend.routes.agents.profile -> narranexus.platform.module_system.awareness_module",
+    "backend.routes.agents.social_network -> narranexus.platform.module_system.social_network_module.**",
+    "backend.routes.agents.social_network -> narranexus.platform.module_system.social_network_module",
+    "backend.routes.agents.narrative -> narranexus.platform.module_system.basic_info_module.**",
+    "backend.routes.agents.narrative -> narranexus.platform.module_system.basic_info_module",
+    "backend.routes.agents.chat_history -> narranexus.platform.module_system.chat_module.**",
+    "backend.routes.agents.chat_history -> narranexus.platform.module_system.chat_module",
     # the plugin factory drives the PROTECTED self-extension module (part of the distribution)
-    "backend.plugins_factory.service -> xyz_agent_context.module.nexus_plugins_module.**",
-    "backend.plugins_factory.service -> xyz_agent_context.module.nexus_plugins_module",
+    "backend.plugins_factory.service -> narranexus.platform.module_system.nexus_plugins_module.**",
+    "backend.plugins_factory.service -> narranexus.platform.module_system.nexus_plugins_module",
 ]

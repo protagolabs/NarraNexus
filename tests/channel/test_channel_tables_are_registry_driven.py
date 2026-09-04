@@ -26,16 +26,16 @@ PLUGIN = ChannelDescriptor(
 
 @pytest.fixture
 def plugin_channel():
-    import xyz_agent_context.module  # noqa: F401
+    import narranexus.platform.module_system  # noqa: F401
 
-    from xyz_agent_context.schema.hook_schema import WorkingSource
+    from narranexus.platform.schema.hook_schema import WorkingSource
 
     WorkingSource.register("acme_chat")
     dispose = KERNEL_REGISTRIES.registry_for("ingress.channels").register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
     # the plugin's module declares its agent-level instance (batch 5b)
     from tests.plugins.hello_channel.backend import HelloChannelModule
-    from xyz_agent_context.module.contributions import MODULES_SLOT
-    from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleConfig
+    from narranexus.platform.module_system.contributions import MODULES_SLOT
+    from narranexus.platform.schema.module_schema import ModuleAgentInstance, ModuleConfig
 
     class AcmeChatModule(HelloChannelModule):
         @staticmethod
@@ -50,7 +50,7 @@ def plugin_channel():
 
 @pytest.mark.asyncio
 async def test_agent_level_channel_instances_come_from_descriptor_meta(db_client, plugin_channel):
-    from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+    from narranexus.platform.module_system._module_impl.instance_factory import InstanceFactory
 
     factory = InstanceFactory(db_client)
     instances = await factory.create_agent_level_instances("agent_x")
@@ -87,7 +87,7 @@ def test_dashboard_kind_and_session_kind_follow_the_registry(plugin_channel):
 
 def test_contact_keys_and_manyfold_order_follow_the_registry(plugin_channel):
     from backend.routes.manyfold.sync import _provider_rank
-    from xyz_agent_context.channel.channel_contact_utils import contact_channel_keys, normalize_contact_info
+    from narranexus.platform.channel.channel_contact_utils import contact_channel_keys, normalize_contact_info
 
     keys = contact_channel_keys()
     assert {"slack", "telegram", "discord", "matrix", "acme_chat", "acme_handle"} <= keys

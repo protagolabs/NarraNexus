@@ -4,7 +4,7 @@
 @date: 2026-09-03
 @description: The agent-loop event-dict contract (what every AgentLoopDriver yields).
 
-Moved verbatim from ``xyz_agent_context.agent_framework.loop.events`` in
+Moved verbatim from ``narranexus.platform.agent_framework.loop.events`` in
 batch 1 of the plugin platform; that module is gone and every producer and
 consumer imports from here.
 

@@ -19,13 +19,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 HOMESERVER = "matrix.netmind.chat"

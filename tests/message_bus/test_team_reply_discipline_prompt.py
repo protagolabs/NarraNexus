@@ -20,8 +20,8 @@ only stops the two contradictory instructions from creeping back.
 """
 from __future__ import annotations
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 ROSTER = [
     {"agent_id": "agent_lead", "name": "Lead", "description": "", "capabilities": []},

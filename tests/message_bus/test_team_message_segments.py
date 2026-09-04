@@ -25,7 +25,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 CHANNEL = "ch_1"
 
@@ -150,7 +150,7 @@ def test_the_bus_signature_appends_rather_than_inserts():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     params = list(inspect.signature(LocalMessageBus.send_message).parameters)
     assert params.index("segments") == len(params) - 1
@@ -186,7 +186,7 @@ def test_a_team_reply_carries_no_segments_and_that_is_correct():
     """
     import inspect
 
-    from xyz_agent_context.message_bus import team_posting
+    from narranexus.platform.message_bus import team_posting
 
     src = inspect.getsource(team_posting.post_team_reply)
 
@@ -252,7 +252,7 @@ async def test_a_real_team_turn_stores_a_row_without_segments(db_client, monkeyp
     scrollback.
     """
     from ._team_turn import speak_in_room
-    from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+    from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
     await db_client.insert("bus_channels", {
         "channel_id": "ch_seg_room", "name": "R", "channel_type": "group",
@@ -298,10 +298,10 @@ def test_the_room_funnel_carries_everything_a_room_caller_can_send():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.cloud_bus import CloudMessageBus
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.message_bus_service import MessageBusService
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.cloud_bus import CloudMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.message_bus_service import MessageBusService
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     # Not routed through the room funnel, and why:
     #   attachments        — the trigger never posts files; the user's uploads

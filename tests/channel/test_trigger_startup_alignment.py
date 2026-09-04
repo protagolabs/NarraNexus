@@ -39,9 +39,9 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MODULE_DIR = REPO_ROOT / "src" / "xyz_agent_context" / "module"
+MODULE_DIR = REPO_ROOT / "src" / "narranexus" / "platform" / "module_system"
 
-SUPERVISOR_ENTRYPOINT = "xyz_agent_context.module.run_worker_supervisor"
+SUPERVISOR_ENTRYPOINT = "narranexus.platform.module_system.run_worker_supervisor"
 WORKER_SUPERVISOR_FILE = MODULE_DIR / "run_worker_supervisor.py"
 
 STARTUP_FILES = {
@@ -83,7 +83,7 @@ def test_every_channel_trigger_is_registered_in_map():
     optional dependency is missing in this env (e.g. matrix-nio), and a missing
     dep must not read as "forgot to register."
     """
-    from xyz_agent_context.module.channel_trigger_map import (
+    from narranexus.platform.module_system.channel_trigger_map import (
         REGISTERED_TRIGGER_CLASS_NAMES,
     )
 
@@ -96,8 +96,8 @@ def test_every_channel_trigger_is_registered_in_map():
 
 
 def test_map_values_are_channel_trigger_subclasses():
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-    from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.module_system.channel_trigger_map import CHANNEL_TRIGGER_MAP
 
     for name, cls in CHANNEL_TRIGGER_MAP.items():
         assert issubclass(cls, ChannelTriggerBase), f"{name} -> {cls} not a trigger"

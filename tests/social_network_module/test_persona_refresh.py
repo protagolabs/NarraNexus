@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.social_network_module._entity_updater import (
+from narranexus.platform.module_system.social_network_module._entity_updater import (
     should_update_persona,
 )
-from xyz_agent_context.schema import SocialNetworkEntity
+from narranexus.platform.schema import SocialNetworkEntity
 
 
 def _contact(**overrides) -> SocialNetworkEntity:

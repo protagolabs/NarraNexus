@@ -71,7 +71,7 @@ def client(monkeypatch, db):
     # call time) — the codebase-wide pattern, shared with the ~10 other tests
     # that source-patch db_factory.get_db_client.
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
     app.include_router(providers_mod.router, prefix="/api/providers")

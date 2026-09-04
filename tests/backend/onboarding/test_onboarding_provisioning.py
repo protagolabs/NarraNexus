@@ -100,18 +100,18 @@ def _wire(monkeypatch, rec, *, users, agents=(), job_fails=False, provision_dela
             return {"success": True, "job_id": "job_123"}
 
     monkeypatch.setattr(
-        "xyz_agent_context.repository.user_repository.UserRepository", FakeUserRepo
+        "narranexus.platform.repository.user_repository.UserRepository", FakeUserRepo
     )
-    monkeypatch.setattr("xyz_agent_context.repository.AgentRepository", FakeAgentRepo)
+    monkeypatch.setattr("narranexus.platform.repository.AgentRepository", FakeAgentRepo)
     monkeypatch.setattr(
-        "xyz_agent_context.bootstrap.provision.provision_new_agent", fake_provision
+        "narranexus.platform.bootstrap.provision.provision_new_agent", fake_provision
     )
     monkeypatch.setattr(
-        "xyz_agent_context.marketplace.skill_marketplace_service.SkillMarketplaceService",
+        "narranexus.platform.marketplace.skill_marketplace_service.SkillMarketplaceService",
         FakeSkillSvc,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.module.job_module.job_service.JobInstanceService", FakeJobSvc
+        "narranexus.platform.module_system.job_module.job_service.JobInstanceService", FakeJobSvc
     )
     monkeypatch.setattr(ob, "is_cloud_mode", lambda: True)
 
@@ -128,7 +128,7 @@ def test_importing_provisioning_registers_the_profile():
     `import backend.onboarding.profile` — get_profile falls back to "default"
     silently on an unknown name, so without this pin an import cleanup could
     strip every guide agent's persona/greeting with all tests green."""
-    from xyz_agent_context.bootstrap.profiles import get_profile
+    from narranexus.platform.bootstrap.profiles import get_profile
 
     # `ob` (backend.onboarding.provisioning) is imported at module top.
     assert get_profile("onboarding").name == "onboarding"
@@ -344,11 +344,11 @@ def _simulate_last_fire_and_goodbye_day(drift, provision_utc=None, tz="UTC"):
     from datetime import datetime, timedelta, timezone as dt_tz
     from zoneinfo import ZoneInfo
 
-    from xyz_agent_context.utils.job_scheduling import (
+    from narranexus.platform.utils.job_scheduling import (
         compute_next_run,
         past_schedule_horizon,
     )
-    from xyz_agent_context.schema.job_schema import JobType, TriggerConfig
+    from narranexus.platform.schema.job_schema import JobType, TriggerConfig
 
     if provision_utc is None:
         provision_utc = datetime(2026, 8, 19, 10, 0, 0, tzinfo=dt_tz.utc)

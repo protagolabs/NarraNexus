@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.driver import (
+from narranexus.platform.agent_framework.loop.driver import (
     AgentLoopDriver,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
-from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
+from narranexus.platform.agent_framework.adapters.codex.cli_sdk import CodexSDK
+from narranexus.platform.agent_framework.adapters.codex.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
     _prepare_codex_notification,
@@ -341,7 +341,7 @@ def test_response_processor_recognises_thinking_item():
     """
     import inspect as _inspect
 
-    from xyz_agent_context.agent_runtime.response_processor import (
+    from narranexus.platform.agent_runtime.response_processor import (
         ResponseProcessor,
     )
 
@@ -386,7 +386,7 @@ def test_v2_item_type_table_covers_known_sdk_types():
     """
     import openai_codex.generated.v2_all as v2
 
-    from xyz_agent_context.agent_framework.loop.output_transfer import (
+    from narranexus.platform.agent_framework.loop.output_transfer import (
         _CODEX_ITEM_TYPES_TEXT,
         _CODEX_ITEM_TYPES_THINKING,
         _CODEX_ITEM_TYPES_TOOL,
@@ -456,7 +456,7 @@ def test_method_constants_match_sdk_notification_registry():
     """
     from openai_codex.generated.notification_registry import NOTIFICATION_MODELS
 
-    from xyz_agent_context.agent_framework.loop import output_transfer as ot
+    from narranexus.platform.agent_framework.loop import output_transfer as ot
 
     method_constants = {
         name: getattr(ot, name)

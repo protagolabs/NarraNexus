@@ -58,7 +58,7 @@ the first-party and the GTM data flows.
   localized "never collect conversation content" promise. GTM is event-only.
 - It does not define events/tags — those live in the GTM console (protagolabs).
 - It is NOT the kernel analytics seam
-  ([[__init__.py]] under `xyz_agent_context/analytics`), which is first-party,
+  ([[__init__.py]] under `narranexus/platform/analytics`), which is first-party,
   DB-only, no vendor. Two independent systems. First-party product events go
   through [[productAnalytics.ts]]; new client-side analytics files belong in
   this `lib/analytics/` subpackage.

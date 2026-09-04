@@ -36,15 +36,15 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_HEARTBEAT,
     EVENT_SUBSCRIBER_BREAKER_CLEARED,
     EVENT_SUBSCRIBER_BREAKER_TRIPPED,
     EVENT_SUBSCRIBER_UNSTARTABLE,
 )
-from xyz_agent_context.channel.channel_health_server import _snapshot_one
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.channel.channel_health_server import _snapshot_one
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 @dataclass
@@ -426,10 +426,10 @@ async def test_unstartable_credential_is_never_started_and_audited_once():
 @pytest.mark.asyncio
 async def test_lark_pre_flight_rejects_cleared_secret():
     """The exact prod condition: App Secret cleared → zero restarts."""
-    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
         LarkCredential,
     )
-    from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+    from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
 
     trigger = LarkTrigger()
     base = dict(
@@ -496,7 +496,7 @@ async def test_startable_again_clears_the_unstartable_mark_while_isolated(db_cli
 
 @pytest.mark.asyncio
 async def test_matrix_excludes_since_token_from_fingerprint():
-    from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+    from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
         MatrixTrigger,
     )
 

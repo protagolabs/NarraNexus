@@ -2,7 +2,7 @@
 doc_type: reference
 last_verified: 2026-04-10
 scope:
-  - src/xyz_agent_context/
+  - src/narranexus/platform/
   - backend/
   - frontend/src/
   - tauri/src-tauri/src/

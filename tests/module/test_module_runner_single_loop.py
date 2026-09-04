@@ -31,7 +31,7 @@ from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 
-from xyz_agent_context.module.module_runner import ModuleRunner
+from narranexus.platform.module_system.module_runner import ModuleRunner
 
 
 async def _dummy_endpoint(request):  # pragma: no cover — never actually hit
@@ -132,10 +132,10 @@ def _stub_db(monkeypatch):
     async def _fake_auto_migrate(_backend):
         return None
 
-    monkeypatch.setattr("xyz_agent_context.module.module_runner.get_db_client", _fake_get_db_client)
-    monkeypatch.setattr("xyz_agent_context.utils.db.schema_registry.auto_migrate", _fake_auto_migrate)
+    monkeypatch.setattr("narranexus.platform.module_system.module_runner.get_db_client", _fake_get_db_client)
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _fake_auto_migrate)
     # The real boot freezes the process-wide KERNEL_REGISTRIES; later tests still register.
-    monkeypatch.setattr("xyz_agent_context.module.plugins_boot.boot_mcp_plugins", lambda: None)
+    monkeypatch.setattr("narranexus.platform.module_system.plugins_boot.boot_mcp_plugins", lambda: None)
 
 
 def _mounts(app) -> dict[str, Starlette]:
@@ -156,7 +156,7 @@ def test_module_app_merges_both_transports_and_keeps_the_streamable_lifespan():
 async def test_host_mounts_every_module_by_path_with_healthz_and_identity_middleware(fake_uvicorn):
     from starlette.testclient import TestClient
 
-    from xyz_agent_context.module.identity.mcp_auth import IdentityAuthMiddleware
+    from narranexus.platform.module_system.identity.mcp_auth import IdentityAuthMiddleware
 
     a, b = _FakeMCPServer(), _FakeMCPServer()
     server = ModuleRunner._build_host_server([("chat_module", a), ("job_module", b)], 19901)
@@ -231,10 +231,10 @@ async def test_async_runner_is_credfree_when_seam_is_httpstore(monkeypatch, fake
         seen["auto_migrate_calls"] += 1
         raise AssertionError("auto_migrate must not run in seam/HttpStore mode")
 
-    monkeypatch.setattr("xyz_agent_context.module.module_runner.get_db_client", _boom_db)
-    monkeypatch.setattr("xyz_agent_context.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    monkeypatch.setattr("narranexus.platform.module_system.module_runner.get_db_client", _boom_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _boom_migrate)
     monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
-    monkeypatch.setattr("xyz_agent_context.module.plugins_boot.boot_mcp_plugins", lambda: None)
+    monkeypatch.setattr("narranexus.platform.module_system.plugins_boot.boot_mcp_plugins", lambda: None)
 
     async def _stopper():
         await asyncio.sleep(0.1)
@@ -296,7 +296,7 @@ def test_build_host_server_neutralises_uvicorn_signal_capture():
 
 def test_module_urls_point_at_the_single_host(monkeypatch):
     """The agent side dials one base URL: MCP_HOST/MCP_PORT (or MCP_BASE_URL) + the mount path."""
-    from xyz_agent_context.module.base import mcp_base_url, mcp_mount_path, mcp_server_url
+    from narranexus.platform.module_system.base import mcp_base_url, mcp_mount_path, mcp_server_url
 
     monkeypatch.delenv("MCP_BASE_URL", raising=False)
     monkeypatch.setenv("MCP_HOST", "mcp")

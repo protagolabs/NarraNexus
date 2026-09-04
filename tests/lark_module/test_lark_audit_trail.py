@@ -17,11 +17,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
-from xyz_agent_context.repository.lark_seen_message_repository import (
+from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus.platform.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
-from xyz_agent_context.repository.lark_trigger_audit_repository import (
+from narranexus.platform.repository.lark_trigger_audit_repository import (
     LarkTriggerAuditRepository,
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_HISTORIC,
@@ -128,7 +128,7 @@ async def test_audit_records_empty_content_drop(db_client, monkeypatch):
     2026-08-06: an unwrapped ``post`` payload parsed to "" and the
     guard's bare ``return`` left the "why didn't the bot reply?" ticket
     unanswerable (lessons #3/#5)."""
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_INGRESS_DROPPED_EMPTY,
     )
 
@@ -167,7 +167,7 @@ async def test_audit_records_inbox_write_failure(db_client, monkeypatch):
         raise RuntimeError("inbox db down")
 
     # get_db_client resolves inside _write_to_inbox; patch it
-    from xyz_agent_context.module.lark_module import lark_trigger as lt_mod
+    from narranexus.platform.module_system.lark_module import lark_trigger as lt_mod
     monkeypatch.setattr(lt_mod, "get_db_client", _boom)
 
     await t._write_to_inbox(

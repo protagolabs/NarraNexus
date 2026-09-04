@@ -20,7 +20,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-from xyz_agent_context.module.base import mcp_port
+from narranexus.platform.module_system.base import mcp_port
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PREFLIGHT_RS = _REPO_ROOT / "tauri/src-tauri/src/sidecar/port_preflight.rs"
@@ -46,8 +46,8 @@ def test_required_ports_equal_the_ports_python_binds(monkeypatch):
 
 def test_no_module_owns_a_port():
     """The per-module port table is gone: no module class or spec carries one."""
-    import xyz_agent_context.module as mod
-    from xyz_agent_context.module.contributions import MODULE_SPECS
+    import narranexus.platform.module_system as mod
+    from narranexus.platform.module_system.contributions import MODULE_SPECS
 
     assert not any(hasattr(spec, "mcp_port") for spec in MODULE_SPECS)
     for name in mod.module_registry:

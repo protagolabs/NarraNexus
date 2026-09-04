@@ -38,10 +38,10 @@ import os
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 _PREFIX = "mysqlteampost"
@@ -131,7 +131,7 @@ async def env():
 @pytest.mark.asyncio
 async def test_the_hop_cap_query_runs_on_mysql_and_counts_agent_hops(env):
     """The variable-placeholder `NOT IN` plus the user-message stop condition."""
-    from xyz_agent_context.message_bus.team_posting import team_cascade_depth
+    from narranexus.platform.message_bus.team_posting import team_cascade_depth
 
     db, bus, _ = env
 
@@ -160,8 +160,8 @@ async def test_platform_rows_are_excluded_in_sql_not_afterwards(env):
     the exclusion has to be in the WHERE, and this asserts it through MySQL's
     own `NOT IN` rather than through Python.
     """
-    from xyz_agent_context.message_bus.team_posting import team_cascade_depth
-    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+    from narranexus.platform.message_bus.team_posting import team_cascade_depth
+    from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
 
     db, bus, _ = env
 
@@ -182,13 +182,13 @@ async def test_platform_rows_are_excluded_in_sql_not_afterwards(env):
 
 @pytest.mark.asyncio
 async def test_the_dm_lookup_join_runs_on_mysql_and_gates_on_membership(env):
-    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
         _resolve_conversation,
     )
 
     db, _bus, _ = env
 
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
 
     async def _async_db():
         return db
@@ -235,7 +235,7 @@ async def test_the_wake_signal_bumps_and_reads_on_mysql(env):
     two reads land in the same microsecond. Same shape as the SQLite twin
     (`test_cross_process_wake.py`), which was correct from the start.
     """
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     db, _bus, _ = env
 

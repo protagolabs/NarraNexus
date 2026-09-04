@@ -34,21 +34,21 @@ from types import SimpleNamespace
 import pytest
 from loguru import logger
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.context_runtime.prompts import (
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.context_runtime.prompts import (
     TURN_CONTEXT_HEADER,
     USER_MESSAGE_SEPARATOR,
 )
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeActor,
     NarrativeActorType,
     NarrativeInfo,
     NarrativeType,
 )
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.schema.module_schema import ModuleInstructions
-from xyz_agent_context.settings import settings
+from narranexus.platform.schema import ContextData
+from narranexus.platform.schema.module_schema import ModuleInstructions
+from narranexus.platform.settings import settings
 
 
 AGENT_ID = "agent_tcr"
@@ -97,7 +97,7 @@ def _ctx_data(**extra) -> ContextData:
 async def _runtime(db_client, monkeypatch) -> ContextRuntime:
     """Minimal ContextRuntime over the test DB, with the shared factory
     (used by PromptBuilder actor resolution) redirected to the same DB."""
-    import xyz_agent_context.utils.db.db_factory as dbf
+    import narranexus.platform.utils.db.db_factory as dbf
 
     async def _fake_db():
         return db_client
@@ -165,7 +165,7 @@ async def test_flag_off_restores_legacy_section_placement(db_client, monkeypatch
 
     # Temporal block + FULL narrative template render live in the system prompt.
     assert "## User Temporal Context" in system_prompt
-    from xyz_agent_context.narrative._narrative_impl.prompt_builder import PromptBuilder
+    from narranexus.platform.narrative._narrative_impl.prompt_builder import PromptBuilder
     legacy_narrative_render = await PromptBuilder.build_main_prompt(narrative)
     assert legacy_narrative_render.strip() in system_prompt
     assert f"- Updated At: {narrative.updated_at}" in system_prompt
@@ -218,7 +218,7 @@ async def test_flag_on_relocates_volatile_sections_into_current_message(db_clien
 
     # Relocated, never dropped (铁律 #16): timezone + narrative volatile
     # values + background activity all reach the model this turn.
-    from xyz_agent_context.narrative._narrative_impl.prompt_builder import (
+    from narranexus.platform.narrative._narrative_impl.prompt_builder import (
         _canonical_timestamp,
     )
     assert "Asia/Shanghai" in user_msg
@@ -309,7 +309,7 @@ async def test_module_blocks_priority_order_dedupe_and_fail_open():
 
 @pytest.mark.asyncio
 async def test_base_module_get_turn_context_defaults_to_empty():
-    from xyz_agent_context.module.base import XYZBaseModule
+    from narranexus.platform.module_system.base import XYZBaseModule
 
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     # Unbound call: the default implementation must not depend on self state.
@@ -339,7 +339,7 @@ def _extract_hash(lines: list[str]) -> str:
 async def _hash_for_time(
     runtime, narrative, monkeypatch, fake_now: datetime, module_instructions=None
 ) -> str:
-    import xyz_agent_context.utils.timezone as tz_mod
+    import narranexus.platform.utils.timezone as tz_mod
 
     monkeypatch.setattr(tz_mod, "utc_now", lambda: fake_now)
     lines, sink_id = _capture_hashes()
@@ -358,8 +358,8 @@ def _time_embedding_instructions(fake_now: datetime):
     relocation flag is off. That copy, not the User Temporal Context block,
     is the thing that varies second to second in the legacy layout.
     """
-    from xyz_agent_context.utils.timezone import format_now_for_agent
-    import xyz_agent_context.utils.timezone as tz_mod
+    from narranexus.platform.utils.timezone import format_now_for_agent
+    import narranexus.platform.utils.timezone as tz_mod
 
     original = tz_mod.utc_now
     tz_mod.utc_now = lambda: fake_now

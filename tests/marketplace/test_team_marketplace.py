@@ -22,13 +22,13 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import (
+from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import (
     LocalArtifactStore,
     get_artifact_store,
     get_template_store,
 )
-from xyz_agent_context.repository.team_catalog_repository import TeamCatalogRepository
-from xyz_agent_context.schema.team_marketplace_schema import TeamTemplate
+from narranexus.platform.repository.team_catalog_repository import TeamCatalogRepository
+from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
 
 USER_ID = "usr_test"
 
@@ -97,7 +97,7 @@ async def test_delete(db_client):
 
 
 def test_template_store_is_separate_from_skills(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
@@ -113,7 +113,7 @@ def test_template_store_is_separate_from_skills(tmp_path, monkeypatch):
 
 
 def test_template_store_s3_prefix(monkeypatch):
-    from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import S3ArtifactStore
+    from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import S3ArtifactStore
 
     monkeypatch.setenv("TEMPLATE_S3_BUCKET", "my-bucket")
     store = get_template_store()
@@ -128,7 +128,7 @@ def test_template_store_s3_prefix(monkeypatch):
 
 @pytest.fixture
 def service(db_client, tmp_path, monkeypatch):
-    import xyz_agent_context.marketplace.team_marketplace_service as mod
+    import narranexus.platform.marketplace.team_marketplace_service as mod
 
     monkeypatch.setattr(mod, "get_deployment_mode", lambda: "cloud")
     store = LocalArtifactStore(tmp_path / "team_store")
@@ -165,7 +165,7 @@ async def test_install_preflight_verifies_and_calls_importer(service, tmp_path, 
         return {"preflight_token": "tok_1", "manifest": {"team": {"name": "T"}},
                 "name_clashes": [], "team_clash": None, "credential_clashes": []}
 
-    import xyz_agent_context.bundle.importer as importer
+    import narranexus.platform.bundle.importer as importer
 
     monkeypatch.setattr(importer, "preflight", _fake_preflight)
 
@@ -189,7 +189,7 @@ async def test_install_preflight_tamper_aborts(service, tmp_path, monkeypatch):
         zf.writestr("extra.txt", "x")
     service._store_ref().put_file(entry.store_key, tampered)
 
-    import xyz_agent_context.bundle.importer as importer
+    import narranexus.platform.bundle.importer as importer
 
     async def _fail(*a, **k):
         raise AssertionError("importer must not run on tampered bundle")
@@ -212,20 +212,20 @@ async def test_install_preflight_missing_template(service):
 
 @pytest.fixture
 def app(db_client, tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
     monkeypatch.delenv("TEMPLATE_S3_BUCKET", raising=False)
 
-    import xyz_agent_context.marketplace.team_marketplace_service as svc_mod
+    import narranexus.platform.marketplace.team_marketplace_service as svc_mod
 
     monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")
 
     async def _get_db():
         return db_client
 
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
@@ -236,7 +236,7 @@ def app(db_client, tmp_path, monkeypatch):
 
     monkeypatch.setattr(routes, "resolve_current_user_id", _fake_user)
     # local publisher gate (no staff role in tests)
-    import xyz_agent_context.utils.deployment_mode as dm
+    import narranexus.platform.utils.deployment_mode as dm
 
     monkeypatch.setattr(dm, "is_cloud_mode", lambda: False)
 

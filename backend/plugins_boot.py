@@ -32,7 +32,7 @@ from narranexus.kernel.plugins.services import HOST_VERSION
 from narranexus.kernel.settings import PluginSettings
 from narranexus.kernel.settings.plugin_settings import MemorySettingsStore
 
-from xyz_agent_context.utils.db.schema_registry import register_table
+from narranexus.platform.utils.db.schema_registry import register_table
 
 HOST_BUS = EventBus()
 # The backend process locator is the kernel registries' one (builtins expose
@@ -59,8 +59,8 @@ def _settings_for(manifest: Manifest) -> PluginSettings:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[plugins] {manifest.id}: settings schema unavailable: {exc}")
     try:
-        from xyz_agent_context.utils.db.db_factory import get_db_client_sync
-        from xyz_agent_context.utils.db.plugin_settings_store import DbSettingsStore
+        from narranexus.platform.utils.db.db_factory import get_db_client_sync
+        from narranexus.platform.utils.db.plugin_settings_store import DbSettingsStore
 
         store: Any = DbSettingsStore(get_db_client_sync())
     except Exception as exc:  # noqa: BLE001 — settings still work from env/defaults
@@ -70,7 +70,7 @@ def _settings_for(manifest: Manifest) -> PluginSettings:
 
 
 def _context_factory(manifest: Manifest) -> PluginContext:
-    from xyz_agent_context.utils.db.db_factory import get_db_client_sync
+    from narranexus.platform.utils.db.db_factory import get_db_client_sync
 
     rec = registry_store().read().plugins.get(manifest.id)
     path = Path(rec.path) if rec else Path(".")

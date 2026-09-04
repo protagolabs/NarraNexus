@@ -52,9 +52,9 @@ twin still match the MCP original" diff a single-file comparison.
   `/api/agents`. The eventual caller is AgentDataStore's HttpStore
   implementation (PR-2's stated purpose) once it's wired to route
   general-memory reads/writes here instead of a direct db connection.
-- **依赖谁**：`xyz_agent_context.memory` (`MemoryCoordinator`, `MemoryEngine`,
+- **依赖谁**：`narranexus.platform.memory` (`MemoryCoordinator`, `MemoryEngine`,
   `MemoryRecord`, `SCOPE_AGENT` — the same trio the MCP tools use),
-  `xyz_agent_context.utils.db.db_factory.get_db_client` (NOT
+  `narranexus.platform.utils.db.db_factory.get_db_client` (NOT
   `XYZBaseModule.get_mcp_db_client`, which is confirmed to be a thin wrapper
   around the same factory — using the factory directly avoids pulling MCP
   module machinery into a plain FastAPI route), and

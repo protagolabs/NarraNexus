@@ -14,15 +14,15 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import im_thread_id
+from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from xyz_agent_context.module.telegram_module.telegram_context_builder import (
+from narranexus.platform.module_system.telegram_module.telegram_context_builder import (
     TelegramContextBuilder,
 )
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,

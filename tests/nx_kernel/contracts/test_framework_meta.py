@@ -10,8 +10,8 @@ from narranexus.contracts.framework import FrameworkInstall, FrameworkMeta
 
 
 def test_builtin_frameworks_carry_framework_meta():
-    import xyz_agent_context.agent_framework  # noqa: F401
-    from xyz_agent_context.agent_framework.loop.driver import FRAMEWORK_REGISTRY
+    import narranexus.platform.agent_framework  # noqa: F401
+    from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY
 
     metas = {e.name: e.meta["framework"] for e in FRAMEWORK_REGISTRY.entries() if "framework" in e.meta}
     assert set(metas) >= {"nexus_power", "claude_code", "codex_cli"}
@@ -23,7 +23,7 @@ def test_builtin_frameworks_carry_framework_meta():
 
 
 def metas_install_component():
-    from xyz_agent_context.agent_framework.loop.driver import FRAMEWORK_REGISTRY
+    from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY
 
     entry = next(e for e in FRAMEWORK_REGISTRY.entries() if e.name == "claude_code")
     return entry.meta["framework"].install.components[0]

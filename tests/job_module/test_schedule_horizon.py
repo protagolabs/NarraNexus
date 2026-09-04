@@ -16,10 +16,10 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.utils.job_scheduling import past_schedule_horizon
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus, TriggerConfig
+from narranexus.platform.utils.job_scheduling import past_schedule_horizon
+from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.schema.job_schema import JobStatus, TriggerConfig
 
 
 # ── schema contract ──────────────────────────────────────────────────────────

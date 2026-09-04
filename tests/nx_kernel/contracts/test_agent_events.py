@@ -16,7 +16,7 @@ def test_every_public_name_exists_and_the_legacy_module_is_gone():
 
     for name in contract.__all__:
         assert hasattr(contract, name), name
-    assert importlib.util.find_spec("xyz_agent_context.agent_framework.loop.events") is None
+    assert importlib.util.find_spec("narranexus.platform.agent_framework.loop.events") is None
 
 
 def test_wire_values_are_pinned():

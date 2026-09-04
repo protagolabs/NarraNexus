@@ -28,7 +28,7 @@ def reset_registry():
     the registry permanently empty for every test that ran later in the same
     session (broke tests/message_bus/test_bus_channel_inbox_skip.py, which
     checks the real registrations)."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
     saved = dict(MessageSourceRegistry._handlers)  # type: ignore[attr-defined]
     MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
     yield
@@ -37,7 +37,7 @@ def reset_registry():
 
 
 def test_register_and_get_returns_handler():
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
         MessageSourceRegistry,
     )
@@ -54,7 +54,7 @@ def test_register_and_get_returns_handler():
 
 
 def test_get_unknown_source_returns_default_handler():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
     default = MessageSourceRegistry.get("definitely_not_registered_xyz")
     # Default handler always recognises notify_owner so
@@ -63,7 +63,7 @@ def test_get_unknown_source_returns_default_handler():
 
 
 def test_duplicate_registration_raises():
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
         MessageSourceRegistry,
     )
@@ -80,7 +80,7 @@ def test_is_user_reply_tool_matches_mcp_prefixed_names():
     `mcp__chat_module__notify_owner`. The handler must
     match its registered short name as a substring so we don't have to
     enumerate every MCP-prefixed variant."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -93,7 +93,7 @@ def test_is_user_reply_tool_matches_mcp_prefixed_names():
 
 
 def test_is_user_reply_tool_matches_multiple_patterns():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -110,7 +110,7 @@ def test_is_user_reply_tool_matches_multiple_patterns():
 
 
 def test_format_row_prefix_substitutes_meta_and_channel_tag():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -138,7 +138,7 @@ def test_format_row_prefix_missing_fields_falls_back_gracefully():
     """Template references {sender_name} but channel_tag is missing —
     must not crash; should leave the placeholder empty or substitute a
     safe default."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -153,7 +153,7 @@ def test_format_row_prefix_missing_fields_falls_back_gracefully():
 
 
 def test_default_handler_renders_chat_ui_prefix():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
     msg = {
         "role": "user",
@@ -168,7 +168,7 @@ def test_default_handler_renders_chat_ui_prefix():
 def test_extract_reply_text_default_returns_content_arg():
     """Default extractor: tool_name matches user_reply_tool_names AND
     arguments has a `content` field → return that content."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -182,7 +182,7 @@ def test_extract_reply_text_default_returns_content_arg():
 
 
 def test_extract_reply_text_default_returns_none_for_unmatched_tool():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -196,7 +196,7 @@ def test_extract_reply_text_custom_fn_overrides_default():
     """A handler with `extract_reply_fn` can implement non-standard
     extraction. This is the Lark path: tool_name = 'lark_cli', the reply
     text sits inside `arguments['command']` as a `--markdown` flag."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     def lark_extract(tool_name, args):
         if "lark_cli" not in tool_name:
@@ -234,7 +234,7 @@ def test_extract_reply_text_strips_citeturn_tokens():
     reply-extraction layer (so users see clean prose, not literal
     cryptic markers). Verified format from incident 2026-06-08:
     tokens are concatenated to sentence ends with no whitespace."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -253,7 +253,7 @@ def test_extract_reply_text_strips_citeturn_tokens():
 def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
     """Several tokens in one reply (with whitespace between them after
     strip) get the leftover spaces tidied up."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -275,7 +275,7 @@ def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
 def test_extract_reply_text_preserves_text_without_tokens():
     """Fast-path: if no ``cite`` substring appears at all, the text is
     returned unchanged (no regex sweep, no whitespace mutation)."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -295,7 +295,7 @@ def test_extract_reply_text_does_not_match_word_cite():
     """The regex requires two alpha+digit cycles after ``cite``, so the
     English word "cite" used in ordinary prose (e.g. "Please cite the
     source") survives intact."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -316,7 +316,7 @@ def test_extract_reply_text_strips_tokens_through_custom_extractor():
     channels with non-standard reply tooling (Lark's --markdown flag,
     Slack/Telegram CLI wrappers, etc.) also get clean text without
     each having to implement the strip themselves."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -337,7 +337,7 @@ def test_extract_reply_text_strips_tokens_through_custom_extractor():
 
 
 def test_dump_returns_serializable_snapshot():
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
         MessageSourceRegistry,
     )
@@ -361,7 +361,7 @@ def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
     call at all, so lark_cli non-send commands still classify as real
     tool calls downstream). Root cause of the
     2026-07-13 blank-bubble report."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -380,7 +380,7 @@ def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
 def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
     """Literal whitespace content never survives extraction either —
     the falsy check alone let "\\n" through as a truthy 'reply'."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -399,7 +399,7 @@ def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
 def test_extract_owner_visible_text_inherits_blank_guard():
     """extract_owner_visible_text delegates to extract_reply_text, so
     the blank guard covers the owner-visible split too."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 

@@ -22,17 +22,17 @@ from typing import AsyncIterator
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import LLMConfigNotConfigured
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.schema import ErrorMessage
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.agent_framework.api_config import LLMConfigNotConfigured
+from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
+from narranexus.platform.schema import ErrorMessage
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 @pytest.fixture(autouse=True)
 def patch_get_db(monkeypatch, db_client):
     """Every inner `get_db_client()` call inside AgentRuntime, EventService,
     etc. routes to the test's in-memory sqlite fixture."""
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     async def _fake_get_db():
         return db_client
@@ -48,7 +48,7 @@ def patch_llm_resolver(monkeypatch):
     (the RuntimeLLMConfigs variant) — patch exactly that one; patching the
     legacy tuple variant ``get_agent_owner_llm_configs`` is a no-op and was
     silently leaving this test to assert against an unrelated message."""
-    from xyz_agent_context.agent_framework import api_config
+    from narranexus.platform.agent_framework import api_config
 
     async def _always_raise(_agent_id: str):
         raise LLMConfigNotConfigured(

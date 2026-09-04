@@ -48,19 +48,19 @@ from backend.auth_errors import (
     TOKEN_MISSING,
 )
 
-from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
+from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
-from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
-from xyz_agent_context.schema.steer_schema import SteerInjection
-from xyz_agent_context.repository.steer_inbox_repository import (
+from narranexus.platform.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
+from narranexus.platform.agent_runtime.background_run import BackgroundRun, run_is_live
+from narranexus.platform.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from narranexus.platform.agent_runtime.steer_channel import SteerChannel
+from narranexus.platform.schema.steer_schema import SteerInjection
+from narranexus.platform.repository.steer_inbox_repository import (
     MAX_CONTENT_BYTES,
     MAX_UNCONSUMED_PER_RUN,
 )
-from xyz_agent_context.analytics import track
-from xyz_agent_context.analytics.events import (
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import (
     EVENT_MESSAGE_ACCEPTED,
     EVENT_RUN_STARTED,
     PROP_AGENT_ID,
@@ -68,9 +68,9 @@ from xyz_agent_context.analytics.events import (
     PROP_SESSION_ID,
     PROP_TRIGGER_SOURCE,
 )
-from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.repository import MCPRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.schema import WorkingSource
+from narranexus.platform.repository import MCPRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
@@ -104,11 +104,11 @@ async def _resolve_run_steerable(agent_id: str) -> bool:
     than promise a capability we might not have — the safe direction, no hung
     bubble)."""
     try:
-        from xyz_agent_context.agent_framework.providers.model_identity import (
+        from narranexus.platform.agent_framework.providers.model_identity import (
             resolve_agent_model_identity,
         )
-        from xyz_agent_context.agent_framework.loop.driver import get_agent_loop_driver
-        from xyz_agent_context.agent_framework.loop.broker_client import (
+        from narranexus.platform.agent_framework.loop.driver import get_agent_loop_driver
+        from narranexus.platform.agent_framework.loop.broker_client import (
             executor_seam_active,
         )
 
@@ -183,7 +183,7 @@ class AgentRunRequest(BaseModel):
     input_content: Optional[str] = None
     working_source: Optional[str] = "chat"
     # Optional list of attachments uploaded for this turn. Each entry is the
-    # JSON form of `xyz_agent_context.schema.Attachment` and is forwarded to
+    # JSON form of `narranexus.platform.schema.Attachment` and is forwarded to
     # the runtime via trigger_extra_data → ctx_data.extra_data["attachments"]
     # so ChatModule's hooks can persist + reference them.
     attachments: Optional[list[dict]] = None
@@ -327,7 +327,7 @@ async def _handle_reconnect(
     # Local mode may have requesting_user_id missing → unchanged, allow.
     row_user_id = events_row.get("user_id")
     if requesting_user_id and requesting_user_id != row_user_id:
-        from xyz_agent_context.repository.agent_repository import AgentRepository
+        from narranexus.platform.repository.agent_repository import AgentRepository
 
         owner = await AgentRepository(db).resolve_owner(
             events_row.get("agent_id") or ""
@@ -1019,7 +1019,7 @@ async def websocket_agent_run(websocket: WebSocket):
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
+        from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(request.agent_id)
         if cb_skip:
             await websocket.send_json(_circuit_open_frame(cb_reason))

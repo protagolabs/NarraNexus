@@ -39,9 +39,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.channel.channel_context_builder_base import build_channel_anchor
-from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
-from xyz_agent_context.utils.text import strip_routing_prefix
+from narranexus.platform.channel.channel_context_builder_base import build_channel_anchor
+from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
+from narranexus.platform.utils.text import strip_routing_prefix
 
 
 # ---------------- the helper ------------------------------------------------
@@ -166,7 +166,7 @@ async def test_a_new_narrative_is_never_named_after_the_routing_prefix() -> None
         user_id="user_x",
         agent_id="agent_x",
         narrative_type=__import__(
-            "xyz_agent_context.narrative.models", fromlist=["NarrativeType"]
+            "narranexus.platform.narrative.models", fromlist=["NarrativeType"]
         ).NarrativeType.CHAT,
     )
 
@@ -182,7 +182,7 @@ async def test_the_updater_strips_the_routing_prefix_from_the_llm_name() -> None
     `[From Liam] * 👊 刚甩过去，就在你问的同...` became a narrative name, and
     the next `[From Liam] 刚才你` matched it on `刚` at margin 357.79.
     """
-    from xyz_agent_context.narrative._narrative_impl.updater import NarrativeUpdater
+    from narranexus.platform.narrative._narrative_impl.updater import NarrativeUpdater
 
     from tests.narrative.conftest import _narrative
 

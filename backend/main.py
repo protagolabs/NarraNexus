@@ -22,8 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 
-from xyz_agent_context.utils.logging import setup_logging
-from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
+from narranexus.platform.utils.logging import setup_logging
+from narranexus.platform.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 
@@ -175,7 +175,7 @@ async def lifespan(app: FastAPI):
     _factory_service().boot_report = app.state.plugin_boot
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
     # added by an older codebase gets classified the moment we start.
-    from xyz_agent_context.agent_framework.providers.driver import (
+    from narranexus.platform.agent_framework.providers.driver import (
         backfill_provider_metadata,
     )
 
@@ -209,7 +209,7 @@ async def lifespan(app: FastAPI):
     # not only when the backend happens to restart.
     import asyncio as _asyncio
 
-    from xyz_agent_context.agent_runtime.run_recorder import (
+    from narranexus.platform.agent_runtime.run_recorder import (
         HEARTBEAT_INTERVAL_S,
         sweep_stale_runs,
     )
@@ -232,7 +232,7 @@ async def lifespan(app: FastAPI):
     )
 
     # One-shot data migrations (idempotent; run after schema migration)
-    from xyz_agent_context.utils.one_shot_migrations import (
+    from narranexus.platform.utils.one_shot_migrations import (
         heal_legacy_singleton_ownership,
         migrate_jobs_protocol_v2_timezone,
     )
@@ -276,16 +276,16 @@ async def lifespan(app: FastAPI):
     # Provider resolution. One tree for every caller (see providers/resolver);
     # the free tier is an ordinary provider card, so nothing extra is wired for
     # it here beyond the wallet client the routes build on demand.
-    from xyz_agent_context.agent_framework.providers.free_tier import (
+    from narranexus.platform.agent_framework.providers.free_tier import (
         is_free_tier_enabled,
     )
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         ProviderResolver,
     )
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     app.state.user_repository = UserRepository(db)
     app.state.provider_resolver = ProviderResolver(UserProviderService(db))
@@ -295,7 +295,7 @@ async def lifespan(app: FastAPI):
     # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
     # observations into consolidated memory out of the turn's path. Opportunistic
     # background work — never caps the agent loop (iron rule #14).
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
 
@@ -319,7 +319,7 @@ async def lifespan(app: FastAPI):
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
-    from xyz_agent_context.agent_runtime.executor_reaper import (
+    from narranexus.platform.agent_runtime.executor_reaper import (
         maybe_start_executor_reaper,
     )
 
@@ -334,11 +334,11 @@ async def lifespan(app: FastAPI):
     # compose healthcheck start_period. Fire-and-forget with a done-callback.
     async def _seed_marketplaces() -> None:
         try:
-            from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
+            from narranexus.platform.marketplace.team_marketplace_service import TeamMarketplaceService
 
             if not TeamMarketplaceService()._is_registry_host():
                 return  # a pure desktop client proxies to the cloud
-            from xyz_agent_context.marketplace._team_marketplace_seed import (
+            from narranexus.platform.marketplace._team_marketplace_seed import (
                 seed_team_marketplace,
             )
 
@@ -349,7 +349,7 @@ async def lifespan(app: FastAPI):
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
-            from xyz_agent_context.marketplace._skill_marketplace_seed import (
+            from narranexus.platform.marketplace._skill_marketplace_seed import (
                 seed_skill_marketplace,
             )
 
@@ -378,7 +378,7 @@ async def lifespan(app: FastAPI):
     # failure here only means the table loads lazily later, which is the old
     # behaviour, so it warns rather than raising.
     async def _warm_price_table() -> None:
-        from xyz_agent_context.utils import model_pricing
+        from narranexus.platform.utils import model_pricing
 
         await _asyncio.to_thread(model_pricing.warm_cache)
 
@@ -396,7 +396,7 @@ async def lifespan(app: FastAPI):
     # loop does its first reconcile pass immediately, so we do NOT block
     # startup on it here (reconcile_all scans every workspace + hashes every
     # installed skill — latency grows with users).
-    from xyz_agent_context.services.skill_sync_service import SkillSyncService
+    from narranexus.platform.services.skill_sync_service import SkillSyncService
 
     skill_sync = SkillSyncService(db)
     app.state.skill_sync_task = _asyncio.create_task(skill_sync.run_forever())

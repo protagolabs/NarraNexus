@@ -9,7 +9,7 @@ stub: false
 `/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
 `os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
 COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
-`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/narranexus/platform/bootstrap/lifecycle]]
 `.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
@@ -36,7 +36,7 @@ property，两个路由各推一份就是同一条规则的两处漂移点（本
 ## 2026-08-18 (四改) — import 改指领域包
 
 `apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
-`xyz_agent_context.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+`narranexus.platform.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
 Module——它 import 的是一个核心领域包。行为不变。
 
 ## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
@@ -156,7 +156,7 @@ rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op �
 实体（`upsert_netmind_user` 返回值，本身就是经 `UserRepository.get_user` 的
 `WHERE BINARY user_id` 读到的行，故大小写敏感、与停用**写**侧同 collation）取
 `user.status.value`，若落在共享的 `NON_TRANSACTING_USER_STATUSES`（从
-`xyz_agent_context.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
+`narranexus.platform.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
 内联的 `{banned, blocked, deleted}` 字面量），记一行 WARNING 后
 `raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
 （见 [[auth_errors]]），**不签 token**。
@@ -556,8 +556,8 @@ to render a one-shot welcome toast on successful cloud-mode registration
   - `UserRepository` — 用户的增删查、last_login 更新、timezone 更新
   - `InviteCodeRepository` — 注册时校验 + 原子消费邀请码
   - `backend.auth` — `hash_password`、`verify_password`、`create_token`、`_is_cloud_mode`
-  - `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
-  - `xyz_agent_context.settings.settings.base_working_path` — Agent 工作区根目录
+  - `narranexus.platform.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
+  - `narranexus.platform.settings.settings.base_working_path` — Agent 工作区根目录
 
 ## 设计决策
 

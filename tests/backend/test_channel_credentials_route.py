@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
 from backend.routes.agents.channel_credentials import router as cc_router
-from xyz_agent_context.module.data_access.channel_store import DirectStore as ChannelDirectStore
+from narranexus.platform.module_system.data_access.channel_store import DirectStore as ChannelDirectStore
 
 _SERVICE_BEARER = "Bearer nx-agent:agent_mine~~~~u1~~~~sometoken"
 # The raw dict the seam's DirectStore.get_credential would return for a bound

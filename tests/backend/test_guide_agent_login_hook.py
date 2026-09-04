@@ -104,7 +104,7 @@ def test_kill_switch_schedules_nothing(db_client, monkeypatch, guide_spy):
 
 @pytest.mark.asyncio
 async def test_suspended_account_never_reaches_the_hook(db_client, monkeypatch, guide_spy):
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     repo = UserRepository(db_client)
     await repo.add_user(user_id=_CODE, user_type="individual", display_name="G")
@@ -123,7 +123,7 @@ async def test_suspended_account_never_reaches_the_hook(db_client, monkeypatch, 
 def test_local_login_schedules_guide_agent(db_client, monkeypatch, guide_spy):
     import asyncio
 
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     asyncio.run(
         UserRepository(db_client).add_user(

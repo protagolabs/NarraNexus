@@ -30,14 +30,14 @@ import pytest
 
 from nio import RoomMessageText
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
     _voice_profile_for,
 )
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 HOMESERVER = "matrix.netmind.chat"
 AGENT_MXID = f"@agent-88956f5b:{HOMESERVER}"
@@ -277,7 +277,7 @@ async def test_late_upgrade_wired_only_on_dm_classify(monkeypatch):
     import pytest as _pytest
     from unittest.mock import AsyncMock, MagicMock
 
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
 
     for target, expect_called in (("dm", True), ("group_mention", False)):
         trigger = MatrixTrigger()

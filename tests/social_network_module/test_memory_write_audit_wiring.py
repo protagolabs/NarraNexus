@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.module.social_network_module.social_network_module as snm
-from xyz_agent_context.module.social_network_module._entity_updater import (
+import narranexus.platform.module_system.social_network_module.social_network_module as snm
+from narranexus.platform.module_system.social_network_module._entity_updater import (
     ExtractedEntity,
 )
-from xyz_agent_context.module.social_network_module.social_network_module import (
+from narranexus.platform.module_system.social_network_module.social_network_module import (
     SocialNetworkModule,
 )
 

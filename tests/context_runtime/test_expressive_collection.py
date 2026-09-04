@@ -19,10 +19,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.settings import settings
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
+from narranexus.platform.settings import settings
 
 AGENT_ID = "agent_expressive"
 
@@ -195,8 +195,8 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     to pick."""
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -229,11 +229,11 @@ async def test_team_room_turn_declares_the_room_send(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+    from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
 
     bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     chat = ChatModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
@@ -259,7 +259,7 @@ def test_every_module_expressive_signature_accepts_ctx_data():
     where fail-open silently drops that module's whole declaration."""
     import inspect
 
-    from xyz_agent_context.module import module_registry
+    from narranexus.platform.module_system import module_registry
 
     for name, cls in module_registry.items():
         fn = cls.expressive_tools
@@ -298,11 +298,11 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+    from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
 
     for label, source, extra in (
         ("team room", "message_bus", {BUS_TEAM_ROOM_EXTRA_KEY: True}),
@@ -345,7 +345,7 @@ def test_every_module_disallow_signature_accepts_ctx_data():
     """
     import inspect
 
-    from xyz_agent_context.module import module_registry
+    from narranexus.platform.module_system import module_registry
 
     for name, cls in module_registry.items():
         hook = getattr(cls, "disallowed_tools", None)
@@ -379,10 +379,10 @@ async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeyp
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import (
+    from narranexus.platform.schema import (
         BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
         BUS_TEAM_ROOM_EXTRA_KEY,
     )
@@ -414,7 +414,7 @@ def test_patrol_does_not_arm_the_mute_turn_nudge():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     src = inspect.getsource(MessageBusTrigger._invoke_runtime)
     assert "if team_room and not patrol else None" in src, (

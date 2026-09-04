@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm.transcription import url_signer
-from xyz_agent_context.agent_framework.llm.transcription.url_signer import (
+from narranexus.platform.agent_framework.llm.transcription import url_signer
+from narranexus.platform.agent_framework.llm.transcription.url_signer import (
     TokenExpired,
     TokenInvalid,
     mint,
@@ -125,7 +125,7 @@ def test_secret_falls_back_to_admin_key_in_local_mode(monkeypatch):
     monkeypatch.setattr(url_signer.settings, "transcription_hmac_secret", "")
     monkeypatch.setattr(url_signer.settings, "admin_secret_key", "admin-fallback")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode",
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode",
         lambda: False,
     )
     token = mint(file_id="att_a1b2c3d4", agent_id="a", user_id="u", variant="mp3")
@@ -137,7 +137,7 @@ def test_secret_refuses_derivation_in_cloud_mode(monkeypatch):
     monkeypatch.setattr(url_signer.settings, "transcription_hmac_secret", "")
     monkeypatch.setattr(url_signer.settings, "admin_secret_key", "admin-key")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode",
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode",
         lambda: True,
     )
     with pytest.raises(RuntimeError, match="TRANSCRIPTION_HMAC_SECRET"):

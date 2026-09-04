@@ -28,11 +28,11 @@ import json
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import (
+from narranexus.platform.channel.channel_trigger_base import (
     CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
 )
-from xyz_agent_context.channel.message_source_handler import PLATFORM_REPLY_TEXT_KEY
+from narranexus.platform.channel.message_source_handler import PLATFORM_REPLY_TEXT_KEY
 
 PLATFORM_TEXT = "好的，这是你要的答案。"
 
@@ -190,7 +190,7 @@ class TestStreamingPathCapturesPlatformReply:
 
     @staticmethod
     def _handler_and_state():
-        from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+        from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
             MatrixTrigger,
             _StreamReplyState,
         )
@@ -199,7 +199,7 @@ class TestStreamingPathCapturesPlatformReply:
 
     @staticmethod
     def _progress(arguments, tool_name="wechat_send"):
-        from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+        from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
         return ProgressMessage(
             step="3.4.fallback",

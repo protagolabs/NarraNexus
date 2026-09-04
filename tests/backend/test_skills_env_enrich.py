@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from backend.routes import skills as skills_routes
-from xyz_agent_context.schema.skill_schema import SkillInfo
+from narranexus.platform.schema.skill_schema import SkillInfo
 
 
 class _FakeModule:
@@ -46,10 +46,10 @@ def _patch_available(monkeypatch, vars_available):
         return object()
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _db, raising=False
+        "narranexus.platform.utils.db.db_factory.get_db_client", _db, raising=False
     )
     monkeypatch.setattr(
-        "xyz_agent_context.module.skill_module.skill_module.platform_env_available",
+        "narranexus.platform.module_system.skill_module.skill_module.platform_env_available",
         _available,
     )
 

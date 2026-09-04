@@ -32,11 +32,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.module.data_access.workspace_cwd import (
+from narranexus.platform.module_system.data_access.workspace_cwd import (
     _cwd_owner_cache,
     resolve_agent_workspace_cwd,
 )
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+from narranexus.platform.module_system.lark_module.lark_cli_client import LarkCLIClient
 
 # The shared owner cache is cleared by the repo-wide autouse fixture in
 # tests/conftest.py — every channel CLI test module shares that cache.
@@ -105,16 +105,16 @@ def _owner_store(owner):
 @pytest.mark.asyncio
 async def test_resolve_agent_workspace_cwd_happy_path(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.base_working_path",
+        "narranexus.platform.settings.settings.base_working_path",
         str(tmp_path),
     )
     with patch(
-        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
+        "narranexus.platform.module_system.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store("user_alice"),
     ):
         ws = await resolve_agent_workspace_cwd("agent_abc", log_tag="lark-cli")
     assert ws is not None
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
     assert ws == tmp_path / agent_workspace_relpath("agent_abc", "user_alice")
     assert ws.is_dir(), "workspace dir must be created (mkdir -p semantics)"
 
@@ -123,12 +123,12 @@ async def test_resolve_agent_workspace_cwd_happy_path(tmp_path: Path, monkeypatc
 async def test_resolve_agent_workspace_cwd_caches_user_id(tmp_path, monkeypatch):
     """Second call for the same agent must not re-query the seam."""
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.base_working_path",
+        "narranexus.platform.settings.settings.base_working_path",
         str(tmp_path),
     )
     store = _owner_store("user_bob")
     with patch(
-        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
+        "narranexus.platform.module_system.data_access.workspace_cwd.get_channel_credential_store",
         return_value=store,
     ):
         await resolve_agent_workspace_cwd("agent_xyz", log_tag="lark-cli")
@@ -143,11 +143,11 @@ async def test_resolve_agent_workspace_cwd_returns_none_when_no_owner(tmp_path, 
     """Orphan agent → caller falls back to parent CWD inheritance, and the
     empty owner must NOT be cached (a later re-bind should re-resolve)."""
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.base_working_path",
+        "narranexus.platform.settings.settings.base_working_path",
         str(tmp_path),
     )
     with patch(
-        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
+        "narranexus.platform.module_system.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store(""),
     ):
         ws = await resolve_agent_workspace_cwd("agent_orphan", log_tag="lark-cli")
@@ -159,7 +159,7 @@ async def test_resolve_agent_workspace_cwd_returns_none_when_no_owner(tmp_path, 
 async def test_resolve_agent_workspace_cwd_returns_none_on_store_error(monkeypatch):
     """Seam exception is swallowed (logged) and None is returned."""
     with patch(
-        "xyz_agent_context.module.data_access.workspace_cwd.get_channel_credential_store",
+        "narranexus.platform.module_system.data_access.workspace_cwd.get_channel_credential_store",
         return_value=_owner_store(RuntimeError("store down")),
     ):
         ws = await resolve_agent_workspace_cwd("agent_x", log_tag="lark-cli")
@@ -190,11 +190,11 @@ def _seam_env(cred, store, resolver):
     """Patch the seam + hydration + subprocess around _run_with_agent_id."""
     patches = [
         patch(
-            "xyz_agent_context.module.data_access.get_channel_credential_store",
+            "narranexus.platform.module_system.data_access.get_channel_credential_store",
             return_value=store,
         ),
         patch(
-            "xyz_agent_context.module.lark_module._lark_credential_manager._cred_from_raw",
+            "narranexus.platform.module_system.lark_module._lark_credential_manager._cred_from_raw",
             return_value=cred,
         ),
         patch.object(
@@ -206,7 +206,7 @@ def _seam_env(cred, store, resolver):
             new=AsyncMock(return_value={"success": True}),
         ),
         patch(
-            "xyz_agent_context.module.lark_module.lark_cli_client."
+            "narranexus.platform.module_system.lark_module.lark_cli_client."
             "resolve_agent_workspace_cwd",
             new=resolver,
         ),
@@ -250,7 +250,7 @@ async def test_run_with_agent_id_tolerates_unresolved_cwd(tmp_path: Path):
 async def test_run_with_agent_id_lazy_migration_persists_via_seam():
     """workspace_path=='' → path computed and persisted through the seam
     (works in both direct-db and zero-cred deployments)."""
-    from xyz_agent_context.module.lark_module._lark_workspace import (
+    from narranexus.platform.module_system.lark_module._lark_workspace import (
         get_workspace_path,
     )
 
@@ -276,7 +276,7 @@ async def test_run_with_agent_id_warns_when_migration_write_fails():
         return_value={"success": False, "error": "write_failed"}
     )
     with _seam_env(cred, store, AsyncMock(return_value=None)), patch(
-        "xyz_agent_context.module.lark_module.lark_cli_client.logger"
+        "narranexus.platform.module_system.lark_module.lark_cli_client.logger"
     ) as log:
         result = await LarkCLIClient()._run_with_agent_id(["im", "+ping"], "agent_x")
     assert result == {"success": True}, "a failed persist must not fail the call"

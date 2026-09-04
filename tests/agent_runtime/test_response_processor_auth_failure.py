@@ -15,13 +15,13 @@ genuinely transient errors stay ``recoverable``.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     AUTH_EXPIRED_ERROR_TYPE,
     ResponseProcessor,
     _is_auth_failure,
 )
-from xyz_agent_context.schema import ErrorMessage
+from narranexus.platform.schema import ErrorMessage
 
 
 def _error_event(error_message: str, error_type: str) -> dict:

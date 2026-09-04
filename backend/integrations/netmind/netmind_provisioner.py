@@ -68,7 +68,7 @@ async def ensure_netmind_provider(
     key it minted, so no money-spending orphan lingers. Callers decide fatal vs
     non-fatal (the login task swallows; the route maps to HTTP).
     """
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     if not settings.netmind_use_subscription_enabled:
         return False
@@ -77,11 +77,11 @@ async def ensure_netmind_provider(
         return False
 
     from backend.integrations.netmind.netmind_key_client import NetmindKeyClient
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         is_user_config_complete,
     )
 

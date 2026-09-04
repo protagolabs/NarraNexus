@@ -39,7 +39,7 @@ def test_legacy_call_sites_forward_to_the_kernel(monkeypatch, env, expected):
         monkeypatch.setenv(key, value)
 
     from backend.auth import _is_cloud_mode as auth_is_cloud
-    from xyz_agent_context.utils import deployment_mode as legacy
+    from narranexus.platform.utils import deployment_mode as legacy
 
     assert legacy.is_cloud_mode is is_cloud_mode
     assert legacy.get_deployment_mode is get_deployment_mode
@@ -47,7 +47,7 @@ def test_legacy_call_sites_forward_to_the_kernel(monkeypatch, env, expected):
 
 
 def test_settings_is_cloud_mode_follows_the_kernel(monkeypatch):
-    from xyz_agent_context.settings import Settings
+    from narranexus.platform.settings import Settings
 
     for key in ("NARRANEXUS_DEPLOYMENT_MODE", "DATABASE_URL", "DB_HOST"):
         monkeypatch.delenv(key, raising=False)

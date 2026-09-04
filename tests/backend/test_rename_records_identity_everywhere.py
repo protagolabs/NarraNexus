@@ -28,7 +28,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.module.awareness_module import IDENTITY_CHANGE_SECTION
+from narranexus.platform.module_system.awareness_module import IDENTITY_CHANGE_SECTION
 
 OWNER = "owner_shenzhen"
 AGENT_ID = "agent_4a0ae5f40af2"
@@ -293,7 +293,7 @@ async def test_normalizing_a_stale_row_is_not_a_rename(db_client):
     about: an identity record saying it was renamed from 「小绿」 to 「小绿」 is
     noise in the one section whose whole value is that the agent believes it.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     # Bypass the repository (it normalizes on write) to plant the stale shape.
@@ -349,7 +349,7 @@ async def test_manyfold_post_maps_not_found_like_the_patch_does(
     """Both manyfold endpoints must answer one error_kind with one status code,
     or the caller needs two mappings for the same failure."""
     import backend.routes.manyfold.agents as mf_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -383,7 +383,7 @@ async def test_the_description_repair_branch_is_symmetric_with_the_name_one(
     to the equality check; without this test, deleting it as cleanup leaves
     those rows unrepaired and the suite green.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     await db_client.update(
@@ -409,7 +409,7 @@ async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
     list alone reports renamed_to on legacy rows — a false positive for the
     next caller that tests it, and one that never raises.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     await db_client.update(
@@ -429,7 +429,7 @@ async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
 async def test_a_real_rename_reports_that_its_note_landed(db_client):
     """The note is the point of the whole transaction, and it degrades
     silently — so the result has to say whether it landed."""
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -454,7 +454,7 @@ async def test_a_rename_with_no_awareness_instance_has_nothing_to_correct(
     that has not taken a turn yet lands here — and the user was shown "it may
     still introduce itself by the old name" about an agent with no memory at all.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await db_client.insert("agents", {
         "agent_id": "agent_no_aware", "agent_name": "美食家",
@@ -516,7 +516,7 @@ async def test_a_stale_record_is_corrected_without_being_called_a_rename(
     A caller asking that question must not be answered "yes" by a repair, so
     reconciliation reports itself on its own field.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile=STALE_PROFILE)
 
@@ -532,7 +532,7 @@ async def test_a_stale_record_is_corrected_without_being_called_a_rename(
 async def test_an_agent_that_was_never_renamed_is_handed_no_record(db_client):
     """Reconciliation keys on a record that CONTRADICTS the row, never on the
     absence of one — an agent nobody renamed must not be told about names."""
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
 
@@ -548,7 +548,7 @@ async def test_a_description_only_edit_does_not_touch_the_identity_record(
 ):
     """Reconciliation is owed to a caller that named a NAME. A description edit
     makes no claim about identity and must not rewrite that section."""
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile=STALE_PROFILE)
 
@@ -574,7 +574,7 @@ async def test_manyfold_maps_a_concurrent_overwrite_to_400_not_409(
     it gets a test rather than only prose.
     """
     import backend.routes.manyfold.agents as mf_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -617,7 +617,7 @@ async def test_naming_a_row_that_holds_an_empty_name_is_a_rename(db_client):
     record and sat beside it — the self-contradicting prompt this whole change
     exists to prevent.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile=STALE_PROFILE)
     await db_client.update("agents", {"agent_id": AGENT_ID}, {"agent_name": ""})
@@ -647,8 +647,8 @@ async def test_a_name_that_could_break_the_record_format_still_round_trips(
     one containing the marker phrase was read as the current assertion — a
     forged platform record that then pruned the real one.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
-    from xyz_agent_context.module.awareness_module import identity_note_asserts
+    from narranexus.platform.agent_profile import apply_agent_profile_change
+    from narranexus.platform.module_system.awareness_module import identity_note_asserts
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -794,7 +794,7 @@ async def test_a_rename_whose_record_could_not_be_written_says_so_in_the_respons
     # the write is made to fail. Distinct from having no instance at all, which
     # is "nothing to correct" and must not warn.
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
-    import xyz_agent_context.module.awareness_module as aw
+    import narranexus.platform.module_system.awareness_module as aw
 
     async def _boom(_db, _agent_id, _old, _new):  # noqa: ANN001
         return False
@@ -840,8 +840,8 @@ async def test_a_repair_that_failed_is_not_reported_as_nothing_to_do(
     rollout cannot answer "how many did we actually fix", and a user retrying
     gets the same success either way. That is #320's shape, one layer down.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
-    import xyz_agent_context.module.awareness_module as aw
+    from narranexus.platform.agent_profile import apply_agent_profile_change
+    import narranexus.platform.module_system.awareness_module as aw
 
     await _seed(db_client, name="小绿", profile=STALE_PROFILE)
 
@@ -948,7 +948,7 @@ async def test_repairing_a_recordless_profile_converges(db_client):
     a profile that already agrees with the row — otherwise every later rename
     rewrites the profile and logs a correction forever.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(
         db_client,
@@ -968,7 +968,7 @@ async def test_repairing_a_recordless_profile_converges(db_client):
 async def test_a_profile_that_never_named_the_agent_is_left_alone(db_client):
     """No self-name line and no record is not a divergence — it is an agent
     whose profile simply never stated a name, and it must not be handed one."""
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(
         db_client,
@@ -994,7 +994,7 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
     import backend.routes.agents.awareness as aw_route
-    from xyz_agent_context.module.awareness_module import (
+    from narranexus.platform.module_system.awareness_module import (
         IDENTITY_CHANGE_SECTION, build_identity_change_note,
         merge_identity_change_note,
     )
@@ -1062,8 +1062,8 @@ async def test_a_correct_record_does_not_excuse_a_stale_self_name_line(db_client
     reported "nothing to repair". That is the same population reached by a
     different route — a rename that filed a record before retirement existed.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
-    from xyz_agent_context.module.awareness_module import (
+    from narranexus.platform.agent_profile import apply_agent_profile_change
+    from narranexus.platform.module_system.awareness_module import (
         build_identity_change_note, merge_identity_change_note,
     )
 
@@ -1092,8 +1092,8 @@ async def test_a_correct_record_does_not_excuse_a_stale_self_name_line(db_client
 @pytest.mark.asyncio
 async def test_an_agent_correct_in_both_places_is_left_alone(db_client):
     """Checking both must not mean acting twice, or every call rewrites."""
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
-    from xyz_agent_context.module.awareness_module import (
+    from narranexus.platform.agent_profile import apply_agent_profile_change
+    from narranexus.platform.module_system.awareness_module import (
         build_identity_change_note, merge_identity_change_note,
     )
 
@@ -1157,7 +1157,7 @@ async def test_a_hyphen_is_never_taken_for_the_end_of_a_name(db_client):
     The name runs through the weak characters to the first opener, so the
     description survives and no name is invented.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from narranexus.platform.agent_profile import apply_agent_profile_change
 
     await _seed(
         db_client,
@@ -1223,7 +1223,7 @@ async def test_manyfold_refusals_are_structured_not_model_prose(
     exactly that reason. The kind travels; the prose does not.
     """
     import backend.routes.manyfold.agents as mf_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -1264,8 +1264,8 @@ async def test_a_name_containing_a_separator_is_never_auto_repaired_only_reporte
     NOT a shape with `；` — that walks the boundary branch and would test
     nothing here.
     """
-    from xyz_agent_context.agent_profile import apply_agent_profile_change
-    from xyz_agent_context.module.awareness_module import IDENTITY_CHANGE_SECTION
+    from narranexus.platform.agent_profile import apply_agent_profile_change
+    from narranexus.platform.module_system.awareness_module import IDENTITY_CHANGE_SECTION
 
     line = "- 名称：小绿-2-2-2"
     await _seed(

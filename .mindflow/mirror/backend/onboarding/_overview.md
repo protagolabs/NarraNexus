@@ -32,5 +32,5 @@ Placement (铁律 #21 import-graph litmus): everything here is consumed ONLY by
 backend login routes (and Arena's naming re-export), so it lives under
 `backend/` — the same side as its twin, `backend/integrations/arena/`'s
 provisioning service. The generic machinery it drives (`provision_new_agent`,
-the profile registry) stays in `src/xyz_agent_context/bootstrap/`, which IS
+the profile registry) stays in `src/narranexus/platform/bootstrap/`, which IS
 agent-side-consumed.

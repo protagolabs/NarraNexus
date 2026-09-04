@@ -12,18 +12,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import im_thread_id
+from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_PROCESSED,
 )
-from xyz_agent_context.channel.channel_context_builder_base import (
+from narranexus.platform.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ async def test_full_pipeline_dedup_inbox_and_audit(db_client, monkeypatch):
 
     # Stub the AgentRuntime.collect_run path so the test doesn't try to
     # spin up a real agent.
-    from xyz_agent_context.channel import channel_trigger_base as ctb_mod
+    from narranexus.platform.channel import channel_trigger_base as ctb_mod
 
     @dataclass
     class _StubResult:
@@ -180,8 +180,8 @@ async def test_full_pipeline_dedup_inbox_and_audit(db_client, monkeypatch):
             pass
 
     # Patch the lazy imports inside _build_and_run_agent
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _fake_collect_run)
 
@@ -225,10 +225,10 @@ async def test_full_pipeline_dedup_inbox_and_audit(db_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_echo_messages_are_dropped(db_client, monkeypatch):
     """is_echo=True must result in EVENT_INGRESS_DROPPED_ECHO and no inbox row."""
-    from xyz_agent_context.channel.channel_audit_events import EVENT_INGRESS_DROPPED_ECHO
+    from narranexus.platform.channel.channel_audit_events import EVENT_INGRESS_DROPPED_ECHO
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     class _FakeAgentRuntime:
         def __init__(self, *a, **kw):
@@ -286,15 +286,15 @@ async def test_the_trigger_passes_the_messages_real_chat_type(db_client, monkeyp
     then arrive as PRIVATE — the exact round-1 Critical, private content into a
     group). The prior version asserted only PRIVATE, which equals the dataclass
     default and so caught neither."""
-    from xyz_agent_context.channel import inbox_recorder as ir_mod
+    from narranexus.platform.channel import inbox_recorder as ir_mod
 
     await db_client.insert("agents", {
         "agent_id": "agent_a", "agent_name": "FakeAgent",
         "created_by": "user_owner", "is_public": 0,
     })
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     @dataclass
     class _StubResult:
@@ -349,7 +349,7 @@ async def test_managed_after_run_sanitizes_the_name_and_passes_the_real_chat_typ
     `SYSTEM:` prefix) must be sanitized here like the other two sites. This also
     covers the managed site's `chat_type` wiring (the round-2 spy covered only
     `_process_message`)."""
-    from xyz_agent_context.channel import inbox_recorder as ir_mod
+    from narranexus.platform.channel import inbox_recorder as ir_mod
 
     await db_client.insert("agents", {
         "agent_id": "agent_a", "agent_name": "FakeAgent",

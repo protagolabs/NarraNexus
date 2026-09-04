@@ -15,10 +15,10 @@ import pytest
 from narranexus.contracts.channel import ChannelDescriptor, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.channel import credential_codec
-from xyz_agent_context.channel.credential_legacy import LEGACY_BY_TABLE, copy_legacy_tables
-from xyz_agent_context.channel.credential_store import TABLE, GenericCredentialStore, UnknownChannel, missing_required, split_values
-from xyz_agent_context.module.contributions import register_all
+from narranexus.platform.channel import credential_codec
+from narranexus.platform.channel.credential_legacy import LEGACY_BY_TABLE, copy_legacy_tables
+from narranexus.platform.channel.credential_store import TABLE, GenericCredentialStore, UnknownChannel, missing_required, split_values
+from narranexus.platform.module_system.contributions import register_all
 
 PLUGIN = ChannelDescriptor(
     name="acme_chat",

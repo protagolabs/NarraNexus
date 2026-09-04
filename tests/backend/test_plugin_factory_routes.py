@@ -117,7 +117,7 @@ def test_proposals_are_listed_and_decided_by_the_user(client, tmp_path: Path, mo
     c, svc, home = client
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     from narranexus.kernel.plugins.install import Installer, LocalSource
-    from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+    from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
 
     src = _plugin(tmp_path / "dev" / "acme.weather")
     Installer(store=svc.store, host="1.19.0").install(LocalSource(src, mode="link"), installed_by="agent:a1", scope="agent:a1")

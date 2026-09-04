@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def archives_root(tmp_path, monkeypatch):
     """Redirect SKILL_ARCHIVES_ROOT so nothing touches the real ~/.nexusagent."""
-    from xyz_agent_context.bundle import skill_backup
+    from narranexus.platform.bundle import skill_backup
 
     root = tmp_path / "skill_archives"
     monkeypatch.setattr(skill_backup, "SKILL_ARCHIVES_ROOT", root)
@@ -200,7 +200,7 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
     # Patch the single source of truth. If the gate ever goes back to a
     # `from … import MAX_…` copy, this stops taking effect and the test fails —
     # which is how that copy got caught in the first place.
-    from xyz_agent_context.utils import file_safety
+    from narranexus.platform.utils import file_safety
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
 
@@ -227,7 +227,7 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
 
 
 def test_upload_rejects_too_many_entries(client, archives_root, monkeypatch):
-    from xyz_agent_context.utils import file_safety
+    from narranexus.platform.utils import file_safety
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
     buf = io.BytesIO()

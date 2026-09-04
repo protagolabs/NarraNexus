@@ -24,12 +24,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module import message_bus_module as mbm
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus.platform.module_system.message_bus_module import message_bus_module as mbm
+from narranexus.platform.module_system.message_bus_module.message_bus_module import (
     MAX_TEAMS_IN_CONTEXT,
     MessageBusModule,
 )
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.schema import ContextData
 
 AGENT, OWNER = "agent_a", "usr_1"
 
@@ -154,10 +154,10 @@ def _patch_runtime(monkeypatch, db_client):
 
     monkeypatch.setattr(mbm, "_get_default_bus_async", _bus)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _db
     )
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.agent_discovery_sync.sync_agent_discovery",
+        "narranexus.platform.message_bus.agent_discovery_sync.sync_agent_discovery",
         _noop_sync,
     )
 

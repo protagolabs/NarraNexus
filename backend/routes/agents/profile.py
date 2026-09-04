@@ -28,8 +28,8 @@ from loguru import logger
 from pydantic import BaseModel
 
 from backend.routes._ownership import assert_owned
-from xyz_agent_context.module.awareness_module import update_agent_profile_from_args
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.module_system.awareness_module import update_agent_profile_from_args
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 

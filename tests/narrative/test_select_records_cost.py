@@ -24,7 +24,7 @@ import pytest
 
 from datetime import datetime
 
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeInfo,
     NarrativeSelectionResult,
@@ -78,13 +78,13 @@ def service(monkeypatch, db_client):
     `test_routing_audit_timing.py`'s job — this file only asks whether the two
     fields are ever ASSIGNED.
     """
-    from xyz_agent_context.narrative.narrative_service import NarrativeService
+    from narranexus.platform.narrative.narrative_service import NarrativeService
 
     async def _get_db():
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
     svc = NarrativeService(agent_id="agent_x")
 
@@ -100,7 +100,7 @@ def service(monkeypatch, db_client):
             is_new=False,
             retrieval_method="keyword",
         )
-        from xyz_agent_context.narrative.models import RoutingAudit
+        from narranexus.platform.narrative.models import RoutingAudit
 
         result.audit = RoutingAudit(
             agent_id="agent_x", user_id="u1", query_text="q"

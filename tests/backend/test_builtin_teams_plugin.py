@@ -20,7 +20,7 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module.contributions import register_all
+from narranexus.platform.module_system.contributions import register_all
 
 TEAMS = "builtin.teams"
 
@@ -76,7 +76,7 @@ def test_disable_builtin_teams_degrades_cleanly(tmp_path: Path, monkeypatch):
 
 def test_enabled_builtin_teams_mounts_and_worker_starts(tmp_path: Path, monkeypatch):
     from backend.plugins_host import mount_plugin_routes, start_backend_workers, stop_backend_workers
-    from xyz_agent_context.services import team_summary_worker as tsw
+    from narranexus.platform.services import team_summary_worker as tsw
 
     calls: list[str] = []
 

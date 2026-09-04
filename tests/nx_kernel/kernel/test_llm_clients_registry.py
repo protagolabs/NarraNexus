@@ -14,7 +14,7 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 
 
 def test_registry_identity_and_builtin_order():
-    from xyz_agent_context.agent_framework.llm.helper_sdk import CONTRIBUTIONS, LLM_CLIENT_REGISTRY
+    from narranexus.platform.agent_framework.llm.helper_sdk import CONTRIBUTIONS, LLM_CLIENT_REGISTRY
 
     assert LLM_CLIENT_REGISTRY is KERNEL_REGISTRIES.registry_for("model.clients")
     assert LLM_CLIENT_REGISTRY.names() == ("anthropic", "openai", "cli")
@@ -31,10 +31,10 @@ def test_builtin_manifest_reproduces_the_registry_in_a_fresh_registries():
 
 
 def test_get_helper_sdk_dispatches_by_protocol_and_fails_loud_for_unknown(monkeypatch):
-    from xyz_agent_context.agent_framework.llm import helper_sdk
+    from narranexus.platform.agent_framework.llm import helper_sdk
 
     monkeypatch.setattr(helper_sdk, "_resolved_helper_protocol", lambda: "openai")
-    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
     assert isinstance(helper_sdk.get_helper_sdk(), OpenAIAgentsSDK)
     monkeypatch.setattr(helper_sdk, "_resolved_helper_protocol", lambda: "nope")

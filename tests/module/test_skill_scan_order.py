@@ -25,11 +25,11 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module.skill_module import (
+from narranexus.platform.module_system.skill_module.skill_module import (
     SKILL_INSTRUCTIONS_TEMPLATE,
     SkillModule,
 )
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.schema import ContextData
 
 # The APFS order observed on a real workspace (non-alphabetical on purpose).
 _APFS_ORDER = [

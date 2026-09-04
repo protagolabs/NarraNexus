@@ -22,8 +22,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus.platform.module_system.lark_module.lark_cli_client import LarkCLIClient
+from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
 
 
 def _cred(user_oauth: bool):

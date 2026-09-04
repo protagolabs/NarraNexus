@@ -29,8 +29,8 @@ import pytest
 from backend.routes.artifacts._token import verify
 from backend.routes.teams import _authorize_team_artifact
 from fastapi import HTTPException
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
 
 OWNER = "user_t"
 TID = "team_abc"

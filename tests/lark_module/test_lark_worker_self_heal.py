@@ -19,7 +19,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
 
 
 @pytest.mark.asyncio

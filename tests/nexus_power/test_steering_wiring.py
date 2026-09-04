@@ -15,14 +15,14 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power import assembly as assembly_mod
-from xyz_agent_context.agent_framework.nexus_power.assembly import (
+from narranexus.platform.agent_framework.nexus_power import assembly as assembly_mod
+from narranexus.platform.agent_framework.nexus_power.assembly import (
     TurnRequest,
     run_turn_events,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import EndReason
-from xyz_agent_context.agent_framework.nexus_power.contracts.options import TurnOptions
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus.platform.agent_framework.nexus_power.contracts.events import EndReason
+from narranexus.platform.agent_framework.nexus_power.contracts.options import TurnOptions
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
     NullSteeringInlet,
     QueueSteeringInlet,
 )
@@ -54,9 +54,9 @@ def _install_capturing_loop(monkeypatch) -> dict:
         async def run_turn(self):
             yield self._ledger.close_turn(EndReason.NO_MORE_ACTIONS, model="fake")
 
-    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop as loop_mod
-    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
-    import xyz_agent_context.agent_framework.llm.litellm_client as lc_mod
+    import narranexus.platform.agent_framework.nexus_power._nexus_power_impl.loop as loop_mod
+    import narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
+    import narranexus.platform.agent_framework.llm.litellm_client as lc_mod
 
     monkeypatch.setattr(loop_mod, "NexusPowerLoop", _CapturingLoop)
     monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: object())
@@ -141,7 +141,7 @@ async def test_serve_turn_forwards_steering_to_run_turn_events(monkeypatch, tmp_
     captured = _install_capturing_loop(monkeypatch)
     inlet = QueueSteeringInlet(asyncio.Queue())
 
-    from xyz_agent_context.agent_framework.nexus_power.runner import serve_turn
+    from narranexus.platform.agent_framework.nexus_power.runner import serve_turn
 
     payload = json.dumps({
         "thread_id": "t1",

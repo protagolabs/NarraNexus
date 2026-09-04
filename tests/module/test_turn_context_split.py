@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.settings import settings
+from narranexus.platform.schema import ContextData
+from narranexus.platform.settings import settings
 
 AGENT_ID = "agent_tcs"
 USER_ID = "user_tcs"
@@ -59,7 +59,7 @@ def flag_off(monkeypatch):
 # =========================================================================
 
 def _basic_info_module():
-    from xyz_agent_context.module.basic_info_module.basic_info_module import (
+    from narranexus.platform.module_system.basic_info_module.basic_info_module import (
         BasicInfoModule,
     )
     return BasicInfoModule(AGENT_ID, USER_ID, None)
@@ -84,7 +84,7 @@ def test_basic_info_stable_template_anchors():
     """The stable template is derived by replacing the exact volatile span —
     guard the anchor so a wording edit to the legacy template can't silently
     turn the replace into a no-op."""
-    from xyz_agent_context.module.basic_info_module.prompts import (
+    from narranexus.platform.module_system.basic_info_module.prompts import (
         BASIC_INFO_MODULE_INSTRUCTIONS,
         BASIC_INFO_MODULE_INSTRUCTIONS_STABLE,
         BASIC_INFO_REAL_WORLD_TURN_TEMPLATE,
@@ -124,7 +124,7 @@ async def test_basic_info_turn_context_carries_time_and_ground_truth(flag_on):
 
 @pytest.mark.asyncio
 async def test_basic_info_flag_off_is_legacy_byte_identical(flag_off):
-    from xyz_agent_context.module.basic_info_module.prompts import (
+    from narranexus.platform.module_system.basic_info_module.prompts import (
         BASIC_INFO_MODULE_INSTRUCTIONS,
     )
     mod = _basic_info_module()
@@ -144,7 +144,7 @@ async def test_basic_info_turn_context_fail_open_on_bare_ctx(flag_on):
 # =========================================================================
 
 def _memory_module():
-    from xyz_agent_context.module.general_memory_module.general_memory_module import (
+    from narranexus.platform.module_system.general_memory_module.general_memory_module import (
         GeneralMemoryModule,
     )
     return GeneralMemoryModule(AGENT_ID, USER_ID, None)
@@ -206,7 +206,7 @@ async def test_memory_turn_context_fail_open_on_bare_ctx(flag_on):
 # =========================================================================
 
 def _social_module():
-    from xyz_agent_context.module.social_network_module.social_network_module import (
+    from narranexus.platform.module_system.social_network_module.social_network_module import (
         SocialNetworkModule,
     )
     return SocialNetworkModule(AGENT_ID, USER_ID, None)
@@ -221,7 +221,7 @@ def _entity_card(count: int) -> str:
 
 
 def test_social_stable_template_anchors():
-    from xyz_agent_context.module.social_network_module.prompts import (
+    from narranexus.platform.module_system.social_network_module.prompts import (
         SOCIAL_NETWORK_MODULE_INSTRUCTIONS,
         SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE,
     )
@@ -259,7 +259,7 @@ async def test_social_turn_context_carries_entity_card(flag_on):
 
 @pytest.mark.asyncio
 async def test_social_flag_off_is_legacy_byte_identical(flag_off):
-    from xyz_agent_context.module.social_network_module.prompts import (
+    from narranexus.platform.module_system.social_network_module.prompts import (
         SOCIAL_NETWORK_MODULE_INSTRUCTIONS,
     )
     mod = _social_module()
@@ -280,7 +280,7 @@ async def test_social_turn_context_fail_open_on_bare_ctx(flag_on):
 # =========================================================================
 
 def _job_module():
-    from xyz_agent_context.module.job_module.job_module import JobModule
+    from narranexus.platform.module_system.job_module.job_module import JobModule
     return JobModule(AGENT_ID, USER_ID, None)
 
 
@@ -294,7 +294,7 @@ _JOBS_TABLE_B = _JOBS_TABLE_A.replace("job_aaaa1111", "job_bbbb2222")
 
 
 def test_job_stable_template_anchors():
-    from xyz_agent_context.module.job_module.job_module import (
+    from narranexus.platform.module_system.job_module.job_module import (
         JOB_MODULE_INSTRUCTIONS,
         JOB_MODULE_INSTRUCTIONS_STABLE,
     )
@@ -332,7 +332,7 @@ async def test_job_turn_context_carries_jobs_table(flag_on):
 
 @pytest.mark.asyncio
 async def test_job_flag_off_is_legacy_byte_identical(flag_off):
-    from xyz_agent_context.module.job_module.job_module import JOB_MODULE_INSTRUCTIONS
+    from narranexus.platform.module_system.job_module.job_module import JOB_MODULE_INSTRUCTIONS
     mod = _job_module()
     ctx = _ctx(jobs_information=_JOBS_TABLE_A)
     out = await mod.contribute_instructions(ctx)
@@ -351,7 +351,7 @@ async def test_job_turn_context_fail_open_on_bare_ctx(flag_on):
 # =========================================================================
 
 def _bus_module():
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
     return MessageBusModule(AGENT_ID, USER_ID, None)
@@ -414,7 +414,7 @@ async def test_bus_turn_context_carries_lists(flag_on):
     assert "### Unread Messages: 2 (showing 2)" in block
     # Tag renamed with the heading above, same reason. Built from the helper so
     # this assertion cannot drift from what the renderer emits.
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         _bus_tag,
     )
 
@@ -436,7 +436,7 @@ async def test_a_team_rooms_messages_are_tagged_with_the_team_name(flag_on):
     id: a label we could not look up is not evidence, and inventing a room is
     worse than omitting one.
     """
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
         _bus_tag,
     )
 
@@ -473,7 +473,7 @@ async def test_bus_flag_off_is_legacy_byte_identical(flag_off):
 # =========================================================================
 
 def _tools_module(db=None):
-    from xyz_agent_context.module.common_tools_module.common_tools_module import (
+    from narranexus.platform.module_system.common_tools_module.common_tools_module import (
         CommonToolsModule,
     )
     return CommonToolsModule(AGENT_ID, USER_ID, db)
@@ -487,7 +487,7 @@ def _attachment_ctx(name: str) -> ContextData:
 
 @pytest.mark.asyncio
 async def test_tools_instructions_byte_stable_when_flag_on(flag_on, db_client):
-    from xyz_agent_context.module.common_tools_module.common_tools_module import (
+    from narranexus.platform.module_system.common_tools_module.common_tools_module import (
         COMMON_TOOLS_INSTRUCTIONS,
     )
     mod = _tools_module(db_client)
@@ -513,7 +513,7 @@ async def test_tools_turn_context_carries_attachments_and_registry(flag_on, db_c
 
 @pytest.mark.asyncio
 async def test_tools_flag_off_is_legacy_byte_identical(flag_off, db_client):
-    from xyz_agent_context.module.common_tools_module.common_tools_module import (
+    from narranexus.platform.module_system.common_tools_module.common_tools_module import (
         COMMON_TOOLS_INSTRUCTIONS,
     )
     mod = _tools_module(db_client)

@@ -30,7 +30,7 @@ def _registries(spec: BundleSpec):
 
 @pytest.fixture
 def svc(monkeypatch, tmp_path):
-    from xyz_agent_context.marketplace import team_marketplace_service as mod
+    from narranexus.platform.marketplace import team_marketplace_service as mod
 
     monkeypatch.setenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", "1")
 
@@ -56,7 +56,7 @@ def svc(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_plugin_bundle_listed_resolved_and_pinned(svc, tmp_path, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     service, _ = svc
     path, digest = _bundle(tmp_path)
@@ -73,8 +73,8 @@ async def test_plugin_bundle_listed_resolved_and_pinned(svc, tmp_path, monkeypat
 
 @pytest.mark.asyncio
 async def test_registry_template_wins_over_plugin_with_same_id(svc, tmp_path, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
-    from xyz_agent_context.schema.team_marketplace_schema import TeamTemplate
+    import narranexus.platform.utils.plugin_contributions as pc
+    from narranexus.platform.schema.team_marketplace_schema import TeamTemplate
 
     service, catalog = svc
     path, digest = _bundle(tmp_path)
@@ -87,7 +87,7 @@ async def test_registry_template_wins_over_plugin_with_same_id(svc, tmp_path, mo
 
 @pytest.mark.asyncio
 async def test_no_plugins_no_change(svc, monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     service, _ = svc
     monkeypatch.setattr(pc, "_registries", lambda r=None: Registries())

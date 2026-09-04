@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.logging import _ship
+from narranexus.platform.utils.logging import _ship
 
 
 async def _async_return(v):

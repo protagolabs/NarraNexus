@@ -13,7 +13,7 @@ work on BOTH backends, and a column declared for only one dialect is the shape o
 bug the dual-dialect contract exists to prevent — it would pass every local
 SQLite test and fail on the cloud, where production runs.
 """
-from xyz_agent_context.utils.db.schema_registry import get_registered_tables
+from narranexus.platform.utils.db.schema_registry import get_registered_tables
 
 
 def _table():
@@ -48,6 +48,6 @@ def test_the_stamp_is_not_nullable():
 
 def test_the_module_and_the_table_agree_on_the_name():
     """Two literals for one table is how a rename half-lands."""
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     assert wake_signal.TABLE == _table().name

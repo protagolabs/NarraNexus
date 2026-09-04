@@ -8,14 +8,14 @@ Since batch 1 of the plugin platform this table is DERIVED on demand
 (``build_plugin_specs()``, no import-time snapshot): every agent-loop framework
 contribution whose ``FrameworkMeta.install`` is set (today Claude Code and
 Codex CLI) becomes one ``PluginSpec``. The pins therefore live in one
-place — ``xyz_agent_context.agent_framework`` next to the driver factories —
+place — ``narranexus.platform.agent_framework`` next to the driver factories —
 and the invariant "installer pin == locked version" is guarded by
 ``tests/backend/integrations/plugins/test_registry.py::test_pip_pins_match_uv_lock``.
 """
 from __future__ import annotations
 
 from narranexus.contracts.framework import FrameworkMeta
-from xyz_agent_context.agent_framework.loop.driver import FRAMEWORK_REGISTRY
+from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY
 
 from .spec import PluginSpec
 
@@ -36,7 +36,7 @@ def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
 
 def build_plugin_specs() -> dict[str, PluginSpec]:
     """Installable plugins = registered frameworks that declare an install recipe."""
-    import xyz_agent_context.agent_framework  # noqa: F401 — registers the builtin frameworks
+    import narranexus.platform.agent_framework  # noqa: F401 — registers the builtin frameworks
 
     specs: dict[str, PluginSpec] = {}
     for entry in FRAMEWORK_REGISTRY.entries():

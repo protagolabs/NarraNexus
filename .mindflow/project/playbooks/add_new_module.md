@@ -38,12 +38,12 @@ Before writing any code:
    reference. Module base class, Instance lifecycle, three-tier
    Prompts, how MCP tools get per-agent context.
 3. **One existing module as a worked example.** Recommended:
-   `src/xyz_agent_context/module/awareness_module/` — small, well-mirrored.
+   `src/narranexus/platform/module_system/awareness_module/` — small, well-mirrored.
 
 ## Files you'll create
 
 ```
-src/xyz_agent_context/
+src/narranexus/platform/
 ├── module/
 │   └── email_module/                          # NEW
 │       ├── __init__.py                        # NEW — re-exports
@@ -56,7 +56,7 @@ src/xyz_agent_context/
 └── schema/
     └── email_schema.py                        # NEW (Pydantic models)
 
-.mindflow/mirror/src/xyz_agent_context/module/
+.mindflow/mirror/src/narranexus/platform/module_system/
 └── email_module/                              # NEW — one md per .py
     ├── email_module.py.md
     └── _email_impl/
@@ -66,15 +66,15 @@ src/xyz_agent_context/
 ## Files you'll edit
 
 ```
-src/xyz_agent_context/module/__init__.py       # add EmailModule to module_registry
-src/xyz_agent_context/utils/db/schema_registry.py # _register(TableDef(...)) for instance_email_messages
+src/narranexus/platform/module_system/__init__.py       # add EmailModule to module_registry
+src/narranexus/platform/utils/db/schema_registry.py # _register(TableDef(...)) for instance_email_messages
 ```
 
 ## Step-by-step
 
 ### 1. Subclass `XYZBaseModule`
 
-`src/xyz_agent_context/module/email_module/email_module.py`:
+`src/narranexus/platform/module_system/email_module/email_module.py`:
 
 ```python
 """
@@ -83,8 +83,8 @@ src/xyz_agent_context/utils/db/schema_registry.py # _register(TableDef(...)) for
 @date: 2026-MM-DD
 @description: EmailModule — send and receive email on behalf of an agent.
 """
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.module.config import ModuleConfig
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.module_system.config import ModuleConfig
 
 
 class EmailModule(XYZBaseModule):
@@ -104,7 +104,7 @@ class name — don't set it manually.
 
 ### 2. Register in `module_registry`
 
-`src/xyz_agent_context/module/__init__.py` — add the import and an
+`src/narranexus/platform/module_system/__init__.py` — add the import and an
 entry. Key must equal `EmailModule.get_config().name`.
 
 ### 3. Pick an MCP port (if your module exposes tools)
@@ -115,7 +115,7 @@ in your module's docstring so reviewers can verify.
 
 ### 4. Add a database table (if needed)
 
-`src/xyz_agent_context/utils/db/schema_registry.py`:
+`src/narranexus/platform/utils/db/schema_registry.py`:
 
 ```python
 _register(TableDef(
@@ -138,7 +138,7 @@ needed.
 
 ### 5. Add the repository
 
-`src/xyz_agent_context/repository/email_repository.py` — subclass
+`src/narranexus/platform/repository/email_repository.py` — subclass
 `BaseRepository[EmailMessage]`. See `instance_repository.py` for
 a pattern.
 
@@ -153,7 +153,7 @@ For each `.py` you created, create `.mindflow/mirror/<same path>.md`:
 
 ```markdown
 ---
-code_file: src/xyz_agent_context/module/email_module/email_module.py
+code_file: src/narranexus/platform/module_system/email_module/email_module.py
 last_verified: 2026-MM-DD
 stub: false
 ---

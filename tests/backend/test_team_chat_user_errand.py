@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
-from xyz_agent_context.schema.team_work_schema import WorkItemOrigin
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.schema.team_work_schema import WorkItemOrigin
 
 TEAM = "t_errand"
 CHANNEL = "ch_errand"
@@ -168,7 +168,7 @@ async def test_book_keeping_never_costs_the_user_their_message(
         raise RuntimeError("board is on fire")
 
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.errand.record_handoffs", _boom
+        "narranexus.platform.message_bus.errand.record_handoffs", _boom
     )
 
     r = _post(client, "@Bruno pull the Q3 numbers", mentions=[BRUNO])

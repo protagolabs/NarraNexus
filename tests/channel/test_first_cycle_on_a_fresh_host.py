@@ -48,10 +48,10 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import EVENT_HEARTBEAT
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.services.service_audit import ServiceAuditor
+from narranexus.platform.channel.channel_audit_events import EVENT_HEARTBEAT
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.services.service_audit import ServiceAuditor
 
 
 # Seven orders of magnitude past any plausible host uptime, so "the gate opened"
@@ -60,7 +60,7 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 # seconds with no fractional meaning — unlike the poll interval below, which is
 # deliberately fractional. Neither spelling is a type error under the current
 # pyright config (`typeCheckingMode: off`, `include` limited to
-# `src/xyz_agent_context/module`, `reportAssignmentType` not promoted), so this
+# `src/narranexus/platform/module_system`, `reportAssignmentType` not promoted), so this
 # is a readability convention, not a lint fix.
 _UNREACHABLE_INTERVAL = 10**12
 

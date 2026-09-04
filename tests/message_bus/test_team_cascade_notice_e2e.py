@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     MAX_TEAM_AGENT_HOPS,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 from ._team_turn import speak_in_room
 
@@ -98,7 +98,7 @@ def _db_factory(db_client, monkeypatch):
     async def _get_db():
         return db_client
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _get_db)
 
 
 async def _assert_turn_survived(db):

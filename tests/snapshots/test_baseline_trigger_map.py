@@ -10,7 +10,7 @@ from tests.snapshots._approval import approve
 
 
 def test_channel_trigger_registration_is_unchanged():
-    from xyz_agent_context.module.channel_trigger_map import (
+    from narranexus.platform.module_system.channel_trigger_map import (
         CHANNEL_TRIGGER_MAP,
         REGISTERED_TRIGGER_CLASS_NAMES,
     )

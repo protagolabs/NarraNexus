@@ -200,7 +200,7 @@ router 和 middleware 都不注册，中间件栈长度不变。见
 (`SYSTEM_DEFAULT_LLM_GATEWAY_URL`)才真起,本地/桌面 no-op。周期把免费档 agent
 运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
 报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
-`[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
+`[[../src/narranexus/platform/services/gateway_spend_reconciler.py]]`。
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
@@ -253,7 +253,7 @@ See backend/routes/notices.py.md.
 `lifespan` 启动时调 `maybe_start_executor_reaper()`(存 `app.state.executor_reaper_task`),
 teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 None)。
 回收空闲 per-user executor 容器,只碰空闲的(铁律 #14)。见
-`[[../src/xyz_agent_context/agent_runtime/executor_reaper.py]]`。
+`[[../src/narranexus/platform/agent_runtime/executor_reaper.py]]`。
 
 ## 2026-06-12 — admin_migration_router 注册
 
@@ -350,7 +350,7 @@ shutdown actually survive.
 
 The custom `logger.remove()` + `logger.add(sys.stderr, ...)` block at
 module top is gone; that responsibility now lives entirely inside
-`setup_logging`. See `src/xyz_agent_context/utils/logging/` for the
+`setup_logging`. See `src/narranexus/platform/utils/logging/` for the
 public surface.
 
 A new HTTP middleware is registered alongside `auth_middleware`:
@@ -399,8 +399,8 @@ values, so lifespan wiring is harmless when the feature is off.
 - **依赖谁**：
   - `backend.config.settings` — 读取 CORS origins 和 frontend_dist 路径
   - `backend.auth.auth_middleware` — 注入 HTTP 鉴权中间件
-  - `xyz_agent_context.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
-  - `xyz_agent_context.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
+  - `narranexus.platform.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
+  - `narranexus.platform.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
   - 全部路由模块：`websocket`, `agents`, `jobs`, `auth`, `skills`, `providers`, `inbox`
 
 ## 设计决策

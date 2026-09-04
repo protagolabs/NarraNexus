@@ -20,14 +20,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import LLMConfigNotConfigured
-from xyz_agent_context.module.job_module import create_job_from_args
-from xyz_agent_context.module.job_module._job_mcp_tools import create_job_mcp_server
+from narranexus.platform.agent_framework.api_config import LLMConfigNotConfigured
+from narranexus.platform.module_system.job_module import create_job_from_args
+from narranexus.platform.module_system.job_module._job_mcp_tools import create_job_mcp_server
 
 # setup_mcp_llm_context is imported inside create_job_from_args (the shared
 # helper that now owns the structured-error handling), so patch it at the source
 # module, not at the tool module.
-API_MOD = "xyz_agent_context.agent_framework.api_config"
+API_MOD = "narranexus.platform.agent_framework.api_config"
 
 
 def _server():
@@ -159,7 +159,7 @@ async def test_job_create_tool_surfaces_seam_error_not_raises(monkeypatch):
             return {"success": False, "error": "structured, not an exception"}
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.job_module._job_mcp_tools.get_agent_data_store",
+        "narranexus.platform.module_system.job_module._job_mcp_tools.get_agent_data_store",
         lambda *a, **k: _FakeStore(),
     )
     fn = _tool(_server(), "job_create").fn

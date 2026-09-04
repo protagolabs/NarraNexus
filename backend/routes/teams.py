@@ -24,48 +24,48 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.db.dialect_time import event_time_str
-from xyz_agent_context.utils.mime_sniff import sniff_mime_type
-from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
-from xyz_agent_context.repository.user_repository import UserRepository
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.attachments import (
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.dialect_time import event_time_str
+from narranexus.platform.utils.mime_sniff import sniff_mime_type
+from narranexus.platform.repository import TeamRepository, TeamMemberRepository
+from narranexus.platform.repository.user_repository import UserRepository
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.attachments import (
     load_bus_attachment_meta,
     resolve_shared_file_for_user,
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
-from xyz_agent_context.message_bus.team_rooms import (
+from narranexus.platform.message_bus.team_rooms import (
     get_or_create_team_room,
     primary_room_of,
     team_room_marker,
 )
-from xyz_agent_context.message_bus.system_messages import (
+from narranexus.platform.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
     placeholders as _platform_placeholders,
 )
-from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
-from xyz_agent_context.utils.workspace_paths import team_shared_dir
-from xyz_agent_context.repository.team_workspace_repository import (
+from narranexus.platform.schema.attachment_schema import derive_category_from_mime
+from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.repository.team_workspace_repository import (
     ArtifactHistoryRepository,
     TeamFileRepository,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.repository.team_bulletin_repository import TeamBulletinRepository
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.repository.team_bulletin_repository import TeamBulletinRepository
 
 # Budget rules live in the core package, not here: the MCP tool enforces the
 # same ceilings for agents, and a core module importing a FastAPI route to get
 # them would invert the layering the architecture depends on.
-from xyz_agent_context.message_bus.team_bulletin import (
+from narranexus.platform.message_bus.team_bulletin import (
     BulletinLimitExceeded,
     post_bulletin_notice as _post_bulletin_notice,
     add_bulletin_entry,
     check_bulletin_budget,
     edit_bulletin_entry,
 )
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
     resolve_default_responder,
@@ -365,7 +365,7 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     # fail a send that already succeeded (the message id above is returned
     # either way).
     try:
-        from xyz_agent_context.message_bus.errand import record_handoffs
+        from narranexus.platform.message_bus.errand import record_handoffs
 
         await record_handoffs(
             db,
@@ -446,7 +446,7 @@ async def upload_team_chat_attachment(
     # Transcribe audio uploads so team agents get the words (they can't listen).
     transcription_available: bool | None = None
     if mime_type.startswith("audio/"):
-        from xyz_agent_context.agent_framework.llm.transcription import TranscriptionService
+        from narranexus.platform.agent_framework.llm.transcription import TranscriptionService
 
         on_disk = resolve_shared_file_for_user(user_id, att["rel_path"])
         svc = TranscriptionService.instance()
@@ -580,7 +580,7 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
     * ``idle``     — nothing pending. Still carries the PREVIOUS turn's step
       timeline plus when it ended, so the room can show what an agent just did.
     """
-    from xyz_agent_context.message_bus import activity as bus_activity
+    from narranexus.platform.message_bus import activity as bus_activity
 
     act_rows = {r["agent_id"]: r for r in await bus_activity.get_channel_activity(db, channel_id)}
     try:
@@ -1256,7 +1256,7 @@ async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None
     channel, and creating one to narrate a membership edit would be the tail
     wagging the dog. Best-effort — the edit itself already succeeded.
     """
-    from xyz_agent_context.message_bus.team_notices import post_roster_change
+    from narranexus.platform.message_bus.team_notices import post_roster_change
 
     channel_id = await primary_room_of(db, team_id) or ""
     if not channel_id:
@@ -1385,7 +1385,7 @@ def _handoff_status(states: List[str]) -> str:
     at least one row is unfinished, so the fall-through (everything paused) is
     the parked case the user resumes.
     """
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     if WorkItemStatus.STALLED in states:
         return WorkItemStatus.STALLED
@@ -1414,11 +1414,11 @@ def _assemble_work_board(
     Order follows first appearance in `visible` (already `created_at, id`
     ascending), so a hand-off sits where its earliest errand would have.
     """
-    from xyz_agent_context.schema.team_work_schema import (
+    from narranexus.platform.schema.team_work_schema import (
         WorkItemOrigin,
         WorkItemStatus,
     )
-    from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
+    from narranexus.platform.schema.team_schema import USER_SENDER_PREFIX
 
     def _agent_name(agent_id: Optional[str]) -> Optional[str]:
         # One fallback rule for both card kinds: a left member keeps its id
@@ -1513,7 +1513,7 @@ async def get_work_board(team_id: str, request: Request):
     db = await get_db_client()
     team = await _owned_team(db, team_id, user_id)
 
-    from xyz_agent_context.repository.team_work_repository import (
+    from narranexus.platform.repository.team_work_repository import (
         TeamWorkItemRepository,
     )
 
@@ -1554,7 +1554,7 @@ async def get_work_board(team_id: str, request: Request):
 
 def _patrol_enabled(team) -> bool:
     """See ``team_schema.patrol_is_on`` — one implementation, two callers."""
-    from xyz_agent_context.schema.team_schema import patrol_is_on
+    from narranexus.platform.schema.team_schema import patrol_is_on
 
     return patrol_is_on(team)
 
@@ -1571,8 +1571,8 @@ async def resume_work_item(team_id: str, item_id: str, request: Request):
     db = await get_db_client()
     await _owned_team(db, team_id, user_id)
 
-    from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     repo = TeamWorkItemRepository(db)
     item = await repo.get(item_id)

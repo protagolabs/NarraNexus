@@ -33,7 +33,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
     web_search as ws,
 )
 
@@ -246,10 +246,10 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
     (which spawns subprocesses) instead of ``search_many`` directly.
     We patch that single entry point to simulate a hang.
     """
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as tools,
     )
-    from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as factory
+    from narranexus.platform.module_system.common_tools_module import _common_tools_mcp_tools as factory
 
     # Shrink the outer handler timeout so the test completes in a few
     # seconds instead of waiting out the production 110s cap. The

@@ -17,13 +17,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.module.chat_module._chat_writes import (
+from narranexus.platform.module_system.chat_module._chat_writes import (
     agent_chat_has_history,
     build_bootstrap_greeting_row,
     seed_bootstrap_greeting,
 )
-from xyz_agent_context.repository.event_memory_repository import EventMemoryRepository
-from xyz_agent_context.utils import utc_now
+from narranexus.platform.repository.event_memory_repository import EventMemoryRepository
+from narranexus.platform.utils import utc_now
 
 _INSTANCE = "chat_writes_instance"
 

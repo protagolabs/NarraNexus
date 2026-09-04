@@ -27,8 +27,8 @@ import re
 
 import pytest
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.utils.timezone import format_now_for_agent
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.utils.timezone import format_now_for_agent
 
 
 def _tag(ts, tz="Asia/Shanghai"):
@@ -90,7 +90,7 @@ def test_unknown_timezone_falls_back_to_utc_without_raising():
 async def test_history_rows_carry_the_user_offset_end_to_end(db_client):
     """Through build_input_for_framework, not just the helper: a real row
     with a UTC-stored timestamp must reach the model in the user's frame."""
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.schema import ContextData
 
     await db_client.insert("users", {
         "user_id": "u_frame",

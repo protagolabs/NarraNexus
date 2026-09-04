@@ -31,7 +31,7 @@ def test_default_home_is_under_the_user_profile(monkeypatch):
 
 
 def test_legacy_plugin_paths_delegates_to_the_kernel(monkeypatch, tmp_path: Path):
-    from xyz_agent_context.agent_framework import plugin_paths
+    from narranexus.platform.agent_framework import plugin_paths
 
     monkeypatch.setenv(paths.ENV_PLUGIN_HOME, str(tmp_path))
     assert plugin_paths.plugin_home() == tmp_path

@@ -32,10 +32,10 @@ from loguru import logger
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.schema.provider_schema import SlotName
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.agent_framework.providers.cloud_policy import CloudPolicyViolation
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.schema.provider_schema import SlotName
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.agent_framework.providers.cloud_policy import CloudPolicyViolation
 
 router = APIRouter()
 

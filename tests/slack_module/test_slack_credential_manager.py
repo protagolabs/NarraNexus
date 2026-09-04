@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.slack_module import _slack_credential_manager as cm_mod
-from xyz_agent_context.module.slack_module._slack_credential_manager import (
+from narranexus.platform.module_system.slack_module import _slack_credential_manager as cm_mod
+from narranexus.platform.module_system.slack_module._slack_credential_manager import (
     SlackCredentialManager,
 )
-from xyz_agent_context.module.slack_module.slack_sdk_client import SlackSDKError
+from narranexus.platform.module_system.slack_module.slack_sdk_client import SlackSDKError
 
 
 class _FakeSlackClient:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.mcp_repository import validate_mcp_sse_connection
+from narranexus.platform.repository.mcp_repository import validate_mcp_sse_connection
 import backend.routes.agents.mcps as mcps_route
 
 

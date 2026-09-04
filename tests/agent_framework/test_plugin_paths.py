@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework import plugin_paths as pp
+from narranexus.platform.agent_framework import plugin_paths as pp
 
 
 @pytest.fixture()

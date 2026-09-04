@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema.team_schema import BulletinEntry
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.schema.team_schema import BulletinEntry
 
 # The builder takes a roster now (team-card change), same two members.
 MEMBERS = [
@@ -200,7 +200,7 @@ def test_the_dispatch_site_passes_the_bulletin_into_the_prompt():
     branch, and its result is handed to the renderer."""
     import inspect
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from narranexus.platform.message_bus import message_bus_trigger as mod
 
     src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
     assert "_load_bulletin(" in src
@@ -211,13 +211,13 @@ def test_the_dispatch_site_passes_the_bulletin_into_the_prompt():
 async def test_an_unreadable_bulletin_degrades_instead_of_killing_the_turn(monkeypatch):
     """Losing the standing rules is a degradation; losing the reply is an
     outage. The turn is still answerable without the bulletin."""
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from narranexus.platform.message_bus import message_bus_trigger as mod
 
     async def boom():
         raise RuntimeError("database is on fire")
 
     monkeypatch.setattr(mod, "logger", mod.logger)
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", boom, raising=True)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", boom, raising=True)
 
     got = await MessageBusTrigger(bus=None)._load_bulletin("team_42")
     assert got == []
@@ -228,12 +228,12 @@ async def test_a_failed_read_is_logged_rather_than_swallowed(monkeypatch):
     """Returning [] silently would present an unreachable database as "this
     team has no rules" — the user would see their rules ignored and have
     nothing anywhere saying why."""
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from narranexus.platform.message_bus import message_bus_trigger as mod
 
     async def boom():
         raise RuntimeError("database is on fire")
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", boom, raising=True)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", boom, raising=True)
 
     seen = []
     monkeypatch.setattr(mod.logger, "warning", lambda m: seen.append(str(m)))
@@ -288,7 +288,7 @@ def test_the_patrol_path_loads_the_bulletin():
     """The specific caller that was missing it."""
     import inspect
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from narranexus.platform.message_bus import message_bus_trigger as mod
 
     body = inspect.getsource(mod.MessageBusTrigger._patrol_body)
     assert "_load_bulletin(" in body
@@ -313,7 +313,7 @@ def test_platform_lines_are_labelled_not_attributed_to_a_member():
     question a patrol chase asks, and the pointer line below it prints only the
     sender. Content stays; the impersonation is what goes.
     """
-    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+    from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
 
     history = [_msg(content="real work happened")]
     history += [_sys(f"platform said {t}", t) for t in PLATFORM_MSG_TYPES]
@@ -330,7 +330,7 @@ def test_platform_lines_are_labelled_not_attributed_to_a_member():
 def test_a_patrol_marker_never_reaches_the_transcript_as_a_name():
     """Its sender is a synthetic `team_<id>`, which member_map cannot resolve,
     so it would print raw."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     out = _prompt(
         [],
@@ -361,7 +361,7 @@ def test_a_patrol_chase_still_shows_what_it_asked():
     can never be a trigger), which means the ONE sender this filter existed to
     silence is also the only one it broke.
     """
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     chase = _sys(
         "the parser task has been open for three days — where does it stand?",
@@ -390,7 +390,7 @@ def test_a_platform_line_is_labelled_rather_than_impersonating_a_member():
     """Kept, but not dressed as conversation. The two faults being avoided are
     "Alice: Team bulletin updated." and a `team_<id>` marker appearing as if it
     were a member."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     out = _prompt(
         [],

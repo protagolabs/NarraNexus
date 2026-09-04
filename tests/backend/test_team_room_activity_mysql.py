@@ -28,11 +28,11 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 from backend.routes.teams import _team_room_activity
 

@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.contracts.trigger import TriggerSpec
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.channel.channel_context_builder_base import ChannelContextBuilderBase
-from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
-from xyz_agent_context.channel.webhook_transport import WebhookChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.module_schema import ModuleConfig
-from xyz_agent_context.schema.parsed_message import ChatType, MessageContentType, ParsedMessage
+from narranexus.platform.channel.channel_context_builder_base import ChannelContextBuilderBase
+from narranexus.platform.channel.channel_module_base import ChannelModuleBase
+from narranexus.platform.channel.webhook_transport import WebhookChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.module_schema import ModuleConfig
+from narranexus.platform.schema.parsed_message import ChatType, MessageContentType, ParsedMessage
 
 CHANNEL_NAME = "hello_channel"
 HELLO_SOURCE = WorkingSource.register(CHANNEL_NAME)
@@ -121,7 +121,7 @@ class HelloChannelModule(ChannelModuleBase):
         return ModuleConfig(name="HelloChannelModule", priority=9, enabled=True, description="Hello Channel (plugin channel demo).", module_type="capability")
 
     async def get_credential(self, agent_id: str) -> Optional[Any]:
-        from xyz_agent_context.channel.credential_store import GenericCredentialStore
+        from narranexus.platform.channel.credential_store import GenericCredentialStore
 
         return await GenericCredentialStore(self.database_client).get(CHANNEL_NAME, agent_id)
 

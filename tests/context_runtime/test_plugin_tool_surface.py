@@ -10,7 +10,7 @@ from narranexus.contracts.mcp_server import McpServerSpec
 from narranexus.contracts.tool import ToolSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
 
 class _Provider:
@@ -46,7 +46,7 @@ def _registries():
 
 def test_surface_merge_and_deferred_names(monkeypatch):
     registries = _registries()
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     monkeypatch.setattr(pc, "_registries", lambda r=None: registries)
     servers, deferred = ContextRuntime._plugin_tool_surface({"chat"})
@@ -57,7 +57,7 @@ def test_surface_merge_and_deferred_names(monkeypatch):
 
 
 def test_without_plugins_the_surface_is_untouched(monkeypatch):
-    import xyz_agent_context.utils.plugin_contributions as pc
+    import narranexus.platform.utils.plugin_contributions as pc
 
     monkeypatch.setattr(pc, "_registries", lambda r=None: Registries())
     assert ContextRuntime._plugin_tool_surface({"chat"}) == ({}, [])

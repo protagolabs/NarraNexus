@@ -17,10 +17,10 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_runtime.agent_runtime import (
+from narranexus.platform.agent_runtime.agent_runtime import (
     _stream_step3_with_interrupt_drain,
 )
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
 
 
 async def _collect(agen) -> list:

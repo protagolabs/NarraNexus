@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.schema import Agent, agent_field_matches, normalize_agent_text
+from narranexus.platform.schema import Agent, agent_field_matches, normalize_agent_text
 
 
 def _agent(**kwargs) -> Agent:

@@ -9,16 +9,16 @@
     // a permanently-red gate is a gate turned off — so only the two
     // diagnostics that catch the incident class are enabled. Widen the file
     // scope and diagnostics as the legacy noise below is paid down.
-    "include": ["src/xyz_agent_context/module", "src/narranexus"],
+    "include": ["src/narranexus/platform/module_system", "src/narranexus"],
     "exclude": [
         // Legacy dynamic-attribute noise, tracked for paydown — mostly
         // ContextData dynamic fields and MCP content-union access.
-        "src/xyz_agent_context/module/awareness_module/awareness_module.py",
-        "src/xyz_agent_context/module/job_module/_job_lifecycle.py",
-        "src/xyz_agent_context/module/job_module/job_module.py",
-        "src/xyz_agent_context/module/run_channel_triggers.py",
-        "src/xyz_agent_context/module/slack_module/slack_sdk_client.py",
-        "src/xyz_agent_context/module/social_network_module/social_network_module.py"
+        "src/narranexus/platform/module_system/awareness_module/awareness_module.py",
+        "src/narranexus/platform/module_system/job_module/_job_lifecycle.py",
+        "src/narranexus/platform/module_system/job_module/job_module.py",
+        "src/narranexus/platform/module_system/run_channel_triggers.py",
+        "src/narranexus/platform/module_system/slack_module/slack_sdk_client.py",
+        "src/narranexus/platform/module_system/social_network_module/social_network_module.py"
     ],
     "typeCheckingMode": "off",
     "reportAttributeAccessIssue": "error",

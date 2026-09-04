@@ -19,7 +19,7 @@ from backend.onboarding.personas import (
     render_awareness,
     render_greeting,
 )
-from xyz_agent_context.bootstrap.profiles import BootstrapContext, get_profile
+from narranexus.platform.bootstrap.profiles import BootstrapContext, get_profile
 
 
 def test_onboarding_profile_registered():

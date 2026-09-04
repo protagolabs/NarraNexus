@@ -36,9 +36,9 @@ from typing import AsyncIterator
 import pytest
 from loguru import logger
 
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.utils.background_tasks import drain, pending
+from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.utils.background_tasks import drain, pending
 
 
 # --------------------------------------------------------------------------
@@ -48,7 +48,7 @@ from xyz_agent_context.utils.background_tasks import drain, pending
 @pytest.fixture(autouse=True)
 def patch_get_db(monkeypatch, db_client):
     """Route every inner ``get_db_client()`` to the test's sqlite."""
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     async def _fake_get_db():
         return db_client
@@ -66,7 +66,7 @@ def stub_preparation_steps(monkeypatch):
     routing behaviour. Step 0 and Step 4 are left alone on purpose — the Event
     row the hooks operate on has to be real.
     """
-    from xyz_agent_context.agent_runtime import agent_runtime as ar
+    from narranexus.platform.agent_runtime import agent_runtime as ar
 
     async def _fake_step_1(ctx, narrative_service, session_service):
         ctx.narrative_list = []
@@ -96,7 +96,7 @@ def stub_preparation_steps(monkeypatch):
 @pytest.fixture(autouse=True)
 def patch_llm_config(monkeypatch):
     """A usable owner LLM config, so run() gets past its credential preflight."""
-    from xyz_agent_context.agent_framework import api_config
+    from narranexus.platform.agent_framework import api_config
 
     async def _configs(_agent_id: str):
         return _FakeRuntimeConfigs()
@@ -129,7 +129,7 @@ def helper_injection_succeeds(monkeypatch):
         return "owner_1"
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.resolver."
+        "narranexus.platform.agent_framework.providers.resolver."
         "inject_owner_helper_credentials",
         _inject,
     )
@@ -320,7 +320,7 @@ async def test_a_credential_failure_alerts_the_owner(db_client, monkeypatch):
     ``alert_background_llm_failure`` is the mechanism that was added so this
     could not recur; nothing asserted that the post-turn path reaches it.
     """
-    from xyz_agent_context.agent_runtime import agent_runtime as ar
+    from narranexus.platform.agent_runtime import agent_runtime as ar
 
     alerts: list[dict] = []
 
@@ -328,7 +328,7 @@ async def test_a_credential_failure_alerts_the_owner(db_client, monkeypatch):
         alerts.append(kwargs)
 
     monkeypatch.setattr(
-        "xyz_agent_context.services.background_llm_alerts.alert_background_llm_failure",
+        "narranexus.platform.services.background_llm_alerts.alert_background_llm_failure",
         _fake_alert,
     )
 
@@ -336,7 +336,7 @@ async def test_a_credential_failure_alerts_the_owner(db_client, monkeypatch):
         pass
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.llm.failure.is_credential_error",
+        "narranexus.platform.agent_framework.llm.failure.is_credential_error",
         lambda e: isinstance(e, _AuthError),
     )
     assert ar is not None  # import kept meaningful for the reader
@@ -369,7 +369,7 @@ async def test_the_detached_task_reinjects_the_owner_helper_llm(db_client, monke
         return "owner_1"
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.resolver."
+        "narranexus.platform.agent_framework.providers.resolver."
         "inject_owner_helper_credentials",
         _fake_inject,
     )

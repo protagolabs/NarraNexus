@@ -21,12 +21,12 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from xyz_agent_context.module.data_access import (
+from narranexus.platform.module_system.data_access import (
     ChannelDirectStore,
     ChannelHttpStore,
     get_channel_credential_store,
 )
-from xyz_agent_context.module.data_access.factory import current_identity_headers
+from narranexus.platform.module_system.data_access.factory import current_identity_headers
 
 AGENT = "agent_39b2b72b823b"
 
@@ -83,7 +83,7 @@ class _FakeDiscordManager:
 
 def _direct_store(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _FakeDiscordManager if channel == "discord" else (_ for _ in ()).throw(
             ValueError(f"unknown channel: {channel!r}")
         ),
@@ -312,7 +312,7 @@ def test_factory_cloud_is_http(monkeypatch):
 def test_factory_cloud_uses_ambient_identity_headers_by_default(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.factory.current_identity_headers",
+        "narranexus.platform.module_system.data_access.factory.current_identity_headers",
         lambda: {"authorization": "Bearer nx-agent:ambient"},
     )
     store = get_channel_credential_store()
@@ -387,7 +387,7 @@ def _direct_with_fake_manager(monkeypatch, *, unbind_result):
             return unbind_result
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _FakeMgr,
     )
     store = ChannelDirectStore()
@@ -415,10 +415,10 @@ def test_direct_bind_delegates_to_do_bind(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"ok": 1}}
 
-    import xyz_agent_context.module.discord_module._discord_service as ds
+    import narranexus.platform.module_system.discord_module._discord_service as ds
     monkeypatch.setattr(ds, "do_bind", fake_do_bind)
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: (lambda db: object()),
     )
     store = ChannelDirectStore()
@@ -442,7 +442,7 @@ def test_direct_bind_db_taker_passes_the_raw_db_not_a_manager(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"bound": 1}}
 
-    import xyz_agent_context.module.narramessenger_module._narramessenger_service as ns
+    import narranexus.platform.module_system.narramessenger_module._narramessenger_service as ns
     monkeypatch.setattr(ns, "do_bind", fake_do_bind)
     store = ChannelDirectStore()
 
@@ -460,10 +460,10 @@ def test_direct_test_connection_delegates_to_do_test(monkeypatch):
     async def fake_do_test(mgr, agent_id):
         return {"success": True, "data": {"live": True}}
 
-    import xyz_agent_context.module.discord_module._discord_service as ds
+    import narranexus.platform.module_system.discord_module._discord_service as ds
     monkeypatch.setattr(ds, "do_test_connection", fake_do_test)
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: (lambda db: object()),
     )
     store = ChannelDirectStore()
@@ -519,7 +519,7 @@ def test_http_write_non_json_degrades_to_success_false(monkeypatch):
 
 
 def test_deep_merge_recurses_dicts_and_replaces_scalars():
-    from xyz_agent_context.module.data_access.channel_store import deep_merge
+    from narranexus.platform.module_system.data_access.channel_store import deep_merge
 
     base = {"permission_state": {"a": 1, "b": 2}, "auth_status": "old", "x": {"k": 1}}
     patch = {"permission_state": {"b": 9, "c": 3}, "auth_status": "new", "x": "flat"}
@@ -545,7 +545,7 @@ def _direct_with_write_spy(monkeypatch):
             calls.append(("delete_credential", agent_id))
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _Mgr,
     )
     store = ChannelDirectStore()
@@ -583,7 +583,7 @@ def test_direct_patch_degrades_runtime_failure_to_envelope(monkeypatch):
             raise ValueError("no credential to patch")
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _Boom,
     )
     store = ChannelDirectStore()
@@ -604,7 +604,7 @@ def test_direct_mutation_unsupported_channel_raises_clear_valueerror(monkeypatch
             pass
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _NoWrites,
     )
     store = ChannelDirectStore()
@@ -629,7 +629,7 @@ def test_direct_mutation_sanitizes_db_error_text(monkeypatch):
             raise RuntimeError("Can't connect to MySQL server on 'db-host' (111) user='narranexus'")
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: _DbErr,
     )
     store = ChannelDirectStore()
@@ -647,7 +647,7 @@ def test_direct_mutation_db_unavailable_is_a_stable_code(monkeypatch):
     # A pool-build failure (_db() raises) must degrade to a stable code too — its
     # text is the most likely to carry connection details.
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: (lambda db: object()),
     )
     store = ChannelDirectStore()
@@ -704,10 +704,10 @@ def test_direct_lark_bind_dispatches_to_do_bind(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"bound": True}}
 
-    import xyz_agent_context.module.lark_module._lark_service as ls
+    import narranexus.platform.module_system.lark_module._lark_service as ls
     monkeypatch.setattr(ls, "do_bind", fake_do_bind)
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: (lambda db: object()),
     )
     store = ChannelDirectStore()
@@ -734,10 +734,10 @@ def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
         seen["agent"] = agent_id
         return {"success": True, "data": {"unbound": True}}
 
-    import xyz_agent_context.module.lark_module._lark_service as ls
+    import narranexus.platform.module_system.lark_module._lark_service as ls
     monkeypatch.setattr(ls, "do_unbind", fake_do_unbind)
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.channel_store._manager_class",
+        "narranexus.platform.module_system.data_access.channel_store._manager_class",
         lambda channel: (lambda db: fake_mgr),
     )
     store = ChannelDirectStore()
@@ -788,7 +788,7 @@ def test_direct_narramessenger_unbind_goes_through_the_service_with_db(db_client
     """narramessenger's do_unbind takes (db, agent_id) — the seam follows the
     descriptor's bind_takes for unbind too (4d.3), so the gateway-side unbind is
     not skipped by the uniform mgr.unbind path."""
-    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
 
     asyncio.run(GenericCredentialStore(db_client).upsert("narramessenger", AGENT, {
         "matrix_homeserver_url": "https://hs", "matrix_user_id": "@bot:hs", "matrix_access_token": "tok",

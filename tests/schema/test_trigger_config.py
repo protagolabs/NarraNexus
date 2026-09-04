@@ -8,7 +8,7 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError
 
-from xyz_agent_context.schema.job_schema import TriggerConfig
+from narranexus.platform.schema.job_schema import TriggerConfig
 
 
 class TestTriggerConfigTimezoneRequired:
@@ -61,7 +61,7 @@ class TestTriggerConfigIANAValid:
 
 class TestJobEntityNewFields:
     def test_job_has_beta_fields(self):
-        from xyz_agent_context.schema.job_schema import Job
+        from narranexus.platform.schema.job_schema import Job
         fields = Job.model_fields
         assert "next_run_at_local" in fields
         assert "next_run_tz" in fields

@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.settings import settings
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
+from narranexus.platform.settings import settings
 
 AGENT_ID = "agent_mcp_order"
 

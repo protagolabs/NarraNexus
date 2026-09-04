@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _framework_override_viable,
 )
 

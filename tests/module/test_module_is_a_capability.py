@@ -12,8 +12,8 @@ import pytest
 
 from narranexus.contracts.agent.capability import STAGE_METHODS, TIER_STAGES, Capability, CapabilityTier, ToolSurface
 from narranexus.contracts.agent.stages import Stage
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.schema.module_schema import MCPServerConfig, ModuleConfig
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.schema.module_schema import MCPServerConfig, ModuleConfig
 
 
 class _Mod(XYZBaseModule):
@@ -85,4 +85,4 @@ async def test_contribute_tools_fails_open_and_flags_a_stale_signature(caplog):
 
 def test_the_adapter_is_gone():
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("xyz_agent_context.module.capability_adapter")
+        importlib.import_module("narranexus.platform.module_system.capability_adapter")

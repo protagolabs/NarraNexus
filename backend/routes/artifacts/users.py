@@ -24,10 +24,10 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.artifact import ArtifactService
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.artifact import ArtifactService
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

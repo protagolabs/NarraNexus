@@ -10,9 +10,9 @@ from typing import Any, Optional
 
 from narranexus.contracts.table import ColumnSpec, TableSpec
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module import mcp_server_url
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.schema.module_schema import (
+from narranexus.platform.module_system import mcp_server_url
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.schema.module_schema import (
     MCPServerConfig,
     ModuleAgentInstance,
     ModuleConfig,

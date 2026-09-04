@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.migration import detector, scanner
-from xyz_agent_context.migration.extractors import _memory_from_md, _mcp_from_dict, _encode_cwd
+from narranexus.platform.migration import detector, scanner
+from narranexus.platform.migration.extractors import _memory_from_md, _mcp_from_dict, _encode_cwd
 
 
 @pytest.fixture
@@ -175,7 +175,7 @@ def test_extract_exception_degrades_to_empty_sessions(home, monkeypatch):
     # If extraction blows up mid-scan, extract() must degrade to an EMPTY
     # StandardizedAgentImport (sessions=[]), not sessions="" — the latter fails
     # pydantic validation and turns a recoverable parse error into a 400.
-    from xyz_agent_context.migration import extractors
+    from narranexus.platform.migration import extractors
     def _boom(_base):
         raise RuntimeError("kaboom")
     monkeypatch.setattr(extractors, "_extract_claude_code", _boom)

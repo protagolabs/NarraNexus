@@ -35,10 +35,10 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 import backend.routes.auth as auth_mod
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 from tests.mysql_dialect import (
     mysql_configured,

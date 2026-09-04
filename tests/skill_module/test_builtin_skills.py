@@ -25,9 +25,9 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module import skill_module as sm_mod
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
-from xyz_agent_context.settings import settings
+from narranexus.platform.module_system.skill_module import skill_module as sm_mod
+from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+from narranexus.platform.settings import settings
 
 
 @pytest.fixture()

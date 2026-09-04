@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from xyz_agent_context.utils.logging import _ship
+from narranexus.platform.utils.logging import _ship
 
 
 @pytest.fixture(autouse=True)
@@ -176,7 +176,7 @@ class TestConsentGating:
         assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
 
     def test_package_reexports_consent_api(self):
-        from xyz_agent_context.utils import logging as pkg
+        from narranexus.platform.utils import logging as pkg
 
         assert pkg.telemetry_consent() == {"mode": "meta", "source": "default"}
         pkg.set_telemetry_optout(True)
@@ -333,7 +333,7 @@ class TestAuditMirrorLine:
         rows). Falls back to INFO when the custom level is absent."""
         from loguru import logger
 
-        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
             ChannelTriggerAuditRepository,
         )
 

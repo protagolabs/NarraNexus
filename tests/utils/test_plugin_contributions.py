@@ -14,7 +14,7 @@ from narranexus.contracts.skill import SkillSpec
 from narranexus.contracts.tool import ToolSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.utils import plugin_contributions as pc
+from narranexus.platform.utils import plugin_contributions as pc
 
 
 def _reg(slot, *items):

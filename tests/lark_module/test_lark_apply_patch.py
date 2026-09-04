@@ -10,8 +10,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.channel.credential_store import GenericCredentialStore
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus.platform.channel.credential_store import GenericCredentialStore
+from narranexus.platform.module_system.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
     _encode_secret,

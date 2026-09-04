@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus.platform.module_system.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module import _lark_mcp_tools as tools
+from narranexus.platform.module_system.lark_module import _lark_mcp_tools as tools
 
 
 # ───────────────────────── Fixtures ─────────────────────────
@@ -85,7 +85,7 @@ def fake_db(monkeypatch):
         return db
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.base.XYZBaseModule.get_mcp_db_client",
+        "narranexus.platform.module_system.base.XYZBaseModule.get_mcp_db_client",
         AsyncMock(return_value=db),
     )
     return db

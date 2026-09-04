@@ -10,7 +10,7 @@ from tests.snapshots._approval import approve
 
 
 def test_schema_registry_is_unchanged():
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     view = {}
     for name, table in TABLES.items():

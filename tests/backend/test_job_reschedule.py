@@ -16,8 +16,8 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.module.job_module.job_recovery import reschedule_job
+from narranexus.platform.schema.job_schema import JobStatus
+from narranexus.platform.module_system.job_module.job_recovery import reschedule_job
 
 SCHEDULED_CRON = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 SCHEDULED_INTERVAL = '{"interval_seconds":3600,"timezone":"Asia/Shanghai"}'
@@ -165,7 +165,7 @@ import backend.routes.dashboard.jobs as jobs_routes_mod  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     original = db_factory_mod.get_db_client
     yield
     db_factory_mod.get_db_client = original
@@ -184,7 +184,7 @@ def _build_client(db, viewer_id="u"):
     async def _get_db_override():
         return db
 
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     db_factory_mod.get_db_client = _get_db_override
     return TestClient(app)
 

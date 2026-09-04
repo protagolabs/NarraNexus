@@ -10,7 +10,7 @@ dialect's wording is caught here rather than in production dedup.
 """
 from __future__ import annotations
 
-from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
+from narranexus.platform.utils.db.dialect_errors import is_unique_violation
 
 
 def test_sqlite_unique_message_is_a_violation():

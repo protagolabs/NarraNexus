@@ -33,8 +33,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils import utc_now
-from xyz_agent_context.utils.db.schema_registry import get_registered_tables
+from narranexus.platform.utils import utc_now
+from narranexus.platform.utils.db.schema_registry import get_registered_tables
 
 AGENT = "agent_mia"
 USER = "usr_owner"

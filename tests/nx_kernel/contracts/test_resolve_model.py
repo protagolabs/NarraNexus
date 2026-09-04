@@ -39,8 +39,8 @@ def _with_ctx(ctx_var, config, fn):
 
 def test_openai_helper_official_and_custom_endpoints_agree():
     """The legacy three-mode docstring collapsed to one rule: endpoint is irrelevant."""
-    from xyz_agent_context.agent_framework import api_config
-    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+    from narranexus.platform.agent_framework import api_config
+    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
     for base_url in ("https://api.openai.com/v1", "https://custom.example/v1"):
         forced = api_config.OpenAIConfig(model="forced-model", base_url=base_url)
@@ -51,10 +51,10 @@ def test_openai_helper_official_and_custom_endpoints_agree():
 
 
 def test_anthropic_helper_ignores_requested_and_cli_helper_picks_framework_default():
-    from xyz_agent_context.agent_framework import api_config
-    from xyz_agent_context.agent_framework.llm import cli_helper
-    from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-    from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
+    from narranexus.platform.agent_framework import api_config
+    from narranexus.platform.agent_framework.llm import cli_helper
+    from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
 
     slot = api_config.AnthropicHelperConfig(model="claude-x")
     assert _with_ctx(api_config._anthropic_helper_ctx, slot, lambda: AnthropicHelperSDK._resolve_model("gpt-4o-mini")) == "claude-x"
@@ -71,8 +71,8 @@ def test_anthropic_helper_ignores_requested_and_cli_helper_picks_framework_defau
 
 def test_openai_helper_empty_slot_honours_call_site():
     """An empty slot model is treated like the "default" sentinel: the call-site preference wins."""
-    from xyz_agent_context.agent_framework import api_config
-    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+    from narranexus.platform.agent_framework import api_config
+    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
     empty = api_config.OpenAIConfig(model="", base_url="https://custom.example/v1")
     assert _with_ctx(api_config._openai_ctx, empty, lambda: OpenAIAgentsSDK._resolve_model("gpt-4o-mini")) == "gpt-4o-mini"

@@ -35,7 +35,7 @@
  * product its DOM-snapshot replay would capture chat content, contradicting the
  * localized "never collect conversation content" promise. GTM is event-only.
  *
- * Separate from the kernel analytics seam (src/xyz_agent_context/analytics,
+ * Separate from the kernel analytics seam (src/narranexus/platform/analytics,
  * whose cloud PostHog sink stays NullSink) — see that module's docstring.
  */
 

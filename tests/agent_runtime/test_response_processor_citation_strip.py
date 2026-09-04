@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.schema import ProgressMessage
+from narranexus.platform.schema import ProgressMessage
 
 
 def _reply_tool_event(tool_name: str, content: str) -> dict:

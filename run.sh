@@ -62,7 +62,7 @@ stop_all() {
   # Kill known process patterns
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-  pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+  pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
   pkill -f "run_worker_supervisor" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
@@ -495,7 +495,7 @@ run_container_mode() {
 
   # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
   if [[ "${DATABASE_URL}" == sqlite* ]]; then
-    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.db.sqlite_proxy_server &
+    "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.utils.db.sqlite_proxy_server &
     SQLITE_PID=$!
     # Wait up to 30s for :8100
     for i in {1..30}; do
@@ -514,7 +514,7 @@ run_container_mode() {
   fi
 
   # 2. MCP module runner (stays its own process — ONE port, every module server mounted by path)
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.module_runner mcp &
   # 3. Worker supervisor — ONE process running poller / job / message-bus / all
   #     IM channel triggers in a single event loop, each as a supervised task
   #     with backoff-restart, sharing one package import + one DB pool. Replaces
@@ -534,7 +534,7 @@ run_container_mode() {
     supervisor_args+=(--exclude jobs,channels)
     echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
   fi
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor \
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.run_worker_supervisor \
     "${supervisor_args[@]+"${supervisor_args[@]}"}" &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.

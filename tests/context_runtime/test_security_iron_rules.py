@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import inspect
 
-from xyz_agent_context.context_runtime.prompts import SECURITY_IRON_RULES
+from narranexus.platform.context_runtime.prompts import SECURITY_IRON_RULES
 
 
 def test_iron_rules_cover_workspace_and_env_prohibition():
@@ -41,7 +41,7 @@ def test_iron_rules_resist_identity_override():
 def test_iron_rules_injected_first_in_system_prompt():
     """Contract: build_complete_system_prompt appends SECURITY_IRON_RULES
     and does so before any other prompt part (so nothing supersedes it)."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     src = inspect.getsource(ContextRuntime.build_complete_system_prompt)
     assert "SECURITY_IRON_RULES" in src, (

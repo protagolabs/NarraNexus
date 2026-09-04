@@ -15,9 +15,9 @@ from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module._module_impl.loader import ModuleLoader
-from xyz_agent_context.module.registry import ModuleRegistry
-from xyz_agent_context.module.contributions import MODULES_SLOT, MODULE_SPECS, register_all
+from narranexus.platform.module_system._module_impl.loader import ModuleLoader
+from narranexus.platform.module_system.registry import ModuleRegistry
+from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS, register_all
 
 DISABLEABLE = [s for s in MODULE_SPECS if s.plugin_id != "builtin.nexus_plugins_module"]
 
@@ -64,8 +64,8 @@ TRIGGER_OWNERS = [s for s in DISABLEABLE if s.channel or s.plugin_id == "builtin
 
 @pytest.mark.parametrize("spec", TRIGGER_OWNERS, ids=[s.plugin_id for s in TRIGGER_OWNERS])
 def test_disabling_a_builtin_removes_its_ingress_trigger(spec, tmp_path: Path, monkeypatch):
-    from xyz_agent_context.module import run_worker_supervisor as sup
-    from xyz_agent_context.module.channel_trigger_map import TriggerMapView
+    from narranexus.platform.module_system import run_worker_supervisor as sup
+    from narranexus.platform.module_system.channel_trigger_map import TriggerMapView
 
     regs, report = _boot_with_override(tmp_path, monkeypatch, spec.plugin_id, enabled=False)
     owners = {e.owner for e in regs.registry_for("ingress.triggers").entries()}

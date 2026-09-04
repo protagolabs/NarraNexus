@@ -23,13 +23,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module.common_tools_module import (
+from narranexus.platform.module_system.common_tools_module.common_tools_module import (
     ARTIFACT_STATE_BLOCK_LIMIT,
     CommonToolsModule,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -49,7 +49,7 @@ async def _seed(repo, artifact_id, *, age_minutes: int):
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     (base / WS_REL).mkdir(parents=True)
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
     repo = ArtifactRepository(db_client)
     mod = CommonToolsModule("agent_x", "user_y", db_client)
@@ -173,7 +173,7 @@ async def test_a_teammates_artifact_gets_an_absolute_path(env, db_client):
 
     block = await env["mod"]._render_artifact_state_block()
 
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     expected = os.path.join(os.path.realpath(sa.base_working_path), mate_rel, "report.md")
     assert expected in block, (
         "a teammate's artifact must be named by a path this agent can open"
@@ -199,7 +199,7 @@ async def test_an_artifact_in_the_team_folder_gets_an_absolute_path(env, db_clie
 
     block = await env["mod"]._render_artifact_state_block()
 
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     expected = os.path.join(
         os.path.realpath(sa.base_working_path), "user_y/_shared/teams/team_1/plan.md"
     )

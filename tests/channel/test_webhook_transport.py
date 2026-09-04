@@ -17,12 +17,12 @@ import pytest
 from narranexus.contracts.channel import ChannelDescriptor, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.channel import credential_codec
-from xyz_agent_context.channel.credential_store import GenericCredentialStore
-from xyz_agent_context.channel.webhook_inbox import WebhookInbox
-from xyz_agent_context.channel.webhook_transport import WebhookChannelTriggerBase, new_webhook_secret, verify_webhook
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.channel import credential_codec
+from narranexus.platform.channel.credential_store import GenericCredentialStore
+from narranexus.platform.channel.webhook_inbox import WebhookInbox
+from narranexus.platform.channel.webhook_transport import WebhookChannelTriggerBase, new_webhook_secret, verify_webhook
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 DESC = ChannelDescriptor(name="wh_demo", display_name="WH", transport="webhook", credential_schema=CredentialSchema(fields=(CredentialField("api_token", "secret"),), supports_test=False))
 

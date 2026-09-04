@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.claude import cli_binary
-from xyz_agent_context.agent_framework import plugin_paths
+from narranexus.platform.agent_framework.adapters.claude import cli_binary
+from narranexus.platform.agent_framework import plugin_paths
 
 
 @pytest.fixture()
 def prefer_pinned(monkeypatch):
     """Ensure the gate is on and no explicit override is set."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", True, raising=False)
     monkeypatch.setattr(settings, "claude_cli_path", "", raising=False)

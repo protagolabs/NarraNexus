@@ -26,13 +26,13 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.message_bus.patrol import (
+from narranexus.platform.message_bus.patrol import (
     PATROL_SPEECH_MAX,
     PATROL_SPEECH_WINDOW_S,
     may_patrol_speak,
     note_patrol_spoke,
 )
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.utils.timezone import utc_now
 
 
 async def _team(db, team_id="t1", *, spoke_at=None, count=0):

@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
     web_search_brave_tool as brave,
 )
 

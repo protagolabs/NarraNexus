@@ -22,17 +22,17 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
-from xyz_agent_context.module.chat_module import fetch_chat_history
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import InstanceRepository, AgentRepository
-from xyz_agent_context.narrative.wipe_service import wipe_agent_data
-from xyz_agent_context.schema.hook_schema import BUS_PRODUCED_SOURCES
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.module_system.chat_module import fetch_chat_history
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.repository import InstanceRepository, AgentRepository
+from narranexus.platform.narrative.wipe_service import wipe_agent_data
+from narranexus.platform.schema.hook_schema import BUS_PRODUCED_SOURCES
+from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     EventInfo,
     NarrativeInfo,
     ChatHistoryResponse,
@@ -43,7 +43,7 @@ from xyz_agent_context.schema import (
     EventLogMeta,
     EventLogResponse,
 )
-from xyz_agent_context.schema.api_schema import InstanceInfo
+from narranexus.platform.schema.api_schema import InstanceInfo
 from backend.routes.agents.chat_history_timeline import build_event_timeline
 
 

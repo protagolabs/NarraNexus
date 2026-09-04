@@ -221,7 +221,7 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
+                    "narranexus.platform.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
@@ -267,7 +267,7 @@ impl ServiceDef {
                 label: "MCP Server".to_string(),
                 command: python_path.to_string(),
                 args: vec![
-                    "src/xyz_agent_context/module/module_runner.py".to_string(),
+                    "src/narranexus/platform/module_system/module_runner.py".to_string(),
                     "mcp".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
@@ -289,7 +289,7 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
+                    "narranexus.platform.module_system.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,
@@ -314,7 +314,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
+                    "narranexus.platform.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
@@ -353,7 +353,7 @@ impl ServiceDef {
                 args: vec![
                     "run".to_string(),
                     "python".to_string(),
-                    "src/xyz_agent_context/module/module_runner.py".to_string(),
+                    "src/narranexus/platform/module_system/module_runner.py".to_string(),
                     "mcp".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
@@ -373,7 +373,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
+                    "narranexus.platform.module_system.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,

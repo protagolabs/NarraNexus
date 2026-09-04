@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.schema.team_schema import (
     BULLETIN_MAX_ENTRIES,
     BULLETIN_MAX_ENTRY_CHARS,
     BULLETIN_MAX_TOTAL_CHARS,

@@ -31,6 +31,6 @@ def env(tmp_path: Path, monkeypatch):
 
 @pytest.fixture
 def svc(env):
-    from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
+    from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
 
     return SelfExtensionService("a1", "u1", workspace=env["workspace"], store=env["store"])

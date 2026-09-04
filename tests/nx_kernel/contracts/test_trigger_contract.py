@@ -32,13 +32,13 @@ def test_invalid_specs_fail_loud(kwargs):
 
 
 def test_resolve_imports_lazily_and_class_name_is_static():
-    spec = TriggerSpec("lark", "xyz_agent_context.module.lark_module.lark_trigger:LarkTrigger")
+    spec = TriggerSpec("lark", "narranexus.platform.module_system.lark_module.lark_trigger:LarkTrigger")
     assert spec.class_name == "LarkTrigger" and spec.host == "channels"
     assert spec.resolve().channel_name == "lark"
     with pytest.raises(ModuleNotFoundError):
         TriggerSpec("nope", "nx.does_not_exist:Thing").resolve()
     with pytest.raises(AttributeError):
-        TriggerSpec("nope", "xyz_agent_context.module.contributions:Nope").resolve()
+        TriggerSpec("nope", "narranexus.platform.module_system.contributions:Nope").resolve()
 
 
 def test_trigger_protocol_only_needs_stop():

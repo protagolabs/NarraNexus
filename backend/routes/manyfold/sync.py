@@ -39,12 +39,12 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from narranexus.contracts.job import JobRunOutcome
-from xyz_agent_context.schema.channel_tag import ChannelTag
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.host_hooks import call_host_hook
-from xyz_agent_context.utils.plugin_services import try_job_run_once
-from xyz_agent_context.integrations.manyfold_outbound import (
+from narranexus.platform.schema.channel_tag import ChannelTag
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.host_hooks import call_host_hook
+from narranexus.platform.utils.plugin_services import try_job_run_once
+from narranexus.platform.integrations.manyfold_outbound import (
     managed_reply_declared,
     manyfold_runtime_env,
 )
@@ -67,8 +67,8 @@ router = APIRouter()
 # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.
 def _provider_working_source(provider: str) -> Optional[WorkingSource]:
     """The inbound WorkingSource of an IM provider — any channel with a descriptor in ``ingress.channels``."""
-    import xyz_agent_context.module  # noqa: F401 — registers the builtin descriptors (idempotent)
-    from xyz_agent_context.module.data_access.channel_store import CHANNELS
+    import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
+    from narranexus.platform.module_system.data_access.channel_store import CHANNELS
 
     key = (provider or "").lower().strip()
     if key not in CHANNELS:
@@ -293,7 +293,7 @@ async def list_jobs_for_manyfold(request: Request):
 def _provider_rank(provider: str) -> tuple[int, str]:
     """Stable payload order: the channel descriptors' ``ui.order`` (the same order
     the settings panel lists them), unknown providers last, ties by name."""
-    from xyz_agent_context.channel.credential_store import all_descriptors
+    from narranexus.platform.channel.credential_store import all_descriptors
 
     orders = {d.name: (d.ui.order if d.ui else 1_000) for d in all_descriptors()}
     return (orders.get(provider, 10_000), provider)
@@ -341,7 +341,7 @@ def _channel_path_prefixes() -> tuple[str, ...]:
     """Routes whose writes change an IM binding: the generic channel router plus
     every registered channel's own router (Lark OAuth, WeChat QR, …) — read
     from the registry so a plugin channel's routes count too."""
-    from xyz_agent_context.channel.credential_store import all_descriptors
+    from narranexus.platform.channel.credential_store import all_descriptors
 
     return ("/api/channels",) + tuple(f"/api/{d.name}" for d in all_descriptors())
 # Provider mutations resume PAUSED_NO_QUOTA jobs edge-triggered

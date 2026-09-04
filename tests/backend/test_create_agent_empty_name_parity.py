@@ -23,15 +23,15 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.module.social_network_module import (
+from narranexus.platform.module_system.social_network_module import (
     CREATE_AGENT_EMPTY_NAME_MSG,
     CREATE_AGENT_TEXT_TOO_LONG_MSG,
     create_agent_text_reject,
     default_created_by_description,
 )
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 OWNER = "alice"
 CALLER = "agent_caller00"
@@ -106,7 +106,7 @@ def test_the_route_refuses_with_the_shared_message(route_client, db_client, blan
 
 @pytest.mark.parametrize("blank", BLANK_NAMES)
 def test_the_direct_store_refuses_with_the_same_message(db_client, seeded, blank):
-    from xyz_agent_context.module.data_access.store import DirectStore
+    from narranexus.platform.module_system.data_access.store import DirectStore
 
     store = DirectStore()
     # DirectStore resolves its own db through the MCP factory; point it at the
@@ -163,7 +163,7 @@ def test_the_route_refuses_overlong_with_the_shared_message(
 def test_the_direct_store_refuses_overlong_with_the_same_message(
     db_client, seeded, field
 ):
-    from xyz_agent_context.module.data_access.store import DirectStore
+    from narranexus.platform.module_system.data_access.store import DirectStore
 
     store = DirectStore()
     store._db = lambda: _async(db_client)  # type: ignore[method-assign]
@@ -182,7 +182,7 @@ def test_the_direct_store_refuses_overlong_with_the_same_message(
 def test_a_long_run_of_spaces_answers_empty_not_overlong_on_both_legs(
     route_client, db_client, blank
 ):
-    from xyz_agent_context.module.data_access.store import DirectStore
+    from narranexus.platform.module_system.data_access.store import DirectStore
 
     res = route_client.post(
         f"/api/agents/{CALLER}/social-network/create-agent",

@@ -22,21 +22,21 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.logging import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.logging import (
     set_telemetry_optout,
     telemetry_consent,
 )
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track
-from xyz_agent_context.analytics.events import (
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import (
     EVENT_SIGNED_UP, PROP_METHOD,
 )
-from xyz_agent_context.repository import (
+from narranexus.platform.repository import (
     AgentRepository,
     UserRepository,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AGENT_TEXT_MAX_LENGTH,
     NON_TRANSACTING_USER_STATUSES,
     agent_field_matches,
@@ -74,14 +74,14 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.agent_profile import apply_agent_profile_change
-from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
-from xyz_agent_context.utils import is_valid_timezone
-from xyz_agent_context.agent_runtime.background_run import run_is_live
-from xyz_agent_context.settings import settings as app_settings
+from narranexus.platform.agent_profile import apply_agent_profile_change
+from narranexus.platform.utils.deployment_mode import is_power_login_enabled
+from narranexus.platform.utils import is_valid_timezone
+from narranexus.platform.agent_runtime.background_run import run_is_live
+from narranexus.platform.settings import settings as app_settings
 
 from pydantic import BaseModel
-from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
+from narranexus.platform.repository.user_settings_repository import UserSettingsRepository
 from typing import Iterable, Optional
 
 
@@ -801,14 +801,14 @@ async def get_agents(request: Request):
             # NOTE: this is the FRONTEND-facing bootstrap_active — deliberately a
             # looser isfile-only rule (no event-count threshold), because a list
             # endpoint can't afford a per-agent COUNT query. It diverges from
-            # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the two
+            # narranexus.platform.bootstrap.lifecycle.is_bootstrap_active (the two
             # greeting writers' gate, which DOES apply the threshold) in the
             # narrow "over threshold but Bootstrap.md not yet auto-deleted"
             # window. Keep the two in mind together when touching either.
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
-                from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+                from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
                 bootstrap_path = os.path.join(
                     str(resolve_existing_workspace(
                         row['agent_id'], created_by, app_settings.base_working_path
@@ -953,7 +953,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # `get_profile`. This route stays the SEMANTIC SOURCE the seam mirrors;
         # everything below that ISN'T the shared sequence (team assignment #43,
         # response shape) stays here.
-        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        from narranexus.platform.bootstrap.provision import provision_new_agent
         provision_result = await provision_new_agent(
             db_client,
             agent_id=agent_id,
@@ -971,7 +971,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # agent ungrouped.
         if request.team_id:
             try:
-                from xyz_agent_context.repository import (
+                from narranexus.platform.repository import (
                     TeamRepository,
                     TeamMemberRepository,
                 )
@@ -1204,9 +1204,9 @@ async def update_agent(
 
         # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,
         # isfile-only rule (no threshold) — see the /api/auth/agents note above and
-        # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
-        from xyz_agent_context.settings import settings
-        from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+        # narranexus.platform.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
+        from narranexus.platform.settings import settings
+        from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
         workspace_path = str(resolve_existing_workspace(
             agent_id, updated_agent.created_by, settings.base_working_path
         ))
@@ -1433,7 +1433,7 @@ async def delete_agent(
         # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
         # are all agent-scoped; without this an account deletion would leave
         # orphaned memory rows (entities, learned facts, etc.).
-        from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
+        from narranexus.platform.utils.db.schema_registry import MEMORY_KINDS
         for _kind in MEMORY_KINDS:
             _tbl = f"memory_{_kind}"
             try:
@@ -1517,8 +1517,8 @@ async def delete_agent(
         try:
             import os
             import shutil
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+            from narranexus.platform.settings import settings
+            from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
             workspace_path = str(
                 resolve_existing_workspace(
                     agent_id, agent.created_by, settings.base_working_path
@@ -1538,10 +1538,10 @@ async def delete_agent(
         # CLI profile + workspace dir). Adding a new IM channel requires
         # zero edits here.
         try:
-            from xyz_agent_context.channel.channel_module_base import (
+            from narranexus.platform.channel.channel_module_base import (
                 ChannelModuleBase,
             )
-            from xyz_agent_context.module import module_registry
+            from narranexus.platform.module_system import module_registry
 
             for module_name, cls in module_registry.items():
                 if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):

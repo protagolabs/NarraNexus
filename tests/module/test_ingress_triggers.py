@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module import run_worker_supervisor as sup
-from xyz_agent_context.module.channel_trigger_map import REGISTERED_TRIGGER_CLASS_NAMES, TriggerMapView
-from xyz_agent_context.module.contributions import TRIGGERS_SLOT, channel_trigger_specs, register_all
+from narranexus.platform.module_system import run_worker_supervisor as sup
+from narranexus.platform.module_system.channel_trigger_map import REGISTERED_TRIGGER_CLASS_NAMES, TriggerMapView
+from narranexus.platform.module_system.contributions import TRIGGERS_SLOT, channel_trigger_specs, register_all
 
 ALL_CHANNELS = {"discord", "lark", "narramessenger", "slack", "telegram", "wechat"}
 
@@ -65,7 +65,7 @@ def test_disabling_builtin_job_removes_the_jobs_worker_without_reordering():
 
 @pytest.mark.asyncio
 async def test_trigger_worker_factory_builds_start_and_stop(monkeypatch):
-    from xyz_agent_context.module.job_module import job_trigger as jt
+    from narranexus.platform.module_system.job_module import job_trigger as jt
 
     events: list[str] = []
 
@@ -88,7 +88,7 @@ async def test_trigger_worker_factory_builds_start_and_stop(monkeypatch):
 
 
 def test_a2a_server_comes_from_the_registry(monkeypatch):
-    from xyz_agent_context.module import module_runner as mr
+    from narranexus.platform.module_system import module_runner as mr
 
     regs = _regs()
     monkeypatch.setattr("narranexus.kernel.plugins.registries.KERNEL_REGISTRIES", regs)
@@ -102,8 +102,8 @@ def test_a2a_server_comes_from_the_registry(monkeypatch):
 
 
 def _greeting_ctx(regs):
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.context import RunContext
-    from xyz_agent_context.utils import utc_now
+    from narranexus.platform.agent_runtime._agent_runtime_steps.context import RunContext
+    from narranexus.platform.utils import utc_now
 
     return RunContext(
         registries=regs,
@@ -119,7 +119,7 @@ def _greeting_ctx(regs):
 async def _run_step_1(monkeypatch, regs):
     import importlib
 
-    mod = importlib.import_module("xyz_agent_context.agent_runtime._agent_runtime_steps.step_1_select_narrative")
+    mod = importlib.import_module("narranexus.platform.agent_runtime._agent_runtime_steps.step_1_select_narrative")
     narratives = [SimpleNamespace(id="n1", updated_at=None, narrative_info=SimpleNamespace(name="N", current_summary="s"))]
     selection = SimpleNamespace(
         narratives=narratives, scores={}, selection_reason="bm25", selection_method="keyword", is_new=False, retrieval_method="keyword", no_durable_topic=False
@@ -127,10 +127,10 @@ async def _run_step_1(monkeypatch, regs):
     narrative_service = SimpleNamespace(select=AsyncMock(return_value=selection), load_narrative_from_db=AsyncMock(return_value=None))
     session_service = SimpleNamespace(save_session=AsyncMock())
     monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(side_effect=lambda aid, uid, nid: f"chat_{nid}"))
-    monkeypatch.setattr("xyz_agent_context.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed", AsyncMock(return_value="Hello!"))
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr("narranexus.platform.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed", AsyncMock(return_value="Hello!"))
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", AsyncMock(return_value=object()))
     seed_spy = AsyncMock(return_value=True)
-    monkeypatch.setattr("xyz_agent_context.module.chat_module.seed_bootstrap_greeting", seed_spy)
+    monkeypatch.setattr("narranexus.platform.module_system.chat_module.seed_bootstrap_greeting", seed_spy)
     async for _ in mod.step_1_select_narrative(_greeting_ctx(regs), narrative_service, session_service):
         pass
     return seed_spy
@@ -154,10 +154,10 @@ async def test_no_chat_plugin_means_no_greeting_seed_and_no_error(monkeypatch):
 def test_step_1_does_not_import_chat_module():
     import inspect
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps import step_1_select_narrative as mod
+    from narranexus.platform.agent_runtime._agent_runtime_steps import step_1_select_narrative as mod
 
     src = inspect.getsource(mod)
-    assert "from xyz_agent_context.module.chat_module" not in src and "import xyz_agent_context.module.chat_module" not in src
+    assert "from narranexus.platform.module_system.chat_module" not in src and "import narranexus.platform.module_system.chat_module" not in src
 
 
 def test_channel_map_override_layer_shadows_and_restores(monkeypatch):

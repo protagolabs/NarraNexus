@@ -24,9 +24,9 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 import backend.routes.runs as runs_mod
 
@@ -339,8 +339,8 @@ async def test_stopping_a_tree_parks_its_work_items(db_client, monkeypatch):
     chases it, and starts a fresh run — the owner presses stop and watches new
     work appear, this time initiated by the platform.
     """
-    from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     await _seed(db_client, run_id="evt_root", root="evt_root")
     repo = TeamWorkItemRepository(db_client)

@@ -41,8 +41,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import module_registry
-from xyz_agent_context.schema.context_schema import ContextData
+from narranexus.platform.module_system import module_registry
+from narranexus.platform.schema.context_schema import ContextData
 
 # ContextData fields that legitimately differ between two turns of the SAME
 # conversation. A module instruction that varies when only these change has a

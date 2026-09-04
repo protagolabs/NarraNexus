@@ -39,7 +39,7 @@ def tmp_db_path(tmp_path):
 @pytest.fixture(autouse=True)
 def _isolate_home(tmp_path, monkeypatch):
     """Keep the importer's workspace/skill writes off the real ~/.nexusagent."""
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     ws = tmp_path / "workspaces"
     ws.mkdir()
@@ -59,14 +59,14 @@ async def wired_db(tmp_db_path, monkeypatch):
     the import writes to. Patch settings + clear the per-loop cache like the
     roundtrip test does so the test and the importer share one DB.
     """
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
 
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
     db_factory._clients_by_loop.clear()
 
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -150,7 +150,7 @@ async def _seed_session(db, work_dir: Path, manifest: dict, user_id: str) -> str
 
 @pytest.mark.asyncio
 async def test_cross_agent_shared_link_is_deduped_not_aborted(wired_db, tmp_path):
-    from xyz_agent_context.bundle.importer import confirm
+    from narranexus.platform.bundle.importer import confirm
 
     user_id = "test_user"
     work_dir = tmp_path / "wd"

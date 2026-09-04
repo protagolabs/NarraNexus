@@ -22,7 +22,7 @@ from backend.onboarding.personas import (
     persona_by_key,
     render_greeting,
 )
-from xyz_agent_context.bootstrap.profiles import (
+from narranexus.platform.bootstrap.profiles import (
     BootstrapContext,
     BootstrapProfile,
     WelcomeArtifact,
@@ -58,7 +58,7 @@ class OnboardingBootstrapProfile(BootstrapProfile):
         return GUIDE_BOOTSTRAP_MD.format(agent_name=ctx.agent_name or "the guide")
 
     def welcome_artifact(self, ctx: BootstrapContext) -> Optional[WelcomeArtifact]:
-        from xyz_agent_context.bootstrap.welcome_templates import default_welcome_html
+        from narranexus.platform.bootstrap.welcome_templates import default_welcome_html
 
         return WelcomeArtifact(
             title="Welcome to NarraNexus", html=default_welcome_html()

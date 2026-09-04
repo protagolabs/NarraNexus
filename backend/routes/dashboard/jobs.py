@@ -28,7 +28,7 @@ router = APIRouter()
 async def pause_job(job_id: str, request: Request):
     """v2.1: pause an active/pending job."""
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -41,7 +41,7 @@ async def pause_job(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core (repository, not backend-specific SQL) — also keeps pause
     # semantics consistent with the JobTrigger state machine.
-    from xyz_agent_context.module.job_module.job_recovery import pause_job as _pause
+    from narranexus.platform.module_system.job_module.job_recovery import pause_job as _pause
     ok, detail = await _pause(job_id, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)
@@ -52,7 +52,7 @@ async def pause_job(job_id: str, request: Request):
 async def resume_job(job_id: str, request: Request):
     """v2.1: resume a paused job (back to pending so trigger can take it)."""
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -65,7 +65,7 @@ async def resume_job(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core: handles paused / paused_no_quota / cooling / blocked_failed,
     # recomputes next_run, clears backoff state, flips to ACTIVE.
-    from xyz_agent_context.module.job_module.job_recovery import resume_job as _resume
+    from narranexus.platform.module_system.job_module.job_recovery import resume_job as _resume
     ok, detail = await _resume(job_id, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)
@@ -90,7 +90,7 @@ async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
     status is left unchanged. Auth/ownership stays here, mirroring pause/resume.
     """
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -104,7 +104,7 @@ async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
     # exclude_none: only overlay the fields the user actually changed, so e.g.
     # editing just the cron keeps the existing timezone.
     new_fields = body.model_dump(exclude_none=True)
-    from xyz_agent_context.module.job_module.job_recovery import reschedule_job as _reschedule
+    from narranexus.platform.module_system.job_module.job_recovery import reschedule_job as _reschedule
     ok, detail = await _reschedule(job_id, new_fields, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)

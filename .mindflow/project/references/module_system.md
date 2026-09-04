@@ -2,9 +2,9 @@
 doc_type: reference
 last_verified: 2026-08-01
 scope:
-  - src/xyz_agent_context/module/
-  - src/xyz_agent_context/schema/module_schema.py
-  - src/xyz_agent_context/schema/instance_schema.py
+  - src/narranexus/platform/module_system/
+  - src/narranexus/platform/schema/module_schema.py
+  - src/narranexus/platform/schema/instance_schema.py
 related_playbooks:
   - ../playbooks/add_new_module.md
 ---

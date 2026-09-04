@@ -23,16 +23,16 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.basic_info_module.basic_info_module import (
+from narranexus.platform.module_system.basic_info_module.basic_info_module import (
     BasicInfoModule,
 )
-from xyz_agent_context.module.basic_info_module.prompts import (
+from narranexus.platform.module_system.basic_info_module.prompts import (
     BASIC_INFO_MODULE_INSTRUCTIONS,
     DEPLOYMENT_CONTEXT_CLOUD,
     DEPLOYMENT_CONTEXT_LOCAL,
 )
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
+from narranexus.platform.schema import ContextData
+from narranexus.platform.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
 
 
 @pytest.fixture(autouse=True)

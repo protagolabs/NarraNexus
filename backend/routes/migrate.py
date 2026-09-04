@@ -22,12 +22,12 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.migration import scanner
-from xyz_agent_context.migration.mapper import build_plan
-from xyz_agent_context.migration.applier import apply_plan
-from xyz_agent_context.schema.migration_schema import Framework, StandardizedAgentImport
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.migration import scanner
+from narranexus.platform.migration.mapper import build_plan
+from narranexus.platform.migration.applier import apply_plan
+from narranexus.platform.schema.migration_schema import Framework, StandardizedAgentImport
 from backend.auth import resolve_current_user_id
 
 router = APIRouter()

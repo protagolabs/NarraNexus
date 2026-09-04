@@ -12,7 +12,7 @@ dicts directly instead of standing up a database.
 
 from typing import Any, Dict, List
 
-from xyz_agent_context.schema.api_schema import EventLogTimelineEntry
+from narranexus.platform.schema.api_schema import EventLogTimelineEntry
 
 
 def is_monologue_step(entry: Dict[str, Any]) -> bool:

@@ -18,9 +18,9 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 import backend.routes.websocket as ws_mod
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import STEER_ID_KEY
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.agent_runtime.steer_channel import SteerChannel
+from narranexus.platform.agent_framework.nexus_power.contracts.model import STEER_ID_KEY
 
 
 class _FakeWS:
@@ -87,7 +87,7 @@ async def test_blank_or_non_string_steer_is_ignored():
 
 @pytest.mark.asyncio
 async def test_oversize_steer_is_rejected_not_truncated():
-    from xyz_agent_context.repository.steer_inbox_repository import MAX_CONTENT_BYTES
+    from narranexus.platform.repository.steer_inbox_repository import MAX_CONTENT_BYTES
     ch = SteerChannel(agent_id="a", channel_id="chat")
     ws = _FakeWS([])
     big = "x" * (MAX_CONTENT_BYTES + 1)
@@ -101,7 +101,7 @@ async def test_oversize_steer_is_rejected_not_truncated():
 
 @pytest.mark.asyncio
 async def test_backlog_over_the_cap_is_rejected():
-    from xyz_agent_context.repository.steer_inbox_repository import MAX_UNCONSUMED_PER_RUN
+    from narranexus.platform.repository.steer_inbox_repository import MAX_UNCONSUMED_PER_RUN
     ch = SteerChannel(agent_id="a", channel_id="chat")
     for _ in range(MAX_UNCONSUMED_PER_RUN):  # fill to the cap
         ch.queue.put_nowait({"role": "user", "content": "x"})
@@ -175,8 +175,8 @@ class _Identity:
 
 @pytest.mark.asyncio
 async def test_steerability_asks_the_actual_driver_not_the_framework_name(monkeypatch):
-    import xyz_agent_context.agent_framework.providers.model_identity as mid
-    import xyz_agent_context.agent_framework.loop.driver as drv
+    import narranexus.platform.agent_framework.providers.model_identity as mid
+    import narranexus.platform.agent_framework.loop.driver as drv
 
     captured = {}
 

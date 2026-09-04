@@ -28,20 +28,20 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AGENT_TEXT_MAX_LENGTH,
     StrippedText,
     normalize_agent_row_text,
     normalize_agent_text,
 )
-from xyz_agent_context.agent_profile import apply_agent_profile_change
-from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
+from narranexus.platform.agent_profile import apply_agent_profile_change
+from narranexus.platform.message_bus.agent_discovery_sync import sync_agent_discovery
 
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
     netmind_slots_only,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 

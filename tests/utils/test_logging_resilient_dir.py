@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.utils.logging import _setup
-from xyz_agent_context.utils.logging._setup import _ensure_writable_log_dir
+from narranexus.platform.utils.logging import _setup
+from narranexus.platform.utils.logging._setup import _ensure_writable_log_dir
 
 
 @pytest.fixture(autouse=True)

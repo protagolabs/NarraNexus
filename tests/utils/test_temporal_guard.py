@@ -19,8 +19,8 @@ from datetime import datetime, timezone as dt_timezone
 
 import pytest
 
-from xyz_agent_context.utils import temporal_guard
-from xyz_agent_context.utils.temporal_guard import (
+from narranexus.platform.utils import temporal_guard
+from narranexus.platform.utils.temporal_guard import (
     AUDIT_EVENT_DATE_MISMATCH,
     AUDIT_SERVICE,
     record_date_claim_mismatches,

@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+from narranexus.platform.services.team_summary_worker import TeamSummaryWorker
 
 OWNER = "user_1"
 TEAM = "team_1"
@@ -267,7 +267,7 @@ async def test_an_over_long_summary_is_truncated_not_refused(db_client):
     generated paragraph, and refusing it outright would leave the team with no
     progress view at all — so here a cap is kinder than a rejection.
     """
-    from xyz_agent_context.schema.team_schema import BULLETIN_MAX_SUMMARY_CHARS
+    from narranexus.platform.schema.team_schema import BULLETIN_MAX_SUMMARY_CHARS
 
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
     w = _worker(db_client, summary="w" * (BULLETIN_MAX_SUMMARY_CHARS * 3))
@@ -280,7 +280,7 @@ async def test_an_over_long_summary_is_truncated_not_refused(db_client):
 
 @pytest.mark.asyncio
 async def test_the_summary_never_eats_the_user_entry_budget(db_client):
-    from xyz_agent_context.schema.team_schema import BULLETIN_MAX_ENTRIES
+    from narranexus.platform.schema.team_schema import BULLETIN_MAX_ENTRIES
 
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
     repo = TeamBulletinRepository(db_client)
@@ -326,7 +326,7 @@ def test_the_worker_is_started_and_stopped_by_the_app():
     # Since batch 3c.2 the worker reaches the app as the backend.workers
     # contribution of builtin.teams; main.py starts/stops every such worker.
     teams = next(m for m in builtin_manifests() if m.id == "builtin.teams")
-    assert "xyz_agent_context.services.team_summary_worker:WORKERS" in teams.provides["backend.workers"]
+    assert "narranexus.platform.services.team_summary_worker:WORKERS" in teams.provides["backend.workers"]
     assert "await start_backend_workers(app, KERNEL_REGISTRIES, db)" in src
     assert "await stop_backend_workers(app)" in src
     # Order matters: stop the loop before the client it uses goes away.
@@ -353,7 +353,7 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
     """`set_cost_context(agent_id, db)` — two positional params, no user_id, no
     label. Calling it wrong raises TypeError, which `run_once` swallows into a
     warning, so the worker looks alive while never writing a single summary."""
-    from xyz_agent_context.services import team_summary_worker as mod
+    from narranexus.platform.services import team_summary_worker as mod
 
     seen = {}
 
@@ -379,7 +379,7 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
     # accepted anything, so it certified my guess rather than the contract.
     import inspect
 
-    from xyz_agent_context.utils import cost_tracker
+    from narranexus.platform.utils import cost_tracker
 
     inspect.signature(cost_tracker.set_cost_context).bind(*seen["args"], **seen["kwargs"])
 
@@ -398,7 +398,7 @@ async def test_the_real_summarise_assembles_a_valid_cost_context(db_client, monk
 async def test_the_real_summarise_injects_the_teams_credentials(db_client, monkeypatch):
     """A detached background task inherits no per-request ContextVars, so
     without this every cloud call uses the platform key and 401s."""
-    from xyz_agent_context.services import team_summary_worker as mod
+    from narranexus.platform.services import team_summary_worker as mod
 
     injected = []
 
@@ -423,8 +423,8 @@ async def test_credentials_are_cleared_before_they_are_resolved(db_client, monke
     """run_once walks tenants in sequence in ONE task. Without a reset first, a
     team whose owner cannot be resolved inherits the previous team's
     credentials — a cross-tenant leak, not merely a stale config."""
-    from xyz_agent_context.agent_framework.providers import resolver
-    from xyz_agent_context.services.team_summary_worker import _inject_team_credentials
+    from narranexus.platform.agent_framework.providers import resolver
+    from narranexus.platform.services.team_summary_worker import _inject_team_credentials
 
     order = []
     monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
@@ -444,8 +444,8 @@ async def test_credentials_are_cleared_before_they_are_resolved(db_client, monke
 async def test_an_unresolvable_team_leaves_credentials_cleared(db_client, monkeypatch):
     """The leak case made concrete: no owner row means we must NOT fall through
     holding whatever the last team put there."""
-    from xyz_agent_context.agent_framework.providers import resolver
-    from xyz_agent_context.services.team_summary_worker import _inject_team_credentials
+    from narranexus.platform.agent_framework.providers import resolver
+    from narranexus.platform.services.team_summary_worker import _inject_team_credentials
 
     order = []
     monkeypatch.setattr(resolver, "clear_user_config", lambda: order.append("clear"))
@@ -575,7 +575,7 @@ async def test_patrol_lines_do_not_count_toward_the_threshold(db_client):
     activity. Patrol speaks precisely in rooms where nothing is moving (rate cap
     6 per 30 min), so counting it lets a room with NO real work reach the
     threshold on the platform's own chase messages inside a couple of hours."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     await _seed_room(db_client, messages=0)
     for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD * 2):
@@ -595,7 +595,7 @@ async def test_patrol_lines_do_not_count_toward_the_threshold(db_client):
 async def test_patrol_lines_are_not_shown_to_the_summariser(db_client):
     """Their from_agent is a synthetic `team_<id>` marker that never resolves
     through member_map, so they would also read as a member speaking."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
     await db_client.insert("bus_messages", {
@@ -621,8 +621,8 @@ def test_the_filter_is_built_from_constants_not_retyped_strings():
     the undelivered notices were added (2026-08-13) — the worker had picked
     them up correctly and only the test disagreed.
     """
-    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
-    from xyz_agent_context.services.team_summary_worker import _SYSTEM_MSG_TYPES
+    from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
+    from narranexus.platform.services.team_summary_worker import _SYSTEM_MSG_TYPES
 
     assert set(_SYSTEM_MSG_TYPES) == set(PLATFORM_MSG_TYPES)
 
@@ -661,7 +661,7 @@ async def test_a_team_with_no_members_is_not_summarised_at_all(db_client):
 async def test_the_bearer_rule_is_the_rooms_own_default_responder(db_client):
     """One rule, one implementation. This was a second hand-written copy of
     `resolve_default_responder` plus its own raw team_members query."""
-    from xyz_agent_context.schema.team_schema import resolve_default_responder
+    from narranexus.platform.schema.team_schema import resolve_default_responder
 
     await _seed_room(db_client, messages=1)
     await db_client.update("teams", {"team_id": TEAM}, {"lead_agent_id": "agent_lead"})

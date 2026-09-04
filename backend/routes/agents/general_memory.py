@@ -36,14 +36,14 @@ from fastapi import APIRouter, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.memory import (
+from narranexus.platform.memory import (
     MemoryCoordinator,
     MemoryEngine,
     MemoryRecord,
     SCOPE_AGENT,
     format_memory_hits,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 # Ownership gate (backend/routes/_ownership.py): agent_id is attacker-
 # controlled input — without the owner check a cross-tenant IDOR opens up

@@ -9,7 +9,7 @@ silent cloud-side drop, which is exactly the failure this pins against.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.executor_protocol import build_agent_loop_request
+from narranexus.platform.agent_runtime.executor_protocol import build_agent_loop_request
 
 
 def _body(**kw):

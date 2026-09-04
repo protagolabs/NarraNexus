@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import registry as registry_mod
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers import registry as registry_mod
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     ProviderProtocol,
     ProviderSource,

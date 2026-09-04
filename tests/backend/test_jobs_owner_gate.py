@@ -104,7 +104,7 @@ def test_create_job_complex_uses_authenticated_identity_not_body(client, monkeyp
             return {"success": True, "job_id": "job_new"}
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.job_module.job_service.JobInstanceService",
+        "narranexus.platform.module_system.job_module.job_service.JobInstanceService",
         _FakeJobService,
     )
     r = client.post(

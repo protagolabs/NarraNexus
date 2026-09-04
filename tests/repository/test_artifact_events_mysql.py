@@ -29,17 +29,17 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.artifact_event_repository import (
+from narranexus.platform.repository.artifact_event_repository import (
     ArtifactEventRepository,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.repository.team_workspace_repository import (
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.repository.team_workspace_repository import (
     ArtifactHistoryRepository,
 )
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 from tests.mysql_dialect import mysql_configured, mysql_url, parse_mysql_url, skip_reason
 
 pytestmark = pytest.mark.skipif(

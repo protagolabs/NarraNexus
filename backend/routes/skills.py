@@ -29,16 +29,16 @@ from loguru import logger
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from backend.routes._mcp_egress import filter_public_mcp_servers
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.module.skill_module import SkillModule
-from xyz_agent_context.schema.skill_schema import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.module_system.skill_module import SkillModule
+from narranexus.platform.schema.skill_schema import (
     SkillInfo,
     SkillListResponse,
     SkillOperationResponse,
     SkillStudyResponse,
     SkillEnvConfigResponse,
 )
-from xyz_agent_context.utils.file_safety import enforce_max_bytes, sanitize_filename
+from narranexus.platform.utils.file_safety import enforce_max_bytes, sanitize_filename
 
 
 router = APIRouter()
@@ -55,7 +55,7 @@ async def _extract_requirements_via_llm(
     a specific output format. A small model reads the SKILL.md and returns structured JSON.
     """
     from openai import AsyncOpenAI
-    from xyz_agent_context.agent_framework.api_config import openai_config
+    from narranexus.platform.agent_framework.api_config import openai_config
 
     skill_md_path = Path(skill_path) / "SKILL.md"
     if not skill_md_path.exists():
@@ -142,7 +142,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     as configured purely on the platform assumption and are not self-stored, so
     a user who manually entered the key in the Skill tab is never downgraded.
     """
-    from xyz_agent_context.module.skill_module.skill_module import (
+    from narranexus.platform.module_system.skill_module.skill_module import (
         platform_env_available,
     )
 
@@ -150,7 +150,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     if not affected:
         return
     try:
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
 
         available = await platform_env_available(await get_db_client(), user_id)
     except Exception as e:
@@ -184,9 +184,9 @@ async def _run_skill_study(
     Build study message -> Run AgentRuntime -> Collect final_output -> Save to .skill_meta.json
     """
     # Lazy import to avoid circular dependencies
-    from xyz_agent_context.agent_runtime import AgentRuntime
-    from xyz_agent_context.schema import WorkingSource
-    from xyz_agent_context.repository import MCPRepository
+    from narranexus.platform.agent_runtime import AgentRuntime
+    from narranexus.platform.schema import WorkingSource
+    from narranexus.platform.repository import MCPRepository
 
     input_content = (
         f"Please study the skill '{skill_name}' located at skills/{skill_name}/.\n\n"
@@ -349,7 +349,7 @@ async def install_skill(
         # All install entrances converge on the InstallPipeline (scan gate,
         # conflict/config migration, .skill_meta hash fields, audit trail,
         # auto-archive). Response shape is unchanged.
-        from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -409,7 +409,7 @@ async def remove_skill(
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
-        from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -588,12 +588,12 @@ async def get_skill_env(
 
         # Platform-resolved vars (e.g. NETMIND_API_KEY) count as configured
         # when the user's provider config can back them at run time.
-        from xyz_agent_context.module.skill_module.skill_module import (
+        from narranexus.platform.module_system.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
             configured_env_var_names,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
@@ -642,12 +642,12 @@ async def set_skill_env(
         updated_config = skill_module.get_skill_env_config(skill_name)
         requires_env = skill.requires_env or [] if skill else []
 
-        from xyz_agent_context.module.skill_module.skill_module import (
+        from narranexus.platform.module_system.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
             configured_env_var_names,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):

@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module import module_registry, instance_prefix_for, is_task_module, module_by_role, module_config
-from xyz_agent_context.module._module_impl.loader import ModuleLoader
-from xyz_agent_context.module._module_impl.metadata import get_all_modules_metadata, get_module_metadata, get_task_modules
-from xyz_agent_context.module._module_impl.selector import ModuleSelector
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.module.contributions import MODULES_SLOT
-from xyz_agent_context.schema.module_schema import ModuleConfig, ModuleDecisionMeta, ModuleDisplay
+from narranexus.platform.module_system import module_registry, instance_prefix_for, is_task_module, module_by_role, module_config
+from narranexus.platform.module_system._module_impl.loader import ModuleLoader
+from narranexus.platform.module_system._module_impl.metadata import get_all_modules_metadata, get_module_metadata, get_task_modules
+from narranexus.platform.module_system._module_impl.selector import ModuleSelector
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.module_system.contributions import MODULES_SLOT
+from narranexus.platform.schema.module_schema import ModuleConfig, ModuleDecisionMeta, ModuleDisplay
 
 
 class AcmeNotesModule(XYZBaseModule):
@@ -59,7 +59,7 @@ def test_builtin_declarations_reproduce_the_former_tables():
 
 
 def test_a_plugin_module_is_described_like_a_builtin(plugin_module):
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_display import module_display
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_display import module_display
 
     assert "AcmeNotesModule" in ModuleLoader.default_modules(module_registry)
     assert instance_prefix_for("AcmeNotesModule") == "notes" and instance_prefix_for("UnknownThingModule") == "unknownthing"
@@ -72,8 +72,8 @@ def test_a_plugin_module_is_described_like_a_builtin(plugin_module):
 
 @pytest.mark.asyncio
 async def test_role_instances_and_task_hooks_come_from_declarations(db_client, plugin_module):
-    from xyz_agent_context.module import InstanceFactory
-    from xyz_agent_context.module._module_impl.instance_decision import module_overview_text
+    from narranexus.platform.module_system import InstanceFactory
+    from narranexus.platform.module_system._module_impl.instance_decision import module_overview_text
 
     factory = InstanceFactory(db_client)
     inst = await factory.ensure_role_instance("agent_r", "social_network")

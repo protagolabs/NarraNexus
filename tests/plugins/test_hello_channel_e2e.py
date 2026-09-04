@@ -22,11 +22,11 @@ from narranexus.kernel.plugins.importer import import_plugin_module, plugin_find
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME, registry_path
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.channel import credential_codec
-from xyz_agent_context.module.channel_trigger_map import TriggerMapView
-from xyz_agent_context.module.contributions import register_all
-from xyz_agent_context.module.data_access.channel_store import _ChannelSpecs
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.channel import credential_codec
+from narranexus.platform.module_system.channel_trigger_map import TriggerMapView
+from narranexus.platform.module_system.contributions import register_all
+from narranexus.platform.module_system.data_access.channel_store import _ChannelSpecs
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 PLUGIN = Path(__file__).resolve().parent / "hello_channel"
 PID = "acme.hello_channel"
@@ -95,7 +95,7 @@ def test_a_channel_plugin_installs_binds_receives_and_replies(home: Path, db_cli
             runs.append(kwargs)
             return SimpleNamespace(is_error=False, error=None, output_text="hi Alice", raw_items=[])
 
-    monkeypatch.setattr("xyz_agent_context.agent_runtime.client.get_agent_runtime_client", lambda: FakeClient())
+    monkeypatch.setattr("narranexus.platform.agent_runtime.client.get_agent_runtime_client", lambda: FakeClient())
 
     async def scenario():
         trigger = trigger_cls(max_workers=1)
@@ -119,6 +119,6 @@ def test_a_channel_plugin_installs_binds_receives_and_replies(home: Path, db_cli
     module = plugin.HelloChannelModule(agent_id="agent_h", user_id="u1", database_client=db_client, instance_id="inst_h")
     asyncio.run(module.send_to_agent("agent_h", "room-1", "hi Alice"))
     assert plugin.SENT[-1] == {"agent_id": "agent_h", "target_id": "room-1", "message": "hi Alice"}
-    from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
+    from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
 
     assert ChannelSenderRegistry.get_sender("hello_channel") is not None

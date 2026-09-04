@@ -21,17 +21,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.narramessenger_context_builder import (
+from narranexus.platform.module_system.narramessenger_module.narramessenger_context_builder import (
     NarramessengerContextBuilder,
 )
-from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
     NarramessengerModule,
 )
-from xyz_agent_context.module.narramessenger_module import _narramessenger_mcp_tools
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.module_system.narramessenger_module import _narramessenger_mcp_tools
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,

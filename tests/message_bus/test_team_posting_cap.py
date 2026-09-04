@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.team_posting import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.team_posting import (
     MAX_TEAM_AGENT_HOPS,
     post_team_reply,
     team_cascade_depth,
 )
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
 )
@@ -124,9 +124,9 @@ async def test_platform_rows_are_excluded_in_the_query_not_after_it(db_client):
     written in SQL, so it is dialect-visible — and this is the lane that runs on
     every commit.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
-    from xyz_agent_context.message_bus.team_posting import (
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
+    from narranexus.platform.message_bus.team_posting import (
         MAX_TEAM_AGENT_HOPS,
         team_cascade_depth,
     )
@@ -172,7 +172,7 @@ async def test_blank_text_is_refused_rather_than_posted(db_client):
     helper `speak_in_room` is such a caller, which is the point: without this a
     team test could post nothing and assert a delivery.
     """
-    from xyz_agent_context.message_bus.team_posting import post_team_reply
+    from narranexus.platform.message_bus.team_posting import post_team_reply
 
     await _room(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
@@ -201,7 +201,7 @@ async def test_blank_text_is_refused_rather_than_posted(db_client):
 def test_hop_cap_default_is_large_enough_for_real_tasks():
     # Assert the DEFAULT constant, not the env-resolved module value — the
     # latter would go red on any host that happens to set TEAM_MAX_AGENT_HOPS.
-    from xyz_agent_context.message_bus.team_posting import (
+    from narranexus.platform.message_bus.team_posting import (
         _DEFAULT_MAX_TEAM_AGENT_HOPS,
     )
 
@@ -211,14 +211,14 @@ def test_hop_cap_default_is_large_enough_for_real_tasks():
 
 
 def test_hop_cap_reads_env_override(monkeypatch):
-    from xyz_agent_context.message_bus.team_posting import _resolve_hop_cap
+    from narranexus.platform.message_bus.team_posting import _resolve_hop_cap
 
     monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", "50")
     assert _resolve_hop_cap() == 50
 
 
 def test_hop_cap_clamps_absurd_values(monkeypatch):
-    from xyz_agent_context.message_bus.team_posting import (
+    from narranexus.platform.message_bus.team_posting import (
         _MAX_TEAM_AGENT_HOPS_CEILING,
         _resolve_hop_cap,
     )
@@ -230,7 +230,7 @@ def test_hop_cap_clamps_absurd_values(monkeypatch):
 
 
 def test_hop_cap_falls_back_on_bad_env(monkeypatch):
-    from xyz_agent_context.message_bus.team_posting import _resolve_hop_cap
+    from narranexus.platform.message_bus.team_posting import _resolve_hop_cap
 
     for bad in ("", "   ", "not-a-number", "0", "-3"):
         monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", bad)

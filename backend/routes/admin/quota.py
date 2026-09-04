@@ -23,10 +23,10 @@ from pydantic import BaseModel, Field
 
 from backend.auth import _is_cloud_mode
 from backend.routes.quota import balance_to_dict
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     is_free_tier_enabled,
 )
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletError,
     WalletMissing,

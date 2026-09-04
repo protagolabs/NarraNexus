@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
     _send_turn_source,
 )
-from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
+from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE
 
 from ._mcp_headers import injected
 

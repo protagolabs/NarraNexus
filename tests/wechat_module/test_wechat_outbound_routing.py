@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.wechat_module import wechat_outbound
+from narranexus.platform.module_system.wechat_module import wechat_outbound
 
 
 def _cred(agent_id="agent_w1"):
@@ -138,7 +138,7 @@ class TestRouter:
 class TestCallSitesDelegate:
     @pytest.mark.asyncio
     async def test_module_send_to_agent_uses_router(self, monkeypatch):
-        from xyz_agent_context.module.wechat_module import wechat_module as wm
+        from narranexus.platform.module_system.wechat_module import wechat_module as wm
 
         router = AsyncMock(return_value=True)
         monkeypatch.setattr(wm, "send_wechat_text", router)
@@ -161,7 +161,7 @@ class TestCallSitesDelegate:
 
     @pytest.mark.asyncio
     async def test_trigger_send_channel_reply_uses_router(self, monkeypatch):
-        from xyz_agent_context.module.wechat_module import wechat_trigger as wt
+        from narranexus.platform.module_system.wechat_module import wechat_trigger as wt
 
         router = AsyncMock(return_value=True)
         monkeypatch.setattr(wt, "send_wechat_text", router)
@@ -179,7 +179,7 @@ class TestCallSitesDelegate:
 
     @pytest.mark.asyncio
     async def test_mcp_wechat_send_uses_router(self, monkeypatch):
-        from xyz_agent_context.module.wechat_module import _wechat_mcp_tools as tools
+        from narranexus.platform.module_system.wechat_module import _wechat_mcp_tools as tools
 
         router = AsyncMock(return_value=True)
         monkeypatch.setattr(tools, "send_wechat_text", router)

@@ -25,17 +25,17 @@ import pytest
 
 # Import the lark_module so it registers its handler. We rely on
 # import-time registration here, mirroring how production backends boot.
-import xyz_agent_context.module.lark_module  # noqa: F401
-import xyz_agent_context.message_bus  # noqa: F401
+import narranexus.platform.module_system.lark_module  # noqa: F401
+import narranexus.platform.message_bus  # noqa: F401
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -330,7 +330,7 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
     ))
 
     # Now gather should drop the activity row.
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.schema import ContextData
     ctx_data = ContextData(
         agent_id="a_disp",
         user_id="u_disp",
@@ -359,10 +359,10 @@ async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
     an activity row — otherwise the next turn starts cold no matter what the
     accounting says.
     """
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         PLATFORM_REPLY_TEXT_KEY,
     )
-    from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+    from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
     frame = ProgressMessage(
         step="3.4.team_room",
@@ -402,10 +402,10 @@ async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
     whether the next turn sees it. Testing the write alone is exactly how this
     shipped once already looking finished.
     """
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         PLATFORM_REPLY_TEXT_KEY,
     )
-    from xyz_agent_context.schema import ContextData, ProgressMessage, ProgressStatus
+    from narranexus.platform.schema import ContextData, ProgressMessage, ProgressStatus
 
     frame = ProgressMessage(
         step="3.4.team_room", title="Reply (team room auto-post)",

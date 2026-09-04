@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-08-28
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-28 — resolve_bundled_node_bins 也吐插件 CLI 目录
@@ -17,7 +17,7 @@ Claude Code 从"自带"改成按需插件后，`resolve_bundled_node_bins()` 除
 Both factories replaced the four separate worker ServiceDefs (`poller` o3,
 `job_trigger` o4, `message_bus_trigger` o5, `channel_triggers` o6) with a SINGLE
 `workers` service (id `workers`, label "Workers", order 3) running
-`python -m xyz_agent_context.module.run_worker_supervisor` — one process running
+`python -m narranexus.platform.module_system.run_worker_supervisor` — one process running
 the module poller, job / message-bus triggers, and every IM channel trigger in
 one event loop (see [[run_worker_supervisor.py]]). So each factory now defines
 **FOUR** services (orders 0–3): sqlite_proxy, backend, mcp, workers — down from
@@ -40,7 +40,7 @@ on a live Tauri event listener. Written by [[netmind_oauth.rs]]'s on_navigation.
 Both factories replaced the six per-channel `ServiceDef`s (lark / slack /
 telegram / discord / wechat / narramessenger, orders 6–11) with a SINGLE
 `channel_triggers` service (order 6) running
-`xyz_agent_context.module.run_channel_triggers` — one supervisor process that
+`narranexus.platform.module_system.run_channel_triggers` — one supervisor process that
 drives every channel in one event loop. See
 [[run_channel_triggers.py]] / [[channel_trigger_map.py]]. So each factory now
 defines SEVEN services (orders 0–6), not twelve. The alignment guard test was
@@ -152,7 +152,7 @@ Both factories define the same seven services in the same order (since the
 5. job_trigger (order 4)
 6. message_bus_trigger (order 5)
 7. channel_triggers (order 6) — ONE supervisor process
-   (`xyz_agent_context.module.run_channel_triggers`) running every IM channel
+   (`narranexus.platform.module_system.run_channel_triggers`) running every IM channel
    (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) in a single
    event loop. Replaced the six per-channel services. No bound port.
 
@@ -195,3 +195,7 @@ simultaneously from different installations shares the same database.
 ## 2026-08-28 补(auto-review N2) — NARRANEXUS_PLUGIN_HOME 与 Python 对齐
 
 `resolve_bundled_node_bins` 里对 override 的处理对齐 plugin_paths.py(铁律#7):trim 空白、空串当未设、展开前导 `~`。原来 Rust 两者都没做,设成空串会拿到相对路径、设 `~/x` 不展开,两 run mode 落点会分叉。
+
+## 2026-09-04 · sidecar module paths renamed (batch 6a)
+
+`narranexus.platform.utils.db.sqlite_proxy_server`, `src/narranexus/platform/module_system/module_runner.py`, `narranexus.platform.module_system.run_worker_supervisor` (rule #7: run.sh moved in the same commit; compose keeps the old paths through the alias this release).

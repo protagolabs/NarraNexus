@@ -31,7 +31,7 @@ from typing import List, Tuple
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from xyz_agent_context.artifact import MAX_ARTIFACT_BYTES
+from narranexus.platform.artifact import MAX_ARTIFACT_BYTES
 
 _MB = 1024 * 1024
 

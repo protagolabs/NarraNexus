@@ -26,8 +26,8 @@ from typing import Any, Dict
 
 from loguru import logger
 
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
-from xyz_agent_context.utils.url_safety import assert_public_http_url
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.url_safety import assert_public_http_url
 
 
 async def filter_public_mcp_servers(

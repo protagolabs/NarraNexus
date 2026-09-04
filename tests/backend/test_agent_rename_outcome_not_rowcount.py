@@ -26,8 +26,8 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 AGENT_ID = "agent_rename_test"
 OWNER = "alice"
@@ -306,7 +306,7 @@ def test_a_no_op_re_save_still_refreshes_the_peer_directory(
     # symbol — it calls the shared rename transaction, which imports
     # sync_agent_discovery inside the function. Patching a name the route does
     # not import would silently spy on nothing and pass on any behaviour.
-    import xyz_agent_context.message_bus.agent_discovery_sync as discovery_mod
+    import narranexus.platform.message_bus.agent_discovery_sync as discovery_mod
 
     monkeypatch.setattr(discovery_mod, "sync_agent_discovery", _spy)
 
@@ -339,7 +339,7 @@ def test_a_field_that_needed_no_write_is_still_verified_against_the_row(
     only.
     """
     import backend.routes.auth as auth_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     async def _concurrent_writer(db, agent_id, **_kwargs):  # noqa: ANN001
         """No-op write, then someone else renames the row underneath us."""
@@ -371,7 +371,7 @@ def test_a_transaction_level_failure_names_the_fields_that_did_not_land(
     "The update did not persist: " with no fields, silently.
     """
     import backend.routes.auth as auth_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     async def _did_not_land(_db, _agent_id, **_kwargs):  # noqa: ANN001
         return AgentProfileWrite(
@@ -404,7 +404,7 @@ def test_a_refusal_is_worded_for_the_ui_not_for_a_model(
     reworded. The route maps on error_kind and writes its own sentence.
     """
     import backend.routes.auth as auth_mod
-    from xyz_agent_context.agent_profile import AgentProfileWrite
+    from narranexus.platform.agent_profile import AgentProfileWrite
 
     async def _too_long(_db, _agent_id, **_kwargs):  # noqa: ANN001
         return AgentProfileWrite(

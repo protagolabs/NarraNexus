@@ -21,7 +21,7 @@ class NarrativeLlmRecall:
     stage = Stage.RECALL
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import agent_runtime as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_1_select_narrative(ctx, s.narrative_service, s.session_service):
@@ -33,7 +33,7 @@ class NarrativeFastRecall:
     stage = Stage.RECALL
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import agent_runtime as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_1_fast_select(ctx, s.narrative_service, s.session_service):

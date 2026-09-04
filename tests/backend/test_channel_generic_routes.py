@@ -17,7 +17,7 @@ from backend.routes.channels import generic as generic_mod
 from narranexus.contracts.channel import ChannelDescriptor, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.channel import credential_codec
+from narranexus.platform.channel import credential_codec
 
 PLUGIN = ChannelDescriptor(
     name="acme_chat",
@@ -42,7 +42,7 @@ def client(db_client, monkeypatch, tmp_path: Path):
         return "u1" if agent_id.startswith("a") else None
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
-    import xyz_agent_context.module  # noqa: F401
+    import narranexus.platform.module_system  # noqa: F401
 
     registry = KERNEL_REGISTRIES.registry_for("ingress.channels")
     dispose = registry.register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
@@ -103,7 +103,7 @@ def test_builtin_bind_body_is_checked_against_bind_fields(client, monkeypatch):
         called.append((channel, agent_id, fields))
         return {"success": True, "data": {"bound": True}}
 
-    from xyz_agent_context.module.data_access import channel_store
+    from narranexus.platform.module_system.data_access import channel_store
 
     monkeypatch.setattr(channel_store.DirectStore, "bind", _bind)
     r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {"app_id": "cli_1", "app_secret": "s", "brand": "feishu", "evil": "x"}}, headers=H)
@@ -122,7 +122,7 @@ def test_builtin_bind_body_is_checked_against_bind_fields(client, monkeypatch):
 def test_builtin_set_active_and_credential_read_the_generic_store(client, db_client):
     """Lark's binding flips through the same store row as every channel (its
     manager has set_is_active, not set_enabled — the route no longer cares)."""
-    from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager, _encode_secret
+    from narranexus.platform.module_system.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager, _encode_secret
 
     H = {"X-User-Id": "u1"}
     asyncio_run = __import__("asyncio").run

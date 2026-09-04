@@ -23,12 +23,12 @@ from pathlib import Path
 
 # Importing the module package registers every module's MessageSourceHandler
 # (module/__init__.py builds module_registry by importing all module packages).
-import xyz_agent_context.module  # noqa: F401
-from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
-from xyz_agent_context.message_bus.message_bus_trigger import im_channel_prefixes
+import narranexus.platform.module_system  # noqa: F401
+from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
+from narranexus.platform.message_bus.message_bus_trigger import im_channel_prefixes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MODULE_DIR = REPO_ROOT / "src" / "xyz_agent_context" / "module"
+MODULE_DIR = REPO_ROOT / "src" / "narranexus" / "platform" / "module_system"
 
 
 def _channel_names_from_entrypoints() -> list[str]:

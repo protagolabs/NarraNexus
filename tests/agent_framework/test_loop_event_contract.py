@@ -29,7 +29,7 @@ from narranexus.contracts.agent_events import (
     raw_error_event,
     raw_text_delta_event,
 )
-from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
+from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 
 
 # ---------------- The exact legacy strings are pinned ----------------

@@ -24,11 +24,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.bundle.team_bulletin_transfer import (
+from narranexus.platform.bundle.team_bulletin_transfer import (
     collect_bulletin_for_export,
     write_imported_bulletin,
 )
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
 
@@ -143,7 +143,7 @@ async def test_an_import_cannot_smuggle_in_a_summary(repo, db_client):
 async def test_an_import_respects_the_entry_ceiling(repo, db_client):
     """A bundle is untrusted input. Without a cap it could hand the recipient a
     bulletin that dwarfs every one of their team turns."""
-    from xyz_agent_context.schema.team_schema import BULLETIN_MAX_ENTRIES
+    from narranexus.platform.schema.team_schema import BULLETIN_MAX_ENTRIES
 
     payload = [{"content": f"rule {i}", "source": "user", "tier": "long_term"} for i in range(BULLETIN_MAX_ENTRIES * 3)]
     await write_imported_bulletin(db_client, NEW_TEAM, payload)
@@ -154,7 +154,7 @@ async def test_an_import_respects_the_entry_ceiling(repo, db_client):
 
 @pytest.mark.asyncio
 async def test_an_import_respects_the_length_ceiling(repo, db_client):
-    from xyz_agent_context.schema.team_schema import (
+    from narranexus.platform.schema.team_schema import (
         BULLETIN_MAX_ENTRY_CHARS,
         BULLETIN_MAX_TOTAL_CHARS,
     )
@@ -232,7 +232,7 @@ async def test_a_round_trip_preserves_the_rules(repo, db_client):
 def test_the_builder_puts_the_bulletin_in_the_manifest():
     import inspect
 
-    from xyz_agent_context.bundle import builder
+    from narranexus.platform.bundle import builder
 
     src = inspect.getsource(builder)
     assert '"bulletin": await collect_bulletin_for_export(' in src
@@ -241,7 +241,7 @@ def test_the_builder_puts_the_bulletin_in_the_manifest():
 def test_the_importer_writes_it_under_the_new_team():
     import inspect
 
-    from xyz_agent_context.bundle import importer
+    from narranexus.platform.bundle import importer
 
     src = inspect.getsource(importer)
     assert "write_imported_bulletin(" in src
@@ -269,7 +269,7 @@ def test_the_import_rollback_sweeps_the_bulletin_table():
     """
     import inspect
 
-    from xyz_agent_context.bundle import importer
+    from narranexus.platform.bundle import importer
 
     src = inspect.getsource(importer)
     rollback = src[src.index("for tid in new_team_ids"):]

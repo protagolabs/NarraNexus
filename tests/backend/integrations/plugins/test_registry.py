@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.claude.cli_binary import PINNED_CLI_VERSION
+from narranexus.platform.agent_framework.adapters.claude.cli_binary import PINNED_CLI_VERSION
 
 from backend.integrations.plugins.registry import build_plugin_specs
 

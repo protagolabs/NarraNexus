@@ -16,7 +16,7 @@ class DefaultCompose:
     stage = Stage.COMPOSE
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from xyz_agent_context.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import agent_runtime as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_2_load_modules(ctx):

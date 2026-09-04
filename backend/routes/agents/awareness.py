@@ -15,12 +15,12 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from backend.routes._ownership import assert_owned
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import InstanceRepository
-from xyz_agent_context.repository import InstanceAwarenessRepository
-from xyz_agent_context.schema import AwarenessResponse, AwarenessUpdateRequest
-from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.repository import InstanceRepository
+from narranexus.platform.repository import InstanceAwarenessRepository
+from narranexus.platform.schema import AwarenessResponse, AwarenessUpdateRequest
+from narranexus.platform.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
 
 
 router = APIRouter()
@@ -154,7 +154,7 @@ async def update_agent_awareness(
         # This is the CLOUD half: the twin in module/data_access/store.py does the
         # same for the local path, and fixing only one protects the environment
         # the incident did not happen in.
-        from xyz_agent_context.module.awareness_module import (
+        from narranexus.platform.module_system.awareness_module import (
             carry_over_platform_record,
         )
 

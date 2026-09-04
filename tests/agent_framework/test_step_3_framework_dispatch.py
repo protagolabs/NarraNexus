@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework import (
+from narranexus.platform.agent_framework import (
     ClaudeAgentSDK,
     CodexSDK,
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _resolve_agent_framework_name,
 )
 
@@ -90,7 +90,7 @@ def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
     """Cutover 2026-06-08: ``codex_cli`` now resolves to ``CodexSDKv2``.
     The v1 ``CodexSDK`` class is still importable (revival fallback)
     but no longer registered."""
-    from xyz_agent_context.agent_framework import CodexSDKv2
+    from narranexus.platform.agent_framework import CodexSDKv2
 
     driver = get_agent_loop_driver(
         framework="codex_cli", working_path=str(tmp_path)
@@ -200,7 +200,7 @@ def test_step3_splits_build_context_from_run_agent_phase():
     the tool sub-steps nest under (``3.4.{n}``)."""
     # Canonical home is the leaf schema module (importable by both the emitter
     # and run_recorder without a circular import).
-    from xyz_agent_context.schema import (
+    from narranexus.platform.schema import (
         PHASE_BUILD_CONTEXT_STEP,
         PHASE_BUILD_CONTEXT_TITLE,
         PHASE_RUN_AGENT_STEP,
@@ -227,7 +227,7 @@ def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
     test_origin_declaration_plumbing / test_executor_seam.)"""
     import inspect
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         step_3_agent_loop,
         step_3_assemble_context,
     )

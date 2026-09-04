@@ -17,7 +17,7 @@ from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module.contributions import register_all
+from narranexus.platform.module_system.contributions import register_all
 
 OWNED = {
     "builtin.teams": {"teams"},

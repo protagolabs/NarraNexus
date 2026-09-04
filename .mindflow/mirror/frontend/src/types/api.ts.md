@@ -174,13 +174,13 @@ renamed to `path` because the backend DELETE accepts nested relative paths.
 Adds the frontend mirror of the backend ActiveRunInfo type so the
 GET /api/auth/agents response carries enough metadata to render the
 "Running" indicator across tab reloads / devices. Field set matches
-`xyz_agent_context.schema.api_schema.ActiveRunInfo` exactly.
+`narranexus.platform.schema.api_schema.ActiveRunInfo` exactly.
 
 # types/api.ts
 
 ## 为什么存在
 
-前端与后端通信的全部 TypeScript 类型定义，对应后端的 Pydantic 响应模型（`src/xyz_agent_context/schema/api_schema.py`）。任何 API route 返回的数据形状在这里都要有对应 interface。
+前端与后端通信的全部 TypeScript 类型定义，对应后端的 Pydantic 响应模型（`src/narranexus/platform/schema/api_schema.py`）。任何 API route 返回的数据形状在这里都要有对应 interface。
 
 ## 2026-04-21 · v2 时区协议
 

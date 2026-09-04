@@ -26,17 +26,17 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.repository.event_memory_repository import EventMemoryRepository
-from xyz_agent_context.utils import utc_now
-from xyz_agent_context.schema import (
+from narranexus.platform.bootstrap.template import BOOTSTRAP_GREETING
+from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus.platform.repository.event_memory_repository import EventMemoryRepository
+from narranexus.platform.utils import utc_now
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -190,7 +190,7 @@ async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_modu
 
     Deleting the hook's `len(messages)==0` guard, or letting the seed anchor the
     greeting at a mid-turn `now()`, turns this red."""
-    from xyz_agent_context.module.chat_module import seed_bootstrap_greeting
+    from narranexus.platform.module_system.chat_module import seed_bootstrap_greeting
 
     event_started_at = utc_now() - timedelta(seconds=30)
 

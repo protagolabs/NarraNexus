@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 CHANNEL = "ch_page"
 

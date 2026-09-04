@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.module.slack_module.slack_module import _extract_slack_reply
+from narranexus.platform.module_system.slack_module.slack_module import _extract_slack_reply
 
 
 # ── canonical reply via slack_cli + chat.postMessage ───────────────────
@@ -152,10 +152,10 @@ def test_slack_handler_is_registered_in_message_source_registry():
     call. This mirrors what happens on a fresh process boot.
     """
     import importlib
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
     )
-    from xyz_agent_context.module.slack_module import slack_module
+    from narranexus.platform.module_system.slack_module import slack_module
 
     if "slack" not in MessageSourceRegistry._handlers:  # type: ignore[attr-defined]
         importlib.reload(slack_module)

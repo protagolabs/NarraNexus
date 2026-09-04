@@ -1,94 +1,96 @@
 """
-XYZ Agent Context - Agent context management system
+@file_name: __init__.py
+@author: Bin Liang
+@date: 2026-09-04
+@description: ``xyz_agent_context`` — a one-release alias of ``narranexus.platform`` (plugin platform batch 6a, decision D8).
 
-Provides complete context management for Agent runtime:
-- Narrative: Narrative management
-- Event: Event management  
-- Module: Modular capabilities
-- Context: Context building
-- Runtime: Runtime coordination
+The domain packages moved to ``narranexus.platform`` (``module`` →
+``module_system``). Anything still importing the old name — external scripts,
+the deploy repo's compose entrypoints, an older plugin — keeps working for one
+release: a ``sys.meta_path`` finder resolves every ``xyz_agent_context.<path>``
+to the SAME module object as ``narranexus.platform.<path>`` (so monkeypatches,
+``isinstance`` and singletons agree), and this package re-exports the platform
+root. One ``DeprecationWarning`` per process names the replacement. The
+package (and the three by-path entrypoint shims next to it) is removed in the
+release after; see docs/PLUGIN_BATCH6_DEPLOY_LOCKSTEP.md for the deploy-side
+switch.
 """
+from __future__ import annotations
 
-# Single source of truth for the app version: read it from the installed
-# package metadata (driven by pyproject [project].version, one of the 5 release
-# anchors) instead of hand-maintaining a literal that silently goes stale.
-try:
-    from importlib.metadata import version as _pkg_version
+import importlib
+import importlib.abc
+import importlib.machinery
+import importlib.util
+import sys
+import warnings
 
-    __version__ = _pkg_version("xyz-agent-context")
-except Exception:  # noqa: BLE001 — source tree with no install metadata
-    __version__ = "0.0.0+unknown"
+_OLD = "xyz_agent_context"
+_NEW = "narranexus.platform"
+_RENAMED = {"module": "module_system"}
 
-# Export core components - organized by dependency order
-# 1. Schema (data structures, no dependencies)
-from .schema import (
-    ProgressMessage,
-    ProgressStatus,
-    AgentTextDelta,
-    ModuleConfig,
-    MCPServerConfig,
-    ContextData,
-)
 
-# 2. Utils (utilities, low dependencies)
-from .utils import DatabaseClient
+def target_name(fullname: str) -> str:
+    """``xyz_agent_context.module.base`` → ``narranexus.platform.module_system.base``."""
+    if fullname == _OLD:
+        return _NEW
+    rest = fullname[len(_OLD) + 1:]
+    head, sep, tail = rest.partition(".")
+    return f"{_NEW}.{_RENAMED.get(head, head)}{sep}{tail}"
 
-# 3. Narrative (narrative and event management)
-from .narrative import (
-    Narrative,
-    Event,
-    EventService,
-    NarrativeService,
-)
 
-# 4. Module (module system)
-from .module import (
-    XYZBaseModule,
-    ModuleService,
-    HookManager,
-)
+class _AliasLoader(importlib.abc.Loader):
+    def __init__(self, target: str) -> None:
+        self._target = target
 
-# 5. Agent Framework (Agent SDK integration).
-# ``ClaudeAgentSDK`` is intentionally NOT eagerly imported here: on the
-# lightweight local build ``claude-agent-sdk`` is an optional plugin, so
-# importing this top-level package must not require it. It stays importable
-# (`from xyz_agent_context import ClaudeAgentSDK`) via the lazy __getattr__
-# below, which only pulls the SDK on actual attribute access.
+    def create_module(self, spec):  # noqa: D401 — the target module IS the module
+        return importlib.import_module(self._target)
 
-# 6. Context Runtime (context building)
-from .context_runtime import ContextRuntime
+    def exec_module(self, module) -> None:
+        return None
 
-# 7. Agent Runtime (runtime coordination)
-from .agent_runtime import AgentRuntime
 
-__all__ = [
-    "__version__",
-    "ProgressMessage",
-    "ProgressStatus",
-    "AgentTextDelta",
-    "ModuleConfig",
-    "MCPServerConfig",
-    "ContextData",
-    "DatabaseClient",
-    "Narrative",
-    "Event",
-    "EventService",
-    "NarrativeService",
-    "XYZBaseModule",
-    "ModuleService",
-    "HookManager",
-    "ClaudeAgentSDK",
-    "ContextRuntime",
-    "AgentRuntime",
-]
+class _AliasFinder(importlib.abc.MetaPathFinder):
+    """Resolves ``xyz_agent_context.*`` to the platform module of the same path."""
+
+    def find_spec(self, fullname, path=None, target=None):
+        if not fullname.startswith(_OLD + "."):
+            return None
+        new = target_name(fullname)
+        try:
+            spec = importlib.util.find_spec(new)
+        except ModuleNotFoundError:
+            return None
+        if spec is None:
+            return None
+        _warn_once()
+        return importlib.machinery.ModuleSpec(fullname, _AliasLoader(new), is_package=spec.submodule_search_locations is not None)
+
+
+_warned = False
+
+
+def _warn_once() -> None:
+    global _warned
+    if not _warned:
+        _warned = True
+        warnings.warn(
+            "xyz_agent_context is an alias of narranexus.platform (module → module_system) and is removed next release — import narranexus.platform instead",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+
+
+if not any(isinstance(f, _AliasFinder) for f in sys.meta_path):
+    sys.meta_path.insert(0, _AliasFinder())
+
+from narranexus.platform import *  # noqa: E402,F401,F403 — the root re-exports
+from narranexus.platform import __all__ as _platform_all  # noqa: E402
+from narranexus.platform import __version__  # noqa: E402,F401
+
+__all__ = list(_platform_all)
 
 
 def __getattr__(name: str):
-    # PEP 562 lazy passthrough: keep ``xyz_agent_context.ClaudeAgentSDK``
-    # importable without forcing the optional ``claude-agent-sdk`` plugin at
-    # package import. Delegates to agent_framework's own lazy resolver.
-    if name == "ClaudeAgentSDK":
-        from .agent_framework import ClaudeAgentSDK
+    import narranexus.platform as _platform
 
-        return ClaudeAgentSDK
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(_platform, name)

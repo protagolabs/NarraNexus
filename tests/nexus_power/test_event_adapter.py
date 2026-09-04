@@ -12,12 +12,12 @@ CoT never enters final_output on any driver.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+from narranexus.platform.agent_framework.nexus_power.contracts.events import (
     TYPE_TEXT_DELTA,
     TYPE_THINKING_DELTA,
     LoopEvent,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
+from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
     LegacyEventAdapter,
 )
 

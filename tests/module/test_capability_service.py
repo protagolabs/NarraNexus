@@ -10,10 +10,10 @@ import pytest
 
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module.base import XYZBaseModule
-from xyz_agent_context.module.capability_service import CapabilityService
-from xyz_agent_context.module.contributions import MODULES_SLOT
-from xyz_agent_context.schema.module_schema import ModuleConfig
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.module_system.capability_service import CapabilityService
+from narranexus.platform.module_system.contributions import MODULES_SLOT
+from narranexus.platform.schema.module_schema import ModuleConfig
 
 
 class AcmeHeavyModule(XYZBaseModule):
@@ -78,9 +78,9 @@ async def test_loader_drops_disabled_capabilities_before_binding(db_client, plug
     """`_drop_disabled` is the one chokepoint every load path (decision, fast
     path) runs before `_create_module_objects`: a disabled module's instance
     never binds, so its instructions, tools and hooks stay out of the turn."""
-    from xyz_agent_context.module import module_registry
-    from xyz_agent_context.module._module_impl.loader import ModuleLoader
-    from xyz_agent_context.schema.module_schema import InstanceStatus, ModuleInstance
+    from narranexus.platform.module_system import module_registry
+    from narranexus.platform.module_system._module_impl.loader import ModuleLoader
+    from narranexus.platform.schema.module_schema import InstanceStatus, ModuleInstance
 
     await db_client.insert("agents", {"agent_id": "agent_l", "agent_name": "L", "created_by": "u1"})
     loader = ModuleLoader(agent_id="agent_l", user_id="u1", database_client=db_client, module_map=dict(module_registry))

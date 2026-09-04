@@ -208,12 +208,12 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
   - `SocialNetworkModule.merge_entities` / `.delete_entity` — `merge` /
     `delete-entity` 端点委托的真方法(与 MCP 工具同源)
   - `AgentRepository` — `create-agent` 端点解析 creator 的 owner
-  - `xyz_agent_context.bootstrap.provision.provision_new_agent` —
+  - `narranexus.platform.bootstrap.provision.provision_new_agent` —
     `create-agent` 的唯一供给入口([[provision]];建 row/实例/发现/bootstrap/
     默认技能/awareness seed 全在 seam 内,本路由不再直接建 row 或 seed)
   - `backend.routes._ownership.assert_owned` — 四个写端点的授权门禁
   - （历史：语义搜索曾经由 agent_framework 的 embedding 工具生成 query 向量；该向量化子系统已整体移除）
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
+  - `narranexus.platform.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
 
 ## 设计决策
 

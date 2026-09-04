@@ -14,9 +14,9 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.module.job_module.job_trigger import (
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.schema.job_schema import JobStatus
+from narranexus.platform.module_system.job_module.job_trigger import (
     JobTrigger,
     _is_no_quota_failure,
 )
@@ -84,7 +84,7 @@ def test_real_resolver_messages_still_pause_jobs():
     So: build the errors for real and assert the classifier still fires.
     Anyone rewording them has to keep the markers intact or turn this red.
     """
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         NoProviderConfiguredError,
     )
 

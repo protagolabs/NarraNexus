@@ -42,11 +42,11 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 
@@ -242,7 +242,7 @@ async def test_dedup_probe_runs_on_mysql(mysql_client):
     drifts from the one that ships, and the previous version of this test ended
     on `assert impl is not None`, which is true by construction.
     """
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+    from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
 
     await _seed_file(mysql_client, f"{_PREFIX}_h1", size=42, digest="hash_a")
     rows = await TeamFileRepository(mysql_client).find_by_name_and_size(
@@ -256,7 +256,7 @@ async def test_team_files_bound_limit_runs_on_mysql(mysql_client):
     """The agent-facing listing caps with a BOUND LIMIT, and it is the only
     team_files statement that does. Until now the bound-LIMIT evidence came
     entirely from the artifact-side queries."""
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+    from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
 
     for i in range(3):
         await _seed_file(mysql_client, f"{_PREFIX}_k{i}", name=f"k{i}.md", digest=f"hk{i}")
@@ -299,7 +299,7 @@ async def test_history_bulk_delete_runs_on_mysql(mysql_client):
     also the shape where an off-by-one between list length and parameter tuple
     shows up as a driver error rather than a wrong result.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
 
@@ -330,7 +330,7 @@ async def test_history_bulk_delete_tolerates_an_empty_list(mysql_client):
     raise" alone cannot tell a correct no-op apart from a statement that ran
     and deleted something it should not have.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
 

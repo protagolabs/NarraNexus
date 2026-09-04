@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.discord_module import (
+from narranexus.platform.module_system.discord_module import (
     _discord_credential_manager as cm_mod,
 )
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
+from narranexus.platform.module_system.discord_module._discord_credential_manager import (
     DiscordCredentialManager,
 )
-from xyz_agent_context.module.discord_module.discord_sdk_client import DiscordSDKError
+from narranexus.platform.module_system.discord_module.discord_sdk_client import DiscordSDKError
 
 
 class _FakeDiscordClient:

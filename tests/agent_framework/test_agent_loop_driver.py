@@ -8,7 +8,7 @@ rule #9 — adding a framework must be a registration, not a step_3 edit).
 
 import pytest
 
-from xyz_agent_context.agent_framework import (
+from narranexus.platform.agent_framework import (
     ClaudeAgentSDK,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
