@@ -1,10 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/plugin_paths.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
-
 # plugin_paths.py — 可选框架插件的落点与"是否已装"的单一真值
+
+## 2026-09-03（批 2b.1）— `plugin_home()` 委托内核 `kernel/plugins/paths.py`
+
+布局的唯一真源搬到内核（用户插件目录、registry.json、LKG、启动标记都在同一棵树），本模块只保留框架安装器
+专用的 `nodejs/pyenv` 子路径与 `framework_installed/activate_pyenv`。`ENV_PLUGIN_HOME` 同一个名字。
 
 ## 为什么存在
 

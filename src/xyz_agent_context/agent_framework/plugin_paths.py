@@ -52,9 +52,11 @@ import os
 import sys
 from pathlib import Path
 
+from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME as _KERNEL_ENV, plugin_home as _kernel_plugin_home
+
 # Env override — lets tests (and any relocated install) point the whole tree
 # elsewhere. Empty/unset falls back to the per-user default below.
-ENV_PLUGIN_HOME = "NARRANEXUS_PLUGIN_HOME"
+ENV_PLUGIN_HOME = _KERNEL_ENV
 
 # framework name → the top-level python package whose presence proves the
 # plugin is installed. ``nexus_power`` is built-in and needs no probe.
@@ -70,11 +72,8 @@ PLUGIN_FRAMEWORKS: frozenset[str] = frozenset(_FRAMEWORK_PACKAGE)
 
 
 def plugin_home() -> Path:
-    """Root of the user-writable plugin tree (env-overridable)."""
-    override = os.environ.get(ENV_PLUGIN_HOME, "").strip()
-    if override:
-        return Path(override).expanduser()
-    return Path.home() / ".narranexus" / "plugins"
+    """Root of the user-writable plugin tree (env-overridable). The kernel owns the layout."""
+    return _kernel_plugin_home()
 
 
 def node_prefix() -> Path:
