@@ -28,6 +28,10 @@ Usage:
 # =============================================================================
 # Base class (imported from base.py)
 # =============================================================================
+from typing import Optional
+
+from xyz_agent_context.schema.module_schema import ModuleConfig
+
 from .base import XYZBaseModule, mcp_base_url, mcp_host, mcp_mount_path, mcp_port, mcp_server_url
 
 # Injection-side surface of caller identity. Published here so callers
@@ -81,6 +85,42 @@ def __getattr__(name: str):
         except KeyError:
             raise AttributeError(f"module {name!r} is disabled or failed to import") from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def module_config(module_class: str) -> "Optional[ModuleConfig]":
+    """The module's own declaration (``ModuleConfig``) by class name, None when unknown.
+
+    The one lookup behind every former constant table (display, decision meta,
+    default / base / always-load sets, instance prefix, role) — a plugin module
+    is described exactly like a builtin because it declares the same fields.
+    """
+    cls = MODULE_MAP.get(module_class)
+    return cls.get_config() if cls else None
+
+
+def module_configs() -> "dict[str, ModuleConfig]":
+    """Every registered module's declaration, keyed by class name."""
+    return {name: cls.get_config() for name, cls in MODULE_MAP.items()}
+
+
+def is_task_module(module_class: str) -> bool:
+    """A task-type module (created by the instance decision, deleted when done — JobModule)."""
+    cfg = module_config(module_class)
+    return bool(cfg and cfg.module_type == "task")
+
+
+def module_by_role(role: str) -> "Optional[str]":
+    """Class name of the module declaring ``role`` ("chat", "awareness", "social_network", "jobs"), None if absent."""
+    for name, cfg in module_configs().items():
+        if cfg.role == role:
+            return name
+    return None
+
+
+def instance_prefix_for(module_class: str) -> str:
+    """Instance-id prefix for a module class (its declaration, else the class name minus ``Module``)."""
+    cfg = module_config(module_class)
+    return cfg.effective_instance_prefix() if cfg else (module_class.lower().replace("module", "") or "inst")
 
 
 def module_class_provides_chat_history(module_class: str) -> bool:
@@ -165,6 +205,11 @@ __all__ = [
     # ===== Module mapping =====
     "MODULE_MAP",
     "module_class_provides_chat_history",
+    "module_config",
+    "module_configs",
+    "is_task_module",
+    "module_by_role",
+    "instance_prefix_for",
 
     # ===== Core services =====
     "ModuleService",

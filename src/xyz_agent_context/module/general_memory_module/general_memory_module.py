@@ -85,6 +85,7 @@ class GeneralMemoryModule(XYZBaseModule):
     def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="GeneralMemoryModule",
+            always_load=True,
             priority=2,
             enabled=True,
             description="Learns and recalls general objective/subjective memories (observations).",

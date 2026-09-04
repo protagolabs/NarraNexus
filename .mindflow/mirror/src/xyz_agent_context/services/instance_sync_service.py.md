@@ -45,3 +45,7 @@ Job 记录通过 `instance_id` 字段做唯一约束检查（`get_jobs_by_instan
 ## 2026-09-04 · `instance_prefix` (batch 4e)
 
 `MODULE_PREFIX_MAP` keeps only the core short names; any other module class (LarkModule, a plugin's AcmeChatModule) derives its prefix as the class name minus `Module` — the same rule the loader applies — instead of the old `"inst"` fallback.
+
+## 2026-09-04 · prefix from declarations (batch 5b)
+
+`MODULE_PREFIX_MAP` is gone; `instance_prefix` delegates to `module.instance_prefix_for`.

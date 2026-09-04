@@ -19,6 +19,7 @@ from xyz_agent_context.module import XYZBaseModule
 from xyz_agent_context.module.base import mcp_server_url
 
 # Schema
+from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -78,12 +79,23 @@ class BasicInfoModule(XYZBaseModule):
         # MCP port for the narrative-awareness tools (Fix #2 P3). Registered in
         # module_runner CORE_MODULE_PORTS. 7808 = next free after CommonTools(7807).
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """
         Return Basic Info Module configuration
         """
         return ModuleConfig(
             name="BasicInfoModule",
+            base=True,
+            default=True,
+            instance_prefix="info",
+            display=ModuleDisplay(icon="ℹ️", name="BasicInfo", desc="Time, location utilities"),
+            decision=ModuleDecisionMeta(
+                capabilities=["Manage user basic information", "Store and retrieve preference settings", "Maintain user profiles"],
+                use_cases=["User information queries", "Preference settings management", "Personalized services"],
+                instance_type="persistent",
+                typical_instance_id="info_{uuid8}",
+            ),
             priority=2,
             enabled=True,
             description="Provides basic information capabilities"

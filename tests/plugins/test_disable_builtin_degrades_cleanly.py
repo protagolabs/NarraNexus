@@ -43,7 +43,7 @@ def test_disable_builtin_degrades_cleanly(spec, tmp_path: Path, monkeypatch):
     assert spec.class_name not in view
     others = {s.class_name for s in MODULE_SPECS if s.plugin_id != spec.plugin_id}
     assert others <= set(view)  # every other module still loads
-    if spec.always_load:
+    if spec.load_class().get_config().always_load:
         assert spec.class_name not in ModuleLoader.always_load_modules(dict(view))
     assert regs.frozen and report.builtins is not None and not report.builtins.errors
 

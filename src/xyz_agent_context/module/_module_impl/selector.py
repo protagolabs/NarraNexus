@@ -26,13 +26,6 @@ class ModuleSelector:
     Intelligent selection functionality has been migrated to llm_decide_instances() in instance_decision.py.
     """
 
-    # Base modules (always loaded)
-    BASE_MODULES = [
-        "BasicInfoModule",
-        "AwarenessModule",
-        "ChatModule",
-    ]
-
     def __init__(self):
         """
         Initialize ModuleSelector
@@ -55,4 +48,6 @@ class ModuleSelector:
         Returns:
             List of base module names
         """
-        return list(self.BASE_MODULES)
+        from xyz_agent_context.module import module_configs
+
+        return sorted(name for name, cfg in module_configs().items() if cfg.base)

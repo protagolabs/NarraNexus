@@ -49,7 +49,8 @@ class HomeAssistantModule(XYZBaseModule):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
         self.instructions = HOME_ASSISTANT_MODULE_INSTRUCTIONS
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="HomeAssistantModule",
             priority=12,

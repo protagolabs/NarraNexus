@@ -26,7 +26,6 @@ from .instance_factory import (
     generate_instance_id,
 )
 from .metadata import (
-    MODULE_METADATA,
     get_module_metadata,
     get_all_modules_metadata,
     get_available_module_names,
@@ -50,7 +49,6 @@ __all__ = [
     "InstanceFactory",
     "generate_instance_id",
     # Metadata
-    "MODULE_METADATA",
     "get_module_metadata",
     "get_all_modules_metadata",
     "get_available_module_names",

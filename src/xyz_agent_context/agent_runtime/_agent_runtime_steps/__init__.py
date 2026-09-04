@@ -35,7 +35,7 @@ from .step_display import (
     format_execution_type_for_display,
     format_tool_call_for_display,
     format_thinking_for_display,
-    MODULE_DISPLAY_CONFIG,
+    module_display,
     TOOL_DISPLAY_CONFIG,
 )
 
@@ -74,7 +74,7 @@ __all__ = [
     "format_execution_type_for_display",
     "format_tool_call_for_display",
     "format_thinking_for_display",
-    "MODULE_DISPLAY_CONFIG",
+    "module_display",
     "TOOL_DISPLAY_CONFIG",
 
     # Step 0 - Initialization

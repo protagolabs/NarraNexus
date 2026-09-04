@@ -61,6 +61,7 @@ from fastmcp import Client
 from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
+from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -336,7 +337,8 @@ class JobModule(XYZBaseModule):
     # Module Config
     # =========================================================================
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """
         Return JobModule configuration
 
@@ -345,6 +347,17 @@ class JobModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="JobModule",
+            role="jobs",
+            default=True,
+            instance_prefix="job",
+            always_available_tools=True,  # job_create & co. stay reachable when no Job instance was selected
+            display=ModuleDisplay(icon="📋", name="Job", desc="Scheduled tasks, cron triggers"),
+            decision=ModuleDecisionMeta(
+                capabilities=["Create and manage background tasks", "Task progress tracking", "Callback notifications on task completion", "Support for task dependencies"],
+                use_cases=["Long-running background tasks", "Multi-step complex workflows", "Tasks requiring progress tracking"],
+                instance_type="task",
+                typical_instance_id="job_{uuid8}",
+            ),
             priority=4,  # Lower priority than Chat, Awareness, SocialNetwork
             enabled=True,
             description="Provides background task creation and management capabilities",

@@ -250,9 +250,11 @@ class CommonToolsModule(XYZBaseModule):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
         self.instructions = COMMON_TOOLS_INSTRUCTIONS
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="CommonToolsModule",
+            always_load=True,
             priority=50,
             enabled=True,
             description="Generic utility tools available to every agent (web_search, ...)",

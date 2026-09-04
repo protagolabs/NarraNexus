@@ -20,47 +20,22 @@ from datetime import datetime, timedelta
 
 
 # =============================================================================
-# Module human-friendly name mapping
+# Module human-friendly names — each module's own ``ModuleConfig.display``
+# (plugin platform batch 5b); unknown or undeclared modules fall back to the
+# class name minus "Module".
 # =============================================================================
 
-MODULE_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
-    "SocialNetworkModule": {
-        "icon": "👥",
-        "name": "SocialNetwork",
-        "desc": "Entity CRUD, relationship graph",
-    },
-    "JobModule": {
-        "icon": "📋",
-        "name": "Job",
-        "desc": "Scheduled tasks, cron triggers",
-    },
-    "AwarenessModule": {
-        "icon": "🤖",
-        "name": "Awareness",
-        "desc": "Agent self-knowledge",
-    },
-    "ChatModule": {
-        "icon": "💬",
-        "name": "Chat",
-        "desc": "Response generation",
-    },
-    "BasicInfoModule": {
-        "icon": "ℹ️",
-        "name": "BasicInfo",
-        "desc": "Time, location utilities",
-    },
-    "MessageBusModule": {
-        "icon": "📡",
-        "name": "MessageBus",
-        "desc": "Inter-agent messaging",
-    },
-    "LarkModule": {
-        "icon": "🐦",
-        "name": "Lark",
-        "desc": "Lark/Feishu integration",
-    },
-}
 
+def module_display(module_class: str) -> Dict[str, str]:
+    from xyz_agent_context.module import module_config
+
+    cfg = module_config(module_class)
+    display = cfg.display if cfg else None
+    return {
+        "icon": (display.icon if display else "🔌"),
+        "name": (display.name if display and display.name else module_class.replace("Module", "")),
+        "desc": (display.desc if display else ""),
+    }
 
 # =============================================================================
 # Tool call display configuration
@@ -280,11 +255,7 @@ def format_instances_for_display(instances: List[Any]) -> Dict[str, Any]:
         module_class = inst.module_class if hasattr(inst, 'module_class') else str(inst)
 
         # Get module display configuration
-        config = MODULE_DISPLAY_CONFIG.get(module_class, {
-            "icon": "🔌",
-            "name": module_class.replace("Module", ""),
-            "desc": "",
-        })
+        config = module_display(module_class)
 
         items.append({
             "icon": config["icon"],

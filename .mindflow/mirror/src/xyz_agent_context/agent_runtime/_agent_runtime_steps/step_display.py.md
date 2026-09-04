@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_display.py
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -59,3 +59,7 @@ Takes a list of `Narrative` objects and a `scores` dict (similarity scores from 
 - Adding business logic to this file: it's pure formatting. If you need to filter Narratives or compute scores, do it in the step file before calling these formatters.
 - Hardcoding display strings in step files: always add to `MODULE_DISPLAY_CONFIG` / `TOOL_DISPLAY_CONFIG` here instead.
 - Assuming `items` list from `format_narrative_for_display()` is sorted: it preserves the input list order (which is already relevance-sorted by Step 1's vector search).
+
+## 2026-09-04 · display from declarations (batch 5b)
+
+`MODULE_DISPLAY_CONFIG` → `module_display(module_class)` reading `ModuleConfig.display`; undeclared modules fall back to 🔌 + the class name minus "Module".

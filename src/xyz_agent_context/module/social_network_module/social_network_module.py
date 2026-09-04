@@ -22,6 +22,7 @@ from datetime import datetime
 from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
+from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     AGENT_TEXT_MAX_LENGTH,
     ModuleConfig,
@@ -256,12 +257,23 @@ class SocialNetworkModule(XYZBaseModule):
 
         return None
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """
         Return SocialNetworkModule configuration
         """
         return ModuleConfig(
             name="SocialNetworkModule",
+            role="social_network",
+            default=True,
+            instance_prefix="social",
+            display=ModuleDisplay(icon="👥", name="SocialNetwork", desc="Entity CRUD, relationship graph"),
+            decision=ModuleDecisionMeta(
+                capabilities=["Manage user social relationships", "Handle social interactions (follow, friends, etc.)", "Social network data analysis"],
+                use_cases=["Social feature related conversations", "User relationship management", "Social data queries"],
+                instance_type="persistent",
+                typical_instance_id="social_{uuid8}",
+            ),
             priority=3,  # Medium priority
             enabled=True,
             description="Provides social network recording and search capabilities"

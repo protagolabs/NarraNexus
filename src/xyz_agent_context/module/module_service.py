@@ -46,18 +46,6 @@ class ModuleService:
         ... )
     """
 
-    # Default static module list
-    DEFAULT_MODULE_LIST = [
-        "MemoryModule",
-        "AwarenessModule",
-        "ChatModule",
-        "BasicInfoModule",
-        "SocialNetworkModule",
-        "JobModule",
-        "MessageBusModule",
-        "LarkModule",
-    ]
-
     def __init__(
         self,
         agent_id: str,

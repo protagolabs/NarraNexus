@@ -6,8 +6,9 @@
 
 Each entry names the module class lazily (the module package is imported
 only when the factory runs) and carries the metadata the platform used to
-keep in hard-coded lists: ``always_load`` (auto-enrolled for every agent) and
-``channel``. No module owns a port: every module server is mounted by path on
+keep in hard-coded lists: ``channel``. Everything else the platform knows about
+a module (always_load, display, decision meta, instance prefix, role) is the
+module's own ``ModuleConfig`` (batch 5b). No module owns a port: every module server is mounted by path on
 the single MCP host (``module/base.py`` ``mcp_server_url``). ``builtins.py`` names the same objects from one manifest per
 module, so disabling a builtin plugin removes its row from every derived
 view at boot.
@@ -29,7 +30,6 @@ class ModuleSpec:
     package: str  # xyz_agent_context.module.<package>
     class_name: str
     plugin_id: str
-    always_load: bool = False
 
     @property
     def channel(self) -> bool:
@@ -45,28 +45,28 @@ class ModuleSpec:
         return Contribution(
             self.class_name,
             self.load_class,
-            meta={"plugin_id": self.plugin_id, "always_load": self.always_load, "channel": self.channel},
+            meta={"plugin_id": self.plugin_id, "channel": self.channel},
         )
 
 
 MODULE_SPECS: tuple[ModuleSpec, ...] = (
-    ModuleSpec("awareness_module", "AwarenessModule", "builtin.awareness", False),
-    ModuleSpec("basic_info_module", "BasicInfoModule", "builtin.basic_info", False),
-    ModuleSpec("chat_module", "ChatModule", "builtin.chat", False),
-    ModuleSpec("social_network_module", "SocialNetworkModule", "builtin.social_network", False),
-    ModuleSpec("job_module", "JobModule", "builtin.job", False),
-    ModuleSpec("skill_module", "SkillModule", "builtin.skills", True),
-    ModuleSpec("message_bus_module", "MessageBusModule", "builtin.message_bus", False),
-    ModuleSpec("common_tools_module", "CommonToolsModule", "builtin.common_tools", True),
-    ModuleSpec("general_memory_module", "GeneralMemoryModule", "builtin.general_memory", True),
-    ModuleSpec("home_assistant_module", "HomeAssistantModule", "builtin.home_assistant", False),
-    ModuleSpec("nexus_plugins_module", "NexusPluginsModule", "builtin.nexus_plugins_module", True),
-    ModuleSpec("lark_module", "LarkModule", "builtin.channels.lark", False),
-    ModuleSpec("slack_module", "SlackModule", "builtin.channels.slack", False),
-    ModuleSpec("telegram_module", "TelegramModule", "builtin.channels.telegram", False),
-    ModuleSpec("wechat_module", "WeChatModule", "builtin.channels.wechat", False),
-    ModuleSpec("narramessenger_module", "NarramessengerModule", "builtin.channels.narramessenger", False),
-    ModuleSpec("discord_module", "DiscordModule", "builtin.channels.discord", False),
+    ModuleSpec("awareness_module", "AwarenessModule", "builtin.awareness"),
+    ModuleSpec("basic_info_module", "BasicInfoModule", "builtin.basic_info"),
+    ModuleSpec("chat_module", "ChatModule", "builtin.chat"),
+    ModuleSpec("social_network_module", "SocialNetworkModule", "builtin.social_network"),
+    ModuleSpec("job_module", "JobModule", "builtin.job"),
+    ModuleSpec("skill_module", "SkillModule", "builtin.skills"),
+    ModuleSpec("message_bus_module", "MessageBusModule", "builtin.message_bus"),
+    ModuleSpec("common_tools_module", "CommonToolsModule", "builtin.common_tools"),
+    ModuleSpec("general_memory_module", "GeneralMemoryModule", "builtin.general_memory"),
+    ModuleSpec("home_assistant_module", "HomeAssistantModule", "builtin.home_assistant"),
+    ModuleSpec("nexus_plugins_module", "NexusPluginsModule", "builtin.nexus_plugins_module"),
+    ModuleSpec("lark_module", "LarkModule", "builtin.channels.lark"),
+    ModuleSpec("slack_module", "SlackModule", "builtin.channels.slack"),
+    ModuleSpec("telegram_module", "TelegramModule", "builtin.channels.telegram"),
+    ModuleSpec("wechat_module", "WeChatModule", "builtin.channels.wechat"),
+    ModuleSpec("narramessenger_module", "NarramessengerModule", "builtin.channels.narramessenger"),
+    ModuleSpec("discord_module", "DiscordModule", "builtin.channels.discord"),
 )
 
 BY_PLUGIN: dict[str, tuple[ModuleSpec, ...]] = {}

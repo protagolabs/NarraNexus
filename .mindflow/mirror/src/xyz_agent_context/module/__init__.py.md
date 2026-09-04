@@ -76,3 +76,7 @@ stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 
 ## 2026-09-04 · exports the MCP address helpers (batch 5a)
 
 `mcp_port`, `mcp_base_url`, `mcp_mount_path`, `mcp_server_url` re-exported next to `mcp_host` for the modules that import from the package.
+
+## 2026-09-04 · registry-backed module declarations (batch 5b)
+
+`module_config(name)`, `module_configs()`, `is_task_module(name)`, `module_by_role(role)` ("chat" / "awareness" / "social_network" / "jobs") and `instance_prefix_for(name)` — the one lookup behind every former constant table. Orchestration code asks the registry instead of naming `"JobModule"` / `"ChatModule"`.

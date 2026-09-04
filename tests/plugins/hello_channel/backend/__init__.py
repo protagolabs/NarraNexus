@@ -145,6 +145,6 @@ class HelloChannelModule(ChannelModuleBase):
 
 CHANNEL = (Contribution(CHANNEL_NAME, lambda: DESCRIPTOR),)
 TRIGGERS = (Contribution(CHANNEL_NAME, lambda: TriggerSpec(CHANNEL_NAME, "nxplugins.acme_hello_channel:HelloChannelTrigger")),)
-MODULES = (Contribution("HelloChannelModule", lambda: HelloChannelModule, meta={"plugin_id": "acme.hello_channel", "always_load": False, "channel": True}),)
+MODULES = (Contribution("HelloChannelModule", lambda: HelloChannelModule, meta={"plugin_id": "acme.hello_channel", "channel": True}),)
 
 __all__ = ["CHANNEL", "DESCRIPTOR", "HELLO_SOURCE", "HelloChannelModule", "HelloChannelTrigger", "MODULES", "SENT", "TRIGGERS"]

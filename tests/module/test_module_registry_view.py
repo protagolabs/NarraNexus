@@ -20,7 +20,7 @@ from xyz_agent_context.module.contributions import MODULES_SLOT, MODULE_SPECS, r
 def test_module_map_lists_every_builtin_module_and_meta():
     names = set(MODULE_MAP)
     assert {s.class_name for s in MODULE_SPECS} == names and "ChatModule" in MODULE_MAP
-    assert MODULE_MAP.meta("SkillModule")["always_load"] is True
+    assert MODULE_MAP["SkillModule"].get_config().always_load is True  # the module declares it (batch 5b)
     assert MODULE_MAP.meta("LarkModule")["channel"] is True and MODULE_MAP.owner_of("LarkModule") == "builtin.channels.lark"
     assert MODULE_MAP["ChatModule"].__name__ == "ChatModule"
 
@@ -49,5 +49,7 @@ def test_derived_tables_follow_the_view():
     from xyz_agent_context.module.module_runner import CORE_MCP_MODULES, all_mcp_modules
 
     assert set(CORE_MCP_MODULES) == {s.class_name for s in MODULE_SPECS if not s.channel}
-    assert set(ModuleLoader.CORE_ALWAYS_LOAD) == {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule"}
+    from xyz_agent_context.module import MODULE_MAP
+
+    assert {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule", "LarkModule"} <= set(ModuleLoader.always_load_modules(MODULE_MAP))
     assert "LarkModule" in all_mcp_modules() and "ChatModule" in all_mcp_modules()

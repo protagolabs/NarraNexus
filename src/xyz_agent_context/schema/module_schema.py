@@ -25,6 +25,21 @@ if TYPE_CHECKING:
     from xyz_agent_context.module import XYZBaseModule
 
 
+class ModuleDisplay(BaseModel):
+    """How the step display / dashboards name a module (formerly ``MODULE_DISPLAY_CONFIG``)."""
+    icon: str = "🔌"
+    name: str = ""  # short name; "" → class name minus "Module"
+    desc: str = ""
+
+
+class ModuleDecisionMeta(BaseModel):
+    """What the instance-decision prompt and docs say about a module (formerly ``MODULE_METADATA``)."""
+    capabilities: List[str] = Field(default_factory=list)
+    use_cases: List[str] = Field(default_factory=list)
+    instance_type: str = "persistent"  # "persistent" (kept once added) | "task" (deleted when done)
+    typical_instance_id: str = ""  # e.g. "chat_{uuid8}"; "" → derived from instance_prefix
+
+
 class ModuleConfig(BaseModel):
     """
     Module configuration
@@ -42,6 +57,22 @@ class ModuleConfig(BaseModel):
     enabled: bool = True  # Whether enabled
     description: str = ""  # Module description
     module_type: str = "capability"  # Module type: "capability" or "task"
+
+    # Plugin platform batch 5b — everything the platform used to keep in
+    # constant tables ABOUT builtin modules is declared by the module itself,
+    # so a plugin module is described the same way and no table names it.
+    always_load: bool = False  # auto-enrolled for every agent, no instance record (skills, common tools, …)
+    base: bool = False  # part of the base module set (ModuleSelector)
+    default: bool = False  # part of the traditional-mode default list (ModuleLoader)
+    instance_prefix: str = ""  # instance-id prefix ("chat" → chat_xxxxxxxx); "" → class name minus "Module"
+    role: str = ""  # platform-facing role the orchestration layer looks up ("chat", "awareness", "social_network", "jobs")
+    always_available_tools: bool = False  # keep a virtual instance so the module's MCP tools stay reachable even when unselected
+    context_cost_hint: Optional[int] = None  # order of magnitude of prompt tokens this module adds
+    display: Optional[ModuleDisplay] = None
+    decision: Optional[ModuleDecisionMeta] = None
+
+    def effective_instance_prefix(self) -> str:
+        return self.instance_prefix or self.name.lower().replace("module", "") or "inst"
 
 
 class MCPServerConfig(BaseModel):

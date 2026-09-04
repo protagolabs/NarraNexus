@@ -252,17 +252,18 @@ MCPs: {mcp_tools}
         """
         return ""
 
+    @staticmethod
     @abstractmethod
-    def get_config(self) -> ModuleConfig:
+    def get_config() -> ModuleConfig:
         """
-        Return Module configuration
-
-        Each Module must implement this method to define its own configuration
+        Return Module configuration — static, so the platform can read a module's
+        declaration from its CLASS (registry views, display, decision prompt)
+        without constructing it.
 
         Returns:
             ModuleConfig
         """
-        pass
+        ...
 
     # =========================================================================
     # Capability flags

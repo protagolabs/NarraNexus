@@ -20,6 +20,7 @@ from loguru import logger
 from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
+from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -53,11 +54,23 @@ class AwarenessModule(XYZBaseModule):
         
         self.instructions = AWARENESS_MODULE_INSTRUCTIONS 
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """
         """
         return ModuleConfig(
             name="AwarenessModule",
+            role="awareness",
+            base=True,
+            default=True,
+            instance_prefix="aware",
+            display=ModuleDisplay(icon="🤖", name="Awareness", desc="Agent self-knowledge"),
+            decision=ModuleDecisionMeta(
+                capabilities=["Perceive current time, date and other environmental info", "Understand user's situation and intent", "Provide context-relevant suggestions"],
+                use_cases=["Time-aware conversations", "Context-relevant recommendations", "Environment-related queries"],
+                instance_type="persistent",
+                typical_instance_id="aware_{uuid8}",
+            ),
             priority=3,
             enabled=True,
             description="Provides awareness and perception capabilities"

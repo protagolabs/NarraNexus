@@ -38,3 +38,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · no port on the spec (batch 5a)
 
 `ModuleSpec` is (package, class, plugin id, always_load); `mcp_port` / `port()` and the contribution meta's `mcp_port` are gone — the host mounts by `server_name`.
+
+## 2026-09-04 · `ModuleSpec` is (package, class, plugin id) (batch 5b)
+
+`always_load` moved to the module's own `ModuleConfig`; the registry meta carries `plugin_id` / `channel` only.

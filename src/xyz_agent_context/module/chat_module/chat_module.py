@@ -29,6 +29,7 @@ from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
+from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema.hook_schema import (
     BUS_PRODUCED_SOURCES,
     is_plain_text_turn,
@@ -237,12 +238,24 @@ class ChatModule(XYZBaseModule):
         self.instance_ids = instance_ids    # TODO: Improve this capability in the future
 
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """
         Return ChatModule configuration
         """
         return ModuleConfig(
             name="ChatModule",
+            role="chat",
+            base=True,
+            default=True,
+            instance_prefix="chat",
+            display=ModuleDisplay(icon="💬", name="Chat", desc="Response generation"),
+            decision=ModuleDecisionMeta(
+                capabilities=["Receive and process user messages", "Maintain conversation history and context", "Send async notifications to users via Inbox"],
+                use_cases=["Daily conversations and Q&A", "Main entry point for user interaction", "Message notifications and reminders"],
+                instance_type="persistent",
+                typical_instance_id="chat_{uuid8}",
+            ),
             priority=1,  # High priority (base module)
             enabled=True,
             description="Provides messaging capabilities (chat conversation + history retrieval)"

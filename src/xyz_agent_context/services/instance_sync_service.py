@@ -31,22 +31,12 @@ if TYPE_CHECKING:
     from xyz_agent_context.module import InstanceDict, JobConfig
 
 
-# Module prefix mapping
-MODULE_PREFIX_MAP = {
-    "ChatModule": "chat",
-    "JobModule": "job",
-    "SocialNetworkModule": "social",
-    "AwarenessModule": "aware",
-    "BasicInfoModule": "info",
-    "MessageBusModule": "bus",
-}
-
-
 def instance_prefix(module_class: str) -> str:
-    """Instance-id prefix for a module class: the table's short names, else the
-    class name minus ``Module`` (``LarkModule`` → ``lark``, a plugin's
-    ``AcmeChatModule`` → ``acmechat``) — the same rule the loader applies."""
-    return MODULE_PREFIX_MAP.get(module_class) or module_class.lower().replace("module", "") or "inst"
+    """Instance-id prefix for a module class — the module's own declaration
+    (``ModuleConfig.instance_prefix``), else the class name minus ``Module``."""
+    from xyz_agent_context.module import instance_prefix_for
+
+    return instance_prefix_for(module_class)
 
 
 class InstanceSyncService:

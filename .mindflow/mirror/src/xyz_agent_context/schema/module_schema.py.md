@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/module_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -35,3 +35,7 @@ This distinction drives the loading strategy in `ModuleService` without needing 
 
 - The `ModuleInstance` in this file is the old version. Prefer `from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, ModuleInstance`. The one here exists only so existing code does not break.
 - `MCPServerConfig.type` defaults to `"sse"` and there are no other values in active use. Do not add a new type without updating `ModuleRunner`.
+
+## 2026-09-04 · `ModuleConfig` absorbs the constant tables (batch 5b)
+
+`ModuleDisplay` (icon / short name / desc — the former `step_display.MODULE_DISPLAY_CONFIG` row), `ModuleDecisionMeta` (capabilities / use_cases / instance_type / typical_instance_id — the former `_module_impl/metadata.MODULE_METADATA` row) and on `ModuleConfig`: `always_load`, `base`, `default`, `instance_prefix` (+ `effective_instance_prefix()`), `role`, `always_available_tools`, `context_cost_hint`. A module declares everything the platform knows about it; the platform keeps no table naming modules, so a plugin module is described exactly like a builtin.

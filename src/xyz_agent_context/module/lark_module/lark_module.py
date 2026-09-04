@@ -22,6 +22,7 @@ from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
 )
+from xyz_agent_context.schema.module_schema import ModuleDisplay
 from xyz_agent_context.schema import (
     ModuleConfig,
     ContextData,
@@ -544,9 +545,11 @@ class LarkModule(ChannelModuleBase):
     # Configuration
     # =========================================================================
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="LarkModule",
+            display=ModuleDisplay(icon="🐦", name="Lark", desc="Lark/Feishu integration"),
             priority=6,
             enabled=True,
             description=(

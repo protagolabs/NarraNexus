@@ -54,3 +54,7 @@ stub: false
 ## 2026-09-04 · modules slot doc (batch 5a)
 
 The `agent.capabilities.modules` meta no longer mentions `mcp_port`; module servers are mounted by path on the single host.
+
+## 2026-09-04 · export list follows batch 5b
+
+`MODULE_METADATA` / `MODULE_DISPLAY_CONFIG` no longer exist (`module_display` exported instead); the modules slot doc says the module's own ModuleConfig is its description.

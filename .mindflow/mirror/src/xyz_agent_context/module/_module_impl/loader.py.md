@@ -15,3 +15,7 @@ stub: false
 ## 2026-09-04 · no LarkModule prefix entry (batch 4e)
 
 The prefix map lists core modules only; `LarkModule` → `lark` comes from the generic rule.
+
+## 2026-09-04 · lists from declarations (batch 5b)
+
+`DEFAULT_MODULE_LIST` → `default_modules(module_map)` (modules declaring `default=True`, by priority); `CORE_ALWAYS_LOAD` / `ALWAYS_LOAD_MODULES` → `always_load_modules(module_map)` = modules declaring `always_load=True` + every ChannelModuleBase subclass; the instance-id prefix map → `instance_prefix_for`.

@@ -28,9 +28,11 @@ class NexusPluginsModule(XYZBaseModule):
     def __init__(self, agent_id: str, user_id: Optional[str], database_client: Any = None, instance_id: Optional[str] = None, instance_ids: Optional[list[str]] = None):
         super().__init__(agent_id=agent_id, user_id=user_id, database_client=database_client, instance_id=instance_id, instance_ids=instance_ids)
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="NexusPluginsModule",
+            always_load=True,
             priority=95,
             enabled=True,
             description="Lets the agent write, test, register and observe plugins for its own instance",

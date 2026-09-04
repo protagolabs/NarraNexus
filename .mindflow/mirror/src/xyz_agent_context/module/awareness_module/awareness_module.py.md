@@ -124,3 +124,7 @@ AwarenessModule 是让 Agent 拥有"长期记忆用户偏好"能力的组件。�
 ## 2026-09-04 · no per-module port (batch 5a)
 
 The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.
+
+## 2026-09-04 · declares its platform metadata (batch 5b)
+
+`get_config()` is static and carries what the platform used to table about this module (default / base / always-load membership, instance prefix, role, display, decision metadata as applicable).

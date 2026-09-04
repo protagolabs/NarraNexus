@@ -38,9 +38,10 @@ class _ConcreteFakeModule(ChannelModuleBase):
     _send_calls: list[tuple] = []
     _register_calls: list[Any] = []
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         return ModuleConfig(
-            name=type(self).__name__,
+            name="FakeChannelModule",
             priority=10,
             enabled=True,
             description="fake test module",

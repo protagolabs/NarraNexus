@@ -379,10 +379,13 @@ class SkillModule(XYZBaseModule):
         # so paths in the prompt must use skills/ relative to cwd, not absolute paths
         self.instructions = SKILL_INSTRUCTIONS_TEMPLATE
 
-    def get_config(self) -> ModuleConfig:
+    @staticmethod
+    def get_config() -> ModuleConfig:
         """Return SkillModule configuration"""
         return ModuleConfig(
             name="SkillModule",
+            always_load=True,
+            instance_prefix="skill",
             priority=90,
             enabled=True,
             description="Manages user Skills, provides skill extension capabilities",

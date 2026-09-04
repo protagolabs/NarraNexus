@@ -52,25 +52,11 @@ class ModuleLoader:
     - Fallback mechanism: uses narrative.active_instances when database loading fails
     """
 
-    DEFAULT_MODULE_LIST = [
-        "AwarenessModule",
-        "ChatModule",
-        "BasicInfoModule",
-        "SocialNetworkModule",
-        "JobModule",
-        "MessageBusModule",
-    ]
-
-    # Core modules that always load regardless of channel state.
-    # NOT including channel modules (Lark/Slack/Telegram/...) — those are
-    # auto-enrolled via `_channel_modules()` so adding a new IM means
-    # subclassing ChannelModuleBase + registering in MODULE_MAP, with
-    # zero changes here.
-    # Derived from the module contributions table (meta.always_load); the
-    # live list below also drops a builtin disabled through registry.json.
-    CORE_ALWAYS_LOAD = [
-        spec.class_name for spec in __import__("xyz_agent_context.module.contributions", fromlist=["MODULE_SPECS"]).MODULE_SPECS if spec.always_load and not spec.channel
-    ]
+    @classmethod
+    def default_modules(cls, module_map: Dict[str, type]) -> List[str]:
+        """Traditional-mode default list: every module declaring ``default=True``, by priority."""
+        picked = [(cls_.get_config().priority, name) for name, cls_ in module_map.items() if cls_.get_config().default]
+        return [name for _, name in sorted(picked)]
 
     @classmethod
     def _channel_modules(cls, module_map: Dict[str, type]) -> List[str]:
@@ -85,16 +71,13 @@ class ModuleLoader:
 
     @classmethod
     def always_load_modules(cls, module_map: Dict[str, type]) -> List[str]:
-        """Effective always-load list: core (present in module_map) + every ChannelModuleBase subclass."""
-        return [name for name in cls.CORE_ALWAYS_LOAD if name in module_map] + cls._channel_modules(module_map)
-
-    # Backward-compat alias preserved for any external readers; internal sites
-    # below use ``always_load_modules(self.module_map)`` instead.
-    ALWAYS_LOAD_MODULES = [  # populated lazily on first use; see __init__
-        "SkillModule",
-        "LarkModule",
-        "CommonToolsModule",
-    ]
+        """Effective always-load list: every module declaring ``always_load=True``
+        (no instance record needed — skills, common tools, memory, the plugin
+        factory) plus every ChannelModuleBase subclass (a channel module stays
+        loaded as a setup surface until the agent binds it)."""
+        declared = [name for name, cls_ in module_map.items() if cls_.get_config().always_load]
+        channels = cls._channel_modules(module_map)
+        return declared + [name for name in channels if name not in declared]
 
     def __init__(
         self,
@@ -542,7 +525,7 @@ class ModuleLoader:
             module_name_list: Specified module name list, uses default list when None
             working_source: Working source
         """
-        selected_modules = module_name_list or self.DEFAULT_MODULE_LIST
+        selected_modules = module_name_list or self.default_modules(self.module_map)
 
         # Add always-loaded modules (if not already in the list)
         for always_module in self.always_load_modules(self.module_map):
@@ -655,19 +638,9 @@ class ModuleLoader:
         Returns:
             Instance ID
         """
-        short_uuid = uuid4().hex[:8]
-        # Module prefix mapping
-        prefix_map = {
-            "ChatModule": "chat",
-            "JobModule": "job",
-            "SocialNetworkModule": "social",
-            "AwarenessModule": "aware",
-            "BasicInfoModule": "info",
-            "SkillModule": "skill",
-            "MessageBusModule": "bus",
-        }
-        prefix = prefix_map.get(module_class, module_class.lower().replace("module", ""))
-        return f"{prefix}_{short_uuid}"
+        from xyz_agent_context.module import instance_prefix_for
+
+        return f"{instance_prefix_for(module_class)}_{uuid4().hex[:8]}"
 
     def _ensure_job_module_available(
         self,

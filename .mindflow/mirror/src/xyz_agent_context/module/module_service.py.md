@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/module_service.py
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 ---
 
 # module_service.py — Module 服务协议层（Facade）
@@ -31,3 +31,7 @@ last_verified: 2026-04-10
 
 - 试图在 `ModuleService` 里添加业务逻辑——任何新逻辑都应该放到 `ModuleLoader` 或 `_module_impl/` 对应文件里，`ModuleService` 保持薄。
 - 以为 `get_all_module_names()` 返回的是"当前已加载的模块"——它返回的是 `MODULE_MAP` 里注册的所有可用模块名，与当次调用无关。
+
+## 2026-09-04 · dead `DEFAULT_MODULE_LIST` removed (batch 5b)
+
+It named a module that never existed (`MemoryModule`) and nothing read it; the loader derives its default list from declarations.

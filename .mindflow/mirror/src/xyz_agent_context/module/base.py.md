@@ -146,3 +146,7 @@ summaries). Default for both is no-op.
 ## 2026-09-04 · the one MCP address (batch 5a)
 
 `mcp_port()` (`MCP_PORT`, default 7801), `mcp_base_url()` (`MCP_BASE_URL` for a reverse proxy, else `http://<MCP_HOST>:<MCP_PORT>`), `mcp_mount_path(server_name)` = `/mcp/<server_name>`, `mcp_server_url(server_name)` = base + mount + `/sse`. Every module's `get_mcp_config` builds its URL from these — no module owns a port, and the agent side (context_runtime → adapters) only ever learns this one base. Codex's adapter still rewrites the trailing `/sse` to the streamable `/mcp` endpoint under the same mount.
+
+## 2026-09-04 · `get_config` is static (batch 5b)
+
+Declared `@staticmethod @abstractmethod`: the platform reads a module's `ModuleConfig` from its CLASS (registry views, display, decision prompt, prefixes) without constructing it. `self.config` is still set in `__init__`.

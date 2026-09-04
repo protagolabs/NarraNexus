@@ -260,7 +260,8 @@ def test_base_module_wrapper_instruments_and_never_raises():
     assert hasattr(XYZBaseModule, "build_instrumented_mcp_server")
 
     class NoServer(XYZBaseModule):
-        def get_config(self):
+        @staticmethod
+        def get_config():
             from xyz_agent_context.schema import ModuleConfig
 
             return ModuleConfig(name="NoServer", priority=9, enabled=True,
@@ -284,7 +285,8 @@ def test_broken_instrumentation_still_serves_the_module(monkeypatch):
     sentinel = object()
 
     class WithServer(base_mod.XYZBaseModule):
-        def get_config(self):
+        @staticmethod
+        def get_config():
             return ModuleConfig(name="WithServer", priority=9, enabled=True,
                                 description="t", module_type="capability")
 
