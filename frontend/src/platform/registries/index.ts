@@ -15,3 +15,7 @@ export { PANELS } from './panels';
 export type { PanelDef, PanelProps } from './panels';
 export { SETTINGS_SECTIONS, sortedSettingsSections } from './settingsSections';
 export type { SettingsSectionDef, SettingsSectionProps } from './settingsSections';
+export { THEMES, applyTheme, clearTheme, validateThemeTokens } from './themes';
+export type { ThemeDef } from './themes';
+export { COMMANDS } from './commands';
+export type { CommandDef } from './commands';

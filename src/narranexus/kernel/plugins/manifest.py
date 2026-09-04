@@ -53,10 +53,44 @@ class BackendSpec(_Strict):
     activate: bool = False
 
 
+class UiPage(_Strict):
+    id: str
+    path: str
+    layout: Literal["app", "top"] = "app"
+    guard: Literal["protected", "public", "open"] = "protected"
+
+
+class UiPanel(_Strict):
+    id: str
+    label: str = ""
+
+
+class UiCommand(_Strict):
+    id: str
+    label: str
+    hint: str = ""
+
+
+class UiContributions(_Strict):
+    """Declarative UI metadata the frontend registers BEFORE importing the plugin's code.
+
+    A page/panel/command listed here appears in the shell (route table,
+    drawer strip, command palette) as a lazy gate; the plugin's bundle is
+    imported and ``activate(host)`` runs the first time one of them is
+    opened (``onPage:<id>`` / ``onPanel:<id>`` / ``onCommand:<id>``).
+    """
+
+    pages: tuple[UiPage, ...] = ()
+    panels: tuple[UiPanel, ...] = ()
+    commands: tuple[UiCommand, ...] = ()
+    themes: tuple[str, ...] = ()
+
+
 class FrontendSpec(_Strict):
     entry: str
     locales: str = ""
     integrity: str = ""
+    ui: UiContributions = Field(default_factory=UiContributions)
 
 
 class Permissions(_Strict):
@@ -259,6 +293,11 @@ def derive_activation_events(manifest: Manifest) -> tuple[str, ...]:
     ``onStartup`` (declarative registration needs the symbols at boot).
     """
     events: list[str] = list(manifest.activation_events)
+    if manifest.frontend is not None:
+        ui = manifest.frontend.ui
+        events += [f"onPage:{p.id}" for p in ui.pages]
+        events += [f"onPanel:{p.id}" for p in ui.panels]
+        events += [f"onCommand:{c.id}" for c in ui.commands]
     for path in manifest.provides:
         if path == "ui.pages" or path.startswith("ui.pages."):
             events.append(f"onPage:{manifest.id}")
@@ -266,6 +305,9 @@ def derive_activation_events(manifest: Manifest) -> tuple[str, ...]:
             events.append(f"onPanel:{manifest.id}")
         elif "onStartup" not in events:
             events.append("onStartup")
+    if not events and manifest.backend is not None and manifest.backend.activate:
+        # A backend that wants activate(ctx) but declared nothing else can only be reached at startup.
+        events.append("onStartup")
     return tuple(dict.fromkeys(events))
 
 
@@ -355,6 +397,10 @@ def _format_validation_error(exc: ValidationError) -> str:
 
 
 __all__ = [
+    "UiCommand",
+    "UiContributions",
+    "UiPage",
+    "UiPanel",
     "ALL_HOSTS",
     "BUILTIN_PREFIX",
     "Host",

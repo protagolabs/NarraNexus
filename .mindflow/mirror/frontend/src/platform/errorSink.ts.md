@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2d）— 已知归因 + 后端上报
+
+`reportUiError` 接受 `source`（加载器/宿主知道自己在服务哪个插件时直接给）与 `context`；`setErrorPoster`
+装上后，非 shell 来源的错误按插件 2s 节流 POST 到工场 API（渲染死循环不能变成请求死循环）。
+
 ## 2026-09-03 — UI 崩溃的归因与订阅
 
 之前渲染崩溃只到 `console.error`。现在 `ChunkErrorBoundary` 同时上报到 sink。归因是**尽力而为的

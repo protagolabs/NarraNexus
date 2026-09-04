@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2d）— `frontend.ui` 声明式 UI 贡献 + `backend.activate` 的启动回落
+
+`UiContributions(pages/panels/commands/themes)`：前端在 import 插件代码之前就按它登记 gate；对应事件
+`onPage:/onPanel:/onCommand:` 由 `derive_activation_events` 推导。`backend.activate=True` 而什么事件都推不出时
+回落到 `onStartup`（否则这个插件永远激活不了）。
+
 ## 2026-09-03（二审修订）— `declares` 允许两种归属
 
 二审指出「只许本插件命名空间」会让 `builtin.turn` 无法声明 `turn.pipeline.recall`、`builtin.ui`

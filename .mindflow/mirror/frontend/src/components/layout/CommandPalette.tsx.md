@@ -1,10 +1,13 @@
 ---
 code_file: frontend/src/components/layout/CommandPalette.tsx
-last_verified: 2026-06-24
+last_verified: 2026-09-03
 stub: false
 ---
-
 # layout/CommandPalette.tsx — ⌘K quick-jump navigator
+
+## 2026-09-03（批 2d）— 追加 `COMMANDS` 注册表条目
+
+`useRegistryEntries(COMMANDS)` 订阅，插件命令排在壳命令之后，`when` 为 false 的不显示。
 
 ## Why it exists
 

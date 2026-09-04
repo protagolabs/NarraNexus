@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2d）— 列表行带 `frontend`/`activation_events`/`protected`
+
+前端加载器只靠这一个端点就知道要登记哪些 gate、哪些事件激活、去哪取 bundle。
+
 ## 2026-09-03（批 2c）— `FactoryService`
 
 把内核件拼成工场页需要的一个对象：`RegistryStore`（状态）、`Installer`（来源/依赖/落位）、`Index`

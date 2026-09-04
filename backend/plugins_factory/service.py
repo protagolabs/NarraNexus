@@ -25,7 +25,7 @@ from narranexus.kernel.plugins.bisect import Bisect
 from narranexus.kernel.plugins.install import Installer, InstallResult
 from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.lifecycle import RegistryError, RegistryStore
-from narranexus.kernel.plugins.manifest import Manifest, load_manifest
+from narranexus.kernel.plugins.manifest import Manifest, derive_activation_events, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
 from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
@@ -108,6 +108,9 @@ class FactoryService:
                     "installed_by": rec.installed_by,
                     "installed_at": rec.installed_at,
                     "provides": sorted(manifest.provides) if manifest else [],
+                    "frontend": manifest.frontend.model_dump(mode="json") if manifest and manifest.frontend else None,
+                    "activation_events": list(derive_activation_events(manifest)) if manifest else [],
+                    "protected": bool(manifest.protected) if manifest else False,
                     "size": manifest.size.model_dump() if manifest else {},
                     "loaded": bool(boot and pid in boot.user_plugin_ids),
                     "isolated": (boot.isolated.get(pid) if boot else None),

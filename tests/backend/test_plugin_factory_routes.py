@@ -58,6 +58,7 @@ def test_install_list_enable_disable_ack_uninstall(client, tmp_path: Path):
     data = c.get("/api/plugin-factory", headers=H).json()["data"]
     (row,) = data["plugins"]
     assert row["display_name"] == "Weather" and row["enabled"] and row["state"] == "registered" and row["provides"] == []
+    assert row["frontend"] is None and row["activation_events"] == ["onStartup"] and row["protected"] is False
     assert data["safe_mode"] is False and data["cloud_managed"] is False
     assert c.post("/api/plugin-factory/acme.weather/disable", headers=H).json()["data"]["enabled"] is False
     assert c.post("/api/plugin-factory/acme.weather/enable", headers=H).json()["data"]["state"] == "registered"

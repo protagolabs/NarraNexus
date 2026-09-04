@@ -16,6 +16,7 @@ import { LayoutDashboard, SlidersHorizontal, Server, MessagesSquare, CornerDownL
 import { useConfigStore, useUIStore } from '@/stores';
 import { RingAvatar } from '@/components/nm';
 import { ALL_TABS } from '@/components/bookmarks';
+import { COMMANDS, useRegistryEntries } from '@/platform/registries';
 import { cn } from '@/lib/utils';
 
 interface CommandPaletteProps {
@@ -45,6 +46,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Plugin-contributed commands (ui.commands registry); re-renders when a plugin registers late.
+  const registryCommands = useRegistryEntries(COMMANDS);
   const commands = useMemo<Cmd[]>(() => {
     const agentCmds: Cmd[] = agents.map((a) => ({
       id: `agent:${a.agent_id}`,
@@ -79,8 +82,20 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           },
         }))
       : [];
-    return [...agentCmds, ...pageCmds, ...panelCmds];
-  }, [agents, navigate, setAgentId, agentId, requestPanel, t]);
+    const pluginCmds: Cmd[] = registryCommands
+      .filter((e) => e.value.when?.() ?? true)
+      .map((e) => ({
+        id: `cmd:${e.id}`,
+        label: e.value.labelIsKey ? t(e.value.label) : e.value.label,
+        hint: e.value.hint ?? t('layout.commandPalette.hintPage'),
+        kind: 'page',
+        icon: e.value.icon ?? SlidersHorizontal,
+        run: () => {
+          void e.value.run();
+        },
+      }));
+    return [...agentCmds, ...pageCmds, ...panelCmds, ...pluginCmds];
+  }, [agents, navigate, setAgentId, agentId, requestPanel, t, registryCommands]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

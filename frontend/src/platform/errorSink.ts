@@ -41,9 +41,27 @@ export function sourceFor(error: Error): string {
   return 'shell';
 }
 
-export function reportUiError(error: Error, opts: { componentStack?: string; kind?: 'render' | 'chunk' } = {}): UiErrorReport {
+export interface ReportOptions {
+  componentStack?: string;
+  kind?: 'render' | 'chunk';
+  /** Known attribution (the loader/host know which plugin they were serving). */
+  source?: string;
+  context?: string;
+}
+
+type Poster = (pluginId: string, body: { kind: string; message: string; stack: string }) => Promise<unknown>;
+let poster: Poster | null = null;
+const postedAt = new Map<string, number>();
+const POST_MIN_INTERVAL_MS = 2000;
+
+/** Install the backend reporter (the app wires `/api/plugin-factory/{id}/errors`); null disables. */
+export function setErrorPoster(fn: Poster | null): void {
+  poster = fn;
+}
+
+export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorReport {
   const report: UiErrorReport = {
-    source: sourceFor(error),
+    source: opts.source ?? sourceFor(error),
     error,
     componentStack: opts.componentStack,
     kind: opts.kind ?? 'render',
@@ -56,6 +74,18 @@ export function reportUiError(error: Error, opts: { componentStack?: string; kin
       l(report);
     } catch {
       // a broken listener must not mask the original error
+    }
+  }
+  if (poster && report.source !== 'shell') {
+    // Throttled per plugin: a render loop must not become a request loop.
+    const last = postedAt.get(report.source) ?? 0;
+    if (report.at - last >= POST_MIN_INTERVAL_MS) {
+      postedAt.set(report.source, report.at);
+      void poster(report.source, {
+        kind: report.kind,
+        message: `${opts.context ? opts.context + ': ' : ''}${error.message}`,
+        stack: error.stack ?? '',
+      }).catch(() => undefined);
     }
   }
   return report;
@@ -77,4 +107,6 @@ export function resetErrorSink(): void {
   listeners.clear();
   recent.length = 0;
   pluginUrls.clear();
+  poster = null;
+  postedAt.clear();
 }
