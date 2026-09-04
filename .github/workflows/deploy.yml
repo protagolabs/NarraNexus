@@ -46,6 +46,12 @@ jobs:
               REPO="/home/ec2-user/NetMind_RS_XYZ/NarraNexus-deploy"
             fi
             echo "==> deploy branch=$BRANCH host=$(hostname)"
+            # Deploy-progress notifications → sentinel health bot (best-effort,
+            # never fails the deploy). The notifier lives in the deploy repo;
+            # `|| true` covers the first rollout before it is pulled onto the host.
+            export OPS_ENV_FILE="$REPO/deploy_management_tools/.env" DEPLOY_BRANCH="$BRANCH" DEPLOY_HOST="$(hostname)" DEPLOY_KIND="app"
+            trap 'python3 "$REPO/scripts/deploy_notify.py" failure || true' ERR
+            python3 "$REPO/scripts/deploy_notify.py" start || true
             cd "$REPO/NarraNexus"
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
@@ -68,3 +74,5 @@ jobs:
             docker builder prune -f --keep-storage 10GB
             df -h / | tail -1
             echo "==> deploy complete"
+            export DEPLOY_DETAIL="NarraNexus @ $(cd "$REPO/NarraNexus" && git rev-parse --short HEAD)"
+            python3 "$REPO/scripts/deploy_notify.py" success || true
