@@ -224,6 +224,8 @@ def build_kernel_slot_tree() -> SlotTree:
              doc="Hook implementations for declared host hooks (pluggy semantics)."),
         Slot("ingress", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Ingress domain root (channels, triggers)."),
+        Slot("ingress.triggers", many, "narranexus.contracts.trigger:TriggerSpec", KERNEL_OWNER,
+             doc="Ingress triggers: IM channel listeners (host=channels), clock/queue pollers run as workers (host=workers), on-demand HTTP servers (host=api)."),
         Slot("ui", one, "narranexus.contracts.ui:Shell", KERNEL_OWNER, default="builtin.ui",
              distribution_only=True, doc="Frontend shell; distribution-level choice."),
         Slot("ui.themes", many, "narranexus.contracts.ui:Theme", KERNEL_OWNER,

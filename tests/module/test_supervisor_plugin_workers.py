@@ -15,7 +15,12 @@ from xyz_agent_context.module import run_worker_supervisor as sup
 
 
 def _registries(*specs):
+    # Builtin triggers (the "jobs" worker) are registry contributions too, so a
+    # realistic process registry carries them before any plugin worker.
+    from xyz_agent_context.module.contributions import register_all
+
     registries = Registries()
+    register_all(registries)
     reg = registries.registry_for("backend.workers")
     for owner, name, spec in specs:
         reg.register_contribution(Contribution(name, (lambda s=spec: s)), owner=owner)
@@ -78,4 +83,4 @@ def test_adapted_factory_builds_a_supervisor_handle_and_broken_spec_is_skipped()
 
 
 def test_without_plugins_the_spec_list_is_unchanged():
-    assert [s.name for s in sup.build_specs(registries=Registries())] == list(sup.ALL_WORKERS)
+    assert [s.name for s in sup.build_specs(registries=_registries())] == list(sup.ALL_WORKERS)

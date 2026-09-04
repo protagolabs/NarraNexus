@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/channel_trigger_map.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-09-04
 ---
 
 ## Why it exists
@@ -52,3 +52,9 @@ every IM channel in ONE process. Born from the 2026-07-08 trigger-consolidation
 
 - Importing this module imports every registered trigger module. Keep it out of
   hot import paths (backend, MCP server) — only the supervisor should import it.
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+Rewritten as `TriggerMapView`, a live Mapping over `ingress.triggers` (host=channels) — no `_TRIGGER_SPECS` table any more. A channel builtin disabled through registry.json is removed from the registry at boot and thus never started; per-channel import isolation is preserved at `TriggerSpec.resolve()` time; `REGISTERED_TRIGGER_CLASS_NAMES` is derived from the static specs (intent), independent of what imports.
+
+The view is a `MutableMapping` only for an explicit override layer (`monkeypatch.setitem(CHANNEL_TRIGGER_MAP, name, fake)` — 22 manyfold ingress tests inject fake triggers that way); overrides shadow registry names; deleting a registry name hides it until something is assigned to it again (`monkeypatch.delitem` + undo round-trips). Real registration is `ingress.triggers` only.

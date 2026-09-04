@@ -20,6 +20,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `backend.workers` | worker | 0 | `narranexus.contracts.worker:WorkerSpec` | `"backend.workers": ["pkg.module:SYMBOL"]` |
 | `content.bundles` | bundle | 0 | `narranexus.contracts.bundle:BundleSpec` | `"content.bundles": ["pkg.module:SYMBOL"]` |
 | `content.skills` | skill | 0 | `narranexus.contracts.skill:SkillSpec` | `"content.skills": ["pkg.module:SYMBOL"]` |
+| `ingress.triggers` | trigger | 0 | `narranexus.contracts.trigger:TriggerSpec` | `"ingress.triggers": ["pkg.module:SYMBOL"]` |
 | `model.clients` | llm_client | 0 | `narranexus.contracts.llm_client:LlmClient` | `"model.clients": ["pkg.module:SYMBOL"]` |
 | `model.providers` | provider | 0 | `narranexus.contracts.provider:ProviderDriver` | `"model.providers": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.act` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:ActStrategy` | `"turn.pipeline.act": ["pkg.module:SYMBOL"]` |

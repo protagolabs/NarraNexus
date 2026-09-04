@@ -454,6 +454,7 @@ class AgentRuntime:
                 fast_mode, turn_profile, working_source
             )
             ctx = RunContext(
+                registries=self._registries,
                 agent_id=agent_id,
                 user_id=user_id,
                 input_content=input_content,

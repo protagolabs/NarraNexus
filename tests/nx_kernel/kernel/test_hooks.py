@@ -180,3 +180,21 @@ async def test_registry_declares_specs_and_dispatches_by_name():
     assert outcome.results == [-5, 5]
     assert reg.block("q") == 1 and reg.names() == ("onDidThing",) and "onDidThing" in reg
     assert reg.specs()["onDidThing"] is SPEC
+
+
+def test_adding_the_same_implementation_twice_is_one_implementation():
+    """Import-time registration (module/contributions.register_all) and the manifest load name the same function."""
+    from narranexus.kernel.plugins.hooks import HookRegistry, HookSpec
+
+    reg = HookRegistry()
+    reg.declare(HookSpec("onDidThing", ("x",)))
+    calls: list[int] = []
+
+    def impl(x):
+        calls.append(x)
+
+    reg.add("onDidThing", impl, owner="acme.a")
+    reg.add("onDidThing", impl, owner="acme.a")
+    assert len(reg.caller("onDidThing")) == 1
+    reg.add("onDidThing", impl, owner="acme.b")  # another owner registering the same fn is a second impl
+    assert len(reg.caller("onDidThing")) == 2

@@ -148,6 +148,12 @@ class HookCaller:
             raise ValueError(f"hook {self.spec.name!r}: tryfirst and trylast are exclusive")
         if wrapper and not inspect.isgeneratorfunction(fn) and not inspect.isasyncgenfunction(fn):
             raise TypeError(f"hook {self.spec.name!r}: a wrapper must be a generator function")
+        for existing in self._impls:
+            if existing.fn is fn and existing.owner == owner:
+                # Idempotent like Registry.register: the import-time registration
+                # (module/contributions.register_all) and the manifest-driven load
+                # name the same function; one implementation, not two calls.
+                return Disposable(lambda: None)
         impl = HookImpl(
             fn=fn,
             owner=owner,

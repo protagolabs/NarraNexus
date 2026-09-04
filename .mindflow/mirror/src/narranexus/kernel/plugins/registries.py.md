@@ -33,3 +33,7 @@ DRIVER_REGISTRY`、`memory/spec.MEMORY_KIND_REGISTRY` 三者都 `is KERNEL_REGIS
 `one` 与 `many` 位都用同一个 `Registry`：元数是绑定语义（换/追加），注册表只是「按名字存候选」。
 `freeze()` 传播到已建与后建的注册表。`snapshot()` 给出 path→{name→owner} 的确定性视图，
 loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得到干净实例。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`SLOT_KINDS["ingress.triggers"] = "trigger"`.

@@ -118,8 +118,13 @@ async def main(only: Optional[set[str]] = None) -> None:
         start_channel_health_server,
     )
 
+    from xyz_agent_context.module.plugins_boot import boot_channel_plugins
+
     db = await get_db_client()
     await auto_migrate(db._backend)
+    # Registries first: CHANNEL_TRIGGER_MAP is a view over ingress.triggers and a
+    # builtin disabled in registry.json must be gone before we start anything.
+    boot_channel_plugins()
 
     started = await start_channel_triggers(db, only)
 

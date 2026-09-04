@@ -316,3 +316,7 @@ dict,放 callable 是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,所
 `driver.agent_loop(steering=...)`——与 `cancellation` **同一条显式参数路径**,不塞 `trigger_extra_data`
 (那是会被序列化并下发给 module 的 dict,放活对象是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,
 中间无签名要改。None = 不可 steer(现状)。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`RunContext.registries = self._registries` so the steps' hook calls (step 1 greeting) target the runtime's registries.

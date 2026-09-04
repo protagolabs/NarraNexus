@@ -41,4 +41,10 @@ def boot_worker_plugins() -> BootReport:
     return _boot("workers")
 
 
-__all__ = ["boot_mcp_plugins", "boot_worker_plugins"]
+def boot_channel_plugins() -> BootReport:
+    """The standalone channels supervisor (cloud ``--only channels`` layout) hosts
+    the same trigger set the workers process does, so it boots the ``workers`` role."""
+    return _boot("workers")
+
+
+__all__ = ["boot_channel_plugins", "boot_mcp_plugins", "boot_worker_plugins"]

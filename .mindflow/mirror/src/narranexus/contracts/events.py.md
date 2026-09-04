@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/contracts/events.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -15,3 +15,7 @@ stub: false
 批 0 只声明词表与 `kernel/events/bus.py`；平台在观察点 `emit` 是批 2/3（D9）。
 总线对不在 `HOST_EVENTS` 且未 `declare` 的名字抛 `UnknownEntry`，让拼错的订阅 fail-loud
 而不是永远收不到。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`onDidResolveBootstrapGreeting` (`BootstrapGreetingEvent`: agent_id/user_id/instance_id/greeting/turn_started_at) — fired by step 1 after the platform resolves a bootstrap greeting; builtin.chat's `plugin_hooks` seeds it. First host event that is a *request to a capability owner* rather than pure observation.

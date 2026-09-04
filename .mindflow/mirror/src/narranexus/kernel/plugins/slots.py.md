@@ -38,3 +38,7 @@ stub: false
 存在（`Namespace`/`Kernel`/`services.*`/`ui.Shell`/`ModelResolver`/`TurnPipeline`/`ActStrategy`/
 `agent_spec.CapabilitySet`），`test_every_kernel_slot_contract_symbol_resolves` 逐行 import 校验。
 `manifest.py` 校验 `provides` 的 key 只看路径存在，`loader` 才解析提供者符号。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`ingress.triggers` (many, `TriggerSpec`) under the ingress domain: IM channel listeners (host=channels), pollers run as workers (host=workers), on-demand HTTP servers (host=api).

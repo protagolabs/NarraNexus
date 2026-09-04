@@ -110,6 +110,7 @@ class RunContext:
     # prebuilt context instead of building its own. None = legacy single-step path.
     assembled: Optional[Any] = None
     run_id: str = ""  # trace id of this run (hooks receive it)
+    registries: Optional[Any] = None  # the runtime's plugin registries (None → process KERNEL_REGISTRIES)
 
     # ===== Jobs Created This Round (set in Step 2.5.3, for context passing) =====
     created_job_ids: List[str] = field(default_factory=list)

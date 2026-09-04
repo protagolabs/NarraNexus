@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/hooks.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -36,3 +36,7 @@ spec 加参数不破坏旧插件（参考文档 §B-15）；实现声明了 spec
 （宪章 5 复杂度下沉：重试/超时不在这里，在总线/回合预算层）。yield 两次的 wrapper 记错不炸。
 `HookRegistry` 是名字→caller 的表：spec 只能 declare 一次（`RegistryConflict`），未声明的名字
 `UnknownEntry`（拼错 fail-loud）。批 2 起 `contracts/events.py` 的九个事件在这里 declare。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`HookCaller.add` is idempotent for the same (fn, owner): import-time registration (`module/contributions.register_all`) and the manifest-driven load name the same function and must yield one implementation, not a double call. A different owner adding the same fn is still a second implementation.

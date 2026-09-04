@@ -87,3 +87,7 @@ team 房间把纯文本贴进房间的回调,只有 MessageBusTrigger 的 team �
 
 新增 `steering: Optional[Any]`(run 的 SteerChannel;None=不可 steer)。和 `cancellation` 并列,是
 run-start→loop 的活控制对象;由 `run()` 填、step_3 读并传给 driver。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`registries` — the runtime's plugin registries (None → process `KERNEL_REGISTRIES`), so steps can fire host hooks against the same registries the pipeline/profile resolution used (scenario tests use private registries).

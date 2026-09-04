@@ -173,6 +173,26 @@ DEFAULT_MCP_MODULES = all_mcp_modules()
 MODULE_PORTS = all_module_ports()
 
 
+
+def _a2a_server_class() -> type:
+    """The A2A protocol server class: builtin.chat's ``ingress.triggers`` entry ``a2a`` (host="api").
+
+    Resolved through the registry so the runner never imports ChatModule; with
+    builtin.chat disabled there is no A2A ingress and this fails loud.
+    """
+    from narranexus.contracts._base import UnknownEntry
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    registry = KERNEL_REGISTRIES.registry_for("ingress.triggers")
+    try:
+        spec = registry.get("a2a")
+    except UnknownEntry:
+        raise RuntimeError("A2A server unavailable: no 'a2a' ingress trigger is registered (builtin.chat disabled?)") from None
+    if spec.host != "api":
+        raise RuntimeError(f"A2A trigger must be host='api', got {spec.host!r}")
+    return spec.resolve()
+
+
 class ModuleRunner:
     """
     Module Runner - Deploy and manage MCP Servers and A2A API.
@@ -672,9 +692,7 @@ class ModuleRunner:
             host: Host address
             port: Port number
         """
-        from xyz_agent_context.module.chat_module.chat_trigger import A2AServer
-
-        server = A2AServer(host=host, port=port)
+        server = _a2a_server_class()(host=host, port=port)
         server.run()
 
     def run_api_server(
@@ -698,7 +716,7 @@ class ModuleRunner:
             agent_name: Agent name
             agent_description: Agent description
         """
-        from xyz_agent_context.module.chat_module.chat_trigger import A2AServer
+        A2AServer = _a2a_server_class()
 
         logger.info("Starting A2A Protocol API Server...")
         logger.info(f"   Agent: {agent_name}")

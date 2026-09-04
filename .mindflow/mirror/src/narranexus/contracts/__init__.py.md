@@ -25,3 +25,7 @@ stub: false
 `STABILITY[symbol]`（alpha/beta/stable）。批 0-5 全部 alpha，批 6 才标 stable
 （spec §5.5 / §16.1）。`tests/nx_kernel/contracts/test_base.py` 钉住两表键集一致且全 alpha；
 `tests/nx_kernel/test_package_layout.py` 钉住 import 本包不会带进 kernel/legacy/backend。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`API_VERSIONS["trigger"] = 0` for `contracts/trigger.py`.

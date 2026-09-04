@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/run_channel_triggers.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-22 — now launched BY the worker supervisor, not the startup paths
@@ -83,3 +83,7 @@ Three shutdown hazards caught by the 2026-07-08 end-to-end run (all fixed):
   per-channel entrypoints).
 - Out of scope: `JobTrigger` and `MessageBusTrigger` are NOT `ChannelTriggerBase`
   subclasses and keep their own processes.
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`main()` calls `boot_channel_plugins()` after `auto_migrate` and before `start_channel_triggers`: the trigger map is a registry view now, and a disabled builtin must already be gone. `start_channel_triggers` itself is unchanged (still takes an injectable `trigger_map`).

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/run_worker_supervisor.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
 
 ## 2026-09-03（批 2b.5）— `run()` 先 `boot_worker_plugins()` 再 `build_specs`
@@ -142,3 +142,7 @@ door for zombies — this is the door.)
   had been used as evidence that raising the bus term was free.
 - The individual workers keep their `if __name__ == "__main__"` blocks as
   standalone DEBUG entrypoints only — no launcher wires them anymore.
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`jobs` left `WORKER_SPECS`: the job clock is builtin.job's `ingress.triggers` contribution (host=workers) adapted by `trigger_worker_specs` — builtin owners keep the bare name so `run.sh --exclude jobs,channels` and `ALL_WORKERS` order are unchanged, while disabling builtin.job removes the worker instead of crash-looping a factory that cannot import it. `build_specs` merges platform workers, trigger workers and plugin workers, keeping the canonical order for the ALL_WORKERS names.

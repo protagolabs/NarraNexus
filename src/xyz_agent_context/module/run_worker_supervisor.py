@@ -204,13 +204,6 @@ async def _poller_factory(ctx: SupervisorContext) -> WorkerHandle:
     return WorkerHandle(run=inst.start(), stop=inst.stop)
 
 
-async def _jobs_factory(ctx: SupervisorContext) -> WorkerHandle:
-    from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-
-    inst = JobTrigger(poll_interval=60, max_workers=5)
-    return WorkerHandle(run=inst.start(), stop=inst.stop)
-
-
 async def _bus_factory(ctx: SupervisorContext) -> WorkerHandle:
     from xyz_agent_context.message_bus.message_bus_trigger import (
         MessageBusTrigger,
@@ -261,12 +254,51 @@ async def _channels_factory(ctx: SupervisorContext) -> WorkerHandle:
 
 
 # name -> spec. build_specs() selects over this. Default = all four.
+# Platform workers. "jobs" is NOT here any more: the job clock is builtin.job's
+# ``ingress.triggers`` contribution (host="workers") and arrives through
+# ``trigger_worker_specs`` under its bare name, so ``--only/--exclude jobs`` and
+# the ALL_WORKERS startup order are unchanged while disabling builtin.job
+# removes the worker instead of crash-looping it.
 WORKER_SPECS: dict[str, WorkerSpec] = {
     "poller": WorkerSpec("poller", _poller_factory),
-    "jobs": WorkerSpec("jobs", _jobs_factory),
     "bus": WorkerSpec("bus", _bus_factory),
     "channels": WorkerSpec("channels", _channels_factory),
 }
+
+TRIGGERS_SLOT = "ingress.triggers"
+
+
+def _adapt_trigger_worker(owner: str, spec: Any) -> WorkerSpec:
+    """A ``host="workers"`` TriggerSpec as a supervisor worker: ``cls(**kwargs)``, ``start()`` blocks, ``stop()`` ends it."""
+
+    async def _factory(ctx: SupervisorContext) -> WorkerHandle:
+        cls = spec.resolve()
+        inst = cls(**dict(spec.kwargs))
+        return WorkerHandle(run=inst.start(), stop=inst.stop)
+
+    # Builtin triggers keep their bare name (run.sh / compose address "jobs");
+    # third-party ones are namespaced like plugin workers.
+    name = spec.name if owner.startswith("builtin.") else f"{owner}:{spec.name}"
+    return WorkerSpec(name, _factory)
+
+
+def trigger_worker_specs(registries: Any = None) -> list[WorkerSpec]:
+    """Triggers targeting the workers process (``ingress.triggers`` with ``host="workers"``), in registry order."""
+    if registries is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        registries = KERNEL_REGISTRIES
+    out: list[WorkerSpec] = []
+    for entry in registries.registry_for(TRIGGERS_SLOT).entries():
+        try:
+            spec = entry.factory()
+        except Exception as exc:  # noqa: BLE001 — isolate the plugin
+            logger.warning(f"[supervisor] {entry.owner}: trigger {entry.name!r} spec failed: {exc}")
+            continue
+        if getattr(spec, "host", None) != "workers":
+            continue
+        out.append(_adapt_trigger_worker(entry.owner, spec))
+    return out
 
 
 PLUGIN_WORKERS_SLOT = "backend.workers"
@@ -321,7 +353,7 @@ def build_specs(
     follow the four builtin ones, named ``<owner>:<name>``; ``--only`` /
     ``--exclude`` address them by that full name.
     """
-    plugin_specs = plugin_worker_specs(registries)
+    plugin_specs = trigger_worker_specs(registries) + plugin_worker_specs(registries)
     names = set(ALL_WORKERS) | {s.name for s in plugin_specs}
     for label, sel in (("--only", only), ("--exclude", exclude)):
         if sel:
@@ -337,7 +369,15 @@ def build_specs(
         names -= exclude
     # Preserve the canonical ALL_WORKERS order for deterministic startup; plugin
     # workers follow in registry (declaration) order.
-    return [WORKER_SPECS[n] for n in ALL_WORKERS if n in names] + [s for s in plugin_specs if s.name in names]
+    # Preserve the canonical ALL_WORKERS order for deterministic startup ("jobs"
+    # is a builtin trigger worker and slots into its historical position when
+    # builtin.job is enabled); remaining plugin workers follow in registry order.
+    by_name: dict[str, WorkerSpec] = dict(WORKER_SPECS)
+    for s in plugin_specs:
+        by_name.setdefault(s.name, s)
+    ordered = [by_name[n] for n in ALL_WORKERS if n in names and n in by_name]
+    rest = [s for s in plugin_specs if s.name in names and s.name not in ALL_WORKERS]
+    return ordered + rest
 
 
 # =============================================================================

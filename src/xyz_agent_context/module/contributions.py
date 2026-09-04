@@ -18,6 +18,7 @@ import importlib
 from dataclasses import dataclass
 from typing import Any
 
+from narranexus.contracts.trigger import TriggerSpec
 from narranexus.kernel.plugins.registry import Contribution
 
 MODULES_SLOT = "agent.capabilities.modules"
@@ -94,6 +95,50 @@ def spec_for(class_name: str) -> ModuleSpec:
     return next(s for s in MODULE_SPECS if s.class_name == class_name)
 
 
+# ---------------------------------------------------------------- triggers
+# ``ingress.triggers``: what each builtin plugs into the ingress hosts. The
+# class is named lazily (``class_ref``) so a channel whose optional dependency
+# is absent (matrix-nio, ...) isolates itself instead of breaking the map —
+# the same per-channel import isolation channel_trigger_map.py always had.
+TRIGGERS_SLOT = "ingress.triggers"
+_MOD = "xyz_agent_context.module"
+
+TRIGGER_SPECS: tuple[tuple[str, TriggerSpec], ...] = (
+    ("builtin.channels.lark", TriggerSpec("lark", f"{_MOD}.lark_module.lark_trigger:LarkTrigger")),
+    ("builtin.channels.slack", TriggerSpec("slack", f"{_MOD}.slack_module.slack_trigger:SlackTrigger")),
+    ("builtin.channels.telegram", TriggerSpec("telegram", f"{_MOD}.telegram_module.telegram_trigger:TelegramTrigger")),
+    ("builtin.channels.discord", TriggerSpec("discord", f"{_MOD}.discord_module.discord_trigger:DiscordTrigger")),
+    ("builtin.channels.wechat", TriggerSpec("wechat", f"{_MOD}.wechat_module.wechat_trigger:WeChatTrigger")),
+    # The "narramessenger" channel is served by the Direct-Matrix adapter.
+    ("builtin.channels.narramessenger", TriggerSpec("narramessenger", f"{_MOD}.narramessenger_module.matrix_trigger:MatrixTrigger")),
+    # The job clock runs as a worker of the workers supervisor (bare name "jobs":
+    # run.sh / compose address it with --only/--exclude).
+    ("builtin.job", TriggerSpec("jobs", f"{_MOD}.job_module.job_trigger:JobTrigger", host="workers", kwargs={"poll_interval": 60, "max_workers": 5})),
+    # The A2A protocol server (Google Agent-to-Agent) the module runner serves on demand.
+    ("builtin.chat", TriggerSpec("a2a", f"{_MOD}.chat_module.chat_trigger:A2AServer", host="api")),
+)
+
+TRIGGER_CONTRIBUTIONS: dict[str, Contribution[TriggerSpec]] = {
+    spec.name: Contribution(spec.name, (lambda s=spec: s), meta={"host": spec.host, "class_ref": spec.class_ref})
+    for _, spec in TRIGGER_SPECS
+}
+
+
+def trigger_contributions_for(plugin_id: str) -> tuple[Contribution[TriggerSpec], ...]:
+    return tuple(TRIGGER_CONTRIBUTIONS[spec.name] for pid, spec in TRIGGER_SPECS if pid == plugin_id)
+
+
+def channel_trigger_specs() -> tuple[TriggerSpec, ...]:
+    """Registration INTENT for the channels supervisor (independent of what imports here)."""
+    return tuple(spec for _, spec in TRIGGER_SPECS if spec.host == "channels")
+
+
+# ``backend.hooks`` implementations builtins ship (owner, "pkg.mod:HOOKS").
+HOOK_SPECS: tuple[tuple[str, str], ...] = (
+    ("builtin.chat", f"{_MOD}.chat_module.plugin_hooks:HOOKS"),
+)
+
+
 def register_all(registries: Any = None) -> None:
     """Import-time registration into the process registries (idempotent; the manifests name the same objects)."""
     from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
@@ -103,6 +148,14 @@ def register_all(registries: Any = None) -> None:
     for spec in MODULE_SPECS:
         if spec.class_name not in registry:
             registry.register_contribution(CONTRIBUTIONS[spec.class_name], owner=spec.plugin_id)
+    triggers = regs.registry_for(TRIGGERS_SLOT)
+    for plugin_id, spec in TRIGGER_SPECS:
+        if spec.name not in triggers:
+            triggers.register_contribution(TRIGGER_CONTRIBUTIONS[spec.name], owner=plugin_id)
+    for plugin_id, ref in HOOK_SPECS:
+        module_path, attr = ref.rsplit(":", 1)
+        for impl in getattr(importlib.import_module(module_path), attr):
+            regs.hooks.add(impl.hook, impl.fn, owner=plugin_id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper)
 
 
 # Per-plugin tuples the builtin manifests name (``xyz_agent_context.module.contributions:PLUGIN_<ID>``).
@@ -124,4 +177,28 @@ PLUGIN_NEXUS_PLUGINS_MODULE = contributions_for("builtin.nexus_plugins_module")
 PLUGIN_SKILLS = contributions_for("builtin.skills")
 PLUGIN_SOCIAL_NETWORK = contributions_for("builtin.social_network")
 
-__all__ = ["BY_PLUGIN", "CONTRIBUTIONS", "MODULES_SLOT", "MODULE_SPECS", "ModuleSpec", "contributions_for", "register_all", "spec_for"]
+TRIGGERS_CHANNELS_DISCORD = trigger_contributions_for("builtin.channels.discord")
+TRIGGERS_CHANNELS_LARK = trigger_contributions_for("builtin.channels.lark")
+TRIGGERS_CHANNELS_NARRAMESSENGER = trigger_contributions_for("builtin.channels.narramessenger")
+TRIGGERS_CHANNELS_SLACK = trigger_contributions_for("builtin.channels.slack")
+TRIGGERS_CHANNELS_TELEGRAM = trigger_contributions_for("builtin.channels.telegram")
+TRIGGERS_CHANNELS_WECHAT = trigger_contributions_for("builtin.channels.wechat")
+TRIGGERS_CHAT = trigger_contributions_for("builtin.chat")
+TRIGGERS_JOB = trigger_contributions_for("builtin.job")
+
+__all__ = [
+    "BY_PLUGIN",
+    "CONTRIBUTIONS",
+    "HOOK_SPECS",
+    "MODULES_SLOT",
+    "MODULE_SPECS",
+    "TRIGGERS_SLOT",
+    "TRIGGER_CONTRIBUTIONS",
+    "TRIGGER_SPECS",
+    "ModuleSpec",
+    "channel_trigger_specs",
+    "contributions_for",
+    "register_all",
+    "spec_for",
+    "trigger_contributions_for",
+]

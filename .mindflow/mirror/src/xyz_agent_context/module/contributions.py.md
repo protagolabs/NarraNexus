@@ -10,3 +10,7 @@ stub: false
 `<pkg>.<pkg>` 叶子模块取类（chat/awareness/basic_info/general_memory 的 `__init__` 刻意不 re-export 类，
 首版从包取属性全部失败实锤）。`CONTRIBUTIONS` 每模块一个对象（manifest 驱动注册幂等靠对象同一性）；
 `PLUGIN_<ID>` 常量是 manifest 指向的符号；`register_all` 在 `module/__init__` import 时登记。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host=workers with its historical kwargs, the `a2a` server as host=api) with `TRIGGERS_<ID>` per-plugin tuples the manifests name, and `HOOK_SPECS` (builtin.chat's greeting hook). `register_all` registers modules, triggers and hooks so processes that never run a manifest boot see the same picture; `channel_trigger_specs()` is the static registration intent the alignment test checks.

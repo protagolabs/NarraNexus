@@ -132,3 +132,7 @@ mcp runner stands up its SSE server (the narrative-awareness tools — see
 - 在 `MODULE_PORTS` 里更新了端口但没有更新对应 Module 类里的 `self.port`（或反之），会导致服务器实际监听的端口与日志里打印的端口不一致。
 - 运行 `module` 命令（A2A + MCP 全部署）时，A2A API Server 和所有 MCP 服务器都跑在同一台机器上，共用一个 SQLite 文件，写争用风险高。生产环境应切换到 MySQL/PostgreSQL。
 - 单 loop 架构下，所有 MCP 服务器共享 CPU 线程和 aiomysql pool。某个 tool handler 如果做了 sync 阻塞调用，会拖累所有其他 MCP 服务器——这就是为什么 Bug 20 的 `with_mcp_timeout` 装饰器是必需的，任何新 MCP tool 都应该叠加。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`_a2a_server_class()` resolves the A2A server through `ingress.triggers` (`a2a`, host=api, provided by builtin.chat) — the runner no longer imports `chat_module.chat_trigger`; with builtin.chat disabled `run_api_server`/`run_module` fail loud with a clear message.

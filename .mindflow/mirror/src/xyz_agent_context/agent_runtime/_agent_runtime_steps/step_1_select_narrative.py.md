@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -79,3 +79,7 @@ Session.last_query / current_narrative_id 只在人-回复轮被覆盖。两个
 
 - `_ensure_user_chat_instance()` 内部使用 `get_db_client()` 获取数据库连接（而不是通过参数传入），这意味着它独立于 step 函数的 `db_client` 参数。如果两者是不同的连接对象（理论上 factory 返回同一单例，实际上没问题），但在测试时要注意 mock 的一致性。
 - Session 在 Step 1 结束时才调用 `session_service.save_session()`，而不是在 Step 0 创建时。这是因为 Narrative 选择可能更新 Session 的 `current_narrative_id` 字段，需要选完后才持久化。
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+The bootstrap greeting seed no longer imports the chat module: after `resolve_bootstrap_greeting_to_seed` the step fires `onDidResolveBootstrapGreeting` on `ctx.registries` (falling back to the process `KERNEL_REGISTRIES`); builtin.chat's `plugin_hooks` does the idempotent write. Head-only semantics, best-effort try/except and the hook-prepend fallback are unchanged.

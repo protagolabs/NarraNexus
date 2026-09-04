@@ -26,6 +26,7 @@ HOST_EVENTS: tuple[str, ...] = (
     "onDidReceiveChannelMessage",
     "onDidReplyChannelMessage",
     "onDidActivatePlugin",
+    "onDidResolveBootstrapGreeting",
 )
 
 
@@ -74,6 +75,19 @@ class PluginEvent(TypedDict):
     host: str
 
 
+class BootstrapGreetingEvent(TypedDict):
+    """Payload for ``onDidResolveBootstrapGreeting``: the platform resolved a
+    first-turn greeting for a bootstrapping agent and names the head chat
+    instance it belongs to; whoever owns chat history seeds it (idempotently).
+    ``turn_started_at`` is the turn's event timestamp (datetime)."""
+
+    agent_id: str
+    user_id: str
+    instance_id: str
+    greeting: str
+    turn_started_at: Any
+
+
 EventPayload = dict[str, Any]
 
 # Which payload shape each host event carries; the kernel declares one hook
@@ -88,6 +102,7 @@ HOST_EVENT_PAYLOADS: dict[str, type] = {
     "onDidReceiveChannelMessage": ChannelMessageEvent,
     "onDidReplyChannelMessage": ChannelMessageEvent,
     "onDidActivatePlugin": PluginEvent,
+    "onDidResolveBootstrapGreeting": BootstrapGreetingEvent,
 }
 
 
@@ -103,6 +118,7 @@ __all__ = [
     "TurnEvent",
     "ArtifactEvent",
     "ChannelMessageEvent",
+    "BootstrapGreetingEvent",
     "PluginEvent",
     "EventPayload",
 ]

@@ -20,6 +20,17 @@ from xyz_agent_context.utils.logging import timed
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 
 
+def _hooks(ctx):
+    """Hook registry for this run: the runtime's registries when injected, else the process kernel registries."""
+    regs = getattr(ctx, "registries", None)
+    if regs is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        regs = KERNEL_REGISTRIES
+    return regs.hooks
+
+
+
 def _is_user_chat(ctx) -> bool:
     """True iff the current run is replying to a human (not a background
     trigger or peer agent).
@@ -368,7 +379,6 @@ async def step_1_select_narrative(
                 from xyz_agent_context.bootstrap.greeting_seed import (
                     resolve_bootstrap_greeting_to_seed,
                 )
-                from xyz_agent_context.module.chat_module import seed_bootstrap_greeting
                 from xyz_agent_context.utils.db.db_factory import get_db_client
 
                 seed_db = await get_db_client()
@@ -376,13 +386,15 @@ async def step_1_select_narrative(
                     seed_db, ctx.agent_id, ctx.user_id
                 )
                 if greeting:
-                    await seed_bootstrap_greeting(
-                        seed_db,
-                        ctx.agent_id,
-                        ctx.user_id,
-                        head_instance,
-                        greeting,
-                        ctx.event.created_at,
+                    # The platform owns no chat history: builtin.chat implements
+                    # this hook (module/chat_module/plugin_hooks.py) and seeds
+                    # idempotently; with chat disabled nothing listens.
+                    await _hooks(ctx).caller("onDidResolveBootstrapGreeting").call(
+                        agent_id=ctx.agent_id,
+                        user_id=ctx.user_id,
+                        instance_id=head_instance,
+                        greeting=greeting,
+                        turn_started_at=ctx.event.created_at,
                     )
             except Exception as e:  # noqa: BLE001 — best-effort; hook is the fallback
                 logger.warning(f"[bootstrap] greeting seed skipped: {e}")

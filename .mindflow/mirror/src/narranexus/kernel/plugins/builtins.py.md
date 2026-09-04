@@ -49,3 +49,7 @@ D4「内置即插件」的落点：六份 manifest 常量（批 1 加 `builtin.l
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 First feature-level builtin: `builtin.teams` (hosts backend; provides `backend.routes` + `backend.workers`; depends on message_bus + chat so disabling either cascades). It is the template for extracting the remaining features — routes/worker arrive through contributions, the platform keeps no direct reference.
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+Six channel builtins, builtin.job and builtin.chat now also provide `ingress.triggers` (`module.contributions:TRIGGERS_*`); builtin.chat provides `backend.hooks` (`chat_module.plugin_hooks:HOOKS`).

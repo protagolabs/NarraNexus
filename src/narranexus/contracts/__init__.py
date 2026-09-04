@@ -43,6 +43,7 @@ API_VERSIONS: dict[str, int] = {
     "route": 0,
     "table": 0,
     "worker": 0,
+    "trigger": 0,
     "settings": 0,
     "tool": 0,
     "mcp_server": 0,
