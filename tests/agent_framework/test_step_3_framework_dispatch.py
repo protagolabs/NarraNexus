@@ -229,10 +229,14 @@ def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
 
     from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         step_3_agent_loop,
+        step_3_assemble_context,
     )
 
-    # @timed wraps it — unwrap to the real generator before reading source.
-    src = inspect.getsource(inspect.unwrap(step_3_agent_loop))
+    # The build-context phase lives in step_3_assemble_context (the Assemble
+    # stage) and the run-agent phase in step_3_agent_loop (the Act stage) since
+    # the pipeline split; the invariant spans both bodies.
+    # @timed wraps the loop — unwrap to the real generator before reading source.
+    src = inspect.getsource(step_3_assemble_context) + inspect.getsource(inspect.unwrap(step_3_agent_loop))
 
     # The old single-phase title must not be emitted anywhere in the body...
     assert "Execute Agent Loop" not in src

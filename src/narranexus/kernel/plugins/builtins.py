@@ -102,6 +102,30 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "protected": True,
         "quality": "gold",
     },
+    {
+        "id": "builtin.turn",
+        "version": "1.0.0",
+        "displayName": "Turn Pipeline",
+        "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
+        "hosts": ["backend"],
+        "api": {"stage_strategy": 0, "pipeline_profile": 0, "agent": 0},
+        "provides": {
+            "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
+            "turn.pipeline.ingress": ["narranexus.platform.turn.stages:INGRESS"],
+            "turn.pipeline.recall": ["narranexus.platform.turn.stages:RECALL"],
+            "turn.pipeline.compose": ["narranexus.platform.turn.stages:COMPOSE"],
+            "turn.pipeline.assemble": ["narranexus.platform.turn.stages:ASSEMBLE"],
+            "turn.pipeline.act": ["narranexus.platform.turn.stages:ACT"],
+            "turn.pipeline.commit": ["narranexus.platform.turn.stages:COMMIT"],
+            "turn.pipeline.reflect": ["narranexus.platform.turn.stages:REFLECT"],
+            "turn.profiles": ["narranexus.platform.turn.profiles:PROFILE_CONTRIBUTIONS"],
+        },
+        "declares": {
+            path: {"arity": "many", "contract": "narranexus.contracts.agent.pipeline:StageStrategy", "doc": f"{path.rsplit('.', 1)[1].title()} stage strategies; a profile names one."}
+            for path in ("turn.pipeline.ingress", "turn.pipeline.recall", "turn.pipeline.compose", "turn.pipeline.assemble", "turn.pipeline.commit", "turn.pipeline.reflect")
+        },
+        "quality": "gold",
+    },
 )
 
 

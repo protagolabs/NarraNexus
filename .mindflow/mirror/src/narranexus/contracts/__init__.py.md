@@ -1,8 +1,10 @@
 ---
 code_file: src/narranexus/contracts/__init__.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `API_VERSIONS` += stage_strategy / pipeline_profile / context_provider
 
 ## 2026-09-03（批 2a）— `API_VERSIONS` 新增十个平台/内容 kind
 

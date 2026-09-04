@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-31
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `run()` 瘦身为「服务装配 + `TurnPipeline.run`」
+
+step_0…step_5 的内联块全部原样搬进 `narranexus.platform.turn.stages`；`run()` 只建 `RunContext`（含 `run_id`）、
+`TurnServices`，用 `resolve_profile` 把 fast_mode/silent/TurnProfile 映射成 profile，然后消费流水线的消息流；
+Ingress 建出 event 后再绑 trace/cost scope（位置不变）。`_resolve_turn_profile`/`_turn_timing_line`/
+`_stream_step3_with_interrupt_drain` 与 `step_*` 名字仍从本模块可取（策略经此调用，测试接缝不变）。
 
 ## 2026-08-31 — `run()` 的 cost context 也改成 scope
 

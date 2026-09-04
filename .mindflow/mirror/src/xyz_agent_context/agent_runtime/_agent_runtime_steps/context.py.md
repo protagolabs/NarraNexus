@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `assembled` / `run_id`
+
+Assemble 阶段输出（ContextRuntimeOutput）与本次运行的 trace id（钩子收到）。
 
 ## 2026-08-21 — `no_durable_topic` 字段:路由判决→持久化冻结的跨层契约(④-A′)
 

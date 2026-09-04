@@ -21,6 +21,7 @@ from narranexus.contracts.agent.capability import (
     Capability,
     CapabilityMeta,
     CapabilityTier,
+    ContextProvider,
     StageParticipant,
     ToolSurface,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "CapabilitySet",
     "CapabilityTier",
     "CommitContext",
+    "ContextProvider",
     "ComposeContext",
     "IngressContext",
     "ModelIdentity",

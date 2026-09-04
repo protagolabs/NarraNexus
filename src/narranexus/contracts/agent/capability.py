@@ -108,6 +108,24 @@ class Capability(Protocol):
         ...
 
 
+class ContextProvider(Protocol):
+    """An L2 capability that only speaks in Assemble (slot ``agent.capabilities.context_providers``).
+
+    Implement either or both methods: ``contribute_instructions`` must be
+    byte-stable across turns (it joins the cacheable prefix);
+    ``contribute_turn_context`` may vary (it joins the dynamic tail). Return
+    an empty string to say nothing this turn. ``context_cost_hint`` is the
+    order of magnitude of tokens added, shown in the factory page.
+    """
+
+    name: str
+    context_cost_hint: int
+
+    async def contribute_instructions(self, ctx_data: Any) -> str: ...
+
+    async def contribute_turn_context(self, ctx_data: Any) -> str: ...
+
+
 # Which StageParticipant methods belong to which stage. The runtime and the
 # legacy adapter both derive from this single table.
 STAGE_METHODS: Mapping[Stage, tuple[str, ...]] = {
@@ -136,6 +154,7 @@ __all__ = [
     "TIER_STAGES",
     "Capability",
     "CapabilityMeta",
+    "ContextProvider",
     "CapabilityTier",
     "StageParticipant",
     "ToolSurface",

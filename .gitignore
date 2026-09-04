@@ -165,3 +165,10 @@ tauri/src-tauri/resources/lark-skills/
 .nexus_power/
 tauri/src-tauri/Cargo.lock
 .import_linter_cache/
+
+# Plugin bundles that ARE source: the hello-world reference plugin and the kind templates
+# ship a prebuilt frontend/dist/plugin.js (D12: dist is committed for plugins).
+!tests/plugins/**/frontend/dist/
+!tests/plugins/**/frontend/dist/**
+!templates/**/frontend/dist/
+!templates/**/frontend/dist/**

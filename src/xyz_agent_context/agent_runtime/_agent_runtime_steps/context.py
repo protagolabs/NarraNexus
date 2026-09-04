@@ -105,6 +105,11 @@ class RunContext:
     mcp_servers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     load_result: Optional["ModuleLoadResult"] = None
     execution_result: Optional["PathExecutionResult"] = None
+    # Output of the Assemble stage (ContextRuntimeOutput): set by
+    # step_3_assemble_context so the Act stage (step_3_agent_loop) consumes a
+    # prebuilt context instead of building its own. None = legacy single-step path.
+    assembled: Optional[Any] = None
+    run_id: str = ""  # trace id of this run (hooks receive it)
 
     # ===== Jobs Created This Round (set in Step 2.5.3, for context passing) =====
     created_job_ids: List[str] = field(default_factory=list)

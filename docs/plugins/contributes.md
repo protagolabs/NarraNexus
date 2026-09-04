@@ -8,6 +8,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 
 | Slot | Kind | API version | Contract | Manifest key |
 |---|---|---|---|---|
+| `agent.capabilities.context_providers` | context_provider | 0 | `narranexus.contracts.agent.capability:ContextProvider` | `"agent.capabilities.context_providers": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.mcp_servers` | mcp_server | 0 | `narranexus.contracts.mcp_server:McpServerSpec` | `"agent.capabilities.mcp_servers": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.memory_kinds` | memory | 0 | `narranexus.contracts.memory:MemoryKindContract` | `"agent.capabilities.memory_kinds": ["pkg.module:SYMBOL"]` |
 | `agent.capabilities.tools` | tool | 0 | `narranexus.contracts.tool:ToolProvider` | `"agent.capabilities.tools": ["pkg.module:SYMBOL"]` |
@@ -20,6 +21,8 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `content.skills` | skill | 0 | `narranexus.contracts.skill:SkillSpec` | `"content.skills": ["pkg.module:SYMBOL"]` |
 | `model.clients` | llm_client | 0 | `narranexus.contracts.llm_client:LlmClient` | `"model.clients": ["pkg.module:SYMBOL"]` |
 | `model.providers` | provider | 0 | `narranexus.contracts.provider:ProviderDriver` | `"model.providers": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.act` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:ActStrategy` | `"turn.pipeline.act": ["pkg.module:SYMBOL"]` |
+| `turn.profiles` | pipeline_profile | 0 | `narranexus.contracts.agent.pipeline:PipelineProfile` | `"turn.profiles": ["pkg.module:SYMBOL"]` |
 | `ui.themes` | theme | 0 | `narranexus.contracts.ui:Theme` | `"ui.themes": ["pkg.module:SYMBOL"]` |
 
 Frontend contributions are declared under `frontend.ui` (`pages`, `panels`, `commands`, `themes`) and registered by the plugin's bundle at activation.

@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/kernel/plugins/builtins.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `builtin.turn`
+
+提供 `turn.pipeline`（编排器）与七个阶段的默认策略、五个 profile；`declares` 六个阶段子位（act 已在内核树）。
+它是「复合位提供者拥有子位」规则的第一个真实用户。
 
 ## 2026-09-03（批 2f.1）— `builtin.nexus_plugins_module`（protected，无 provides）
 

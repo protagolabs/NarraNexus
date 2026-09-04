@@ -1788,6 +1788,79 @@ async def _ensure_executor_for_run(
     )
 
 
+async def step_3_assemble_context(
+    ctx: "RunContext",
+    db_client,
+    *,
+    context_providers: tuple = (),
+) -> AsyncGenerator[Union[ProgressMessage, Any], None]:
+    """Assemble stage: sub-steps 3.1–3.3 (ContextRuntime → messages, MCP servers, tool surface).
+
+    Stores the ``ContextRuntimeOutput`` on ``ctx.assembled`` so the Act stage
+    consumes exactly what was assembled (and hooks / snapshots can observe it
+    between the two). ``context_providers`` are the ``contextProviders``
+    capabilities whose sections ContextRuntime appends.
+    """
+    substeps: list = []
+    yield ProgressMessage(
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description="Assemble context for the Agent Loop (CASE1: implicit orchestration)",
+        status=ProgressStatus.RUNNING,
+        substeps=substeps
+    )
+    context_runtime = ContextRuntime(
+        ctx.agent_id, ctx.user_id, db_client,
+        event_id=getattr(ctx.event, "id", None),
+    )
+    substeps.append("[3.1] ✓ ContextRuntime initialization complete")
+    logger.debug("ContextRuntime initialized")
+    yield ProgressMessage(
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description="[3.1] ContextRuntime initialization complete",
+        status=ProgressStatus.RUNNING,
+        substeps=substeps
+    )
+    context = await context_runtime.run(
+        ctx.narrative_list,
+        ctx.active_instances,
+        ctx.input_content,
+        working_source=ctx.working_source,
+        created_job_ids=ctx.created_job_ids,
+        trigger_extra_data=ctx.trigger_extra_data,
+        context_providers=context_providers,
+    )
+    substeps.append(
+        f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
+        f"{len(context.mcp_servers)} MCP servers"
+    )
+    logger.debug("ContextRuntime execution completed")
+    yield ProgressMessage(
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description=f"[3.2] Context build complete: {len(context.messages)} messages",
+        status=ProgressStatus.RUNNING,
+        substeps=substeps
+    )
+    ctx.mcp_servers.update(context.mcp_servers)
+    extra_disallowed_tools = list(context.disallowed_tools or [])
+    substeps.append(
+        f"[3.3] ✓ Extraction complete: {len(context.messages)} messages, {len(ctx.mcp_servers)} MCP servers"
+        + (f", {len(extra_disallowed_tools)} suppressed tools" if extra_disallowed_tools else "")
+    )
+    logger.debug(f"context.messages count={len(context.messages)}")
+    logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
+    yield ProgressMessage(
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description=f"[3.3] Extraction complete: {len(context.messages)} messages",
+        status=ProgressStatus.RUNNING,
+        substeps=substeps
+    )
+    ctx.assembled = context
+
+
 @timed("step.3_agent_loop")
 async def step_3_agent_loop(
     ctx: "RunContext",
@@ -1815,86 +1888,17 @@ async def step_3_agent_loop(
         PathExecutionResult: Unified execution result (returned last)
     """
     # Local variables
-    context = None
-    messages = []
     state = None
     agent_loop_response = []
     substeps = []  # Step 3 substep list
-
-    # ============================================================================= Step 3: Narrative Smart Agent Loop
-    yield ProgressMessage(
-        step=PHASE_BUILD_CONTEXT_STEP,
-        title=PHASE_BUILD_CONTEXT_TITLE,
-        description="Assemble context for the Agent Loop (CASE1: implicit orchestration)",
-        status=ProgressStatus.RUNNING,
-        substeps=substeps
-    )
-
-    # ------------- 3.1: Initialize ContextRuntime -------------
-    context_runtime = ContextRuntime(
-        ctx.agent_id, ctx.user_id, db_client,
-        # Step 0 already created the event row; passing it here is what
-        # lets tools stamp attribution with the turn that called them.
-        event_id=getattr(ctx.event, "id", None),
-    )
-    substeps.append("[3.1] ✓ ContextRuntime initialization complete")
-    logger.debug("ContextRuntime initialized")
-
-    yield ProgressMessage(
-        step=PHASE_BUILD_CONTEXT_STEP,
-        title=PHASE_BUILD_CONTEXT_TITLE,
-        description="[3.1] ContextRuntime initialization complete",
-        status=ProgressStatus.RUNNING,
-        substeps=substeps
-    )
-
-    # ------------- 3.2: Run ContextRuntime -------------
-    context = await context_runtime.run(
-        ctx.narrative_list,
-        ctx.active_instances,
-        ctx.input_content,
-        working_source=ctx.working_source,
-        created_job_ids=ctx.created_job_ids,
-        trigger_extra_data=ctx.trigger_extra_data,
-    )
-    substeps.append(
-        f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
-        f"{len(context.mcp_servers)} MCP servers"
-    )
-    logger.debug("ContextRuntime execution completed")
-
-    yield ProgressMessage(
-        step=PHASE_BUILD_CONTEXT_STEP,
-        title=PHASE_BUILD_CONTEXT_TITLE,
-        description=f"[3.2] Context build complete: {len(context.messages)} messages",
-        status=ProgressStatus.RUNNING,
-        substeps=substeps
-    )
-
-    # ------------- 3.3: Extract messages and MCP URLs -------------
+    if ctx.assembled is None:
+        # Legacy single-step path (direct callers of step_3_agent_loop): assemble here.
+        async for msg in step_3_assemble_context(ctx, db_client):
+            yield msg
+    context = ctx.assembled
+    assert context is not None
     messages = context.messages
-    ctx.mcp_servers.update(context.mcp_servers)
-    # Setup-residency: tools suppressed for this agent this turn (schemas
-    # removed from the model context via the CLI's disallowed_tools).
     extra_disallowed_tools = list(context.disallowed_tools or [])
-    substeps.append(
-        f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_servers)} MCP servers"
-        + (f", {len(extra_disallowed_tools)} suppressed tools" if extra_disallowed_tools else "")
-    )
-    logger.debug(f"context.messages count={len(messages)}")
-    logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
-    yield ProgressMessage(
-        step=PHASE_BUILD_CONTEXT_STEP,
-        title=PHASE_BUILD_CONTEXT_TITLE,
-        description=f"[3.3] Extraction complete: {len(messages)} messages",
-        status=ProgressStatus.RUNNING,
-        substeps=substeps
-    )
-
-    # ------------- 3.4: Run Agent Loop -------------
-    # Context is built and messages are extracted — the model actually starts
-    # running here. This is the honest "entered the agent loop" marker, a
-    # phase distinct from context assembly above (see PHASE_RUN_AGENT_STEP).
     substeps.append("[3.4] ⏳ Agent Loop running...")
 
     yield ProgressMessage(

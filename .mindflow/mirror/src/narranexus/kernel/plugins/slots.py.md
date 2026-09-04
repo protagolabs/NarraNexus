@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/kernel/plugins/slots.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `turn.profiles`、`agent.capabilities.context_providers`；`turn.pipeline.act` 改 many
+
+阶段位放的是**命名的策略**（profile 点名其一），所以 act 与六个由 `builtin.turn` 声明的兄弟位一样是 many。
 
 ## 2026-09-03（批 2a）— 平台服务与内容位
 

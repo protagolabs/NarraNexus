@@ -164,6 +164,7 @@ class ContextRuntime:
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
         created_job_ids: Optional[List[str]] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
+        context_providers: tuple = (),
     ) -> ContextRuntimeOutput:
         logger.info("    ┌─ ContextRuntime.run() started")
         logger.info(f"    │ Narratives: {len(narrative_list)}, Instances: {len(active_instances)}")
@@ -230,6 +231,14 @@ class ContextRuntime:
             ctx_data=ctx_data,
         )
         logger.info(f"    │ ✅ System Prompt built: {len(system_prompt)} characters")
+        if context_providers:
+            # contextProviders (L2 capabilities, Assemble only): stable sections
+            # first, volatile ones after, in registry order; an empty string
+            # says nothing, a raising provider costs a warning, not the turn.
+            extra = await self._context_provider_sections(context_providers, ctx_data)
+            if extra:
+                system_prompt = system_prompt + "\n\n" + extra
+                logger.info(f"    │ ✅ {len(context_providers)} context provider(s) appended {len(extra)} characters")
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
@@ -249,6 +258,25 @@ class ContextRuntime:
             ctx_data=ctx_data,
         )
 
+
+    @staticmethod
+    async def _context_provider_sections(providers: tuple, ctx_data: ContextData) -> str:
+        stable: list[str] = []
+        volatile: list[str] = []
+        for provider in providers:
+            name = getattr(provider, "name", type(provider).__name__)
+            for method, bucket in (("contribute_instructions", stable), ("contribute_turn_context", volatile)):
+                fn = getattr(provider, method, None)
+                if fn is None:
+                    continue
+                try:
+                    text = await fn(ctx_data)
+                except Exception as exc:  # noqa: BLE001 — one provider must not cost the turn
+                    logger.warning(f"          context provider {name!r}.{method} failed: {exc}")
+                    continue
+                if text and text.strip():
+                    bucket.append(f"## {name}\n{text.strip()}")
+        return "\n\n".join(stable + volatile)
 
     async def build_module_instructions(
         self,

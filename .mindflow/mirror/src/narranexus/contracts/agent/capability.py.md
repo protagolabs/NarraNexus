@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/contracts/agent/capability.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `ContextProvider` Protocol
+
+`agent.capabilities.context_providers` 位的契约：`name`、`context_cost_hint`、可选 `contribute_instructions`/
+`contribute_turn_context`。
 
 ## 2026-09-03 — 能力 = 阶段参与集合 + 元数据（五级一个契约）
 

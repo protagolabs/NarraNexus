@@ -142,11 +142,11 @@ def test_provider_of_a_composite_may_declare_its_children():
 
 def test_redeclares_must_be_under_a_provided_composite_slot():
     tree = _tree()
-    data = _base(provides={"turn.pipeline.act": "backend.act:Strategy"}, redeclares=["turn.pipeline.act.framework"])
+    data = _base(provides={"turn.pipeline": "backend.turn:Pipeline"}, redeclares=["turn.pipeline.act.framework"])
     m = parse_manifest(data, tree=tree)
     assert m.redeclares == ("turn.pipeline.act.framework",)
     with pytest.raises(ManifestError, match="not a known slot"):
-        parse_manifest(_base(provides={"turn.pipeline.act": "backend.act:Strategy"}, redeclares=["turn.pipeline.act.nope"]), tree=tree)
+        parse_manifest(_base(provides={"turn.pipeline": "backend.turn:Pipeline"}, redeclares=["turn.pipeline.act.nope"]), tree=tree)
 
 
 def test_load_manifest_from_disk_reports_unreadable_or_bad_json(tmp_path):

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— `run(..., context_providers=())`
+
+contextProviders（只在 Assemble 发言的 L2 能力）：稳定段 `contribute_instructions` 在前、易变段
+`contribute_turn_context` 在后，按注册序追加到系统提示末尾（`## <name>` 小节）；空串跳过，抛错记 warning。
+空集合时字节不变。
 
 ## 2026-09-03（批 2a.5）— 插件 MCP server 并入工具面；插件工具的 deferred 名单
 

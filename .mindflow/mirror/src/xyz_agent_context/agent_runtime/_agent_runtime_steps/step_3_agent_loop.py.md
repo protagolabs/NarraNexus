@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04（批 3a）— 拆出 `step_3_assemble_context`（3.1–3.3）
+
+Assemble 阶段调用它，结果放 `ctx.assembled`；`step_3_agent_loop` 若已装配则直接消费，否则自己装配
+（直接调用方兼容）。`@timed("step.3_agent_loop")` 仍在 loop 函数上（测试钉住）。
 
 ## 2026-09-03（批 2a.5）— `TurnInput.deferred_tools`
 
