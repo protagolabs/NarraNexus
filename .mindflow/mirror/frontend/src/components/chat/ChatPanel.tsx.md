@@ -78,6 +78,101 @@ turn 已经无框了，它还坐在输入框上方，同一屏两种语域。
 
 `RingAvatar` 随 agent 侧头像一起从本文件退出。
 
+## 2026-08-27 (3) — Activity Log 是只读页:整块 composer footer 按 tab 摘掉
+
+**症状**:点进 Activity Log,下方还挂着 chat 输入框 —— 它是一个**独立的功能
+页**(看 agent 自己发起的 run:job / channel / 队友),没有「回信」这条通道,
+输入框在那儿就是个假承诺。
+
+**改法**:`{!isActivityTab && ( … )}` 包住 `border-t` 那整块 footer,而**不是**
+只藏 textarea。跟着一起消失的都是「对话专属」的东西,少摘一样就是不一致:
+
+- `<Composer>` + 发送/Stop 键(steerable 时那颗 steer 键)
+- attach(+)/`<AudioRecorder>`/隐私提示/`ComposerFastToggle`/`ComposerModelBadge`
+- `transcriptionNotice`、pendingAttachments 预览行
+- **`<ProcessPanel>`**(原本挂在 composer 上方,**没**带 tab 维度)—— 它描述的
+  是 owner↔agent 这一轮的流程;而直播回复块本来就已经 `chatTab ===
+  'conversation'` 门控过了,两者现在口径一致。
+
+**顺带修的真 bug(铁律 #8 扫边)**:`handleDragOver` / `handleDrop` 挂在 **Card
+根**(用户会往整个面板拖文件),footer 藏了它们照样收 —— 会在 Activity Log 上
+静默上传并塞进 `pendingAttachments`,而**唯一能显示 chip 的预览行已经不渲染
+了**:文件进了后端、界面一点痕迹没有。两个 handler 都加 `|| isActivityTab`
+提前 return(`handleDragOver` 要在 `preventDefault` **之前** bail,否则浏览器
+以为这里能放)。`handlePaste` 只挂在 textarea 上,textarea 不存在即失效,不用改。
+
+**`isActivityTab` 的声明位置上移**到 `chatTab` state 旁边(不再和下面的零态
+块放一起)—— 附件入口 handler(~L755)比零态块(~L910)早,拿不到原来的定义。
+
+**草稿不会丢**:`<Composer>` 卸载时把文本 flush 进 per-agent 草稿 store,重挂
+时恢复(见 [[Composer.tsx]]),所以「打了一半 → 切去 Activity Log → 切回来」
+文本还在。
+
+`bootstrapGreetingPending` 仍然**刻意不带 tab 维度**(见下面同日条):虽然现在
+已经不可能从 Activity Log 发出第一条消息,但那是**渲染**条件收窄的结果,写入
+条件不该跟着 UI 门控走。
+
+测试:`chatPanelActivityTabComposer.test.tsx` —— 对话 tab 有 textbox/发送键/
+attach 键、切 Activity Log 三者全无、再切回来又有;拖文件在对话 tab 会调
+`uploadAttachment`(基线,证明 drop 真的到了 handler),在 Activity Log 上不调。
+
+## 2026-08-27 (2) — 头部瘦身的连带清理:sessionLabel / AgentLlmConfigPanel
+
+[[ChatHeader]] 的身份块改成 Profile 入口后,本文件三处状态成了死代码,
+一并删掉(留着就是下一个人照抄的样板):
+
+- `sessionLabel` 的 `useMemo`(以及 `formatChatTimestamp` import)——
+  头部不再画那条 mono 侧标。
+- `agentCfgOpen` / `modelReloadKey` 两个 state 与页面底部挂的
+  `<AgentLlmConfigPanel>`——「Model & framework」面板现在**只从
+  [[../../pages/AgentProfilePage]] 的 Settings tab 打开**,本页不再是
+  它的宿主。
+- `<ComposerModelBadge reloadKey>` 随之退化为 `<ComposerModelBadge>`:
+  没有宿主面板在旁边保存,就没有需要 bump 的重读信号
+  (见 [[ComposerModelBadge]] 同日条)。
+
+composer 上的 model chip 仍是快速切模型的入口,不受影响。
+
+## 2026-08-27 — 零态按 tab 分家（修「Activity Log 空时点了没反应」）
+
+**症状**:agent 的 activity 流为空时,点 Activity Log 那颗按钮像是死键 ——
+画面和「对话」tab 一模一样,用户到不了那个(本来就该空的)Activity Log。
+
+**根因**:零态判定用的是 `historyLoaded && historyMessages.length === 0 &&
+messages.length === 0`,**不带 tab 维度**,而它挂的两个界面
+([[OnboardingJourney]] 的「<Agent> is ready」卡、bootstrap 问候气泡)都是
+**对话专属**的。于是:
+
+* 新 agent(两条流都空)→ 切到 Activity Log 照样画同一张 onboarding 卡 =
+  按钮「点了没反应」;
+* 有对话、activity 空 → `messages`(session 里的**对话**消息)非空,把零态
+  整个压掉,Activity Log 变成一片没有任何说明的空白。
+
+**修法**:零态改成按 tab 算,且键在 `visibleTimeline`(这个 tab **真正渲染
+的行**),而不是「原始流 + session」这对量:
+`tabIsEmpty = historyLoaded && visibleTimeline.length === 0`;
+`showBootstrapGreeting` / `showEmptyState` 前面加 `!isActivityTab`;新增
+`showActivityEmptyState` → `chat.activityEmpty` / `chat.activityEmptyHint`
+的 [[bracket|BracketEmptyState]](10 个 locale 全补)。
+
+`bootstrapGreetingPending`(`isBootstrap && loadedByStream.chat &&
+historyByStream.chat.length === 0 && messages.length === 0`)**刻意不带
+tab 维度**并单独留一个名字:`handleSubmit` 首次发送时靠它把问候语折进
+session,而用户完全可能停在 Activity Log tab 上发出第一条消息 —— 渲染条件
+可以按 tab 收窄,这条写入条件不能。
+
+顺带(铁律 #8 扫边):同一块 JSX 里「无 agent」的空态硬编码英文
+`label="Select an agent"`,而 `chat.selectAgent` / `chat.selectAgentHint`
+十个 locale 早就备好了 —— 改回走 i18n。
+
+## 2026-08-26 — 两处 `<MessageBubble agentName={...} />` 删除
+
+[[MessageBubble.tsx]] 移植 `40d353e1` 的「answer 无气泡」改动后 assistant 侧不再渲染头像，
+`agentName` prop 整个从 `MessageBubbleProps` 消失。ChatPanel 里 bootstrap 问候气泡和
+timeline 里真实消息气泡两处 `agentName={currentAgent?.name || agentId}` 随之删除
+（`agentId` 仍保留 — event-log 拉取还要用）。**推翻**下面 2026-08-20 那条「bootstrap 气泡补
+agentName 修 AI 头像」的前提：头像本体已经不存在了，这条修复记录仅作历史存档。
+
 ## 2026-08-24 — 运行中发送=折进本轮(steer)
 
 `handleSubmit` 不再硬挡 `isLoading`:运行中且 `currentSteerable` 且有文本时,`wsManager.steer` 折进本轮(**return,绝不落到 fresh-run `run(...)`**);非 steerable(或空文本)运行中→no-op(草稿留着,跑完再发)。`clientMsgId` 用 `generateId()`(**不用 `crypto.randomUUID`**——非 secure context http://<ip> 下 undefined 会抛)。`isLoading` 非 loading 时行为逐字不变(仍走 addUserMessage+startStreaming+run)。

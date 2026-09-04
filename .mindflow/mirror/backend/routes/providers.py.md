@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-08-28
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
+
+`/slots/override-stats` 上方那段注释在删 `/slots/agents-overview` 后断了句（后半句还在说
+已删的 Dashboard chip）。重写为：这两个端点只回答「多少 agent 覆盖」与「清除覆盖」，
+目录的框架 / 模型列归 `/api/auth/agents`。
+
+## 2026-09-03 (评审修订) — 删 `/slots/agents-overview`；provider 卡带 `auto_provisioned`
+
+- 目录表改由 `/api/auth/agents` 经同一个 service 投影后，这个端点没有任何前端调用者
+  （评审 I6，铁律 #2 不留兼容壳），连同它的两条路由测试删除；service 方法保留并多了
+  `agent_framework`。
+- `_config_to_response` 给每张卡打 `auto_provisioned`（评审 I7）：取自 free-tier 与
+  netmind provisioner 自己的 source 常量，放在写入方旁边。首程门禁读这个标记，不再在
+  前端维护一份「哪些 source 是 login 自动开的」。已知碰撞：用户自己粘贴的 NetMind key
+  也是 `netmind`，代价是多走一次首程流程。
 
 ## 2026-08-28 — agent-framework 端点接入插件安装状态（fail-closed）
 

@@ -126,6 +126,16 @@ export function JobExpandedDetail({
       className="mt-4 space-y-3 text-xs animate-fade-in"
       onClick={(e) => e.stopPropagation()}
     >
+      {/* 0. Description — moved here from the collapsed row (2026-08-27
+          density rebuild). In the row it was clamped to one line and
+          truncated to a fragment ("Once a day, drop by with a fresh topic.
+          Pause or…"); here it has room to be the sentence the agent wrote. */}
+      {job.description && (
+        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
+          {job.description}
+        </p>
+      )}
+
       {/* 1. IDs & Metadata */}
       <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
         <SectionLabel>{t('jobs.expanded.ids')}</SectionLabel>

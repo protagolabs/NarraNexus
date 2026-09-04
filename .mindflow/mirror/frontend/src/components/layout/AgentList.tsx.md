@@ -11,6 +11,26 @@ stub: false
 逻辑整体搬到 [[../chat/team/TeamManagePanel.tsx]](调用)+ [[../chat/team/TeamChatPanel.tsx]]
 的 `handleCleared`(刷新)。agent 行的清理不受影响。
 
+## 2026-08-27 — agent 行的所有 mutation 搬走,本文件只剩编排
+
+Owner 要求去掉侧边栏 chat 行的 ⋮。连锁结果:`handleStartEdit` /
+`handleEditAgent` / `doEditAgent` / `handleSaveEdit` / `handleCancelEdit` /
+`handleDeleteAgent` / `handleClearData` / `doClearData` /
+`handleTogglePublic` 全部没有调用点,一并删除;`ClearAgentDataDialog` 的
+宿主移交 [[../../pages/AgentProfilePage.tsx]],`EditAgentDialog` 整个组件
+连同测试删除(它唯一的入口就是那个 kebab,而名称 + 描述编辑在 profile 页
+Settings tab 已有完整归宿)。`SHOW_AGENT_PUBLIC_TOGGLE` 这个 flag 也跟着
+删掉——它唯一的作用是控制 kebab 里那个 Globe/Lock 项;后端接口没动,真要
+重开 public 功能是在 profile 页重新接一次,不是翻这个 flag。
+
+**08-19 那条"改名的两个成功但你得知道"没有被丢掉**:
+`warnAboutUpdateSideEffects` 搬到了 profile 页(改名后 `res.name_clash_with`
+/ `identity_record_updated === false` 仍然会弹),i18n key 从
+`layout.editAgentDialog.rename*` 重命名为 `layout.agentRename.*`,10 个语言
+文件同步。删掉入口时把它带走的静默回归,是这次唯一必须防的东西。
+
+TEAMS 行的 [[TeamRowMenu.tsx]] ⋮ **保留**:team 没有 profile 页,那几个
+操作没有别处可去。
 
 ## 2026-08-19 — 改名的两个"成功但你得知道"报给用户了
 

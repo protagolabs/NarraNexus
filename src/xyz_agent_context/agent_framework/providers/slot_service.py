@@ -32,6 +32,10 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
     framework_allowed_in_cloud,
 )
+from xyz_agent_context.agent_framework.providers.model_identity import (
+    effective_agent_slot,
+    framework_of,
+)
 from xyz_agent_context.agent_framework.providers.user_service import (
     validate_slot_binding,
 )
@@ -230,6 +234,25 @@ class AgentSlotService:
         )
         return [r["agent_id"] for r in rows or [] if r and r.get("agent_id")]
 
+    async def _slot_rows_by_agent(self, agent_ids: list[str]) -> Dict[str, list[dict]]:
+        """All ``agent_slots`` rows for these agents, grouped by agent — ONE
+        ``IN (...)`` query. ``get_by_ids`` cannot serve this: it builds an
+        id → single-row map, and an agent has one row per slot."""
+        out: Dict[str, list[dict]] = {aid: [] for aid in agent_ids}
+        if not agent_ids:
+            return out
+        placeholders = ",".join(["%s"] * len(agent_ids))
+        rows = await self.db.execute(
+            "SELECT agent_id, slot_name, provider_id, model, agent_framework "
+            f"FROM agent_slots WHERE agent_id IN ({placeholders})",
+            tuple(agent_ids),
+        )
+        for r in rows or []:
+            aid = r.get("agent_id")
+            if aid in out:
+                out[aid].append(r)
+        return out
+
     async def count_owner_overrides(self, owner_id: str) -> Dict[str, int]:
         """Per-slot count of how many of ``owner_id``'s agents hold an
         *effective* override (a row whose provider_id is set), plus the owner's
@@ -237,14 +260,13 @@ class AgentSlotService:
 
         Returns ``{<slot>: N for each SlotName, "total_agents": T}`` — used by
         the Model-Defaults confirm dialog to show the blast radius before a
-        bulk apply. DB cost is 1 (agents) + N (one agent_slots read per owned
-        agent); it is not a single query.
+        bulk apply. DB cost is 1 (agents) + 1 (agent_slots IN-query).
         """
         agent_ids = await self._owner_agent_ids(owner_id)
         per_slot: Dict[str, int] = {s.value: 0 for s in SlotName}
-        for aid in agent_ids:
-            rows = await self.db.get("agent_slots", {"agent_id": aid})
-            for r in rows or []:
+        by_agent = await self._slot_rows_by_agent(agent_ids)
+        for rows in by_agent.values():
+            for r in rows:
                 slot = r.get("slot_name")
                 if slot in per_slot and _is_effective_override(r):
                     per_slot[slot] += 1
@@ -318,38 +340,60 @@ class AgentSlotService:
             cleared += 1
         return cleared
 
-    async def owner_agents_overview(self, owner_id: str) -> Dict[str, dict]:
+    async def owner_agents_overview(
+        self, owner_id: str, agent_ids: Optional[list[str]] = None
+    ) -> Dict[str, dict]:
         """Effective (agent + helper_llm) model per owned agent.
 
-        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool},
-        "helper_llm": {...}}}``. ``inheriting`` is True when the agent has no
-        *effective* override row for that slot (no row, or a stub with empty
-        provider_id) and falls back to the owner default — matching the
-        runtime resolver and the per-agent llm-config endpoint.
+        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool,
+        "agent_framework": str}, "helper_llm": {"model": str, "inheriting":
+        bool}}}``. ``inheriting`` is True when the agent has no *effective*
+        override row for that slot (no row, or a stub with empty provider_id)
+        and falls back to the owner default — matching the runtime resolver
+        and the per-agent llm-config endpoint.
 
-        Serves the Dashboard chip via ONE HTTP call instead of a per-agent
-        llm-config request; the DB layer is still 1 (agents) + N (one
-        agent_slots read per owned agent), bounded by the owner's agent count.
+        ``agent_framework`` follows the identity overlay
+        (``model_identity.effective_agent_slot``): an override supplies the
+        framework only when it rebinds the slot with BOTH a provider and a
+        framework; otherwise the owner's ``user_slots`` row does, and a
+        missing/null column reads as the platform default. This is the same
+        rule the driver dispatch and the system prompt use, so the directory
+        can never show a brand the agent is not running.
+
+        ``agent_ids`` narrows the result to those agents — but ownership is
+        ALWAYS re-checked against ``agents.created_by`` here, never trusted
+        from the caller: a caller passing someone else's public agent must
+        not get that agent's configuration projected. That is the privacy
+        boundary ``GET /api/auth/agents`` relies on.
+
+        Feeds ``GET /api/auth/agents`` (the agents directory + the profile
+        page), one of the hottest routes in the app, so the cost is flat:
+        1 (user_slots) + 1 (agents, owner-scoped) + 1 (agent_slots IN-query),
+        whatever the owner's agent count.
         """
+        owned = await self._owner_agent_ids(owner_id)
+        if agent_ids is not None:
+            wanted = set(agent_ids)
+            owned = [aid for aid in owned if aid in wanted]
         owner_rows = await self.db.get("user_slots", {"user_id": owner_id})
-        owner_default = {
-            r.get("slot_name"): (r.get("model") or "")
-            for r in owner_rows or []
-        }
+        owner_by_slot = {r.get("slot_name"): r for r in owner_rows or []}
+        by_agent = await self._slot_rows_by_agent(owned)
         out: Dict[str, dict] = {}
-        for aid in await self._owner_agent_ids(owner_id):
-            override_rows = await self.db.get("agent_slots", {"agent_id": aid})
-            override_by_slot = {
-                r.get("slot_name"): (r.get("model") or "")
-                for r in override_rows or []
-                if _is_effective_override(r)
-            }
+        for aid in owned:
+            override_by_slot = {r.get("slot_name"): r for r in by_agent.get(aid, [])}
             slots_view: Dict[str, dict] = {}
             for slot in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
-                if slot in override_by_slot:
-                    slots_view[slot] = {"model": override_by_slot[slot], "inheriting": False}
+                override = override_by_slot.get(slot)
+                owner_default = owner_by_slot.get(slot)
+                if _is_effective_override(override):
+                    view = {"model": (override or {}).get("model") or "", "inheriting": False}
                 else:
-                    slots_view[slot] = {"model": owner_default.get(slot, ""), "inheriting": True}
+                    view = {"model": (owner_default or {}).get("model") or "", "inheriting": True}
+                if slot == SlotName.AGENT.value:
+                    view["agent_framework"] = framework_of(
+                        effective_agent_slot(override, owner_default)
+                    )
+                slots_view[slot] = view
             out[aid] = slots_view
         return out
 

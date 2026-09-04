@@ -40,12 +40,25 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/stores/dashboardStore', () => ({ useDashboardStore }));
 
 vi.mock('@/stores', () => ({
-  useConfigStore: () => ({ agents: [], refreshAgents: vi.fn().mockResolvedValue(undefined) }),
+  useConfigStore: () => ({
+    agents: [],
+    refreshAgents: vi.fn().mockResolvedValue(undefined),
+    userId: 'u_1',
+    displayName: 'Tester',
+    setAgentId: vi.fn(),
+  }),
   useTeamsStore: () => ({
     teams: [],
     refresh: vi.fn().mockResolvedValue(undefined),
     addMember: vi.fn(),
     removeMember: vi.fn(),
+    updateTeam: vi.fn(),
+    deleteTeam: vi.fn(),
+  }),
+  useChatStore: () => ({
+    setActiveAgent: vi.fn(),
+    requestHistoryRefresh: vi.fn(),
+    requestWorkspaceRefresh: vi.fn(),
   }),
 }));
 vi.mock('@/hooks', () => ({ useCreateAgent: () => ({ creating: false, createAgent }) }));
@@ -53,7 +66,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: [] }),
     deleteAgent: vi.fn(),
-    getAgentsModelOverview: vi.fn().mockResolvedValue({ success: true, data: { agents: {} } }),
+
     getAgentLlmConfig: vi.fn().mockResolvedValue({ success: true, data: { slots: {} } }),
   },
 }));

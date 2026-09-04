@@ -1,9 +1,19 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-07-30
+last_verified: 2026-08-27
 stub: false
 ---
 
+## 2026-08-27 — 只改了两行注释,但契约本身是这次修的重点
+
+本文件里「所有 6 个 live 状态 / 5 个非 running 状态」的说法早就过时了——实际发的是
+九个和八个。注释已改成不带数字的写法,免得下次加状态时又留下一个说谎的数字。
+
+真正的修复在 [[_schema.py]]:这里发的 `cooling` / `paused_no_quota` /
+`blocked_failed` 和 `next_run_at` / `next_run_timezone` 之前根本过不了
+`response_model=DashboardResponse` 的校验(直接 500)。**本文件是"发什么"的真相源,
+_schema.py 必须跟着它走,不是反过来**——加状态时先改这里,再去 _schema.py 放宽
+Literal,否则接口会在下一个 job 进入新状态时炸掉。
 # backend/routes/dashboard/routes.py — Intent
 
 ## 为什么存在

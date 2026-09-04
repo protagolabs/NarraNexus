@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/providersApi.ts
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `ProviderRow.auto_provisioned`
+
+后端标记「login 替用户开的卡」；[[onboardingGate.ts]] 唯一消费者。
 
 # providersApi.ts — providers 族的共享类型/映射 + ProviderSettings 的 legacy 裸 fetch
 

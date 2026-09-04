@@ -5,19 +5,16 @@
  * @description: Renders one collapsible team section inside the grouped
  * agent list. Owns the section header (team name, member count, collapse
  * toggle, aggregated unread pill) and the agent rows beneath it.
- * Agent row markup is shared logic with AgentList's expanded rendering;
- * the inline rename state is passed down so AgentList owns all mutations.
+ * Rows are display-only — every agent mutation now lives on the agent
+ * profile page, so the row carries no per-row action affordance.
  */
 
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Check, X, Globe, ChevronRight } from 'lucide-react';
+import { Loader2, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
-import { AgentRowMenu } from './AgentRowMenu';
 import { aggregateSectionUnread } from './agentGroupUtils';
 import { cn } from '@/lib/utils';
-import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,25 +53,9 @@ export interface AgentGroupSectionProps {
   getIsStreaming: (agentId: string) => boolean;
   completedAgentIds: string[];
 
-  /** Logged-in user — rows derive isOwner from agent.created_by. */
+  /** Logged-in user — the read-only Globe badge marks OTHER users' public
+   *  agents, so the row still needs to know who is looking. */
   currentUserId: string | null;
-  /** Threaded from AgentList's SHOW_AGENT_PUBLIC_TOGGLE feature flag. */
-  showPublicToggle: boolean;
-
-  // Inline rename state — owned by AgentList, threaded down here.
-  editingAgentId: string | null;
-  editingName: string;
-  onEditNameChange: (name: string) => void;
-  onSaveEdit: (targetAgentId: string, e: React.SyntheticEvent) => void;
-  onCancelEdit: (e: React.SyntheticEvent) => void;
-  savingName: boolean;
-
-  onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
-  deletingAgentId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,19 +87,6 @@ export function AgentGroupSection({
   getIsStreaming,
   completedAgentIds,
   currentUserId,
-  showPublicToggle,
-  editingAgentId,
-  editingName,
-  onEditNameChange,
-  onSaveEdit,
-  onCancelEdit,
-  savingName,
-  onStartEdit,
-  onEditAgent,
-  onClearData,
-  onDelete,
-  onTogglePublic,
-  deletingAgentId,
 }: AgentGroupSectionProps) {
   const totalUnread = aggregateSectionUnread(agents, (aid) => getRowMeta(aid).unread);
 
@@ -221,20 +189,7 @@ export function AgentGroupSection({
               getIsStreaming={getIsStreaming}
               completedAgentIds={completedAgentIds}
               currentUserId={currentUserId}
-              showPublicToggle={showPublicToggle}
-              editingAgentId={editingAgentId}
-              editingName={editingName}
-              onEditNameChange={onEditNameChange}
-              onSaveEdit={onSaveEdit}
-              onCancelEdit={onCancelEdit}
-              savingName={savingName}
               onSelectAgent={onSelectAgent}
-              onStartEdit={onStartEdit}
-              onEditAgent={onEditAgent}
-              onClearData={onClearData}
-              onDelete={onDelete}
-              onTogglePublic={onTogglePublic}
-              deletingAgentId={deletingAgentId}
             />
           ))}
         </div>
@@ -255,20 +210,7 @@ interface AgentRowProps {
   getIsStreaming: (aid: string) => boolean;
   completedAgentIds: string[];
   currentUserId: string | null;
-  showPublicToggle: boolean;
-  editingAgentId: string | null;
-  editingName: string;
-  onEditNameChange: (name: string) => void;
-  onSaveEdit: (targetAgentId: string, e: React.SyntheticEvent) => void;
-  onCancelEdit: (e: React.SyntheticEvent) => void;
-  savingName: boolean;
   onSelectAgent: (agentId: string) => void;
-  onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
-  deletingAgentId: string | null;
 }
 
 /** Single agent row — mirrors the AgentList row but scoped to the group context. */
@@ -280,20 +222,7 @@ function AgentRow({
   getIsStreaming,
   completedAgentIds,
   currentUserId,
-  showPublicToggle,
-  editingAgentId,
-  editingName,
-  onEditNameChange,
-  onSaveEdit,
-  onCancelEdit,
-  savingName,
   onSelectAgent,
-  onStartEdit,
-  onEditAgent,
-  onClearData,
-  onDelete,
-  onTogglePublic,
-  deletingAgentId,
 }: AgentRowProps) {
   const { t } = useTranslation();
   const isSelected = activeAgentId === agent.agent_id;
@@ -311,9 +240,7 @@ function AgentRow({
       : 'transparent';
   const allowHover = !isSelected && unread === 0;
 
-  const isEditing = editingAgentId === agent.agent_id;
   const isOwner = agent.created_by === currentUserId;
-  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div
@@ -324,10 +251,6 @@ function AgentRow({
         // so the selected-row background reads consistently with the messages.
         'rounded-[var(--radius-lg)] transition-colors duration-150',
         'group',
-        // animate-slide-up retains a transform (fill: forwards), making
-        // every row a stacking context — lift the row while its kebab
-        // panel is open so the panel paints above the rows below.
-        menuOpen && 'relative z-30',
       )}
       style={{
         animationDelay: `${index * 50}ms`,
@@ -359,112 +282,55 @@ function AgentRow({
           )}
         </div>
 
-        {/* Right side */}
+        {/* Right side — single line: name … unread + time. The row is
+            display-only; rename / clear / delete live on the agent profile
+            page (Owner ruling 2026-08-27). */}
         <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="text"
-                value={editingName}
-                onChange={(e) => onEditNameChange(e.target.value)}
-                maxLength={AGENT_TEXT_MAX_LENGTH}
-                className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onSaveEdit(agent.agent_id, e);
-                  if (e.key === 'Escape') onCancelEdit(e);
-                }}
-              />
-              <button
-                onClick={(e) => onSaveEdit(agent.agent_id, e)}
-                disabled={savingName}
-                className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title={t('layout.agentRow.saveTitle')}
-              >
-                <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
-              </button>
-              <button
-                onClick={onCancelEdit}
-                className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title={t('layout.agentRow.cancelTitle')}
-              >
-                <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
-              </button>
-            </div>
-          ) : (
-            /* Single line: name + kebab(hover, next to name) … unread + time */
-            <div className="flex items-center gap-1">
-              <span
-                className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
-                style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
-              >
-                {displayName}
+          <div className="flex items-center gap-1">
+            <span
+              className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
+              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
+            >
+              {displayName}
+            </span>
+            {agent.is_public && !isOwner && (
+              <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
+                <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
               </span>
-              {agent.is_public && !isOwner && (
-                <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
-                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-                </span>
-              )}
+            )}
 
-              {/* Trailing meta — pushed to the right edge */}
-              <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
-                {unread > 0 && (
-                  <span
-                    className="inline-flex items-center justify-center text-[10px] font-semibold"
-                    style={{
-                      minWidth: 18,
-                      height: 16,
-                      padding: '0 5px',
-                      borderRadius: 8,
-                      background: 'transparent',
-                      border: '1px solid var(--nm-ink30)',
-                      color: 'var(--nm-ink70)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                )}
+            {/* Trailing meta — pushed to the right edge */}
+            <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
+              {unread > 0 && (
                 <span
-                  className="text-[10px]"
+                  className="inline-flex items-center justify-center text-[10px] font-semibold"
                   style={{
-                    color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
-                    fontWeight: unread > 0 ? 500 : 400,
+                    minWidth: 18,
+                    height: 16,
+                    padding: '0 5px',
+                    borderRadius: 8,
+                    background: 'transparent',
+                    border: '1px solid var(--nm-ink30)',
+                    color: 'var(--nm-ink70)',
                     fontFamily: 'var(--font-mono)',
-                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {time}
+                  {unread > 99 ? '99+' : unread}
                 </span>
-                {/* Kebab pinned at the row's right edge (after the meta) so
-                    its position never depends on the name's length. Opacity
-                    keeps the slot reserved — the timestamp doesn't shift on
-                    hover. Owner request 2026-08-11. */}
-                <div
-                  className={cn(
-                    'shrink-0',
-                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                    'transition-opacity duration-150',
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <AgentRowMenu
-                    agentId={agent.agent_id}
-                    agentName={displayName}
-                    onOpenChange={setMenuOpen}
-                    isOwner={isOwner}
-                    isPublic={!!agent.is_public}
-                    showPublicToggle={showPublicToggle}
-                    onStartEdit={(e) => onStartEdit(agent, e)}
-                    onEditAgent={(e) => onEditAgent(agent, e)}
-                    onClearData={(e) => onClearData(agent, e)}
-                    onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
-                    onTogglePublic={(e) => onTogglePublic(agent, e)}
-                  />
-                </div>
-              </div>
+              )}
+              <span
+                className="text-[10px]"
+                style={{
+                  color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
+                  fontWeight: unread > 0 ? 500 : 400,
+                  fontFamily: 'var(--font-mono)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {time}
+              </span>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

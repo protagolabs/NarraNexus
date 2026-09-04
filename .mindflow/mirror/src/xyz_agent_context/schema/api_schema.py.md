@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `BoundChannel` + `AgentInfo.bound_channels` 改为对象列表
+
+`{channel, active}`：active=False 是「配置了但开关关着」。`agent_framework` / `model`
+的注释改为实情——只为调用者自己的 agent 解析，别人的公开 agent 为 None。
 
 ## 2026-08-30 — `EventLogTimelineEntry.monologue: Optional[bool] = None`
 
@@ -20,6 +25,24 @@ thinking / tool_call / tool_output / native_output 的**联合形状**，其余
 档位在 [[chat_history_timeline]] 判定（子集 == 并集才算独白，混档回落 False），
 这里只是承载。
 
+## 2026-08-27 — `AgentInfo` 加了三个目录字段
+
+`agent_framework` / `model` / `bound_channels`,给 Dashboard 智能体目录的
+Framework / Model / Channels 三列供数,由 [[../../../../backend/routes/auth.py]]
+的 `/api/auth/agents` 批量投影(不是每行一次 `/llm-config`)。
+
+- `agent_framework` / `model` 是**生效值**,不是原始配置:per-agent 覆盖优先于
+  owner 的默认。`None` 表示这个 agent 没有任何 slot 配置。
+- `bound_channels` 用 `Field(default_factory=list)` 而不是 `= []`——可变默认值在
+  Pydantic 里虽然会被拷贝,但显式 factory 是本仓库的写法,别改回裸列表。
+  **语义是"绑过",不是"当前可用"**:凭证行存在即计入,禁用状态也算。别拿它当
+  健康检查用。
+- 别人拥有的公开 agent 永远是空列表(后端只对 owner 自己的 agent 查渠道表)。
+  前端不要把"空列表"理解成"这个 agent 没接渠道"。
+
+TS 侧的 `AgentInfo`([[../../../../frontend/src/types/api.ts]])是手工复刻,加字段
+两边都要动;那边 `bound_channels` 是**必填**,故意的——逼每个构造 AgentInfo 的地方
+(mock fixtures、useCreateAgent 的乐观行)显式想一下这个值。
 ## 2026-08-18 — `UpdateAgentResponse` 多两个字段
 
 改名事务（[[_overview]]）算出来的两件事，原来到了 HTTP 层就被丢掉：
@@ -213,3 +236,12 @@ bool = False`：登录/建号响应回显服务端 onboarding 引导 Agent 供�
 coachmark 以它为门——没有这个回显，拉下服务端 kill-switch 后 UI 仍会向
 100% 新注册承诺一个永远不出现的 Agent（唯一的关停手段变成发前端版本）。
 默认 False 保证老后端/测试构造不受影响。
+
+## 2026-08-27 — landing_completed
+
+`OnboardingProgress` gained `landing_completed` (and `UpdateOnboardingRequest`
+the matching optional): the one-time first-run flow (frontend `WelcomePage`) has
+been seen — finished OR skipped, both count. It lives with the other write-once
+flags inside `users.metadata`, so no column changed. Server-side rather than
+localStorage on purpose: a user logging in from another browser or machine must
+not be walked through a newcomer flow again.

@@ -11,8 +11,11 @@
  *   └─────────────────────────────────────────┘
  *   • click a provider card → detail modal (models, masked key, endpoint,
  *     Test / Edit / Delete)
- *   • "+ Add provider" card → add modal with 3 methods: OAuth sign-in
- *     (Claude Code / Codex CLI), one-key preset, custom endpoint.
+ *   • "+ Add provider" card → add modal with 2 methods: OAuth sign-in
+ *     (Claude Code / Codex CLI) and a custom endpoint. The one-key preset
+ *     is NOT here — first-run (WelcomePage's model step) already puts that
+ *     exact card in front of every user, so a third tab repeating it was a
+ *     duplicate of the path they arrived through.
  *
  * The GLOBAL DEFAULT model/framework does NOT live here anymore — it moved to
  * the "Model Defaults" nav section (ModelDefaultsSettings). Per-agent overrides
@@ -25,7 +28,6 @@ import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Plus, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { OneKeyOnboard } from './OneKeyOnboard'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConfigStore } from '@/stores'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
@@ -47,7 +49,7 @@ import {
 type ProviderSummary = ProviderRow
 
 
-// Preset quick-add moved to the shared OneKeyOnboard component (one-key
+// Preset quick-add lives in the shared OneKeyOnboard component (one-key
 // setup via POST /api/providers/onboard) — the provider list, Get Key
 // URLs, and recommended default models now live there / in
 // model_catalog._ONBOARD_*_MODELS.
@@ -302,10 +304,18 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   // subprocess on local — don't pay that for a closed modal.
   const oauthAllowed = useOauthAllowed(addModalOpen)
   const [detailProviderId, setDetailProviderId] = useState<string | null>(null)
-  // Add-provider modal is a two-step wizard: 'menu' shows the three methods,
-  // then the chosen one fills the modal (with a back link). Avoids the old
-  // "everything stacked at once" wall — especially the custom form.
-  const [addMethod, setAddMethod] = useState<'onekey' | 'oauth' | 'custom'>('onekey')
+  // Two ways to add, not three: the "API key" tab was the same OneKeyOnboard
+  // card first-run already puts in front of every user, so in Settings it was
+  // a duplicate of the path they came through (Owner 2026-09-03). What is left
+  // are the two things one pasted key CANNOT express — a CLI sign-in (OAuth,
+  // no key at all) and a custom endpoint.
+  const [addMethod, setAddMethod] = useState<'oauth' | 'custom'>('oauth')
+  // The default tab CAN disappear now (cloud non-staff lose Sign-in), and the
+  // 'onekey' tab that used to be the safe default is gone. Derive rather than
+  // correct the state in an effect: an unavailable choice falls through to
+  // 'custom' for both the tab highlight and the body, so the modal never opens
+  // on a tab that renders nothing.
+  const effectiveAddMethod = oauthAllowed === false && addMethod === 'oauth' ? 'custom' : addMethod
 
   // ---- Data loading ----
   // The callback lives in a ref so it stays OUT of refreshConfig's deps:
@@ -569,10 +579,10 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
                 </div>
               </button>
             ))}
-            {/* + Add provider card — opens the 3-method add modal. */}
+            {/* + Add provider card — opens the add modal on its first tab. */}
             <button
               type="button"
-              onClick={() => { setAddMethod('onekey'); setAddModalOpen(true) }}
+              onClick={() => { setAddMethod('oauth'); setAddModalOpen(true) }}
               className="flex flex-col items-center justify-center gap-1 p-4 rounded-[var(--radius-xl)] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
             >
               <Plus className="w-5 h-5" />
@@ -584,8 +594,8 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
 
       {/* ================================================================= */}
       {/* ② Add a provider — a modal opened from the "+ Add provider" grid card.
-          Three methods: OAuth sign-in (Claude Code / Codex CLI), the one-key
-          preset, and a custom endpoint. */}
+          Two methods: OAuth sign-in (Claude Code / Codex CLI) and a custom
+          endpoint. The one-key preset is first-run's job, not this modal's. */}
       <Dialog
         isOpen={addModalOpen}
         onClose={() => setAddModalOpen(false)}
@@ -593,25 +603,24 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
         size="2xl"
       >
         <DialogContent>
-          {/* Tabs — three ways to add, switched in place (no wizard menu). */}
+          {/* Tabs — two ways to add, switched in place (no wizard menu). */}
           <div className="flex gap-1 border-b border-[var(--border-subtle)] mb-4">
             {([
-              { id: 'onekey', label: t('settings.provider.tabApiKey') },
-              // Dropped for cloud non-staff (oauthAllowed === false) —
-              // note addMethod defaults to 'onekey', never to a tab that
-              // can disappear.
+              // Dropped for cloud non-staff (oauthAllowed === false) — an
+              // entry point to a gated panel reads as "page broke". With the
+              // tab gone the default falls through to 'custom' above.
               ...(oauthAllowed === false
                 ? []
                 : [{ id: 'oauth', label: t('settings.provider.tabSignin') }]),
               { id: 'custom', label: t('settings.provider.tabCustom') },
-            ] as Array<{ id: 'onekey' | 'oauth' | 'custom'; label: string }>).map((tb) => (
+            ] as Array<{ id: 'oauth' | 'custom'; label: string }>).map((tb) => (
               <button
                 key={tb.id}
                 type="button"
                 onClick={() => setAddMethod(tb.id)}
                 className={cn(
                   'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                  addMethod === tb.id
+                  effectiveAddMethod === tb.id
                     ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
                     : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                 )}
@@ -621,17 +630,14 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
             ))}
           </div>
           <div className="space-y-4">
-          {/* API key — one-key preset dropdown + paste key. */}
-          {addMethod === 'onekey' && <OneKeyOnboard onComplete={refreshConfig} />}
-
-          {addMethod === 'oauth' && (
+          {effectiveAddMethod === 'oauth' && (
             <SubscriptionConnect
               providers={providerList}
               addProvider={addProvider}
             />
           )}
 
-          {addMethod === 'custom' && (
+          {effectiveAddMethod === 'custom' && (
           <div className="space-y-4">
             {/* Step 1: pick the protocol; the fields only appear after that. */}
             <div>

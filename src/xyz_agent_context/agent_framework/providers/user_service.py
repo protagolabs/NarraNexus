@@ -22,6 +22,7 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.providers.model_identity import framework_of
 from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_default_models,
 )
@@ -960,7 +961,7 @@ class UserProviderService:
     async def get_user_agent_framework(self, user_id: str) -> str:
         """Return the user's chosen coding-agent framework.
 
-        Returns ``"nexus_power"`` (platform default) when:
+        Returns ``DEFAULT_AGENT_FRAMEWORK`` (``model_identity``) when:
           - The user has no agent slot row yet (new user)
           - The column is null (rows from before the column was added)
         Anything other than the supported set still returns the raw
@@ -970,9 +971,7 @@ class UserProviderService:
         row = await self.db.get_one(
             "user_slots", {"user_id": user_id, "slot_name": "agent"}
         )
-        if not row:
-            return "nexus_power"
-        return (row.get("agent_framework") or "nexus_power")
+        return framework_of(row)
 
     async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
         """Persist the user's coding-agent framework choice.

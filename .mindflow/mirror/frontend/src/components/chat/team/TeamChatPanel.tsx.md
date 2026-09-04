@@ -17,6 +17,16 @@ messages(下一次 3s 轮询无 since 游标全量重取;`historyRefreshTick` �
 测试:`TeamChatPanel.roster.test.tsx` 「discoverable panel chrome」改断言 manage-toggle、
 `bulletin-toggle` 不存在。
 
+## 2026-09-03 — 共享文件补入口(抽屉标题下拉退役的连带)
+
+抽屉标题不再是切换器([[../../bookmarks/BookmarkDrawer]]),`activeTab /
+onSelectTab / switcherCategories` 三个 props 撤掉。**但 `files` 面板此前
+只有下拉这一条入口**——member bar 只有 `members-toggle` 和 `artifacts-toggle`,
+`TeamWorkspacePanel` 的 `tab='files'` 分支会变成不可达代码,共享文件功能
+静默消失。所以同批新增 `files-toggle`(FolderOpen + `wsFiles.length` 计数,
+与另两枚同款 aria-pressed/可见文字标签,沿用 2026-08-20 的发现性结论)。
+计数从下拉项搬到 toggle 上,「入口必须宣传自己的内容」这条不变。
+roster.test 新增一条用例专门钉这条入口。
 
 ## 2026-08-20 — 面板 chrome 加可见文字标签 + 组长就地指定
 

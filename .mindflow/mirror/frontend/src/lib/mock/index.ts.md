@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-07-20
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — `createAgent` 的返回体补 `bound_channels: []`
+
+纯粹是跟着 `AgentInfo.bound_channels` 变必填走。新建的 agent 本来也没有任何
+渠道绑定,`[]` 就是真值,不是占位符。
 
 # mock/index.ts — 前端 mock API（demo / 离线模式）
 

@@ -37,14 +37,9 @@ import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useCreateAgent, useAgentImported, useDismissOnOutside } from '@/hooks';
-import {
-  useConfigStore,
-  useChatStore,
-  useRuntimeStore,
-  usePreloadStore,
-  useUIStore,
-} from '@/stores';
+import { useConfigStore, useRuntimeStore, useUIStore } from '@/stores';
 import { cn } from '@/lib/utils';
+import { wipeAllSessionData } from '@/lib/sessionWipe';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
@@ -88,15 +83,13 @@ export function Sidebar() {
   // can't false-match.
   const dashboardTab = new URLSearchParams(location.search).get('tab');
 
-  const { userId, displayName, logout } = useConfigStore();
+  const { userId, displayName } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
   // human-readable. Show the NetMind nickname when we have it; fall back to
   // user_id (local mode, where it IS the chosen username).
   const userLabel = displayName || userId;
-  const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
-  const clearPreload = usePreloadStore((s) => s.clearAll);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
   const handleImportApplied = useAgentImported();
   // Import-from-other-source is local-only: the scanner reads the user's
@@ -114,50 +107,6 @@ export function Sidebar() {
   const accountRef = useDismissOnOutside<HTMLDivElement>(accountOpen, () => setAccountOpen(false));
 
   const modeLabel = mode === 'local' ? t('sidebar.local') : t('sidebar.cloud');
-
-  /**
-   * Wipe all session + cached data before leaving the current mode.
-   *
-   * This is deliberately aggressive. We do NOT trust Zustand's persist
-   * middleware to have flushed to localStorage by the time the subsequent
-   * window.location.href reload happens — so we also manually
-   * `removeItem()` every known persisted key. After the reload each store
-   * will re-hydrate from whatever is (or is not) in localStorage, so
-   * removed keys mean default-state stores.
-   *
-   * Keys wiped:
-   *   - narra-nexus-config  → configStore (userId, token, agents, ...)
-   *   - narranexus-runtime  → runtimeStore (mode, cloudApiUrl, ...)
-   *   - lastSeenAwarenessTime:*  → written directly by configStore, not
-   *                                 covered by any store's clearAll
-   */
-  const wipeAllSessionData = () => {
-    // 1. Reset in-memory store state via each store's clearAll/logout.
-    //    This updates the UI immediately and invokes persist middleware
-    //    to sync localStorage (best-effort — we do not rely on it).
-    logout();           // configStore
-    clearChat();        // chatStore
-    clearPreload();     // preloadStore
-
-    // 2. Directly nuke every key in localStorage that could carry
-    //    session state. This is the authoritative clear, independent
-    //    of whatever Zustand persist may or may not have flushed yet.
-    try {
-      localStorage.removeItem('narra-nexus-config');
-      localStorage.removeItem('narranexus-runtime');
-
-      const auxKeys: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('lastSeenAwarenessTime:')) {
-          auxKeys.push(k);
-        }
-      }
-      auxKeys.forEach((k) => localStorage.removeItem(k));
-    } catch {
-      // Safari private mode / other storage exceptions — ignore.
-    }
-  };
 
   const handleSwitchMode = () => {
     wipeAllSessionData();

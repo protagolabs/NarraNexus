@@ -7,11 +7,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('@/stores', () => ({
-  useConfigStore: (sel: (s: unknown) => unknown) =>
-    sel({ agents: [{ agent_id: 'a1', name: 'Analyst' }], setAgentId: vi.fn() }),
-  useChatStore: (sel: (s: unknown) => unknown) => sel({ setActiveAgent: vi.fn() }),
   useUIStore: (sel: (s: unknown) => unknown) =>
     sel({ sidebarCollapsed: false, setSidebarCollapsed: vi.fn(), requestPanel: vi.fn() }),
   useArtifactStore: (sel: (s: unknown) => unknown) => sel({ artifacts: [] }),
@@ -27,17 +25,19 @@ import { ChatHeader } from '../ChatHeader';
 const baseProps = {
   agentId: 'a1',
   agentName: 'Analyst',
-  sessionLabel: '',
   isStreaming: false,
   currentSteps: [],
   chatTab: 'conversation' as const,
   onChatTabChange: vi.fn(),
-  onOpenAgentConfig: vi.fn(),
 };
 
 describe('chat header panel-entry tooltips (#3)', () => {
   it('Jobs / Inbox / Artifacts buttons have accessible labels', () => {
-    render(<ChatHeader {...baseProps} />);
+    render(
+      <MemoryRouter>
+        <ChatHeader {...baseProps} />
+      </MemoryRouter>,
+    );
     expect(screen.getByLabelText('Jobs')).toBeInTheDocument();
     expect(screen.getByLabelText('Inbox')).toBeInTheDocument();
     expect(screen.getByLabelText('Artifacts')).toBeInTheDocument();
