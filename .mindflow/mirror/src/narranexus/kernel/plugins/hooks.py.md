@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a）— `HookImplSpec` + `@hookimpl(name)`
+
+插件在 manifest `backend.hooks` 指向的 `HOOKIMPLS` 里放的是 `HookImplSpec`（hook 名 + 函数 + 三个 flag），
+不是 `HookImpl`：owner 由 loader 从 manifest id 盖章（插件不能替别人实现钩子），accepted 参数由 caller 从
+spec 推导。装饰器形式让声明处一眼看出实现的是哪个钩子。
+
 ## 2026-09-03（预审修订）— `freeze()` 真实存在；失败 wrapper 的生成器被关闭
 
 `HookCaller.freeze()`/`HookRegistry.freeze()` 落地（之前 `_frozen` 字段悬空）：冻结后 `add` 抛

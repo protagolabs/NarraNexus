@@ -11,7 +11,8 @@ backend needs to serve it (where the built assets are, which entry file).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Mapping
 
 
 @dataclass(frozen=True)
@@ -23,4 +24,14 @@ class Shell:
     entry: str = "index.html"
 
 
-__all__ = ["Shell"]
+@dataclass(frozen=True)
+class Theme:
+    """A frontend theme contribution: which design tokens it overrides (the frontend validates against ``@theme``)."""
+
+    id: str
+    display_name: str
+    tokens: Mapping[str, str] = field(default_factory=dict)
+    dark: bool = False
+
+
+__all__ = ["Shell", "Theme"]

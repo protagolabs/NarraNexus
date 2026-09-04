@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a）— 声明式贡献与 `backend.hooks`
+
+routes/tables/workers/settings/tools/mcp_servers/bundles/skills/themes 的 `provides` 与其它 kind 走同一条路
+（`Contribution` 进对应注册表），宿主批 2a.4 起消费。`backend.hooks` 是唯一特殊路径：值是 `HookImplSpec`
+列表，逐个 `registries.hooks.add(name, fn, owner=manifest.id)`；钩子未声明 → `UnknownEntry` → 用户插件被隔离
+（写错钩子名不能静默不触发）。
+
 ## 2026-09-03（预审修订）— `load_order`、`declares` 先于 `provides`、空贡献可见
 
 `load_order(manifests)`：内置按声明序、用户插件按 id 排序——这才是 `Registry.names()` 跨重启字节

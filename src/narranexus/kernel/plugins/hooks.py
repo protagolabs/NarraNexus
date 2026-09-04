@@ -54,6 +54,33 @@ class HookImpl:
     accepted: tuple[str, ...] = field(default=())
 
 
+@dataclass(frozen=True)
+class HookImplSpec:
+    """What a plugin declares in its manifest-referenced ``HOOKIMPLS``: the hook name, the function, the flags.
+
+    Owner and accepted parameters are NOT here — the loader stamps the owner
+    from the manifest (a plugin cannot implement a hook on another's behalf)
+    and the caller derives the accepted parameters from the spec.
+    """
+
+    hook: str
+    fn: Callable[..., Any]
+    tryfirst: bool = False
+    trylast: bool = False
+    wrapper: bool = False
+
+
+def hookimpl(
+    hook: str, *, tryfirst: bool = False, trylast: bool = False, wrapper: bool = False
+) -> Callable[[Callable[..., Any]], HookImplSpec]:
+    """Decorator producing a ``HookImplSpec``: ``@hookimpl("onDidPersistTurn")``."""
+
+    def _wrap(fn: Callable[..., Any]) -> HookImplSpec:
+        return HookImplSpec(hook=hook, fn=fn, tryfirst=tryfirst, trylast=trylast, wrapper=wrapper)
+
+    return _wrap
+
+
 @dataclass
 class HookOutcome:
     """What a call produced: ordered results plus per-owner failures."""
@@ -282,4 +309,4 @@ class HookRegistry:
 
 AsyncHookFn = Callable[..., Awaitable[Any]]
 
-__all__ = ["HookSpec", "HookImpl", "HookOutcome", "HookCaller", "HookRegistry", "AsyncHookFn"]
+__all__ = ["HookSpec", "HookImpl", "HookImplSpec", "HookOutcome", "HookCaller", "HookRegistry", "AsyncHookFn", "hookimpl"]

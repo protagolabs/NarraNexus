@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a）— `SLOT_KINDS` 补十个平台/内容位
+
+新位的注册表带各自 kind 的契约版本；`backend.hooks` 没有 `Registry`（走 `HookRegistry`），loader 特判。
+
 ## 2026-09-03（预审修订）— `SLOT_KINDS`/`_NORMALIZERS` 的框架位路径改为 `turn.pipeline.act.framework`
 
 两张表是路径键，随扩展位树的路径重排一起改；对象身份与语义不变。

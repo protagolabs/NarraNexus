@@ -28,6 +28,16 @@ SLOT_KINDS: dict[str, str] = {
     "model.providers": "provider",
     "model.clients": "llm_client",
     "agent.capabilities.memory_kinds": "memory",
+    "agent.capabilities.tools": "tool",
+    "agent.capabilities.mcp_servers": "mcp_server",
+    "backend.routes": "route",
+    "backend.tables": "table",
+    "backend.workers": "worker",
+    "backend.settings": "settings",
+    "backend.hooks": "hook",
+    "ui.themes": "theme",
+    "content.bundles": "bundle",
+    "content.skills": "skill",
 }
 
 # slot path -> key normalisation

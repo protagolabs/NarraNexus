@@ -32,7 +32,10 @@ from loguru import logger
 from narranexus.contracts import ManifestError, PluginError
 from narranexus.kernel.plugins.manifest import Host, Manifest
 from narranexus.kernel.plugins.registries import Registries
+from narranexus.kernel.plugins.hooks import HookImplSpec
 from narranexus.kernel.plugins.registry import Contribution
+
+HOOKS_SLOT = "backend.hooks"
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,32 @@ def _as_contributions(value: Any, spec: str) -> list[Contribution[Any]]:
     raise PluginError(f"{spec}: expected a Contribution or an iterable of Contributions, got {type(value).__name__}")
 
 
+def _as_hook_impls(value: Any, spec: str) -> list[HookImplSpec]:
+    if isinstance(value, HookImplSpec):
+        return [value]
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        items = list(value)
+        if all(isinstance(i, HookImplSpec) for i in items):
+            return items
+    raise PluginError(f"{spec}: expected a HookImplSpec or an iterable of them (use @hookimpl), got {type(value).__name__}")
+
+
+def _register_hooks(registries: Registries, manifest: Manifest, spec: str) -> int:
+    """``backend.hooks`` entries are ``HookImplSpec``s produced by ``@hookimpl(name)``.
+
+    The owner is the manifest id, never something the plugin chooses. The hook
+    must already be declared on the registry (``UnknownEntry`` otherwise), so a
+    typo in a hook name isolates the plugin instead of silently never firing.
+    """
+    count = 0
+    for impl in _as_hook_impls(resolve_symbol(spec), spec):
+        registries.hooks.add(
+            impl.hook, impl.fn, owner=manifest.id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper
+        )
+        count += 1
+    return count
+
+
 def load_order(manifests: Iterable[Manifest]) -> list[Manifest]:
     """Builtins in declaration order, then user plugins by id.
 
@@ -128,8 +157,13 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
                 if slot.path not in registries.slots:
                     registries.slots.declare(slot, create_namespaces=True)
             for path, value in manifest.provides.items():
-                registry = registries.registry_for(path)
                 specs = (value,) if isinstance(value, str) else value
+                if path == HOOKS_SLOT:
+                    registries.slots.get(path)
+                    for spec in specs:
+                        entries += _register_hooks(registries, manifest, spec)
+                    continue
+                registry = registries.registry_for(path)
                 for spec in specs:
                     contributions = _as_contributions(resolve_symbol(spec), spec)
                     if not contributions:
@@ -156,4 +190,4 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     return report
 
 
-__all__ = ["PluginLoad", "LoadReport", "discover", "load", "load_order", "resolve_symbol"]
+__all__ = ["HOOKS_SLOT", "PluginLoad", "LoadReport", "discover", "load", "load_order", "resolve_symbol"]

@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a）— `Theme`
+
+`ui.themes` 位的契约：只列出要覆盖的设计 token（前端按 `@theme` 已声明集合校验），`dark` 标记配色族。
+
 ## 2026-09-03（批 1）— `ui` 位的 Python 侧契约
 
 前端真正的贡献注册表在 TypeScript（`frontend/src/platform/registries`）；Python 侧只需要给 `ui`

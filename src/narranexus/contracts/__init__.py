@@ -39,6 +39,16 @@ API_VERSIONS: dict[str, int] = {
     "llm_client": 0,
     "memory": 0,
     "events": 0,
+    "hook": 0,
+    "route": 0,
+    "table": 0,
+    "worker": 0,
+    "settings": 0,
+    "tool": 0,
+    "mcp_server": 0,
+    "bundle": 0,
+    "skill": 0,
+    "theme": 0,
 }
 
 STABILITY: dict[str, Stability] = {kind: Stability.ALPHA for kind in API_VERSIONS}

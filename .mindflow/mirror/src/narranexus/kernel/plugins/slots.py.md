@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a）— 平台服务与内容位
+
+`backend.{routes,tables,workers,settings,hooks}`、`agent.capabilities.{tools,mcp_servers}`、`ui.themes`、
+`content.{bundles,skills}` 十个 `many` 位进内核树（owner 内核，alpha）；`backend.hooks` 的契约符号是
+`HookImplSpec`。
+
 ## 2026-09-03（预审修订）— 阶段位搬到 `turn.pipeline.*` 之下；命名空间自动补全
 
 预审发现 `turn.act` 与 `turn.pipeline` 是兄弟，路径后代关系与「复合位提供者拥有子位」不一致，
