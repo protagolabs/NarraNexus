@@ -49,6 +49,8 @@ stored value > default; secrets are encrypted at rest.
 
 ## 4. Frontend
 
+`@narranexus/sdk` is a real package since batch 6 (`frontend/packages/sdk`; `npm install @narranexus/sdk`): `definePlugin`, `vitePreset()` and the `HostAPI` types. At runtime the host serves its own shim for the same specifier.
+
 `frontend/src/index.ts` exports `definePlugin({ activate(host) { … } })`; build
 it with the `@narranexus/sdk` vite preset into `frontend/dist/plugin.js` and
 commit the build. Declare pages/panels/commands/themes under `frontend.ui` so

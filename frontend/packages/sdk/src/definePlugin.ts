@@ -4,7 +4,7 @@
  * @date: 2026-09-03
  * @description: `definePlugin({ activate, deactivate })` — the typed shape of a plugin bundle's default export.
  */
-import type { HostAPI } from '@/platform/host';
+import type { HostAPI } from './types';
 
 export interface PluginDefinition {
   activate(host: HostAPI): void | Promise<void>;

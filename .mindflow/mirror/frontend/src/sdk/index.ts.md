@@ -21,3 +21,5 @@ Exports `ChannelDef` / `ChannelStatus` / `ChannelConfigProps`.
 ## 2026-09-04 · generic channel credentials (batch 4b)
 
 Exports `GenericChannelConfig` / `makeGenericChannelConfig` for channel plugins.
+
+Batch 6d: the build-time surface moved to the `@narranexus/sdk` workspace package (`frontend/packages/sdk`); this module is the host's runtime shim re-exporting it plus `GenericChannelConfig`, `makeGenericChannelConfig` and `THEME_TOKENS`.

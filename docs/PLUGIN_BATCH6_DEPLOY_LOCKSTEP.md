@@ -36,3 +36,20 @@ needs the members' `pyproject.toml` files present at lock-resolution time.
 - `scripts/check_executor_clis.sh` / `check_trigger_alignment.sh`: module
   packages live at `plugins/builtin.<id>/src/narranexus_plugins/<pkg>/` (import
   name `narranexus_plugins.<pkg>`), no longer under `src/…/module`.
+
+## 6d — frontend npm workspaces (deploy `docker/Dockerfile.frontend`)
+
+`frontend/package.json` now declares `"workspaces": ["packages/*"]` and depends on `@narranexus/sdk` / `@narranexus/ui-kit` (workspace symlinks in the lockfile). `npm ci` therefore needs the workspace manifests present. Before the first `RUN npm ci`, add:
+
+```dockerfile
+COPY NarraNexus/frontend/packages/sdk/package.json ./packages/sdk/package.json
+COPY NarraNexus/frontend/packages/ui-kit/package.json ./packages/ui-kit/package.json
+COPY NarraNexus/frontend/packages/chat-widget/package.json ./packages/chat-widget/package.json
+```
+
+(The later `COPY NarraNexus/frontend/ .` brings the sources.) Without this the image build fails at `npm ci` with a lockfile/workspace mismatch. `npm run build` is unchanged.
+
+## 6c — distributions (optional, no change required)
+
+A host started with `NARRANEXUS_DIST=<dir>` boots that distribution; unset = every builtin (today's behaviour). The official declarations are in `distributions/`.
+

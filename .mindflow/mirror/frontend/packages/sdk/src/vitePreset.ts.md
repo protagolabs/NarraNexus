@@ -1,6 +1,6 @@
 ---
-code_file: frontend/src/sdk/vitePreset.ts
-last_verified: 2026-09-03
+code_file: frontend/packages/sdk/src/vitePreset.ts
+last_verified: 2026-09-04
 stub: false
 ---
 

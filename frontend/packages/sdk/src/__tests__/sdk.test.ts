@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { HOST_EXTERNALS, definePlugin, hostShimModule, vitePreset } from '@/sdk';
+import { HOST_EXTERNALS, definePlugin, hostShimModule, vitePreset } from '../index';
 
 describe('@narranexus/sdk', () => {
   it('definePlugin requires activate', () => {
