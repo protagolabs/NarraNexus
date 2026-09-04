@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_2_5_sync_instances.py
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 stub: false
 ---
 # step_2_5_sync_instances.py — 流水线第 2.5 步：Instance 变更同步到数据库
@@ -33,3 +33,7 @@ Step 2 的 Module 决策产出了"应该激活哪些 Instance"的决定，但这
 ## 新人易踩的坑
 
 - `load_result.key_to_id` 是任务键（LLM 决策时用的标识符）到实际 instance_id 的映射。`raw_instances` 里的 `task_key` 需要通过这个映射解析出 `resolved_id`，才能判断它是否在 `added_ids` 里。直接用 `raw_instances[i].instance_id` 可能是未解析的 key 而不是真实 ID。
+
+## 2026-09-04 · `is_task_module` (batch 5b.2)
+
+The three `== "JobModule"` checks ask the registry (lazy import to avoid the package cycle).

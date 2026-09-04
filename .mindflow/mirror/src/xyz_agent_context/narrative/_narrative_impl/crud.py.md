@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/crud.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-08-07 — `_index_narrative` 不再自己拼文本
@@ -44,3 +44,7 @@ updater 永不重写 —— 这里一次无界写入就是一块永久化石。
 ## Gotchas
 
 - The narrative operational row is the source of truth; `memory_narrative` is a read-only search projection. Deleting a narrative row does NOT currently cascade-delete its index row (known gap — orphan index pointer; tracked in TODO-unified-memory-overhaul.md).
+
+## 2026-09-04 · chat instance class from the record (batch 5b.2)
+
+The in-memory ModuleInstance mirrors `chat_instance_record.module_class` instead of naming ChatModule.

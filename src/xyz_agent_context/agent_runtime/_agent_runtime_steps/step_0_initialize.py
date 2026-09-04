@@ -137,12 +137,15 @@ async def step_0_initialize(
     # =========================================================================
     awareness = ""
     try:
-        # Find the AwarenessModule instance_id via agent_id + module_class
+        # Find the awareness module's instance_id via agent_id + the module declaring the role
+        from xyz_agent_context.module import module_by_role
+
+        awareness_module = module_by_role("awareness")
         instance_repo = InstanceRepository(db_client)
         instances = await instance_repo.get_by_agent(
             agent_id=ctx.agent_id,
-            module_class="AwarenessModule"
-        )
+            module_class=awareness_module
+        ) if awareness_module else []
 
         if instances:
             instance_id = instances[0].instance_id

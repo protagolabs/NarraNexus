@@ -20,7 +20,7 @@ PLUGIN = ChannelDescriptor(
     module_ref="tests.plugins.hello_channel.backend:HelloChannelModule",
     has_test=False,
     ui=ChannelUi(label="Acme Chat", order=5),
-    meta={"agent_instance": {"description": "Acme chat bot", "keywords": ["acme"], "topic_hint": "Acme"}, "contact_key": "acme_handle"},
+    meta={"contact_key": "acme_handle"},
 )
 
 
@@ -32,7 +32,19 @@ def plugin_channel():
 
     WorkingSource.register("acme_chat")
     dispose = KERNEL_REGISTRIES.registry_for("ingress.channels").register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
+    # the plugin's module declares its agent-level instance (batch 5b)
+    from tests.plugins.hello_channel.backend import HelloChannelModule
+    from xyz_agent_context.module.contributions import MODULES_SLOT
+    from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleConfig
+
+    class AcmeChatModule(HelloChannelModule):
+        @staticmethod
+        def get_config() -> ModuleConfig:
+            return ModuleConfig(name="AcmeChatModule", priority=9, enabled=True, description="Acme chat", agent_instance=ModuleAgentInstance(description="Acme chat bot", keywords=["acme"], topic_hint="Acme"))
+
+    dispose_mod = KERNEL_REGISTRIES.registry_for(MODULES_SLOT).register_contribution(Contribution("AcmeChatModule", lambda: AcmeChatModule, meta={"plugin_id": "acme.chat", "channel": True}), owner="acme.chat")
     yield PLUGIN
+    dispose_mod.dispose()
     dispose.dispose()
 
 
@@ -46,8 +58,11 @@ async def test_agent_level_channel_instances_come_from_descriptor_meta(db_client
     # builtins declare theirs (Lark, Home Assistant) and the plugin's rides along
     assert by_class["LarkModule"].instance_id.startswith("lark_") and "feishu" in by_class["LarkModule"].keywords
     assert by_class["HomeAssistantModule"].instance_id.startswith("homeassistant_")
-    acme = by_class["HelloChannelModule"]
+    acme = by_class["AcmeChatModule"]
     assert acme.instance_id.startswith("acmechat_") and acme.description == "Acme chat bot" and acme.is_public
+    # the core four come from their declarations too
+    assert {"AwarenessModule", "SocialNetworkModule", "BasicInfoModule", "MessageBusModule"} <= set(by_class)
+    assert by_class["BasicInfoModule"].instance_id.startswith("info_")
     # a channel without the meta (slack) gets none; ensure_* is idempotent
     assert "SlackModule" not in by_class
     again = await factory.ensure_agent_instances_exist("agent_x")

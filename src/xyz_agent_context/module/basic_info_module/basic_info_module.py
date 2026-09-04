@@ -19,7 +19,7 @@ from xyz_agent_context.module import XYZBaseModule
 from xyz_agent_context.module.base import mcp_server_url
 
 # Schema
-from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
+from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -86,6 +86,7 @@ class BasicInfoModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="BasicInfoModule",
+            agent_instance=ModuleAgentInstance(description="Basic information and environment context", keywords=["basic", "info", "time", "context"], topic_hint="Basic information, time, environment context"),
             base=True,
             default=True,
             instance_prefix="info",

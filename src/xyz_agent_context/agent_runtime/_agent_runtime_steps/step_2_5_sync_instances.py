@@ -18,6 +18,13 @@ from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 
+def is_task_module(module_class: str) -> bool:
+    """Lazy lookup (the module package imports this file; a top-level import would be circular)."""
+    from xyz_agent_context.module import is_task_module as _lookup
+
+    return _lookup(module_class)
+
+
 if TYPE_CHECKING:
     from .context import RunContext
     from xyz_agent_context.narrative import NarrativeService, NarrativeMarkdownManager
@@ -141,7 +148,7 @@ async def step_2_5_sync_instances(
                 if not existing:
                     # [Fix] JobModule must have job_config to create ModuleInstance
                     # Otherwise it produces orphan instances (ModuleInstance exists but no Job record)
-                    if inst.module_class == "JobModule":
+                    if is_task_module(inst.module_class):
                         raw_inst = raw_instance_map.get(inst.instance_id)
                         if not raw_inst or not raw_inst.job_config:
                             logger.warning(
@@ -286,7 +293,7 @@ async def step_2_5_sync_instances(
                 f"step_2_5 instance module_class={inst.module_class} "
                 f"task_key='{inst.task_key}' instance_id='{inst.instance_id}'"
             )
-            if inst.module_class == "JobModule":
+            if is_task_module(inst.module_class):
                 resolved_id = load_result.key_to_id.get(inst.task_key, inst.instance_id)
                 job_config_info = None
                 if inst.job_config:
@@ -304,7 +311,7 @@ async def step_2_5_sync_instances(
 
         job_instances = [
             inst for inst in load_result.raw_instances
-            if inst.module_class == "JobModule"
+            if is_task_module(inst.module_class)
             and inst.job_config is not None
             and load_result.key_to_id.get(inst.task_key, inst.instance_id) in added_ids
         ]

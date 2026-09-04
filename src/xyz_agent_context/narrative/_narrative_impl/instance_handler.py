@@ -163,16 +163,12 @@ class InstanceHandler:
                 newly_activated.append(inst_id)
                 logger.info(f"Activated blocked instance: {inst_id}")
 
-                # 2. If it's a JobModule, also set the Job's next_run_time
-                if inst.module_class == "JobModule":
-                    from xyz_agent_context.repository import JobRepository
-                    job_repo = JobRepository(db_client)
-                    updated = await job_repo.update_next_run_time_by_instance(
-                        instance_id=inst_id,
-                        next_run_time=datetime.now(timezone.utc)
-                    )
-                    if updated:
-                        logger.info(f"Set next_run_time for Job (instance={inst_id})")
+                # 2. Let the module react (a task module reschedules its work)
+                from xyz_agent_context.module import MODULE_MAP
+
+                module_class = MODULE_MAP.get(inst.module_class)
+                if module_class is not None:
+                    await module_class.on_instance_activated(inst_id, db_client)
 
         # 5. Update runtime cache (if narrative object was provided)
         if narrative:

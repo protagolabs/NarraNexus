@@ -21,6 +21,7 @@ from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import resolve_client
 from xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_client import HAError
 from xyz_agent_context.module.home_assistant_module.prompts import HOME_ASSISTANT_MODULE_INSTRUCTIONS
+from xyz_agent_context.schema.module_schema import ModuleAgentInstance
 from xyz_agent_context.schema import MCPServerConfig, ModuleConfig
 from xyz_agent_context.utils import DatabaseClient
 
@@ -53,6 +54,7 @@ class HomeAssistantModule(XYZBaseModule):
     def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="HomeAssistantModule",
+            agent_instance=ModuleAgentInstance(description="Smart-home query/control via the user's Home Assistant", keywords=["home assistant", "smart home", "device", "light", "iot", "xiaomi"], topic_hint="Query and control smart-home devices via Home Assistant"),
             priority=12,
             enabled=True,
             description="Query and control smart-home devices via the user's Home Assistant.",

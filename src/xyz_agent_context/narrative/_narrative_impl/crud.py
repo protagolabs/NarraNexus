@@ -246,7 +246,7 @@ class NarrativeCRUD:
         # For compatibility, also create in-memory ModuleInstance object
         chat_instance = ModuleInstance(
             instance_id=chat_instance_record.instance_id,
-            module_class="ChatModule",
+            module_class=chat_instance_record.module_class,
             description=f"Chat instance for user {user_id}",
             status=InstanceStatus.ACTIVE,
             agent_id=agent_id,

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/migration/applier.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-17 — 默认串在归一之后判
@@ -100,3 +100,7 @@ counts.
   helper task (see `providers.resolver.inject_owner_helper_credentials`). Verified
   live: with it, the summary uses the user's anthropic helper (real keywords);
   without it, 401 → fallback.
+
+## 2026-09-04 · chat / awareness by declaration (batch 5b.2)
+
+Chat-history seeding targets the instance whose module provides chat history (and writes under that module class); the awareness instance comes from `ensure_role_instance("awareness")`.

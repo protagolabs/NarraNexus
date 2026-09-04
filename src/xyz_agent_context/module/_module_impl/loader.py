@@ -265,10 +265,11 @@ class ModuleLoader:
                 # [Supplement] If this Job's ModuleInstance is not in task_instances,
                 # create a temporary ModuleInstance so LLM can see it
                 if not any(inst.instance_id == job.instance_id for inst in task_instances):
+                    from xyz_agent_context.module import module_by_role
                     from xyz_agent_context.schema.module_schema import ModuleInstance, InstanceStatus
                     temp_instance = ModuleInstance(
                         instance_id=job.instance_id,
-                        module_class="JobModule",
+                        module_class=module_by_role("jobs") or "",
                         description=job.description or f"Job: {job.title}",
                         status=InstanceStatus.ACTIVE,
                         agent_id=self.agent_id,
@@ -324,8 +325,8 @@ class ModuleLoader:
             f"task: {len(task_active_instances)}, total: {len(all_active_instances)}"
         )
 
-        # ===== Fallback: ensure JobModule MCP tools are always accessible =====
-        all_active_instances = self._ensure_job_module_available(all_active_instances)
+        # ===== Fallback: modules declaring always_available_tools keep their MCP tools reachable =====
+        all_active_instances = self._ensure_always_available_tool_modules(all_active_instances)
 
         # ===== Add always-loaded modules (no Instance record needed) =====
         all_active_instances = self._add_always_load_modules(all_active_instances)
@@ -388,8 +389,8 @@ class ModuleLoader:
         # Keep all current instances (capability + task) as-is
         all_instances = list(current_instances)
 
-        # Ensure JobModule and always-load modules are present
-        all_instances = self._ensure_job_module_available(all_instances)
+        # Ensure always-available-tool modules and always-load modules are present
+        all_instances = self._ensure_always_available_tool_modules(all_instances)
         all_instances = self._add_always_load_modules(all_instances)
 
         # Create Module objects and bind
@@ -642,49 +643,45 @@ class ModuleLoader:
 
         return f"{instance_prefix_for(module_class)}_{uuid4().hex[:8]}"
 
-    def _ensure_job_module_available(
+    def _ensure_always_available_tool_modules(
         self,
         instances: List[ModuleInstance]
     ) -> List[ModuleInstance]:
         """
-        Ensure JobModule MCP tools are always accessible.
-
-        When instance decision selects zero JobModule instances, create a
-        virtual (in-memory only, not persisted) JobModule instance so the
-        Agent can still access job_create and other MCP tools in Step 3.
+        Keep the MCP tools of every module declaring ``always_available_tools``
+        reachable (JobModule: job_create and friends must work even when the
+        instance decision selected no Job instance): when such a module has no
+        instance in the list, append a virtual (in-memory, never persisted)
+        instance for it so Step 3 exposes its tools.
 
         Args:
             instances: Current instance list (capability + task merged)
 
         Returns:
-            Instance list, with a virtual JobModule appended if none existed
+            Instance list, with a virtual instance appended per missing module
         """
-        has_job_module = any(
-            inst.module_class == "JobModule"
-            for inst in instances
-        )
-
-        if has_job_module or "JobModule" not in self.module_map:
-            return instances
-
-        virtual_instance = ModuleInstance(
-            instance_id="",
-            module_class="JobModule",
-            description="",
-            status=InstanceStatus.ACTIVE,
-            agent_id=self.agent_id,
-            dependencies=[],
-            config={},
-            state={},
-            created_at=datetime.now(),
-            last_used_at=datetime.now(),
-        )
-
-        logger.info(
-            "ModuleLoader: No JobModule instance selected by decision, "
-            "adding virtual instance to ensure MCP tools are available"
-        )
-        return list(instances) + [virtual_instance]
+        result = list(instances)
+        present = {inst.module_class for inst in result}
+        for module_name, module_class in self.module_map.items():
+            if module_name in present or not module_class.get_config().always_available_tools:
+                continue
+            result.append(ModuleInstance(
+                instance_id="",
+                module_class=module_name,
+                description="",
+                status=InstanceStatus.ACTIVE,
+                agent_id=self.agent_id,
+                dependencies=[],
+                config={},
+                state={},
+                created_at=datetime.now(),
+                last_used_at=datetime.now(),
+            ))
+            logger.info(
+                f"ModuleLoader: No {module_name} instance selected by decision, "
+                "adding virtual instance to ensure MCP tools are available"
+            )
+        return result
 
     def _add_always_load_modules(
         self,

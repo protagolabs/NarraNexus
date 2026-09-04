@@ -337,6 +337,19 @@ class JobModule(XYZBaseModule):
     # Module Config
     # =========================================================================
 
+    @classmethod
+    async def on_instance_activated(cls, instance_id: str, database_client: Any) -> None:
+        """A dependency-blocked Job just became runnable: run it now."""
+        from datetime import datetime, timezone
+
+        from xyz_agent_context.repository import JobRepository
+
+        updated = await JobRepository(database_client).update_next_run_time_by_instance(
+            instance_id=instance_id, next_run_time=datetime.now(timezone.utc)
+        )
+        if updated:
+            logger.info(f"Set next_run_time for Job (instance={instance_id})")
+
     @staticmethod
     def get_config() -> ModuleConfig:
         """

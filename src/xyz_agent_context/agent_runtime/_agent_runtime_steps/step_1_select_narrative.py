@@ -179,10 +179,15 @@ async def _ensure_user_chat_instance(
         f"User {user_id} has no ChatModule instance in Narrative {narrative_id}, creating..."
     )
 
-    new_instance_id = generate_instance_id("chat")
+    from xyz_agent_context.module import instance_prefix_for, module_by_role
+
+    chat_module = module_by_role("chat")
+    if chat_module is None:
+        raise RuntimeError("no registered module declares the 'chat' role")
+    new_instance_id = generate_instance_id(instance_prefix_for(chat_module))
     instance = ModuleInstanceRecord(
         instance_id=new_instance_id,
-        module_class="ChatModule",
+        module_class=chat_module,
         agent_id=agent_id,
         user_id=user_id,
         is_public=False,

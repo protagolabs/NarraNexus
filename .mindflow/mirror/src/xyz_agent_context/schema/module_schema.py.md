@@ -39,3 +39,7 @@ This distinction drives the loading strategy in `ModuleService` without needing 
 ## 2026-09-04 · `ModuleConfig` absorbs the constant tables (batch 5b)
 
 `ModuleDisplay` (icon / short name / desc — the former `step_display.MODULE_DISPLAY_CONFIG` row), `ModuleDecisionMeta` (capabilities / use_cases / instance_type / typical_instance_id — the former `_module_impl/metadata.MODULE_METADATA` row) and on `ModuleConfig`: `always_load`, `base`, `default`, `instance_prefix` (+ `effective_instance_prefix()`), `role`, `always_available_tools`, `context_cost_hint`. A module declares everything the platform knows about it; the platform keeps no table naming modules, so a plugin module is described exactly like a builtin.
+
+## 2026-09-04 · `ModuleAgentInstance` (batch 5b.2)
+
+`ModuleConfig.agent_instance` declares the public agent-level instance a module wants at agent creation (description / keywords / topic hint) — the InstanceFactory creates one per declaring module; the four core creators and the channel descriptors' `meta["agent_instance"]` are gone.

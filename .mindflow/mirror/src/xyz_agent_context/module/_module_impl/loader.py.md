@@ -19,3 +19,7 @@ The prefix map lists core modules only; `LarkModule` → `lark` comes from the g
 ## 2026-09-04 · lists from declarations (batch 5b)
 
 `DEFAULT_MODULE_LIST` → `default_modules(module_map)` (modules declaring `default=True`, by priority); `CORE_ALWAYS_LOAD` / `ALWAYS_LOAD_MODULES` → `always_load_modules(module_map)` = modules declaring `always_load=True` + every ChannelModuleBase subclass; the instance-id prefix map → `instance_prefix_for`.
+
+## 2026-09-04 · no JobModule literal (batch 5b.2)
+
+`_ensure_job_module_available` → `_ensure_always_available_tool_modules` (every module declaring `always_available_tools`); the supplemented job instance uses the module declaring role "jobs".

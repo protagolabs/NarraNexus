@@ -68,3 +68,20 @@ def test_a_plugin_module_is_described_like_a_builtin(plugin_module):
     text = get_all_modules_metadata()
     assert "## AcmeNotesModule" in text and "Store a note" in text and "`notes_{uuid8}`" in text
     assert text.index("## ChatModule") < text.index("## AcmeNotesModule")  # priority order
+
+
+@pytest.mark.asyncio
+async def test_role_instances_and_task_hooks_come_from_declarations(db_client, plugin_module):
+    from xyz_agent_context.module import InstanceFactory
+    from xyz_agent_context.module._module_impl.instance_decision import module_overview_text
+
+    factory = InstanceFactory(db_client)
+    inst = await factory.ensure_role_instance("agent_r", "social_network")
+    assert inst is not None and inst.module_class == "SocialNetworkModule" and inst.instance_id.startswith("social_")
+    assert (await factory.ensure_role_instance("agent_r", "social_network")).instance_id == inst.instance_id  # idempotent
+    assert await factory.ensure_role_instance("agent_r", "no_such_role") is None
+    overview = module_overview_text()
+    assert "## Task Modules" in overview and "- **JobModule**" in overview and "- **AcmeNotesModule**: Keeps the user's notes" in overview
+    assert overview.index("- **ChatModule**") < overview.index("- **AcmeNotesModule**")
+    # the base class hook is a no-op; JobModule reschedules (exercised through the instance handler tests)
+    await XYZBaseModule.on_instance_activated("x", db_client)

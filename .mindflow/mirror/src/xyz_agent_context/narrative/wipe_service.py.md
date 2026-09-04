@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/wipe_service.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -97,3 +97,7 @@ docstring 原来的论证引用 `bus_get_messages(agent_id, channel_id)` —— 
 被路由真的填上（有位置放但没人填会静默默认 0）。它当场又抓出两处更早的遗漏 ——
 `report_memory_count` 与 `instance_links_count`，删了但从不上报 —— 那是没人注意到、由测试
 发现的。
+
+## 2026-09-04 · chat instances by capability flag (batch 5b.2)
+
+The removable per-conversation instances are those of any module that `provides_chat_history` — no `"ChatModule"` literal.

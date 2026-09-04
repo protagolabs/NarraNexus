@@ -22,7 +22,7 @@ from datetime import datetime
 from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
-from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
+from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     AGENT_TEXT_MAX_LENGTH,
     ModuleConfig,
@@ -264,6 +264,7 @@ class SocialNetworkModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="SocialNetworkModule",
+            agent_instance=ModuleAgentInstance(description="Agent social network and entity relationship management", keywords=["social", "network", "relationship", "entity"], topic_hint="Social relationship network, user and entity information"),
             role="social_network",
             default=True,
             instance_prefix="social",

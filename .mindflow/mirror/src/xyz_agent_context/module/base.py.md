@@ -150,3 +150,7 @@ summaries). Default for both is no-op.
 ## 2026-09-04 · `get_config` is static (batch 5b)
 
 Declared `@staticmethod @abstractmethod`: the platform reads a module's `ModuleConfig` from its CLASS (registry views, display, decision prompt, prefixes) without constructing it. `self.config` is still set in `__init__`.
+
+## 2026-09-04 · `on_instance_activated` hook (batch 5b.2)
+
+Classmethod no-op the narrative instance handler calls when a blocked instance of this module becomes ACTIVE; JobModule overrides it to reschedule the job. The platform names no module.

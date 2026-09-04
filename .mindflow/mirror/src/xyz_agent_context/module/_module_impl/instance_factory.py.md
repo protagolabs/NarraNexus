@@ -66,3 +66,7 @@ MessageBus / Lark / HomeAssistant 各一条 agent 级实例（`is_public=1`，�
 ## 2026-09-04 · channel instances from descriptors (batch 4e)
 
 `_create_lark_instance` / `_create_home_assistant_instance` are replaced by `_create_channel_instance(agent_id, descriptor)` over `_channel_instance_descriptors()` — every registered channel whose descriptor has a `module_ref` and `meta["agent_instance"]` (description / keywords / topic_hint). Instance-id prefix = the channel name without underscores (`lark_…`, `homeassistant_…`, unchanged), module class = the `module_ref` class name. `ensure_agent_instances_exist` builds its creators the same way, so an agent created before a channel plugin was installed gets the instance on next load — the factory holds no channel list.
+
+## 2026-09-04 · declared instances and role lookups (batch 5b.2)
+
+Agent-level instances come from `ModuleConfig.agent_instance` (`_agent_instance_modules` / `_create_declared_instance`, priority order) — core four, Lark, Home Assistant and any plugin module alike; `ensure_role_instance(agent_id, role)` is what provisioning, migration and the job→entity sync use instead of naming a module; `create_chat_instance` / `create_job_instance` resolve their class through roles "chat" / "jobs" and fail loud when that plugin is disabled.

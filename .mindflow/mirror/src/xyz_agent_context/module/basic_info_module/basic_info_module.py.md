@@ -121,3 +121,7 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its platform metadata (batch 5b)
 
 `get_config()` is static and carries what the platform used to table about this module (default / base / always-load membership, instance prefix, role, display, decision metadata as applicable).
+
+## 2026-09-04 · declares its agent-level instance (batch 5b.2)
+
+`agent_instance` in `get_config()` (description / keywords / topic hint) replaces the factory's or descriptor's copy; the InstanceFactory creates it for every agent.

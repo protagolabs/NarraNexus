@@ -24,14 +24,6 @@ DESCRIPTOR = ChannelDescriptor(
     module_ref="xyz_agent_context.module.home_assistant_module.home_assistant_module:HomeAssistantModule",
     has_bind=False,
     has_test=False,
-    meta={
-        # Every agent gets a HomeAssistantModule instance at creation (it may bind a Home Assistant later).
-        "agent_instance": {
-            "description": "Smart-home query/control via the user's Home Assistant",
-            "keywords": ["home assistant", "smart home", "device", "light", "iot", "xiaomi"],
-            "topic_hint": "Query and control smart-home devices via Home Assistant",
-        },
-    },
 )
 
 CHANNEL = (Contribution("home_assistant", lambda: DESCRIPTOR),)

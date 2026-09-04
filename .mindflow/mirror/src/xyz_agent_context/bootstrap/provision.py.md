@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/provision.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-10 (PR-6) — `_SAFE_AGENT_ID` 兜底：agent_id 路径穿越防护
@@ -61,3 +61,7 @@ persona_key / topic_index / is_local）。动机：场景调用方此前只能
 空 greeting，且第二次 apply 失败会被吞成永久哑巴 Agent。默认 None，四个既有
 调用点（auth 路由 / social-network 路由 / MCP create_agent / onboarding）
 零行为变化。
+
+## 2026-09-04 · awareness by role (batch 5b.2)
+
+Step 5 seeds awareness onto `ensure_role_instance(agent_id, "awareness")` (created from the module's declaration if step 1 failed); fails loud when no module declares the role.

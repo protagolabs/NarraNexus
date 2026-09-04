@@ -252,6 +252,14 @@ MCPs: {mcp_tools}
         """
         return ""
 
+    @classmethod
+    async def on_instance_activated(cls, instance_id: str, database_client: Any) -> None:
+        """A blocked instance of this module became ACTIVE (its dependencies
+        completed). Default no-op; a task module reschedules its work here
+        (JobModule sets the job's next run time). Called by the narrative
+        instance handler by module class — the platform names no module."""
+        return None
+
     @staticmethod
     @abstractmethod
     def get_config() -> ModuleConfig:

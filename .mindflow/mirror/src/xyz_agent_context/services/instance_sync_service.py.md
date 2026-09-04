@@ -49,3 +49,7 @@ Job 记录通过 `instance_id` 字段做唯一约束检查（`get_jobs_by_instan
 ## 2026-09-04 · prefix from declarations (batch 5b)
 
 `MODULE_PREFIX_MAP` is gone; `instance_prefix` delegates to `module.instance_prefix_for`.
+
+## 2026-09-04 · task modules and the social instance by declaration (batch 5b.2)
+
+`is_task_module` replaces the JobModule checks; the job→entity sync gets the social-network instance through `InstanceFactory.ensure_role_instance(agent_id, "social_network")` and skips when no module declares the role.

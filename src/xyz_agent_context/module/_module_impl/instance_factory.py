@@ -22,7 +22,6 @@ Usage:
     instance = await factory.create_job_instance(agent_id, user_id, job_info)
 """
 
-import functools
 from typing import Optional, Dict, Any, List
 import uuid
 from loguru import logger
@@ -40,9 +39,20 @@ from xyz_agent_context.repository import InstanceRepository, InstanceNarrativeLi
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 
 
-def _module_class_name(descriptor) -> str:
-    """``module_ref`` ("pkg.mod:ClassName") → the module class name the instance table stores."""
-    return descriptor.module_ref.rpartition(":")[2]
+def _role_module(role: str) -> str:
+    """Class name of the module declaring ``role``; fails loud when that plugin is disabled."""
+    from xyz_agent_context.module import module_by_role
+
+    name = module_by_role(role)
+    if name is None:
+        raise RuntimeError(f"no registered module declares the {role!r} role")
+    return name
+
+
+def _prefix(module_class: str) -> str:
+    from xyz_agent_context.module import instance_prefix_for
+
+    return instance_prefix_for(module_class)
 
 
 def generate_instance_id(prefix: str) -> str:
@@ -93,13 +103,10 @@ class InstanceFactory:
         """
         Create Agent-level Instances
 
-        Called when creating an Agent, will create the following Instances:
-        - AwarenessModule instance (is_public=True)
-        - SocialNetworkModule instance (is_public=True)
-        - BasicInfoModule instance (is_public=True)
-        - MessageBusModule instance (is_public=True)
-        - one instance per channel whose descriptor declares ``meta["agent_instance"]``
-          (builtin: Lark, Home Assistant; a plugin channel declares its own)
+        Called when creating an Agent: one public instance per module whose
+        ``ModuleConfig.agent_instance`` is declared (awareness, social network,
+        basic info, message bus, Lark, Home Assistant — and any plugin module
+        declaring it), in priority order.
 
         Args:
             agent_id: Agent ID
@@ -111,166 +118,30 @@ class InstanceFactory:
 
         instances = []
 
-        # 1. Create AwarenessModule instance
-        awareness_instance = await self._create_awareness_instance(agent_id)
-        if awareness_instance:
-            instances.append(awareness_instance)
+        # One instance per module declaring ``agent_instance`` (core modules
+        # and channels alike; a plugin module declares its own).
+        for module_class, cfg in self._agent_instance_modules():
+            created = await self._create_declared_instance(agent_id, module_class, cfg)
+            if created:
+                instances.append(created)
 
-        # 2. Create SocialNetworkModule instance
-        social_instance = await self._create_social_network_instance(agent_id)
-        if social_instance:
-            instances.append(social_instance)
-
-        # 3. Create BasicInfoModule instance
-        basic_info_instance = await self._create_basic_info_instance(agent_id)
-        if basic_info_instance:
-            instances.append(basic_info_instance)
-
-        # 4. Create MessageBusModule instance
-        bus_instance = await self._create_message_bus_instance(agent_id)
-        if bus_instance:
-            instances.append(bus_instance)
-
-        # 5. Channel instances declared by descriptors (the agent may bind the channel later)
-        for descriptor in self._channel_instance_descriptors():
-            channel_instance = await self._create_channel_instance(agent_id, descriptor)
-            if channel_instance:
-                instances.append(channel_instance)
-
-        # 6. Auto-register agent in MessageBus registry
+        # Auto-register agent in MessageBus registry
         await self._register_agent_in_bus(agent_id)
 
         logger.info(f"Created {len(instances)} agent-level instances")
         return instances
 
-    async def _create_awareness_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create AwarenessModule Instance"""
-        # Check if already exists
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="AwarenessModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"AwarenessModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("aware"),
-            module_class="AwarenessModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Agent self-awareness and cognitive state management",
-            keywords=["awareness", "self", "cognition"],
-            topic_hint="Agent's self-cognition, goals and state",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created AwarenessModule instance: {instance.instance_id}")
-        return instance
-
-    async def _create_social_network_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create SocialNetworkModule Instance"""
-        # Check if already exists
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="SocialNetworkModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"SocialNetworkModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("social"),
-            module_class="SocialNetworkModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Agent social network and entity relationship management",
-            keywords=["social", "network", "relationship", "entity"],
-            topic_hint="Social relationship network, user and entity information",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created SocialNetworkModule instance: {instance.instance_id}")
-        return instance
-
-    async def _create_basic_info_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create BasicInfoModule Instance"""
-        # Check if already exists
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="BasicInfoModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"BasicInfoModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("basic"),
-            module_class="BasicInfoModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Basic information and environment context",
-            keywords=["basic", "info", "time", "context"],
-            topic_hint="Basic information, time, environment context",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created BasicInfoModule instance: {instance.instance_id}")
-        return instance
-
-    async def _create_message_bus_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create MessageBusModule Instance"""
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="MessageBusModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"MessageBusModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("bus"),
-            module_class="MessageBusModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Agent-to-agent communication via message bus",
-            keywords=["message_bus", "communication", "messaging", "agent"],
-            topic_hint="Inter-agent messaging via message bus",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
-        return instance
-
     @staticmethod
-    def _channel_instance_descriptors():
-        """Channel descriptors that ask for an agent-level module instance
-        (``meta["agent_instance"]`` = description / keywords / topic_hint, plus a
-        ``module_ref``) — the platform holds no list of such channels."""
-        from xyz_agent_context.channel.credential_store import all_descriptors
+    def _agent_instance_modules() -> List[tuple[str, Any]]:
+        """``(module_class, ModuleConfig)`` for every registered module declaring
+        ``agent_instance``, by priority — the platform holds no list of them."""
+        from xyz_agent_context.module import module_configs
 
-        return tuple(d for d in all_descriptors() if d.module_ref and d.meta.get("agent_instance"))
+        picked = [(cfg.priority, name, cfg) for name, cfg in module_configs().items() if cfg.agent_instance is not None]
+        return [(name, cfg) for _, name, cfg in sorted(picked, key=lambda t: (t[0], t[1]))]
 
-    async def _create_channel_instance(self, agent_id: str, descriptor) -> Optional[ModuleInstanceRecord]:
-        """Create the channel's module instance (idempotent per agent)."""
-        module_class = _module_class_name(descriptor)
-        spec = dict(descriptor.meta["agent_instance"])
+    async def _create_declared_instance(self, agent_id: str, module_class: str, cfg: Any) -> Optional[ModuleInstanceRecord]:
+        """Create the module's public agent-level instance (idempotent per agent)."""
         existing = await self._instance_repo.get_by_agent(
             agent_id=agent_id,
             module_class=module_class,
@@ -280,22 +151,38 @@ class InstanceFactory:
             logger.debug(f"{module_class} instance already exists for agent {agent_id}")
             return existing[0]
 
+        spec = cfg.agent_instance
         instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id(descriptor.name.replace("_", "")),
+            instance_id=generate_instance_id(cfg.effective_instance_prefix()),
             module_class=module_class,
             agent_id=agent_id,
             user_id=None,
             is_public=True,
             status=InstanceStatus.ACTIVE,
-            description=str(spec.get("description") or descriptor.display_name),
-            keywords=list(spec.get("keywords") or [descriptor.name]),
-            topic_hint=str(spec.get("topic_hint") or ""),
+            description=spec.description or cfg.description,
+            keywords=list(spec.keywords) or [module_class.lower().replace("module", "")],
+            topic_hint=spec.topic_hint,
             created_at=utc_now(),
         )
 
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created {module_class} instance: {instance.instance_id}")
         return instance
+
+    async def ensure_role_instance(self, agent_id: str, role: str) -> Optional[ModuleInstanceRecord]:
+        """The public instance of the module declaring ``role`` ("awareness",
+        "social_network", …), created from its declaration when missing. None
+        when no registered module has the role (that plugin is disabled)."""
+        from xyz_agent_context.module import module_by_role, module_config
+
+        module_class = module_by_role(role)
+        if module_class is None:
+            return None
+        cfg = module_config(module_class)
+        if cfg is None or cfg.agent_instance is None:
+            existing = await self._instance_repo.get_by_agent(agent_id=agent_id, module_class=module_class, is_public=True)
+            return existing[0] if existing else None
+        return await self._create_declared_instance(agent_id, module_class, cfg)
 
     async def _register_agent_in_bus(self, agent_id: str) -> None:
         """Make the agent discoverable by its peers, from creation onward.
@@ -349,9 +236,10 @@ class InstanceFactory:
         Returns:
             Created ChatModule Instance
         """
+        module_class = _role_module("chat")
         instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("chat"),
-            module_class="ChatModule",
+            instance_id=generate_instance_id(_prefix(module_class)),
+            module_class=module_class,
             agent_id=agent_id,
             user_id=user_id,
             is_public=False,
@@ -396,9 +284,10 @@ class InstanceFactory:
         title = job_info.get("title", "Untitled Task")
         job_type = job_info.get("job_type", "one_off")
 
+        module_class = _role_module("jobs")
         instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("job"),
-            module_class="JobModule",
+            instance_id=generate_instance_id(_prefix(module_class)),
+            module_class=module_class,
             agent_id=agent_id,
             user_id=user_id,
             is_public=False,
@@ -508,17 +397,9 @@ class InstanceFactory:
 
         # Check for missing module types and create them
         existing_classes = {inst.module_class for inst in existing}
-        creators = {
-            "AwarenessModule": self._create_awareness_instance,
-            "SocialNetworkModule": self._create_social_network_instance,
-            "BasicInfoModule": self._create_basic_info_instance,
-            "MessageBusModule": self._create_message_bus_instance,
-        }
-        for descriptor in self._channel_instance_descriptors():
-            creators[_module_class_name(descriptor)] = functools.partial(self._create_channel_instance, descriptor=descriptor)
-        for module_class, creator_fn in creators.items():
+        for module_class, cfg in self._agent_instance_modules():
             if module_class not in existing_classes:
-                new_inst = await creator_fn(agent_id)
+                new_inst = await self._create_declared_instance(agent_id, module_class, cfg)
                 if new_inst:
                     existing.append(new_inst)
                     logger.info(f"Auto-created missing {module_class} instance for agent {agent_id}")

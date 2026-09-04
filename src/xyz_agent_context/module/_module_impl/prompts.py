@@ -18,6 +18,7 @@
 # - {awareness_context}: Agent Awareness section, dynamically built by _build_decision_prompt()
 # - {user_input}: User input content
 # - {current_instances_count}: Number of currently active Instances
+# - {module_overview}: Module System Overview, generated from every registered module's ModuleConfig (instance_decision.module_overview_text)
 # ============================================================================
 INSTANCE_DECISION_PROMPT_TEMPLATE = """# Role
 You are an intelligent Task Module manager. Your job is to decide whether to create or manage **Task Modules** (like JobModule) based on user input.
@@ -88,20 +89,7 @@ Each Job has a `Target User` (related_entity_id) shown in "Current Task Module I
 - Including irrelevant Jobs wastes resources and can cause incorrect status updates
 - Each user should only trigger completion checks for Jobs targeting THEM
 
-# Module System Overview
-
-## Capability Modules (Auto-loaded, NOT in your output)
-These are automatically loaded by the system based on rules. You do NOT need to include them in `active_instances`:
-- **ChatModule**: Conversation capability
-- **AwarenessModule**: Time awareness, context understanding
-- **SocialNetworkModule**: Social network management capability
-- **BasicInfoModule**: Basic information
-- **MessageBusModule**: Inter-agent communication and messaging
-- **LarkModule**: Lark/Feishu integration (contacts, messages, documents, calendar, tasks)
-
-## Task Modules (Your decision)
-You need to decide whether to create/keep these modules:
-- **JobModule**: Background task execution (scheduled, periodic, ongoing tasks)
+{module_overview}
 
 ## 2. When to Create Job vs Use Agent Loop
 

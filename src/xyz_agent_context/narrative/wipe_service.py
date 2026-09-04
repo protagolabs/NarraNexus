@@ -178,12 +178,17 @@ async def wipe_agent_data(
                 if ev.get("event_id"):
                     event_ids.append(ev["event_id"])
 
-    # Resolve the agent's ChatModule instances (per-conversation, removable).
+    # Resolve the agent's chat-history instances (per-conversation, removable):
+    # every instance of a module that provides chat history (ChatModule today).
     chat_instance_ids: List[str] = []
     if clear_conversations:
+        from xyz_agent_context.module import module_class_provides_chat_history
+
         instance_repo = InstanceRepository(db_client)
-        chat_instances = await instance_repo.get_by_agent(agent_id, module_class="ChatModule")
-        chat_instance_ids = [i.instance_id for i in chat_instances]
+        chat_instance_ids = [
+            i.instance_id for i in await instance_repo.get_by_agent(agent_id)
+            if module_class_provides_chat_history(i.module_class)
+        ]
 
     # ---- DB deletes (transactional) ----
     async with db_client.transaction():

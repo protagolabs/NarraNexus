@@ -35,7 +35,7 @@ from xyz_agent_context.module.base import (
     mcp_server_url,
     working_source_matches,
 )
-from xyz_agent_context.schema.module_schema import ModuleDisplay
+from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleDisplay
 from xyz_agent_context.schema import (
     BUS_TEAM_ROOM_EXTRA_KEY,
     is_plain_text_turn,
@@ -160,6 +160,7 @@ class MessageBusModule(XYZBaseModule):
     def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="MessageBusModule",
+            agent_instance=ModuleAgentInstance(description="Agent-to-agent communication via message bus", keywords=["message_bus", "communication", "messaging", "agent"], topic_hint="Inter-agent messaging via message bus"),
             default=True,
             instance_prefix="bus",
             display=ModuleDisplay(icon="📡", name="MessageBus", desc="Inter-agent messaging"),

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/_module_impl/instance_decision.py
-last_verified: 2026-06-17
+last_verified: 2026-09-04
 stub: false
 ---
 # instance_decision.py — LLM 驱动的 Module Instance 智能决策
@@ -30,3 +30,7 @@ PR #25 把 `OpenAIAgentsSDK()` 直接实例化改成 `get_helper_sdk()`。意图
 protocol-agnostic 分发，底层框架 / provider 可换而本文件不动。行为契约不变——仍是
 `sdk.llm_function(instructions=..., user_input=..., output_type=InstanceDecisionOutput)`，
 拿 `result.final_output`。这是一次纯依赖收敛，无决策逻辑改动。
+
+## 2026-09-04 · overview generated from declarations (batch 5b.2)
+
+`module_overview_text()` renders the prompt's "Module System Overview" (capability modules with display/decision/default, task modules) from `module_configs()`; the `== "JobModule"` check is `is_task_module` (lazy import — the module package imports this file).

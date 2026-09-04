@@ -20,7 +20,7 @@ from loguru import logger
 from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
-from xyz_agent_context.schema.module_schema import ModuleDisplay, ModuleDecisionMeta
+from xyz_agent_context.schema.module_schema import ModuleAgentInstance, ModuleDisplay, ModuleDecisionMeta
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -60,6 +60,7 @@ class AwarenessModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="AwarenessModule",
+            agent_instance=ModuleAgentInstance(description="Agent self-awareness and cognitive state management", keywords=["awareness", "self", "cognition"], topic_hint="Agent's self-cognition, goals and state"),
             role="awareness",
             base=True,
             default=True,

@@ -26,6 +26,13 @@ from uuid import uuid4
 from loguru import logger
 from xyz_agent_context.utils import utc_now
 
+def is_task_module(module_class: str) -> bool:
+    """Lazy lookup (the module package imports this file; a top-level import would be circular)."""
+    from xyz_agent_context.module import is_task_module as _lookup
+
+    return _lookup(module_class)
+
+
 if TYPE_CHECKING:
     from xyz_agent_context.utils import DatabaseClient
     from xyz_agent_context.module import InstanceDict, JobConfig
@@ -158,7 +165,7 @@ class InstanceSyncService:
         user_tz = await UserRepository(self.db).get_user_timezone(user_id)
 
         for inst in instances:
-            if inst.module_class != "JobModule":
+            if not is_task_module(inst.module_class):
                 continue
 
             if not inst.job_config:
@@ -528,9 +535,9 @@ class InstanceSyncService:
         all_task_keys = {inst.task_key or inst.instance_id for inst in instances}
 
         for inst in instances:
-            # Only JobModule handles dependency relationships
-            if inst.module_class != "JobModule":
-                # Non-JobModule (capability-type Module): ignore depends_on, keep active
+            # Only task modules handle dependency relationships
+            if not is_task_module(inst.module_class):
+                # Capability-type Module: ignore depends_on, keep active
                 if inst.depends_on:
                     logger.debug(f"  {inst.task_key}: Non-JobModule, ignoring depends_on, status set to active")
                     inst.depends_on = []  # Clear invalid depends_on
@@ -580,39 +587,17 @@ class InstanceSyncService:
             agent_id: Agent ID (used to get SocialNetwork instance_id)
         """
         try:
-            from xyz_agent_context.repository import InstanceRepository, SocialNetworkRepository
-            from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
-            from xyz_agent_context.module import generate_instance_id
+            from xyz_agent_context.module import InstanceFactory
+            from xyz_agent_context.repository import SocialNetworkRepository
 
-            instance_repo = InstanceRepository(self.db)
             social_repo = SocialNetworkRepository(self.db, agent_id)
 
-            # 1. Get or create SocialNetworkModule instance
-            instances = await instance_repo.get_by_agent(
-                agent_id=agent_id,
-                module_class="SocialNetworkModule"
-            )
-
-            if not instances:
-                # Auto-create SocialNetworkModule instance
-                logger.info("SocialNetworkModule instance does not exist, creating automatically...")
-                social_instance_id = generate_instance_id("social")
-                social_instance = ModuleInstanceRecord(
-                    instance_id=social_instance_id,
-                    module_class="SocialNetworkModule",
-                    agent_id=agent_id,
-                    user_id=agent_id,  # Public instance, user_id set to agent_id
-                    is_public=True,
-                    status=InstanceStatus.ACTIVE,
-                    description="Social network entities and relationships",
-                    keywords=["social", "network", "entity", "relationship"],
-                    topic_hint="Social network management",
-                    created_at=utc_now(),
-                )
-                await instance_repo.create_instance(social_instance)
-                logger.info(f"  Created SocialNetworkModule instance: {social_instance_id}")
-            else:
-                social_instance_id = instances[0].instance_id
+            # 1. The social-network module's public instance (created from its declaration when missing)
+            social_instance = await InstanceFactory(self.db).ensure_role_instance(agent_id, "social_network")
+            if social_instance is None:
+                logger.info("No social_network module registered — skipping job → entity sync")
+                return
+            social_instance_id = social_instance.instance_id
 
             # 2. Check if Entity exists, create if it does not
             entity = await social_repo.get_entity(

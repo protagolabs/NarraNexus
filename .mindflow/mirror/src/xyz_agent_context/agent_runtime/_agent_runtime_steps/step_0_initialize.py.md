@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_0_initialize.py
-last_verified: 2026-07-31
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -47,3 +47,7 @@ WorkingSource 1:1，见 [[models]]），未知值兜底 CHAT（宁可标签缺�
 
 - `ctx.awareness` 和 `AwarenessModule` 里读到的 awareness 内容理论上相同，但前者在 Step 0 读，后者在 Step 3 hook_data_gathering 时读。如果中间有 awareness 更新（极罕见），两者可能不一致。
 - Step 0 产出的 `ctx.event` 是"已持久化到数据库的新 Event"，但 `final_output` 还是空的，Step 4 里才会 `update_event_in_db` 填入最终输出。不要在 Step 4 之前就认为 Event 包含完整数据。
+
+## 2026-09-04 · awareness by role (batch 5b.2)
+
+The awareness lookup asks `module_by_role("awareness")`; with that plugin disabled the turn simply carries no awareness text.

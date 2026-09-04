@@ -234,30 +234,18 @@ async def provision_new_agent(
         logger.warning(f"[provision] failed to schedule default skills for {agent_id}: {defaults_err}")
         warnings.append(f"default_skills: {defaults_err}")
 
-    # 5. Seed the caller-supplied awareness text onto the AwarenessModule
-    # instance step 1 created (fall back to creating one if step 1 failed
-    # to). Best-effort; only runs when the caller passed `awareness`.
+    # 5. Seed the caller-supplied awareness text onto the awareness module's
+    # instance step 1 created (created from the module's declaration if step 1
+    # failed to). Best-effort; only runs when the caller passed `awareness`.
     if awareness is not None:
         try:
-            from xyz_agent_context.repository import InstanceAwarenessRepository, InstanceRepository
-            from xyz_agent_context.schema.instance_schema import InstanceStatus, ModuleInstanceRecord
+            from xyz_agent_context.module import InstanceFactory
+            from xyz_agent_context.repository import InstanceAwarenessRepository
 
-            instance_repo = InstanceRepository(db)
-            instances = await instance_repo.get_by_agent(agent_id=agent_id, module_class="AwarenessModule")
-            if instances:
-                awareness_instance_id = instances[0].instance_id
-            else:
-                awareness_instance_id = f"aware_{uuid4().hex[:8]}"
-                await instance_repo.create_instance(
-                    ModuleInstanceRecord(
-                        instance_id=awareness_instance_id,
-                        module_class="AwarenessModule",
-                        agent_id=agent_id,
-                        is_public=True,
-                        status=InstanceStatus.ACTIVE,
-                        description="Agent self-awareness module instance",
-                    )
-                )
+            awareness_instance = await InstanceFactory(db).ensure_role_instance(agent_id, "awareness")
+            if awareness_instance is None:
+                raise RuntimeError("no module declares the 'awareness' role")
+            awareness_instance_id = awareness_instance.instance_id
             await InstanceAwarenessRepository(db).upsert(awareness_instance_id, awareness)
             logger.info(f"[provision] set awareness for {agent_id}: {len(awareness)} chars")
         except Exception as awareness_err:  # noqa: BLE001

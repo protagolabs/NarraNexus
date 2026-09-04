@@ -40,6 +40,14 @@ class ModuleDecisionMeta(BaseModel):
     typical_instance_id: str = ""  # e.g. "chat_{uuid8}"; "" → derived from instance_prefix
 
 
+class ModuleAgentInstance(BaseModel):
+    """The agent-level instance a module asks for at agent creation (formerly the
+    InstanceFactory's per-module creators): its description / keywords / topic hint."""
+    description: str = ""
+    keywords: List[str] = Field(default_factory=list)
+    topic_hint: str = ""
+
+
 class ModuleConfig(BaseModel):
     """
     Module configuration
@@ -70,6 +78,7 @@ class ModuleConfig(BaseModel):
     context_cost_hint: Optional[int] = None  # order of magnitude of prompt tokens this module adds
     display: Optional[ModuleDisplay] = None
     decision: Optional[ModuleDecisionMeta] = None
+    agent_instance: Optional[ModuleAgentInstance] = None  # created (is_public) for every agent when declared
 
     def effective_instance_prefix(self) -> str:
         return self.instance_prefix or self.name.lower().replace("module", "") or "inst"

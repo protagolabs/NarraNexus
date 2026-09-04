@@ -83,3 +83,7 @@ Session.last_query / current_narrative_id 只在人-回复轮被覆盖。两个
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 The bootstrap greeting seed no longer imports the chat module: after `resolve_bootstrap_greeting_to_seed` the step fires `onDidResolveBootstrapGreeting` on `ctx.registries` (falling back to the process `KERNEL_REGISTRIES`); builtin.chat's `plugin_hooks` does the idempotent write. Head-only semantics, best-effort try/except and the hook-prepend fallback are unchanged.
+
+## 2026-09-04 · chat instance by role (batch 5b.2)
+
+The per-user chat instance is created for the module declaring role "chat" with its declared prefix.

@@ -21,3 +21,7 @@ The descriptor now declares generic storage like every other channel: the platfo
 ## 2026-09-04 · registers its WorkingSource (batch 4e)
 
 `SOURCE = WorkingSource.register("lark")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.LARK` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more. `meta["agent_instance"]` declares the agent-level LarkModule instance (description/keywords/topic_hint) the instance factory creates for every agent — the factory no longer names Lark.
+
+## 2026-09-04 · no `agent_instance` meta (batch 5b.2)
+
+The module declares its agent-level instance in its own `ModuleConfig`.

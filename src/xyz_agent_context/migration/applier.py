@@ -118,8 +118,10 @@ async def _seed_chat_history(db, agent_id: str, user_id: str, narrative, planned
     session import writes all narratives at once, so using import-time would
     collapse the cross-narrative timeline; the real turn times keep it correct.
     Best-effort: never break import on a chat-history write."""
+    from xyz_agent_context.module import module_class_provides_chat_history
+
     chat_inst = next(
-        (i for i in (narrative.active_instances or []) if i.module_class == "ChatModule"),
+        (i for i in (narrative.active_instances or []) if module_class_provides_chat_history(i.module_class)),
         None,
     )
     if not chat_inst or not planned.turns:
@@ -147,7 +149,7 @@ async def _seed_chat_history(db, agent_id: str, user_id: str, narrative, planned
             })
         memory = {"messages": messages, "updated_at": datetime.now(timezone.utc).isoformat()}
         repo = EventMemoryRepository(agent_id, user_id, db)
-        await repo.add_instance_json_format_memory("ChatModule", chat_inst.instance_id, memory)
+        await repo.add_instance_json_format_memory(chat_inst.module_class, chat_inst.instance_id, memory)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[migrate.apply] chat-history seed failed for {narrative.id}: {e}")
 
@@ -226,8 +228,10 @@ async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNar
 
 
 async def _awareness_instance_id(db, agent_id: str) -> Optional[str]:
-    insts = await InstanceRepository(db).get_by_agent(agent_id, module_class="AwarenessModule")
-    return insts[0].instance_id if insts else None
+    from xyz_agent_context.module import InstanceFactory
+
+    inst = await InstanceFactory(db).ensure_role_instance(agent_id, "awareness")
+    return inst.instance_id if inst else None
 
 
 async def _copy_local_skill(agent_id: str, user_id: str, name: str, src: str) -> bool:

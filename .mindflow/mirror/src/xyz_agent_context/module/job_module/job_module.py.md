@@ -100,3 +100,7 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its platform metadata (batch 5b)
 
 `get_config()` is static and carries what the platform used to table about this module (default / base / always-load membership, instance prefix, role, display, decision metadata as applicable).
+
+## 2026-09-04 · declares role "jobs" and reschedules on activation (batch 5b.2)
+
+`on_instance_activated` sets the job's next run time (moved from the narrative instance handler's `== "JobModule"` branch); `always_available_tools=True` keeps job tools reachable through the loader's generic virtual-instance rule.

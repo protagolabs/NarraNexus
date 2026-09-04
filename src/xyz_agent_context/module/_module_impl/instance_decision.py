@@ -22,6 +22,13 @@ from xyz_agent_context.schema.decision_schema import DirectTriggerConfig
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.module._module_impl.prompts import INSTANCE_DECISION_PROMPT_TEMPLATE
 
+def is_task_module(module_class: str) -> bool:
+    """Lazy lookup (the module package imports this file; a top-level import would be circular)."""
+    from xyz_agent_context.module import is_task_module as _lookup
+
+    return _lookup(module_class)
+
+
 
 # ===== LLM Output Schema Definition =====
 # Using Pydantic to define strict JSON Schema, ensuring correct LLM output format
@@ -89,11 +96,9 @@ class InstanceDict(BaseModel):
     """
     Dictionary representation of a single Instance (LLM output format)
 
-    Module Categories:
-    - Capability Modules: ChatModule, AwarenessModule, SocialNetworkModule, BasicInfoModule, MessageBusModule, LarkModule
-      These are Agent capabilities, do NOT set depends_on
-    - Task Modules: JobModule
-      Represents a task to be executed, only JobModule can set depends_on
+    Module Categories (each module declares which it is — ``ModuleConfig.module_type``):
+    - Capability Modules: loaded by rules; do NOT set depends_on
+    - Task Modules (JobModule today): represent a task to be executed; only task modules set depends_on
 
     Important Field Descriptions:
     - task_key: Semantic identifier
@@ -227,6 +232,28 @@ async def llm_decide_instances(
         raise
 
 
+def module_overview_text() -> str:
+    """The prompt's "Module System Overview", generated from every registered
+    module's declaration: capability modules (auto-loaded, with a description
+    when they declare display/decision/default) and task modules (the LLM's
+    decision). A plugin module appears here without a prompt edit."""
+    from xyz_agent_context.module import module_configs
+
+    capability, task = [], []
+    for name, cfg in sorted(module_configs().items(), key=lambda kv: (kv[1].priority, kv[0])):
+        desc = cfg.description
+        if cfg.module_type == "task":
+            task.append(f"- **{name}**: {desc}")
+        elif cfg.decision is not None or cfg.display is not None or cfg.default:
+            capability.append(f"- **{name}**: {desc}")
+    lines = ["# Module System Overview", "", "## Capability Modules (Auto-loaded, NOT in your output)",
+             "These are automatically loaded by the system based on rules. You do NOT need to include them in `active_instances`:"]
+    lines += capability or ["- (none)"]
+    lines += ["", "## Task Modules (Your decision)", "You need to decide whether to create/keep these modules:"]
+    lines += task or ["- (none)"]
+    return "\n".join(lines)
+
+
 def dict_to_module_instance(inst_dict: InstanceDict, agent_id: str) -> ModuleInstance:
     """
     Convert InstanceDict to ModuleInstance object
@@ -311,7 +338,7 @@ def _build_decision_prompt(
             if inst.dependencies:
                 current_instances_text += f"  Dependencies: {', '.join(inst.dependencies)}\n"
             # Show JobModule's related_entity_id (target user) and title
-            if inst.module_class == "JobModule" and inst.instance_id in job_info_map:
+            if is_task_module(inst.module_class) and inst.instance_id in job_info_map:
                 job_info = job_info_map[inst.instance_id]
                 target_user = job_info.get("related_entity_id", "N/A")
                 job_type = job_info.get("job_type", "N/A")
@@ -354,6 +381,7 @@ This is the user who is currently chatting with the Agent. Use this to determine
 """
 
     prompt = INSTANCE_DECISION_PROMPT_TEMPLATE.format(
+        module_overview=module_overview_text(),
         narrative_summary=narrative_summary if narrative_summary else "New Narrative",
         current_user_text=current_user_text,
         capability_text=capability_text,

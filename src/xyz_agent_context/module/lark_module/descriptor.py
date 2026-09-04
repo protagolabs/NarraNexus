@@ -51,12 +51,6 @@ DESCRIPTOR = ChannelDescriptor(
     unbind_service=True,
     meta={
         "storage": "generic",  # 4d: the manager persists in channel_credentials
-        # Every agent gets a LarkModule instance at creation (it may bind a Feishu bot later).
-        "agent_instance": {
-            "description": "Lark/Feishu integration: contacts, messages, documents, calendar, tasks",
-            "keywords": ["lark", "feishu", "im", "messaging", "document", "calendar"],
-            "topic_hint": "Lark/Feishu bot operations and IM interactions",
-        },
     },
     ui=ChannelUi(label="Lark / Feishu", icon="message-square", order=10),
 )
