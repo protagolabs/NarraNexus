@@ -161,6 +161,26 @@ describe('Done', () => {
     expect(useUIStore.getState().pendingPanel).toBeNull();
   });
 
+  test('does NOT end the studio when the flush fails — the error stays visible', async () => {
+    // Ending it would unmount this panel (and its error line) and collapse the
+    // drawer in the same tick: a clean close over an edit that never landed,
+    // with no way back in. The panel stays, Done can be pressed again.
+    openStudio(AGENT);
+    vi.mocked(api.updateAwareness).mockRejectedValueOnce(new Error('gateway 502'));
+    const view = renderPanel();
+    fireEvent.change(view.getByPlaceholderText(/What this agent does/i), {
+      target: { value: 'last-minute edit' },
+    });
+    fireEvent.click(view.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(view.getByText(/gateway 502/)).toBeInTheDocument());
+    expect(isStudioOpen(AGENT)).toBe(true);
+    expect(view.getByRole('button', { name: 'Done' })).toBeEnabled();
+
+    // second attempt succeeds → now it ends
+    fireEvent.click(view.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(isStudioOpen(AGENT)).toBe(false));
+  });
+
   test('flushes an unblurred edit instead of losing it', async () => {
     // A real browser blurs the textarea before the button's click, but nothing
     // guarantees that commit finished — and in jsdom no blur fires at all. So

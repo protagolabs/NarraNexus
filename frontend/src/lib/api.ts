@@ -4,6 +4,7 @@
  */
 
 import type { Artifact, TeamFile } from '@/types/artifact';
+import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 import type {
   MigrationFramework,
   MigrationDetectResponse,
@@ -1215,7 +1216,8 @@ class ApiClient {
     if (params.limit) search.set('limit', String(params.limit));
     if (params.agentId) search.set('agent_id', params.agentId);
     return this.request<MarketplaceSearchResponse>(
-      `/api/marketplace/skills/search?${search}`
+      `/api/marketplace/skills/search?${search}`,
+      { signal: AbortSignal.timeout(MARKETPLACE_SEARCH_TIMEOUT_MS) },
     );
   }
 

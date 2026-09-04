@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
+
+常量 `MARKETPLACE_SEARCH_TIMEOUT_MS` 在 [[apiTimeouts.ts]]（不放本文件：测试整体 mock
+`@/lib/api`，named 常量会随 mock 消失）。创建工作室每轮拉目录且去重 in-flight，一个不 settle
+的请求会占住浏览器同源连接池；abort 让它变成普通失败。
 
 ## 2026-09-03 — 删 `getAgentsModelOverview`
 

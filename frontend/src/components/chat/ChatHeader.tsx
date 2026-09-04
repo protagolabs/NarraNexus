@@ -39,7 +39,8 @@ import {
   visibleTabs,
   type AtomicTabId,
 } from '@/components/bookmarks';
-import { useUIStore, useArtifactStore, useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores';
+import { useUIStore, useArtifactStore } from '@/stores';
+import { useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores/studioStore';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';

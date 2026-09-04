@@ -4,11 +4,21 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审四轮) — 超时下沉到请求本身
+
+评审 🟡#17：`withTimeout` 只是不再等，底层 fetch 仍挂着，且 `.finally` 释放槽后下一轮又发
+一个——marketplace stall 时每轮泄漏一个永不返回的 XHR，HTTP/1.1 的 localhost 6 连接占满后
+整个 app 的请求排队。现在 `api.searchMarketplaceSkills` 自带
+`AbortSignal.timeout(MARKETPLACE_SEARCH_TIMEOUT_MS)`（照 `setTeamPatrol` 的先例），abort 走
+既有的失败路径；`withTimeout` 保留为第二道兜底，`CATALOGUE_TIMEOUT_MS` 由那个常量派生而
+不是第二份数字（常量放 [[../lib/apiTimeouts.ts]]，因为测试整体 mock `@/lib/api`）。
+失败 / 超时各记一行 `console.warn`——此前目录请求失败零诊断信号。
+
 ## 2026-09-04 (评审三轮) — apply 侧等目录有上限
 
 评审 🟡#14：in-flight 去重 + apply 侧 `await loadCatalogue()` 合起来的新失效：第一次请求
 挂死（不 settle、无超时）→ 那个 promise 永不清空 → 此后每一次 `applyFromReply` 都等它，
-整个 session 的模型写入静默失效。`CATALOGUE_TIMEOUT_MS` + `withTimeout`：超时视为未知、
+整个 session 的模型写入静默失效。`CATALOGUE_TIMEOUT_MS` + `withTimeout`（四轮起请求本身也会 abort）：超时视为未知、
 释放 in-flight、下一次重试。刻意**有上限地等**而不是不等：`mergeAgentDraft(…, null)` 会让
 首轮 skill 建议整体回落。测试用 fake timers 钉住「永不 settle 时 apply 仍在上限内完成」。
 

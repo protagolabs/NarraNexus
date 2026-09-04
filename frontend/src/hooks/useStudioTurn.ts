@@ -40,6 +40,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
+import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 import { useConfigStore, usePreloadStore, useStudioStore, selectStudioOpen, isStudioOpen } from '@/stores';
 import {
   encodeBuilderTurn,
@@ -58,17 +59,30 @@ const CATALOGUE_LIMIT = 60;
 
 /**
  * Upper bound on waiting for the catalogue anywhere it IS awaited. The
- * marketplace request has no timeout of its own, and a stalled connection
- * (not a 5xx — simply no answer) must not become a session-long hang.
+ * request itself aborts after `MARKETPLACE_SEARCH_TIMEOUT_MS` (apiTimeouts) — that
+ * is the real fix, it frees the connection. This is the second guard, a
+ * little later, so a hook-level wait can never outlive the request even if
+ * the abort path is bypassed (e.g. a mocked or wrapped transport). Derived,
+ * not a second literal: two copies of the number is how they drift.
  */
-const CATALOGUE_TIMEOUT_MS = 8_000;
+const CATALOGUE_TIMEOUT_MS = MARKETPLACE_SEARCH_TIMEOUT_MS + 2_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<T> {
   return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(onTimeout), ms);
+    const timer = setTimeout(() => {
+      console.warn(`[studio] skill catalogue: no answer within ${ms}ms; continuing without it`);
+      resolve(onTimeout);
+    }, ms);
     promise.then(
       (v) => { clearTimeout(timer); resolve(v); },
-      () => { clearTimeout(timer); resolve(onTimeout); },
+      (err: unknown) => {
+        clearTimeout(timer);
+        // The only trace a failed / aborted catalogue fetch leaves — the UI
+        // shows nothing (suggestions simply stay as they were), so without
+        // this line a 500, a DNS miss or the abort above would be invisible.
+        console.warn('[studio] skill catalogue request failed; continuing without it', err);
+        resolve(onTimeout);
+      },
     );
   });
 }
@@ -101,7 +115,9 @@ export function useStudioTurn(agentId: string | null) {
         catalogueRef.current = next;
         return next;
       })
-      .catch(() => null) // stays unknown; the next call tries again
+      // Only a throw inside the mapping above lands here (withTimeout already
+      // turned transport failures into null); the result is the same: unknown.
+      .catch(() => null)
       .finally(() => {
         catalogueInFlightRef.current = null;
       });

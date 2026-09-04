@@ -83,7 +83,8 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   useEffect(() => setName(agent?.name ?? ''), [agent?.name]);
   useEffect(() => setInstructions(awareness ?? ''), [awareness]);
 
-  const commitName = useCallback(async () => {
+  /** Returns whether the field is now persisted (a no-op counts as success). */
+  const commitName = useCallback(async (): Promise<boolean> => {
     const next = name.trim();
     // An empty name is never committed — the same rule the model's path
     // applies in mergeAgentDraft, so a blank field reads as "not changing it"
@@ -92,61 +93,75 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     // WAS cleared, the opposite of what just happened.
     if (!next) {
       setName(agent?.name ?? '');
-      return;
+      return true;
     }
-    if (next === (agent?.name ?? '')) return;
+    if (next === (agent?.name ?? '')) return true;
     setSaving(true);
     setError(null);
     try {
       const res = await api.updateAgent(agentId, next, agent?.description ?? '');
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');
       await refreshAgents();
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       setSaving(false);
     }
   }, [name, agent?.name, agent?.description, agentId, refreshAgents]);
 
-  const commitAwareness = useCallback(async () => {
-    if (instructions === (awareness ?? '')) return;
+  const commitAwareness = useCallback(async (): Promise<boolean> => {
+    if (instructions === (awareness ?? '')) return true;
     setSaving(true);
     setError(null);
     try {
       const res = await api.updateAwareness(agentId, instructions);
       if (!res.success) throw new Error(res.message ?? res.error ?? 'update failed');
       await refreshAwareness(agentId, true);
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       setSaving(false);
     }
   }, [instructions, awareness, agentId, refreshAwareness]);
 
   /**
-   * Leave the studio, but flush pending field edits first.
+   * Flush pending field edits, then end the studio — in that order, and only
+   * if the flush succeeded.
    *
    * A textarea's onBlur fires BEFORE the button's onClick, so a user who types
    * and then clicks Done has a commit in flight at click time. Awaiting both
    * commits here (each a no-op when unchanged) means the last thing they typed
-   * is persisted before the studio closes, instead of racing it.
+   * is persisted before the studio ends, instead of racing it.
+   *
+   * A FAILED flush must not end the studio: ending it unmounts this panel (and
+   * its error line) and collapses the drawer in the same tick, so the user
+   * would see a clean close and believe the edit was saved — while the studio
+   * is now unrecoverable and the text never landed. Instead the panel stays,
+   * the error line is visible, and Done can be pressed again. Same rule as
+   * every other write here: failure leaves the user where they can see it
+   * (binding rule #15 — no modal, no disabled composer).
    */
   const finish = useCallback(async () => {
     setFinishing(true);
+    let flushed = false;
     try {
-      await commitName();
-      await commitAwareness();
+      flushed = (await commitName()) && (await commitAwareness());
     } finally {
       setFinishing(false);
-      // Done ENDS the studio (flag, recommendations, resumability). Nothing
-      // here touches the drawer: once this agent is neither open nor
-      // resumable, useStudioLifecycle collapses the drawer itself — the same
-      // way it does for the X, another tab or another agent. Asking the
-      // drawer to toggle from here as well used to race that effect (React
-      // batches both into one commit; the toggle read the already-collapsed
-      // tab as "not open" and re-opened it on an empty panel).
-      finishStudio(agentId);
     }
+    if (!flushed) return;
+    // Done ENDS the studio (flag, recommendations, resumability). Nothing
+    // here touches the drawer: once this agent is neither open nor
+    // resumable, useStudioLifecycle collapses the drawer itself — the same
+    // way it does for the X, another tab or another agent. Asking the
+    // drawer to toggle from here as well used to race that effect (React
+    // batches both into one commit; the toggle read the already-collapsed
+    // tab as "not open" and re-opened it on an empty panel).
+    finishStudio(agentId);
   }, [commitName, commitAwareness, agentId, finishStudio]);
 
   const install = useCallback(

@@ -4,6 +4,15 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 (评审四轮) — 冲刷失败则不结束
+
+评审 🟡#16：`finish()` 的 `finally` 无条件 `finishStudio`，而两个 commit 都吞异常只写本地
+`error`；结束会让面板当场卸载（错误行随之消失）并收起抽屉——用户看到干净关闭、以为存上了，
+实际最后那次编辑没落库且 studio 不可恢复。现在 `commitName` / `commitAwareness` 返回是否已
+持久化（未改 / 空名 early-return 算成功），`finish` 只在两者都成功时 `finishStudio`；失败就把
+用户留在能看见错误行的地方，「完成」可再点。判据用返回值而不是 `error` state（`install()`
+的失败也写同一个 state，不能让它卡死 Done）。
+
 ## 2026-09-04 (评审三轮) — 「完成」不再碰抽屉
 
 评审 🔴#13：`finish()` 里 `finishStudio` + `requestPanel('builder')` 两句同步调用被 React 19

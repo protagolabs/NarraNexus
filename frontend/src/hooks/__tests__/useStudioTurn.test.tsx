@@ -46,7 +46,7 @@ describe('useStudioTurn.applyFromReply', () => {
       const applying = result.current.applyFromReply(reply).then(() => {
         settled = true;
       });
-      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.advanceTimersByTimeAsync(13_000);
       await applying;
       expect(settled).toBe(true);
       // the text write happened; the skill suggestion stayed as it was
