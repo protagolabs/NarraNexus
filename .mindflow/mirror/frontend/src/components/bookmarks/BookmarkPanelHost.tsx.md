@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 挂载 `builder` 面板
+
+`tab === 'builder'` → lazy 的 [[BuilderConfigPanel.tsx]]。与其他 panel 一样
+lazy，所以不打开就不拉这块 chunk。
+
+**09-03 评审修订**：加了 `studioOpen` 兜底 —— 可选列表虽已隐藏这个 tab，但恢复
+的 `drawerTab`、深链、抽屉开着时切 agent 都可能落到这里；一个没有对话在驾驭的
+studio 面板读起来像坏了。守在唯一的挂载点上，而不是每个入口再判一次。
 
 ## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
 

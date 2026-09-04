@@ -39,6 +39,7 @@ const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
 const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
+const ChooseCreateMethodPage = lazy(() => import('@/pages/ChooseCreateMethodPage'));
 const AgentProfilePage = lazy(() => import('@/pages/AgentProfilePage'));
 const AccountPage = lazy(() => import('@/pages/AccountPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
@@ -610,6 +611,9 @@ function App() {
           <Route path="templates/install" element={<BundleImportPage />} />
           {/* Static segment ranks above :teamId in v6 route ranking, but it
               also reads clearer listed first. */}
+          {/* Creation studio entry. Creates nothing itself — both cards end
+              in the same useCreateAgent() call (see the page's header). */}
+          <Route path="agents/new" element={<ChooseCreateMethodPage />} />
           <Route path="teams/new" element={<CreateTeamPage />} />
           {/* Agent profile — the one page that owns an agent's identity,
               capabilities and settings. Reached from the chat header's

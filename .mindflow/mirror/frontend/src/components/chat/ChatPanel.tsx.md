@@ -1,9 +1,56 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 — `handleSubmit` 一次只跑一个
+
+`submittingRef` 门：`await encodeOutgoing`（读 awareness）在 composer 清空与 `startStreaming`
+之前，`isLoading` 那时还是 false，第二个 Enter 会把整条路径再跑一遍、同一句话发两遍。这条在
+dev 上因 `getAwareness` 已存在，不是 studio 引入，但同一处修最省。测试
+`chatPanelSubmitGuard.test.tsx`。早条里 `builderPrompt.ts` 的 wikilink 降为反引号（该文件
+同 PR 内创建又删除，仓库里从未存在）。
+
+## 2026-09-03 (评审修订) — 落定沿按 agent 记 + 已应用消息去重
+
+`wasStreamingRef` 原是跨 agent 共用的一个布尔，而 `isStreaming` / `messages` 是从
+`activeAgentId` 派生的扁平字段。可复现丢数据路径：B 已落定并应用 → 用户在面板里
+手改 name / awareness 落库 → 切到 A 发消息（A streaming）→ **A 还在跑时**切回 B：
+扁平 `isStreaming` true → false，被判成「B 落定」，`applyFromReply` 重跑 B 的旧草稿，
+两个 PUT 把用户手改**全部覆盖回旧值**，无备份无提示。多 agent 后台并跑是核心场景，
+这直接否证了整个协议的立论「面板手改是权威」。
+
+现在两道闸：`wasStreamingByAgentRef` 按 agent 记沿；`appliedReplyIdsRef` 以
+`agentId:message.id` 记「已应用」，命中即 return。去重键不能用内容 —— 模型被允许
+在后一轮重述同一份草稿。测试 `chatPanelStudioSettle.test.tsx` 复现上述四步。
+这条修完 [[../../lib/builderProtocol.ts]] 的空串保护**仍然必需**：本条只防重放，
+不防新草稿本身是空的。
+
+## 2026-09-03 (修订 09-03 早条) — studio 改为每轮包裹 + 落定即应用
+
+早先那条写的是「包裹**第一条**消息」，随结构化面板一起作废。现在：
+
+- 提交路径 `outgoing = await encodeOutgoing(content)` —— studio 打开期间**每轮**
+  都带 Builder 指令 + 当前配置。位置仍在 steer 分支之后（mid-run 追问不是一个
+  回合）。返回原文即降级，studio 出问题不能吞掉用户的消息。
+- 新增一个 effect 监听**流式落定沿**（true → false），把最后一条 assistant
+  消息交给 `applyFromReply`。刻意不监听消息列表：草稿块只有回合结束才完整，
+  流式中途应用会把半序列化的 JSON 写进 agent 的指令。
+
+两个调用都来自 [[useStudioTurn.ts]]，本文件不含 studio 逻辑。
+
+## 2026-09-03 — 创建工作室 v0：首条消息包裹 Builder 指令
+
+提交路径新增 `outgoing`：agent 被 [[builderSession.ts]] 标记过时，用
+`builderPrompt.ts`（同 PR 内创建又删除，仓库里从未存在）的 `buildBuilderFirstMessage` 包裹用户那句话，
+`addUserMessage` 与 `run` 都发包裹后的内容。
+
+**位置刻意放在 steer 分支之后** —— 一次 mid-run 追问绝不能烧掉这个标记。
+标记是 consume-once 的，所以后续回合发的是纯文本。
+
+指令为什么不能在进入聊天页时就发：它的作用是框住用户**自己**那句需求，而那
+句话在用户敲之前并不存在。渲染侧由 [[MessageBubble.tsx]] 剥掉。
 ## 2026-08-31（四）— 「正在处理…」删除
 
 直播块尾部那个 `Loader2 + chat.execution.acting` 的行内指示器删掉，i18n key

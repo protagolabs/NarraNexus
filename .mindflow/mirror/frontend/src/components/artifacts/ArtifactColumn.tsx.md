@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 与创建工作室无关
+
+创建工作室（studio）最终采用结构化面板 + 实时落库，配置面板是抽屉里的
+[[BuilderConfigPanel.tsx]]。本文件曾在同日的一个已放弃的 markdown 草稿方案里
+被改过又还原，最终状态与改动前完全一致 —— artifact 列**没有**任何 studio 逻辑。
 
 ## 2026-08-19 — sliver 分支删除(更正 08-13 条的「sliver 机制保留未动」)
 

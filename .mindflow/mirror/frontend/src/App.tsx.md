@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-03 — 创建工作室入口路由
+
+新增 `agents/new` → [[ChooseCreateMethodPage.tsx]]，与 `teams/new` 同层的
+lazy 路由。这一页**自己不创建任何东西**（创建在下一步），所以路由上没有任何
+守卫或清理需求。
 
 ## 2026-08-27 — 新路由 /app/agents/:agentId(Agent Profile)
 
@@ -10,8 +16,7 @@ stub: false
 放在 `teams/:teamId` **之前**只为可读性——两条路径首段不同,不存在 v6 排序
 冲突。两个入口写进 `state.from`:Chat 头部身份块(`'chat'`)与 Dashboard
 智能体行的身份块(`'dashboard'`),profile 的面包屑据此决定回哪儿。
-**没有**引入 `agents/new`——本分支创建 Agent 仍走弹窗
-([[hooks/useCreateAgent]]),不是整页向导。
+（当时**没有** `agents/new`；#382 合入后创建 Agent 走 [[ChooseCreateMethodPage.tsx]] 的整页分叉，见上条。）
 
 ## 2026-08-19 — /app/account 路由降级为别名
 

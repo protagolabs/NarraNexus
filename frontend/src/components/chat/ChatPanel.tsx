@@ -40,6 +40,7 @@ import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
+import { useStudioTurn } from '@/hooks/useStudioTurn';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -253,6 +254,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const currentToolCalls = useDeferredValue(_rtToolCalls);
   const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+  // Creation studio: two touch points only — wrap the outgoing message, and
+  // apply the settled reply's config block. Everything else lives in the hook.
+  const { encodeOutgoing, applyFromReply } = useStudioTurn(agentId);
   const { t } = useTranslation();
 
   // Read artifact list at component scope so it can be safely passed into
@@ -609,6 +613,40 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
+  // ── Creation studio: apply the config block when a turn settles ──
+  //
+  // Watches the streaming edge (true -> false) rather than the message list:
+  // the draft block is only complete once the turn is done, and applying
+  // mid-stream would write a half-serialised JSON value into the agent's
+  // instructions. The reply text is read from the store's settled message,
+  // not from the streaming buffer, for the same reason.
+  //
+  // Two guards, because `isStreaming` / `messages` are flat fields derived
+  // from whichever agent is ACTIVE and this panel switches agents in place:
+  //   - the edge is tracked per agent, so switching from a streaming agent A
+  //     back to a settled agent B does not read as "B just settled";
+  //   - each assistant message is applied at most once (by id), so a genuine
+  //     re-settle on the same agent cannot replay an old draft over edits the
+  //     user has since made in the panel. Content is not a usable key — the
+  //     model is allowed to restate an identical block on a later turn.
+  const wasStreamingByAgentRef = useRef<Record<string, boolean>>({});
+  const appliedReplyIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!agentId) return;
+    const wasStreaming = wasStreamingByAgentRef.current[agentId] ?? false;
+    wasStreamingByAgentRef.current[agentId] = isStreaming;
+    if (!wasStreaming || isStreaming) return;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const key = `${agentId}:${m.id}`;
+      if (appliedReplyIdsRef.current.has(key)) return;
+      appliedReplyIdsRef.current.add(key);
+      void applyFromReply(m.content);
+      return;
+    }
+  }, [agentId, isStreaming, messages, applyFromReply]);
+
   // ── Inner Thoughts defaults to the bottom (newest activity) ──
   // Like a chat log, not an inbox: the newest activity sits at the bottom, so
   // opening the tab (or a new activity arriving) snaps to the end and the user
@@ -835,7 +873,22 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   };
 
   // ── Handlers ────────────────────────────────────────
+  // One submit at a time. `handleSubmit` awaits (the studio's encode, which
+  // reads the agent's instructions) BEFORE the composer clears and
+  // `startStreaming` flips `isLoading`, so a second Enter in that window used
+  // to run the whole path again and send the same message twice.
+  const submittingRef = useRef(false);
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await submitOnce();
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  const submitOnce = async () => {
     const trimmed = (composerRef.current?.getText() ?? '').trim();
     const hasContent = trimmed.length > 0 || pendingAttachments.length > 0;
     if (!hasContent || !agentId || !userId || uploadingCount > 0) return;
@@ -869,6 +922,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       return;
     }
 
+    // Creation studio: while it is open, every outgoing message carries the
+    // Agent Builder instruction plus this agent's CURRENT configuration.
+    // Restating the config each turn is what makes the user's own panel edits
+    // authoritative — the model revises what the panel holds instead of
+    // overwriting it. Returns `content` untouched when the studio is shut, or
+    // on any failure: a studio hiccup must not swallow the user's message.
+    // Deliberately after the steer branch — a mid-run steer is not a turn.
+    const outgoing = await encodeOutgoing(content);
+
     const attachmentsToSend = pendingAttachments;
     composerRef.current?.clear();
     setPendingAttachments([]);
@@ -900,7 +962,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }));
     }
 
-    addUserMessage(agentId, content, attachmentsToSend.length ? attachmentsToSend : undefined);
+    addUserMessage(agentId, outgoing, attachmentsToSend.length ? attachmentsToSend : undefined);
     startStreaming(agentId);
     captureProductEvent('message_submitted', {
       agent_id: agentId,
@@ -909,7 +971,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const agentName = currentAgent?.name || agentId;
-      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
+      run(agentId, userId, outgoing, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }

@@ -1917,8 +1917,10 @@
       "skills": "Habilidades instaladas do agente. Adicione mais no Marketplace ou instale via GitHub / zip.",
       "mcp": "Servidores de ferramentas MCP externos que o agente pode chamar — conecte capacidades de terceiros.",
       "memory": "A memória de longo prazo do agente, organizada em narrativas — o que ele leva entre conversas.",
-      "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes."
-    }
+      "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes.",
+      "builder": "Descreva o que precisa; a conversa preenche este painel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Tarefas",
@@ -2323,5 +2325,59 @@
     "settings": "Abrir configurações",
     "dismiss": "Entendido",
     "bodyManaged": "Esta instalação envia registos de serviço de diagnóstico (erros e eventos de diagnóstico) para o coletor do próprio NarraNexus, conforme configurado pelo seu administrador. Nas instalações que executam o nível \"full\", as linhas de registo podem incluir conteúdo de mensagens."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Criar agente",
+      "title": "Por onde você quer começar?",
+      "subtitle": "Comece com uma configuração em branco, ou descreva o que precisa e construa por conversa.",
+      "blankTitle": "Começar em branco",
+      "blankBody": "Configure cada campo você mesmo. Para quem já sabe como o agente deve funcionar.",
+      "aiTitle": "Criar com IA",
+      "aiBody": "Descreva o resultado desejado. O Agent Builder faz as perguntas essenciais e escreve o rascunho.",
+      "continue": "Continuar",
+      "recommended": "Recomendado"
+    },
+    "gate": {
+      "title": "Criar agente",
+      "probing": "Verificando provedores",
+      "chooseTitle": "Escolha um provedor",
+      "chooseHint": "Escolha um provedor existente ou conecte um novo. Isso decide qual motor executa o agente.",
+      "accessApiKey": "Chave de API",
+      "accessCli": "Login via CLI",
+      "emptyLead": "Ainda não há motor disponível. Conecte um provedor — é ele que vai executar este agente.",
+      "addLabel": "Adicionar provedor",
+      "addApiKey": "Chave de API",
+      "addCli": "Login via CLI",
+      "back": "Voltar",
+      "next": "Avançar",
+      "cliDesktopHint": "O login abre o navegador para autorizar a CLI do Claude.",
+      "cliLogin": "Entrar com Claude",
+      "cliLoggingIn": "Entrando…",
+      "cliWebHint": "Não conectado — execute `claude auth login` no terminal e reabra esta janela.",
+      "cliMissingHint": "A CLI do Claude não está disponível aqui. Instale-a, entre pelo terminal e reabra esta janela."
+    },
+    "panel": {
+      "intro": "A conversa escreve nome, descrição e instruções direto neste agente. Skills e canais são apenas sugeridos — você é quem instala.",
+      "identity": "Identidade",
+      "name": "Nome",
+      "namePlaceholder": "ex.: Resumo financeiro da manhã",
+      "behaviour": "Comportamento",
+      "install": "Instalar",
+      "installed": "Instalado",
+      "saving": "Salvando…",
+      "savedHint": "As alterações são salvas ao sair de um campo.",
+      "done": "Concluir",
+      "identityHint": "Dê ao agente um nome fácil de reconhecer.",
+      "behaviourHint": "Defina como ele trabalha. Este é o campo awareness com que o agente realmente roda.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "O que este agente faz, como trabalha, o que deve evitar…",
+      "skills": "Skills",
+      "skillsHint": "Skills do workspace que este agente pode usar.",
+      "channels": "Canais",
+      "channelsHint": "Onde ele pode ser encontrado. Credenciais vão direto ao backend — nunca para a conversa.",
+      "suggested": "Da conversa",
+      "optional": "Opcional"
+    }
   }
 }

@@ -13,3 +13,4 @@ export { useAgentImport, type AgentImportController } from './useAgentImport';
 export { useBookmarkSignals } from './useBookmarkSignals';
 export { useFastMode } from './useFastMode';
 export { useDismissOnOutside } from './useDismissOnOutside';
+export { useStudioLifecycle } from './useStudioLifecycle';

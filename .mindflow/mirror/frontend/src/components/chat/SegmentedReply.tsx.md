@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/SegmentedReply.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 剥掉流式回复里的 `<agent_draft>`
+
+`segment.reply.content` 两个分支（流式 pre-wrap + 落定 Markdown）都过
+`stripAgentDraft`。**流式那条是关键**：草稿块的开标签比闭标签早到很多帧，这里
+正是原始 JSON 会在读者眼前滚过去的地方，`stripAgentDraft` 连未闭合形态一起杀。
 
 ## 2026-08-31（二）— `defaultOpen` 删除
 

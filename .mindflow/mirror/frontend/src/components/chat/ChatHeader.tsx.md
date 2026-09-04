@@ -1,8 +1,34 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (合并 dev #383 后) — `builder` 成为 ⋯ 菜单的**条件项**
+
+#383 把抽屉标题下拉整体退役，`visibleCategories` 失去承载它的 UI；桌面端用户收起
+studio 面板后原本只剩 ⌘K 能回去。现在 ⋯ 菜单第一项按 [[../bookmarks/tabs.ts]] 的
+`visibleTabs({ studioOpen, studioResumable })` 判定是否列出 `builder`：与「常驻入口会提供一个
+对话没在驱动的面板」那条理由自洽——只有这个 agent 走过 AI 创建路径且没按完成时才出现。
+`DETAIL_GROUP_A` 取 #383 的瘦身版（awareness / social / memory 归档案页）。
+
+## 2026-09-03 (更正同日早条) — `builder` 不进 ⋯ 菜单
+
+早条把 `builder` 加进了 `DETAIL_GROUP_A`，已撤回。Owner 定义：**配置面板只在
+「通过 AI 创建」这条路径上出现**，「从空白开始」保持现状。常驻入口会在每个
+agent 上都提供一个「对话并不驱动它」的表单，读起来像坏了，而不是多了个功能。
+
+`DETAIL_GROUP_A` / `DETAIL_GROUP_B` **是写死的 id 列表、不从
+`STRIP_CATEGORIES` 派生**这条陷阱仍然成立 —— 将来要加常驻 tab 必须同步改这里。
+
+## 2026-09-03 — `builder` 进 ⋯ 详情菜单
+
+创建工作室的配置面板加进 `DETAIL_GROUP_A` 首位。
+
+**这里有个陷阱**：`DETAIL_GROUP_A` / `DETAIL_GROUP_B` 是**写死的 id 列表**，
+不从 `STRIP_CATEGORIES` 派生。所以在 [[tabs.ts]] 里注册一个新 tab **不够** ——
+不同步改这里的话，那个 tab 只能从抽屉自身的切换器进得去，⋯ 菜单里根本看不到。
+本次就是这么漏的一轮。
 
 ## 2026-08-27 — 左上角身份块 = Profile 入口;切换下拉退役,⋯ 菜单瘦身
 

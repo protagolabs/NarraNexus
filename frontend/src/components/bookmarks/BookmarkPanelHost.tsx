@@ -16,8 +16,12 @@ import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+import { useStudioStore, selectStudioOpen } from '@/stores/studioStore';
 import { markTabOpened, type AtomicTabId } from './tabs';
 
+const BuilderConfigPanel = lazy(() =>
+  import('@/components/builder').then((m) => ({ default: m.BuilderConfigPanel })),
+);
 const AwarenessPanel = lazy(() =>
   import('@/components/awareness/AwarenessPanel').then((m) => ({ default: m.AwarenessPanel })),
 );
@@ -61,6 +65,13 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
     markTabOpened(agentId, tab);
   }, [agentId, tab]);
 
+  // The studio panel only renders while the studio is open on this agent.
+  // The pickable lists already hide the tab, but a restored `drawerTab`, a
+  // deep link, or the agent changing under an open drawer can still land
+  // here — and a studio panel with no conversation driving it reads as
+  // broken. Its guard is here, at the one place the panel is mounted.
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
+
   const handleJobResolved = (jobId: string) => {
     useBookmarkStore.getState().resolveJobAttention(agentId, jobId);
   };
@@ -68,6 +79,7 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <Suspense fallback={<PanelFallback />}>
+        {tab === 'builder' && studioOpen && <BuilderConfigPanel agentId={agentId} />}
         {tab === 'awareness' && <AwarenessPanel embedded section="awareness" />}
         {tab === 'workspace' && <AwarenessPanel embedded section="workspace" />}
         {tab === 'channels' && <AwarenessPanel embedded section="channels" />}

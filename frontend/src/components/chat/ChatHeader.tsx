@@ -36,9 +36,10 @@ import {
   deriveTabStatus,
   markTabOpened,
   tabDescKey,
+  visibleTabs,
   type AtomicTabId,
 } from '@/components/bookmarks';
-import { useUIStore, useArtifactStore } from '@/stores';
+import { useUIStore, useArtifactStore, useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -47,7 +48,16 @@ import type { Step } from '@/types';
 
 /** Detail-menu layout: config panels only. Awareness and the Network/Memory
  *  pair are dropped here — they now live on the agent's Profile page and
- *  don't need a second door. */
+ *  don't need a second door.
+ *
+ *  Hardcoded ids, NOT derived from STRIP_CATEGORIES (which is the unfiltered
+ *  registry — `ALL_TAB_DEFS` below only looks defs up by id). The creation
+ *  studio's `builder` tab is not in this list either: it is rendered as a
+ *  CONDITIONAL first item via `builderOffered`, i.e. `visibleTabs(ctx)` — the
+ *  ONE place the `conditional` rule is applied, shared with the ⌘K palette. A permanent entry would
+ *  offer a panel the conversation does not drive; but once the drawer's tab
+ *  switcher retired, this menu is the desktop's only way back into a studio
+ *  the user collapsed — without it, "collapse" would silently mean "end". */
 const DETAIL_GROUP_A: AtomicTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 const ALL_TAB_DEFS = STRIP_CATEGORIES.flatMap((c) => c.tabs);
@@ -88,6 +98,9 @@ export function ChatHeader({
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
+  const studioResumable = useStudioStore(selectStudioResumable(agentId));
+  const builderOffered = visibleTabs({ studioOpen, studioResumable }).some((t) => t.id === 'builder');
 
   const bookmarkState = useBookmarkStore((s) => (agentId ? s.agents[agentId] : undefined));
   const jobsStatus = deriveTabStatus(bookmarkState, 'jobs');
@@ -248,6 +261,7 @@ export function ChatHeader({
                   'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
                 )}
               >
+                {builderOffered && <DetailItem id="builder" onOpen={openPanel} />}
                 {DETAIL_GROUP_A.map((id) => (
                   <DetailItem key={id} id={id} onOpen={openPanel} />
                 ))}

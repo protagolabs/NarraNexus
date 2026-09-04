@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/layout/CommandPalette.tsx
-last_verified: 2026-06-24
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 面板列表也认「可恢复」
+
+`visibleTabs({ studioOpen, studioResumable })`：收起后的 studio 仍能从 ⌘K 选 Builder 回去，
+选中后由 [[../../hooks/useStudioLifecycle.ts]] 恢复。
+
+## 2026-09-03 — 面板列表改走 `visibleTabs`
+
+原来 `ALL_TABS.map(...)` 对任意 agent 都列出创建工作室的 Builder 面板，绕过了
+MainLayout / ChatHeader 刻意做的隐藏 —— 而 palette 恰是移动端的面板主入口。现在
+与抽屉切换器共用 [[../bookmarks/tabs.ts]] 的 `visibleTabs({ studioOpen })`，
+`studioOpen` 订阅自 [[../../stores/studioStore.ts]]。
 
 # layout/CommandPalette.tsx — ⌘K quick-jump navigator
 
@@ -20,7 +32,7 @@ right bookmark strip is hidden there.
 
 - Builds one flat command list each render: every agent (jump into its chat),
   the four pages (Chat / Dashboard / Settings / System), and — only when an
-  agent is selected — the context panels from `ALL_TABS`. A simple
+  agent is selected — the context panels from `visibleTabs({ studioOpen })` (see 09-03 entry). A simple
   case-insensitive substring filter over label + hint; arrow keys move the
   highlight, Enter runs, Esc / backdrop closes.
 - Upstream: opened by [[TopBar]] (which owns the `paletteOpen` boolean and the

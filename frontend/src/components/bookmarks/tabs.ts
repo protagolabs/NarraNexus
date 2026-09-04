@@ -22,6 +22,7 @@ import {
   Network,
   ListTodo,
   Inbox,
+  Wand2,
   Puzzle,
   Server,
   BookOpen,
@@ -62,6 +63,7 @@ export const ArtifactsGlyph = forwardRef<SVGSVGElement, LucideProps>(
 ) as unknown as LucideIcon;
 
 export type AtomicTabId =
+  | 'builder'
   | 'awareness'
   | 'workspace'
   | 'channels'
@@ -84,6 +86,28 @@ export interface AtomicTabDef {
   stripLabel?: string;
   /** i18n key for `stripLabel` when present. */
   stripLabelKey?: string;
+  /**
+   * Offered only in a specific context. `'studio'`: the creation studio is
+   * open — or can be resumed — on the current agent, i.e. this agent went
+   * through "Create with AI" and has not pressed Done. Never for an agent that
+   * did not: a studio panel with no conversation driving it reads as broken.
+   * The tab stays REGISTERED regardless (so
+   * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
+   * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette — filter on it.
+   * One field here rather than a filter in each consumer — but the rule is
+   * applied ONLY by `visibleTabs(ctx)`. `STRIP_CATEGORIES` / `ALL_TABS` are
+   * the UNFILTERED registry, for looking a def up by id (the chat header's
+   * `ALL_TAB_DEFS`) and resolving the drawer title; a new panel entry must go
+   * through `visibleTabs`, or it will offer this tab to every agent.
+   */
+  conditional?: 'studio';
+}
+
+/** What the pickable lists need to know to decide what to offer. */
+export interface TabVisibilityContext {
+  studioOpen: boolean;
+  /** The studio was collapsed on this agent and can be picked up again. */
+  studioResumable: boolean;
 }
 
 export interface StripCategory {
@@ -109,6 +133,15 @@ export const STRIP_CATEGORIES: StripCategory[] = [
     label: 'Config',
     labelKey: 'rail.category.config',
     tabs: [
+      // Creation studio. Sits first in Config because it is the "start here"
+      // of configuration — a conversation that fills the other tabs in.
+      {
+        id: 'builder',
+        label: 'Builder',
+        labelKey: 'rail.builder',
+        icon: Wand2,
+        conditional: 'studio',
+      },
       { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
       { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
       { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },
@@ -167,6 +200,20 @@ export const STRIP_CATEGORIES: StripCategory[] = [
 ];
 
 export const ALL_TABS: AtomicTabDef[] = STRIP_CATEGORIES.flatMap((c) => c.tabs);
+
+function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
+  return tab.conditional !== 'studio' || ctx.studioOpen || ctx.studioResumable;
+}
+
+/**
+ * The tabs a user may PICK from right now — `ALL_TABS` minus the conditional
+ * tabs whose context does not hold. Every entry point that offers panels (the
+ * chat header's ⋯ menu, the ⌘K palette) goes through here, so a conditional
+ * tab can never leak out of one entry while being hidden in another.
+ */
+export function visibleTabs(ctx: TabVisibilityContext): AtomicTabDef[] {
+  return ALL_TABS.filter((t) => tabOffered(t, ctx));
+}
 
 export function tabLabel(id: AtomicTabId): string {
   return ALL_TABS.find((t) => t.id === id)?.label ?? id;

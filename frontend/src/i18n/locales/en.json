@@ -2385,8 +2385,10 @@
       "skills": "Installed abilities the agent can use. Add more from the Marketplace, or install from GitHub / zip.",
       "mcp": "External MCP tool servers the agent can call — plug in third-party capabilities.",
       "memory": "The agent's long-term memory, organized as narratives — what it carries across conversations.",
-      "social": "Who the agent knows — contacts accumulate as it works with people and other agents."
-    }
+      "social": "Who the agent knows — contacts accumulate as it works with people and other agents.",
+      "builder": "Describe what you need; the conversation fills in this panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Jobs",
@@ -2851,5 +2853,59 @@
     "settings": "Open settings",
     "dismiss": "Got it",
     "bodyManaged": "This install sends diagnostic service logs to NarraNexus's own collector, as configured by your administrator. On installs running the \"full\" level, log lines can include message content."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Create agent",
+      "title": "Where do you want to start?",
+      "subtitle": "Start from a blank configuration, or describe what you need and build it through conversation.",
+      "blankTitle": "Start from blank",
+      "blankBody": "Configure every field yourself. For users who already know how the agent should work.",
+      "aiTitle": "Create with AI",
+      "aiBody": "Describe the outcome you want. The Agent Builder asks the key questions and drafts as you go.",
+      "continue": "Continue",
+      "recommended": "Recommended"
+    },
+    "gate": {
+      "title": "Create agent",
+      "probing": "Checking providers",
+      "chooseTitle": "Choose a provider",
+      "chooseHint": "Pick an existing provider, or connect a new one. This decides which engine runs the agent.",
+      "accessApiKey": "API Key",
+      "accessCli": "CLI sign-in",
+      "emptyLead": "No engine is available yet. Connect a provider to get started — it decides who runs this agent.",
+      "addLabel": "Add a provider",
+      "addApiKey": "API Key",
+      "addCli": "CLI sign-in",
+      "back": "Back",
+      "next": "Next",
+      "cliDesktopHint": "Signing in opens your browser to authorise the Claude CLI.",
+      "cliLogin": "Sign in with Claude",
+      "cliLoggingIn": "Signing in…",
+      "cliWebHint": "Not signed in — run `claude auth login` in your terminal, then reopen this dialog.",
+      "cliMissingHint": "The Claude CLI is not available here. Install it, sign in from your terminal, then reopen this dialog."
+    },
+    "panel": {
+      "intro": "The conversation writes name, description and instructions straight to this agent. Skills and channels are suggested — you install them.",
+      "identity": "Identity",
+      "name": "Name",
+      "namePlaceholder": "e.g. Morning Market Brief",
+      "behaviour": "Behaviour",
+      "install": "Install",
+      "installed": "Installed",
+      "saving": "Saving…",
+      "savedHint": "Changes save when you leave a field.",
+      "done": "Done",
+      "identityHint": "Give the agent a name that is easy to recognise.",
+      "behaviourHint": "Define how it works. This is the awareness field the agent actually runs on.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "What this agent does, how it works, what to avoid…",
+      "skills": "Skills",
+      "skillsHint": "Workspace skills this agent can use.",
+      "channels": "Channels",
+      "channelsHint": "Where it can be reached. Credentials go straight to the backend — never into the conversation.",
+      "suggested": "From the conversation",
+      "optional": "Optional"
+    }
   }
 }

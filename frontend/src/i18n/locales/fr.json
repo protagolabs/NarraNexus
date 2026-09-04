@@ -1917,8 +1917,10 @@
       "skills": "Compétences installées de l'agent. Ajoutez-en depuis le Marketplace, ou installez depuis GitHub / zip.",
       "mcp": "Serveurs d'outils MCP externes que l'agent peut appeler — branchez des capacités tierces.",
       "memory": "La mémoire longue de l'agent, organisée en narratifs — ce qu'il retient d'une conversation à l'autre.",
-      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations."
-    }
+      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations.",
+      "builder": "Décrivez votre besoin ; la conversation remplit ce panneau."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Tâches",
@@ -2323,5 +2325,59 @@
     "settings": "Ouvrir les paramètres",
     "dismiss": "Compris",
     "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Créer un agent",
+      "title": "Par où voulez-vous commencer ?",
+      "subtitle": "Partez d'une configuration vierge, ou décrivez votre besoin et construisez-le par la conversation.",
+      "blankTitle": "Partir de zéro",
+      "blankBody": "Configurez chaque champ vous-même. Pour les utilisateurs qui savent déjà comment l'agent doit fonctionner.",
+      "aiTitle": "Créer avec l'IA",
+      "aiBody": "Décrivez le résultat souhaité. L'Agent Builder pose les questions clés et rédige au fur et à mesure.",
+      "continue": "Continuer",
+      "recommended": "Recommandé"
+    },
+    "gate": {
+      "title": "Créer un agent",
+      "probing": "Vérification des fournisseurs",
+      "chooseTitle": "Choisir un fournisseur",
+      "chooseHint": "Choisissez un fournisseur existant ou connectez-en un nouveau. Cela détermine le moteur qui exécute l'agent.",
+      "accessApiKey": "Clé API",
+      "accessCli": "Connexion CLI",
+      "emptyLead": "Aucun moteur disponible pour l'instant. Connectez un fournisseur — c'est lui qui exécutera cet agent.",
+      "addLabel": "Ajouter un fournisseur",
+      "addApiKey": "Clé API",
+      "addCli": "Connexion CLI",
+      "back": "Retour",
+      "next": "Suivant",
+      "cliDesktopHint": "La connexion ouvre votre navigateur pour autoriser la CLI Claude.",
+      "cliLogin": "Se connecter avec Claude",
+      "cliLoggingIn": "Connexion…",
+      "cliWebHint": "Non connecté — exécutez `claude auth login` dans votre terminal, puis rouvrez cette fenêtre.",
+      "cliMissingHint": "La CLI Claude n'est pas disponible ici. Installez-la, connectez-vous depuis le terminal, puis rouvrez cette fenêtre."
+    },
+    "panel": {
+      "intro": "La conversation écrit le nom, la description et les instructions directement dans cet agent. Les skills et canaux sont suggérés — c'est vous qui les installez.",
+      "identity": "Identité",
+      "name": "Nom",
+      "namePlaceholder": "ex. Brief financier du matin",
+      "behaviour": "Comportement",
+      "install": "Installer",
+      "installed": "Installé",
+      "saving": "Enregistrement…",
+      "savedHint": "Les modifications sont enregistrées quand vous quittez un champ.",
+      "done": "Terminé",
+      "identityHint": "Donnez à l'agent un nom facile à reconnaître.",
+      "behaviourHint": "Définissez son fonctionnement. C'est le champ awareness sur lequel l'agent tourne réellement.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Ce que fait cet agent, comment il travaille, ce qu'il doit éviter…",
+      "skills": "Skills",
+      "skillsHint": "Les skills de l'espace de travail que cet agent peut utiliser.",
+      "channels": "Canaux",
+      "channelsHint": "Où le joindre. Les identifiants vont directement au backend — jamais dans la conversation.",
+      "suggested": "Issu de la conversation",
+      "optional": "Facultatif"
+    }
   }
 }

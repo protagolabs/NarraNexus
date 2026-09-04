@@ -1916,8 +1916,10 @@
       "skills": "설치된 스킬 목록. Marketplace에서 추가하거나 GitHub / zip으로 설치할 수 있습니다.",
       "mcp": "에이전트가 호출할 수 있는 외부 MCP 도구 서버 — 서드파티 기능을 연결합니다.",
       "memory": "내러티브로 정리된 에이전트의 장기 기억 — 대화를 넘어 유지되는 내용입니다.",
-      "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다."
-    }
+      "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다.",
+      "builder": "필요한 것을 설명하면 대화가 이 패널을 채웁니다."
+    },
+    "builder": "빌더"
   },
   "jobs": {
     "title": "작업",
@@ -2322,5 +2324,59 @@
     "settings": "설정 열기",
     "dismiss": "확인",
     "bodyManaged": "이 설치본은 관리자가 구성한 대로 진단 서비스 로그(오류 및 진단 이벤트)를 NarraNexus 자체 수집 서버로 전송합니다. \"full\" 수준으로 실행되는 설치본에서는 로그 줄에 메시지 내용이 포함될 수 있습니다."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "에이전트 만들기",
+      "title": "어디에서 시작할까요?",
+      "subtitle": "빈 설정에서 시작하거나, 필요한 것을 설명해 대화로 만들 수 있습니다.",
+      "blankTitle": "빈 상태로 시작",
+      "blankBody": "모든 항목을 직접 설정합니다. 동작 방식을 이미 아는 사용자에게 적합합니다.",
+      "aiTitle": "AI로 만들기",
+      "aiBody": "원하는 결과를 설명하세요. Agent Builder가 핵심을 묻고 초안을 만듭니다.",
+      "continue": "계속",
+      "recommended": "추천"
+    },
+    "gate": {
+      "title": "에이전트 만들기",
+      "probing": "제공자 확인 중",
+      "chooseTitle": "제공자 선택",
+      "chooseHint": "기존 제공자를 선택하거나 새로 연결하세요. 이 에이전트를 실행할 엔진이 결정됩니다.",
+      "accessApiKey": "API 키",
+      "accessCli": "CLI 로그인",
+      "emptyLead": "아직 사용할 수 있는 엔진이 없습니다. 제공자를 연결하세요 — 이 에이전트를 실행할 주체가 됩니다.",
+      "addLabel": "제공자 추가",
+      "addApiKey": "API 키",
+      "addCli": "CLI 로그인",
+      "back": "뒤로",
+      "next": "다음",
+      "cliDesktopHint": "로그인하면 브라우저가 열려 Claude CLI를 승인합니다.",
+      "cliLogin": "Claude로 로그인",
+      "cliLoggingIn": "로그인 중…",
+      "cliWebHint": "로그인되지 않음 — 터미널에서 `claude auth login`을 실행한 뒤 이 창을 다시 열어 주세요.",
+      "cliMissingHint": "여기서는 Claude CLI를 사용할 수 없습니다. 설치하고 터미널에서 로그인한 뒤 다시 열어 주세요."
+    },
+    "panel": {
+      "intro": "대화가 이름·설명·지침을 이 에이전트에 바로 씁니다. 스킬과 채널은 제안일 뿐이며 설치는 사용자가 합니다.",
+      "identity": "신원",
+      "name": "이름",
+      "namePlaceholder": "예: 금융 모닝 브리핑",
+      "behaviour": "동작",
+      "install": "설치",
+      "installed": "설치됨",
+      "saving": "저장 중…",
+      "savedHint": "입력란을 벗어나면 저장됩니다.",
+      "done": "완료",
+      "identityHint": "알아보기 쉬운 이름을 지정합니다.",
+      "behaviourHint": "동작 방식을 정의합니다. 여기가 에이전트가 실제로 사용하는 awareness입니다.",
+      "awareness": "인지",
+      "awarenessPlaceholder": "이 에이전트가 무엇을 하고 무엇에 주목하며 무엇을 피할지…",
+      "skills": "스킬",
+      "skillsHint": "이 에이전트가 사용할 수 있는 워크스페이스 skill.",
+      "channels": "채널",
+      "channelsHint": "어디서 연결되는지. 자격 증명은 백엔드로 바로 가며 대화에는 들어가지 않습니다.",
+      "suggested": "대화에서",
+      "optional": "선택"
+    }
   }
 }
