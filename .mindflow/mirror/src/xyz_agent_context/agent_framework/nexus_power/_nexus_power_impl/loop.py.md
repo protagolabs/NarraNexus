@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/loop.py
-last_verified: 2026-08-13
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— 模型请求用 `model_tools()`
+
+发给模型的 tools 数组改取 `a.tools.model_tools()`（deferred 不上榜）；其余路径仍看 `visible_tools()`。
 
 ## 2026-08-13（管线审后）— expressed 记账走契约裁决器、只数 parse-valid
 

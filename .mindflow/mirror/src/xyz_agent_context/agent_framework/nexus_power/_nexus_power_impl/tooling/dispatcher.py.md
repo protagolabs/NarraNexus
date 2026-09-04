@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/tooling/dispatcher.py
-last_verified: 2026-08-13
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `model_tools()` = visible − deferred
+
+`visible_tools()` 语义不变（search / execute / spec_for 都看它）；新 `model_tools()` 是交给模型的 up-front
+清单，扣掉 deferred。插件工具默认只经 tool_search 可达就是这一行的效果；无 deferred 时两者相等。
 
 ## 2026-08-13（管线审后）— search_lines 封顶不可绕过
 

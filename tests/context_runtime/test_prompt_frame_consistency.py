@@ -114,7 +114,7 @@ async def test_timeline_and_recent_actions_share_one_offset(db_client, monkeypat
         "event_id": "evt_job",
     }]}
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt="sys", active_instances=[], ctx_data=ctx,
     )
     whole_prompt = "\n".join(m["content"] for m in final_messages)
@@ -166,7 +166,7 @@ async def test_no_bare_utc_slice_survives_in_the_turn_prompt(db_client, monkeypa
         "title": "reminder fired",
     }]}
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt="sys", active_instances=[], ctx_data=ctx,
     )
     whole_prompt = "\n".join(m["content"] for m in final_messages)

@@ -1,8 +1,10 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2a.5）— 请求体新增 `deferred_tools`（默认 `[]`）
 
 ## 2026-08-24 — `run_id`(可选,可控 run 句柄)+ `build_steer_request`
 

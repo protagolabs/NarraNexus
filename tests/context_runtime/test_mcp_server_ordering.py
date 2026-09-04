@@ -58,7 +58,7 @@ async def _collect_server_order(monkeypatch, instances) -> list[str]:
     runtime.agent_id = AGENT_ID
     runtime.user_id = None  # __init__ is skipped; the identity seam reads it
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
-    _messages, mcp_servers, _dis, _expr = await runtime.build_input_for_framework(
+    _messages, mcp_servers, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=instances,

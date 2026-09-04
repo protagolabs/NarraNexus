@@ -166,6 +166,7 @@ class SkillCatalogRepository(BaseRepository[SkillCatalogEntry]):
             status=row["status"],
             downloads=row.get("downloads") or 0,
             is_default=bool(row.get("is_default")),
+            kind=row.get("kind") or "marketplace",
             avg_rating=row.get("avg_rating"),
             published_at=row.get("published_at"),
             created_at=row.get("created_at"),
@@ -197,6 +198,7 @@ class SkillCatalogRepository(BaseRepository[SkillCatalogEntry]):
             "status": entity.status,
             "downloads": entity.downloads,
             "is_default": 1 if entity.is_default else 0,
+            "kind": entity.kind,
             "avg_rating": entity.avg_rating,
             "published_at": (
                 entity.published_at.strftime("%Y-%m-%d %H:%M:%S")

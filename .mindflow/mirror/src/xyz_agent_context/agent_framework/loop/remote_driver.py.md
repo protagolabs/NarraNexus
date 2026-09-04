@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2a.5）— 转发 `deferred_tools`
+
+与 `expressive_tools` 一样是 per-run 状态，随 `build_agent_loop_request` 过网络到执行器。
 
 ## 2026-08-24 — 云端 steering **已落地**:声明 + pump + 消费回程(**取代下方 2026-08-22 条目**)
 

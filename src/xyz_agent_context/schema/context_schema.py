@@ -91,4 +91,8 @@ class ContextRuntimeOutput(BaseModel):
     # reply tools collected from modules' get_expressive_tools, in module
     # priority order (first = the turn's default reply tool).
     expressive_tools: List[str] = []
+    # Plugin tools (agent.capabilities.tools) not marked always_visible:
+    # fully-qualified names the framework keeps OUT of the model's up-front
+    # tool list and exposes only through tool_search (spec §12 context budget).
+    deferred_tools: List[str] = []
     ctx_data: ContextData  # ContextData (contains all collected data)

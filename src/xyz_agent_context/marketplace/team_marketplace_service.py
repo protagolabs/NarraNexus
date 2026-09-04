@@ -17,6 +17,7 @@ local subfolder, separate from skills) and writes a catalog row.
 """
 
 import hashlib
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -89,14 +90,55 @@ class TeamMarketplaceService:
 
     # -- queries -------------------------------------------------------------
 
+    # -- plugin bundles (content.bundles contributions) ----------------------
+    #
+    # A plugin ships .nxbundle files; they appear in the template list next to
+    # the registry's and install through the same preflight → confirm flow.
+    # They are local files, so no store/cloud round trip: resolve copies the
+    # file, expected_sha256 is the spec's pin. A registry template with the
+    # same id wins (plugins cannot shadow published templates).
+
+    @staticmethod
+    def _plugin_templates() -> Dict[str, Dict[str, Any]]:
+        from xyz_agent_context.utils.plugin_contributions import plugin_bundles
+
+        out: Dict[str, Dict[str, Any]] = {}
+        for owner, spec in plugin_bundles():
+            if spec.id in out:
+                continue
+            out[spec.id] = {
+                "template_id": spec.id,
+                "name": spec.display_name or spec.id,
+                "description": spec.description,
+                "categories": ["plugin"],
+                "author": owner,
+                "agent_count": 1,
+                "thumbnail_url": None,
+                "store_key": "",
+                "bundle_sha256": spec.sha256,
+                "enabled": True,
+                "sort_order": 0,
+                "downloads": 0,
+                "source": "plugin",
+                "plugin_id": owner,
+                "_path": str(spec.path),
+            }
+        return out
+
     async def list_templates(self) -> Dict[str, Any]:
         if self._is_registry_host():
             rows = await (await self._catalog()).list_enabled()
-            return {"templates": [t.model_dump() for t in rows]}
-        async with httpx.AsyncClient(base_url=self._cloud_base(), timeout=30.0) as ac:
-            resp = await ac.get("/api/marketplace/teams/templates")
-            resp.raise_for_status()
-            return resp.json()
+            templates = [t.model_dump() for t in rows]
+        else:
+            async with httpx.AsyncClient(base_url=self._cloud_base(), timeout=30.0) as ac:
+                resp = await ac.get("/api/marketplace/teams/templates")
+                resp.raise_for_status()
+                templates = list(resp.json().get("templates", []))
+        known = {t.get("template_id") for t in templates}
+        for tid, tpl in self._plugin_templates().items():
+            if tid not in known:
+                templates.append({k: v for k, v in tpl.items() if not k.startswith("_")})
+        return {"templates": templates}
 
     async def get_template(self, template_id: str) -> Optional[Dict[str, Any]]:
         if self._is_registry_host():
@@ -118,6 +160,10 @@ class TeamMarketplaceService:
         HTTP-download from the cloud registry's /download endpoint. sha256 is
         verified by the caller (install_preflight) in both cases."""
         dest = Path(dest_dir) / f"{template_id}.nxbundle"
+        plugin_tpl = self._plugin_templates().get(template_id)
+        if plugin_tpl is not None and not await self._registry_has(template_id):
+            shutil.copyfile(plugin_tpl["_path"], dest)
+            return dest
         if self._is_registry_host():
             entry = await (await self._catalog()).get(template_id)
             if entry is None or not entry.enabled:
@@ -133,7 +179,16 @@ class TeamMarketplaceService:
             dest.write_bytes(resp.content)
         return dest
 
+    async def _registry_has(self, template_id: str) -> bool:
+        if not self._is_registry_host():
+            return False
+        entry = await (await self._catalog()).get(template_id)
+        return bool(entry and entry.enabled)
+
     async def expected_sha256(self, template_id: str) -> Optional[str]:
+        plugin_tpl = self._plugin_templates().get(template_id)
+        if plugin_tpl is not None and not await self._registry_has(template_id):
+            return plugin_tpl["bundle_sha256"]
         if self._is_registry_host():
             entry = await (await self._catalog()).get(template_id)
             return entry.bundle_sha256 if entry else None

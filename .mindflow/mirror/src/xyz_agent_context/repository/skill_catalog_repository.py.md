@@ -1,8 +1,10 @@
 ---
 code_file: src/xyz_agent_context/repository/skill_catalog_repository.py
-last_verified: 2026-07-21
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— 行映射带 `kind`（缺省行读作 marketplace）
 
 ## 2026-07-21 — list_defaults()
 

@@ -1,8 +1,10 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— dispatcher 接 `deferred_tools`
 
 ## 2026-08-24 — wait 座位接线 + `_steer_channels`(**steerable-flag** 门,非 inlet 身份)
 

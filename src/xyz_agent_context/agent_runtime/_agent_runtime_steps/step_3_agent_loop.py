@@ -1989,6 +1989,7 @@ async def step_3_agent_loop(
             messages=messages,
             mcp_servers=ctx.mcp_servers,
             disallowed_tools=tuple(extra_disallowed_tools),
+            deferred_tools=tuple(context.deferred_tools or ()),
             extra_env=skill_env_vars,
             agent_id=ctx.agent_id,
             # The turn's delivery surface, declared by the modules

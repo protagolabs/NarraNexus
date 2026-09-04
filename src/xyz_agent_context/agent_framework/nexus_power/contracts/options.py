@@ -109,6 +109,9 @@ class TurnOptions(BaseModel):
     mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     allowed_tools: tuple[str, ...] = ()      # empty = no allowlist
     disallowed_tools: tuple[str, ...] = ()
+    # Tools kept out of the model's up-front list but searchable/callable
+    # (plugin tools without always_visible). Names as the dispatcher sees them.
+    deferred_tools: tuple[str, ...] = ()
     expressive_tools: tuple[str, ...] = ()   # monologue/expression contract
     # One pre-rendered line naming where this turn came from and which tool
     # answers it (channel.message_source_handler.render_origin_declaration).

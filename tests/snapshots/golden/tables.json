@@ -7487,6 +7487,13 @@
         false
       ],
       [
+        "kind",
+        "TEXT",
+        "VARCHAR(16)",
+        false,
+        false
+      ],
+      [
         "published_at",
         "TEXT",
         "DATETIME(6)",

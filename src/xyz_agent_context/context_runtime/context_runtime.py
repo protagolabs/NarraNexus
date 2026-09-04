@@ -233,7 +233,7 @@ class ContextRuntime:
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
-        messages, mcp_servers, disallowed_tools, expressive_tools = await self.build_input_for_framework(
+        messages, mcp_servers, disallowed_tools, expressive_tools, deferred_tools = await self.build_input_for_framework(
             messages, system_prompt, active_instances, ctx_data,
             narrative_list=narrative_list,
         )
@@ -245,6 +245,7 @@ class ContextRuntime:
             mcp_servers=mcp_servers,
             disallowed_tools=disallowed_tools,
             expressive_tools=expressive_tools,
+            deferred_tools=deferred_tools,
             ctx_data=ctx_data,
         )
 
@@ -1405,6 +1406,14 @@ class ContextRuntime:
         # (Per-server tool order is FastMCP registration order — code order,
         # deterministic; the cross-server merge order inside the CLI is the
         # one link we cannot control, see the claude adapter.)
+        # Plugin contributions (batch 2a.5): site-level MCP servers join the
+        # surface after the modules' own (a module server of the same name
+        # wins), and plugin tools that are not always_visible become
+        # "deferred": present on their server, reachable through tool_search,
+        # kept out of the model's up-front tool list (spec §12).
+        plugin_servers, deferred_tools = self._plugin_tool_surface(set(mcp_servers))
+        for name, cfg in plugin_servers.items():
+            mcp_servers[name] = cfg
         mcp_servers = dict(sorted(mcp_servers.items()))
 
         expressive_declarations.sort(key=lambda kv: (kv[0], kv[1], kv[2]))
@@ -1419,7 +1428,29 @@ class ContextRuntime:
             f"{len(mcp_servers)} MCP servers, {len(disallowed_tools)} suppressed tools, "
             f"{len(expressive_tools)} reply tools"
         )
-        return final_messages, mcp_servers, sorted(set(disallowed_tools)), expressive_tools
+        return final_messages, mcp_servers, sorted(set(disallowed_tools)), expressive_tools, deferred_tools
+
+    @staticmethod
+    def _plugin_tool_surface(module_server_names: set[str]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+        """Plugin MCP servers (minus names the modules already own) and the deferred plugin tool names.
+
+        A plugin tool naming a server that is neither a plugin nor a module
+        server is dropped with a warning (it could never be called). Deferred
+        names are fully qualified (``mcp__<server>__<tool>``) so the frameworks
+        can match them against their own tool namespace.
+        """
+        from xyz_agent_context.utils.plugin_contributions import plugin_mcp_servers, plugin_tools
+
+        servers = {n: c for n, c in plugin_mcp_servers().items() if n not in module_server_names}
+        known = module_server_names | set(servers)
+        deferred: list[str] = []
+        for tool in plugin_tools():
+            if tool.server and tool.server not in known:
+                logger.warning(f"[plugins] tool {tool.name!r} names unknown MCP server {tool.server!r}; ignored")
+                continue
+            if not tool.always_visible:
+                deferred.append(f"mcp__{tool.server}__{tool.name}" if tool.server else tool.name)
+        return servers, deferred
 
     async def _load_native_turn_replays(
         self, timeline: List[Dict[str, Any]]

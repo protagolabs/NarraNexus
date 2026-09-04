@@ -355,6 +355,7 @@ async def run_turn_events(
         ),
         ctx=ctx,
         disallowed_tools=frozenset(opts.disallowed_tools),
+        deferred_tools=frozenset(opts.deferred_tools),
         allowed_tools=frozenset(opts.allowed_tools),
         marker_tools=frozenset(opts.marker_tools),
         # Live adjudicator, not a snapshot: the expressive list grows

@@ -81,6 +81,9 @@ class NoTools:
     def visible_tools(self):
         return []
 
+    def model_tools(self):
+        return self.visible_tools()
+
     def spec_for(self, name):
         return None
 

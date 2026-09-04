@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a.5）— `content.skills` 插件技能进技能表
+
+`_scan_skills` 拆成 `_scan_workspace_skills`（原逻辑）+ 插件技能追加：`plugin_skills()` 给出的目录按
+`_parse_skill_md` 解析，标 `source_type="plugin"`、`builtin=False`；同名以 workspace 为准（用户自己的副本或
+`.disabled` 标记永不被插件遮蔽）；单个坏技能只 warning。表格里插件技能的 Path 列写真实路径（它不在
+workspace 的 `skills/` 下）。没有 workspace（`user_id=None`）时也能列出插件技能。
+
 ## 2026-09-03 — frontmatter `metadata` 同时接受 `openclaw` / `clawdbot` / `clawdis` / `moltbot`
 
 `metadata.clawdbot` 来自 OpenClaw / ClawHub 技能生态（项目改过两次名：Clawdbot → Clawdis → OpenClaw），

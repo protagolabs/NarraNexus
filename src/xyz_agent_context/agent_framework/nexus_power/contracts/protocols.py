@@ -98,6 +98,10 @@ class ToolExecutor(Protocol):
 
     def visible_tools(self) -> list[ToolSpec]: ...
 
+    def model_tools(self) -> list[ToolSpec]:
+        """Tools placed in the model's up-front list; a subset of ``visible_tools`` (deferred ones excluded)."""
+        ...
+
     async def execute(self, call: ToolCall) -> ToolResult: ...
 
 

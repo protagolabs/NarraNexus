@@ -107,6 +107,9 @@ class FakeTools:
     def visible_tools(self):
         return list(self._specs)
 
+    def model_tools(self):
+        return self.visible_tools()
+
     def spec_for(self, name):
         return next((s for s in self._specs if s.name == name), None)
 

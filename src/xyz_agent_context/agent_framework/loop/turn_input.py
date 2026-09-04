@@ -41,6 +41,9 @@ class TurnInput:
     messages: list[dict[str, Any]]
     mcp_servers: dict[str, dict[str, Any]]
     disallowed_tools: tuple[str, ...] = ()
+    # Plugin tools reachable only through tool_search (never in the up-front
+    # list). Fully-qualified names; frameworks without a search seam ignore it.
+    deferred_tools: tuple[str, ...] = ()
     extra_env: dict[str, str] = field(default_factory=dict)
     # The agent this turn belongs to. Drivers that project their own
     # context (NexusPower) stamp it into ToolContext; CLI drivers accept
@@ -90,6 +93,8 @@ class TurnInput:
         }
         if self.expressive_tools:
             kwargs["expressive_tools"] = list(self.expressive_tools)
+        if self.deferred_tools:
+            kwargs["deferred_tools"] = list(self.deferred_tools)
         if self.turn_profile is not None:
             kwargs["turn_profile"] = self.turn_profile
         if self.origin_declaration:

@@ -126,6 +126,7 @@ def build_agent_loop_request(
     disallowed_tools: Optional[list[str]] = None,
     agent_id: str = "agent",
     expressive_tools: Optional[list[str]] = None,
+    deferred_tools: Optional[list[str]] = None,
     turn_profile: Optional[dict[str, Any]] = None,
     extra_accessible_roots: Optional[list[str]] = None,
     origin_declaration: str = "",
@@ -164,6 +165,9 @@ def build_agent_loop_request(
         # monologue contract with the right tools.
         "agent_id": agent_id,
         "expressive_tools": expressive_tools or [],
+        # Plugin tools kept out of the up-front list (searchable only); per-run
+        # state like the two lists above.
+        "deferred_tools": deferred_tools or [],
         # Per-turn fast-mode knobs — per-run state like the messages. The
         # whitelist body means a missing key is a silent cloud-side drop,
         # so the key is always present (None when no profile).

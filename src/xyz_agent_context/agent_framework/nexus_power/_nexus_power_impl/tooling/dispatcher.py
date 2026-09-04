@@ -93,8 +93,12 @@ class ToolDispatcher:
         allowed_tools: frozenset[str] = frozenset(),
         marker_tools: frozenset[str] = frozenset(),
         is_expressive: Callable[[str], bool] | None = None,
+        deferred_tools: frozenset[str] = frozenset(),
     ) -> None:
         self._channels: list[ToolChannel] = list(channels)
+        # Visible (searchable + callable) but absent from the up-front model
+        # list: plugin tools that opted out of always_visible.
+        self._deferred = deferred_tools
         self._policy = policy
         self._ctx = ctx
         self._policy_ctx = PolicyContext(tool_ctx=ctx, disallowed_tools=disallowed_tools)
@@ -137,6 +141,10 @@ class ToolDispatcher:
         self._cache = visible
         self._cache_generations = generations
         return list(visible)
+
+    def model_tools(self) -> list[ToolSpec]:
+        """The tools handed to the model up front: visible minus deferred (search still sees them)."""
+        return [spec for spec in self.visible_tools() if spec.name not in self._deferred]
 
     def spec_for(self, name: str) -> ToolSpec | None:
         for spec in self.visible_tools():

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-31
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `TurnInput.deferred_tools`
+
+把 `context.deferred_tools` 原样放进 `TurnInput`，与 `disallowed_tools` 同一条路。
 
 ## 2026-08-31 — 兜底回复的 cost context 改用 scope
 

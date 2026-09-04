@@ -41,6 +41,7 @@ from xyz_agent_context.schema import (
     ContextData,
 )
 from xyz_agent_context.schema.skill_schema import SkillInfo
+from xyz_agent_context.utils.plugin_contributions import plugin_skills
 from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.utils import file_safety as _file_safety
 from xyz_agent_context.utils.file_safety import (
@@ -409,7 +410,8 @@ class SkillModule(XYZBaseModule):
             table = "| Skill | Description | Path | Status |\n"
             table += "|-------|-------------|------|--------|\n"
             for skill in skills:
-                relative_path = f"skills/{skill.name}"
+                # Plugin skills live outside the workspace: point at their real path.
+                relative_path = skill.path if skill.source_type == "plugin" else f"skills/{skill.name}"
                 # Determine config status
                 if skill.requires_env and skill.env_configured is False:
                     missing = ", ".join(skill.requires_env)
@@ -578,9 +580,27 @@ class SkillModule(XYZBaseModule):
         reorder that no byte-count diagnostic can see and that punctures the
         cacheable system-prompt prefix at the first transposed row.
         """
-        if not self.skills_dir or not self.skills_dir.exists():
-            return []
+        skills: List[SkillInfo] = []
+        if self.skills_dir and self.skills_dir.exists():
+            skills.extend(self._scan_workspace_skills())
+        # Plugin-shipped skills (content.skills contributions) follow the
+        # workspace ones; a workspace skill of the same name wins so a user's
+        # own copy (or a disabled marker) is never shadowed by a plugin.
+        taken = {s.name for s in skills}
+        for owner, spec in plugin_skills():
+            try:
+                info = self._parse_skill_md(spec.manifest_path)
+            except Exception as exc:  # noqa: BLE001 — one bad plugin skill must not drop the table
+                logger.warning(f"[skills] plugin {owner}: cannot parse {spec.manifest_path}: {exc}")
+                continue
+            if info.name in taken:
+                continue
+            taken.add(info.name)
+            skills.append(info.model_copy(update={"source_type": "plugin", "builtin": False}))
+        return skills
 
+    def _scan_workspace_skills(self) -> List[SkillInfo]:
+        assert self.skills_dir is not None
         skills = []
         for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
             if skill_path.is_dir() and not skill_path.name.startswith("."):

@@ -395,7 +395,7 @@ class NexusPowerLoop:
             # Anthropic dialect where tool results ride in user messages,
             # would stack two user turns in a row.
             messages = [*messages, {"role": "user", "content": CONTINUE_PREFILL}]
-        tools = [spec.as_openai_tool() for spec in a.tools.visible_tools()]
+        tools = [spec.as_openai_tool() for spec in a.tools.model_tools()]
         return ModelRequest(
             messages=messages,
             tools=tools,

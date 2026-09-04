@@ -4,6 +4,8 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a.5）— 透传 `deferred_tools` 到 `NexusPowerOptions`
+
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 
 `agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的

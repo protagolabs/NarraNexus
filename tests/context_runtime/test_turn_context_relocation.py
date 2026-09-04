@@ -134,7 +134,7 @@ async def _build(
         ],
         ctx_data=ctx,
     )
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt=system_prompt,
         active_instances=[],

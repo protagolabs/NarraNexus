@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2a.5）— `skill_catalog.kind` 列（additive，默认 'marketplace'）
+
+`tables.json` 快照只多这一列。
+
 ## 2026-09-03（批 2a.4）— `register_table(spec, owner)` + `TABLE_OWNERS` + `plugin_settings` 表
 
 插件表从契约层 `TableSpec` 转成 `TableDef` 进 `TABLES`（同一 `auto_migrate`，不激活也建表）；

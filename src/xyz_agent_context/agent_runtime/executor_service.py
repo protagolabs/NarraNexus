@@ -490,6 +490,7 @@ async def agent_loop(request: Request) -> Response:
                 disallowed_tools=body.get("disallowed_tools") or None,
                 agent_id=str(body.get("agent_id") or "agent"),
                 expressive_tools=body.get("expressive_tools") or None,
+                deferred_tools=body.get("deferred_tools") or None,
                 turn_profile=body.get("turn_profile") or None,
                 extra_accessible_roots=body.get("extra_accessible_roots") or None,
                 origin_declaration=body.get("origin_declaration") or "",

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `deferred_tools`
+
+插件工具中不常驻的名字（dispatcher 视角的名字）；默认空。
 
 ## 2026-08-24 — `steerable: bool`(可控性跨边界的显式载体)
 

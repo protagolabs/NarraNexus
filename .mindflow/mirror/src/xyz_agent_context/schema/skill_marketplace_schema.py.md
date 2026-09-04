@@ -1,10 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/skill_marketplace_schema.py
-last_verified: 2026-07-20
+last_verified: 2026-09-03
 stub: false
 ---
-
 # skill_marketplace_schema.py
+
+## 2026-09-03（批 2a.5）— `SkillCatalogEntry.kind`
+
+`marketplace | plugin | builtin`（契约 `SkillKind`），默认 marketplace；对应 `skill_catalog.kind` 列。
 
 Pydantic models for the Skill Marketplace: `SkillCatalogEntry` (one published
 version of a skill in the cloud catalog), `SkillInstallationRecord` (audit row

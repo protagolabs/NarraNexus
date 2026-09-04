@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-08-17
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `deferred_tools`
+
+新字段，语义「可搜可调、不进 up-front 清单」；`driver_kwargs()` 只在非空时放键（保持 legacy 调用形状
+逐字节相同）。没有 tool_search 接缝的框架忽略它。
 
 ## 2026-08-17 — `origin_declaration`：已渲染好的一行，两个框架逐字照发
 

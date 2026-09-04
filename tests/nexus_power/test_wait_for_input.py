@@ -190,6 +190,9 @@ class _WaitTools:
     def visible_tools(self):
         return [ToolSpec(name="wait_for_input", description="", input_schema={})]
 
+    def model_tools(self):
+        return self.visible_tools()
+
     def spec_for(self, name):
         return next((s for s in self.visible_tools() if s.name == name), None)
 

@@ -257,6 +257,7 @@ class RemoteAgentLoopDriver:
             disallowed_tools=kwargs.get("disallowed_tools"),
             agent_id=str(kwargs.get("agent_id") or "agent"),
             expressive_tools=kwargs.get("expressive_tools"),
+            deferred_tools=kwargs.get("deferred_tools"),
             turn_profile=_profile,
             extra_accessible_roots=kwargs.get("extra_accessible_roots"),
             origin_declaration=kwargs.get("origin_declaration") or "",

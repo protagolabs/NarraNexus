@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-07-31
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `ContextRuntimeOutput.deferred_tools`
+
+插件工具里不常驻的那部分（全限定名）：框架把它们留在 tool_search 可达、不进模型的 up-front 工具清单
+（spec §12 上下文预算）。默认空。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

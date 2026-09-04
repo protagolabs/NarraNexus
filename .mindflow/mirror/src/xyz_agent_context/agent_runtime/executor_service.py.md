@@ -1,8 +1,10 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2a.5）— `/agent-loop` 透传 `deferred_tools` 给 driver（所有 driver 都收 `**kwargs`）
 
 ## 2026-08-24 — `/health` 报 `busy`：容器自己回答"我在不在干活"
 

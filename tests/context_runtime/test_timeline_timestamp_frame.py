@@ -117,7 +117,7 @@ async def test_history_rows_carry_the_user_offset_end_to_end(db_client):
         },
     }]
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt="sys", active_instances=[], ctx_data=ctx,
     )
 

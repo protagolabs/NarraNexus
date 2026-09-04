@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/protocols.py
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— `ToolExecutor.model_tools()`
+
+协议新增方法（visible 的子集）；测试里的假执行器都实现为 `return self.visible_tools()`。
 
 ## 2026-07-31 — ToolChannel.list_tools 的顺序契约写进协议
 

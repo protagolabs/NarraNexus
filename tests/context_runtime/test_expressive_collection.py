@@ -74,7 +74,7 @@ async def _collect(instances, monkeypatch, working_source=None, extra=None) -> l
         ctx.working_source = working_source
     if extra:
         ctx.extra_data.update(extra)
-    _messages, _mcp, disallowed, expressive = await runtime.build_input_for_framework(
+    _messages, _mcp, disallowed, expressive, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=instances,

@@ -321,6 +321,7 @@ class NexusAgent:
             "thinking": bool(getattr(claude_config, "thinking", "") == "enabled"),
             "mcp_servers": mcp_servers,
             "disallowed_tools": tuple(kwargs.get("disallowed_tools") or ()),
+            "deferred_tools": tuple(kwargs.get("deferred_tools") or ()),
             "expressive_tools": expressive,
             # The step layer's rendered origin line — passed through, never
             # re-phrased here. Both frameworks emit the SAME sentence because

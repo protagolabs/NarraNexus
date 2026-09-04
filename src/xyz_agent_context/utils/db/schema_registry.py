@@ -2334,6 +2334,10 @@ _register(
             Column("downloads", "INTEGER", "BIGINT", nullable=False, default="0"),
             Column("is_default", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("avg_rating", "REAL", "DECIMAL(3,2)"),
+            # Where the skill comes from: marketplace (default) | plugin | builtin.
+            # Additive (auto_migrate adds the column with its default); lets the
+            # catalog tell a plugin-shipped skill from a published one.
+            Column("kind", "TEXT", "VARCHAR(16)", nullable=False, default="'marketplace'"),
             Column("published_at", "TEXT", "DATETIME(6)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),

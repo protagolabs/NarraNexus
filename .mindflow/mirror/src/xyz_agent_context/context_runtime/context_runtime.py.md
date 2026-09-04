@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2a.5）— 插件 MCP server 并入工具面；插件工具的 deferred 名单
+
+`build_input_for_framework` 在模块 server 收集完、排序前调用 `_plugin_tool_surface(module_server_names)`：
+`agent.capabilities.mcp_servers` 的站点级 server 加入（模块同名 server 优先），`agent.capabilities.tools` 里
+`always_visible=False` 的工具生成全限定名 `mcp__<server>__<tool>` 进 **deferred** 名单（指向未知 server 的
+工具丢弃并警告）。返回值多了第五项 `deferred_tools`，随 `ContextRuntimeOutput.deferred_tools` 交给 step_3。
+无插件时两者为空，工具面与快照完全不变。
 
 ## 2026-08-20 — 回复语言政策反转,详见 [[prompts.py]]
 
