@@ -1,0 +1,9 @@
+---
+code_file: backend/auth_provider.py
+last_verified: 2026-09-04
+stub: false
+---
+
+# backend/auth_provider.py — the bound kernel.auth provider
+
+`bound_provider_id()` = the distribution's `auth` when `NARRANEXUS_DIST` is set, else the builtin matching the middleware's mode predicate (`builtin.auth.netmind` on cloud, `builtin.auth.local` locally). `auth_provider()` resolves that id in the `kernel.auth` registry (registering the builtin providers from their manifests on first use), builds the instance once per plugin id, checks it is an `AuthProvider`, and fails closed with `RuntimeError` when nothing is bound. `reset_auth_provider()` is for tests.

@@ -306,22 +306,13 @@ async def get_current_user(request: Request) -> Optional[CurrentUser]:
         # Local mode: no JWT enforcement, extract user_id from request
         return None
 
-    # Cloud mode: require JWT
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
+    # Cloud mode: the bound authProviders plugin must name the user
+    from backend.auth_provider import auth_provider
 
-    token = auth_header[7:]
-    try:
-        payload = decode_token(token)
-        return CurrentUser(
-            user_id=payload["user_id"],
-            role=payload.get("role", "user"),
-        )
-    except jwt.ExpiredSignatureError:
-        raise AuthError(TOKEN_EXPIRED, "Token expired")
-    except jwt.InvalidTokenError:
-        raise AuthError(TOKEN_INVALID, "Invalid token")
+    identity = await auth_provider().authenticate(request)
+    if identity is None:
+        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
+    return CurrentUser(user_id=identity["user_id"], role=identity.get("role", "user"))
 
 
 def require_auth(request: Request) -> CurrentUser:
@@ -716,7 +707,10 @@ async def auth_middleware(request: Request, call_next):
             and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
             and not _is_plugin_exempt(local_path)
         ):
-            header_uid = request.headers.get("x-user-id")
+            from backend.auth_provider import auth_provider
+
+            identity = await auth_provider().authenticate(request)
+            header_uid = identity["user_id"] if identity else None
             if not header_uid and _is_marketplace_public_read(request):
                 # Anonymous marketplace read — proceed without identity;
                 # routes skip agent-scoped annotations.
@@ -800,21 +794,26 @@ async def auth_middleware(request: Request, call_next):
         set_current_user_id(identity.user_id)
         return await call_next(request)
 
+    # ---- the bound authProviders plugin (kernel.auth) names the user -------
+    # builtin.auth.netmind decodes the NetMind JWT; a distribution may bind
+    # its own (SSO). The provider raises AuthError with the code to report.
+    from backend.auth_provider import auth_provider
+
     token = auth_header[7:]
     try:
-        payload = decode_token(token)
-        request.state.user_id = payload["user_id"]
-        request.state.role = payload.get("role", "user")
-    except jwt.ExpiredSignatureError:
+        identity = await auth_provider().authenticate(request)
+    except AuthError as exc:
         return auth_error_response(
-            TOKEN_EXPIRED, "Token expired",
-            path=path, method=request.method, token=token,
+            exc.code, str(exc.detail),
+            path=path, method=request.method, token=token, status_code=exc.status_code,
         )
-    except jwt.InvalidTokenError:
+    if identity is None:
         return auth_error_response(
             TOKEN_INVALID, "Invalid token",
             path=path, method=request.method, token=token,
         )
+    request.state.user_id = identity["user_id"]
+    request.state.role = identity.get("role", "user")
 
     # Account-state gate. The JWT is valid, but a still-valid token must not
     # keep working once the account it names has been suspended. This is a 403

@@ -22,6 +22,10 @@ A distribution is a declaration, not a fork: engine range + plugin set + brandin
 - `narranexus dist lock <dir>` — writes `narranexus-dist.lock.json`: the exact plugin set (version + source + relative path) a build bakes in.
 - Run a host as a distribution: `NARRANEXUS_DIST=<dir or file>`; the boot drops the builtins outside the set, loads bundled plugins in stage 1 and gates runtime plugins by `runtime.userPlugins`. The resolved bindings are snapshotted to `<plugin home>/run/bindings.resolved.json`.
 
+## Who answers "who is this request?"
+
+The backend asks the plugin bound to `kernel.auth` (`backend/auth_provider.py`): the distribution's `auth`, or without a distribution the builtin matching the deployment mode. The provider contract is `AuthProvider.authenticate(request) -> identity | None`; an identity carries `user_id` and `role`; raising `backend.auth_errors.AuthError(code, detail, status_code)` reports that code to the client. The middleware keeps everything around it (exempt paths, marketplace public reads, the nx service bearer, account state, quota gating).
+
 ## Runtime install vs build-time composition
 
 A plugin whose manifest says `distributionOnly: true` (an auth provider, anything filling `kernel.*` / `ui.shell`) is rejected by the plugin factory and `registry.json` discovery; it can only enter a build through `narranexus-dist.json`. Everything else may do both.

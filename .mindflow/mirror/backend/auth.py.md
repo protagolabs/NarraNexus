@@ -406,3 +406,5 @@ stage 白名单+限流+log-only 防护（见 routes/auth.py mirror）。
 ## 2026-09-04 · webhook transport (batch 4c)
 
 `_is_channel_webhook_path` — the exact `/api/channels/{channel}/webhook/{agent_id}` shape is auth-exempt (the handler verifies the binding's secret); every other `/api/channels/*` route keeps the normal auth.
+
+Batch 6c.2: identity comes from the bound authProviders plugin (`backend.auth_provider.auth_provider()`). Local branch: the provider names the user (builtin.auth.local reads `X-User-Id`); cloud branch: after the nx service-bearer path the provider decodes the bearer and its `AuthError` code/status are reported verbatim (a `None` identity is `token_invalid`); `get_current_user` uses the same provider. `decode_token`/`create_token` stay here for the NetMind provider and the login route.
