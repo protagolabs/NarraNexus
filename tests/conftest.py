@@ -65,6 +65,23 @@ from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _isolate_plugin_home(tmp_path_factory):
+    """Every process that boots the plugin platform reads/writes ``~/.narranexus/plugins``
+    (registry.json, boot markers). Point it at a throwaway dir so tests never touch the
+    developer's real plugin tree or leave boot markers behind."""
+    import os
+
+    home = tmp_path_factory.mktemp("plugin_home")
+    previous = os.environ.get("NARRANEXUS_PLUGIN_HOME")
+    os.environ["NARRANEXUS_PLUGIN_HOME"] = str(home)
+    yield home
+    if previous is None:
+        os.environ.pop("NARRANEXUS_PLUGIN_HOME", None)
+    else:
+        os.environ["NARRANEXUS_PLUGIN_HOME"] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _isolate_shared_db(tmp_path_factory):
     """Point the shared-client factory at a throwaway SQLite file.
 

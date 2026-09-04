@@ -95,14 +95,15 @@ class Registry(Generic[T]):
         replace: bool = False,
     ) -> Disposable:
         """Add a provider. Raises on duplicates (unless ``replace``) and after freeze."""
-        if self._frozen:
-            raise RegistryFrozen(f"{self.kind}: cannot register {name!r} after freeze()")
         key = self._key(name)
         existing = self._entries.get(key)
         if existing is not None and existing.factory is factory:
             # Idempotent: the same contribution registered twice (import-time
-            # and manifest-driven) is one entry.
+            # and manifest-driven) is one entry — a no-op even after freeze,
+            # since nothing changes (a second host boot in one process, tests).
             return Disposable(lambda: None)
+        if self._frozen:
+            raise RegistryFrozen(f"{self.kind}: cannot register {name!r} after freeze()")
         if existing is not None and not replace:
             raise RegistryConflict(
                 f"{self.kind}: {key!r} is already provided by {existing.owner!r}; "

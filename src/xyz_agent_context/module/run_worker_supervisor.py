@@ -510,6 +510,12 @@ async def run(
     from xyz_agent_context.utils.db.schema_registry import auto_migrate
     from xyz_agent_context.services.service_audit import ServiceAuditor
 
+    # Plugin platform boot (workers role): plugin worker specs come from the
+    # backend.workers registry, so boot before selecting specs.
+    from xyz_agent_context.module.plugins_boot import boot_worker_plugins
+
+    boot_worker_plugins()
+
     specs = build_specs(only, exclude)
     logger.info(
         f"[supervisor] starting workers: {[s.name for s in specs] or 'NONE (idle)'}"

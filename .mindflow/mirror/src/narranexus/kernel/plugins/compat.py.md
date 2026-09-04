@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2b.5）— `host_version` / `select_version` / `blocked_reason`
+
+宿主版本取包元数据（`narranexus` 或 `xyz-agent-context`），拿不到给 `0.0.0`；`select_version` 是 Obsidian
+`versions.json` 规则（老宿主装满足条件的最新旧版而不是拒绝）；`blocked_reason` 是官方索引
+`blocked_versions.json`（`{id: {below, reason}}`）的命中判定。
+
 ## 2026-09-03 — 自写的最小 semver（不引 `packaging`）
 
 manifest 的 `version`/`minAppVersion`/`dependencies`/`api` 都要比较版本。只实现插件作者真会写的

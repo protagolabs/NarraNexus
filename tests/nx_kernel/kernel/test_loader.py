@@ -79,7 +79,7 @@ def test_builtin_manifests_validate_against_the_kernel_tree():
 def test_discover_is_builtins_only_and_ignores_user_registry_on_cloud(tmp_path):
     local = discover(cloud=False, user_registry_path=tmp_path / "registry.json")
     cloud = discover(cloud=True, user_registry_path=tmp_path / "registry.json")
-    assert [m.id for m in local] == [m.id for m in cloud] == [d["id"] for d in BUILTIN_MANIFEST_DATA]
+    assert [m.id for m in local.manifests] == [m.id for m in cloud.manifests] == [d["id"] for d in BUILTIN_MANIFEST_DATA]
 
 
 # -------------------------------------------------------------------- loader

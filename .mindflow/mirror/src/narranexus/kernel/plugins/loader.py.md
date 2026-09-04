@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2b.5）— `discover` 读 `registry.json`
+
+返回 `Discovery`（manifests + 用户插件路径 + 拒绝原因 + safe_mode）。云端与安全模式只有内置；registry 损坏时
+记 error、只装内置（不让宿主起不来）；每条启用记录校验目录存在、manifest 解析（含 minAppVersion）、id 一致、
+不在黑名单。
+
 ## 2026-09-03（批 2b.4）— `plan_load`：依赖拓扑
 
 `dependencies` 是硬依赖：缺失/版本不满足（`compat.Range`）→ 依赖方 `deps_missing`；环 → 全部成员 `blocked`；

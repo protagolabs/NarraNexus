@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import total_ordering
-from typing import Callable
+from typing import Callable, Mapping
 
 _VERSION_RE = re.compile(
     r"^(?P<major>0|[1-9]\d*)(?:\.(?P<minor>0|[1-9]\d*)(?:\.(?P<patch>0|[1-9]\d*))?)?"
@@ -123,4 +123,39 @@ class Range:
         return self.text
 
 
-__all__ = ["Version", "Range"]
+def host_version() -> str:
+    """The running application's version (pyproject ``version`` via package metadata; ``0.0.0`` if unknown)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    for name in ("narranexus", "xyz-agent-context"):
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            continue
+    return "0.0.0"
+
+
+def select_version(versions_json: Mapping[str, str], host: str) -> str | None:
+    """Pick the newest plugin version whose ``minAppVersion`` the host satisfies (Obsidian ``versions.json``).
+
+    ``versions_json`` maps plugin version → minimum app version. Returns
+    ``None`` when no entry fits, so an old host installs an older release
+    instead of refusing.
+    """
+    host_v = Version.parse(host)
+    fitting = [Version.parse(pv) for pv, min_app in versions_json.items() if Version.parse(min_app) <= host_v]
+    return str(max(fitting)) if fitting else None
+
+
+def blocked_reason(blocked_json: Mapping[str, Mapping[str, str]], plugin_id: str, version: str) -> str | None:
+    """``blocked_versions.json`` lookup: ``{id: {"below": "x.y.z", "reason": "..."}}`` blocks versions below ``below``."""
+    entry = blocked_json.get(plugin_id)
+    if not entry:
+        return None
+    below = entry.get("below")
+    if below and Version.parse(version) < Version.parse(below):
+        return entry.get("reason") or f"versions below {below} are blocked"
+    return None
+
+
+__all__ = ["Version", "Range", "blocked_reason", "host_version", "select_version"]

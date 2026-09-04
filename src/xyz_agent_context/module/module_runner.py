@@ -482,6 +482,13 @@ class ModuleRunner:
             await auto_migrate(db._backend)
             logger.info("Schema auto-migration complete")
 
+        # Plugin platform boot for the mcp role: registers declarative
+        # contributions (tools / mcp servers / skills) so the module servers
+        # below see them; user plugin code is not activated in this process.
+        from xyz_agent_context.module.plugins_boot import boot_mcp_plugins
+
+        boot_mcp_plugins()
+
         logger.info("Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
         logger.info(f"   User ID: {user}")

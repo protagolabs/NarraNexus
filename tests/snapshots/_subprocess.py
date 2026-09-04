@@ -38,6 +38,8 @@ def run_probe(code: str, *, env: Mapping[str, str]) -> Any:
     """Execute ``code`` (which prints one JSON line last) under ``env`` on top of a scrubbed base."""
     base = {k: v for k, v in os.environ.items() if k not in _SCRUBBED}
     base["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
+    # A probe must not see (or write) the developer's real plugin tree.
+    base.setdefault("NARRANEXUS_PLUGIN_HOME", os.environ.get("NARRANEXUS_PLUGIN_HOME") or str(ROOT / ".pytest-plugin-home"))
     base.update(env)
     proc = subprocess.run(
         [sys.executable, "-c", code],

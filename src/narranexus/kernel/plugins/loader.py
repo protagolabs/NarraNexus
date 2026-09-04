@@ -25,7 +25,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from loguru import logger
 
@@ -59,22 +59,76 @@ class LoadReport:
         return [p for p in self.loaded if p.error]
 
 
-def discover(*, cloud: bool, user_registry_path: Path | None = None) -> list[Manifest]:
-    """Builtin manifests, plus (never on cloud) user plugins.
+@dataclass
+class Discovery:
+    manifests: list[Manifest]
+    paths: dict[str, Path] = field(default_factory=dict)  # user plugin id -> plugin dir
+    rejected: dict[str, str] = field(default_factory=dict)  # user plugin id -> reason (state name: detail)
+    safe_mode: bool = False
 
-    Batch 0 knows only builtins; ``user_registry_path`` is accepted so the
-    call shape is final, and is ignored on cloud by construction.
+
+def discover(
+    *,
+    cloud: bool,
+    user_registry_path: Path | None = None,
+    host_version: str | None = None,
+    blocked_versions: Mapping[str, Mapping[str, str]] | None = None,
+) -> Discovery:
+    """Builtin manifests, plus (never on cloud, never in safe mode) the enabled user plugins.
+
+    Each enabled record in ``registry.json`` is validated: the plugin dir
+    must exist (else ``missing``), its manifest must parse against the tree
+    and the host version (else ``incompatible``), its id must match the
+    record, and it must not be on the blocklist (else ``blocked``). Rejected
+    plugins are reported, not loaded; the caller persists their state.
     """
     from narranexus.kernel.plugins.builtins import builtin_manifests
+    from narranexus.kernel.plugins.compat import blocked_reason
+    from narranexus.kernel.plugins.lifecycle import RegistryStore
+    from narranexus.kernel.plugins.manifest import load_manifest
+    from narranexus.kernel.plugins.paths import manifest_path, registry_path
+    from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
-    manifests = list(builtin_manifests())
+    found = Discovery(manifests=list(builtin_manifests()))
     if cloud:
-        if user_registry_path is not None:
-            logger.info("[plugins] cloud deployment: user plugin registry ignored (fail-closed)")
-        return manifests
-    if user_registry_path is not None:
-        logger.debug(f"[plugins] user registry {user_registry_path} not consulted in batch 0")
-    return manifests
+        logger.info("[plugins] cloud deployment: user plugin registry ignored (fail-closed)")
+        return found
+    store = RegistryStore(path=user_registry_path or registry_path())
+    if not store.path.exists():
+        return found
+    try:
+        reg = store.read()
+    except Exception as exc:  # noqa: BLE001 — a corrupt registry must not stop the host; builtins still boot
+        logger.error(f"[plugins] {store.path}: unreadable, loading builtins only: {exc}")
+        return found
+    if reg.safe_mode:
+        logger.warning(f"[plugins] SAFE MODE: user plugins skipped ({reg.safe_mode_reason or 'no reason recorded'})")
+        found.safe_mode = True
+        return found
+    tree = build_kernel_slot_tree()
+    for pid, rec in sorted(reg.plugins.items()):
+        if not rec.enabled:
+            continue
+        plugin_path = Path(rec.path)
+        mpath = manifest_path(plugin_path)
+        if not mpath.is_file():
+            found.rejected[pid] = f"missing: {mpath} not found"
+            continue
+        try:
+            manifest = load_manifest(mpath, tree=tree, host_version=host_version)
+        except ManifestError as exc:
+            found.rejected[pid] = f"incompatible: {exc}"
+            continue
+        if manifest.id != pid:
+            found.rejected[pid] = f"incompatible: manifest id {manifest.id!r} does not match registry entry {pid!r}"
+            continue
+        reason = blocked_reason(blocked_versions or {}, pid, manifest.version)
+        if reason:
+            found.rejected[pid] = f"blocked: {reason}"
+            continue
+        found.manifests.append(manifest)
+        found.paths[pid] = plugin_path
+    return found
 
 
 def resolve_symbol(spec: str) -> Any:
@@ -275,4 +329,4 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     return report
 
 
-__all__ = ["HOOKS_SLOT", "LoadPlan", "PluginLoad", "LoadReport", "discover", "load", "load_order", "plan_load", "resolve_symbol"]
+__all__ = ["Discovery", "HOOKS_SLOT", "LoadPlan", "PluginLoad", "LoadReport", "discover", "load", "load_order", "plan_load", "resolve_symbol"]

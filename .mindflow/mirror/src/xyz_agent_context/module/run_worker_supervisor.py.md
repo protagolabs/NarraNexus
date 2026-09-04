@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-09-03
 ---
 
+## 2026-09-03（批 2b.5）— `run()` 先 `boot_worker_plugins()` 再 `build_specs`
+
+插件 worker 规格来自 `backend.workers` 注册表，必须在选 spec 前登记。
+
 ## 2026-09-03（批 2a.4）— 插件 worker 进 supervisor
 
 `build_specs(..., registries=)` 在四个内置之后追加 `backend.workers` 里 `host="workers"` 的贡献，

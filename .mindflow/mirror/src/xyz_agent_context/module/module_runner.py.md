@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-08-11
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2b.5）— async 模式起 MCP 前 `boot_mcp_plugins()`
+
+让模块 server 看到插件贡献的 tools / mcp servers / skills。
 
 ## 2026-08-11 — 单进程判据从「是否 sqlite」改成「是否持 MySQL 池」；async runner 无 seam 时零凭据
 

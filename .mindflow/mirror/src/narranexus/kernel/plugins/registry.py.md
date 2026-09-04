@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2b.5）— 同对象幂等注册在 freeze 后也是 no-op
+
+幂等判断挪到 frozen 判断之前：同一进程二次 boot / 测试里 lifespan 多次跑时，内置贡献的重复注册什么都不改，
+不该因为注册表已冻结而炸（全量测试顺序依赖实锤）。真正的新增/替换仍被 `RegistryFrozen` 拒绝。
+
 ## 2026-09-03（预审修订）— `Contribution`、同对象幂等、`owner_of` 统一错误
 
 新增 `Contribution(name, factory, meta)` 与 `register_contribution`；同名且**同一工厂对象**的重复

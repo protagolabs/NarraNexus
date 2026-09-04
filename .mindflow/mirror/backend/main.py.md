@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2b.5）— lifespan 接插件启动
+
+`get_db_client()` 之后、`auto_migrate` 之前 `boot_backend_plugins()`；迁移完成后 `fire_startup()` +
+`mark_healthy()`（到达「库已迁移、进程在服务」就是启动标记衡量的健康）。
+
 ## 2026-09-03（批 2a.4）— 挂载插件路由
 
 `app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)` 放在壳路由之后、静态/SPA 之前

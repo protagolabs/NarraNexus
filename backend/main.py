@@ -164,11 +164,25 @@ async def lifespan(app: FastAPI):
     db = await get_db_client()
     logger.info("Database connection pool initialized")
 
+    # Plugin platform boot (spec §9.2): builtins fail-fast, user plugins
+    # isolated, plugin tables registered — all BEFORE auto_migrate so a
+    # plugin's tables exist whether or not it ever activates.
+    from backend.plugins_boot import boot_backend_plugins, fire_startup
+
+    app.state.plugin_boot = boot_backend_plugins()
+
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
     from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
+
+    # Plugins that asked for onStartup activate now (their declarative
+    # contributions are already registered); the boot marker clears here —
+    # reaching a migrated database and a serving process is the health the
+    # marker measures.
+    await fire_startup()
+    app.state.plugin_boot.mark_healthy()
 
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
