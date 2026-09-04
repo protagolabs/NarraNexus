@@ -122,25 +122,110 @@ def _register_hooks(registries: Registries, manifest: Manifest, spec: str) -> in
     return count
 
 
-def load_order(manifests: Iterable[Manifest]) -> list[Manifest]:
-    """Builtins in declaration order, then user plugins by id.
+@dataclass
+class LoadPlan:
+    ordered: list[Manifest]
+    blocked: dict[str, str] = field(default_factory=dict)  # plugin id -> reason (deps_missing / blocked)
 
-    This is what makes ``Registry.names()`` byte-stable across restarts: the
-    outer order is fixed here, the inner order is each manifest's ``provides``.
-    Dependency-aware (topological) ordering arrives with plugin dependencies in
-    batch 2 and slots in between these two groups.
+
+def plan_load(manifests: Iterable[Manifest]) -> LoadPlan:
+    """Builtins in declaration order, then user plugins in dependency order (ties by id).
+
+    ``dependencies`` are hard: a missing or version-mismatched dependency
+    marks the dependant ``deps_missing``; a cycle marks every member
+    ``blocked``; a dependant of a blocked plugin is blocked too (spec §9.6).
+    ``afterDependencies`` only order (a missing one is ignored). Builtins are
+    never reordered by user plugins. The result is deterministic, which is
+    what keeps ``Registry.names()`` byte-stable across restarts.
     """
+    from narranexus.kernel.plugins.compat import Range, Version
+
     items = list(manifests)
+    by_id: dict[str, Manifest] = {}
+    for m in items:
+        if m.id in by_id:
+            raise ManifestError(f"duplicate plugin id {m.id!r} in load set")
+        by_id[m.id] = m
     builtins = [m for m in items if m.is_builtin]
-    users = sorted((m for m in items if not m.is_builtin), key=lambda m: m.id)
-    return builtins + users
+    users = {m.id: m for m in items if not m.is_builtin}
+    blocked: dict[str, str] = {}
+
+    # 1. hard dependencies present + version match
+    for pid, m in users.items():
+        for dep, spec in m.dependencies.items():
+            target = by_id.get(dep)
+            if target is None:
+                blocked[pid] = f"deps_missing: {dep} is not installed"
+                break
+            try:
+                ok = Range.parse(spec).contains(Version.parse(target.version))
+            except Exception as exc:  # noqa: BLE001 - malformed range/version
+                blocked[pid] = f"blocked: dependency {dep} spec {spec!r} invalid: {exc}"
+                break
+            if not ok:
+                blocked[pid] = f"deps_missing: {dep} {target.version} does not satisfy {spec}"
+                break
+
+    # 2. topological order over user plugins (hard deps + soft after-deps)
+    edges: dict[str, set[str]] = {pid: set() for pid in users}
+    for pid, m in users.items():
+        for dep in list(m.dependencies) + list(m.after_dependencies):
+            if dep in users:
+                edges[pid].add(dep)
+    order: list[str] = []
+    state: dict[str, int] = {}  # 0 unseen, 1 visiting, 2 done
+    cycle_members: set[str] = set()
+
+    def visit(pid: str, stack: list[str]) -> None:
+        if state.get(pid) == 2:
+            return
+        if state.get(pid) == 1:
+            cycle_members.update(stack[stack.index(pid):])
+            return
+        state[pid] = 1
+        stack.append(pid)
+        for dep in sorted(edges[pid]):
+            visit(dep, stack)
+        stack.pop()
+        state[pid] = 2
+        order.append(pid)
+
+    for pid in sorted(users):
+        visit(pid, [])
+    for pid in cycle_members:
+        blocked[pid] = "blocked: dependency cycle " + " -> ".join(sorted(cycle_members))
+
+    # 3. transitive blocking: depending on a blocked plugin blocks you
+    changed = True
+    while changed:
+        changed = False
+        for pid, m in users.items():
+            if pid in blocked:
+                continue
+            for dep in m.dependencies:
+                if dep in blocked:
+                    blocked[pid] = f"blocked: dependency {dep} is {blocked[dep].split(':')[0]}"
+                    changed = True
+                    break
+
+    ordered = builtins + [users[pid] for pid in order if pid not in blocked]
+    return LoadPlan(ordered=ordered, blocked=blocked)
+
+
+def load_order(manifests: Iterable[Manifest]) -> list[Manifest]:
+    """The manifests that will load, in load order (blocked ones excluded)."""
+    return plan_load(manifests).ordered
 
 
 def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -> LoadReport:
     """Register every contribution of the manifests that target ``role``."""
     report = LoadReport(role=role)
     seen: set[str] = set()
-    for manifest in load_order(manifests):
+    plan = plan_load(manifests)
+    for pid, reason in sorted(plan.blocked.items()):
+        logger.warning(f"[plugins] {pid} not loaded: {reason}")
+        report.loaded.append(PluginLoad(plugin_id=pid, version="", slots=(), entries=0, duration_ms=0.0, error=reason))
+    for manifest in plan.ordered:
         if manifest.id in seen:
             raise ManifestError(f"duplicate plugin id {manifest.id!r} in load set")
         seen.add(manifest.id)
@@ -190,4 +275,4 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     return report
 
 
-__all__ = ["HOOKS_SLOT", "PluginLoad", "LoadReport", "discover", "load", "load_order", "resolve_symbol"]
+__all__ = ["HOOKS_SLOT", "LoadPlan", "PluginLoad", "LoadReport", "discover", "load", "load_order", "plan_load", "resolve_symbol"]

@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2b.4）— `plan_load`：依赖拓扑
+
+`dependencies` 是硬依赖：缺失/版本不满足（`compat.Range`）→ 依赖方 `deps_missing`；环 → 全部成员 `blocked`；
+依赖被 blocked 的也 blocked（传递）。`afterDependencies` 只排序、缺失忽略。内置永远在前且不被用户插件重排，
+用户插件按拓扑序、同层按 id——`Registry.names()` 跨重启字节稳定的保证。`load()` 把 blocked 写进报告
+（error=原因）而不是静默跳过；重复 id 仍是 `ManifestError`。
+
 ## 2026-09-03（批 2a）— 声明式贡献与 `backend.hooks`
 
 routes/tables/workers/settings/tools/mcp_servers/bundles/skills/themes 的 `provides` 与其它 kind 走同一条路

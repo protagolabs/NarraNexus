@@ -14,8 +14,9 @@ and always an explicit one.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -25,6 +26,69 @@ from narranexus.kernel.plugins.registries import Registries
 from backend import auth as _auth
 
 ROUTES_SLOT = "backend.routes"
+
+
+class LazyRouterApp:
+    """An ASGI app mounted at a plugin's prefix that builds the real router on the first request.
+
+    The plugin's route handlers are imported (its activation) only when
+    someone actually calls a route under its prefix — so a hundred installed
+    plugins cost nothing at boot. The first request awaits ``activate``
+    (a coroutine returning the ``RouterSpec``); a failure is remembered and
+    answered as 503 with the plugin id, never retried in a tight loop.
+    """
+
+    def __init__(self, prefix: str, activate: Callable[[], Awaitable[RouterSpec]], *, plugin_id: str) -> None:
+        self.prefix = prefix
+        self.plugin_id = plugin_id
+        self._activate = activate
+        self._app: Any = None
+        self._error: str | None = None
+        self._lock = asyncio.Lock()
+
+    async def _ensure(self) -> Any:
+        if self._app is not None or self._error is not None:
+            return self._app
+        async with self._lock:
+            if self._app is None and self._error is None:
+                try:
+                    from fastapi import FastAPI
+
+                    spec = await self._activate()
+                    sub = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+                    sub.include_router(spec.router)
+                    self._app = sub
+                except Exception as exc:  # noqa: BLE001 - isolate the plugin
+                    self._error = f"{type(exc).__name__}: {exc}"
+                    logger.warning(f"[plugins] {self.plugin_id}: lazy router failed: {self._error}")
+        return self._app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        app = await self._ensure()
+        if app is None:
+            from starlette.responses import JSONResponse
+
+            response = JSONResponse({"detail": f"plugin {self.plugin_id} failed to activate", "error": self._error}, status_code=503)
+            await response(scope, receive, send)
+            return
+        await app(scope, receive, send)
+
+    @property
+    def activated(self) -> bool:
+        return self._app is not None
+
+    @property
+    def error(self) -> str | None:
+        return self._error
+
+
+def mount_lazy_router(app: Any, plugin_id: str, prefix: str, activate: Callable[[], Awaitable[RouterSpec]]) -> LazyRouterApp:
+    """Mount a lazy router for a user plugin under its own prefix (the auth middleware still runs first)."""
+    if not prefix.startswith(plugin_route_prefix(plugin_id)):
+        raise ValueError(f"{plugin_id}: lazy router prefix {prefix!r} is outside {plugin_route_prefix(plugin_id)!r}")
+    lazy = LazyRouterApp(prefix, activate, plugin_id=plugin_id)
+    app.mount(prefix, lazy, name=f"plugin:{plugin_id}")
+    return lazy
 
 
 @dataclass
@@ -72,4 +136,4 @@ def mount_plugin_routes(app: Any, registries: Registries) -> MountReport:
     return report
 
 
-__all__ = ["MountReport", "ROUTES_SLOT", "mount_plugin_routes"]
+__all__ = ["LazyRouterApp", "MountReport", "ROUTES_SLOT", "mount_lazy_router", "mount_plugin_routes"]
