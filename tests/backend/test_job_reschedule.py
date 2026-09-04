@@ -160,6 +160,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import backend.routes.dashboard.routes as routes_mod  # noqa: E402
+import backend.routes.dashboard.jobs as jobs_routes_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -173,6 +174,7 @@ def _restore_get_db():
 def _build_client(db, viewer_id="u"):
     app = FastAPI()
     app.include_router(routes_mod.router, prefix="/api/dashboard")
+    app.include_router(jobs_routes_mod.router, prefix="/api/dashboard")  # builtin.job's dashboard controls
 
     @app.middleware("http")
     async def _fake_auth(request, call_next):

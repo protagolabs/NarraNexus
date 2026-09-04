@@ -30,3 +30,7 @@ Prompt strings are spread across multiple `prompts.py` files in different submod
 **Importing this file loads all five prompt modules.** Each block does a from-import that executes the source `prompts.py`. For test environments or tooling that only needs one prompt module, this is unnecessary overhead. Import directly from the source module.
 
 **New-contributor trap.** When adding a new prompt constant to any `prompts.py`, also add it to the corresponding block in `prompts_index.py` with a comment. A prompt that is missing from the index will not appear in the consolidated view, defeating the purpose of the file.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+The five builtin-module prompt blocks (job / chat / awareness / basic_info / social_network) are gone: each builtin owns its `<module>/prompts.py` and the platform index imports no builtin. Platform prompts (context runtime, narrative, event, module-impl instance decision, agent framework) remain.

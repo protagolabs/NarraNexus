@@ -423,7 +423,7 @@ def test_update_job_type_switch_recomputes_next_run_with_new_type(client, monkey
         return None
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.job_module._job_scheduling.compute_next_run",
+        "xyz_agent_context.utils.job_scheduling.compute_next_run",
         _fake_compute,
     )
 

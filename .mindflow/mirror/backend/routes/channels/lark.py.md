@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/channels/lark.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 ---
 ## 2026-08-11 — /unbind 返回 do_unbind 的信封 VERBATIM（seam byte-parity）
 
@@ -140,3 +140,7 @@ adds an OAuth device-code login step that Slack doesn't have.
 - The CLI profile removal inside ``do_unbind`` is best-effort (the
   workspace may already be gone); don't tighten it into a hard failure
   or a re-unbind after a partial teardown will 500.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.lark` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/lark/*` together with the trigger and MCP tools.

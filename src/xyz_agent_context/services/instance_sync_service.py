@@ -231,7 +231,7 @@ class InstanceSyncService:
 
             # Build TriggerConfig and compute atomic alpha+beta next-run triple
             trigger_config = TriggerConfig(**trigger_config_dict)
-            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+            from xyz_agent_context.utils.job_scheduling import compute_next_run
             from zoneinfo import ZoneInfo
 
             next_run_utc = None

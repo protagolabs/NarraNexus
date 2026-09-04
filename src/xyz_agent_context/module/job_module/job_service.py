@@ -111,7 +111,7 @@ class JobInstanceService:
         """
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig, JobStatus
         from xyz_agent_context.repository import JobRepository, InstanceRepository, NarrativeRepository
-        from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+        from xyz_agent_context.utils.job_scheduling import compute_next_run
         from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
         from xyz_agent_context.narrative.models import NarrativeActorType, NarrativeActor
         from pydantic import ValidationError
@@ -685,7 +685,7 @@ class JobInstanceService:
             if _status_str == JobStatus.ACTIVE.value and "next_run_time" not in updates:
                 _job = await job_repo.get_job(job_id)
                 if _job and _job.job_type != JobType.ONE_OFF:
-                    from xyz_agent_context.module.job_module._job_scheduling import (
+                    from xyz_agent_context.utils.job_scheduling import (
                         compute_next_run,
                     )
                     _tc = updates.get("trigger_config", _job.trigger_config)

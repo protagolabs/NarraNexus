@@ -86,7 +86,7 @@ async def update_job_from_args(
             updates["payload"] = f"{base_payload}\n\n## Manager Guidance\n{guidance_text}"
         if trigger_config is not None:
             from xyz_agent_context.schema.job_schema import TriggerConfig
-            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+            from xyz_agent_context.utils.job_scheduling import compute_next_run
             from pydantic import ValidationError as _VE
             try:
                 tc_model = TriggerConfig(**trigger_config)

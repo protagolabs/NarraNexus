@@ -688,3 +688,12 @@ async def search_jobs_by_keywords(
         return JobKeywordSearchResponse(success=False, error="Failed to search jobs.")
     result = await _shared_search_keywords(db_client, agent_id, keywords, user_id, status, limit)
     return JobKeywordSearchResponse(**result)
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.job and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("jobs", lambda: RouterSpec(router, "/api/jobs", tags=('Jobs',))),)

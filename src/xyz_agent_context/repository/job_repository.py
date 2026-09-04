@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from xyz_agent_context.module.job_module._job_scheduling import NextRunTuple
+    from xyz_agent_context.utils.job_scheduling import NextRunTuple
 
 from .base import BaseRepository
 from xyz_agent_context.utils import utc_now
@@ -972,7 +972,7 @@ class JobRepository(BaseRepository[JobModel]):
                         tc = TriggerConfig(**trigger_config) if isinstance(trigger_config, dict) else trigger_config
                         job_type_enum = JobType(job_type_str)
                         # Calculate next execution time (based on current time + interval)
-                        from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+                        from xyz_agent_context.utils.job_scheduling import compute_next_run
                         next_run_tup = compute_next_run(job_type_enum, tc, last_run_utc=now)
                 except Exception as e:
                     logger.warning(f"Failed to calculate next_run_time for {job_id}: {e}")
@@ -1028,7 +1028,7 @@ class JobRepository(BaseRepository[JobModel]):
             return 0
 
         from zoneinfo import ZoneInfo
-        from xyz_agent_context.module.job_module._job_scheduling import NextRunTuple
+        from xyz_agent_context.utils.job_scheduling import NextRunTuple
         recovered_count = 0
         now = utc_now()
 

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-08-12
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -141,7 +141,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
   - `JobRepository` — Job 的基础查询、状态更新、`pause_job`、BM25 关键词检索 (`search_keyword`)、多关键词检索 (`search_by_keywords`)
   - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_jobs` 和 `module_instances` 表
   - `xyz_agent_context.module.job_module.job_service.JobInstanceService` — 创建 Job Complex 时同时创建 ModuleInstance 和 Job 记录；`update_job` 承担 PUT /{job_id} 的实际写入（含 append-to-payload、related_entity_id 的 diff sync）
-  - `xyz_agent_context.module.job_module._job_scheduling.compute_next_run` — PUT /{job_id} 改 trigger_config 时原子重算 next_run 的 alpha/beta 对
+  - `xyz_agent_context.utils.job_scheduling.compute_next_run` — PUT /{job_id} 改 trigger_config 时原子重算 next_run 的 alpha/beta 对
   - `xyz_agent_context.module.job_module._job_response.job_to_llm_dict` — 两个搜索端点把 JobModel 整形成 LLM 友好 dict（复用同一份整形逻辑，保证 HTTP 调用方和 agent 看到同一套字段）
   - `backend/routes/_ownership.py` (`assert_owned`) — 新增四个端点的授权门；调用时机在 try/except 之外（见 2026-08-10 entry），失败直接抛 HTTPException，不落入本文件其他端点惯用的 `{"success": False, ...}` 200 shape
 
@@ -173,3 +173,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 创建 Job Complex 时如果某个 job 创建失败，已经创建的 job 不会回滚。API 返回 `success=False` 和错误信息，但系统里已经存在部分创建的 job 群组。调用方需要自行处理清理逻辑。
 
 `PUT /{job_id}` 的失败响应字段名不统一：正常业务失败（job not found、字段校验失败、无字段可改）用 `message`；只有顶层 `except Exception` 兜底才可能出现纯 `error`-style 情况——但本路由为了让 `job_id` 始终可见，兜底分支也返回了 `message`（携带 `job_id`），比 MCP 工具原版的兜底 `{"success": False, "error": str(e)}`（丢失 job_id）更有用，这是唯一一处刻意偏离工具原始 shape 的地方，记录在案以免被误当作 bug 修复掉。
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — `builtin.job`'s `/api/jobs` router (mounted by `backend/plugins_host`, not by main.py); its `JobInstanceService` import is intra-plugin.

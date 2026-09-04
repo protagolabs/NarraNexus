@@ -308,3 +308,12 @@ async def prewarm_status(
         # 5s default when "not ready yet" is a perfectly good answer.
         return {"ready": await executor_healthy(state["executor_url"], timeout=1.0)}
     return {"ready": False}
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.channels.narramessenger and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("channel_narramessenger", lambda: RouterSpec(router, "/api/narramessenger", tags=('NarraMessenger',))),)

@@ -521,25 +521,16 @@ from backend.routes.websocket import router as websocket_router
 from backend.routes.agents.core import router as agents_router
 from backend.routes.agents.artifacts import router as agents_artifacts_router
 from backend.routes.artifacts.users import router as users_artifacts_router
-from backend.routes.jobs import router as jobs_router
 from backend.routes.runs import router as runs_router
 from backend.routes.auth import router as auth_router
-from backend.routes.skills import router as skills_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
 from backend.routes.marketplace_teams import router as marketplace_teams_router
-from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.plugins.routes import router as plugins_router
 from backend.plugins_factory.routes import router as plugin_factory_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
 from backend.routes.dashboard.routes import router as dashboard_router
-from backend.routes.channels.lark import router as lark_router
-from backend.routes.channels.slack import router as slack_router
-from backend.routes.channels.telegram import router as telegram_router
-from backend.routes.channels.wechat import router as wechat_router
-from backend.routes.channels.narramessenger import router as narramessenger_router
-from backend.routes.channels.discord import router as discord_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin.quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
@@ -571,9 +562,7 @@ app.include_router(agents_artifacts_router, prefix="/api/agents", tags=["Artifac
 app.include_router(office_watch_router, prefix="/api", tags=["OfficeWatch"])
 app.include_router(office_watch_public_router, prefix="/api/public", tags=["OfficeWatch"])
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
-app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
-app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.
 app.include_router(
@@ -582,7 +571,6 @@ app.include_router(
 app.include_router(
     marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
 )
-app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(plugin_factory_router, tags=["PluginFactory"])
 app.include_router(plugins_router, tags=["Plugins"])
@@ -595,13 +583,10 @@ app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Ana
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
-app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
-app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
-app.include_router(wechat_router, prefix="/api/wechat", tags=["WeChat"])
-app.include_router(narramessenger_router, prefix="/api/narramessenger", tags=["NarraMessenger"])
+# jobs / skills / home-assistant / the six IM channel routers are backend.routes
+# contributions of their builtin plugins (batch 3c.5), mounted below by
+# mount_plugin_routes together with the data-access twins and teams.
 app.include_router(arena_router, tags=["Arena"])
-app.include_router(discord_router, prefix="/api/discord", tags=["Discord"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])

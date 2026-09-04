@@ -134,3 +134,12 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     except Exception as e:  # noqa: BLE001 — surface as a message, never 500
         logger.warning(f"HA verify binding failed for {body.agent_id}: {e}")
         return {"ok": False, "error": str(e)}
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.home_assistant and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("home_assistant", lambda: RouterSpec(router, "/api/home-assistant", tags=('HomeAssistant',))),)

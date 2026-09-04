@@ -57,52 +57,11 @@ from xyz_agent_context.module._module_impl.prompts import (
 )
 
 # =============================================================================
-# 5. JobModule (JobTrigger) — Job Execution Prompt
-# File: module/job_module/prompts.py
+# Builtin module prompts (job / chat / awareness / basic_info / social_network)
+# are NOT indexed here since batch 3c.5: each builtin plugin owns its
+# ``<module>/prompts.py`` and the platform imports no builtin. Navigate to the
+# module package directly.
 # =============================================================================
-from xyz_agent_context.module.job_module.prompts import (
-    JOB_TASK_INFO_TEMPLATE,            # Task information section
-    JOB_ENTITIES_SECTION_TEMPLATE,     # Related entities section
-    JOB_PROGRESS_SECTION_TEMPLATE,     # Current progress section
-    JOB_DEPENDENCIES_SECTION_TEMPLATE, # Prerequisites/dependencies section
-    JOB_EXECUTION_PROMPT_TEMPLATE,     # Job execution main prompt
-)
-
-# =============================================================================
-# 6. ChatModule — Chat Module Prompt
-# File: module/chat_module/prompts.py
-# =============================================================================
-from xyz_agent_context.module.chat_module.prompts import (
-    CHAT_MODULE_INSTRUCTIONS,          # ChatModule system instructions (thinking vs speaking)
-)
-
-# =============================================================================
-# 7. AwarenessModule — Awareness Perception Module Prompt
-# File: module/awareness_module/prompts.py
-# =============================================================================
-from xyz_agent_context.module.awareness_module.prompts import (
-    AWARENESS_MODULE_INSTRUCTIONS,     # Awareness system instructions template
-)
-
-# =============================================================================
-# 8. BasicInfoModule — Basic Information Module Prompt
-# File: module/basic_info_module/prompts.py
-# =============================================================================
-from xyz_agent_context.module.basic_info_module.prompts import (
-    BASIC_INFO_MODULE_INSTRUCTIONS,    # BasicInfo system instructions template
-)
-
-# =============================================================================
-# 9. SocialNetworkModule — Social Network Module Prompt
-# File: module/social_network_module/prompts.py
-# =============================================================================
-from xyz_agent_context.module.social_network_module.prompts import (
-    SOCIAL_NETWORK_MODULE_INSTRUCTIONS,  # SocialNetwork system instructions template
-    ENTITY_SUMMARY_INSTRUCTIONS,         # Entity information summary LLM instructions
-    DESCRIPTION_COMPRESSION_INSTRUCTIONS, # Profile compression LLM instructions
-    PERSONA_INFERENCE_INSTRUCTIONS,      # Persona inference LLM instructions
-)
-
 # =============================================================================
 # 10. Agent Framework (Claude Agent SDK) — Agent Framework Prompt
 # File: agent_framework/adapters/claude/prompts.py

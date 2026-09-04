@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/channels/wechat.py
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 > 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
@@ -105,3 +105,7 @@ paste), bind is a two-step QR flow instead of a single ``POST /bind``.
   server call is the pacing.
 - Bind logs ``agent=...`` but never the token. Don't add the token to
   log lines for "debugging" — it's a personal-account secret.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.wechat` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/wechat/*` together with the trigger and MCP tools.

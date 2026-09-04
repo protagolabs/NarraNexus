@@ -172,3 +172,12 @@ async def set_discord_active(request: Request, body: SetActiveRequest) -> dict[s
         f"agent={body.agent_id}"
     )
     return {"success": True, "enabled": body.active}
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.channels.discord and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("channel_discord", lambda: RouterSpec(router, "/api/discord", tags=('Discord',))),)

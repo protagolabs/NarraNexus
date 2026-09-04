@@ -94,7 +94,7 @@ from xyz_agent_context.agent_framework.llm.failure import (
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
-from xyz_agent_context.module.job_module._job_scheduling import (
+from xyz_agent_context.utils.job_scheduling import (
     compute_next_run,
     past_schedule_horizon,
 )

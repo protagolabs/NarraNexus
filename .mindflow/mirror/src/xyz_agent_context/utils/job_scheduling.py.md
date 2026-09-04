@@ -1,9 +1,9 @@
 ---
-code_file: src/xyz_agent_context/module/job_module/_job_scheduling.py
-last_verified: 2026-04-21
+code_file: src/xyz_agent_context/utils/job_scheduling.py
+last_verified: 2026-09-04
 ---
 
-# _job_scheduling.py — Job 下次执行时间计算
+# job_scheduling.py — Job 下次执行时间计算
 
 ## 为什么存在
 
@@ -58,3 +58,7 @@ last_verified: 2026-04-21
 naive+timezone 约定换算成 UTC 再比较）。无 config / 无 end_at → False，
 存量 job 零影响。唯一调用方是 job_trigger 的 SCHEDULED finalize 分支；
 放在本文件是因为它是调度规则不是数据访问，与 compute_next_run 同层。
+
+## 2026-09-04 · moved to utils (batch 3c.5)
+
+Moved from `module/job_module/_job_scheduling.py`: the repository (`job_repository`) and `services/instance_sync_service` — platform code — import it, and the platform must not import a builtin plugin. Same functions, same tests (`tests/job_module/test_compute_next_run.py` etc. now import from here); the job module is one more consumer.

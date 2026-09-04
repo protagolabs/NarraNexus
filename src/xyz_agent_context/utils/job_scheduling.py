@@ -1,14 +1,17 @@
 """
-@file_name: _job_scheduling.py
+@file_name: job_scheduling.py
 @author: Bin Liang
 @date: 2026-03-06
-@description: Job scheduling utility functions
+@description: Job scheduling utility functions (next-run computation over JobType + TriggerConfig).
 
-Extracted from job_repository.py. Contains business logic for
-calculating next execution times based on job type and trigger config.
+Extracted from job_repository.py. Contains the rules for calculating next
+execution times based on job type and trigger config.
 
-This logic belongs in the module layer (not repository) because it
-encodes scheduling rules rather than data access patterns.
+Placement follows the import graph (rule #21): the repository, the instance
+sync service and the job module all need it, and a platform package must not
+import a builtin plugin, so it lives with the platform utilities next to the
+schema it computes over (``schema/job_schema``) — the job module imports it
+from here.
 """
 
 from dataclasses import dataclass

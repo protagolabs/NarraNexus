@@ -120,7 +120,7 @@ TWINS = {
     "builtin.awareness": {"agents_awareness", "agents_profile"},
     "builtin.social_network": {"agents_social_network"},
     "builtin.basic_info": {"agents_narrative"},
-    "builtin.job": {"agents_jobs"},
+    "builtin.job": {"agents_jobs", "jobs", "dashboard_jobs"},  # + its own /api/jobs and dashboard controls (3c.5)
     "builtin.chat": {"agents_chat_history"},
 }
 

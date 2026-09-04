@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/channels/narramessenger.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-21 — prewarm 现在带着 stale 镜像替换判决（它会导致容器被拆）
@@ -118,3 +118,7 @@ The frontend "paste the bind link" entry point for NarraMessenger:
   `data` is null when unbound — which is what `IMChannelsSection.fetchConnected`
   keys on for the ✓/not-bound badge.
 - Registered in `backend/main.py` under `/api/narramessenger`.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.narramessenger` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/narramessenger/*` together with the trigger and MCP tools.

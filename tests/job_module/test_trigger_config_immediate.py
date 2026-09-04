@@ -18,7 +18,7 @@ from unittest.mock import patch, AsyncMock
 import pytest
 
 from xyz_agent_context.schema.job_schema import TriggerConfig, JobType
-from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+from xyz_agent_context.utils.job_scheduling import compute_next_run
 from xyz_agent_context.module.job_module.job_service import JobInstanceService
 
 

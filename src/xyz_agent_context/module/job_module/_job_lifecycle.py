@@ -111,7 +111,7 @@ async def handle_job_execution_result(
             existing_process = existing_job.process if existing_job and existing_job.process else []
 
             from zoneinfo import ZoneInfo
-            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+            from xyz_agent_context.utils.job_scheduling import compute_next_run
 
             now = utc_now()
             tz_name = (existing_job.trigger_config.timezone if existing_job and existing_job.trigger_config else None) or "UTC"

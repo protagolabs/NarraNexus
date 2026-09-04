@@ -101,7 +101,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Agent self-extension: scaffold, test, register and observe plugins (local only).",
         "hosts": ["backend", "mcp"],
         "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_NEXUS_PLUGINS_MODULE"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_NEXUS_PLUGINS_MODULE"]},
         "protected": True,
         "quality": "gold",
     },
@@ -136,7 +136,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module AwarenessModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_AWARENESS"], "agent.capabilities.data_access": ["xyz_agent_context.module.awareness_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.awareness:ROUTES", "backend.routes.agents.profile:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_AWARENESS"], "agent.capabilities.data_access": ["xyz_agent_context.module.awareness_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.awareness:ROUTES", "backend.routes.agents.profile:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -146,7 +146,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module BasicInfoModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_BASIC_INFO"], "agent.capabilities.data_access": ["xyz_agent_context.module.basic_info_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.narrative:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_BASIC_INFO"], "agent.capabilities.data_access": ["xyz_agent_context.module.basic_info_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.narrative:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -156,7 +156,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module ChatModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "hook": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHAT"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHAT"], "backend.hooks": ["xyz_agent_context.module.chat_module.plugin_hooks:HOOKS"], "agent.capabilities.data_access": ["xyz_agent_context.module.chat_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.chat_history:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHAT"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHAT"], "backend.hooks": ["xyz_agent_context.module.chat_module.plugin_hooks:HOOKS"], "agent.capabilities.data_access": ["xyz_agent_context.module.chat_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.chat_history:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -166,7 +166,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module SocialNetworkModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_SOCIAL_NETWORK"], "agent.capabilities.data_access": ["xyz_agent_context.module.social_network_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.social_network:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_SOCIAL_NETWORK"], "agent.capabilities.data_access": ["xyz_agent_context.module.social_network_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.social_network:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -176,7 +176,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module JobModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_JOB"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["xyz_agent_context.module.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_JOB"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["xyz_agent_context.module.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -185,8 +185,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Skill",
         "description": "Builtin module SkillModule.",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_SKILLS"]},
+        "api": {"module": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_SKILLS"], "backend.routes": ["backend.routes.skills:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -196,7 +196,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module MessageBusModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_MESSAGE_BUS"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_MESSAGE_BUS"]},
         "quality": "gold",
     },
     {
@@ -206,7 +206,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module CommonToolsModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_COMMON_TOOLS"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_COMMON_TOOLS"]},
         "quality": "gold",
     },
     {
@@ -216,7 +216,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module GeneralMemoryModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_GENERAL_MEMORY"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_GENERAL_MEMORY"]},
         "quality": "gold",
     },
     {
@@ -225,8 +225,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "HomeAssistant",
         "description": "Builtin module HomeAssistantModule.",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_HOME_ASSISTANT"]},
+        "api": {"module": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_HOME_ASSISTANT"], "backend.routes": ["backend.routes.home_assistant:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -235,8 +235,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Lark",
         "description": "Builtin module LarkModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_LARK"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_LARK"], "backend.routes": ["backend.routes.channels.lark:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -245,8 +245,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Slack",
         "description": "Builtin module SlackModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_SLACK"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.routes": ["backend.routes.channels.slack:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -255,8 +255,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Telegram",
         "description": "Builtin module TelegramModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_TELEGRAM"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.routes": ["backend.routes.channels.telegram:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -265,8 +265,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "WeChat",
         "description": "Builtin module WeChatModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_WECHAT"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_WECHAT"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_WECHAT"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_WECHAT"], "backend.routes": ["backend.routes.channels.wechat:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -275,8 +275,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Narramessenger",
         "description": "Builtin module NarramessengerModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"], "backend.routes": ["backend.routes.channels.narramessenger:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -285,8 +285,8 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Discord",
         "description": "Builtin module DiscordModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0},
-        "provides": {"agent.capabilities.modules": [f"{_MODULE}.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_DISCORD"]},
+        "api": {"module": 0, "trigger": 0, "route": 0},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.routes": ["backend.routes.channels.discord:ROUTES"]},
         "quality": "gold",
     },
     {

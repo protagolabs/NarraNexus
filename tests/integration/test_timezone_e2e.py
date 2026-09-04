@@ -36,7 +36,7 @@ from unittest.mock import AsyncMock, patch
 import json
 import pytest
 
-from xyz_agent_context.module.job_module._job_scheduling import (
+from xyz_agent_context.utils.job_scheduling import (
     NextRunTuple,
     compute_next_run,
 )

@@ -699,3 +699,12 @@ async def get_skill(
     except Exception as e:
         logger.exception(f"Failed to get skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.skills and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("skills", lambda: RouterSpec(router, "/api/skills", tags=('Skills',))),)

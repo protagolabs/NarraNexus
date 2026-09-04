@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/channels/discord.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 ---
 
 > 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
@@ -46,3 +46,7 @@ bind paths stay in lockstep.
 - The MCP tools (``discord_bind`` / ``discord_unbind``) and these routes
   are TWO entry points to the same credential manager — keep both in mind
   when changing bind semantics.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.discord` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/discord/*` together with the trigger and MCP tools.

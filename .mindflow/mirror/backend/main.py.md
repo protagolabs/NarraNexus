@@ -474,3 +474,7 @@ routes 就退回假门。OPTIONS 复核结论:preflight 无 Content-Length,
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 Teams is no longer wired here: the router and the summary worker come from the `builtin.teams` manifest. Import time calls `register_builtins_for_import()` before `mount_plugin_routes()` so the route table is complete for the approval snapshot; lifespan starts/stops every `backend.workers` contribution with `host="backend"` through `start_backend_workers`/`stop_backend_workers`.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+jobs / skills / home-assistant / the six IM channel routers are no longer imported or included here — they are `backend.routes` contributions of their builtins (batch 3c.5) mounted by `mount_plugin_routes`. main.py keeps only shell-level routers.

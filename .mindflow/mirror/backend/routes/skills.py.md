@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -103,3 +103,7 @@ zip 文件上传时先保存到 `tempfile.mkdtemp()` 创建的临时目录，解
 call」的工具被调用了 615 次。
 
 同理，这里也不该改成「用 `reply_owner`」：skill 的执行语境不一定是 owner 聊天轮。
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — `builtin.skills`' `/api/skills` router (mounted by `backend/plugins_host`, not by main.py); the `skill_module` helper imports are intra-plugin.

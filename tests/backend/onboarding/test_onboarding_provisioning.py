@@ -344,7 +344,7 @@ def _simulate_last_fire_and_goodbye_day(drift, provision_utc=None, tz="UTC"):
     from datetime import datetime, timedelta, timezone as dt_tz
     from zoneinfo import ZoneInfo
 
-    from xyz_agent_context.module.job_module._job_scheduling import (
+    from xyz_agent_context.utils.job_scheduling import (
         compute_next_run,
         past_schedule_horizon,
     )

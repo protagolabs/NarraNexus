@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/home_assistant.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-08-11 (PR-G) — /verify 的 resolve_client 去 db 参数
@@ -41,3 +41,7 @@ stub: false
 - **注册**:`backend/main.py` `include_router(prefix="/api/home-assistant")`。
 - **依赖**:`repository.HomeAssistantBindingRepository`、`schema.HAConfig`、`_home_assistant_impl.ha_client`
   (`/test`)、`_home_assistant_impl.binding.resolve_client`(`/verify`)。
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — `builtin.home_assistant`'s `/api/home-assistant` router (mounted by `backend/plugins_host`, not by main.py).

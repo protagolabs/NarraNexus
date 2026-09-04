@@ -57,3 +57,7 @@ Six channel builtins, builtin.job and builtin.chat now also provide `ingress.tri
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 awareness/social_network/basic_info/job/chat also provide `agent.capabilities.data_access` and their `backend.routes` twins (`backend/routes/agents/{awareness,profile,social_network,narrative,jobs,chat_history}:ROUTES`).
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+Channel builtins provide `backend.routes.channels.<ch>:ROUTES`; builtin.job adds `backend.routes.jobs:ROUTES` + `backend.routes.dashboard.jobs:ROUTES`; builtin.skills `backend.routes.skills:ROUTES`; builtin.home_assistant `backend.routes.home_assistant:ROUTES`.

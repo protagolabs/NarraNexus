@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-07-30
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -88,3 +88,7 @@ Dashboard v2.1 的 API 端点集合（`/api/dashboard/*`），为前端 dashboar
 
 - 任何在本文件里 `SELECT next_run_time ... FROM instance_jobs` 的查询都是错的——它绕开了协议。必须 SELECT β 列并在 response 里暴露 β
 - 排序/筛选的 "时间 cursor" 如果真的要做，内部可以查 α（`next_run_time` UTC），但 response payload 永远只给 β
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+pause / resume / schedule moved to `dashboard/jobs.py` (builtin.job's router): they delegate to the job module's portable core. The read endpoints and the SQL-only retry stay; `_resolve_viewer` / `_assert_agent_visible` are shared with jobs.py.

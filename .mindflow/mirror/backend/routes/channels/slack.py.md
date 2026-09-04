@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/channels/slack.py
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 > 2026-08-10:`_verify_agent_ownership` 不再是本文件定义——模块级别名指向
@@ -76,3 +76,7 @@ all mounted under ``/api/slack``.
   ``SlackCredentialManager.bind``. Don't add a second prefix check
   here; it would race the upstream rename if Slack ever changes the
   scheme.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+`ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.slack` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/slack/*` together with the trigger and MCP tools.
