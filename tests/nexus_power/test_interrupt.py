@@ -17,36 +17,36 @@ import dataclasses
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power.contracts.events import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
     TYPE_TEXT_DELTA,
     TYPE_TURN_DONE,
     Usage,
 )
-from narranexus.platform.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
     ModelParams,
     ProviderProfile,
 )
-from narranexus.platform.agent_framework.nexus_power.assembly import LoopAssembly
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
+from narranexus_plugins.frameworks_nexus_power.core.assembly import LoopAssembly
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.expression import (
     ExpressionContract,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.loop import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.loop import (
     NexusPowerLoop,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
 

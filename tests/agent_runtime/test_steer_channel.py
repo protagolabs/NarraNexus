@@ -17,7 +17,7 @@ from narranexus.platform.agent_runtime.steer_channel import (
     render_injection,
     rendered_injection_payload,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
     QueueSteeringInlet,
 )
 from narranexus.platform.schema.steer_schema import SteerInjection

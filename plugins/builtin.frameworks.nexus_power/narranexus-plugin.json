@@ -1,0 +1,51 @@
+{
+  "id": "builtin.frameworks.nexus_power",
+  "version": "1.0.0",
+  "displayName": "NexusPower agent loop",
+  "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
+  "hosts": [
+    "backend"
+  ],
+  "provides": {
+    "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
+    "builtin.frameworks.nexus_power.stop": "narranexus_plugins.frameworks_nexus_power.core.extension_points:STOP_DEFAULT",
+    "builtin.frameworks.nexus_power.compaction": "narranexus_plugins.frameworks_nexus_power.core.extension_points:COMPACTION_DEFAULT",
+    "builtin.frameworks.nexus_power.projector": "narranexus_plugins.frameworks_nexus_power.core.extension_points:PROJECTOR_DEFAULT",
+    "builtin.frameworks.nexus_power.expression": "narranexus_plugins.frameworks_nexus_power.core.extension_points:EXPRESSION_DEFAULT",
+    "builtin.frameworks.nexus_power.policy": [
+      "narranexus_plugins.frameworks_nexus_power.core.extension_points:POLICY_LAYERS"
+    ]
+  },
+  "declares": {
+    "builtin.frameworks.nexus_power.stop": {
+      "arity": "one",
+      "contract": "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:StopPolicy",
+      "default": "no_more_actions",
+      "doc": "When the loop ends a turn."
+    },
+    "builtin.frameworks.nexus_power.compaction": {
+      "arity": "one",
+      "contract": "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:CompactionPolicy",
+      "default": "tool_result_pruner",
+      "doc": "How the ledger is compacted."
+    },
+    "builtin.frameworks.nexus_power.projector": {
+      "arity": "one",
+      "contract": "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:ContextProjector",
+      "default": "passthrough",
+      "doc": "How the ledger becomes provider messages."
+    },
+    "builtin.frameworks.nexus_power.expression": {
+      "arity": "one",
+      "contract": "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:ExpressionPolicy",
+      "default": "contract",
+      "doc": "Which tools count as the agent speaking."
+    },
+    "builtin.frameworks.nexus_power.policy": {
+      "arity": "many",
+      "contract": "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:PolicyLayer",
+      "doc": "Tool-call policy layers, checked in order."
+    }
+  },
+  "quality": "gold"
+}

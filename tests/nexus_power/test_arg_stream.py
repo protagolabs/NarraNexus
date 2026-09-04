@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.arg_stream import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
     StreamingArgExtractor,
 )
 

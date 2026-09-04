@@ -79,7 +79,7 @@ def test_factory_returns_anthropic_when_helper_config_set():
         ClaudeConfig(), OpenAIConfig(), CodexConfig(),
         AnthropicHelperConfig(api_key="sk-ant", model="claude-haiku-4-5"),
     )
-    from narranexus.platform.agent_framework.llm.anthropic_helper import (
+    from narranexus_plugins.llm_clients.anthropic_helper import (
         AnthropicHelperSDK,
     )
     assert isinstance(get_helper_sdk(), AnthropicHelperSDK)
@@ -117,7 +117,7 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
     fix it dropped anthropic_helper (2-arg set_user_config) → OpenAIAgentsSDK
     against anthropic creds."""
     from narranexus.platform.agent_framework.providers.resolver import ProviderResolver
-    from narranexus.platform.agent_framework.llm.anthropic_helper import (
+    from narranexus_plugins.llm_clients.anthropic_helper import (
         AnthropicHelperSDK,
     )
 

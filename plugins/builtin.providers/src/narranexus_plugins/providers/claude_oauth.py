@@ -209,9 +209,7 @@ class ClaudeOAuthDriver(_DriverBase):
         """
         import asyncio
 
-        from narranexus.platform.agent_framework.adapters.claude.cli_binary import (
-            resolve_cli_path,
-        )
+        from narranexus_plugins.frameworks_claude_code.api import resolve_cli_path
         from narranexus.platform.agent_framework.loop.broker_client import (
             executor_seam_active,
         )
@@ -252,9 +250,7 @@ class ClaudeOAuthDriver(_DriverBase):
             # the same call the agent adapter makes before every spawn.
             # Without it a healthy, freshly-logged-in host credential fails
             # verification on any install that has not run an agent turn yet.
-            from narranexus.platform.agent_framework.adapters.claude.sdk import (
-                _stage_claude_oauth_credentials,
-            )
+            from narranexus_plugins.frameworks_claude_code.api import stage_oauth_credentials as _stage_claude_oauth_credentials
 
             try:
                 _stage_claude_oauth_credentials(env["CLAUDE_CONFIG_DIR"])

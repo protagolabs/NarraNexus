@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.claude import cli_binary
+from narranexus_plugins.frameworks_claude_code import cli_binary
 from narranexus.platform.agent_framework import plugin_paths
 
 

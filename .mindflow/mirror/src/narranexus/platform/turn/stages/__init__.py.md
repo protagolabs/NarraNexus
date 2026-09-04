@@ -10,3 +10,5 @@ stub: false
 `KERNEL_REGISTRIES`（缺位则以 owner `builtin.turn` 声明），与 `builtin.turn` manifest 的 provides 是同一批对象，
 loader 再注册是幂等 no-op（与 frameworks/providers 同一模式）。`ensure_registered(registries)` 让测试用干净
 `Registries` 也能起流水线。
+
+Batch 6b.2b: only the slot declarations remain here (`OWNER`, `STAGE_CONTRACT`, `slot_path`, `declare_stage_slots`, `ensure_registered`); the default strategies are the `builtin.turn` plugin package.

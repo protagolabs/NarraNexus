@@ -52,9 +52,9 @@ def test_openai_helper_official_and_custom_endpoints_agree():
 
 def test_anthropic_helper_ignores_requested_and_cli_helper_picks_framework_default():
     from narranexus.platform.agent_framework import api_config
-    from narranexus.platform.agent_framework.llm import cli_helper
-    from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
+    from narranexus_plugins.llm_clients import cli_helper
+    from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+    from narranexus_plugins.llm_clients.cli_helper import CliHelperSDK
 
     slot = api_config.AnthropicHelperConfig(model="claude-x")
     assert _with_ctx(api_config._anthropic_helper_ctx, slot, lambda: AnthropicHelperSDK._resolve_model("gpt-4o-mini")) == "claude-x"

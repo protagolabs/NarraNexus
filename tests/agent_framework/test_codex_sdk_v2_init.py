@@ -31,8 +31,8 @@ from narranexus.platform.agent_framework.loop.driver import (
     available_agent_loop_frameworks,
     get_agent_loop_driver,
 )
-from narranexus.platform.agent_framework.adapters.codex.cli_sdk import CodexSDK
-from narranexus.platform.agent_framework.adapters.codex.official_sdk import (
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
+from narranexus_plugins.frameworks_codex_cli.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
     _prepare_codex_notification,

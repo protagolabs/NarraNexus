@@ -97,13 +97,26 @@ def register_agent_loop_driver(
     return FRAMEWORK_REGISTRY.register(key, lambda: factory, owner=owner, replace=True)
 
 
+def ensure_builtin_frameworks() -> None:
+    """Register the frameworks the builtin manifests name, once, on first lookup.
+    They are plugins under plugins/ (batch 6b); the kernel resolves the
+    manifests' contributions — this module never imports a framework package."""
+    if FRAMEWORK_REGISTRY.names():
+        return
+    from narranexus.kernel.plugins.builtins import register_builtin_provides
+
+    register_builtin_provides("turn.pipeline.act.framework")
+
+
 def available_agent_loop_frameworks() -> list[str]:
+    ensure_builtin_frameworks()
     """Names of all registered frameworks (sorted, for stable logging)."""
     return sorted(FRAMEWORK_REGISTRY.names())
 
 
 def resolve_framework_name(framework: str | None = None) -> str:
     """Apply the selection precedence and return the resolved name."""
+    ensure_builtin_frameworks()
     return (
         framework
         or os.getenv("AGENT_LOOP_FRAMEWORK")
@@ -137,6 +150,7 @@ def get_agent_loop_driver(
             loud rather than silently fall back, so a typo in config is
             caught immediately instead of masquerading as "claude".
     """
+    ensure_builtin_frameworks()
     name = resolve_framework_name(framework)
 
     # Executor seam (binding rule #7/#9/#20): route the loop to a remote

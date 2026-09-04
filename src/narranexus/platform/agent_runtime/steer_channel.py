@@ -34,8 +34,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, get_args
 
 from loguru import logger
 
-from narranexus.platform.agent_framework.nexus_power.contracts.model import STEER_ID_KEY
-from narranexus.platform.schema.steer_schema import SteerInjection, SteerSource
+from narranexus.platform.schema.steer_schema import STEER_ID_KEY, SteerInjection, SteerSource
 
 ProviderMessage = Dict[str, Any]
 

@@ -15,7 +15,7 @@ counts live there), so classify_self_serviceable can still recover "context
 window" / "balance not enough" from the message — the end-to-end fix for the
 "black box" P1.
 """
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _inline_assistant_error_event,
 )
 from narranexus.platform.agent_framework.llm.failure import classify_self_serviceable

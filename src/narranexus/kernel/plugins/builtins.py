@@ -21,9 +21,8 @@ from typing import Any
 from narranexus.kernel.plugins.manifest import Manifest, parse_manifest
 from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 
-_FRAMEWORK = "narranexus.platform.agent_framework"
-_NP = "narranexus.platform.agent_framework.nexus_power.extension_points"
-_NP_PROTO = "narranexus.platform.agent_framework.nexus_power.contracts.protocols"
+_NP = "narranexus_plugins.frameworks_nexus_power.core.extension_points"
+_NP_PROTO = "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols"
 _MODULE = "narranexus.platform.module_system"
 _PLUG = "narranexus_plugins"  # the builtin module packages (workspace members under plugins/, batch 6b)
 _DRIVERS = "narranexus_plugins.providers"
@@ -36,7 +35,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
         "hosts": ["backend"],
         "provides": {
-            "turn.pipeline.act.framework": f"{_FRAMEWORK}:NEXUS_POWER",
+            "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
             "builtin.frameworks.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
             "builtin.frameworks.nexus_power.compaction": f"{_NP}:COMPACTION_DEFAULT",
             "builtin.frameworks.nexus_power.projector": f"{_NP}:PROJECTOR_DEFAULT",
@@ -60,7 +59,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Claude Code agent loop",
         "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
         "hosts": ["backend"],
-        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:CLAUDE_CODE"},
+        "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
     },
@@ -70,7 +69,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Codex agent loop",
         "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
         "hosts": ["backend"],
-        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:CODEX_CLI"},
+        "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_codex_cli.contribution:CONTRIBUTION"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
     },
@@ -101,7 +100,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Helper LLM clients",
         "description": "anthropic / openai / cli protocol clients for the helper-LLM slot.",
         "hosts": ["backend", "mcp", "workers"],
-        "provides": {"model.clients": [f"{_FRAMEWORK}.llm.helper_sdk:CONTRIBUTIONS"]},
+        "provides": {"model.clients": ["narranexus_plugins.llm_clients.contributions:CONTRIBUTIONS"]},
         "quality": "gold",
     },
     {
@@ -133,14 +132,14 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "api": {"stage_strategy": 0, "pipeline_profile": 0, "agent": 0},
         "provides": {
             "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
-            "turn.pipeline.ingress": ["narranexus.platform.turn.stages:INGRESS"],
-            "turn.pipeline.recall": ["narranexus.platform.turn.stages:RECALL"],
-            "turn.pipeline.compose": ["narranexus.platform.turn.stages:COMPOSE"],
-            "turn.pipeline.assemble": ["narranexus.platform.turn.stages:ASSEMBLE"],
-            "turn.pipeline.act": ["narranexus.platform.turn.stages:ACT"],
-            "turn.pipeline.commit": ["narranexus.platform.turn.stages:COMMIT"],
-            "turn.pipeline.reflect": ["narranexus.platform.turn.stages:REFLECT"],
-            "turn.profiles": ["narranexus.platform.turn.profiles:PROFILE_CONTRIBUTIONS"],
+            "turn.pipeline.ingress": ["narranexus_plugins.turn.stages:INGRESS"],
+            "turn.pipeline.recall": ["narranexus_plugins.turn.stages:RECALL"],
+            "turn.pipeline.compose": ["narranexus_plugins.turn.stages:COMPOSE"],
+            "turn.pipeline.assemble": ["narranexus_plugins.turn.stages:ASSEMBLE"],
+            "turn.pipeline.act": ["narranexus_plugins.turn.stages:ACT"],
+            "turn.pipeline.commit": ["narranexus_plugins.turn.stages:COMMIT"],
+            "turn.pipeline.reflect": ["narranexus_plugins.turn.stages:REFLECT"],
+            "turn.profiles": ["narranexus_plugins.turn.profiles:PROFILE_CONTRIBUTIONS"],
         },
         "declares": {
             path: {"arity": "many", "contract": "narranexus.contracts.agent.pipeline:StageStrategy", "doc": f"{path.rsplit('.', 1)[1].title()} stage strategies; a profile names one."}

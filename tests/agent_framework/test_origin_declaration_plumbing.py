@@ -15,7 +15,7 @@ was — you would only find it by reading a prompt dump.
 """
 from __future__ import annotations
 
-from narranexus.platform.agent_framework.adapters.claude.prompts import (
+from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
 )
 from narranexus.platform.agent_framework.loop.turn_input import TurnInput
@@ -77,7 +77,7 @@ def test_no_reply_surface_means_no_reminder_and_no_origin_line():
 
 
 def test_nexus_options_carry_the_line():
-    from narranexus.platform.agent_framework.nexus_power.contracts.options import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.options import (
         TurnOptions,
     )
 

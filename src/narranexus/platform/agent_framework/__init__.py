@@ -35,10 +35,6 @@ lazily.
 
 from . import plugin_paths
 from .api_config import CodexConfig, codex_config
-from narranexus.contracts.framework import FrameworkInstall, FrameworkMeta, InstallComponent
-from narranexus.kernel.plugins.registry import Contribution
-
-from .adapters.claude.cli_binary import PINNED_CLI_VERSION
 
 from .loop.driver import (
     AgentLoopDriver,
@@ -52,117 +48,14 @@ from .loop.driver import (
 )
 
 
-# --- Lazy driver factories -------------------------------------------------
-# Each imports its SDK only when actually building a driver, after putting the
-# plugin pyenv on sys.path. None of these run at package import time.
-
-def _nexus_power_factory(**factory_kwargs):
-    # Home-grown loop — no external dependency, always available.
-    from .adapters.nexus.nexus_agent import NexusAgent
-
-    return NexusAgent(**factory_kwargs)
-
-
-def _claude_code_factory(**factory_kwargs):
-    plugin_paths.activate_pyenv()
-    from .adapters.claude.sdk import ClaudeAgentSDK
-
-    return ClaudeAgentSDK(**factory_kwargs)
-
-
-def _codex_cli_factory(**factory_kwargs):
-    plugin_paths.activate_pyenv()
-    from .adapters.codex.official_sdk import CodexSDKv2
-
-    return CodexSDKv2(**factory_kwargs)
-
-
-# The three builtin frameworks as plugin contributions (plugin platform, batch
-# 0). Registered here at import for today's call sites, and named by the
-# builtin manifests in narranexus.kernel.plugins.builtins so the loader
-# registers the very same objects (an idempotent no-op on the registry).
-# Version pins for the on-demand SDKs. The npm CLI pin is the same constant the
-# agent loop uses to pick which binary to launch; the two pip pins are EXACT
-# because the installer must request one concrete version while pyproject
-# declares ranges — tests/backend/integrations/plugins/test_registry.py keeps
-# them in step with uv.lock.
-_CLAUDE_CODE_INSTALL = FrameworkInstall(
-    components=(
-        InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43"),
-        InstallComponent(kind="npm", requirement=f"@anthropic-ai/claude-code@{PINNED_CLI_VERSION}"),
-    ),
-    probe_package="claude_agent_sdk",
-    user_version_source="npm_cli",
-    size_hint="~190 MB",
-)
-_CODEX_CLI_INSTALL = FrameworkInstall(
-    components=(InstallComponent(kind="pip", requirement="openai-codex==0.1.0b3"),),
-    probe_package="openai_codex",
-    user_version_source="pip_pkg",
-    size_hint="~60 MB",
-)
-
-NEXUS_POWER = Contribution(
-    "nexus_power",
-    lambda: _nexus_power_factory,
-    meta={"framework": FrameworkMeta("nexus_power", "NexusPower")},
-)
-CLAUDE_CODE = Contribution(
-    "claude_code",
-    lambda: _claude_code_factory,
-    meta={"framework": FrameworkMeta("claude_code", "Claude Code", install=_CLAUDE_CODE_INSTALL)},
-)
-CODEX_CLI = Contribution(
-    "codex_cli",
-    lambda: _codex_cli_factory,
-    meta={"framework": FrameworkMeta("codex_cli", "Codex CLI", install=_CODEX_CLI_INSTALL)},
-)
-
-for _contribution, _owner in (
-    (NEXUS_POWER, "builtin.frameworks.nexus_power"),
-    (CLAUDE_CODE, "builtin.frameworks.claude_code"),
-    (CODEX_CLI, "builtin.frameworks.codex_cli"),
-):
-    FRAMEWORK_REGISTRY.register_contribution(_contribution, owner=_owner)
-
-# Cover plugins already installed at process START: append the pyenv subdirs
-# once so the lazy imports resolve without any per-call activation. Idempotent;
-# a no-op when nothing is installed. Install-DURING-runtime (no restart) is
-# handled per import site instead: the three driver factories above,
-# sdk._ensure_sdk_imported, and the helper-LLM / OAuth paths
-# (llm/cli_helper.py, providers/driver/drivers/claude_oauth.py) each call
-# activate_pyenv() right before their `import claude_agent_sdk`.
+# The three builtin frameworks are plugins under plugins/ (batch 6b):
+# builtin.frameworks.{nexus_power,claude_code,codex_cli}. Their contributions
+# (driver factory + install spec) live in each package's ``contribution.py``;
+# ``loop.driver`` registers them through the kernel on first lookup. The
+# plugin pyenv is put on sys.path here so an already-installed SDK resolves.
 plugin_paths.activate_pyenv()
 
-
-# --- Lazy public class names (PEP 562) -------------------------------------
-# Kept importable (`from ...agent_framework import ClaudeAgentSDK`) without
-# forcing the SDK at package import. Only materializes on actual attribute
-# access.
-
-def __getattr__(name: str):
-    if name == "ClaudeAgentSDK":
-        plugin_paths.activate_pyenv()
-        from .adapters.claude.sdk import ClaudeAgentSDK
-
-        return ClaudeAgentSDK
-    if name == "CodexSDK":
-        plugin_paths.activate_pyenv()
-        from .adapters.codex.cli_sdk import CodexSDK
-
-        return CodexSDK
-    if name == "CodexSDKv2":
-        plugin_paths.activate_pyenv()
-        from .adapters.codex.official_sdk import CodexSDKv2
-
-        return CodexSDKv2
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
-    "ClaudeAgentSDK",
-    "CodexSDK",
-    "CodexSDKv2",
     "CodexConfig",
     "codex_config",
     "AgentLoopDriver",

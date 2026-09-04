@@ -30,26 +30,7 @@ from typing import Any
 
 from narranexus.contracts import UnknownEntry
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-from narranexus.kernel.plugins.registry import Contribution, Registry
-
-
-def _load_anthropic_helper() -> Any:
-    # Lazy: both SDK modules import api_config, so importing at module load
-    # would create a circular import.
-    from narranexus.platform.agent_framework.llm.anthropic_helper import (
-        AnthropicHelperSDK,
-    )
-    return AnthropicHelperSDK()
-
-
-def _load_openai_helper() -> Any:
-    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
-    return OpenAIAgentsSDK()
-
-
-def _load_cli_helper() -> Any:
-    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
-    return CliHelperSDK()
+from narranexus.kernel.plugins.registry import Registry
 
 
 # The kernel registry for slot ``model.clients`` (plugin platform, batch 1):
@@ -60,13 +41,18 @@ def _load_cli_helper() -> Any:
 # registration register the same objects.
 LLM_CLIENT_REGISTRY: Registry[Any] = KERNEL_REGISTRIES.registry_for("model.clients")
 
-ANTHROPIC = Contribution("anthropic", _load_anthropic_helper, meta={"display_name": "Anthropic Messages"})
-OPENAI = Contribution("openai", _load_openai_helper, meta={"display_name": "OpenAI protocol"})
-CLI = Contribution("cli", _load_cli_helper, meta={"display_name": "Subscription CLI"})
-CONTRIBUTIONS = (ANTHROPIC, OPENAI, CLI)
 
-for _contribution in CONTRIBUTIONS:
-    LLM_CLIENT_REGISTRY.register_contribution(_contribution, owner="builtin.llm_clients")
+
+def ensure_builtin_clients() -> None:
+    """Register the helper clients the builtin manifests name, once, on first
+    lookup. They are the ``builtin.llm_clients`` plugin under plugins/ (batch
+    6b); the kernel resolves the manifest's contributions — this module never
+    imports a client implementation."""
+    if LLM_CLIENT_REGISTRY.names():
+        return
+    from narranexus.kernel.plugins.builtins import register_builtin_provides
+
+    register_builtin_provides("model.clients")
 
 _DEFAULT_HELPER_PROTOCOL = "openai"
 
@@ -95,6 +81,7 @@ def _resolved_helper_protocol() -> str:
 def get_helper_sdk():
     """Return the helper-LLM SDK instance for the current asyncio task."""
     protocol = _resolved_helper_protocol()
+    ensure_builtin_clients()
     try:
         return LLM_CLIENT_REGISTRY.get(protocol)
     except UnknownEntry:  # defensive: an unregistered protocol is a wiring bug
@@ -104,4 +91,4 @@ def get_helper_sdk():
         ) from None
 
 
-__all__ = ["ANTHROPIC", "CLI", "CONTRIBUTIONS", "LLM_CLIENT_REGISTRY", "OPENAI", "get_helper_sdk"]
+__all__ = ["LLM_CLIENT_REGISTRY", "ensure_builtin_clients", "get_helper_sdk"]

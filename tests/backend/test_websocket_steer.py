@@ -20,7 +20,7 @@ from starlette.websockets import WebSocketDisconnect
 import backend.routes.websocket as ws_mod
 from narranexus.platform.agent_runtime.cancellation import CancellationToken
 from narranexus.platform.agent_runtime.steer_channel import SteerChannel
-from narranexus.platform.agent_framework.nexus_power.contracts.model import STEER_ID_KEY
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import STEER_ID_KEY
 
 
 class _FakeWS:

@@ -1,7 +1,7 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/codex_oauth.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
 
 ## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）

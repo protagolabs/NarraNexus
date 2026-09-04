@@ -34,3 +34,5 @@ Prompt strings are spread across multiple `prompts.py` files in different submod
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 The five builtin-module prompt blocks (job / chat / awareness / basic_info / social_network) are gone: each builtin owns its `<module>/prompts.py` and the platform index imports no builtin. Platform prompts (context runtime, narrative, event, module-impl instance decision, agent framework) remain.
+
+Batch 6b.2b: the Claude framework prompt block is no longer indexed here; it lives in the plugin package.

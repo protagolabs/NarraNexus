@@ -32,8 +32,8 @@ import time
 
 import pytest
 
-import narranexus.platform.agent_framework.adapters.claude.sdk as sdk_mod
-from narranexus.platform.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
+import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
 from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,

@@ -273,7 +273,7 @@ def test_nexus_power_prices_through_this_module(fake_table):
     Asserted behaviourally rather than by inspecting imports: the two used to
     disagree on ids, and agreeing on THIS id is what the merge bought.
     """
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (  # noqa: E501
         Usage,
         price_usage,
     )
@@ -286,7 +286,7 @@ def test_nexus_power_prices_through_this_module(fake_table):
 
 def test_an_unknown_model_is_unknown_on_both_ledgers(fake_table):
     """The other direction of the same agreement."""
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (  # noqa: E501
         Usage,
         price_usage,
     )

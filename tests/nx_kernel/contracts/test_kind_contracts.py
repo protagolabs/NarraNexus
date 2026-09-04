@@ -49,8 +49,8 @@ def test_framework_meta_is_frozen():
 
 
 def _helper_sdk_classes() -> list[type]:
-    from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
+    from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+    from narranexus_plugins.llm_clients.cli_helper import CliHelperSDK
     from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
     return [AnthropicHelperSDK, CliHelperSDK, OpenAIAgentsSDK]
@@ -77,7 +77,7 @@ def test_host_event_names_follow_on_did_or_on_will_verb_subject():
 class TestNexusPowerDriverContract(FrameworkDriverContractTests):
     @staticmethod
     def driver_factory():
-        from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import NexusAgent
+        from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import NexusAgent
 
         return NexusAgent()
 

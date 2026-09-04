@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import inspect
 
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     ClaudeAgentSDK,
 )
 

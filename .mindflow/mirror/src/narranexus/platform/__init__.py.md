@@ -57,3 +57,5 @@ stamps into every export manifest (`_current_app_version`).
 **Importing this module loads the entire package.** Every `from .xxx import ...` line executes the target module, which may trigger database schema checks, settings loading, or other side effects. Tests that only need a specific submodule (e.g., `schema/`) should import from that submodule directly to avoid the startup overhead.
 
 **New-contributor trap.** Adding a new top-level module to the package without adding it to `__init__.py` means it is not discoverable via `from xyz_agent_context import NewModule`. It can still be imported from its own path, but it will not appear in the package's public surface.
+
+Batch 6b.2b: the lazy `ClaudeAgentSDK` passthrough is gone; the SDK is `narranexus_plugins.frameworks_claude_code.sdk`.

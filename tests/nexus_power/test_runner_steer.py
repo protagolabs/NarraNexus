@@ -7,7 +7,7 @@ live-steering injections as {"steer": {provider msg}}; a malformed or
 non-steer line must be ignored (never take the turn down).
 """
 
-from narranexus.platform.agent_framework.nexus_power.runner import (
+from narranexus_plugins.frameworks_nexus_power.core.runner import (
     forward_steer_lines,
     parse_steer_line,
 )

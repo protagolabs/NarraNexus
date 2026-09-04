@@ -19,7 +19,7 @@ from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn import TurnPipeline, resolve_profile
 from narranexus.platform.turn.inputs import TurnServices
-from narranexus.platform.turn.profiles import BUILTIN_PROFILES
+from narranexus_plugins.turn.profiles import BUILTIN_PROFILES
 from narranexus.platform.turn.stages import slot_path
 
 

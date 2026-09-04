@@ -28,7 +28,6 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn import observe
 from narranexus.platform.turn.inputs import StageInputs, TurnServices
-from narranexus.platform.turn.profiles import BUILTIN_PROFILES
 
 PROFILES_SLOT = "turn.profiles"
 
@@ -80,10 +79,16 @@ def resolve_profile(
 def _profile(profile_id: str, regs: Registries) -> PipelineProfile:
     if PROFILES_SLOT in regs.slots:
         registry = regs.registry_for(PROFILES_SLOT)
+        if not registry.names():
+            # The builtin profiles are the builtin.turn plugin (plugins/, batch 6b);
+            # the kernel registers the manifest's contributions on first use.
+            from narranexus.kernel.plugins.builtins import register_builtin_provides
+
+            register_builtin_provides(PROFILES_SLOT, regs)
         if profile_id in registry:
             return registry.get(profile_id)
     try:
-        return BUILTIN_PROFILES[profile_id]
+        raise UnknownEntry(f"turn profile {profile_id!r} is not registered (turn.profiles)")
     except KeyError:
         raise UnknownEntry(f"pipeline profile {profile_id!r} is not registered") from None
 

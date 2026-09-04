@@ -6,8 +6,8 @@
 """
 from __future__ import annotations
 
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.dispatcher import ToolDispatcher
-from narranexus.platform.agent_framework.nexus_power.contracts.tooling import ToolSpec
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.dispatcher import ToolDispatcher
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolSpec
 
 
 class _Channel:

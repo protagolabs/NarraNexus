@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import (
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import (
     NexusAgent,
     claude_config,
 )

@@ -11,7 +11,7 @@ probe must classify reachability for the stall diagnostic.
 import pytest
 
 from narranexus.platform.agent_framework.api_config import ClaudeConfig
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _probe_provider_reachable,
 )
 from narranexus.platform.settings import settings

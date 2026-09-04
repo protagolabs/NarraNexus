@@ -8,27 +8,27 @@ assembly (byte stability, mode faces, section presence).
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power.contracts.events import LoopEvent
-from narranexus.platform.agent_framework.nexus_power.contracts.tooling import ToolCall
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import LoopEvent
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolCall
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.expression import (
     ExpressionContract,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.hooks import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.hooks import (
     HookEvent,
     HookRegistry,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
     NullSteeringInlet,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.stop import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.stop import (
     NoMoreActionsStop,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.prompts.assembler import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.prompts.assembler import (
     PromptAssembler,
     PromptInputs,
     PromptMode,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.prompts.library import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.prompts.library import (
     NexusPowerPrompts,
 )
 

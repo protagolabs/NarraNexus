@@ -78,18 +78,7 @@ __all__ = [
     "XYZBaseModule",
     "ModuleService",
     "HookManager",
-    "ClaudeAgentSDK",
     "ContextRuntime",
     "AgentRuntime",
 ]
 
-
-def __getattr__(name: str):
-    # PEP 562 lazy passthrough: keep ``narranexus.platform.ClaudeAgentSDK``
-    # importable without forcing the optional ``claude-agent-sdk`` plugin at
-    # package import. Delegates to agent_framework's own lazy resolver.
-    if name == "ClaudeAgentSDK":
-        from .agent_framework import ClaudeAgentSDK
-
-        return ClaudeAgentSDK
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

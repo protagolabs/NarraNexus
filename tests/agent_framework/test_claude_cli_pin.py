@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.claude import cli_binary
-from narranexus.platform.agent_framework.adapters.claude.cli_binary import (
+from narranexus_plugins.frameworks_claude_code import cli_binary
+from narranexus_plugins.frameworks_claude_code.cli_binary import (
     PINNED_CLI_VERSION,
     resolve_cli_path,
 )

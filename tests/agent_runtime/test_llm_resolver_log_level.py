@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import inspect
 
-from narranexus.platform.turn.stages.ingress import DefaultIngress
+from narranexus_plugins.turn.ingress import DefaultIngress
 
 
 def test_llm_resolver_error_handler_does_not_use_logger_exception():

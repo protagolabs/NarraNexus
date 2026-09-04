@@ -20,11 +20,12 @@ from tests.snapshots._subprocess import run_probe
 _PROBE = """
 import json
 from narranexus.platform.agent_framework import available_agent_loop_frameworks
-import narranexus_plugins.providers  # noqa: F401 registers drivers
-from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY
-import narranexus_plugins.memory_kinds.specs  # noqa: F401 registers kinds
+from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY, ensure_builtin_drivers
 from narranexus.platform.memory.spec import all_kinds, passive_kinds
-from narranexus.platform.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY
+from narranexus.platform.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY, ensure_builtin_clients
+# The builtin plugins register lazily on first lookup; the snapshot asks for them the same way the runtime does.
+ensure_builtin_drivers()
+ensure_builtin_clients()
 print(json.dumps({
     "agent_loop_frameworks": available_agent_loop_frameworks(),
     "llm_clients": list(LLM_CLIENT_REGISTRY.names()),

@@ -42,7 +42,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
-from narranexus.platform.agent_framework.adapters.claude.prompts import (
+from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
 )
 from narranexus.platform.channel.message_source_handler import (

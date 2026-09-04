@@ -12,10 +12,10 @@ inlet over the channel's queue.
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import NexusAgent
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import NexusAgent
 from narranexus.platform.agent_framework.api_config import claude_config
-from narranexus.platform.agent_framework.nexus_power.contracts.events import Usage
-from narranexus.platform.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
     ProviderProfile,
 )
@@ -61,7 +61,7 @@ async def test_pushed_injection_reaches_the_next_model_request_in_process(monkey
     monkeypatch.setattr(claude_config, "thinking", "")
 
     fake = _FakeModel()
-    import narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
+    import narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client as mc_mod
     import narranexus.platform.agent_framework.llm.litellm_client as lc_mod
     monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: fake)
     monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())
@@ -115,7 +115,7 @@ async def test_consumed_signal_flows_back_to_on_consumed_in_process(monkeypatch)
     monkeypatch.setattr(claude_config, "thinking", "")
 
     fake = _FakeModel()
-    import narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
+    import narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client as mc_mod
     import narranexus.platform.agent_framework.llm.litellm_client as lc_mod
     monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: fake)
     monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())

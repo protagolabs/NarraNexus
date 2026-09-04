@@ -14,7 +14,7 @@ import pytest
 from narranexus.contracts._base import UnknownEntry
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.agent_framework.nexus_power import extension_points as ep
+from narranexus_plugins.frameworks_nexus_power.core import extension_points as ep
 
 ALL = (ep.STOP, ep.COMPACTION, ep.PROJECTOR, ep.EXPRESSION, ep.POLICY)
 
@@ -34,11 +34,11 @@ def test_ensure_registered_declares_the_five_seats_with_defaults():
 
 
 def test_defaults_build_the_loops_own_classes():
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.expression import ExpressionContract
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.stop import NoMoreActionsStop
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import ToolResultPruner
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.projector import PassthroughProjector
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.expression import ExpressionContract
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.stop import NoMoreActionsStop
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import ToolResultPruner
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import PassthroughProjector
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.policy import (
         DisallowedToolsLayer,
         ShellConfinementLayer,
         WorkspaceConfinementLayer,
@@ -55,7 +55,7 @@ def test_defaults_build_the_loops_own_classes():
 
 
 def test_a_plugin_provider_plus_binding_replaces_a_seat(monkeypatch):
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.harness.stop import NoMoreActionsStop
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.stop import NoMoreActionsStop
 
     class AlwaysStop:
         async def should_stop(self, step_calls, ledger):
@@ -112,7 +112,7 @@ def test_booting_the_backend_role_loads_the_seat_providers(tmp_path, monkeypatch
 
 
 def test_assembly_resolves_every_seat_through_the_extension_points():
-    from narranexus.platform.agent_framework.nexus_power import assembly
+    from narranexus_plugins.frameworks_nexus_power.core import assembly
 
     src = inspect.getsource(assembly)
     for seat in ("ep.EXPRESSION", "ep.POLICY", "ep.PROJECTOR", "ep.COMPACTION", "ep.STOP"):

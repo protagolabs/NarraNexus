@@ -10,22 +10,22 @@ import json
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power.contracts.events import Usage
-from narranexus.platform.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     CachePlan,
     ModelParams,
     ModelRequest,
 )
-from narranexus.platform.agent_framework.nexus_power.contracts.tooling import ToolResult
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolResult
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
     estimate_message_tokens,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (
     LiteLLMModelClient,
     _extract_usage,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     output_budget,
     resolve_profile,
 )
@@ -35,13 +35,13 @@ from narranexus.platform.agent_framework.providers.model_catalog import (
     get_max_output_tokens,
     get_model_meta,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
-from narranexus.platform.agent_framework.nexus_power.contracts.model import ModelEvent
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
 
 
 def test_profile_resolution():

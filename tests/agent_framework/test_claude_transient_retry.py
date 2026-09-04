@@ -23,9 +23,9 @@ import asyncio
 
 import pytest
 
-import narranexus.platform.agent_framework.adapters.claude.sdk as sdk_mod
-import narranexus.platform.agent_framework.adapters.claude.transcript as transcript_mod
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
+import narranexus_plugins.frameworks_claude_code.transcript as transcript_mod
+from narranexus_plugins.frameworks_claude_code.sdk import (
     ClaudeAgentSDK,
     _inline_assistant_error_event,
 )
@@ -343,7 +343,7 @@ async def test_retry_nudge_carries_the_reply_reminder():
 
 @pytest.mark.asyncio
 async def test_wait_before_retry_checks_cancellation_up_front():
-    from narranexus.platform.agent_framework.adapters.claude.sdk import _wait_before_retry
+    from narranexus_plugins.frameworks_claude_code.sdk import _wait_before_retry
 
     class _Flag:
         is_cancelled = True
@@ -464,7 +464,7 @@ async def test_cancellation_during_backoff_surfaces_the_error_without_a_retry(mo
 
 
 def test_backoff_schedule_pads_with_its_last_value():
-    from narranexus.platform.agent_framework.adapters.claude.sdk import _retry_delay_seconds
+    from narranexus_plugins.frameworks_claude_code.sdk import _retry_delay_seconds
 
     assert _retry_delay_seconds("15,30,60", 1) == 15
     assert _retry_delay_seconds("15,30,60", 3) == 60

@@ -15,3 +15,5 @@ stub: false
 阶段消息原样流给调用方；钩子受 profile 同步预算限制且永不让回合失败；Ingress 置 `aborted` 则停。
 `resolve_profile` 把遗留旗标映射到内置 profile：silent > 显式 TurnProfile 名（含 voice→voice，bm25→fast）> fast_mode
 > 来源 job > default，先查 `turn.profiles` 注册表再回落内置表。`PIPELINE_CONTRIBUTION` 填 `turn.pipeline` 位。
+
+Batch 6b.2b: profiles are registered lazily from the `builtin.turn` manifest when the registry is empty; an unknown profile raises `UnknownEntry`.

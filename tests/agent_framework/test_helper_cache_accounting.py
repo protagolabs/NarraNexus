@@ -16,7 +16,7 @@ tests hold the helper paths to the same shape.
 
 import pytest
 
-from narranexus.platform.agent_framework.llm.cli_helper import HelperUsage
+from narranexus_plugins.llm_clients.cli_helper import HelperUsage
 
 
 # =========================================================================
@@ -53,8 +53,8 @@ async def test_cli_helper_forwards_every_bucket_to_the_ledger(monkeypatch):
     from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig, CliHelperConfig, OpenAIConfig, set_user_config,
     )
-    from narranexus.platform.agent_framework.llm import cli_helper as cli_mod
-    from narranexus.platform.agent_framework.llm.cli_helper import CliHelperSDK
+    from narranexus_plugins.llm_clients import cli_helper as cli_mod
+    from narranexus_plugins.llm_clients.cli_helper import CliHelperSDK
 
     recorded: list[dict] = []
 
@@ -111,8 +111,8 @@ async def test_anthropic_helper_records_uncached_input_not_the_total(monkeypatch
     from narranexus.platform.agent_framework.api_config import (
         AnthropicHelperConfig, ClaudeConfig, OpenAIConfig, set_user_config,
     )
-    from narranexus.platform.agent_framework.llm import anthropic_helper as ah_mod
-    from narranexus.platform.agent_framework.llm.anthropic_helper import (
+    from narranexus_plugins.llm_clients import anthropic_helper as ah_mod
+    from narranexus_plugins.llm_clients.anthropic_helper import (
         AnthropicHelperSDK,
     )
 

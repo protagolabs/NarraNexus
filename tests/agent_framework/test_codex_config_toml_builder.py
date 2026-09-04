@@ -12,10 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from narranexus.platform.agent_framework.api_config import CodexConfig
-from narranexus.platform.agent_framework.adapters.codex._config_toml_builder import (
+from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
     build_codex_config_toml,
 )
-from narranexus.platform.agent_framework.adapters.codex._permission_translator import (
+from narranexus_plugins.frameworks_codex_cli._permission_translator import (
     translate_tool_policy_to_codex_permissions,
 )
 

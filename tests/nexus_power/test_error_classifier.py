@@ -8,8 +8,8 @@ names beat messages, unknown is conservative, chains are traversed.
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power.contracts.errors import ErrorType
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import ErrorType
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
     NoRetry,
     StepRetry,
@@ -121,7 +121,7 @@ def test_step_retry_backs_off_between_attempts():
     schedule is exponential and capped so a long turn riding out a
     provider hiccup never stalls for minutes.
     """
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
         StepRetry,
     )
 
@@ -132,10 +132,10 @@ def test_step_retry_backs_off_between_attempts():
 
 @pytest.mark.asyncio
 async def test_step_retry_stops_at_the_attempt_bound_without_sleeping():
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
         StepRetry,
     )
-    from narranexus.platform.agent_framework.nexus_power.contracts.errors import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import (
         ErrorType,
         LoopError,
     )

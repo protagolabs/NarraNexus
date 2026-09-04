@@ -26,7 +26,7 @@ from narranexus.platform.agent_framework.api_config import (
     set_user_config,
 )
 from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
-from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
 from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 from narranexus.platform.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
@@ -641,7 +641,7 @@ async def test_resolver_threads_reasoning_params_into_claude():
 def test_codex_toml_maps_reasoning_effort():
     from pathlib import Path
     from narranexus.platform.agent_framework.api_config import CodexConfig
-    from narranexus.platform.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -657,7 +657,7 @@ def test_codex_toml_maps_reasoning_effort():
 def test_codex_toml_clamps_max_to_high():
     from pathlib import Path
     from narranexus.platform.agent_framework.api_config import CodexConfig
-    from narranexus.platform.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -673,7 +673,7 @@ def test_codex_toml_clamps_max_to_high():
 def test_codex_toml_auto_emits_no_effort_key():
     from pathlib import Path
     from narranexus.platform.agent_framework.api_config import CodexConfig
-    from narranexus.platform.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 

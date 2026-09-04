@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _build_claude_mcp_config,
 )
-from narranexus.platform.agent_framework.adapters.codex.official_sdk import (
+from narranexus_plugins.frameworks_codex_cli.official_sdk import (
     _build_codex_config_overrides,
     codex_mcp_bearer_env,
 )
@@ -292,7 +292,7 @@ def test_nexus_power_spec_preserves_the_identity_headers():
     CLIs — exactly the "one framework away from breaking" shape iron rule #9
     warns about. Verified live 2026-08-03 against the running module server.
     """
-    from narranexus.platform.agent_framework.nexus_power.contracts.model import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
         McpServerSpec,
     )
     from narranexus.platform.module_system._mcp_identity import (

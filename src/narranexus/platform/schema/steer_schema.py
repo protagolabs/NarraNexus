@@ -51,6 +51,13 @@ row's content.
 from datetime import datetime
 from typing import Literal, Optional
 
+#: Key under which a steering injection carries its id inside a provider
+#: message until consumed (the inlet strips it on drain — the model never
+#: sees it). Shared by the producer (SteerChannel) and the consumer (the
+#: framework's inlet / subprocess transport) — declared on the platform schema
+#: so neither side reaches into the other's package for it.
+STEER_ID_KEY = "_steer_id"
+
 from pydantic import BaseModel
 
 #: Which producer wrote an injection. A closed set, not a free string: the

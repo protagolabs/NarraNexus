@@ -170,7 +170,7 @@ def test_scenario_2_context_providers_are_selected_by_the_profile_filter():
     """§7.8-2: a contextProviders capability is picked up by Assemble; the profile's capability filter can exclude it."""
     from narranexus.contracts.agent.pipeline import CapabilityFilter
     from narranexus.kernel.plugins.registries import Registries
-    from narranexus.platform.turn.stages.assemble import PROVIDERS_SLOT, context_providers
+    from narranexus_plugins.turn.assemble import PROVIDERS_SLOT, context_providers
 
     class Calendar:
         name = "calendar"

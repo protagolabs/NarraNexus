@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/helper_sdk.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -59,3 +59,5 @@ module load (both SDK modules import api_config).
 ## 2026-07-07 — 新增 cli helper 协议（订阅覆盖 Helper）
 
 `_HELPER_SDK_BY_PROTOCOL` 加 `"cli" -> CliHelperSDK`；`_resolved_helper_protocol` 优先级改为 cli > anthropic > openai（读 `_cli_helper_ctx`）。订阅（OAuth）helper 走 CLI 一次性，而非直连 API。
+
+Batch 6b.2b: the client contributions moved to `narranexus_plugins.llm_clients.contributions`; `ensure_builtin_clients()` registers them through the kernel manifest on first lookup (the module never imports a client).

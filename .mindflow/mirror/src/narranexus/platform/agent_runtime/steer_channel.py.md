@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/steer_channel.py
-last_verified: 2026-08-24
+last_verified: 2026-09-04
 stub: false
 ---
 

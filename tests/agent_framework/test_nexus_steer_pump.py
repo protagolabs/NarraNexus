@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import NexusAgent
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import NexusAgent
 from narranexus.platform.agent_runtime.steer_channel import (
     SteerChannel,
     rendered_injection_payload,
@@ -94,7 +94,7 @@ class _FakePool:
 async def test_run_subprocess_intercepts_steer_consumed_and_does_not_yield_it(monkeypatch):
     # Production team turns run in a SUBPROCESS. The consumption interception on
     # THIS path must call deliver_consumed and NOT surface the line as an event.
-    import narranexus.platform.agent_framework.adapters.nexus.nexus_agent as na
+    import narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent as na
     import json as _json
 
     proc = _FullFakeProcess([

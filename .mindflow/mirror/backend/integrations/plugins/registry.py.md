@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/plugins/registry.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -26,7 +26,7 @@ stub: false
 - **被谁用**：`service.PluginService.__init__` 默认调用它初始化
   `self._specs`;Phase 3 路由（未实现）会直接 import `PLUGIN_SPECS` 渲染
   插件列表页。
-- **依赖谁**：`narranexus.platform.agent_framework.adapters.claude.
+- **依赖谁**：`narranexus_plugins.frameworks_claude_code.
   cli_binary.PINNED_CLI_VERSION`——Claude 的 npm 版本号从这里拼,不是字面
   量。`spec.py` 提供 dataclass 形状。
 
@@ -57,3 +57,5 @@ stub: false
 
 - `cli_binary.py` 的 `PINNED_CLI_VERSION` docstring —— 版本单一真值的完整
   上下文
+
+Batch 6b.2b: `build_plugin_specs()` calls `ensure_builtin_frameworks()` (lazy manifest registration) instead of importing the platform package; the install pins live in each `narranexus_plugins.frameworks_*` package.

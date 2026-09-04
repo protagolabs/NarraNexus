@@ -63,15 +63,11 @@ from narranexus.platform.module_system._module_impl.prompts import (
 # module package directly.
 # =============================================================================
 # =============================================================================
-# 10. Agent Framework (Claude Agent SDK) — Agent Framework Prompt
-# File: agent_framework/adapters/claude/prompts.py
+# 10. Agent Framework prompts (Claude Agent SDK) — NOT indexed here since
+# batch 6b: builtin.frameworks.claude_code owns
+# ``narranexus_plugins/frameworks_claude_code/prompts.py`` and the platform
+# imports no plugin. Navigate to the plugin package directly.
 # =============================================================================
-from narranexus.platform.agent_framework.adapters.claude.prompts import (
-    CHAT_HISTORY_HEADER,               # Chat history section header
-    CHAT_HISTORY_TRUNCATED_HEADER,     # Truncated chat history section header
-    CHAT_HISTORY_END_INSTRUCTION,      # Chat history section footer instruction
-    SYSTEM_PROMPT_TRUNCATION_WARNING,  # System prompt truncation warning
-)
 
 # =============================================================================
 # 11. Bootstrap — First-Run Setup Template

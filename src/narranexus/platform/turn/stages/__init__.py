@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from narranexus.contracts.agent.stages import Stage
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
-from narranexus.kernel.plugins.registry import Contribution
 from narranexus.kernel.plugins.slots import Slot
-from narranexus.platform.turn.stages import act, assemble, commit, compose, ingress, recall, reflect
+
 
 OWNER = "builtin.turn"
 STAGE_CONTRACT = "narranexus.contracts.agent.pipeline:StageStrategy"
@@ -26,47 +25,30 @@ def slot_path(stage: Stage) -> str:
     return f"turn.pipeline.{stage.value}"
 
 
-INGRESS = (Contribution("default", lambda: ingress.DefaultIngress()),)
-RECALL = (
-    Contribution("default", lambda: recall.NarrativeLlmRecall()),
-    Contribution("narrative_fast", lambda: recall.NarrativeFastRecall()),
-    Contribution("ephemeral", lambda: recall.EphemeralRecall()),
-)
-COMPOSE = (Contribution("default", lambda: compose.DefaultCompose()),)
-ASSEMBLE = (Contribution("default", lambda: assemble.LayeredPromptAssemble()),)
-ACT = (
-    Contribution("default", lambda: act.AgentLoopAct()),
-    Contribution("silent", lambda: act.SilentAct()),
-)
-COMMIT = (Contribution("default", lambda: commit.DefaultCommit()),)
-REFLECT = (Contribution("default", lambda: reflect.BackgroundReflect()),)
 
-STRATEGIES: dict[Stage, tuple[Contribution, ...]] = {
-    Stage.INGRESS: INGRESS,
-    Stage.RECALL: RECALL,
-    Stage.COMPOSE: COMPOSE,
-    Stage.ASSEMBLE: ASSEMBLE,
-    Stage.ACT: ACT,
-    Stage.COMMIT: COMMIT,
-    Stage.REFLECT: REFLECT,
-}
-
-
-def ensure_registered(registries: Registries = KERNEL_REGISTRIES) -> None:
-    """Declare the stage slots (if the tree lacks them) and register the default strategies (idempotent)."""
-    for stage, contributions in STRATEGIES.items():
+def declare_stage_slots(registries: Registries = KERNEL_REGISTRIES) -> None:
+    """Declare the seven stage slots (idempotent) — the platform owns the slots, plugins fill them."""
+    for stage in Stage:
         path = slot_path(stage)
         if path not in registries.slots:
             registries.slots.declare(
                 Slot(path, "many", STAGE_CONTRACT, OWNER, doc=f"{stage.value.title()} stage strategies; a profile names one."),
                 create_namespaces=True,
             )
-        registry = registries.registry_for(path)
-        for contribution in contributions:
-            if contribution.name not in registry:
-                registry.register_contribution(contribution, owner=OWNER)
 
 
-ensure_registered()
+def ensure_registered(registries: Registries = KERNEL_REGISTRIES) -> None:
+    """Declare the stage slots and make sure the builtin default strategies are
+    registered (idempotent). The defaults are the ``builtin.turn`` plugin under
+    plugins/ (batch 6b): the kernel resolves the manifest's contributions for
+    every stage slot that is still empty — the platform never imports the plugin."""
+    from narranexus.kernel.plugins.builtins import register_builtin_provides
 
-__all__ = ["ACT", "ASSEMBLE", "COMMIT", "COMPOSE", "INGRESS", "OWNER", "RECALL", "REFLECT", "STAGE_CONTRACT", "STRATEGIES", "ensure_registered", "slot_path"]
+    declare_stage_slots(registries)
+    for stage in Stage:
+        path = slot_path(stage)
+        if not registries.registry_for(path).names():
+            register_builtin_provides(path, registries)
+
+
+__all__ = ["OWNER", "STAGE_CONTRACT", "declare_stage_slots", "ensure_registered", "slot_path"]

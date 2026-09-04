@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-from narranexus.platform.agent_framework.adapters.nexus import nexus_agent as na
+from narranexus_plugins.frameworks_nexus_power.adapter import nexus_agent as na
 
 
 def _fake_pool(enabled, calls):

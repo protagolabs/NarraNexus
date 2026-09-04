@@ -344,7 +344,7 @@ async def test_claude_host_oauth_verify_live_stages_then_succeeds(
     from narranexus_plugins.providers import (
         claude_oauth as mod,
     )
-    from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk
+    from narranexus_plugins.frameworks_claude_code import sdk as claude_sdk
 
     creds = tmp_path / ".credentials.json"
     creds.write_text("{}")
@@ -445,7 +445,7 @@ async def test_claude_cli_not_found_is_unknown(monkeypatch, tmp_path):
     from narranexus_plugins.providers import (
         claude_oauth as mod,
     )
-    from narranexus.platform.agent_framework.adapters.claude import sdk as claude_sdk
+    from narranexus_plugins.frameworks_claude_code import sdk as claude_sdk
 
     creds = tmp_path / ".credentials.json"
     creds.write_text("{}")

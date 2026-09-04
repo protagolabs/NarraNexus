@@ -22,8 +22,8 @@ from narranexus.platform.agent_framework.api_config import (
     OpenAIConfig,
     set_user_config,
 )
-from narranexus.platform.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from narranexus.platform.agent_framework.llm.cli_helper import HelperUsage, CliHelperSDK
+from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+from narranexus_plugins.llm_clients.cli_helper import HelperUsage, CliHelperSDK
 from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
 from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 

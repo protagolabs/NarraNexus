@@ -169,10 +169,7 @@ class CodexOAuthDriver(_DriverBase):
             )
 
         from narranexus.platform.agent_framework.api_config import _codex_ctx
-        from narranexus.platform.agent_framework.llm.cli_oneshot import (
-            oneshot_cwd,
-            run_codex_cli_oneshot,
-        )
+        from narranexus_plugins.llm_clients.api import oneshot_cwd, run_codex_cli_oneshot
         from narranexus.platform.agent_framework.providers.model_catalog import (
             get_default_models,
         )

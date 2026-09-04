@@ -31,9 +31,9 @@ import asyncio
 
 import pytest
 
-import narranexus.platform.agent_framework.adapters.claude.sdk as sdk_mod
-import narranexus.platform.agent_framework.adapters.claude.transcript as transcript_mod
-from narranexus.platform.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
+import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
+import narranexus_plugins.frameworks_claude_code.transcript as transcript_mod
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
 from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,

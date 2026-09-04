@@ -85,7 +85,7 @@ def test_codex_config_proxy_reads_ctxvar_override():
 
 
 def test_stage_codex_oauth_credentials_copies_auth_json(tmp_path, monkeypatch):
-    from narranexus.platform.agent_framework.adapters.codex.cli_sdk import (
+    from narranexus_plugins.frameworks_codex_cli.cli_sdk import (
         _stage_codex_oauth_credentials,
     )
 

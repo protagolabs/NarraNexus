@@ -19,15 +19,20 @@ members = [
     "narranexus-plugin-channels-wechat",
     "narranexus-plugin-chat",
     "narranexus-plugin-common-tools",
+    "narranexus-plugin-frameworks-claude-code",
+    "narranexus-plugin-frameworks-codex-cli",
+    "narranexus-plugin-frameworks-nexus-power",
     "narranexus-plugin-general-memory",
     "narranexus-plugin-home-assistant",
     "narranexus-plugin-job",
+    "narranexus-plugin-llm-clients",
     "narranexus-plugin-memory-kinds",
     "narranexus-plugin-message-bus",
     "narranexus-plugin-nexus-plugins-module",
     "narranexus-plugin-providers",
     "narranexus-plugin-skills",
     "narranexus-plugin-social-network",
+    "narranexus-plugin-turn",
     "xyz-agent-context",
 ]
 
@@ -1847,6 +1852,30 @@ source = { editable = "plugins/builtin.common_tools" }
 provides-extras = ["full"]
 
 [[package]]
+name = "narranexus-plugin-frameworks-claude-code"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.claude_code" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-frameworks-codex-cli"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.codex_cli" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-frameworks-nexus-power"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.nexus_power" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
 name = "narranexus-plugin-general-memory"
 version = "1.0.0"
 source = { editable = "plugins/builtin.general_memory" }
@@ -1866,6 +1895,14 @@ provides-extras = ["full"]
 name = "narranexus-plugin-job"
 version = "1.0.0"
 source = { editable = "plugins/builtin.job" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-llm-clients"
+version = "1.0.0"
+source = { editable = "plugins/builtin.llm_clients" }
 
 [package.metadata]
 provides-extras = ["full"]
@@ -1914,6 +1951,14 @@ provides-extras = ["full"]
 name = "narranexus-plugin-social-network"
 version = "1.0.0"
 source = { editable = "plugins/builtin.social_network" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-turn"
+version = "1.0.0"
+source = { editable = "plugins/builtin.turn" }
 
 [package.metadata]
 provides-extras = ["full"]
@@ -3513,15 +3558,20 @@ dependencies = [
     { name = "narranexus-plugin-channels-wechat" },
     { name = "narranexus-plugin-chat" },
     { name = "narranexus-plugin-common-tools" },
+    { name = "narranexus-plugin-frameworks-claude-code" },
+    { name = "narranexus-plugin-frameworks-codex-cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power" },
     { name = "narranexus-plugin-general-memory" },
     { name = "narranexus-plugin-home-assistant" },
     { name = "narranexus-plugin-job" },
+    { name = "narranexus-plugin-llm-clients" },
     { name = "narranexus-plugin-memory-kinds" },
     { name = "narranexus-plugin-message-bus" },
     { name = "narranexus-plugin-nexus-plugins-module" },
     { name = "narranexus-plugin-providers" },
     { name = "narranexus-plugin-skills" },
     { name = "narranexus-plugin-social-network" },
+    { name = "narranexus-plugin-turn" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openai-agents" },
@@ -3592,15 +3642,20 @@ requires-dist = [
     { name = "narranexus-plugin-channels-wechat", editable = "plugins/builtin.channels.wechat" },
     { name = "narranexus-plugin-chat", editable = "plugins/builtin.chat" },
     { name = "narranexus-plugin-common-tools", editable = "plugins/builtin.common_tools" },
+    { name = "narranexus-plugin-frameworks-claude-code", editable = "plugins/builtin.frameworks.claude_code" },
+    { name = "narranexus-plugin-frameworks-codex-cli", editable = "plugins/builtin.frameworks.codex_cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power", editable = "plugins/builtin.frameworks.nexus_power" },
     { name = "narranexus-plugin-general-memory", editable = "plugins/builtin.general_memory" },
     { name = "narranexus-plugin-home-assistant", editable = "plugins/builtin.home_assistant" },
     { name = "narranexus-plugin-job", editable = "plugins/builtin.job" },
+    { name = "narranexus-plugin-llm-clients", editable = "plugins/builtin.llm_clients" },
     { name = "narranexus-plugin-memory-kinds", editable = "plugins/builtin.memory_kinds" },
     { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
     { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
     { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
     { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
     { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
+    { name = "narranexus-plugin-turn", editable = "plugins/builtin.turn" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "openai", specifier = ">=2.7.1" },
     { name = "openai-agents", specifier = ">=0.19.1" },

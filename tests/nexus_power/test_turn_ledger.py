@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from narranexus.platform.agent_framework.nexus_power.contracts.events import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
     TYPE_COMPACTION,
     TYPE_STEP_DONE,
     TYPE_TEXT_DELTA,
@@ -21,9 +21,9 @@ from narranexus.platform.agent_framework.nexus_power.contracts.events import (
     LedgerEntry,
     Usage,
 )
-from narranexus.platform.agent_framework.nexus_power.contracts.model import ModelEvent
-from narranexus.platform.agent_framework.nexus_power.contracts.tooling import ToolResult
-from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolResult
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
 
@@ -175,7 +175,7 @@ def test_resume_base_continues_seq():
 def test_turn_logs_are_pruned_to_the_retention_bound(tmp_path):
     """One log per turn lands in the agent's workspace, which in cloud is a
     shared volume nothing else prunes — so the directory bounds itself."""
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
         FileEventLogWriter,
         prune_turn_logs,
     )
@@ -204,7 +204,7 @@ def test_turn_logs_are_pruned_to_the_retention_bound(tmp_path):
 
 
 def test_prune_tolerates_a_missing_directory():
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
         prune_turn_logs,
     )
 
@@ -220,7 +220,7 @@ def test_discard_step_undoes_a_half_streamed_step():
     guard turns into a hard failure the moment StepRetry is enabled
     (2026-07-29 review).
     """
-    from narranexus.platform.agent_framework.nexus_power.contracts.model import ModelEvent
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
 
     ledger = TurnLedger("t1")
     ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "half a "}))

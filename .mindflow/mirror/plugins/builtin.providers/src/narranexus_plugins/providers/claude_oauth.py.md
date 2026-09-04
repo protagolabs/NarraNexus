@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/claude_oauth.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 

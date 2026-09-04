@@ -17,7 +17,7 @@ import re
 
 from loguru import logger
 
-from narranexus.platform.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _log_sysprompt_sha,
 )
 from narranexus.platform.agent_framework.adapters.materializer import (

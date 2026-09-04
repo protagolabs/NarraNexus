@@ -23,11 +23,9 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.agent_framework import (
-    ClaudeAgentSDK,
-    CodexSDK,
-    get_agent_loop_driver,
-)
+from narranexus.platform.agent_framework import get_agent_loop_driver
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
 from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _resolve_agent_framework_name,
 )
@@ -90,7 +88,7 @@ def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
     """Cutover 2026-06-08: ``codex_cli`` now resolves to ``CodexSDKv2``.
     The v1 ``CodexSDK`` class is still importable (revival fallback)
     but no longer registered."""
-    from narranexus.platform.agent_framework import CodexSDKv2
+    from narranexus_plugins.frameworks_codex_cli.official_sdk import CodexSDKv2
 
     driver = get_agent_loop_driver(
         framework="codex_cli", working_path=str(tmp_path)

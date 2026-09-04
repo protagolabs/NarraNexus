@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/schema/steer_schema.py
-last_verified: 2026-08-24
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -32,3 +32,5 @@ producer。统一 inbox 让 feeder 只 drain 一处(同 instance_artifact_events
   机制同、措辞不同)。IM 触发 v1 不做。
 - `id` 是到达序 + 消费游标单位,store 赋值故落库前为 None;`consumed_at` None=待消费,盖章=已被 run
   drain,防二次注入。注入 append-only,不改前行内容。
+
+Batch 6b.2b: defines `STEER_ID_KEY = "_steer_id"` (previously in the NexusPower core) so the platform steer channel does not import the framework plugin.

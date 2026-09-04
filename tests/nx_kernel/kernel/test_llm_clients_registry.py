@@ -14,8 +14,10 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 
 
 def test_registry_identity_and_builtin_order():
-    from narranexus.platform.agent_framework.llm.helper_sdk import CONTRIBUTIONS, LLM_CLIENT_REGISTRY
+    from narranexus.platform.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY, ensure_builtin_clients
+    from narranexus_plugins.llm_clients.contributions import CONTRIBUTIONS
 
+    ensure_builtin_clients()
     assert LLM_CLIENT_REGISTRY is KERNEL_REGISTRIES.registry_for("model.clients")
     assert LLM_CLIENT_REGISTRY.names() == ("anthropic", "openai", "cli")
     assert [c.name for c in CONTRIBUTIONS] == ["anthropic", "openai", "cli"]

@@ -1,0 +1,74 @@
+{
+  "id": "builtin.turn",
+  "version": "1.0.0",
+  "displayName": "Turn Pipeline",
+  "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "stage_strategy": 0,
+    "pipeline_profile": 0,
+    "agent": 0
+  },
+  "provides": {
+    "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
+    "turn.pipeline.ingress": [
+      "narranexus_plugins.turn.stages:INGRESS"
+    ],
+    "turn.pipeline.recall": [
+      "narranexus_plugins.turn.stages:RECALL"
+    ],
+    "turn.pipeline.compose": [
+      "narranexus_plugins.turn.stages:COMPOSE"
+    ],
+    "turn.pipeline.assemble": [
+      "narranexus_plugins.turn.stages:ASSEMBLE"
+    ],
+    "turn.pipeline.act": [
+      "narranexus_plugins.turn.stages:ACT"
+    ],
+    "turn.pipeline.commit": [
+      "narranexus_plugins.turn.stages:COMMIT"
+    ],
+    "turn.pipeline.reflect": [
+      "narranexus_plugins.turn.stages:REFLECT"
+    ],
+    "turn.profiles": [
+      "narranexus_plugins.turn.profiles:PROFILE_CONTRIBUTIONS"
+    ]
+  },
+  "declares": {
+    "turn.pipeline.ingress": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Ingress stage strategies; a profile names one."
+    },
+    "turn.pipeline.recall": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Recall stage strategies; a profile names one."
+    },
+    "turn.pipeline.compose": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Compose stage strategies; a profile names one."
+    },
+    "turn.pipeline.assemble": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Assemble stage strategies; a profile names one."
+    },
+    "turn.pipeline.commit": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Commit stage strategies; a profile names one."
+    },
+    "turn.pipeline.reflect": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "doc": "Reflect stage strategies; a profile names one."
+    }
+  },
+  "quality": "gold"
+}

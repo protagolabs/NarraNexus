@@ -16,7 +16,7 @@ from narranexus.platform.agent_framework.api_config import (
     set_user_config,
     snapshot_user_config,
 )
-from narranexus.platform.agent_framework.adapters.nexus.nexus_agent import (
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import (
     NexusAgent,
     claude_config,
 )
@@ -45,7 +45,7 @@ def test_gateway_host_lists_stay_in_sync():
     # The two copies (api_config + nexus_power model_client) MUST agree, or a
     # host reachable on one leg silently drops the header on the other.
     from narranexus.platform.agent_framework.api_config import _OWN_GATEWAY_HOSTS as A
-    from narranexus.platform.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (
         _OWN_GATEWAY_HOSTS as B,
     )
     assert set(A) == set(B)
