@@ -665,7 +665,6 @@ class ModuleLoader:
             "BasicInfoModule": "info",
             "SkillModule": "skill",
             "MessageBusModule": "bus",
-            "LarkModule": "lark",
         }
         prefix = prefix_map.get(module_class, module_class.lower().replace("module", ""))
         return f"{prefix}_{short_uuid}"

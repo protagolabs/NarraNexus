@@ -11,3 +11,7 @@ stub: false
 ## 2026-09-03（批 2f.1）— `NexusPluginsModule` 进 `CORE_ALWAYS_LOAD`
 
 云端它是空指令、无 MCP 的 no-op 实例（D1）。
+
+## 2026-09-04 · no LarkModule prefix entry (batch 4e)
+
+The prefix map lists core modules only; `LarkModule` → `lark` comes from the generic rule.

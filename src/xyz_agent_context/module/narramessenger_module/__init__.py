@@ -3,6 +3,8 @@
 @date: 2026-06-17
 @description: NarraMessenger channel module package — re-exports NarramessengerModule.
 """
+from .descriptor import DESCRIPTOR as _DESCRIPTOR  # noqa: F401 — registers this channel's WorkingSource before any module class body reads it
+
 
 try:
     from .narramessenger_module import NarramessengerModule

@@ -75,3 +75,7 @@ Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents
 ## 2026-09-04 · HttpStore on the generic routes; unbind follows `bind_takes` (batch 4d.3)
 
 `HttpStore.bind/unbind/test_connection` POST `/api/channels/<channel>/{bind,unbind,test}` (bind body `{agent_id, fields}`) — the per-channel routes are retired. `ChannelSpec.unbind_takes` mirrors the descriptor's `bind_takes`, so a channel whose service unbind is `do_unbind(db, agent_id)` (narramessenger, now `unbind_service=True`) is called with the right signature instead of the lark-shaped `(mgr, agent_id, db)`.
+
+## 2026-09-04 · no narramessenger special case (batch 4e)
+
+`display_name` is the descriptor's for every channel; NarraMessenger's unbind goes through its service (`unbind_service`), so the old "" special case was dead.

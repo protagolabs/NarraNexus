@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -243,3 +243,7 @@ Narrative、Event、ConversationSession 三个核心数据结构原本分散在�
 `ConversationSession` 和 `Narrative` 的关联是单向的：Session 持有 `current_narrative_id`，但 Narrative 里没有"谁的 session"字段。查"某用户的当前 Narrative"要通过 SessionService，不要去查 Narrative 表。
 
 `NarrativeSearchResult` 的 `episode_summaries` 和 `episode_contents` 是 EverMemOS 的专有字段，在纯向量检索路径下始终为空列表，不代表 Narrative 没有事件。
+
+## 2026-09-04 · `TriggerType` is open (batch 4e)
+
+`TriggerType` is an `OpenStrEnum` with the core members bound after the class; IM channel members arrive through `WorkingSource.register` (each channel's descriptor). Step 0's `TriggerType(ws_str)` therefore resolves for a plugin channel instead of degrading to CHAT. Enum surface (`.value`, `.name`, `TriggerType("job")`, pydantic) unchanged.

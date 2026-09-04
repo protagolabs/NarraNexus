@@ -56,8 +56,13 @@ def test_classify_config_path():
     assert mod._classify_config_path("/api/jobs/complex") == "jobs"
     # Provider mutations edge-trigger PAUSED_NO_QUOTA resume → job state.
     assert mod._classify_config_path("/api/providers") == "jobs"
+    # the generic channel router (every channel binds here since batch 4d.3) …
+    assert mod._classify_config_path("/api/channels/acme_chat/bind") == "channels"
+    assert mod._classify_config_path("/api/channels") == "channels"
+    # … and each registered channel's own router (Lark OAuth, WeChat QR), read from the registry
     for p in ("lark", "slack", "telegram", "wechat", "discord", "narramessenger"):
-        assert mod._classify_config_path(f"/api/{p}/bind") == "channels"
+        assert mod._classify_config_path(f"/api/{p}/auth/login") == "channels"
+    assert mod._classify_config_path("/api/larkx/bind") is None
     assert mod._classify_config_path("/api/agents") is None
     assert mod._classify_config_path("/api/jobsx") is None
 

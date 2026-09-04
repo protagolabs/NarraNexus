@@ -12,6 +12,8 @@ import pickle
 import pytest
 from pydantic import BaseModel
 
+import xyz_agent_context.module  # noqa: F401 — the builtin channel descriptors register their sources (lark, …)
+from xyz_agent_context.narrative.models import TriggerType
 from xyz_agent_context.schema.hook_schema import WorkingSource
 
 
@@ -58,3 +60,29 @@ def test_pydantic_fields_accept_core_and_registered_values():
     assert M(source=WorkingSource.JOB).model_dump_json() == '{"source":"job"}'
     with pytest.raises(ValueError):
         M(source="nope")
+
+
+def test_registering_a_channel_source_also_labels_its_events():
+    """A plugin channel's turns must not degrade to CHAT in the event log: the
+    TriggerType twin is registered with the WorkingSource (step 0 maps the value
+    straight through)."""
+    src = WorkingSource.register("acme_events")
+    assert TriggerType("acme_events") == "acme_events" and TriggerType.ACME_EVENTS is TriggerType("acme_events")
+    assert TriggerType.is_channel("acme_events") and src.value == TriggerType("acme_events").value
+    assert TriggerType.CHAT == "chat" and TriggerType.OTHER.value == "other" and "acme_events" in TriggerType
+    with pytest.raises(ValueError):
+        TriggerType("never_registered")
+
+
+def test_builtin_channel_sources_come_from_their_descriptors():
+    """hook_schema seeds only the core members; ``lark`` exists because
+    ``module/lark_module/descriptor.py`` registered it."""
+    import inspect
+
+    from xyz_agent_context.schema import hook_schema
+
+    source = inspect.getsource(hook_schema)
+    assert "channel=True" not in source and '("LARK", "lark")' not in source  # no seeded channel table
+    assert WorkingSource.is_channel("lark") and WorkingSource.LARK == "lark" and TriggerType.LARK == "lark"
+    with pytest.raises(AttributeError, match="registers its value"):
+        WorkingSource.NOT_A_CHANNEL  # noqa: B018

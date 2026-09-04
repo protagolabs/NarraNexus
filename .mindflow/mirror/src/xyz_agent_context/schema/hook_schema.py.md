@@ -130,3 +130,7 @@ Every module in the system has a `hook_after_event_execution()` callback that fi
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `WorkingSource` is an OPEN enum now (a `str` subclass with an enum-like metaclass): the core members are class attributes as before, `.value/.name`, `WorkingSource("job")`, `from_string`, iteration/membership/`__members__`, pickling, pydantic (core schema) and JSON all keep working, and `WorkingSource.register("mattermost")` adds an IM channel's value at runtime (idempotent; core names cannot be redefined). Registered channel sources count as automated AND from-human, exactly like the six builtin IM members; `is_channel()` / `channel_values()` expose the set. `module/contributions.register_all` registers every inbound ChannelDescriptor's name.
+
+## 2026-09-04 · no channel table (batch 4e)
+
+`WorkingSource` now subclasses `schema/open_enum.OpenStrEnum` (the open-enum mechanics moved there) and seeds ONLY the core members; the six builtin channels register their value from their own `descriptor.py` (`SOURCE = WorkingSource.register("lark")`), imported first by each channel package so class bodies that read `WorkingSource.LARK` see it. `register()` also registers the `TriggerType` twin, so a channel's events are labelled by surface (before this a plugin channel's runs were logged as CHAT).

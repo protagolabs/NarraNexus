@@ -17,3 +17,7 @@ The descriptor now declares generic storage like every other channel: the platfo
 ## 2026-09-04 · bind input declared (batch 4d.3)
 
 `bind_fields`: `app_id`, `app_secret`, `brand` (select feishu|lark, required — no silent default) + optional `owner_email`; the generic route enforces the select before `do_bind` sees it.
+
+## 2026-09-04 · registers its WorkingSource (batch 4e)
+
+`SOURCE = WorkingSource.register("lark")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.LARK` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more. `meta["agent_instance"]` declares the agent-level LarkModule instance (description/keywords/topic_hint) the instance factory creates for every agent — the factory no longer names Lark.

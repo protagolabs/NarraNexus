@@ -70,6 +70,18 @@ def descriptor_for(channel: str, registries: Any = None) -> ChannelDescriptor:
     return registry.get(channel)
 
 
+def all_descriptors(registries: Any = None) -> tuple[ChannelDescriptor, ...]:
+    """Every registered channel descriptor (builtin and plugin), registration order."""
+    import xyz_agent_context.module  # noqa: F401 — registers the builtin descriptors (idempotent)
+
+    regs = registries
+    if regs is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        regs = KERNEL_REGISTRIES
+    return tuple(entry.factory() for entry in regs.registry_for("ingress.channels").entries())
+
+
 def split_values(descriptor: ChannelDescriptor, values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], Optional[str]]:
     """(public, secret, external_id) for ``values`` under the descriptor's schema."""
     schema = descriptor.credential_schema
@@ -256,4 +268,4 @@ class GenericCredentialStore:
         return [self._row_to_record(r) for r in rows]
 
 
-__all__ = ["CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "bind_fields_for", "descriptor_for", "missing_required", "split_values", "validate_bind_fields"]
+__all__ = ["CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "all_descriptors", "bind_fields_for", "descriptor_for", "missing_required", "split_values", "validate_bind_fields"]

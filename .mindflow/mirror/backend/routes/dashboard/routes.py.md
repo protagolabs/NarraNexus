@@ -92,3 +92,7 @@ Dashboard v2.1 的 API 端点集合（`/api/dashboard/*`），为前端 dashboar
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 pause / resume / schedule moved to `dashboard/jobs.py` (builtin.job's router): they delegate to the job module's portable core. The read endpoints and the SQL-only retry stay; `_resolve_viewer` / `_assert_agent_visible` are shared with jobs.py.
+
+## 2026-09-04 · `_derive_kind` reads the registry (batch 4e)
+
+A session whose channel is a registered IM source (or a `<source>_…` id) or a bus channel is MESSAGE_BUS; the `("lark", "slack", …)` prefix tuple is gone.

@@ -13,3 +13,7 @@ stub: false
 ## 2026-09-04 · generic store as the source of truth (batch 4d.1)
 
 `meta.storage = "generic"`: the manager persists in `channel_credentials`, so the dual-write mirror skips this channel.
+
+## 2026-09-04 · registers its WorkingSource (batch 4e)
+
+`SOURCE = WorkingSource.register("wechat")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.WECHAT` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more.

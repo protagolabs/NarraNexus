@@ -17,3 +17,7 @@ stub: false
 ## 2026-09-04 · bind input declared (batch 4d.3)
 
 `bind_fields`: `bot_token`, `app_token` (secrets) + optional `owner_email` — the `do_bind` keyword arguments the generic bind passes through.
+
+## 2026-09-04 · registers its WorkingSource (batch 4e)
+
+`SOURCE = WorkingSource.register("slack")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.SLACK` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more.

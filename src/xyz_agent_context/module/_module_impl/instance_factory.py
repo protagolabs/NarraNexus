@@ -22,6 +22,7 @@ Usage:
     instance = await factory.create_job_instance(agent_id, user_id, job_info)
 """
 
+import functools
 from typing import Optional, Dict, Any, List
 import uuid
 from loguru import logger
@@ -37,6 +38,11 @@ from xyz_agent_context.repository import InstanceRepository, InstanceNarrativeLi
 # safe here (message_bus is a package, not a Module — iron rule #3 is about
 # Modules importing each other) and both import orders were verified.
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
+
+
+def _module_class_name(descriptor) -> str:
+    """``module_ref`` ("pkg.mod:ClassName") → the module class name the instance table stores."""
+    return descriptor.module_ref.rpartition(":")[2]
 
 
 def generate_instance_id(prefix: str) -> str:
@@ -92,8 +98,8 @@ class InstanceFactory:
         - SocialNetworkModule instance (is_public=True)
         - BasicInfoModule instance (is_public=True)
         - MessageBusModule instance (is_public=True)
-        - LarkModule instance (is_public=True)
-        - HomeAssistantModule instance (is_public=True)
+        - one instance per channel whose descriptor declares ``meta["agent_instance"]``
+          (builtin: Lark, Home Assistant; a plugin channel declares its own)
 
         Args:
             agent_id: Agent ID
@@ -125,17 +131,13 @@ class InstanceFactory:
         if bus_instance:
             instances.append(bus_instance)
 
-        # 5. Create LarkModule instance (agent may later bind a Feishu bot)
-        lark_instance = await self._create_lark_instance(agent_id)
-        if lark_instance:
-            instances.append(lark_instance)
+        # 5. Channel instances declared by descriptors (the agent may bind the channel later)
+        for descriptor in self._channel_instance_descriptors():
+            channel_instance = await self._create_channel_instance(agent_id, descriptor)
+            if channel_instance:
+                instances.append(channel_instance)
 
-        # 6. Create HomeAssistantModule instance (agent may later bind a Home Assistant)
-        ha_instance = await self._create_home_assistant_instance(agent_id)
-        if ha_instance:
-            instances.append(ha_instance)
-
-        # 7. Auto-register agent in MessageBus registry
+        # 6. Auto-register agent in MessageBus registry
         await self._register_agent_in_bus(agent_id)
 
         logger.info(f"Created {len(instances)} agent-level instances")
@@ -256,60 +258,43 @@ class InstanceFactory:
         logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
         return instance
 
-    async def _create_lark_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create LarkModule Instance"""
+    @staticmethod
+    def _channel_instance_descriptors():
+        """Channel descriptors that ask for an agent-level module instance
+        (``meta["agent_instance"]`` = description / keywords / topic_hint, plus a
+        ``module_ref``) — the platform holds no list of such channels."""
+        from xyz_agent_context.channel.credential_store import all_descriptors
+
+        return tuple(d for d in all_descriptors() if d.module_ref and d.meta.get("agent_instance"))
+
+    async def _create_channel_instance(self, agent_id: str, descriptor) -> Optional[ModuleInstanceRecord]:
+        """Create the channel's module instance (idempotent per agent)."""
+        module_class = _module_class_name(descriptor)
+        spec = dict(descriptor.meta["agent_instance"])
         existing = await self._instance_repo.get_by_agent(
             agent_id=agent_id,
-            module_class="LarkModule",
+            module_class=module_class,
             is_public=True
         )
         if existing:
-            logger.debug(f"LarkModule instance already exists for agent {agent_id}")
+            logger.debug(f"{module_class} instance already exists for agent {agent_id}")
             return existing[0]
 
         instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("lark"),
-            module_class="LarkModule",
+            instance_id=generate_instance_id(descriptor.name.replace("_", "")),
+            module_class=module_class,
             agent_id=agent_id,
             user_id=None,
             is_public=True,
             status=InstanceStatus.ACTIVE,
-            description="Lark/Feishu integration: contacts, messages, documents, calendar, tasks",
-            keywords=["lark", "feishu", "im", "messaging", "document", "calendar"],
-            topic_hint="Lark/Feishu bot operations and IM interactions",
+            description=str(spec.get("description") or descriptor.display_name),
+            keywords=list(spec.get("keywords") or [descriptor.name]),
+            topic_hint=str(spec.get("topic_hint") or ""),
             created_at=utc_now(),
         )
 
         await self._instance_repo.create_instance(instance)
-        logger.info(f"Created LarkModule instance: {instance.instance_id}")
-        return instance
-
-    async def _create_home_assistant_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create HomeAssistantModule Instance (agent may later bind a Home Assistant)."""
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="HomeAssistantModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"HomeAssistantModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("homeassistant"),
-            module_class="HomeAssistantModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Smart-home query/control via the user's Home Assistant",
-            keywords=["home assistant", "smart home", "device", "light", "iot", "xiaomi"],
-            topic_hint="Query and control smart-home devices via Home Assistant",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created HomeAssistantModule instance: {instance.instance_id}")
+        logger.info(f"Created {module_class} instance: {instance.instance_id}")
         return instance
 
     async def _register_agent_in_bus(self, agent_id: str) -> None:
@@ -528,9 +513,9 @@ class InstanceFactory:
             "SocialNetworkModule": self._create_social_network_instance,
             "BasicInfoModule": self._create_basic_info_instance,
             "MessageBusModule": self._create_message_bus_instance,
-            "LarkModule": self._create_lark_instance,
-            "HomeAssistantModule": self._create_home_assistant_instance,
         }
+        for descriptor in self._channel_instance_descriptors():
+            creators[_module_class_name(descriptor)] = functools.partial(self._create_channel_instance, descriptor=descriptor)
         for module_class, creator_fn in creators.items():
             if module_class not in existing_classes:
                 new_inst = await creator_fn(agent_id)

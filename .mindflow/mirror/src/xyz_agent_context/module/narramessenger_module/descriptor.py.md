@@ -17,3 +17,7 @@ Bindings live in `channel_credentials`; no mirror, no bespoke table.
 ## 2026-09-04 · bind input declared (batch 4d.3)
 
 `bind_fields`: the single `bind_command` (pasted link/command, not stored) — the stored schema is the Matrix identity `do_bind` derives from it. `unbind_service=True` with `bind_takes="db"` routes unbind through `do_unbind(db, agent_id)` (gateway-side unbind included).
+
+## 2026-09-04 · registers its WorkingSource (batch 4e)
+
+`SOURCE = WorkingSource.register("narramessenger")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.NARRAMESSENGER` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more. `meta["contact_key"] = "matrix"`: the key this channel's ids live under in `contact_info.channels`, read by `channel_contact_utils.contact_channel_keys`.

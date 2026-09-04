@@ -290,7 +290,13 @@ async def list_jobs_for_manyfold(request: Request):
 # ---------------------------------------------------------------------------
 
 
-_PROVIDER_ORDER = {p: i for i, p in enumerate(("telegram", "discord", "slack", "wechat", "lark", "narramessenger"))}
+def _provider_rank(provider: str) -> tuple[int, str]:
+    """Stable payload order: the channel descriptors' ``ui.order`` (the same order
+    the settings panel lists them), unknown providers last, ties by name."""
+    from xyz_agent_context.channel.credential_store import all_descriptors
+
+    orders = {d.name: (d.ui.order if d.ui else 1_000) for d in all_descriptors()}
+    return (orders.get(provider, 10_000), provider)
 
 
 @router.get("/manyfold/channels")
@@ -308,7 +314,7 @@ async def list_channels_for_manyfold(request: Request):
     for owner, exc in outcome.errors:
         logger.warning(f"[manyfold] credential export by {owner} failed: {exc!r}")
     data: list[dict[str, Any]] = [row for rows in outcome.results for row in rows]
-    data.sort(key=lambda row: _PROVIDER_ORDER.get(row.get("provider", ""), len(_PROVIDER_ORDER)))
+    data.sort(key=lambda row: _provider_rank(row.get("provider", "")))
 
     # Every row declares agent_managed_reply EXPLICITLY. Manyfold's mapper
     # defaults mirrored channels to managed-ON when the key is absent, so an
@@ -329,14 +335,15 @@ async def list_channels_for_manyfold(request: Request):
 # ---------------------------------------------------------------------------
 
 _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_CHANNEL_PATH_PREFIXES = (
-    "/api/lark",
-    "/api/slack",
-    "/api/telegram",
-    "/api/wechat",
-    "/api/discord",
-    "/api/narramessenger",
-)
+
+
+def _channel_path_prefixes() -> tuple[str, ...]:
+    """Routes whose writes change an IM binding: the generic channel router plus
+    every registered channel's own router (Lark OAuth, WeChat QR, …) — read
+    from the registry so a plugin channel's routes count too."""
+    from xyz_agent_context.channel.credential_store import all_descriptors
+
+    return ("/api/channels",) + tuple(f"/api/{d.name}" for d in all_descriptors())
 # Provider mutations resume PAUSED_NO_QUOTA jobs edge-triggered
 # (job_recovery), so they are job-state changes too.
 _JOB_PATH_PREFIXES = ("/api/jobs", "/api/providers")
@@ -360,7 +367,7 @@ def _classify_config_path(path: str) -> Optional[str]:
     for prefix in _JOB_PATH_PREFIXES:
         if path == prefix or path.startswith(prefix + "/"):
             return "jobs"
-    for prefix in _CHANNEL_PATH_PREFIXES:
+    for prefix in _channel_path_prefixes():
         if path == prefix or path.startswith(prefix + "/"):
             return "channels"
     return None

@@ -13,8 +13,13 @@ from __future__ import annotations
 
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registry import Contribution
+from xyz_agent_context.schema.hook_schema import WorkingSource
 
 _MOD = "xyz_agent_context.module"
+
+# The channel's working source (and TriggerType) — registered here, by the channel itself,
+# so the platform holds no channel-name table. Imported first by the package.
+SOURCE = WorkingSource.register("lark")
 
 DESCRIPTOR = ChannelDescriptor(
     name="lark",
@@ -44,10 +49,18 @@ DESCRIPTOR = ChannelDescriptor(
     has_bind=True,
     has_test=False,
     unbind_service=True,
-    meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials
+    meta={
+        "storage": "generic",  # 4d: the manager persists in channel_credentials
+        # Every agent gets a LarkModule instance at creation (it may bind a Feishu bot later).
+        "agent_instance": {
+            "description": "Lark/Feishu integration: contacts, messages, documents, calendar, tasks",
+            "keywords": ["lark", "feishu", "im", "messaging", "document", "calendar"],
+            "topic_hint": "Lark/Feishu bot operations and IM interactions",
+        },
+    },
     ui=ChannelUi(label="Lark / Feishu", icon="message-square", order=10),
 )
 
 CHANNEL = (Contribution("lark", lambda: DESCRIPTOR),)
 
-__all__ = ["CHANNEL", "DESCRIPTOR"]
+__all__ = ["CHANNEL", "DESCRIPTOR", "SOURCE"]

@@ -9,3 +9,7 @@ stub: false
 ## Intent
 
 Home Assistant has no inbound transport (`transport="none"`, no trigger) but the data-access channel seam serves its credential manager, so it is a descriptor too; it registers no WorkingSource.
+
+## 2026-09-04 · module_ref + agent instance (batch 4e)
+
+Declares `module_ref` (HomeAssistantModule) and `meta["agent_instance"]` so the instance factory creates the per-agent HomeAssistantModule instance from the descriptor instead of a hard-coded `_create_home_assistant_instance`.

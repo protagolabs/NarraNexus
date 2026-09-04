@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/instance_sync_service.py
-last_verified: 2026-06-08
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -41,3 +41,7 @@ Job 记录通过 `instance_id` 字段做唯一约束检查（`get_jobs_by_instan
 `MODULE_PREFIX_MAP` 是模块名到 instance_id 前缀的静态映射，新增 Module 时必须在这里登记，否则生成的 instance_id 会用默认前缀 `"inst"` 而不是模块专属前缀，影响可读性和 ID 格式一致性。
 
 `task_key` 只是临时的语义标签，不存入数据库。`instance_id` 才是持久化的 ID。在 `process_instance_decision()` 的返回值里，`InstanceDict.instance_id` 已经被替换成真实 ID，`InstanceDict.task_key` 还保留着 LLM 原始输出，别搞混。
+
+## 2026-09-04 · `instance_prefix` (batch 4e)
+
+`MODULE_PREFIX_MAP` keeps only the core short names; any other module class (LarkModule, a plugin's AcmeChatModule) derives its prefix as the class name minus `Module` — the same rule the loader applies — instead of the old `"inst"` fallback.

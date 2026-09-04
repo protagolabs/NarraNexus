@@ -25,3 +25,7 @@ NarraMessenger and Lark joined the four managers switched in 4d.1, and `credenti
 ## 2026-09-04 · bind-input validation (batch 4d.3)
 
 `bind_fields_for(descriptor)` (the descriptor's `bind_fields`, else the stored schema) and `validate_bind_fields(descriptor, values)` — unknown names rejected (fail-closed: they would reach a service's `do_bind(**fields)` as a TypeError), required non-blank, select within options — are what the generic bind route checks before any service runs.
+
+## 2026-09-04 · `all_descriptors` (batch 4e)
+
+`all_descriptors(registries=None)` lists every registered channel descriptor — the one registry read the instance factory, contact utils, dashboard and manyfold export use instead of naming channels.

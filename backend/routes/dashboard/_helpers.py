@@ -161,14 +161,21 @@ _KIND_MAP = {
     "callback": "CALLBACK",
     "skill_study": "SKILL_STUDY",
     "message_bus": "MESSAGE_BUS",
-    "lark": "LARK",
 }
 
 
 def classify_kind(working_source: str | None) -> str:
+    """Dashboard kind for a working source: the core table above, else an IM
+    channel's upper-cased source (``lark`` → ``LARK``, a plugin's ``acme_chat`` →
+    ``ACME_CHAT``) — the platform keeps no channel list here."""
     if not working_source:
         return "idle"
-    return _KIND_MAP.get(str(working_source).lower(), "idle")
+    from xyz_agent_context.schema.hook_schema import WorkingSource
+
+    key = str(working_source).lower()
+    if key in _KIND_MAP:
+        return _KIND_MAP[key]
+    return key.upper() if WorkingSource.is_channel(key) else "idle"
 
 
 def bucket_count(n: int) -> str:

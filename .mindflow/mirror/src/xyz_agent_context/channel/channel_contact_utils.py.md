@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_contact_utils.py
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -37,3 +37,7 @@ Social Network 里每个 Entity 有一个自由格式的 `contact_info` JSON 字
 所有工具函数都**修改传入的 dict in-place**，同时也有返回值（为了链式调用）。别以为函数不用返回值就安全——原始 dict 已经被修改了。如果需要不可变操作，自己先 `copy.deepcopy(contact_info)` 再传入。
 
 `get_room_id()` 返回的是与特定 `counterpart_id` 的"房间 ID"（Matrix 里是 `!roomid:server`），不是渠道里该 Agent 自己的 ID（那个是 `get_channel_info(contact_info, "matrix").get("id")`）。两者容易混淆。
+
+## 2026-09-04 · contact keys from the registry (batch 4e)
+
+`contact_channel_keys()` = every registered channel name + a descriptor's `meta["contact_key"]` (NarraMessenger ids live under `matrix`); `normalize_contact_info` folds top-level legacy keys for those instead of a hard-coded four-name set, so a plugin channel's contacts normalize like a builtin's.

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/dashboard/_helpers.py
-last_verified: 2026-07-24
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -94,3 +94,7 @@ route/FastAPI coupling.
 - `humanize_verb` 对未知 `kind` 返回 `Running ({kind})` 作为最后 fallback——这意味着后端若加了新 `WorkingSource` 但忘了更新这个函数，前端会看到字面 `Running (NEW_KIND)`，不崩但难看。加 kind checklist：改这里 + StatusBadge ICON_MAP + types/api.ts `AgentKind` union。
 - **`_is_instance_stale` 对 `updated_at=None` 返回 `False`（不当 stale 处理）**：DB 里 updated_at 可能为 null（旧数据）。宁可漏报 stale 也不误报，避免把正常运行的 module 标成 zombie。
 - **`fetch_instances` 签名变更**（v2.2 G3 breaking change）：从 `dict[str, list[dict]]` 变为 `dict[str, dict[str, list[dict]]]`。任何直接调用这个函数的代码（包括测试）都必须更新取值方式为 `inst_map[aid]["active"]`。
+
+## 2026-09-04 · `classify_kind` for any channel (batch 4e)
+
+The core kinds stay in `_KIND_MAP`; an IM channel source (`WorkingSource.is_channel`) maps to its upper-cased value (`LARK`, a plugin's `ACME_CHAT`) — no channel entry in the table.

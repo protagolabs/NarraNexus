@@ -13,8 +13,13 @@ from __future__ import annotations
 
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registry import Contribution
+from xyz_agent_context.schema.hook_schema import WorkingSource
 
 _MOD = "xyz_agent_context.module"
+
+# The channel's working source (and TriggerType) — registered here, by the channel itself,
+# so the platform holds no channel-name table. Imported first by the package.
+SOURCE = WorkingSource.register("narramessenger")
 
 DESCRIPTOR = ChannelDescriptor(
     name="narramessenger",
@@ -41,10 +46,13 @@ DESCRIPTOR = ChannelDescriptor(
     has_bind=True,
     has_test=False,
     unbind_service=True,  # do_unbind(db, agent_id): the gateway-side unbind rides along
-    meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials
+    meta={
+        "storage": "generic",  # 4d: the manager persists in channel_credentials
+        "contact_key": "matrix",  # the key this channel's ids live under in contact_info.channels
+    },
     ui=ChannelUi(label="NarraMessenger", icon="message-circle", order=50),
 )
 
 CHANNEL = (Contribution("narramessenger", lambda: DESCRIPTOR),)
 
-__all__ = ["CHANNEL", "DESCRIPTOR"]
+__all__ = ["CHANNEL", "DESCRIPTOR", "SOURCE"]

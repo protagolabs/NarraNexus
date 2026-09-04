@@ -160,6 +160,22 @@ def merge_contact_info(
     return _deep_merge(result, normalized)
 
 
+def contact_channel_keys() -> set:
+    """The keys a contact's channels live under: every registered channel's name
+    plus a descriptor's ``meta["contact_key"]`` when its ids use another key
+    (NarraMessenger's ids are Matrix ids under ``matrix``). Registry-driven, so a
+    plugin channel's top-level legacy key normalizes like a builtin's."""
+    from xyz_agent_context.channel.credential_store import all_descriptors
+
+    keys: set = set()
+    for d in all_descriptors():
+        keys.add(d.name)
+        contact_key = d.meta.get("contact_key")
+        if contact_key:
+            keys.add(str(contact_key))
+    return keys
+
+
 def normalize_contact_info(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize contact_info to canonical structure.
@@ -179,7 +195,7 @@ def normalize_contact_info(raw: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
     result: Dict[str, Any] = {}
-    known_channels = {"matrix", "slack", "discord", "telegram"}
+    known_channels = contact_channel_keys()
     # Key aliases that should be normalized to "id"
     id_aliases = {"user_id", "matrix_user_id", "matrix_id", "slack_id", "channel_id"}
 

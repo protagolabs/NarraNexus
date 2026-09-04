@@ -22,13 +22,14 @@ from pydantic import BaseModel
 
 # Import ModuleInstance (from schema, to avoid duplicate definitions)
 from xyz_agent_context.schema.module_schema import ModuleInstance
+from xyz_agent_context.schema.open_enum import OpenStrEnum
 
 
 # =============================================================================
 # Event Related Models
 # =============================================================================
 
-class TriggerType(Enum):
+class TriggerType(OpenStrEnum):
     """
     Trigger type of an Event — WHAT kind of surface started this run.
 
@@ -38,24 +39,37 @@ class TriggerType(Enum):
     is chat". Read-sides rely on it: the sidebar preview excludes
     MESSAGE_BUS, the chat panel's active-run auto-attach accepts only
     CHAT/MANYFOLD, dashboards group by it.
+
+    Open like ``WorkingSource`` (plugin platform batch 4): the core members
+    are bound below, every IM channel's member arrives through
+    ``WorkingSource.register`` (its descriptor), so a plugin channel's runs
+    are labelled by their own surface instead of degrading to CHAT.
     """
-    CHAT = "chat"   # Chat trigger
-    TASK = "task"   # Task trigger
-    API = "api"     # API trigger
-    TOOL = "tool"   # Agent proactively invokes a tool trigger
-    MESSAGE_BUS = "message_bus"  # Team group-chat (message bus) reply
-    JOB = "job"     # Scheduled job (JobTrigger)
-    A2A = "a2a"     # Agent-to-Agent call
-    CALLBACK = "callback"  # Dependency-chain callback after Job completion
-    SKILL_STUDY = "skill_study"  # Skill study run
-    LARK = "lark"   # Lark/Feishu message
-    SLACK = "slack"  # Slack message
-    TELEGRAM = "telegram"  # Telegram message
-    WECHAT = "wechat"  # WeChat (iLink) message
-    NARRAMESSENGER = "narramessenger"  # NarraMessenger (Matrix) message
-    DISCORD = "discord"  # Discord message
-    MANYFOLD = "manyfold"  # Manyfold platform via the OpenAI-compat endpoint
-    OTHER = "other"
+
+    CHAT: "TriggerType"
+    TASK: "TriggerType"
+    API: "TriggerType"
+    TOOL: "TriggerType"
+    MESSAGE_BUS: "TriggerType"
+    JOB: "TriggerType"
+    A2A: "TriggerType"
+    CALLBACK: "TriggerType"
+    SKILL_STUDY: "TriggerType"
+    MANYFOLD: "TriggerType"
+    OTHER: "TriggerType"
+
+
+TriggerType._add("CHAT", "chat")  # Chat trigger
+TriggerType._add("TASK", "task")  # Task trigger
+TriggerType._add("API", "api")  # API trigger
+TriggerType._add("TOOL", "tool")  # Agent proactively invokes a tool trigger
+TriggerType._add("MESSAGE_BUS", "message_bus")  # Team group-chat (message bus) reply
+TriggerType._add("JOB", "job")  # Scheduled job (JobTrigger)
+TriggerType._add("A2A", "a2a")  # Agent-to-Agent call
+TriggerType._add("CALLBACK", "callback")  # Dependency-chain callback after Job completion
+TriggerType._add("SKILL_STUDY", "skill_study")  # Skill study run
+TriggerType._add("MANYFOLD", "manyfold")  # Manyfold platform via the OpenAI-compat endpoint
+TriggerType._add("OTHER", "other")
 
 
 class EventLogEntry(BaseModel):

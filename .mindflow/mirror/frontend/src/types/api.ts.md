@@ -229,3 +229,7 @@ api.ts.md 的 coachmark 门控段）。
 ## 2026-09-04 · credential views are the generic store's public half (batch 4d.3)
 
 `*CredentialResponse` wrappers deleted (the generic methods wrap `*CredentialData`); `LarkCredentialData.is_active` → `enabled` (every channel reads the same flag); `created_at/updated_at` dropped from the views (the public view carries identity fields + `enabled`); `ChannelSchema.bind_fields` added next to `fields`.
+
+## 2026-09-04 · `AgentKind` accepts any channel (batch 4e)
+
+The IM-channel kinds are the source upper-cased (`LARK`, `MATRIX`, a plugin's `ACME_CHAT`), typed as `Uppercase<string>` instead of a closed list.

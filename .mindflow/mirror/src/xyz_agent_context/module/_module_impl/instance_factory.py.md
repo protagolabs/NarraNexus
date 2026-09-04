@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/_module_impl/instance_factory.py
-last_verified: 2026-08-05
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -62,3 +62,7 @@ MessageBus / Lark / HomeAssistant 各一条 agent 级实例（`is_public=1`，�
   真正的绑定在 `instance_lark_bindings`。
 - 这里的失败一律 best-effort（log + 继续）：建 agent 这个动作不能因为某个附属
   实例没建成而整体失败，调用方随后可用 `ensure_agent_instances_exist` 补齐。
+
+## 2026-09-04 · channel instances from descriptors (batch 4e)
+
+`_create_lark_instance` / `_create_home_assistant_instance` are replaced by `_create_channel_instance(agent_id, descriptor)` over `_channel_instance_descriptors()` — every registered channel whose descriptor has a `module_ref` and `meta["agent_instance"]` (description / keywords / topic_hint). Instance-id prefix = the channel name without underscores (`lark_…`, `homeassistant_…`, unchanged), module class = the `module_ref` class name. `ensure_agent_instances_exist` builds its creators the same way, so an agent created before a channel plugin was installed gets the instance on next load — the factory holds no channel list.

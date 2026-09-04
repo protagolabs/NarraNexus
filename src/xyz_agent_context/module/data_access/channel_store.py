@@ -173,7 +173,7 @@ def _spec_from_descriptor(d: Any) -> ChannelSpec:
         manager_module,
         manager_class,
         read_method=d.credential_read_method,
-        display_name=d.display_name if d.name != "narramessenger" else "",
+        display_name=d.display_name,
         bind=bind,
         unbind_service=d.service_ref if d.unbind_service else "",
         unbind_takes=d.bind_takes,

@@ -682,8 +682,8 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
-  | 'MATRIX'
-  | 'LARK';
+  // an IM channel session — the channel's working source upper-cased ('LARK', 'MATRIX', a plugin's 'ACME_CHAT')
+  | Uppercase<string>;
 
 export interface MessageBusDetails {
   src_channel?: string | null;

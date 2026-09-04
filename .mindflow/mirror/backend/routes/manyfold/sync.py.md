@@ -173,3 +173,7 @@ automations（镜像闹钟）和 channel 连接接管，事件发生时按需唤
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `_provider_working_source()` resolves an IM provider to its inbound WorkingSource through `ingress.channels` (credentials-only channels and unknown names → None) instead of the hard-coded six-entry map.
+
+## 2026-09-04 · registry-driven order and config paths (batch 4e)
+
+`_provider_rank` orders the channel payload by the descriptors' `ui.order` (unknown providers last); `_channel_path_prefixes()` = `/api/channels` (where every channel binds since 4d.3 — the old tuple would have missed every bind) + each registered channel's own router, so a plugin channel's writes notify Manyfold too.

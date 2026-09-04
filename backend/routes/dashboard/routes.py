@@ -249,7 +249,10 @@ def _derive_kind(sessions, running_jobs, instances) -> str:
         return "JOB"
     if sessions:
         ch = (sessions[0].channel or "").lower()
-        if ch.startswith(("lark", "slack", "message_bus", "bus")):
+        from xyz_agent_context.schema.hook_schema import WorkingSource
+
+        # any IM channel session (builtin or plugin) or a bus session is non-web
+        if WorkingSource.is_channel(ch.split("_", 1)[0]) or WorkingSource.is_channel(ch) or ch.startswith(("message_bus", "bus")):
             return "MESSAGE_BUS"
         return "CHAT"
     if instances:

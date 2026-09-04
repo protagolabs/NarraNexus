@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Any, Optional, TYPE_CHECKING
 
+from xyz_agent_context.schema.open_enum import OpenStrEnum
+
 if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import ModuleInstance
     from xyz_agent_context.narrative.models import Event, Narrative
@@ -86,31 +88,18 @@ def is_plain_text_turn(ctx_data: Any) -> bool:
     return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
 
 
-class _OpenEnumMeta(type):
-    """Enum-like class behaviour for ``WorkingSource``: iteration, ``in``, ``__members__``."""
-
-    def __iter__(cls):
-        return iter(cls._members.values())  # type: ignore[attr-defined]
-
-    def __len__(cls) -> int:
-        return len(cls._members)  # type: ignore[attr-defined]
-
-    def __contains__(cls, item: object) -> bool:
-        return isinstance(item, str) and str(item).lower() in cls._members  # type: ignore[attr-defined]
-
-    @property
-    def __members__(cls):
-        return dict(cls._members)  # type: ignore[attr-defined]
-
-
-class WorkingSource(str, metaclass=_OpenEnumMeta):
+class WorkingSource(OpenStrEnum):
     """
     Agent execution source - Identifies the origin that triggered Agent execution
 
     An OPEN enum (plugin platform batch 4): the core sources are class
-    attributes exactly like the old ``Enum`` members, and an IM channel
-    registers its own value (``WorkingSource.register("mattermost")``) — a
-    channel plugin must not need a platform release to name its turns.
+    attributes exactly like the old ``Enum`` members, and EVERY IM channel —
+    the builtins included — registers its own value from its ChannelDescriptor
+    (``WorkingSource.register("lark")``): the platform holds no channel-name
+    table, and a channel plugin needs no platform release to name its turns.
+    Registering a channel source also registers the matching
+    ``narrative.models.TriggerType`` member, so its events are labelled by
+    surface like every other.
     The enum surface is kept: ``.value`` / ``.name``, ``WorkingSource("job")``,
     ``from_string``, iteration, membership, ``is_automated`` /
     ``is_user_initiated`` / ``is_from_human``, pydantic and JSON (it is a
@@ -124,10 +113,6 @@ class WorkingSource(str, metaclass=_OpenEnumMeta):
         … and one value per IM channel (builtin or plugin).
     """
 
-    _members: dict[str, "WorkingSource"] = {}
-    _channel_values: set[str] = set()
-    _name_: str
-
     # Core members — declared here for type checkers; bound by ``_add`` below.
     CHAT: "WorkingSource"
     JOB: "WorkingSource"
@@ -136,73 +121,15 @@ class WorkingSource(str, metaclass=_OpenEnumMeta):
     SKILL_STUDY: "WorkingSource"
     MESSAGE_BUS: "WorkingSource"
     MANYFOLD: "WorkingSource"
-    LARK: "WorkingSource"
-    SLACK: "WorkingSource"
-    TELEGRAM: "WorkingSource"
-    WECHAT: "WorkingSource"
-    NARRAMESSENGER: "WorkingSource"
-    DISCORD: "WorkingSource"
-
-    def __new__(cls, value: object):
-        key = str(value).lower()
-        member = cls._members.get(key)
-        if member is None:
-            valid = list(cls._members)
-            raise ValueError(f"Invalid WorkingSource: {value!r}. Valid values: {valid}")
-        return member
-
-    @classmethod
-    def _add(cls, name: str, value: str, *, channel: bool = False) -> "WorkingSource":
-        obj = str.__new__(cls, value)
-        obj._name_ = name
-        cls._members[value] = obj
-        setattr(cls, name, obj)
-        if channel:
-            cls._channel_values.add(value)
-        return obj
 
     @classmethod
     def register(cls, value: str, *, name: str | None = None) -> "WorkingSource":
-        """Register an IM channel's source value (idempotent; core names cannot be redefined)."""
-        key = str(value).lower()
-        if not key or not key.replace("_", "").isalnum():
-            raise ValueError(f"WorkingSource value must be [a-z0-9_], got {value!r}")
-        existing = cls._members.get(key)
-        if existing is not None:
-            return existing
-        return cls._add(name or key.upper(), key, channel=True)
+        """Register an IM channel's source (idempotent) — and its ``TriggerType`` twin."""
+        from xyz_agent_context.narrative.models import TriggerType
 
-    @classmethod
-    def is_channel(cls, value: object) -> bool:
-        return str(value).lower() in cls._channel_values
-
-    @classmethod
-    def channel_values(cls) -> tuple[str, ...]:
-        return tuple(v for v in cls._members if v in cls._channel_values)
-
-    @property
-    def value(self) -> str:
-        return str.__str__(self)
-
-    @property
-    def name(self) -> str:
-        return self._name_
-
-    def __repr__(self) -> str:
-        return f"<WorkingSource.{self._name_}: {str.__str__(self)!r}>"
-
-    def __reduce__(self):
-        return (WorkingSource, (str.__str__(self),))
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any):
-        from pydantic_core import core_schema
-
-        return core_schema.no_info_after_validator_function(
-            cls,
-            core_schema.str_schema(),
-            serialization=core_schema.plain_serializer_function_ser_schema(lambda v: str.__str__(v), when_used="json"),
-        )
+        member = super().register(value, name=name)
+        TriggerType.register(str.__str__(member), name=member.name)
+        return member
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
@@ -279,9 +206,10 @@ class WorkingSource(str, metaclass=_OpenEnumMeta):
         )
 
 
-# Core members (the former Enum body). IM channels register theirs from their
-# ChannelDescriptor (module/contributions.register_all) — the six builtin ones
-# are pre-registered here so the class attributes exist at import.
+# Core members (the former Enum body). IM channels — builtin and plugin alike —
+# register theirs from their ChannelDescriptor (``module/<channel>_module/descriptor.py``,
+# imported first by the channel package; ``module/contributions.register_all``
+# and the data-access seam repeat it idempotently).
 WorkingSource._add("CHAT", "chat")
 WorkingSource._add("JOB", "job")
 WorkingSource._add("A2A", "a2a")
@@ -289,15 +217,6 @@ WorkingSource._add("CALLBACK", "callback")  # Callback triggered after Job compl
 WorkingSource._add("SKILL_STUDY", "skill_study")  # Skill study trigger
 WorkingSource._add("MESSAGE_BUS", "message_bus")  # Triggered by MessageBus message
 WorkingSource._add("MANYFOLD", "manyfold")  # Triggered by Manyfold platform via OpenAI-compat endpoint
-for _name, _value in (
-    ("LARK", "lark"),
-    ("SLACK", "slack"),
-    ("TELEGRAM", "telegram"),
-    ("WECHAT", "wechat"),
-    ("NARRAMESSENGER", "narramessenger"),
-    ("DISCORD", "discord"),
-):
-    WorkingSource._add(_name, _value, channel=True)
 
 
 BUS_ERRAND_TURN_SOURCE = "message_bus_errand"

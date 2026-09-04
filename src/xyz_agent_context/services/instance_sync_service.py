@@ -39,8 +39,14 @@ MODULE_PREFIX_MAP = {
     "AwarenessModule": "aware",
     "BasicInfoModule": "info",
     "MessageBusModule": "bus",
-    "LarkModule": "lark",
 }
+
+
+def instance_prefix(module_class: str) -> str:
+    """Instance-id prefix for a module class: the table's short names, else the
+    class name minus ``Module`` (``LarkModule`` → ``lark``, a plugin's
+    ``AcmeChatModule`` → ``acmechat``) — the same rule the loader applies."""
+    return MODULE_PREFIX_MAP.get(module_class) or module_class.lower().replace("module", "") or "inst"
 
 
 class InstanceSyncService:
@@ -355,7 +361,7 @@ class InstanceSyncService:
                 logger.debug(f"  {task_key}: Keeping existing instance_id={inst.instance_id}")
             else:
                 # Generate new instance_id
-                prefix = MODULE_PREFIX_MAP.get(inst.module_class, "inst")
+                prefix = instance_prefix(inst.module_class)
                 new_id = f"{prefix}_{uuid4().hex[:8]}"
                 key_to_id[task_key] = new_id
                 logger.debug(f"  {task_key}: Generated new instance_id={new_id}")
