@@ -22,5 +22,6 @@ def _load_generator():
 
 def test_slot_docs_are_up_to_date():
     gen = _load_generator()
-    committed = (ROOT / "docs" / "plugins" / "slots.md").read_text(encoding="utf-8")
-    assert committed == gen.render(), "docs/plugins/slots.md is stale: run scripts/dev/gen_plugin_docs.py --write"
+    for path, text in gen.render_all().items():
+        assert path.is_file(), f"{path} missing: run scripts/dev/gen_plugin_docs.py --write"
+        assert path.read_text(encoding="utf-8") == text, f"{path.name} is stale: run scripts/dev/gen_plugin_docs.py --write"

@@ -53,6 +53,13 @@ jobs:
       - name: Pyright (undefined names + attribute typos)
         run: uv run pyright
 
+      - name: Generated plugin docs and theme tokens are fresh
+        # docs/plugins/*.md and themeTokens.generated.ts are derived from code;
+        # a stale copy means the plugin surface changed without its documentation.
+        run: |
+          uv run python scripts/dev/gen_plugin_docs.py
+          uv run python scripts/dev/gen_theme_tokens.py
+
   # ── Backend tests ───────────────────────────────────────────────────────
   #
   # Split from `backend` on purpose: lint + pyright are the seconds-long
@@ -172,3 +179,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Bundle budget (first-load set, no plugin code)
+        run: node scripts/check_bundle_budget.mjs

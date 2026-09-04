@@ -74,3 +74,4 @@ bound only from the distribution or default layers.
 | `builtin.providers` | 1.0.0 | backend, mcp, workers | `model.providers` | gold |
 | `builtin.llm_clients` | 1.0.0 | backend, mcp, workers | `model.clients` | gold |
 | `builtin.memory_kinds` | 1.0.0 | backend, mcp, workers | `agent.capabilities.memory_kinds` | gold |
+| `builtin.nexus_plugins_module` | 1.0.0 | backend, mcp |  | gold |
