@@ -60,9 +60,47 @@ API_VERSIONS: dict[str, int] = {
     "prompt": 0,
 }
 
-# Batch 6: every shipped kind is STABLE — a breaking change to any of these
-# contracts follows docs/API_POLICY.md (deprecation window, major bump).
-STABILITY: dict[str, Stability] = {kind: Stability.STABLE for kind in API_VERSIONS}
+# The OLDEST contract version a plugin may still declare per kind. Equal to
+# API_VERSIONS until a kind is bumped; then the previous version stays here
+# for the deprecation window docs/API_POLICY.md §5 promises, and is removed
+# when the window closes. A manifest's api[kind] must satisfy
+# MIN_SUPPORTED_VERSIONS[kind] <= api[kind] <= API_VERSIONS[kind].
+MIN_SUPPORTED_VERSIONS: dict[str, int] = dict(API_VERSIONS)
+
+# Stability is declared PER KIND, deliberately: marking a kind stable is a
+# decision (docs/API_POLICY.md), not the by-product of a comprehension over
+# whatever happens to be in API_VERSIONS. Since plugin platform batch 6 every
+# shipped kind is STABLE; a new kind starts ALPHA until it is promoted here.
+STABILITY: dict[str, Stability] = {
+    "framework": Stability.STABLE,
+    "agent_events": Stability.STABLE,
+    "agent": Stability.STABLE,
+    "services": Stability.STABLE,
+    "ui": Stability.STABLE,
+    "provider": Stability.STABLE,
+    "llm_client": Stability.STABLE,
+    "memory": Stability.STABLE,
+    "events": Stability.STABLE,
+    "hook": Stability.STABLE,
+    "route": Stability.STABLE,
+    "table": Stability.STABLE,
+    "worker": Stability.STABLE,
+    "trigger": Stability.STABLE,
+    "data_access": Stability.STABLE,
+    "channel": Stability.STABLE,
+    "settings": Stability.STABLE,
+    "tool": Stability.STABLE,
+    "mcp_server": Stability.STABLE,
+    "bundle": Stability.STABLE,
+    "skill": Stability.STABLE,
+    "theme": Stability.STABLE,
+    "stage_strategy": Stability.STABLE,
+    "pipeline_profile": Stability.STABLE,
+    "context_provider": Stability.STABLE,
+    "module": Stability.STABLE,
+    "auth": Stability.STABLE,
+    "prompt": Stability.STABLE,
+}
 
 
 class Namespace:
@@ -70,6 +108,7 @@ class Namespace:
 
 __all__ = [
     "API_VERSIONS",
+    "MIN_SUPPORTED_VERSIONS",
     "STABILITY",
     "Namespace",
     "Stability",

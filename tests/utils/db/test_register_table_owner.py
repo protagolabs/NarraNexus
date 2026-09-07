@@ -22,7 +22,7 @@ def clean_registry():
     sr.TABLE_OWNERS.update(saved_owners)
 
 
-def _spec(name="ext_acme_weather_items"):
+def _spec(name="ext_acme_weather__items"):
     return TableSpec(
         name,
         (
@@ -35,9 +35,9 @@ def _spec(name="ext_acme_weather_items"):
 
 def test_register_table_converts_and_records_owner(clean_registry):
     table = sr.register_table(_spec(), owner="acme.weather")
-    assert sr.TABLES["ext_acme_weather_items"] is table
-    assert sr.TABLE_OWNERS["ext_acme_weather_items"] == "acme.weather"
-    assert sr.tables_owned_by("acme.weather") == ["ext_acme_weather_items"]
+    assert sr.TABLES["ext_acme_weather__items"] is table
+    assert sr.TABLE_OWNERS["ext_acme_weather__items"] == "acme.weather"
+    assert sr.tables_owned_by("acme.weather") == ["ext_acme_weather__items"]
     assert [c.mysql_type for c in table.columns] == ["BIGINT UNSIGNED", "VARCHAR(64)"]
     assert table.indexes[0].unique is True
     # both dialects generate DDL

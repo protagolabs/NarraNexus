@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/hosts/boot.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -25,3 +25,7 @@ Before stage 1 every builtin passes `ensure_builtin_deps` (probe / install on th
 Batch 6c: `boot(..., distribution=DistributionResolution | None)`. With a distribution the stage-1 set is its plugin set: builtins it leaves out lose their import-time registrations (`report.excluded_builtins`), bundled path plugins get a synthetic package + private deps via `_prepare_user_plugin` and load fail-fast in stage 1, and `runtime.userPlugins=false` skips the user registry. A resolution with problems raises before anything loads. `report.distribution` names the distribution.
 
 Batch 6c.3: `prepare_bundled_plugins(distribution, store, skip)` is the shared helper (boot and the backend's import-time registration) giving bundled path plugins their synthetic package and deps.
+
+## 2026-09-07 — inspect mode, corrupt-registry tolerance, crash accounting order, real stage-2 deadline, LKG at health
+
+boot(inspect=True) discovers and registers exactly like a real boot but writes nothing: no BootMarker (three 'narranexus slots' runs used to push the app into SAFE MODE with a fabricated reason), no rejection/crash/state persistence — the CLI's booted_registries uses it. A corrupt registry.json no longer raises out of boot (the two bare store.read() calls are guarded; builtins boot, safe mode / rollback stay reachable). record_crash runs after EVERY isolation source (load errors and refused tables) so a table refused every boot reaches the auto-disable threshold. stage2_deadline_s is enforced: plugins the deadline cuts off go to report.slow with state 'slow' (never crash_count), and a PluginImportTimeout during prepare is classified slow too. mark_healthy() now also snapshots registry.json to registry.lkg.json — the only moment a state is proven bootable — so BootReport carries the store.

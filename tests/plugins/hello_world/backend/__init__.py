@@ -51,7 +51,7 @@ TABLES = (
     Contribution(
         "greetings",
         lambda: TableSpec(
-            "ext_acme_hello_world_greetings",
+            "ext_acme_hello_world__greetings",
             (ColumnSpec("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True), ColumnSpec("text", "TEXT", "VARCHAR(255)", nullable=False)),
         ),
     ),

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.contracts import RegistryConflict, UnknownEntry
+from narranexus.contracts import PluginError, RegistryConflict, UnknownEntry
 from narranexus.kernel.plugins.services import ServiceLocator, ServiceRef
 
 WEATHER = ServiceRef[object]("acme.weather")
@@ -40,5 +40,5 @@ def test_scoped_view_exposes_as_the_plugin_and_frozen_refuses():
 
 
 def test_ref_id_validation():
-    with pytest.raises(Exception):
+    with pytest.raises(PluginError, match="non-empty token"):
         ServiceRef("bad id")

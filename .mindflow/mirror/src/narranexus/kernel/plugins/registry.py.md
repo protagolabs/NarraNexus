@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/registry.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 

@@ -59,6 +59,7 @@ def test_happy_path(env, svc):
     assert "steps" in hint and any("Release" in s for s in hint["steps"])
 
     # rollback twice → manual required; register/activate refuse
+    env["store"].snapshot_lkg()  # the state a healthy boot proved — the rollback target
     svc.rollback("me.weather")
     r2 = svc.rollback("me.weather")
     assert r2["manual_required"] is True

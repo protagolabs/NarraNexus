@@ -301,6 +301,35 @@ def _check_nesting(tree: SlotTree, resolved: ResolvedBindings, redeclared: dict[
 # =============================================================================
 
 
+def referenced_plugins(value: Any) -> set[str]:
+    """Plugin ids a binding VALUE names, whatever its form.
+
+    The grammar lives here because this module defines it: a one-arity value
+    is ``owner``, ``name`` or ``owner:name``; a many-arity value is a list (or
+    a comma string) of those, each optionally prefixed with the ``+``/``-``/``=``
+    verbs. Every validator of "is this provider in the distribution / a
+    candidate" calls this instead of re-deriving the grammar (the third copy
+    was the one that rejected ``owner:name``).
+    """
+    items: list[str]
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple)):
+        items = [str(v) for v in value]
+    else:
+        return set()
+    out: set[str] = set()
+    for item in items:
+        for part in item.split(","):
+            token = part.strip()
+            while token and token[0] in "+-=":
+                token = token[1:]
+            if not token:
+                continue
+            out.add(token.split(":", 1)[0])
+    return out
+
+
 def write_resolved(resolved: ResolvedBindings, path: Path) -> Path:
     """Atomically write the resolved snapshot (temp file + replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -318,6 +347,7 @@ __all__ = [
     "BoundMany",
     "ResolvedBindings",
     "parse_env",
+    "referenced_plugins",
     "parse_toml",
     "from_mapping",
     "resolve",

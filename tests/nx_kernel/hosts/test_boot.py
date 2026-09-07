@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.contracts import PluginError
+from narranexus.contracts.route import RouterSpec
 from narranexus.contracts.settings import SettingsSchema
 from narranexus.contracts.table import ColumnSpec, TableSpec
 from narranexus.hosts.boot import boot
@@ -20,7 +21,6 @@ from narranexus.kernel.plugins.activation import Activator
 from narranexus.kernel.plugins.context import build_context
 from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryStore
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.kernel.plugins.registry import Contribution
 from narranexus.kernel.plugins.services import ServiceLocator
 from narranexus.kernel.settings import PluginSettings
 
@@ -98,7 +98,7 @@ def test_plugin_tables_are_registered_before_migration(plugin_home: Path):
     make_plugin(
         plugin_home, "acme.tables",
         body="from narranexus.contracts.table import ColumnSpec, TableSpec\nfrom narranexus.kernel.plugins.registry import Contribution\n"
-             "TABLES = (Contribution('items', lambda: TableSpec('ext_acme_tables_items', (ColumnSpec('id', 'INTEGER', 'BIGINT', primary_key=True),))),)\n"
+             "TABLES = (Contribution('items', lambda: TableSpec('ext_acme_tables__items', (ColumnSpec('id', 'INTEGER', 'BIGINT', primary_key=True),))),)\n"
              "def activate(ctx):\n    pass\n",
         extra={"provides": {"backend.tables": ["nxplugins.acme_tables:TABLES"]}, "api": {"table": 0}},
     )
@@ -106,7 +106,7 @@ def test_plugin_tables_are_registered_before_migration(plugin_home: Path):
     registered = []
     registries = Registries()
     boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store, register_table=lambda spec, owner: registered.append((spec.name, owner)))
-    assert registered == [("ext_acme_tables_items", "acme.tables")]
+    assert registered == [("ext_acme_tables__items", "acme.tables")]
 
 
 def test_builtin_failure_is_fatal(plugin_home: Path, monkeypatch):
@@ -159,4 +159,12 @@ def test_contribution_from_user_plugin_is_visible_in_registries(plugin_home: Pat
     boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store)
     routes = registries.registry_for("backend.routes")
     assert tuple(e.name for e in routes.entries() if e.owner == "acme.ok") == ("api",)
-    assert isinstance(registries.registry_for("backend.routes").entries()[0], type(Contribution("x", lambda: 1))) or True
+    acme_entry = next(e for e in routes.entries() if e.owner == "acme.ok")
+    # Guard: the loader must register the Contribution's LAZY FACTORY, not the
+    # RouterSpec object it produces. A loader bug that stuffs the spec itself
+    # in as `factory=` would make `entry.factory` uncallable (or callable but
+    # returning something other than a RouterSpec) — the entries()[0] index
+    # this used to check picked an unrelated builtin entry and could never
+    # have caught that regardless.
+    assert callable(acme_entry.factory)
+    assert isinstance(acme_entry.factory(), RouterSpec)

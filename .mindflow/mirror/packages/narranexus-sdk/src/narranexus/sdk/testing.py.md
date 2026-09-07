@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-sdk/src/narranexus/sdk/testing.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -18,3 +18,7 @@ stub: false
 `_unshadow_platform_packages` runs on enter: if the plugin dir sits on sys.path (a plugin author ran pytest from inside it) it is removed and a shadowing `backend` import is forgotten, so the builtins that import `backend.*` boot in the plugin's own test run.
 
 Batch 6d: `PluginTestHost.module(name="")` returns the plugin's imported backend package (or a submodule) so plugin tests never import the kernel importer.
+
+## 2026-09-07 — the test host acknowledges the plugin's permissions
+
+PluginTestHost installs with permissions_acknowledged=True — its author is the one running it — otherwise every plugin that declares a permission would boot disabled inside its own test host.

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/install/installer.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -13,3 +13,7 @@ fetch 到 plugin home 下的 staging → manifest 按本宿主校验（不满足
 （旧版本先改名再删）、link 模式原地 → 最后才写 registry（写前 LKG 快照）。任一步失败：staging 清理、registry
 不动（测试钉住「依赖失败不落账」）。`uninstall` 只删 plugin home 之内的 copy 目录与 link 模式的私有依赖；
 `check_update` 查 GitHub latest release；`upgrade` 按原来源重装（replace）。
+
+## 2026-09-07 — permissions are a gate; acknowledgement records tokens; upgrades that widen re-arm
+
+A plugin that declares any permission is installed enabled=False (state registered) unless permissions_acknowledged — before this the 'acknowledge with …' hint was decoration and the plugin ran on the next boot. acknowledge_permissions(store, id) is the one door (CLI --ack, factory endpoint): it records the acknowledged permission tokens on the record and enables. upgrade() compares the new manifest's tokens with the acknowledged set and re-arms the gate when they grew. is_gated(rec) is what enable paths consult.

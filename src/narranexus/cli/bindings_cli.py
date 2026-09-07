@@ -29,7 +29,10 @@ def booted_registries(*, host_version: str | None = None) -> Any:
     register_all(regs)
     hv = host_version or _hv()
     res = resolve_from_env(host_version=hv)
-    boot("backend", registries=regs, cloud=False, host_version=hv, distribution=res)
+    # inspect=True: exactly a backend boot minus every write-back — no boot
+    # marker (three `narranexus slots` runs used to push the app into SAFE
+    # MODE), no crash counts, no state transitions in registry.json.
+    boot("backend", registries=regs, cloud=False, host_version=hv, distribution=res, inspect=True)
     resolve_runtime_bindings(res, registries=regs, snapshot=False)
     return regs
 
@@ -101,8 +104,7 @@ def write_bindings_table(path: Path, table: dict[str, Any]) -> None:
 
 def bind(regs: Any, path: Path, slot: str, providers: list[str]) -> dict[str, Any]:
     """Validate and write one binding; returns what the resolved bindings say afterwards."""
-    from narranexus.kernel.plugins.bindings import parse_toml, resolve
-    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+    from narranexus.kernel.plugins.bindings import parse_toml, referenced_plugins, resolve
 
     tree = regs.slots
     if slot not in tree:
@@ -111,8 +113,8 @@ def bind(regs: Any, path: Path, slot: str, providers: list[str]) -> dict[str, An
     if spec.distribution_only:
         raise BindingConflict(f"{slot} is distribution-only: bind it in narranexus-dist.json, not in narranexus.toml")
     entries = list(regs.registry_for(slot).entries())
-    known = {e.owner for e in entries} | {e.name for e in entries} | {f"{e.owner}:{e.name}" for e in entries}
-    unknown = [p for p in providers if p not in known]
+    known = {e.owner for e in entries} | {e.name for e in entries}
+    unknown = [p for p in providers if not referenced_plugins(p) <= known and p not in {f"{e.owner}:{e.name}" for e in entries}]
     if unknown:
         raise UnknownEntry(f"{slot}: {unknown} registered nothing here (candidates: {sorted({e.owner for e in entries})})")
     if spec.arity == "one" and len(providers) != 1:
@@ -120,9 +122,13 @@ def bind(regs: Any, path: Path, slot: str, providers: list[str]) -> dict[str, An
     table = read_bindings_table(path)
     table[slot] = providers[0] if spec.arity == "one" else providers
     write_bindings_table(path, table)
-    # prove the file still resolves (a conflict is a real error, so the write is undone)
+    # prove the file still resolves against the BOOTED tree (a user plugin's
+    # declared slots included — the builtin-only tree rejected them, which
+    # made every later bind fail once such a binding existed); a conflict is
+    # a real error, so the write is undone. Non-strict: a defaultless slot
+    # nobody binds is not this binding's problem.
     try:
-        resolve(slot_tree_with_builtins(), [parse_toml(path.read_text(encoding="utf-8"), origin=str(path))])
+        resolve(tree, [parse_toml(path.read_text(encoding="utf-8"), origin=str(path))], strict=False)
     except Exception:
         table.pop(slot, None)
         write_bindings_table(path, table)

@@ -61,8 +61,8 @@ def _ctx(plugin_id="acme.weather", provides=("backend.routes",), bus=None):
 
 def test_db_is_confined_to_the_plugin_prefix():
     ctx = _ctx()
-    asyncio.run(ctx.db.insert("ext_acme_weather_items", {"a": 1}))
-    with pytest.raises(PluginError, match="outside ext_acme_weather_"):
+    asyncio.run(ctx.db.insert("ext_acme_weather__items", {"a": 1}))
+    with pytest.raises(PluginError, match="outside ext_acme_weather__"):
         asyncio.run(ctx.db.get("events", {}))
     builtin = _ctx("builtin.chat")
     asyncio.run(builtin.db.get("events", {}))  # builtins keep core access

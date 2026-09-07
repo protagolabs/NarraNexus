@@ -43,3 +43,7 @@ Batch 6c: contract kind `auth` (the `kernel.auth` slot / authProviders, spec sec
 Batch 6d: `STABILITY` marks every kind STABLE (docs/API_POLICY.md governs changes; griffe checks the surface in CI); kind `auth` added in 6c.
 
 2026-09-07: kind `prompt` (stable, like the rest).
+
+## 2026-09-07 — MIN_SUPPORTED_VERSIONS; STABILITY declared per kind
+
+MIN_SUPPORTED_VERSIONS is the oldest contract version a plugin may declare per kind (equal to API_VERSIONS until a kind is bumped; the previous version stays for the deprecation window). STABILITY is an explicit per-kind table rather than a comprehension over API_VERSIONS: marking a kind stable is a decision, and a new kind starts ALPHA until promoted here.

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import subprocess
-import time
 from pathlib import Path
 
 import httpx
@@ -72,4 +71,3 @@ def test_integrity_helpers(tmp_path: Path):
     with pytest.raises(IntegrityError):
         verify_sha256(f, "0" * 64)
     assert sri_for(f).startswith("sha256-") and len(sri_for(f)) > 20
-    assert time.time() > 0

@@ -25,7 +25,7 @@ SCHEMA = SettingsSchema(
 def test_precedence_env_over_stored_over_default():
     store = MemorySettingsStore()
     store.save("acme.weather", "retries", 5, secret=False)
-    s = PluginSettings("acme.weather", SCHEMA, store=store, environ={"NXP_ACME_WEATHER_RETRIES": "9"})
+    s = PluginSettings("acme.weather", SCHEMA, store=store, environ={"NXP_ACME_WEATHER__RETRIES": "9"})
     assert s.get("retries") == 9 and s.source_of("retries") == "env"
     s2 = PluginSettings("acme.weather", SCHEMA, store=store, environ={})
     assert s2.get("retries") == 5 and s2.source_of("retries") == "stored"
@@ -54,7 +54,7 @@ def test_required_unset_and_undeclared_keys_fail_loud():
 
 
 def test_snapshot_masks_secrets_unless_revealed():
-    s = PluginSettings("acme.weather", SCHEMA, store=MemorySettingsStore(), environ={"NXP_ACME_WEATHER_API_KEY": "sk-1"})
+    s = PluginSettings("acme.weather", SCHEMA, store=MemorySettingsStore(), environ={"NXP_ACME_WEATHER__API_KEY": "sk-1"})
     assert s.snapshot()["api_key"] == "••••••"
     assert s.snapshot(reveal_secrets=True)["api_key"] == "sk-1"
     assert s.snapshot()["region"] == "eu"

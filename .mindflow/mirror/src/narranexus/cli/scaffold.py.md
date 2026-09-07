@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/cli/scaffold.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -15,3 +15,7 @@ versions.json/tests。测试逐 kind 生成后在子进程里跑生成物自己�
 Template directories accumulate `__pycache__`/`.pyc` and test-run leftovers when their own tests run in place; `_is_artifact` keeps them out of scaffolded plugins (a `.pyc` copied as text raised UnicodeDecodeError).
 
 Batch 6d: `scaffold()` also writes `.github/workflows/plugin-ci.yml` (`PLUGIN_CI_WORKFLOW`): tests + `publish-check` on every push, and on a tag equal to the manifest version a GitHub release with the install assets.
+
+## 2026-09-07 — templates resolve from the wheel first
+
+resolve_templates_dir() prefers the packaged copy (narranexus/cli/resources/templates, hatch force-include of the repo's templates/), then the source checkout, and otherwise raises a plain 'reinstall narranexus' error — 'narranexus plugin new' used to climb parents[3] from the package and fail with an opaque FileNotFoundError from a wheel.

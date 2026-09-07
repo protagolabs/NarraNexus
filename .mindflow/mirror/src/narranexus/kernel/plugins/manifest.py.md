@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/manifest.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -47,3 +47,7 @@ stub: false
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `BackendSpec.imports` — import names that prove `pip` is present; on-demand builtins are probed against them.
+
+## 2026-09-07 — PLUGIN_ID_RE tightened; api versions are floor..current
+
+Ids are [a-z0-9] words joined by single '_'/'-' (no doubled, leading or trailing separators) so the flattened id is an injective prefix. _check_api_versions accepts MIN_SUPPORTED_VERSIONS[kind] <= api[kind] <= API_VERSIONS[kind]: a bump opens the deprecation window API_POLICY promises instead of breaking every published plugin in one upgrade; a plugin written against a newer contract than the host is refused ('upgrade the host').

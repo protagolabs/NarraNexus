@@ -78,7 +78,10 @@ class SettingsSchema:
                 raise ValueError(f"setting key {key!r} must match {_KEY_RE.pattern}")
 
     def env_name(self, plugin_id: str, key: str) -> str:
-        return f"NXP_{plugin_id.upper().replace('.', '_').replace('-', '_')}_{key.upper()}"
+        # ``NXP_<ID>__<KEY>``: the double underscore separates the flattened
+        # plugin id from the key so ``a.b`` + ``c_d`` and ``a.b_c`` + ``d``
+        # cannot collide (ids never contain ``__``).
+        return f"NXP_{plugin_id.upper().replace('.', '_').replace('-', '_')}__{key.upper()}"
 
 
 __all__ = ["FieldType", "SettingField", "SettingsSchema"]

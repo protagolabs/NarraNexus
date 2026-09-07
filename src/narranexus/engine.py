@@ -73,8 +73,15 @@ class Engine:
             store=store,
             distribution=res,
         )
-        report.mark_healthy()
+        # Not marked healthy here: "booted" is not "proven healthy". The
+        # embedding host calls engine.mark_healthy() after its own probe (or
+        # after the first turn ran), which is when the boot-crash counter
+        # clears and registry.json becomes the last-known-good snapshot.
         return cls(registries=regs, report=report, distribution=res, bus=bus or EventBus())
+
+    def mark_healthy(self) -> None:
+        """Declare this boot healthy: clears the crash counter and moves the last-known-good snapshot."""
+        self.report.mark_healthy()
 
     # ---- turns -------------------------------------------------------------
     async def run_turn(

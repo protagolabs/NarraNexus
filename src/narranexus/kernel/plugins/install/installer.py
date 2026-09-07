@@ -86,15 +86,24 @@ class Installer:
                 pass
             deps = self._install_deps(manifest, fetched.root, fetched.mode)
             final_path = self._place(manifest, fetched.root, fetched.mode, existing)
+            # Disclosure is a GATE: a plugin that declares any permission stays
+            # disabled ("registered") until the user acknowledges — enabling is
+            # what `narranexus plugin enable --ack` / the factory's acknowledge
+            # endpoint do. Without this the printed "acknowledge with …" hint
+            # was decoration and the plugin ran on the next boot regardless.
+            # Re-acknowledgement is required when an upgrade widens permissions.
+            needs_ack = declares_permissions(manifest) and not permissions_acknowledged
             record = PluginRecord(
                 path=str(final_path),
                 mode="link" if fetched.mode == "link" else "copy",
                 source=fetched.record,
                 installed_version=manifest.version,
                 scope=scope,
-                warnings=list(fetched.warnings),
+                warnings=list(fetched.warnings) + ([PERMISSIONS_PENDING_WARNING] if needs_ack else []),
                 permissions_acknowledged=permissions_acknowledged,
+                acknowledged_permissions=sorted(permission_tokens(manifest)) if permissions_acknowledged else [],
                 installed_by=installed_by,
+                enabled=not needs_ack,
             )
             if existing is not None:
                 self.store.unregister(manifest.id)
@@ -186,15 +195,97 @@ class Installer:
         rec = self.store.read().plugins.get(plugin_id)
         if rec is None:
             raise InstallError(f"{plugin_id} is not installed")
+        acknowledged = frozenset(rec.acknowledged_permissions)
         if rec.source.type == "github":
             source: Source = GitHubReleaseSource(rec.source.repo, to_tag or "")
         elif rec.source.type == "github_repo":
             source = GitHubRepoSource(rec.source.repo, to_tag or rec.source.ref)
         else:
             source = LocalSource(Path(rec.path), mode=rec.mode)
-        return self.install(
+        result = self.install(
             source, installed_by=rec.installed_by, scope=rec.scope, permissions_acknowledged=rec.permissions_acknowledged, replace=True
         )
+        # An upgrade that asks for MORE than the user acknowledged re-arms the
+        # gate: the new record is disabled until acknowledged again.
+        if rec.permissions_acknowledged:
+            new_rec = self.store.read().plugins.get(plugin_id)
+            if new_rec is not None and not _permissions_of_installed(new_rec) <= acknowledged:
+                self.store.update(lambda reg: _require_reack(reg, plugin_id))
+        return result
 
 
-__all__ = ["InstallError", "InstallResult", "Installer", "UpdateCheck"]
+
+PERMISSIONS_PENDING_WARNING = "permissions not acknowledged: disabled until `narranexus plugin enable <id> --ack` (or the factory's acknowledge)"
+
+
+def declares_permissions(manifest: Any) -> bool:
+    p = manifest.permissions
+    return bool(p.network or p.filesystem or p.subprocess or p.env)
+
+
+def permission_tokens(manifest: Any) -> frozenset[str]:
+    """A manifest's declared permissions as comparable tokens."""
+    p = manifest.permissions
+    tokens = {f"network:{n}" for n in p.network} | {f"filesystem:{f}" for f in p.filesystem} | {f"env:{e}" for e in p.env}
+    if p.subprocess:
+        tokens.add("subprocess")
+    return frozenset(tokens)
+
+
+def _permissions_of_installed(rec: Any) -> frozenset[str]:
+    """The permission tokens of an installed plugin's manifest on disk (empty when unreadable).
+
+    Reads the ``permissions`` block of the JSON directly: the gate must work
+    even when the full manifest no longer validates against this host (an
+    incompatible plugin is still a plugin whose permissions were or were not
+    acknowledged).
+    """
+    from narranexus.kernel.plugins.manifest import Permissions
+    from narranexus.kernel.plugins.paths import manifest_path
+
+    try:
+        raw = json.loads(manifest_path(Path(rec.path)).read_text(encoding="utf-8"))
+        return permission_tokens(type("_M", (), {"permissions": Permissions.model_validate(raw.get("permissions") or {})})())
+    except Exception:  # noqa: BLE001 — a missing/broken manifest cannot widen anything
+        return frozenset()
+
+
+def acknowledge_permissions(store: Any, plugin_id: str) -> Any:
+    """Record the user's acknowledgement of a plugin's CURRENT declared permissions and enable it.
+
+    The one door for the CLI's ``plugin enable --ack`` and the factory's
+    acknowledge endpoint: both must store the tokens the acknowledgement
+    covered, or an upgrade cannot tell whether it widened them.
+    """
+    rec = store.read().plugins.get(plugin_id)
+    if rec is None:
+        raise InstallError(f"{plugin_id} is not installed")
+    tokens = sorted(_permissions_of_installed(rec))
+
+    def _mutate(reg: Any) -> None:
+        r = reg.plugins[plugin_id]
+        r.permissions_acknowledged = True
+        r.acknowledged_permissions = tokens
+        r.enabled = True
+        if r.state == "disabled":
+            r.state = "registered"
+        r.warnings = [w for w in r.warnings if PERMISSIONS_PENDING_WARNING not in w]
+
+    return store.update(_mutate).plugins[plugin_id]
+
+
+def is_gated(rec: Any) -> bool:
+    """True when the plugin declares permissions the user has not acknowledged (it must not be enabled)."""
+    return bool(_permissions_of_installed(rec)) and not rec.permissions_acknowledged
+
+
+def _require_reack(reg: Any, plugin_id: str) -> None:
+    rec = reg.plugins[plugin_id]
+    rec.permissions_acknowledged = False
+    rec.acknowledged_permissions = []
+    rec.enabled = False
+    rec.state = "registered"
+    rec.warnings.append("upgrade widened the declared permissions: " + PERMISSIONS_PENDING_WARNING)
+
+
+__all__ = ["InstallError", "InstallResult", "Installer", "PERMISSIONS_PENDING_WARNING", "UpdateCheck", "acknowledge_permissions", "declares_permissions", "is_gated", "permission_tokens"]

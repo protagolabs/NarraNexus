@@ -8,9 +8,9 @@ Why a file and not the database: rollback must work when nothing else does
 (no LLM, no UI, no DB), so the truth about which plugins exist and whether
 they are enabled is a JSON file the kernel can rewrite with plain file
 operations. Every write goes through ``RegistryStore.update``: take the file
-lock, copy the current file to ``registry.lkg.json``, write a temp file, and
+lock, write a temp file, replace; ``snapshot_lkg()`` copies the file to ``registry.lkg.json`` when a boot reached health, and
 ``os.replace`` it — a crash mid-write leaves either the old or the new file,
-never a torn one, and the LKG copy is always the last state that booted.
+never a torn one, and the LKG copy is always the last state that booted HEALTHILY.
 
 States (spec §9.1): ``registered → validated → enabled → active`` on the happy
 path; ``incompatible / blocked / missing / deps_missing / crashed / disabled /
@@ -80,6 +80,9 @@ class PluginRecord(_Strict):
     crash_count: int = 0
     warnings: list[str] = Field(default_factory=list)
     permissions_acknowledged: bool = False
+    # the permission tokens (network:*, filesystem:<path>, subprocess, env:<VAR>) the
+    # acknowledgement covered — an upgrade that declares more must be acknowledged again
+    acknowledged_permissions: list[str] = Field(default_factory=list)
     installed_by: str = "user"
     installed_at: str = ""
     # per-role: when the plugin was last activated / the last error, for the factory page
@@ -171,14 +174,28 @@ class RegistryStore:
     # ------------------------------------------------------------- writing
 
     def update(self, mutate: Callable[[RegistryFile], None]) -> RegistryFile:
-        """Locked read → mutate → LKG snapshot → atomic replace. Returns the new state."""
+        """Locked read → mutate → atomic replace. Returns the new state.
+
+        Does NOT touch the LKG copy: a boot itself writes (rejections, crash
+        counts, validated/enabled transitions), so "snapshot before every
+        write" made the LKG the state that included the plugin that just
+        broke the boot. The snapshot is taken by ``snapshot_lkg()`` when the
+        host reports health (BootReport.mark_healthy) — the only moment a
+        state is proven good.
+        """
         with _locked(self.path):
             current = self.read()
-            if self.path.exists():
-                shutil.copyfile(self.path, self.lkg)
             mutate(current)
             _atomic_write_json(self.path, current.model_dump(by_alias=True))
             return current
+
+    def snapshot_lkg(self) -> bool:
+        """Copy the current registry to ``registry.lkg.json``; False when there is no registry yet."""
+        with _locked(self.path):
+            if not self.path.exists():
+                return False
+            shutil.copyfile(self.path, self.lkg)
+            return True
 
     def rollback_to_lkg(self) -> RegistryFile:
         """Restore the last-known-good file (a pure file operation; never needs the app)."""

@@ -19,7 +19,7 @@ from narranexus.contracts.distribution import (
     DistributionSpec,
     parse_distribution,
 )
-from narranexus.kernel.plugins.bindings import BindingSource, Layer
+from narranexus.kernel.plugins.bindings import referenced_plugins, BindingSource, Layer
 from narranexus.kernel.plugins.compat import Range
 from narranexus.kernel.plugins.manifest import Manifest
 
@@ -94,6 +94,15 @@ def load_distribution(path: Path) -> tuple[DistributionSpec, Path]:
     return parse_distribution(data, origin=str(file)), file.parent
 
 
+def _contribution_names(manifest: Any) -> set[str]:
+    """Contribution names a manifest could register (best effort: the symbol's last path segment), for validating name-form bindings without importing the plugin."""
+    names: set[str] = set()
+    for value in manifest.provides.values():
+        for spec in ([value] if isinstance(value, str) else value):
+            names.add(str(spec).rsplit(":", 1)[-1])
+    return names
+
+
 def resolve_distribution(
     spec: DistributionSpec,
     base_dir: Path,
@@ -150,6 +159,7 @@ def resolve_distribution(
             res.picks.append(PluginPick(pid, manifest.version, "builtin", manifest))
 
     selected = {p.id for p in res.picks}
+    selected_manifests = [p.manifest for p in res.picks if p.manifest is not None]
     excluded = []
     for pid in spec.excludes:
         if pid in by_id:
@@ -173,10 +183,16 @@ def resolve_distribution(
         res.problems.append(f"auth: {spec.auth!r} must be distributionOnly to fill {AUTH_SLOT}")
 
     for path, value in spec.bindings.items():
-        providers = [value] if isinstance(value, str) else list(value)
-        for provider in providers:
-            if provider not in selected:
-                res.problems.append(f"bindings[{path!r}]: provider {provider!r} is not in the distribution")
+        # owner / name / owner:name and the +/-/= verbs all resolve to plugin
+        # ids through the binding grammar's own helper; only the OWNER half of
+        # a value must be a selected plugin (a contribution name is checked at
+        # runtime against the registry).
+        for provider in sorted(referenced_plugins(value)):
+            if provider in selected:
+                continue
+            if any(provider == c for m in selected_manifests for c in _contribution_names(m)):
+                continue
+            res.problems.append(f"bindings[{path!r}]: provider {provider!r} is not in the distribution")
 
     entries: dict[str, str | list[str]] = {p: (v if isinstance(v, str) else list(v)) for p, v in spec.bindings.items()}
     entries[AUTH_SLOT] = spec.auth

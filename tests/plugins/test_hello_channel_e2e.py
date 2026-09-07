@@ -113,7 +113,9 @@ def test_a_channel_plugin_installs_binds_receives_and_replies(home: Path, db_cli
     assert len(runs) == 1, runs
     run = runs[0]
     assert run["agent_id"] == "agent_h" and run["working_source"] == "hello_channel" and "hello agent" in run["input_content"]
-    assert run["trigger_extra_data"]["channel_tag"]["channel"] == "hello_channel" if isinstance(run["trigger_extra_data"].get("channel_tag"), dict) else True
+    channel_tag = run["trigger_extra_data"].get("channel_tag")
+    assert isinstance(channel_tag, dict), f"channel_tag must be a dict, got: {channel_tag!r}"
+    assert channel_tag["channel"] == "hello_channel"
 
     # the module's send tool delivers through the channel
     module = plugin.HelloChannelModule(agent_id="agent_h", user_id="u1", database_client=db_client, instance_id="inst_h")

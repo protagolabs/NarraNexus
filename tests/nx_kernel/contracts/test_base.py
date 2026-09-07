@@ -86,7 +86,15 @@ def test_error_hierarchy():
 
 
 def test_versions_and_stability_cover_the_same_kinds_and_are_stable_since_batch_6():
+    # Concrete membership, not just truthiness: dropping a kind (or a typo in
+    # its name) must fail this test, not silently shrink the contract surface.
+    assert set(API_VERSIONS) == {
+        "framework", "agent_events", "agent", "services", "ui", "provider",
+        "llm_client", "memory", "events", "hook", "route", "table", "worker",
+        "trigger", "data_access", "channel", "settings", "tool", "mcp_server",
+        "bundle", "skill", "theme", "stage_strategy", "pipeline_profile",
+        "context_provider", "module", "auth", "prompt",
+    }
     assert set(API_VERSIONS) == set(STABILITY)
-    assert API_VERSIONS
     assert all(isinstance(v, int) and v >= 0 for v in API_VERSIONS.values())
     assert all(s is Stability.STABLE for s in STABILITY.values())

@@ -22,3 +22,7 @@ Batch 6c.3: `narranexus create-app <id> [--dir --display-name --base --auth --de
 Batch 6d: `plugin list` rows carry `quality` (read from each plugin's manifest).
 
 2026-09-07: `narranexus slots [--domain --json --toml-template]`, `narranexus bind <slot> <provider…>`, `narranexus unbind <slot>`.
+
+## 2026-09-07 — doctor exit code; link acknowledges; enable respects the permissions gate; TEMPLATES_DIR from scaffold
+
+plugin doctor returns 1 whenever anything is rejected or blocked (the 'and not users' clause answered 0 with four of five plugins rejected). plugin link acknowledges the linked plugin's permissions (it is the developer's own tree). plugin enable refuses (exit 2) a plugin whose declared permissions are not acknowledged unless --ack is given, which records them through the shared installer helper. TEMPLATES_DIR is imported from scaffold (one definition).

@@ -41,16 +41,37 @@ class DepsResult:
 Runner = Callable[[Sequence[str], float], subprocess.CompletedProcess[str]]
 
 
-def _default_runner(cmd: Sequence[str], timeout: float) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(cmd), capture_output=True, text=True, timeout=timeout, env={"PIP_NO_INPUT": "1", "PATH": _path()}, check=False
-    )
+# What the installer subprocess inherits. An allow-list, not the whole
+# environment: PYTHONPATH / VIRTUAL_ENV / PIP_TARGET would make pip install
+# into the HOST environment (the reason the env was ever cleared) — but a
+# fully empty env dropped the proxy, the corporate CA bundle, HOME (cache
+# location) and SYSTEMROOT (Windows cannot start a process without it), so
+# every dependency install failed behind a proxy with a bare network
+# traceback that pointed nowhere.
+_PASSTHROUGH = frozenset({
+    "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+})
+_PASSTHROUGH_PREFIXES = ("UV_", "PIP_")
+_NEVER = frozenset({"PYTHONPATH", "VIRTUAL_ENV", "PIP_TARGET", "PIP_PREFIX", "PIP_USER", "UV_PROJECT_ENVIRONMENT"})
 
 
-def _path() -> str:
+def subprocess_env() -> dict[str, str]:
+    """The allow-listed environment for the dependency installer."""
     import os
 
-    return os.environ.get("PATH", "")
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if (k in _PASSTHROUGH or k.startswith(_PASSTHROUGH_PREFIXES)) and k not in _NEVER
+    }
+    env["PIP_NO_INPUT"] = "1"
+    return env
+
+
+def _default_runner(cmd: Sequence[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, env=subprocess_env(), check=False)
 
 
 def build_command(requirements: Sequence[str], target: Path, *, indexes: Sequence[str] = ()) -> tuple[str, ...]:

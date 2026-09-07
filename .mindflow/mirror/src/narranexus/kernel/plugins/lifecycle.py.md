@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/lifecycle.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -13,3 +13,7 @@ JSON。每次 `RegistryStore.update`：文件锁（fcntl）→ 把当前文件�
 deps_missing/crashed/disabled/slow）任意可进，出来只能回 `registered` 重新校验。`record_crash` 第二次自动
 disable 并写 warning；`set_enabled(True)` 清零计数。`BootMarker`：`enter` 时标记残留=上次没到健康，连续两次
 `safe_mode_due`。`BisectState` 是二分定位的持久化形状（逻辑在 `bisect.py`）。
+
+## 2026-09-07 — LKG = last state that reached health; acknowledged_permissions
+
+update() no longer copies the registry to registry.lkg.json before every write: a boot itself writes (rejections, crash counts, validated/enabled), so the snapshot-before-write LKG was the state INCLUDING the plugin that just broke the boot, and rollback restored it. snapshot_lkg() copies the file explicitly; BootReport.mark_healthy() calls it. PluginRecord.acknowledged_permissions lists the permission tokens the user's acknowledgement covered, so an upgrade that declares more can be told apart.

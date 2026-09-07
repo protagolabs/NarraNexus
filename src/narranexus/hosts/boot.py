@@ -27,8 +27,8 @@ from loguru import logger
 
 from narranexus.contracts import PluginError
 from narranexus.kernel.plugins.activation import Activator
-from narranexus.kernel.plugins.importer import install_synthetic_package, plugin_finder
-from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryError, RegistryStore
+from narranexus.kernel.plugins.importer import PluginImportTimeout, install_synthetic_package, plugin_finder
+from narranexus.kernel.plugins.lifecycle import RegistryFile, BootMarker, RegistryError, RegistryStore
 from narranexus.kernel.plugins.distribution import DistributionResolution
 from narranexus.kernel.plugins.loader import Discovery, LoadReport, discover, load
 from narranexus.kernel.plugins.manifest import Manifest
@@ -54,13 +54,25 @@ class BootReport:
     # builtin id -> why its on-demand dependencies are unavailable (booted without it)
     deps_missing: dict[str, str] = field(default_factory=dict)
     activation_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # user plugins the stage-2 deadline cut off before they loaded (state "slow",
+    # never a crash: slow is not broken)
+    slow: dict[str, str] = field(default_factory=dict)
     duration_ms: float = 0.0
     _marker: BootMarker | None = None
+    _store: "RegistryStore | None" = field(default=None, repr=False)
 
     def mark_healthy(self) -> None:
-        """Called by the host once it passed its own health probe; clears the crash counter."""
+        """Called by the host once it passed its own health probe: clears the
+        boot-crash counter and snapshots ``registry.json`` as last-known-good —
+        this is the only moment a registry state is proven bootable, so it is
+        the only moment the rollback target moves."""
         if self._marker is not None:
             self._marker.exit()
+        if self._store is not None:
+            try:
+                self._store.snapshot_lkg()
+            except Exception as exc:  # noqa: BLE001 — never fail the host over the snapshot
+                logger.warning(f"[plugins] last-known-good snapshot not written: {exc}")
 
     @property
     def user_plugin_ids(self) -> tuple[str, ...]:
@@ -93,17 +105,41 @@ def boot(
     blocked_versions: dict[str, dict[str, str]] | None = None,
     stage2_deadline_s: float = 120.0,
     distribution: "DistributionResolution | None" = None,
+    inspect: bool = False,
 ) -> BootReport:
+    """Boot the plugin platform for ``role`` into ``registries``.
+
+    ``inspect=True`` is the read-only form for tools (``narranexus slots`` /
+    ``bind`` / docs): discovery and registration happen exactly as in a real
+    boot, but nothing is written back — no boot marker (three CLI runs used to
+    push the app into SAFE MODE), no rejection/crash/state persistence.
+    """
     started = time.perf_counter()
     report = BootReport(role=role)
     store = store or RegistryStore(path=registry_path())
+    writable = not inspect
+    if writable:
+        report._store = store
 
-    # ---- safe-mode decision (local only)
+    def _read_registry() -> "RegistryFile | None":
+        # A corrupt registry.json must not stop the host (safe mode / LKG /
+        # rollback exist for exactly that case and must be reachable).
+        if not store.path.exists():
+            return None
+        try:
+            return store.read()
+        except RegistryError as exc:
+            logger.error(f"[plugins] {store.path}: unreadable ({exc}); booting builtins only")
+            return None
+
+    # ---- safe-mode decision (local only, never in inspect mode)
     marker: BootMarker | None = None
-    if not cloud:
+    if not cloud and writable:
         marker = BootMarker(role)
         failures = marker.enter()
-        if marker.safe_mode_due and not store.read().safe_mode if store.path.exists() else False:
+        current = _read_registry()
+        already_safe = current is not None and current.safe_mode
+        if marker.safe_mode_due and not already_safe:
             reason = f"{failures + 1} consecutive boots of {role} never reached health"
             store.set_safe_mode(True, reason=reason)
             logger.error(f"[plugins] entering SAFE MODE: {reason}")
@@ -113,10 +149,11 @@ def boot(
         cloud=cloud, user_registry_path=store.path, host_version=host_version, blocked_versions=blocked_versions
     )
     report.safe_mode = found.safe_mode
-    if found.safe_mode and store.path.exists():
-        report.safe_mode_reason = store.read().safe_mode_reason
+    if found.safe_mode:
+        current = _read_registry()
+        report.safe_mode_reason = current.safe_mode_reason if current is not None else ""
     report.rejected = dict(found.rejected)
-    if report.rejected:
+    if report.rejected and writable:
         _persist_rejections(store, report.rejected)
 
     # ---- disabled builtins: undo their import-time registrations before anything is frozen
@@ -174,22 +211,27 @@ def boot(
         deadline = time.perf_counter() + stage2_deadline_s
         finder = plugin_finder()
         for manifest in users:
+            if time.perf_counter() > deadline:
+                # The deadline is a real bound: every plugin after it is
+                # recorded "slow" (not crashed — slow is not broken) and left
+                # unloaded, so N wedged plugins cannot drag the host past its
+                # health-check window.
+                report.slow[manifest.id] = f"slow: stage-2 deadline ({stage2_deadline_s:.0f}s) exceeded before this plugin loaded"
+                continue
             path = found.paths[manifest.id]
             try:
                 _prepare_user_plugin(manifest, path, finder, store)
+            except PluginImportTimeout as exc:
+                report.slow[manifest.id] = f"slow: {exc}"
+                logger.warning(f"[plugins] {manifest.id}: too slow to import, skipped this boot: {exc}")
             except Exception as exc:  # noqa: BLE001 — isolate
                 report.isolated[manifest.id] = f"{type(exc).__name__}: {exc}"
                 logger.warning(f"[plugins] {manifest.id}: isolated before load: {exc}")
-        loadable = [m for m in users if m.id not in report.isolated]
+        loadable = [m for m in users if m.id not in report.isolated and m.id not in report.slow]
         report.users = load(registries, loadable, role=role)
         for entry in report.users.loaded:
             if entry.error:
                 report.isolated[entry.plugin_id] = entry.error
-        for pid, err in report.isolated.items():
-            try:
-                store.record_crash(pid, err)
-            except RegistryError:
-                pass
         # tables are pure data: register them even when the plugin never activates
         if register_table is not None and "backend.tables" in registries.paths():
             for entry in registries.registry_for("backend.tables").entries():
@@ -205,21 +247,34 @@ def boot(
                 if manifest.id in report.isolated:
                     continue
                 report.activation_events[manifest.id] = activator.register(manifest)
-        for manifest in loadable:
-            if manifest.id not in report.isolated:
+        # Crash accounting runs AFTER every source of isolation (load errors,
+        # table refusals) has been recorded — it used to run before the table
+        # loop, so a plugin whose TableSpec was refused every boot never
+        # reached the auto-disable threshold and replayed forever.
+        if writable:
+            for pid, err in report.isolated.items():
                 try:
-                    store.transition(manifest.id, "validated")
-                    store.transition(manifest.id, "enabled")
-                except RegistryError as exc:
-                    logger.debug(f"[plugins] {manifest.id}: state not advanced: {exc}")
-        if time.perf_counter() > deadline:
-            logger.warning(f"[plugins] stage 2 exceeded its {stage2_deadline_s:.0f}s deadline")
+                    store.record_crash(pid, err)
+                except RegistryError:
+                    pass
+            for pid, err in report.slow.items():
+                try:
+                    store.transition(pid, "slow", error=err)
+                except RegistryError:
+                    pass
+            for manifest in loadable:
+                if manifest.id not in report.isolated:
+                    try:
+                        store.transition(manifest.id, "validated")
+                        store.transition(manifest.id, "enabled")
+                    except RegistryError as exc:
+                        logger.debug(f"[plugins] {manifest.id}: state not advanced: {exc}")
 
     registries.freeze()
     report.duration_ms = (time.perf_counter() - started) * 1000.0
     logger.info(
         f"[plugins] {role} boot: {len(builtins)} builtin, {len(report.user_plugin_ids)} user plugin(s) loaded, "
-        f"{len(report.isolated)} isolated, {len(report.rejected)} rejected, safe_mode={report.safe_mode}, "
+        f"{len(report.isolated)} isolated, {len(report.slow)} slow, {len(report.rejected)} rejected, safe_mode={report.safe_mode}, "
         f"{report.duration_ms:.0f} ms"
     )
     return report

@@ -30,7 +30,10 @@ from narranexus.contracts import API_VERSIONS, ManifestError, Stability
 from narranexus.kernel.plugins.compat import Range, Version
 from narranexus.kernel.plugins.slots import Slot, SlotTree, validate_path
 
-PLUGIN_ID_RE = re.compile(r"^[a-z0-9_-]+(\.[a-z0-9_-]+)+$")
+# Segments are [a-z0-9] words joined by single '_' or '-': no leading/trailing/
+# doubled separators, so the flattened id (dots → '_') terminated by '__' is an
+# injective table / env prefix (contracts.table.table_prefix_for).
+PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*(\.[a-z0-9]+([_-][a-z0-9]+)*)+$")
 SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$")
 BUILTIN_PREFIX = "builtin."
 
@@ -421,15 +424,26 @@ def _check_redeclares(manifest: Manifest, tree: SlotTree) -> None:
 
 
 def _check_api_versions(manifest: Manifest) -> None:
+    """``api[kind] = N`` means "written against contract version N".
+
+    Compatible when ``MIN_SUPPORTED_VERSIONS[kind] <= N <= API_VERSIONS[kind]``:
+    a bump of the current version opens a deprecation window (the old version
+    stays in MIN_SUPPORTED until the window closes, docs/API_POLICY.md §5)
+    instead of breaking every published plugin in the same upgrade; a plugin
+    written against a NEWER contract than this host ships is refused.
+    """
+    from narranexus.contracts import MIN_SUPPORTED_VERSIONS
+
     for kind, wanted in manifest.api.items():
         have = API_VERSIONS.get(kind)
         if have is None:
             raise ManifestError(f"{manifest.id}: api[{kind!r}] is not a contract kind. Known: {sorted(API_VERSIONS)}")
-        if wanted != have:
-            # A contract version bump is by definition a breaking change
-            # (docs/API_POLICY.md §5), so any mismatch fails closed.
+        floor = MIN_SUPPORTED_VERSIONS.get(kind, have)
+        if wanted > have:
+            raise ManifestError(f"{manifest.id}: api[{kind!r}] wants {wanted} but this host provides {have} (upgrade the host)")
+        if wanted < floor:
             raise ManifestError(
-                f"{manifest.id}: api[{kind!r}] wants {wanted} but this host provides {have} (versions must match)"
+                f"{manifest.id}: api[{kind!r}] {wanted} is no longer supported (this host supports {floor}..{have}); update the plugin"
             )
 
 

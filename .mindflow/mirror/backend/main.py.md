@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -486,3 +486,7 @@ Mounts the generic channel router at `/api/channels` (shell-level: any channel i
 Batch 6b.3: the team marketplace router and seed are no longer wired here — the router is a `backend.routes` contribution of builtin.teams and the seed runs on the `onDidStartBackend` host event emitted at the end of `_seed_marketplaces` (registry-host check via `is_registry_host()`).
 
 Batch 6 fix: the lifespan hands its db client to `plugins_boot.set_host_db`; `mount_user_plugin_routes` runs at import after the builtin routers.
+
+## 2026-09-07 — SPA fallback answers 404 for `v1/ manyfold/ api/ ws/`
+
+`spa_fallback` returns a JSON 404 (not `index.html` + 200) for any unregistered path under those four prefixes. Two reasons: a distribution that leaves a builtin out must make that builtin's old routes 404 (a platform readiness probe getting 200 + HTML would call a missing service healthy), and a frontend request to a wrong endpoint must never receive the HTML shell as data. Every other path still serves the SPA shell (`tests/backend/test_spa_fallback_404.py` runs both directions with a real `frontend/dist`).

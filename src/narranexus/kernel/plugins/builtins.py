@@ -378,10 +378,12 @@ def register_builtin_provides(slot: str, registries: Any = None) -> int:
     """
     from narranexus.kernel.plugins.loader import _as_contributions, resolve_symbol
 
-    regs_obj = registries
-    if regs_obj is None:
-        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES as regs_obj  # noqa: N811
-    if regs_obj.frozen and not regs_obj.registry_for(slot).names():
+    regs = registries
+    if regs is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        regs = KERNEL_REGISTRIES
+    if regs.frozen and not regs.registry_for(slot).names():
         # A frozen process (a host after boot) can only use what its boot loaded:
         # the manifest providing this slot must list the host's role. Say so
         # instead of failing deep inside a turn with RegistryFrozen.
@@ -389,12 +391,6 @@ def register_builtin_provides(slot: str, registries: Any = None) -> int:
             f"{slot}: no contribution loaded at boot and the registries are frozen — "
             "the builtin manifest providing this slot must list this process's host role"
         )
-
-    regs = registries
-    if regs is None:
-        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-
-        regs = KERNEL_REGISTRIES
     count = 0
     for data in BUILTIN_MANIFEST_DATA:
         refs = data.get("provides", {}).get(slot)
@@ -403,7 +399,11 @@ def register_builtin_provides(slot: str, registries: Any = None) -> int:
         registry = regs.registry_for(slot)
         for spec in ([refs] if isinstance(refs, str) else refs):
             for contribution in _as_contributions(resolve_symbol(spec), spec):
-                registry.register_contribution(contribution, owner=data["id"], replace=True)
+                # replace=False: the same contribution object (or the same owner)
+                # is a no-op, which is all "idempotent" needs. replace=True let a
+                # lazy builtin registration silently overwrite a user plugin's
+                # same-named entry depending on which import ran first.
+                registry.register_contribution(contribution, owner=data["id"])
                 count += 1
     return count
 

@@ -155,6 +155,11 @@ narranexus = "narranexus.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xyz_agent_context", "src/narranexus", "backend"]
+# The CLI scaffold templates ship inside the wheel (narranexus.cli.scaffold
+# resolves the packaged copy first, the source checkout second); without this
+# `narranexus plugin new` only works from a git checkout.
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "narranexus/cli/resources/templates"
 # ``narranexus`` is a namespace package: contracts and sdk ship from packages/ (their own wheels).
 
 [tool.uv.workspace]

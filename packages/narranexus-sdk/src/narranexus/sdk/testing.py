@@ -61,7 +61,8 @@ class PluginTestHost:
         self.home.mkdir(parents=True, exist_ok=True)
         os.environ[ENV_PLUGIN_HOME] = str(self.home)
         self._store = RegistryStore(path=self.home / "registry.json", lkg=self.home / "registry.lkg.json")
-        Installer(store=self._store, host=self.host_version).install(LocalSource(self.plugin_dir, mode="link"))
+        # The test host acknowledges the plugin's declared permissions: its author is the one running it.
+        Installer(store=self._store, host=self.host_version).install(LocalSource(self.plugin_dir, mode="link"), permissions_acknowledged=True)
         self._activator = Activator(context_factory=self._context_factory, on_crash=lambda pid, err: self._store.record_crash(pid, err))  # type: ignore[union-attr]
         self.report = boot(
             self.role,  # type: ignore[arg-type]

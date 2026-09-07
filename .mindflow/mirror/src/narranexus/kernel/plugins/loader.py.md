@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/loader.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -52,3 +52,7 @@ crash 计数与自动禁用）。每插件计时进 `PluginLoad.duration_ms`，�
 （`test_loading_twice_into_the_process_registries_is_idempotent`）。
 
 Batch 6c: `discover()` rejects a registry.json plugin whose manifest is `distributionOnly` (`incompatible: distribution-only plugin ... cannot be installed at runtime`); such plugins only enter through a distribution.
+
+## 2026-09-07 — an isolated plugin leaves no partial registrations
+
+load() withdraws a non-builtin plugin's contributions and hooks (registries.remove_owner) when a later symbol fails to resolve — before this the routes/triggers/tools registered before the failure kept being served while the report said 'isolated'.

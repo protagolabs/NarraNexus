@@ -99,3 +99,7 @@ Batch 6c: two authProviders builtins `builtin.auth.local` and `builtin.auth.netm
 Batch 6 fix: builtin.turn and the three frameworks list hosts backend+mcp+workers (every turn-running process); `register_builtin_provides` raises a clear RuntimeError when the registries are frozen and the slot is empty (the manifest must list the role) instead of RegistryFrozen mid-turn.
 
 2026-09-07: builtin.prompts manifest (hosts backend/mcp/workers; provides prompt.sections + prompt.assembler).
+
+## 2026-09-07 — register_builtin_provides never replaces; duplicate block removed
+
+The lazy builtin registration registered with replace=True, which could silently overwrite a user plugin's same-named entry depending on import order; idempotency only needs the same-object / same-owner no-op the registry already provides, so replace is gone. The duplicated registries-resolution block is collapsed to one.

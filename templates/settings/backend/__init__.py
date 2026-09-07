@@ -1,6 +1,6 @@
 from narranexus.sdk import Contribution, SettingField, SettingsSchema
 
-# Values resolve NXP___PLUGIN_PKG___<KEY> env > stored row > default; secrets are encrypted at rest.
+# Values resolve NXP___PLUGIN_PKG____<KEY> env > stored row > default; secrets are encrypted at rest.
 SETTINGS = (
     Contribution(
         "schema",

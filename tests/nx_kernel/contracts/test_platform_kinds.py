@@ -43,9 +43,9 @@ def test_router_spec_prefix_rules():
 
 def test_table_spec_invariants_and_owner_prefix():
     col = ColumnSpec("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True)
-    spec = TableSpec("ext_acme_weather_items", (col,), indexes=(IndexSpec("idx_items_id", ("id",)),))
+    spec = TableSpec("ext_acme_weather__items", (col,), indexes=(IndexSpec("idx_items_id", ("id",)),))
     spec.check_owner("acme.weather")
-    assert table_prefix_for("acme.weather") == "ext_acme_weather_"
+    assert table_prefix_for("acme.weather") == "ext_acme_weather__"
     with pytest.raises(ValueError, match="prefixed"):
         TableSpec("items", (col,)).check_owner("acme.weather")
     TableSpec("events", (col,)).check_owner("builtin.chat")  # builtins keep core names
@@ -78,7 +78,7 @@ def test_settings_schema_types_and_env_names():
             "region": SettingField("enum", default="eu", choices=("eu", "us")),
         }
     )
-    assert schema.env_name("acme.weather", "api_key") == "NXP_ACME_WEATHER_API_KEY"
+    assert schema.env_name("acme.weather", "api_key") == "NXP_ACME_WEATHER__API_KEY"
     assert schema.fields["retries"].coerce("7") == 7
     assert schema.fields["enabled"].coerce("off") is False
     assert schema.fields["ratio"].coerce("0.25") == 0.25

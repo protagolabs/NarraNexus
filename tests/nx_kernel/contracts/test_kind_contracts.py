@@ -43,8 +43,10 @@ def test_legacy_driver_module_re_exports_the_contract_protocol():
 
 
 def test_framework_meta_is_frozen():
+    import dataclasses
+
     meta = FrameworkMeta(name="x", display_name="X", install=FrameworkInstall(components=(InstallComponent(kind="pip", requirement="x>=1"),), probe_package="x", user_version_source="pip_pkg", size_hint="~1 MB"))
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         meta.name = "y"  # type: ignore[misc]
 
 

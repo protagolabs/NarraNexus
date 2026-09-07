@@ -69,7 +69,7 @@ TABLES = (
     Contribution(
         "notes",
         lambda: TableSpec(
-            "ext_acme_hello_module_notes",
+            "ext_acme_hello_module__notes",
             (
                 ColumnSpec("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
                 ColumnSpec("agent_id", "TEXT", "VARCHAR(64)", nullable=False),

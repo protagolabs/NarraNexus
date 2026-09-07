@@ -24,17 +24,21 @@ def _record(path="/p/acme.weather", **kw) -> lc.PluginRecord:
     return lc.PluginRecord(path=path, installed_version="1.0.0", **kw)
 
 
-def test_register_writes_atomically_and_snapshots_lkg(store: lc.RegistryStore, tmp_path: Path):
+def test_register_writes_atomically_and_lkg_moves_only_on_snapshot(store: lc.RegistryStore, tmp_path: Path):
     assert store.read() == lc.RegistryFile()
     store.register("acme.weather", _record())
     data = json.loads(store.path.read_text())
     assert data["schema"] == 1 and data["plugins"]["acme.weather"]["state"] == "registered"
     assert data["plugins"]["acme.weather"]["installed_at"]
-    # second write snapshots the first state
+    # writes do NOT move the last-known-good copy: a boot writes too, and the
+    # LKG must be the last state that reached HEALTH, not the last one written
     store.transition("acme.weather", "validated")
+    assert store.read_lkg() is None
+    assert store.snapshot_lkg() is True
+    store.transition("acme.weather", "enabled")
     lkg = store.read_lkg()
-    assert lkg is not None and lkg.plugins["acme.weather"].state == "registered"
-    assert store.read().plugins["acme.weather"].state == "validated"
+    assert lkg is not None and lkg.plugins["acme.weather"].state == "validated"
+    assert store.read().plugins["acme.weather"].state == "enabled"
     assert not [p for p in tmp_path.iterdir() if p.name.startswith("registry.json.") and not p.name.endswith(".lock")]
 
 
@@ -80,6 +84,7 @@ def test_second_crash_auto_disables_and_enable_resets(store: lc.RegistryStore):
 def test_rollback_to_lkg_is_a_file_operation(store: lc.RegistryStore):
     store.register("acme.weather", _record())
     store.register("acme.other", _record("/p/other"))
+    store.snapshot_lkg()  # the state a healthy boot proved
     store.unregister("acme.other")
     assert "acme.other" not in store.read().plugins
     restored = store.rollback_to_lkg()

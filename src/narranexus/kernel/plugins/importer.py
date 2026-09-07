@@ -33,7 +33,8 @@ import importlib.util
 import sys
 import threading
 import types
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from typing import Any
+import threading
 from pathlib import Path
 from typing import Sequence
 
@@ -167,23 +168,51 @@ def uninstall_synthetic_package(plugin_id: str) -> int:
     return len(victims)
 
 
-_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nx-plugin-import")
+class PluginImportTimeout(PluginError):
+    """A plugin's import did not finish inside its deadline: SLOW, not broken (boot records it as such, never as a crash)."""
+
+
+# plugin id -> module name whose import is still hung in this process. A wedged
+# import cannot be interrupted (Python has no thread cancellation), so the
+# plugin is failed fast on every later attempt instead of parking another
+# worker behind it — a fixed-size pool let two hung plugins make EVERY later
+# import time out and get innocent plugins auto-disabled.
+_WEDGED: dict[str, str] = {}
 
 
 def import_plugin_module(plugin_id: str, submodule: str = "", *, timeout: float = 30.0) -> types.ModuleType:
-    """Import ``nxplugins.<id>[.submodule]`` in a worker thread with a deadline."""
+    """Import ``nxplugins.<id>[.submodule]`` on its own daemon thread with a deadline.
+
+    Only ever called from the boot / activation top level: a worker thread
+    importing back into a module that is mid-import on the caller's thread
+    would deadlock on the per-module import lock.
+    """
     name = package_name(plugin_id) + (f".{submodule}" if submodule else "")
-    future = _POOL.submit(importlib.import_module, name)
-    try:
-        return future.result(timeout=timeout)
-    except FutureTimeout:
-        raise PluginError(f"{plugin_id}: importing {name} exceeded {timeout:.0f}s and was isolated") from None
-    except Exception as exc:
+    if plugin_id in _WEDGED:
+        raise PluginImportTimeout(f"{plugin_id}: an earlier import of {_WEDGED[plugin_id]} is still hung in this process; not retried")
+    outcome: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            outcome["module"] = importlib.import_module(name)
+        except BaseException as exc:  # noqa: BLE001 — reported to the caller
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=_run, name=f"nx-plugin-import:{plugin_id}", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        _WEDGED[plugin_id] = name
+        raise PluginImportTimeout(f"{plugin_id}: importing {name} exceeded {timeout:.0f}s")
+    if "error" in outcome:
+        exc = outcome["error"]
         raise PluginError(f"{plugin_id}: importing {name} failed: {type(exc).__name__}: {exc}") from exc
+    return outcome["module"]
 
 
 __all__ = [
     "NAMESPACE",
+    "PluginImportTimeout",
     "PluginFinder",
     "plugin_finder",
     "import_plugin_module",

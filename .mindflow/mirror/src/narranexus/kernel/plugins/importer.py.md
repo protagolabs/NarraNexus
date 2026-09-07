@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/importer.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -13,3 +13,7 @@ deps 目录提供（宿主优先——HA 的 site-packages 互踩教训）。首
 `__init__` 永不执行，已改为 finder 惰性提供 spec。`import_plugin_module` 在线程池里带超时执行 import，
 挂住的 import 被隔离成 `PluginError`。不是独立解释器：已导入的私有依赖照常缓存在 `sys.modules`，
 保证的是「不遮蔽宿主、不污染 sys.path」。
+
+## 2026-09-07 — one daemon thread per import; wedged plugins fail fast; PluginImportTimeout
+
+The two-worker pool could be wedged by two hung imports (a future cannot be cancelled), after which every later import timed out and innocent plugins were auto-disabled. Each import now runs on its own daemon thread; a plugin whose import exceeded the deadline is remembered in _WEDGED and refused immediately afterwards; the timeout is its own PluginImportTimeout so boot records it as slow, not crashed. Only ever called from the boot/activation top level (a worker importing back into a module mid-import on the caller's thread would deadlock on the import lock).

@@ -19,7 +19,7 @@ import tarfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -32,6 +32,9 @@ GITHUB_API = "https://api.github.com"
 RELEASE_ASSETS = (MANIFEST_FILENAME, "backend.zip", "plugin.js", "styles.css", "versions.json")
 DOWNLOAD_TIMEOUT_S = 60.0
 MAX_ASSET_BYTES = 200 * 1024 * 1024
+# What an archive may EXPAND to (a 200 MB zip bomb must not fill the disk) and how many members it may have.
+MAX_EXTRACT_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 20_000
 
 
 class SourceError(PluginError):
@@ -60,21 +63,52 @@ def _safe_extract_member(dest: Path, member_name: str) -> Path:
     return target
 
 
-def extract_zip(data: bytes, dest: Path) -> int:
+class _ExtractBudget:
+    """Total bytes and member count an archive may expand to. Declared sizes
+    are checked first (cheap), and the bytes actually written are counted too
+    (a header can lie)."""
+
+    def __init__(self, max_total_bytes: int, max_members: int) -> None:
+        self.max_total_bytes, self.max_members = max_total_bytes, max_members
+        self.total = 0
+        self.members = 0
+
+    def member(self, name: str, declared: int) -> None:
+        self.members += 1
+        if self.members > self.max_members:
+            raise SourceError(f"archive has more than {self.max_members} members; refused")
+        if declared < 0 or self.total + declared > self.max_total_bytes:
+            raise SourceError(f"archive expands past {self.max_total_bytes // (1024 * 1024)} MB at {name!r}; refused")
+
+    def copy(self, src: Any, out: Any, name: str) -> None:
+        while True:
+            chunk = src.read(1024 * 1024)
+            if not chunk:
+                return
+            self.total += len(chunk)
+            if self.total > self.max_total_bytes:
+                raise SourceError(f"archive expands past {self.max_total_bytes // (1024 * 1024)} MB at {name!r}; refused")
+            out.write(chunk)
+
+
+def extract_zip(data: bytes, dest: Path, *, max_total_bytes: int = MAX_EXTRACT_BYTES, max_members: int = MAX_ARCHIVE_MEMBERS) -> int:
+    budget = _ExtractBudget(max_total_bytes, max_members)
     count = 0
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
+            budget.member(info.filename, info.file_size)
             target = _safe_extract_member(dest, info.filename)
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
+                budget.copy(src, out, info.filename)
             count += 1
     return count
 
 
-def extract_tarball(data: bytes, dest: Path, *, strip_first_dir: bool = True) -> int:
+def extract_tarball(data: bytes, dest: Path, *, strip_first_dir: bool = True, max_total_bytes: int = MAX_EXTRACT_BYTES, max_members: int = MAX_ARCHIVE_MEMBERS) -> int:
+    budget = _ExtractBudget(max_total_bytes, max_members)
     count = 0
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
         for member in tf.getmembers():
@@ -88,29 +122,50 @@ def extract_tarball(data: bytes, dest: Path, *, strip_first_dir: bool = True) ->
                 if len(parts) < 2:
                     continue
                 name = parts[1]
+            budget.member(name, member.size)
             target = _safe_extract_member(dest, name)
             target.parent.mkdir(parents=True, exist_ok=True)
             extracted = tf.extractfile(member)
             if extracted is None:
                 continue
             with extracted as src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
+                budget.copy(src, out, name)
             count += 1
     return count
 
 
-def _get(client: httpx.Client, url: str, *, accept: str = "application/vnd.github+json") -> httpx.Response:
+def _get(client: httpx.Client, url: str, *, accept: str = "application/vnd.github+json") -> bytes:
+    """GET ``url`` streamed to bytes, aborting the moment the body passes MAX_ASSET_BYTES.
+
+    Reading the whole body and THEN checking its size (the previous shape) is
+    no limit at all: a 5 GB release asset was in memory before the check ran.
+    """
     try:
-        resp = client.get(url, headers={"Accept": accept, "User-Agent": "narranexus-plugins"}, follow_redirects=True, timeout=DOWNLOAD_TIMEOUT_S)
+        with client.stream("GET", url, headers={"Accept": accept, "User-Agent": "narranexus-plugins"}, follow_redirects=True, timeout=DOWNLOAD_TIMEOUT_S) as resp:
+            if resp.status_code == 404:
+                raise SourceError(f"{url}: not found")
+            if resp.status_code >= 400:
+                raise SourceError(f"{url}: HTTP {resp.status_code}")
+            declared = resp.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > MAX_ASSET_BYTES:
+                raise SourceError(f"{url}: asset exceeds {MAX_ASSET_BYTES // (1024 * 1024)} MB")
+            buf = bytearray()
+            for chunk in resp.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > MAX_ASSET_BYTES:
+                    raise SourceError(f"{url}: asset exceeds {MAX_ASSET_BYTES // (1024 * 1024)} MB")
+            return bytes(buf)
     except httpx.HTTPError as exc:
         raise SourceError(f"{url}: {exc}") from exc
-    if resp.status_code == 404:
-        raise SourceError(f"{url}: not found")
-    if resp.status_code >= 400:
-        raise SourceError(f"{url}: HTTP {resp.status_code}")
-    if len(resp.content) > MAX_ASSET_BYTES:
-        raise SourceError(f"{url}: asset exceeds {MAX_ASSET_BYTES // (1024 * 1024)} MB")
-    return resp
+
+
+def _get_json(client: httpx.Client, url: str) -> Any:
+    import json
+
+    try:
+        return json.loads(_get(client, url).decode("utf-8"))
+    except ValueError as exc:
+        raise SourceError(f"{url}: not JSON: {exc}") from exc
 
 
 def _validate_repo(repo: str) -> str:
@@ -134,7 +189,7 @@ class GitHubReleaseSource:
         client = client or httpx.Client()
         repo = _validate_repo(self.repo)
         url = f"{GITHUB_API}/repos/{repo}/releases/{'tags/' + self.tag if self.tag else 'latest'}"
-        release = _get(client, url).json()
+        release = _get_json(client, url)
         tag = str(release.get("tag_name") or self.tag)
         assets = {a["name"]: a for a in release.get("assets", []) if "name" in a}
         if MANIFEST_FILENAME not in assets:
@@ -146,7 +201,7 @@ class GitHubReleaseSource:
             asset = assets.get(name)
             if asset is None:
                 continue
-            data = _get(client, asset["browser_download_url"], accept="application/octet-stream").content
+            data = _get(client, asset["browser_download_url"], accept="application/octet-stream")
             if name == "backend.zip":
                 extract_zip(data, staging / "backend_tmp")
                 inner = staging / "backend_tmp"
@@ -189,9 +244,9 @@ class GitHubRepoSource:
         repo = _validate_repo(self.repo)
         ref = self.ref
         if not ref:
-            ref = str(_get(client, f"{GITHUB_API}/repos/{repo}").json().get("default_branch") or "main")
-        commit = str(_get(client, f"{GITHUB_API}/repos/{repo}/commits/{ref}").json().get("sha") or "")
-        data = _get(client, f"{GITHUB_API}/repos/{repo}/tarball/{ref}", accept="application/octet-stream").content
+            ref = str(_get_json(client, f"{GITHUB_API}/repos/{repo}").get("default_branch") or "main")
+        commit = str(_get_json(client, f"{GITHUB_API}/repos/{repo}/commits/{ref}").get("sha") or "")
+        data = _get(client, f"{GITHUB_API}/repos/{repo}/tarball/{ref}", accept="application/octet-stream")
         staging.mkdir(parents=True, exist_ok=True)
         extract_tarball(data, staging)
         if not (staging / MANIFEST_FILENAME).is_file():

@@ -57,12 +57,15 @@ def test_install_list_enable_disable_ack_uninstall(client, tmp_path: Path):
     assert r.status_code == 200 and r.json()["data"]["id"] == "acme.weather" and r.json()["data"]["permissions"]["network"] == ["api.weather.com"]
     data = c.get("/api/plugin-factory", headers=H).json()["data"]
     (row,) = data["plugins"]
-    assert row["display_name"] == "Weather" and row["enabled"] and row["state"] == "registered" and row["provides"] == []
+    # declared permissions (network) not acknowledged → installed DISABLED; the disclosure is a gate
+    assert row["display_name"] == "Weather" and row["enabled"] is False and row["state"] == "registered" and row["provides"] == []
     assert row["frontend"] is None and row["activation_events"] == ["onStartup"] and row["protected"] is False
     assert data["safe_mode"] is False and data["cloud_managed"] is False
+    assert c.post("/api/plugin-factory/acme.weather/enable", headers=H).status_code == 400  # cannot bypass the gate
+    acked = c.post("/api/plugin-factory/acme.weather/acknowledge-permissions", headers=H).json()["data"]
+    assert acked["permissions_acknowledged"] is True and acked["enabled"] is True and acked["acknowledged_permissions"] == ["network:api.weather.com"]
     assert c.post("/api/plugin-factory/acme.weather/disable", headers=H).json()["data"]["enabled"] is False
     assert c.post("/api/plugin-factory/acme.weather/enable", headers=H).json()["data"]["state"] == "registered"
-    assert c.post("/api/plugin-factory/acme.weather/acknowledge-permissions", headers=H).json()["data"]["permissions_acknowledged"] is True
     assert c.post("/api/plugin-factory/nope/enable", headers=H).status_code == 404
     assert c.post("/api/plugin-factory/acme.weather/uninstall", headers=H).json()["data"]["purged"] is True
     assert c.get("/api/plugin-factory", headers=H).json()["data"]["plugins"] == []
@@ -71,7 +74,9 @@ def test_install_list_enable_disable_ack_uninstall(client, tmp_path: Path):
 def test_rollback_bisect_and_errors(client, tmp_path: Path):
     c, svc, home = client
     for pid in ("acme.a", "acme.b", "acme.c"):
-        c.post("/api/plugin-factory/install", json={"source": str(_plugin(tmp_path / pid, pid))}, headers=H)
+        # acknowledged: the fixture manifest declares a network permission and bisect walks ENABLED plugins
+        c.post("/api/plugin-factory/install", json={"source": str(_plugin(tmp_path / pid, pid)), "permissions_acknowledged": True}, headers=H)
+    svc.store.snapshot_lkg()  # what a healthy boot does: this state is the rollback target
     c.post("/api/plugin-factory/acme.c/uninstall", headers=H)
     assert sorted(c.post("/api/plugin-factory/rollback", headers=H).json()["data"]["plugins"]) == ["acme.a", "acme.b", "acme.c"]
     step = c.post("/api/plugin-factory/bisect/start", headers=H).json()["data"]
@@ -180,4 +185,9 @@ def test_builtin_install_deps_retry(client, monkeypatch):
     rows = {b["id"]: b for b in c.get("/api/plugin-factory", headers=H).json()["data"]["builtins"]}
     assert rows["builtin.channels.lark"]["on_demand"] and rows["builtin.channels.lark"]["pip"] == ["lark-oapi>=1.4.0,<2.0.0"]
     assert rows["builtin.teams"]["on_demand"] is False and rows["builtin.teams"]["deps_missing"] is None
-    assert builtin_deps.is_on_demand
+
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
+    manifests = {m.id: m for m in builtin_manifests()}
+    assert builtin_deps.is_on_demand(manifests["builtin.channels.lark"]) is True
+    assert builtin_deps.is_on_demand(manifests["builtin.teams"]) is False

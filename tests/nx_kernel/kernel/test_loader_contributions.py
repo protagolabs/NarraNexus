@@ -31,7 +31,7 @@ def fake_module(monkeypatch):
     mod.TABLES = (
         Contribution(
             "items",
-            lambda: TableSpec("ext_acme_weather_items", (ColumnSpec("id", "INTEGER", "BIGINT", primary_key=True),)),
+            lambda: TableSpec("ext_acme_weather__items", (ColumnSpec("id", "INTEGER", "BIGINT", primary_key=True),)),
         ),
     )
     calls: list[tuple[str, str]] = []
@@ -74,7 +74,7 @@ def test_routes_and_tables_land_in_their_registries_under_the_plugin_owner(fake_
     assert routes.names() == ("api",)
     assert routes.entries()[0].owner == "acme.weather"
     assert routes.get("api").prefix == "/api/x/acme.weather"
-    assert registries.registry_for("backend.tables").get("items").name == "ext_acme_weather_items"
+    assert registries.registry_for("backend.tables").get("items").name == "ext_acme_weather__items"
 
 
 def test_hook_impls_register_under_manifest_id_and_fire(fake_module):

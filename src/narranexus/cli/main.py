@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from narranexus.contracts import BindingConflict, ManifestError, UnknownEntry
 
-TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "templates"
+from narranexus.cli.scaffold import TEMPLATES_DIR  # noqa: E402 — one definition of where the templates live
 
 
 def _store():
@@ -74,7 +74,10 @@ def cmd_new(args: argparse.Namespace) -> int:
 def cmd_link(args: argparse.Namespace) -> int:
     from narranexus.kernel.plugins.install import Installer, LocalSource
 
-    result = Installer(store=_store()).install(LocalSource(Path(args.path), mode="link"), installed_by="cli", replace=args.force)
+    # A linked plugin is the developer's own working tree: linking it IS the
+    # acknowledgement of whatever permissions it declares (install from a
+    # remote source still gates on --yes / `plugin enable --ack`).
+    result = Installer(store=_store()).install(LocalSource(Path(args.path), mode="link"), installed_by="cli", replace=args.force, permissions_acknowledged=True)
     print(f"linked {result.plugin_id} {result.version} at {result.path}; restart the app to load it")
     return 0
 
@@ -88,6 +91,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     if result.warnings:
         print("warnings: " + "; ".join(result.warnings))
     if perms and not args.yes:
+        print(f"{result.plugin_id} stays DISABLED until its permissions are acknowledged")
         print(f"declared permissions: {json.dumps(perms)} — acknowledge with `narranexus plugin enable {result.plugin_id} --ack`")
     print("restart the app to load it")
     return 0
@@ -145,13 +149,22 @@ def _toggle_builtin(plugin_id: str, enabled: bool) -> bool:
 def cmd_enable(args: argparse.Namespace) -> int:
     if _toggle_builtin(args.id, True):
         return 0
-    store = _store()
-    rec = store.set_enabled(args.id, True)
-    if args.ack:
-        def _mutate(reg):
-            reg.plugins[args.id].permissions_acknowledged = True
+    from narranexus.kernel.plugins.install.installer import acknowledge_permissions, is_gated
 
-        store.update(_mutate)
+    store = _store()
+    current = store.read().plugins.get(args.id)
+    if current is None:
+        print(f"{args.id} is not installed", file=sys.stderr)
+        return 1
+    if args.ack:
+        rec = acknowledge_permissions(store, args.id)
+    elif is_gated(current):
+        # The gate is the whole point of the disclosure: enabling without
+        # acknowledging would run undisclosed permissions on the next boot.
+        print(f"{args.id} declares permissions you have not acknowledged; run `narranexus plugin enable {args.id} --ack`", file=sys.stderr)
+        return 2
+    else:
+        rec = store.set_enabled(args.id, True)
     print(f"{args.id}: enabled (state {rec.state}); restart the app")
     return 0
 
@@ -189,7 +202,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "builtins": [m.id for m in found.manifests if m.is_builtin],
     }
     _print(report, as_json=args.json)
-    return 1 if (found.rejected or plan.blocked) and not users else 0
+    # Non-zero whenever anything was rejected or blocked — a plugin author's
+    # CI must go red on a rejected plugin (the old `and not users` clause
+    # answered 0 with four of five plugins rejected).
+    return 1 if (found.rejected or plan.blocked) else 0
 
 
 def cmd_bisect(args: argparse.Namespace) -> int:

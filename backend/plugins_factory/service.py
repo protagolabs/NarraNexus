@@ -223,7 +223,15 @@ class FactoryService:
 
     def set_enabled(self, plugin_id: str, enabled: bool) -> dict[str, Any]:
         self._guard_mutation()
+        from narranexus.kernel.plugins.install.installer import is_gated
+
         try:
+            current = self.store.read().plugins.get(plugin_id)
+            if current is None:
+                raise RegistryError(f"unknown plugin {plugin_id!r}")
+            if enabled and is_gated(current):
+                # the disclosure is a gate: enabling without acknowledging is refused
+                raise InstallError(f"{plugin_id} declares permissions that are not acknowledged; acknowledge them first")
             rec = self.store.set_enabled(plugin_id, enabled)
         except RegistryError as exc:
             raise NotInstalled(str(exc)) from exc
@@ -231,16 +239,12 @@ class FactoryService:
 
     def acknowledge_permissions(self, plugin_id: str) -> dict[str, Any]:
         self._guard_mutation()
-
-        def _mutate(reg):
-            rec = reg.plugins.get(plugin_id)
-            if rec is None:
-                raise RegistryError(f"unknown plugin {plugin_id!r}")
-            rec.permissions_acknowledged = True
+        from narranexus.kernel.plugins.install.installer import InstallError as _IE
+        from narranexus.kernel.plugins.install.installer import acknowledge_permissions
 
         try:
-            return self.store.update(_mutate).plugins[plugin_id].model_dump()
-        except RegistryError as exc:
+            return acknowledge_permissions(self.store, plugin_id).model_dump()
+        except (RegistryError, _IE) as exc:
             raise NotInstalled(str(exc)) from exc
 
     def rollback(self) -> dict[str, Any]:

@@ -60,7 +60,7 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     backend, report = _boot("backend", register_table=lambda spec, owner: tables.append((spec.name, owner)))
     assert report.user_plugin_ids == (PID,) and report.isolated == {}
     assert _user_names(backend, "backend.routes") == ("api", "webhook")
-    assert tables == [("ext_acme_hello_world_greetings", PID)]
+    assert tables == [("ext_acme_hello_world__greetings", PID)]
     assert backend.registry_for("backend.settings").get("schema").fields["token"].secret is True
     assert [t.name for t in backend.registry_for("agent.capabilities.tools").get("tools").list_tools()] == ["hello_wave", "hello_now"]
     assert backend.registry_for("agent.capabilities.mcp_servers").get("hello_world").url == "https://example.com/mcp"

@@ -329,6 +329,16 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
                 logger.error(f"[plugins] builtin {manifest.id} failed to load: {error}")
                 raise
             logger.warning(f"[plugins] {manifest.id} failed to load and was isolated: {error}")
+            # Isolation means NOTHING of it runs: the contributions and hooks
+            # registered before the failing symbol are withdrawn, otherwise a
+            # half-imported plugin's routes / triggers / tools kept being served
+            # while the report said "isolated".
+            try:
+                withdrawn = registries.remove_owner(manifest.id)
+                if withdrawn:
+                    logger.info(f"[plugins] {manifest.id}: {withdrawn} partial registration(s) withdrawn")
+            except Exception as rollback_exc:  # noqa: BLE001 — the rollback must not fail the boot
+                logger.error(f"[plugins] {manifest.id}: could not withdraw partial registrations: {rollback_exc}")
         report.loaded.append(
             PluginLoad(
                 plugin_id=manifest.id,

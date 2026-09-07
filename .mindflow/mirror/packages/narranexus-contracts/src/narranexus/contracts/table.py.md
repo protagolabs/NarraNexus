@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/table.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -11,3 +11,7 @@ frozen dataclass，内核 `schema_registry.register_table` 负责转换。双方
 `check_owner`：非 `builtin.` owner 的表名必须带 `ext_<owner>_` 前缀（点/横线转下划线），让插件表可辨认、
 不撞核心表、卸载时能列清单（默认保留数据）。`MigrationSpec` 是插件自管数据迁移的形状（version + 符号），
 执行器在内核 db 迁入时接。
+
+## 2026-09-07 — ext_<owner>__ prefix is injective
+
+The isolation prefix is terminated by a DOUBLE underscore: with a single one, acme.weather's prefix was a prefix of acme.weather_x's tables and PluginDb let one plugin read and write its sibling's data. Plugin ids never contain '__' or end in '_' (manifest PLUGIN_ID_RE), so two prefixes are prefix-related only when the ids are equal.

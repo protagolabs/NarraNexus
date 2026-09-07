@@ -95,7 +95,7 @@ def test_full_manifest_round_trip_including_declares_and_permissions():
         ({"provides": {"model.providers": ["not a symbol"]}}, "module.path:Symbol"),
         ({"provides": {"nope.slot": ["backend:X"]}}, "not a declared slot"),
         ({"provides": {"kernel.auth": "backend:Sso"}}, "distribution-only"),
-        ({"api": {"provider": 99}}, "versions must match"),
+        ({"api": {"provider": 99}}, "upgrade the host"),
         ({"api": {"unicorn": 0}}, "not a contract kind"),
         ({"redeclares": ["turn.pipeline.act"]}, "descendant of a slot this plugin provides"),
         ({"declares": {"Bad Path": {"arity": "one", "contract": "x:Y"}}}, "declares"),
@@ -161,7 +161,9 @@ def test_load_manifest_from_disk_reports_unreadable_or_bad_json(tmp_path):
 
 
 def test_manifest_is_immutable():
+    from pydantic import ValidationError
+
     m = parse_manifest(_base(), tree=_tree())
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="frozen"):
         m.version = "9.9.9"  # type: ignore[misc]
     assert isinstance(m, Manifest)

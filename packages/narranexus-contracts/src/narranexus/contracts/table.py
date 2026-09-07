@@ -22,7 +22,16 @@ EXT_PREFIX = "ext_"
 
 
 def table_prefix_for(owner: str) -> str:
-    return f"{EXT_PREFIX}{owner.replace('.', '_').replace('-', '_')}_"
+    """``ext_<owner>__`` — the owner flattened to ``_`` and terminated by a DOUBLE underscore.
+
+    A single-underscore terminator was not injective: ``acme.weather`` →
+    ``ext_acme_weather_`` was a prefix of ``acme.weather_x``'s tables, so one
+    plugin could read and write its sibling's data through PluginDb. Plugin ids
+    never contain ``__`` and never end in ``_`` (manifest PLUGIN_ID_RE), so
+    ``ext_<id>__`` is a prefix of another plugin's prefix only when the ids are
+    equal.
+    """
+    return f"{EXT_PREFIX}{owner.replace('.', '_').replace('-', '_')}__"
 
 
 @dataclass(frozen=True)

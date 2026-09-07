@@ -36,3 +36,7 @@ stub: false
 ## 2026-09-07 — resolve(strict=False) and ResolvedBindings.unbound
 
 A one-arity slot with neither binding nor default used to raise UnboundSlot out of resolve(), and the host caught it by discarding the ENTIRE resolution — one plugin declaring a defaultless slot silently voided every narranexus.toml / NX_BIND__* / distribution binding. resolve(..., strict=False) records such slots in ResolvedBindings.unbound (also in the JSON snapshot) and installs everything else; strict=True (the default, what tests and tools use) keeps raising. BindingConflict is loud in both modes.
+
+## 2026-09-07 — referenced_plugins(): the one grammar for binding values
+
+A binding value is owner, name or owner:name; many-arity values are lists (or comma strings) with the +/-/= verbs. referenced_plugins() extracts the plugin ids from any of these forms and is what the distribution validator and the bind CLI use — the grammar had been re-derived in three places and the third copy rejected owner:name (the form the CLI writes).

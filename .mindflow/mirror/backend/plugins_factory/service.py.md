@@ -1,6 +1,6 @@
 ---
 code_file: backend/plugins_factory/service.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -29,3 +29,7 @@ stub: false
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 Builtin rows carry `on_demand` / `pip` / `deps_missing` (from the boot report); `install_builtin_deps` retries the install on the local build (400 for a builtin without on-demand deps, 404 unknown).
+
+## 2026-09-07 — enable respects the permissions gate; acknowledge goes through the installer helper
+
+set_enabled(True) refuses (InstallError → 400) a plugin whose declared permissions are not acknowledged; acknowledge_permissions delegates to installer.acknowledge_permissions so the acknowledged tokens are recorded and the plugin is enabled in one step.

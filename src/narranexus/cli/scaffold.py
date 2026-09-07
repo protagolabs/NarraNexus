@@ -20,7 +20,30 @@ from typing import Any
 from narranexus.contracts.table import table_prefix_for
 
 PLACEHOLDERS = ("__PLUGIN_ID__", "__PLUGIN_PKG__", "__DISPLAY_NAME__", "__TABLE_PREFIX__")
-TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "templates"
+
+
+def resolve_templates_dir() -> Path:
+    """Where the scaffold templates are.
+
+    A wheel carries them as package data (``narranexus/cli/resources/templates``,
+    hatch ``force-include`` of the repo's ``templates/``); a source checkout /
+    editable install reads the repo's ``templates/`` directly. Anything else is
+    an installation error, said plainly instead of a FileNotFoundError deep in
+    ``iterdir``.
+    """
+    packaged = Path(__file__).resolve().parent / "resources" / "templates"
+    if packaged.is_dir():
+        return packaged
+    checkout = Path(__file__).resolve().parents[3] / "templates"
+    if checkout.is_dir():
+        return checkout
+    raise RuntimeError(
+        "narranexus scaffold templates not found: neither the packaged copy "
+        f"({packaged}) nor a source checkout ({checkout}) exists — reinstall narranexus"
+    )
+
+
+TEMPLATES_DIR = resolve_templates_dir()
 
 
 def _merge(a: Any, b: Any) -> Any:
@@ -165,4 +188,4 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
     return written
 
 
-__all__ = ["PLACEHOLDERS", "TEMPLATES_DIR", "scaffold", "substitute"]
+__all__ = ["PLACEHOLDERS", "TEMPLATES_DIR", "resolve_templates_dir", "scaffold", "substitute"]
