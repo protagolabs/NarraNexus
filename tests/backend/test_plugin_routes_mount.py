@@ -64,10 +64,13 @@ def test_auth_none_route_is_public_and_only_that_prefix(host_app):
             ("acme.weather", "api", RouterSpec(_router("closed"), "/api/x/acme.weather/private")),
         ],
     )
-    assert "/api/x/acme.weather/webhook/" in auth_mod.PLUGIN_EXEMPT_PREFIXES
+    assert "/api/x/acme.weather/webhook" in auth_mod.PLUGIN_EXEMPT_PREFIXES
     client = TestClient(host_app)
     assert client.get("/api/x/acme.weather/webhook/ping").json() == {"ok": "open"}
     assert client.get("/api/x/acme.weather/private/ping").status_code == 401
+    # segment boundary: a sibling prefix that merely STARTS with the public one stays authenticated
+    assert client.get("/api/x/acme.weather/webhook-admin/ping").status_code == 401
+    assert client.get("/api/x/acme.weather2/webhook/ping").status_code == 401
 
 
 def test_foreign_prefix_is_refused_not_mounted(host_app):

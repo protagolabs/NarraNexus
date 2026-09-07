@@ -80,7 +80,10 @@ def test_webhook_flow(client):
     sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     assert c.post("/api/channels/wh_route/webhook/a1", content=body, headers={"X-Webhook-Signature": f"sha256={sig}", "Content-Type": "application/json"}).status_code == 200
     assert c.post("/api/channels/wh_route/webhook/a1", content=b"not json", headers={"X-Webhook-Token": secret}).status_code == 400
-    assert c.post("/api/channels/wh_route/webhook/a9", json={}, headers={"X-Webhook-Token": secret}).status_code == 404
+    # an unknown binding answers the same 401 as a bad secret: no agent-enumeration oracle
+    assert c.post("/api/channels/wh_route/webhook/a9", json={}, headers={"X-Webhook-Token": secret}).status_code == 401
+    # the secret is never accepted from the query string (proxies log the request line)
+    assert c.post(f"/api/channels/wh_route/webhook/a1?token={secret}", json={"id": 3}).status_code == 401
     assert c.post("/api/channels/lark/webhook/a1", json={}, headers={"X-Webhook-Token": secret}).status_code == 404  # socket channel
 
     import asyncio

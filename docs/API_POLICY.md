@@ -16,8 +16,8 @@ Since plugin platform batch 6 (2026-09) every kind in `narranexus.contracts.API_
 Every exported symbol and every slot carries exactly one level, declared in code
 (`narranexus.contracts.STABILITY`, `Slot.stability`) and in the generated docs.
 
-- **alpha** — May change or be removed in any release without notice. The whole plugin
-  platform is alpha until the open-source release marks its surface stable.
+- **alpha** — May change or be removed in any release without notice. A NEW kind starts
+  here until it is promoted in `narranexus.contracts.STABILITY`.
 - **beta** — Feature-complete and a candidate for stable. Backwards-incompatible changes
   are allowed only after a deprecation period of at least **2 minor releases or 90 days,
   whichever is longer**, declared at the time the symbol is marked beta.
@@ -42,8 +42,8 @@ breaking change to a slot's contract ships as a new slot, never as an edit.
 ## 4. Deprecation process
 
 1. Mark the symbol with `warnings.deprecated` (PEP 702) / a JSDoc `@deprecated` tag naming
-   `since`, `removal` and the replacement, and list it in `CHANGELOG.md` under
-   "Deprecated".
+   `since`, `removal` and the replacement, and list it under "Deprecated" in the
+   release notes (`docs/RELEASE_NOTES.md`, one section per version).
 2. The host emits a `DeprecationWarning` once per process per symbol and records a
    `warnings` entry in the plugin load report so the plugin factory can show it.
 3. The replacement must be available in the same release the deprecation is announced.

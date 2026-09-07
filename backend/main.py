@@ -754,13 +754,6 @@ def _health_body(db_ok: bool, db_detail: str):
         "status": "healthy" if db_ok else "unhealthy",
         "database": db_detail,
     }
-    summary_worker = getattr(app.state, "team_summary_worker", None)
-    if summary_worker is not None:
-        body["team_summary"] = {
-            "running": summary_worker.running,
-            **summary_worker.last_pass,
-        }
-
     if not db_ok:
         return JSONResponse(status_code=503, content=body)
     return body

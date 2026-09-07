@@ -37,3 +37,7 @@ SecretBox.decrypt fails closed (raises) on a Fernet token this key cannot open. 
 ## 2026-09-07 — CredentialConflict
 
 upsert translates the DB unique-index violation ((channel, agent_id) / (channel, external_id)) into CredentialConflict(channel, external_id, agent_id); the DB stays the enforcement point (no application pre-check — that is the race), the route maps it to 409.
+
+## 2026-09-07 — validate_bind_fields checks formats by field kind
+
+email / url / int kinds are format-checked for every channel through the descriptor (the Lark bind used to check '@' in owner_email by hand and lost it in the generic migration).

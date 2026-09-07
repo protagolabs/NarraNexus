@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/descriptor.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -29,3 +29,7 @@ The module declares its agent-level instance in its own `ModuleConfig`.
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+## 2026-09-07 — owner_email is an email field
+
+Format validated by the shared bind validator (me/my/I resolution silently failed on a malformed address).

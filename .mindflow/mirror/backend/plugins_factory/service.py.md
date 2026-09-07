@@ -33,3 +33,7 @@ Builtin rows carry `on_demand` / `pip` / `deps_missing` (from the boot report); 
 ## 2026-09-07 — enable respects the permissions gate; acknowledge goes through the installer helper
 
 set_enabled(True) refuses (InstallError → 400) a plugin whose declared permissions are not acknowledged; acknowledge_permissions delegates to installer.acknowledge_permissions so the acknowledged tokens are recorded and the plugin is enabled in one step.
+
+## 2026-09-07 — blocklist always consulted; proposals are per caller; error log bounded; slots()
+
+_installer() always asks the index for the blocklist (it used to depend on whether someone had opened the index first); decision: an unreachable index fails OPEN with a loud log because an offline desktop must still install a local plugin — the block is a revocation signal, not the only gate. install_builtin_deps uses the lazy installer (the raw field was None in production: a guaranteed 500). proposals(user_id=…) returns the caller's own agents' proposals only and decide_proposal answers not-found for another user's (no existence oracle) while the APPLY keeps the proposal's own identity. record_error accepts only installed plugins and caps the number of plugin logs (the dict keyed by a raw path segment was a leak). slots() is the slot catalog behind GET /slots.

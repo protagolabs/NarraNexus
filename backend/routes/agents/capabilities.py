@@ -20,28 +20,20 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.auth import resolve_current_user_id
 from narranexus.platform.module_system.capability_service import CapabilityService
+from backend.routes._ownership import assert_owned
 from narranexus.platform.utils.db.db_factory import get_db_client
 
 router = APIRouter()
-
-_SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
-
 
 class EnabledBody(BaseModel):
     enabled: bool = Field(...)
 
 
 async def _require_owner(agent_id: str, request: Request):
-    user_id = await resolve_current_user_id(request)
-    db = await get_db_client()
-    agent_row = await db.get_one("agents", {"agent_id": agent_id})
-    if not agent_row:
-        raise HTTPException(status_code=404, detail=f"Agent {agent_id!r} not found.")
-    if agent_row.get("created_by") != user_id:
-        raise HTTPException(status_code=403, detail="Only the agent's owner can change its capabilities.")
-    return db
+    """The one ownership check every agent route uses (backend/routes/_ownership.assert_owned) — no eleventh copy."""
+    await assert_owned(request, agent_id)
+    return await get_db_client()
 
 
 @router.get("/{agent_id}/capabilities")

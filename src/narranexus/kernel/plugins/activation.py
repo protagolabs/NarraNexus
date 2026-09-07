@@ -58,6 +58,7 @@ class Activator:
     on_activated: ActivatedSink | None = None
     import_timeout_s: float = 30.0
     activate_timeout_s: float = 30.0
+    context_timeout_s: float = 15.0
     _manifests: dict[str, Manifest] = field(default_factory=dict)
     _by_event: dict[str, list[str]] = field(default_factory=dict)
     _active: dict[str, PluginContext] = field(default_factory=dict)
@@ -124,7 +125,14 @@ class Activator:
             activate = getattr(module, "activate", None)
             if activate is None:
                 raise PluginError(f"{plugin_id}: backend package has no activate(ctx)")
-            ctx = self.context_factory(manifest)
+            # The context factory may do I/O (the settings store loads the
+            # plugin's rows): run it off the loop with a bound so a stalled DB
+            # cannot park the host's event loop — and with it /health — for
+            # the duration of a connection hang.
+            ctx = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, self.context_factory, manifest),
+                timeout=self.context_timeout_s,
+            )
             result = activate(ctx)
             if inspect.isawaitable(result):
                 await asyncio.wait_for(result, timeout=self.activate_timeout_s)

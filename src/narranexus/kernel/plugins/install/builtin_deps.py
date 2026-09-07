@@ -70,8 +70,8 @@ def missing_imports(manifest: Any) -> tuple[str, ...]:
     return tuple(out)
 
 
-def ensure_builtin_deps(manifest: Any, *, cloud: bool, runner: Runner | None = None) -> DepsStatus:
-    """Probe (and on the local build install) an on-demand builtin's dependencies."""
+def ensure_builtin_deps(manifest: Any, *, cloud: bool, runner: Runner | None = None, install: bool = True) -> DepsStatus:
+    """Probe (and on the local build, when ``install`` is set, install) an on-demand builtin's dependencies."""
     if not is_on_demand(manifest):
         return DepsStatus(manifest.id, on_demand=False)
     missing = missing_imports(manifest)
@@ -79,6 +79,8 @@ def ensure_builtin_deps(manifest: Any, *, cloud: bool, runner: Runner | None = N
         return DepsStatus(manifest.id, on_demand=True)
     if cloud:
         return DepsStatus(manifest.id, on_demand=True, missing=missing, error=f"missing {', '.join(missing)}; cloud images bake dependencies, on-demand install is disabled")
+    if not install:
+        return DepsStatus(manifest.id, on_demand=True, missing=missing, error=f"missing {', '.join(missing)} (not installed at import; the boot or the factory installs)")
     target = builtin_deps_target(manifest.id)
     try:
         result = install_deps(manifest.backend.pip, target, runner=runner)

@@ -130,6 +130,20 @@ def validate_bind_fields(descriptor: ChannelDescriptor, values: dict[str, Any]) 
     unknown = sorted(k for k in values if k not in known)
     if unknown:
         return f"unknown field(s): {', '.join(unknown)}"
+    # Per-kind format checks — every channel gets them through its descriptor
+    # rather than a channel-specific `if` in a route (the Lark bind used to
+    # check "@" in owner_email by hand and lost it in the migration).
+    for f in fields:
+        raw = values.get(f.name)
+        if raw in (None, ""):
+            continue
+        text = str(raw).strip()
+        if f.kind == "email" and ("@" not in text or text.startswith("@") or text.endswith("@") or " " in text):
+            return f"{f.name} must be an e-mail address"
+        if f.kind == "url" and not (text.startswith("http://") or text.startswith("https://")):
+            return f"{f.name} must be an http(s) URL"
+        if f.kind == "int" and not text.lstrip("-").isdigit():
+            return f"{f.name} must be an integer"
     missing = [f.name for f in fields if f.required and not str(values.get(f.name, "") or "").strip()]
     if missing:
         return f"missing required field(s): {', '.join(missing)}"

@@ -51,3 +51,7 @@ stub: false
 ## 2026-09-07 — PLUGIN_ID_RE tightened; api versions are floor..current
 
 Ids are [a-z0-9] words joined by single '_'/'-' (no doubled, leading or trailing separators) so the flattened id is an injective prefix. _check_api_versions accepts MIN_SUPPORTED_VERSIONS[kind] <= api[kind] <= API_VERSIONS[kind]: a bump opens the deprecation window API_POLICY promises instead of breaking every published plugin in one upgrade; a plugin written against a newer contract than the host is refused ('upgrade the host').
+
+## 2026-09-07 — backend.publicPrefixes
+
+BackendSpec.publicPrefixes: the route prefixes (under the plugin's /api/x/<id>) that serve without authentication; the host registers them at mount time and refuses an auth='none' router outside them.

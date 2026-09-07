@@ -490,3 +490,7 @@ Batch 6 fix: the lifespan hands its db client to `plugins_boot.set_host_db`; `mo
 ## 2026-09-07 — SPA fallback answers 404 for `v1/ manyfold/ api/ ws/`
 
 `spa_fallback` returns a JSON 404 (not `index.html` + 200) for any unregistered path under those four prefixes. Two reasons: a distribution that leaves a builtin out must make that builtin's old routes 404 (a platform readiness probe getting 200 + HTML would call a missing service healthy), and a frontend request to a wrong endpoint must never receive the HTML shell as data. Every other path still serves the SPA shell (`tests/backend/test_spa_fallback_404.py` runs both directions with a real `frontend/dist`).
+
+## 2026-09-07 — /health no longer reports team_summary
+
+The block read app.state.team_summary_worker, which nothing sets since the worker moved to builtin.teams' backend.workers contribution (workers process); its heartbeat is the '[team.summary] pass:' log line there. A block that reads state nothing sets is not a signal, and the test that kept it green faked the attribute.

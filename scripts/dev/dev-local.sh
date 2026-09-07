@@ -51,7 +51,7 @@ pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
 pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
 pkill -f "run_worker_supervisor" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+for port in 8100 8000 5173 5174 7801 47831; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -238,12 +238,12 @@ while true; do
       pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
       pkill -f "run_worker_supervisor" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+      for port in 8100 8000 5173 5174 7801 47831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+      for port in 8100 8000 5173 5174 7801 47831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"

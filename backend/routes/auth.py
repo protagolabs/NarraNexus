@@ -984,9 +984,12 @@ async def get_agents(request: Request):
 
 
 async def _mark_first_agent_created(db_client, user_id: str) -> None:
-    """Creating an agent through ANY door (API, studio, import) completes the
-    first-agent onboarding step; the welcome flow must not depend on the
-    frontend remembering to post it. Best-effort, never fails the create."""
+    """Creating an agent through the agents API completes the first-agent
+    onboarding step server-side; the welcome flow must not depend on the
+    frontend remembering to post it. Other creation doors (bundle import,
+    team install, social-network provisioning) do not mark it yet — a user
+    whose first agent arrives that way still sees the step. Best-effort,
+    never fails the create."""
     try:
         user_repo = UserRepository(db_client)
         user = await user_repo.get_user(user_id)

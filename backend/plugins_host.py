@@ -64,6 +64,12 @@ class LazyRouterApp:
         return self._app
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            # A WebSocket handshake cannot be answered with an HTTP response;
+            # closing the socket is the honest refusal.
+            if scope.get("type") == "websocket":
+                await send({"type": "websocket.close", "code": 1003})
+            return
         app = await self._ensure()
         if app is None:
             from starlette.responses import JSONResponse
@@ -72,6 +78,11 @@ class LazyRouterApp:
             await response(scope, receive, send)
             return
         await app(scope, receive, send)
+
+    def reset(self) -> None:
+        """Forget a failed activation so the next request tries again (after the plugin was fixed / re-enabled)."""
+        self._app = None
+        self._error = None
 
     @property
     def activated(self) -> bool:
@@ -127,8 +138,10 @@ def mount_plugin_routes(app: Any, registries: Registries) -> MountReport:
             continue
         if spec.auth == "none":
             # Module attribute, not an import-time binding: tests swap the set.
-            _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix + "/")
+            # One entry; backend.auth matches it on a path-segment boundary.
             _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix)
+        if spec.quota_bypass:
+            _auth.PLUGIN_QUOTA_BYPASS_PREFIXES.add(spec.prefix)
         app.include_router(spec.router, prefix=spec.prefix, tags=list(spec.tags) or [entry.owner])
         report.mounted.append((entry.owner, entry.name, spec.prefix))
     if report.mounted:
@@ -154,8 +167,21 @@ def mount_user_plugin_routes(app: Any, registries: Registries, manifests: Any = 
         if manifest.is_builtin or ROUTES_SLOT not in manifest.provides:
             continue
         prefix = plugin_route_prefix(manifest.id)
+        # Public prefixes come from the MANIFEST, at mount time: an external
+        # platform posting a webhook has no session, so the exemption must
+        # exist before the first request activates the plugin (registering it
+        # inside activation meant the 401 at the middleware kept activation
+        # from ever happening). A prefix outside the plugin's own is refused.
+        declared_public: set[str] = set()
+        for public in (manifest.backend.publicPrefixes if manifest.backend else ()):
+            full = public if public.startswith(prefix) else prefix.rstrip("/") + "/" + public.strip("/")
+            if not (full == prefix or full.startswith(prefix.rstrip("/") + "/")):
+                logger.warning(f"[plugins] {manifest.id}: publicPrefixes entry {public!r} is outside {prefix!r}; ignored")
+                continue
+            declared_public.add(full.rstrip("/") or full)
+            _auth.PLUGIN_EXEMPT_PREFIXES.add(full.rstrip("/") or full)
 
-        def _activate(pid: str = manifest.id, prefix: str = prefix) -> Awaitable[RouterSpec]:
+        def _activate(pid: str = manifest.id, prefix: str = prefix, declared_public: frozenset[str] = frozenset(declared_public)) -> Awaitable[RouterSpec]:
             async def run() -> RouterSpec:
                 from fastapi import APIRouter
 
@@ -175,10 +201,13 @@ def mount_user_plugin_routes(app: Any, registries: Registries, manifests: Any = 
                 combined = APIRouter()
                 for spec in specs:
                     sub = spec.prefix[len(prefix):]  # /api/x/<id>/extra → /extra under the lazy mount
+                    if spec.auth == "none" and spec.prefix.rstrip("/") not in declared_public:
+                        # Never from a value the plugin computes at runtime: a public
+                        # endpoint must be in the manifest the user approved.
+                        raise ValueError(f"{pid}: route {entry.name!r} is auth='none' but {spec.prefix!r} is not in the manifest's backend.publicPrefixes")
                     combined.include_router(spec.router, prefix=sub, tags=list(spec.tags) or [pid])
-                    if spec.auth == "none":
-                        _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix + "/")
-                        _auth.PLUGIN_EXEMPT_PREFIXES.add(spec.prefix)
+                    if spec.quota_bypass:
+                        _auth.PLUGIN_QUOTA_BYPASS_PREFIXES.add(spec.prefix)
                 return RouterSpec(combined, prefix, tags=specs[0].tags)
 
             return run()
@@ -230,7 +259,11 @@ def register_builtins_for_import(registries: Registries) -> tuple[str, ...]:
         prepare_bundled_plugins(res, registry_store(), skip=disabled)
     loadable = []
     for manifest in stage1:
-        status = ensure_builtin_deps(manifest, cloud=cloud)
+        # PROBE only at import (install=False): a network package install
+        # during `import backend.main` made the first desktop launch look hung
+        # with no readiness endpoint serving. The lifespan boot installs; the
+        # factory's install-deps endpoint retries.
+        status = ensure_builtin_deps(manifest, cloud=cloud, install=False)
         if status.ok:
             loadable.append(manifest)
         else:

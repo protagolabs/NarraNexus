@@ -37,7 +37,7 @@ status() {
   echo ""
   local services=(
     "8100:DB Proxy" "8000:Backend API" "5173:Frontend"
-    "7801:MCP Modules (every module server mounted by path)" "47831:Lark Trigger health")
+    "7801:MCP Modules (every module server mounted by path)" "47831:Channel health (aggregated, every IM channel)")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"

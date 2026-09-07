@@ -21,3 +21,7 @@ The registry view is the only module table; usages renamed.
 ## 2026-09-07 — channel name is ASCII [a-z0-9_]
 
 __post_init__ validates with a regex: str.isalnum() is Unicode-aware, so a name like 'café' passed a check whose message promised [a-z0-9_] and then became an invalid SQL alias / URL segment.
+
+## 2026-09-07 — FieldKind gains email
+
+An email kind so descriptors can declare the format and the shared validator enforces it.

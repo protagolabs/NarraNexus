@@ -21,3 +21,7 @@ Batch 6c: `distribution()` resolves `NARRANEXUS_DIST` once per process (None = a
 Batch 6 fix: `set_host_db(db)` / `host_db()` — plugin contexts get the lifespan's async client (a sync client cannot be built inside the loop); the settings store is built without a loop-bound client (`DbSettingsStore()` drives its own loop).
 
 2026-09-07: `write_runtime_bindings` delegates to `platform.bindings_runtime.resolve_runtime_bindings` (installs the bindings on the registries as well as snapshotting).
+
+## 2026-09-07 — settings fallback covers the DB read; the first boot report survives a repeated lifespan
+
+_settings_for constructs PluginSettings INSIDE the try: the store's DB round-trip happens in the constructor (rows load eagerly), so a transient DB error was escaping as a plugin crash and two restarts auto-disabled a healthy plugin; now it falls back to MemorySettingsStore with a warning. When the registries are already frozen (a second lifespan in-process) boot_backend_plugins returns the first boot's report instead of an empty one that made the factory page list every plugin as unloaded.

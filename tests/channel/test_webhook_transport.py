@@ -109,7 +109,7 @@ def test_verify_webhook_token_and_hmac():
     secret = new_webhook_secret()
     body = b'{"id": 1}'
     assert verify_webhook(secret, body, {"X-Webhook-Token": secret})
-    assert verify_webhook(secret, body, {}, query_token=secret)
+    assert not verify_webhook(secret, body, {})  # no header, no signature: never a query token
     sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     assert verify_webhook(secret, body, {"x-webhook-signature": f"sha256={sig}"})
     assert not verify_webhook(secret, body + b" ", {"x-webhook-signature": f"sha256={sig}"})  # body tampered

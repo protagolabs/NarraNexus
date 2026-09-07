@@ -17,3 +17,7 @@ WebhookChannelTriggerBase overrides _run_cleanup (the trigger's daily retention 
 ## 2026-09-07 — token comparison on bytes
 
 hmac.compare_digest on str raised TypeError (a 500) for a non-ASCII X-Webhook-Token; comparing UTF-8 bytes makes a malformed header a plain 401.
+
+## 2026-09-07 — verify_webhook has no query-token arm
+
+Header token or HMAC signature only.

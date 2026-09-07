@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, Optional
 
 Transport = Literal["socket", "poll", "webhook", "none"]
-FieldKind = Literal["string", "secret", "url", "bool", "int", "select"]
+FieldKind = Literal["string", "secret", "url", "bool", "int", "select", "email"]
 
 
 @dataclass(frozen=True)

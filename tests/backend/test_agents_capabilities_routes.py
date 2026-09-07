@@ -27,6 +27,10 @@ def _client(db_client, monkeypatch, viewer_id="u1"):
         return db_client
 
     monkeypatch.setattr(mod, "get_db_client", _db)
+    # the route's ownership check is the shared backend.routes._ownership helper
+    from backend.routes import _ownership
+
+    monkeypatch.setattr(_ownership, "get_db_client", _db)
     return TestClient(app)
 
 

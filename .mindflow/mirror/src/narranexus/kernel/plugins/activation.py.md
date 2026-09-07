@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/activation.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -16,3 +16,7 @@ stub: false
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 `EVENT_PREFIXES` accepts `onRenderer:`, `onTimelineEvent:`, `onSlot:` (the frontend slot-point gates fire them).
+
+## 2026-09-07 — context factory runs off the loop, bounded
+
+context_factory(manifest) is awaited through run_in_executor with context_timeout_s (15 s): the backend's factory loads plugin settings from the DB, and a stalled connection used to park the host event loop — and /health — for the whole hang (the v1.7.16 outage shape).

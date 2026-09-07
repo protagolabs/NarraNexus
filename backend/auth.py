@@ -416,6 +416,22 @@ def _is_marketplace_public_read(request: "Request") -> bool:
 # code. A set (not the tuple below) because it is populated at runtime.
 PLUGIN_EXEMPT_PREFIXES: set[str] = set()
 
+# Route prefixes plugin routers declared with ``quota_bypass=True`` (RouterSpec):
+# config-class endpoints a user whose free tier is exhausted must still reach
+# (the same reason QUOTA_BYPASS_PREFIXES exists). Filled at mount time.
+PLUGIN_QUOTA_BYPASS_PREFIXES: set[str] = set()
+
+
+def path_under_prefix(path: str, prefix: str) -> bool:
+    """True when ``path`` IS ``prefix`` or lies beneath it as a whole path segment.
+
+    String prefix matching is not segment matching: ``/api/x/acme.w`` used to
+    exempt ``/api/x/acme.w2/...`` and ``/api/x/p/webhook`` exempted
+    ``/api/x/p/webhook-admin``. Starlette routes by segment; auth must too.
+    """
+    base = prefix.rstrip("/")
+    return path == base or path.startswith(base + "/")
+
 # Inbound channel webhooks (plugin platform batch 4c): the external platform
 # has no session; the binding's webhook_secret is the auth, verified in the
 # handler (backend/routes/channels/generic.py). Exact shape only — every
@@ -428,7 +444,11 @@ def _is_channel_webhook_path(path: str) -> bool:
 
 
 def _is_plugin_exempt(path: str) -> bool:
-    return any(path.startswith(p) for p in PLUGIN_EXEMPT_PREFIXES) or _is_channel_webhook_path(path)
+    return any(path_under_prefix(path, p) for p in PLUGIN_EXEMPT_PREFIXES) or _is_channel_webhook_path(path)
+
+
+def _is_plugin_quota_bypass(path: str) -> bool:
+    return any(path_under_prefix(path, p) for p in PLUGIN_QUOTA_BYPASS_PREFIXES)
 
 
 AUTH_EXEMPT_PREFIXES = (
@@ -747,16 +767,8 @@ async def auth_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
 
-    # Require JWT
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        if _is_marketplace_public_read(request):
-            # Anonymous marketplace read (desktop clients have no cloud JWT).
-            return await call_next(request)
-        return auth_error_response(
-            TOKEN_MISSING, "Authentication required",
-            path=path, method=request.method,
-        )
+    has_bearer = auth_header.startswith("Bearer ")
 
     # ---- NarraNexus service identity (blueprint Q6) -----------------------
     # The mcp container's HttpStore forwards the executor→mcp identity
@@ -779,7 +791,7 @@ async def auth_middleware(request: Request, call_next):
     # gateway key (their LLM spend then fails) and, when armed, tearing down their
     # executor. Adding a gate here would put a per-request users-table read on the
     # hot internal path; deferring in-flight teardown to key-revoke keeps it off.
-    if _is_nx_service_bearer(auth_header):
+    if has_bearer and _is_nx_service_bearer(auth_header):
         identity = _verify_nx_service_bearer(request)
         if identity is None:
             return auth_error_response(
@@ -797,9 +809,14 @@ async def auth_middleware(request: Request, call_next):
     # ---- the bound authProviders plugin (kernel.auth) names the user -------
     # builtin.auth.netmind decodes the NetMind JWT; a distribution may bind
     # its own (SSO). The provider raises AuthError with the code to report.
+    # The provider decides whether a credential is present at all: a
+    # distribution binding a cookie / SSO / header provider must be reachable
+    # without a bearer (the old "Bearer or 401" gate ran first and made the
+    # seam impossible to exercise). ``None`` from the provider with no bearer
+    # is "no credential" (TOKEN_MISSING); with a bearer it is "bad credential".
     from backend.auth_provider import auth_provider
 
-    token = auth_header[7:]
+    token = auth_header[7:] if has_bearer else ""  # only a bearer's value belongs in the error log
     try:
         identity = await auth_provider().authenticate(request)
     except AuthError as exc:
@@ -808,6 +825,14 @@ async def auth_middleware(request: Request, call_next):
             path=path, method=request.method, token=token, status_code=exc.status_code,
         )
     if identity is None:
+        if _is_marketplace_public_read(request):
+            # Anonymous marketplace read (desktop clients have no cloud JWT).
+            return await call_next(request)
+        if not has_bearer:
+            return auth_error_response(
+                TOKEN_MISSING, "Authentication required",
+                path=path, method=request.method,
+            )
         return auth_error_response(
             TOKEN_INVALID, "Invalid token",
             path=path, method=request.method, token=token,
@@ -849,8 +874,10 @@ async def auth_middleware(request: Request, call_next):
 
     set_current_user_id(request.state.user_id)
 
-    if request.method in SAFE_HTTP_METHODS or any(
-        path.startswith(p) for p in QUOTA_BYPASS_PREFIXES
+    if (
+        request.method in SAFE_HTTP_METHODS
+        or any(path.startswith(p) for p in QUOTA_BYPASS_PREFIXES)
+        or _is_plugin_quota_bypass(path)
     ):
         return await call_next(request)
 

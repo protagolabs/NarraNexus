@@ -1,6 +1,6 @@
 ---
 code_file: backend/plugins_host.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -29,3 +29,7 @@ include；之后直通。认证中间件在主 app 上先跑，所以未登录�
 Batch 6c.3: `register_builtins_for_import` follows the distribution (`plugins_boot.distribution()`): builtins outside it drop their registrations before routes mount, bundled plugins are prepared and loaded at import like builtins.
 
 Batch 6 fix (found running the stack): `mount_user_plugin_routes(app, registries, manifests=None)` mounts a `LazyRouterApp` at `/api/x/<id>` for every registry.json plugin declaring `backend.routes` at import time (before the SPA fallback); the first request resolves and combines the plugin's registered routers (prefix-checked, auth=none exemptions honoured), a plugin whose contributions never loaded answers 503, cloud mounts nothing.
+
+## 2026-09-07 — public prefixes from the manifest at mount time; one exempt entry; probe-only deps at import; lazy app hygiene
+
+A user plugin's unauthenticated endpoints are declared in backend.publicPrefixes and registered when the lazy router is MOUNTED — an external platform posting a webhook has no session, so the exemption had to exist before activation (registering it inside activation meant the middleware's 401 kept the plugin from ever activating). A RouterSpec(auth='none') whose prefix is not declared is refused at activation: a public endpoint must be in the manifest the user approved, never a value the plugin computes. Exempt / quota-bypass prefixes are stored once (backend.auth matches on segment boundaries). register_builtins_for_import only PROBES on-demand dependencies (install=False): a pip install during import of backend.main made the first desktop launch look hung with nothing serving /health. LazyRouterApp closes WebSocket handshakes instead of answering HTTP, and reset() lets a fixed plugin activate again.

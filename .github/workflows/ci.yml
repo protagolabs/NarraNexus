@@ -52,7 +52,7 @@ jobs:
 
       - name: Import direction (import-linter)
         # Plugin-platform layering: contracts are a leaf, kernel sees only
-        # contracts. Exceptions live in pyproject with an issue and expiry.
+        # contracts. Exceptions live in pyproject; each ignore_imports entry names the batch that owes its removal.
         run: uv run lint-imports
 
       # pyrightconfig.json is deliberately narrowed (typeCheckingMode off,

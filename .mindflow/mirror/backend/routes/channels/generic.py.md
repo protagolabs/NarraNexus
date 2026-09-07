@@ -21,3 +21,7 @@ The six bespoke `/api/<channel>/{bind,credential,test,unbind,set-active}` routes
 ## 2026-09-07 — bind conflict → 409
 
 CredentialConflict from the store becomes HTTP 409 with the product-level message ('this bot is already bound to another agent') instead of a driver IntegrityError 500.
+
+## 2026-09-07 — webhook: header/HMAC only, uniform 401, rate limited, safe ids; bind conflict 409
+
+The inbound webhook no longer accepts ?token= (the request line lands in every reverse-proxy access log). Unknown binding and bad secret both answer 401 (the distinction is logged) so the anonymous endpoint is not an agent-enumeration oracle; a sliding window per binding and per source address bounds the DB reads; agent_id is constrained to the safe id pattern.

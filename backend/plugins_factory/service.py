@@ -32,6 +32,7 @@ from narranexus.kernel.plugins.manifest import Manifest, derive_activation_event
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
 from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 
+ERROR_LOG_PLUGINS_LIMIT = 64  # distinct plugin ids that keep an in-memory error log
 ERROR_LOG_LIMIT = 50
 
 
@@ -63,7 +64,17 @@ class FactoryService:
 
     def _installer(self) -> Installer:
         if self.installer is None:
-            blocked = self._index().blocked() if self.index is not None else {}
+            # The blocklist ALWAYS comes from the index (the previous code only
+            # consulted it when someone had happened to open the index first —
+            # a security control that depended on click order). Decision when
+            # the index is unreachable: fail OPEN with a loud log, because an
+            # offline desktop must still install a local plugin; the block is a
+            # revocation signal, not the only gate (permissions, isolation).
+            try:
+                blocked = self._index().blocked()
+            except Exception as exc:  # noqa: BLE001 — offline / index down
+                logger.warning(f"[plugins] index blocklist unavailable, installing without it: {exc}")
+                blocked = {}
             self.installer = Installer(store=self.store, blocked=blocked)
         return self.installer
 
@@ -178,7 +189,7 @@ class FactoryService:
             raise NotInstalled(f"{plugin_id} is not a builtin plugin")
         if not is_on_demand(manifest):
             raise RegistryError(f"{plugin_id} has no on-demand dependencies")
-        status = ensure_builtin_deps(manifest, cloud=False, runner=self.installer.runner)
+        status = ensure_builtin_deps(manifest, cloud=False, runner=self._installer().runner)
         if not status.ok:
             raise InstallError(status.error or "dependency install failed")
         if self.boot_report is not None:
@@ -292,7 +303,21 @@ class FactoryService:
 
     # -------------------------------------------------------------- errors
 
+    def slots(self) -> dict[str, Any]:
+        """The slot catalog of this process's own registries (what `narranexus slots` shows)."""
+        from narranexus.kernel.plugins.catalog import slot_catalog
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        return {"domains": slot_catalog(KERNEL_REGISTRIES)}
+
     def record_error(self, plugin_id: str, *, kind: str, message: str, stack: str = "") -> int:
+        # Only installed plugins have an error log: the id is a raw path
+        # segment, and an unbounded dict keyed by it was a memory leak.
+        if plugin_id not in self.store.read().plugins and not any(m.id == plugin_id for m in builtin_manifests()):
+            raise NotInstalled(f"{plugin_id} is not installed")
+        if plugin_id not in self._errors and len(self._errors) >= ERROR_LOG_PLUGINS_LIMIT:
+            oldest = next(iter(self._errors))
+            del self._errors[oldest]
         log = self._errors.setdefault(plugin_id, deque(maxlen=ERROR_LOG_LIMIT))
         log.append(UiError(at=time.time(), kind=kind, message=message[:2000], stack=stack[:8000]))
         try:
@@ -306,10 +331,11 @@ class FactoryService:
 
     # ----------------------------------------------------------- proposals
 
-    def proposals(self, *, pending_only: bool = True) -> list[dict[str, Any]]:
+    def proposals(self, *, user_id: str, pending_only: bool = True) -> list[dict[str, Any]]:
+        """The caller's OWN agents' proposals — never another user's (they carry summaries and requested permissions)."""
         from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
 
-        return [asdict(p) for p in ProposalStore().list(pending_only=pending_only)]
+        return [asdict(p) for p in ProposalStore().list(pending_only=pending_only) if p.user_id == user_id]
 
     def decide_proposal(self, proposal_id: str, *, approved: bool, by: str) -> dict[str, Any]:
         self._guard_mutation()
@@ -317,7 +343,9 @@ class FactoryService:
         from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
 
         p = ProposalStore().get(proposal_id)
-        if p is None:
+        # Not-found for someone else's proposal too: an existence oracle across
+        # users is a leak. The APPLY keeps using the proposal's own identity.
+        if p is None or p.user_id != by:
             raise NotInstalled(f"proposal {proposal_id} not found")
         svc = SelfExtensionService(p.agent_id, p.user_id, store=self.store)
         try:

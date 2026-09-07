@@ -44,7 +44,7 @@ DESCRIPTOR = ChannelDescriptor(
         CredentialField("app_id", "string", label="App ID", required=True),
         CredentialField("app_secret", "secret", label="App Secret", required=True),
         CredentialField("brand", "select", label="Brand", required=True, options=("feishu", "lark")),
-        CredentialField("owner_email", "string", label="Owner e-mail", required=False),
+        CredentialField("owner_email", "email", label="Owner e-mail", required=False),
     ),
     has_bind=True,
     has_test=False,

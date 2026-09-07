@@ -79,10 +79,7 @@ async def list_plugins() -> dict[str, Any]:
 @router.get("/slots")
 async def slot_catalog_route() -> dict[str, Any]:
     """Every slot by domain with candidates and current binding (the process's own registries)."""
-    from narranexus.kernel.plugins.catalog import slot_catalog
-    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-
-    return {"success": True, "data": {"domains": slot_catalog(KERNEL_REGISTRIES)}}
+    return {"success": True, "data": await _run(service().slots)}
 
 
 @router.get("/index")
@@ -184,15 +181,21 @@ class DecideBody(BaseModel):
     approved: bool
 
 
+def _caller(request: Request) -> str:
+    user_id = str(getattr(request.state, "user_id", "") or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return user_id
+
+
 @router.get("/proposals")
-async def proposals(pending_only: bool = True) -> dict[str, Any]:
-    return {"success": True, "data": {"proposals": await _run(service().proposals, pending_only=pending_only)}}
+async def proposals(request: Request, pending_only: bool = True) -> dict[str, Any]:
+    return {"success": True, "data": {"proposals": await _run(service().proposals, user_id=_caller(request), pending_only=pending_only)}}
 
 
 @router.post("/proposals/{proposal_id}/decide")
 async def decide(proposal_id: str, body: DecideBody, request: Request) -> dict[str, Any]:
-    by = str(getattr(request.state, "user_id", "") or "user")
-    return {"success": True, "data": await _run(service().decide_proposal, proposal_id, approved=body.approved, by=by)}
+    return {"success": True, "data": await _run(service().decide_proposal, proposal_id, approved=body.approved, by=_caller(request))}
 
 
 @router.get("/{plugin_id}/errors")
@@ -202,7 +205,10 @@ async def errors(plugin_id: str) -> dict[str, Any]:
 
 @router.post("/{plugin_id}/errors")
 async def report_error(plugin_id: str, body: ErrorBody) -> dict[str, Any]:
-    count = service().record_error(plugin_id, kind=body.kind, message=body.message, stack=body.stack)
+    # A mutation like every other: cloud-guarded, off the event loop (the audit
+    # write fsyncs), 404 for a plugin that is not installed.
+    service()._guard_mutation()
+    count = await _run(service().record_error, plugin_id, kind=body.kind, message=body.message, stack=body.stack)
     return {"success": True, "data": {"count": count}}
 
 

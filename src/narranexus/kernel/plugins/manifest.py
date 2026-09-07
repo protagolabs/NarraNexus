@@ -54,6 +54,12 @@ class BackendSpec(_Strict):
     package: str = "backend"
     pip: tuple[str, ...] = ()
     activate: bool = False
+    # Route prefixes (under the plugin's own /api/x/<id>) that serve WITHOUT
+    # authentication (webhooks, OAuth callbacks). Declared here — visible in
+    # the manifest the user approved — and registered at MOUNT time, so an
+    # unauthenticated POST can reach a lazily-mounted plugin at all. A
+    # RouterSpec(auth="none") whose prefix is not declared here is refused.
+    publicPrefixes: tuple[str, ...] = ()
     # Import names that prove ``pip`` is present (``lark-oapi`` → ``lark_oapi``);
     # an on-demand builtin is checked against these at boot.
     imports: tuple[str, ...] = ()

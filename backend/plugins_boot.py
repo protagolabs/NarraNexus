@@ -80,10 +80,13 @@ def _settings_for(manifest: Manifest) -> PluginSettings:
         from narranexus.platform.utils.db.plugin_settings_store import DbSettingsStore
 
         store: Any = DbSettingsStore()  # no loop-bound client: the store drives its own loop + client
+        # PluginSettings loads its rows eagerly — the DB round-trip happens HERE,
+        # inside the guard: a transient DB error is a settings fallback, not a
+        # plugin crash (two of those used to auto-disable a healthy plugin).
+        return PluginSettings(manifest.id, schema, store=store)
     except Exception as exc:  # noqa: BLE001 — settings still work from env/defaults
         logger.warning(f"[plugins] {manifest.id}: settings store unavailable, using memory: {exc}")
-        store = MemorySettingsStore()
-    return PluginSettings(manifest.id, schema, store=store)
+        return PluginSettings(manifest.id, schema, store=MemorySettingsStore())
 
 
 def _context_factory(manifest: Manifest) -> PluginContext:
@@ -134,12 +137,20 @@ def write_runtime_bindings(res: DistributionResolution | None) -> Path | None:
     return None if resolved is None else plugin_home() / SNAPSHOT_RELPATH
 
 
+_LAST_REPORT: BootReport | None = None
+
+
 def boot_backend_plugins() -> BootReport:
+    global _LAST_REPORT
     if HOST_SERVICES.try_require(HOST_VERSION) is None:
         HOST_SERVICES.expose(HOST_VERSION, host_version(), owner="builtin.kernel")
     if KERNEL_REGISTRIES.frozen:
         # Lifespan ran more than once in this process (tests build several
-        # TestClients); the registries are already populated and frozen.
+        # TestClients); the registries are already populated and frozen. Hand
+        # back the FIRST boot's report so the factory page does not claim every
+        # plugin is unloaded.
+        if _LAST_REPORT is not None:
+            return _LAST_REPORT
         return BootReport(role="backend")
     res = distribution()
     report = boot(
@@ -152,6 +163,7 @@ def boot_backend_plugins() -> BootReport:
         store=registry_store(),
         distribution=res,
     )
+    _LAST_REPORT = report
     try:
         write_runtime_bindings(res)
     except OSError as exc:

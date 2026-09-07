@@ -36,12 +36,16 @@ def new_webhook_secret() -> str:
     return secrets.token_urlsafe(32)
 
 
-def verify_webhook(secret: str, body: bytes, headers: Mapping[str, str], query_token: Optional[str] = None) -> bool:
-    """True when the request proves knowledge of ``secret`` (token or HMAC-SHA256 of the raw body)."""
+def verify_webhook(secret: str, body: bytes, headers: Mapping[str, str]) -> bool:
+    """True when the request proves knowledge of ``secret`` (``X-Webhook-Token`` or HMAC-SHA256 of the raw body in ``X-Webhook-Signature``).
+
+    Header or signature only — a query-string form would land the secret in
+    every reverse proxy's access log.
+    """
     if not secret:
         return False
     lowered = {k.lower(): v for k, v in headers.items()}
-    token = lowered.get(TOKEN_HEADER) or query_token or ""
+    token = lowered.get(TOKEN_HEADER) or ""
     if token and hmac.compare_digest(token.encode("utf-8"), secret.encode("utf-8")):
         return True  # bytes: a non-ASCII header value is a 401, not a TypeError 500
     signature = lowered.get(SIGNATURE_HEADER, "")

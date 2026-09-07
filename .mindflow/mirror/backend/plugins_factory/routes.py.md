@@ -22,3 +22,7 @@ safe-mode/leave/bisect/{start,answer,stop}/errors（GET/POST）/assets（带 `X-
 `POST /builtin/{id}/install-deps`.
 
 2026-09-07: `GET /api/plugin-factory/slots` — the slot catalog of the running process.
+
+## 2026-09-07 — proposals/errors are guarded; slots through the service
+
+GET /proposals and decide use the authenticated caller (401 without one); POST /{id}/errors is cloud-guarded and runs through _run (its audit write fsyncs); GET /slots goes through FactoryService.slots() like every sibling.

@@ -19,10 +19,11 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from backend.routes._ownership import check_owned
 from narranexus.contracts.channel import ChannelDescriptor
 from narranexus.platform.channel.credential_store import CredentialConflict, GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
@@ -30,6 +31,10 @@ from narranexus.platform.channel.webhook_inbox import WebhookInbox
 from narranexus.platform.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
 
 router = APIRouter()
+
+# Anonymous inbound webhooks: per binding and per source address.
+_webhook_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
+_webhook_ip_limiter = SlidingWindowRateLimiter(limit=600, window_sec=60.0)
 
 # Safe agent_id values (alphanumeric + underscore + hyphen) — the same shape the
 # retired per-channel routes enforced, so an id never carries path/query syntax.
@@ -128,21 +133,29 @@ async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[s
 
 
 @router.post("/{channel}/webhook/{agent_id}")
-async def channel_webhook(request: Request, channel: str, agent_id: str, token: Optional[str] = None) -> dict[str, Any]:
+async def channel_webhook(request: Request, channel: str, agent_id: str = Path(..., pattern=_SAFE_ID_PATTERN)) -> dict[str, Any]:
     """Inbound webhook for a webhook-transport channel: verify the binding's secret, append the event to the inbox.
 
     Auth-exempt at the middleware (no session) — the credential's
-    ``webhook_secret`` IS the auth: ``X-Webhook-Token`` / ``?token=`` or an
-    HMAC-SHA256 signature of the raw body in ``X-Webhook-Signature``.
+    ``webhook_secret`` IS the auth: ``X-Webhook-Token`` or an HMAC-SHA256
+    signature of the raw body in ``X-Webhook-Signature``. Never a query
+    parameter: reverse proxies log the request line, and a secret in it is a
+    secret in every access log. Unknown binding and bad secret answer the same
+    401 (the difference is logged server-side) so the endpoint is not an agent
+    enumeration oracle, and a sliding window bounds anonymous DB reads.
     """
     d = _descriptor(channel)
     if d.transport != "webhook":
         raise HTTPException(status_code=404, detail=f"{channel} is not a webhook channel")
+    client_ip = request.client.host if request.client else "?"
+    if not _webhook_limiter.allow(f"{channel}:{agent_id}") or not _webhook_ip_limiter.allow(client_ip):
+        raise HTTPException(status_code=429, detail="too many webhook requests")
     raw = await request.body()
     record = await GenericCredentialStore(await _db()).get(channel, agent_id)
-    if record is None or not record.enabled:
-        raise HTTPException(status_code=404, detail="no active binding for this agent")
-    if not verify_webhook(str(record.secret.get(SECRET_FIELD, "") or ""), raw, dict(request.headers), token):
+    if record is None or not record.enabled or not record.readable:
+        logger.info(f"[channels] {channel} webhook for {agent_id}: no active binding (answered 401)")
+        raise HTTPException(status_code=401, detail="webhook token or signature invalid")
+    if not verify_webhook(str(record.secret.get(SECRET_FIELD, "") or ""), raw, dict(request.headers)):
         raise HTTPException(status_code=401, detail="webhook token or signature invalid")
     try:
         payload = json.loads(raw.decode("utf-8")) if raw else {}
