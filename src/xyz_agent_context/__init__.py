@@ -11,9 +11,9 @@ release: a ``sys.meta_path`` finder resolves every ``xyz_agent_context.<path>``
 to the SAME module object as ``narranexus.platform.<path>`` (so monkeypatches,
 ``isinstance`` and singletons agree), and this package re-exports the platform
 root. One ``DeprecationWarning`` per process names the replacement. The
-package (and the three by-path entrypoint shims next to it) is removed in the
-release after; see docs/PLUGIN_BATCH6_DEPLOY_LOCKSTEP.md for the deploy-side
-switch.
+package (and the entrypoint shims next to it) is removed in the release after
+(``REMOVED_AT`` refuses to import once the host reaches it); see
+docs/PLUGIN_BATCH6_DEPLOY_LOCKSTEP.md for the deploy-side switch.
 """
 from __future__ import annotations
 
@@ -39,14 +39,48 @@ def target_name(fullname: str) -> str:
 
 
 class _AliasLoader(importlib.abc.Loader):
-    def __init__(self, target: str) -> None:
+    """Import → the target module object itself; ``python -m`` → the target's code.
+
+    ``import`` must yield the SAME object as the platform module (identity is
+    the whole promise), so ``create_module`` returns the imported target and
+    ``exec_module`` does nothing. ``runpy`` (``python -m``) never imports the
+    module: it asks the loader for ``get_code`` and executes that in a fresh
+    ``__main__`` — so the code-access API is forwarded to the target's real
+    loader. Without it every ``-m xyz_agent_context.…`` entrypoint died with
+    ``AttributeError: '_AliasLoader' object has no attribute 'get_code'``.
+    """
+
+    def __init__(self, target: str, target_spec: importlib.machinery.ModuleSpec) -> None:
         self._target = target
+        self._target_spec = target_spec
 
     def create_module(self, spec):  # noqa: D401 — the target module IS the module
         return importlib.import_module(self._target)
 
     def exec_module(self, module) -> None:
         return None
+
+    # --- code-access API (runpy / inspect / linecache) → the target's loader ---
+    def _delegate(self):
+        loader = self._target_spec.loader
+        if loader is None:
+            raise ImportError(f"{self._target} has no loader")
+        return loader
+
+    def get_code(self, fullname: str):
+        return self._delegate().get_code(self._target)
+
+    def get_source(self, fullname: str):
+        return self._delegate().get_source(self._target)
+
+    def is_package(self, fullname: str) -> bool:
+        return self._target_spec.submodule_search_locations is not None
+
+    def get_filename(self, fullname: str) -> str:
+        origin = self._target_spec.origin
+        if origin is None:
+            raise ImportError(f"{self._target} has no file")
+        return origin
 
 
 class _AliasFinder(importlib.abc.MetaPathFinder):
@@ -63,7 +97,14 @@ class _AliasFinder(importlib.abc.MetaPathFinder):
         if spec is None:
             return None
         _warn_once()
-        return importlib.machinery.ModuleSpec(fullname, _AliasLoader(new), is_package=spec.submodule_search_locations is not None)
+        alias = importlib.machinery.ModuleSpec(
+            fullname,
+            _AliasLoader(new, spec),
+            origin=spec.origin,
+            is_package=spec.submodule_search_locations is not None,
+        )
+        alias.has_location = spec.has_location  # ``python -m`` sets ``__file__`` from this
+        return alias
 
 
 _warned = False
@@ -79,6 +120,26 @@ def _warn_once() -> None:
             stacklevel=3,
         )
 
+
+# Hard expiry (charter: no compat shims without a removal hook). The alias is
+# a one-release courtesy; once the host is the release after, importing it is
+# an error rather than a silent, forgotten layer that keeps competing with the
+# plugin importer for ``sys.meta_path[0]``.
+REMOVED_AT = "1.22.0"
+
+
+def _refuse_if_expired() -> None:
+    from narranexus.kernel.plugins.compat import Version, host_version
+
+    running = host_version()
+    if running != "0.0.0" and Version.parse(running) >= Version.parse(REMOVED_AT):
+        raise ImportError(
+            f"xyz_agent_context was a one-release alias of narranexus.platform and is gone as of "
+            f"{REMOVED_AT} (running {running}) — import narranexus.platform (module → module_system)"
+        )
+
+
+_refuse_if_expired()
 
 if not any(isinstance(f, _AliasFinder) for f in sys.meta_path):
     sys.meta_path.insert(0, _AliasFinder())

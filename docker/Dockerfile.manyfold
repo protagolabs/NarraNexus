@@ -141,6 +141,13 @@ WORKDIR /app
 # omitting the flag silently ships claude_code / codex_cli dead here. Lockstep
 # with the deploy repo's Dockerfile.executor / Dockerfile.python (铁律 #7).
 COPY pyproject.toml uv.lock ./
+# uv workspace members (packages/*, plugins/*) must be present for the
+# dependency-only sync to resolve — the root project depends on every member
+# via `{ workspace = true }`. Without these the layer fails with
+# "Distribution not found at: file:///app/packages/narranexus-contracts".
+# Lockstep with the deploy repo's Dockerfile.python / Dockerfile.executor.
+COPY packages/ ./packages/
+COPY plugins/ ./plugins/
 RUN uv sync --frozen --no-install-project --no-dev --extra plugins
 
 # Project layer: full source + editable install.
