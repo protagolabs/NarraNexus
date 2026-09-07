@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/awareness/LarkConfig.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — import fixed to the registry, not a sibling component (I-8)
+
+`ChannelConfigProps` is now imported directly from `@/platform/registries`, not from
+`./IMChannelsSection` (which merely re-exported the type — see that file's mirror doc). Same fix
+applied identically to the other five channel config components.
 
 ## 2026-08-11 — unbind 失败优先显示 message
 

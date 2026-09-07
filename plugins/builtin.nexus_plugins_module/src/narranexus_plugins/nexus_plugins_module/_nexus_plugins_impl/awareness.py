@@ -16,7 +16,7 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, SLOT_KINDS
 
 
 def platform_overview() -> dict[str, Any]:
-    from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
+    from narranexus.kernel.plugins.builtins import builtin_manifests
     from narranexus.kernel.plugins.catalog import slot_catalog
     from narranexus.kernel.plugins.distribution import find_distribution, load_distribution
     from narranexus.kernel.plugins.lifecycle import RegistryStore
@@ -48,7 +48,7 @@ def platform_overview() -> dict[str, Any]:
         "host_version": host_version(),
         "deployment_mode": get_deployment_mode(),
         "distribution": dist,
-        "builtin_plugins": [{"id": d["id"], "version": d["version"], "hosts": d.get("hosts", []), "quality": d.get("quality"), "description": d.get("description", "")} for d in BUILTIN_MANIFEST_DATA],
+        "builtin_plugins": [{"id": m.id, "version": m.version, "hosts": list(m.hosts), "quality": getattr(m, "quality", None), "description": m.description} for m in builtin_manifests()],
         "user_plugins": user_plugins,
         "safe_mode": safe_mode,
         "slot_domains": [{"domain": g["domain"], "title": g["title"], "slots": len(g["slots"])} for g in catalog],

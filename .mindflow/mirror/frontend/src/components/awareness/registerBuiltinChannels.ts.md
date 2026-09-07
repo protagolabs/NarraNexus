@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/awareness/registerBuiltinChannels.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — each row guarded on its own id, not one shared guard (I-2 follow-on)
+
+All six `CHANNELS.register(...)` calls used to sit behind a single `if (!CHANNELS.has('lark'))`.
+Disabling one builtin channel (e.g. `builtin.channels.discord`) alone did not stop this file's
+row from registering — the shared guard only checked whether the FIRST row (`lark`) was present,
+so disabling a later one had no visible effect. Each row is now guarded on its own id
+(`if (!CHANNELS.has('slack')) CHANNELS.register('slack', ...)`, etc.), so
+`disableBuiltinUi('builtin.channels.<x>')` correctly removes exactly that row.
 
 # awareness/registerBuiltinChannels.ts — the six builtin rows
 

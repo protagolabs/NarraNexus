@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — a throwing plugin timeline-event component is isolated (I-6)
+
+The plugin-provided timeline-event component is wrapped in `<PluginBoundary key={event.id}
+owner={plugin.owner}>` so one bad event's render crash removes only that event's row, not the
+whole timeline (nor the conversation above it). See `platform/PluginBoundary.tsx`'s mirror doc.
 
 ## 2026-08-31（二）— `defaultOpen` 整条删除：推理永远折叠
 

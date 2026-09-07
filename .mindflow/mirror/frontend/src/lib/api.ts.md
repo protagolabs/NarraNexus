@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `factoryAction`'s acknowledge-permissions carries a body (I-12)
+
+`factoryAction(id, action, opts?)` gained a third `{ permissionsAcknowledged?: boolean }` param —
+only the `'acknowledge-permissions'` action sends a JSON body
+(`{ permissions_acknowledged: opts.permissionsAcknowledged ?? true }`); every other action is
+still a bodyless POST. This is what lets the disclosure modal's "I understand" persist
+`permissions_acknowledged` server-side instead of only clearing client-side state — see
+`components/settings/plugins/PluginFactory.tsx`'s mirror doc.
 
 ## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
 

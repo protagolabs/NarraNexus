@@ -13,12 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_manifest_and_provides():
-    from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
     from narranexus.kernel.plugins.loader import resolve_symbol
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    data = next(d for d in BUILTIN_MANIFEST_DATA if d["id"] == "builtin.frameworks.codex_cli")
-    assert on_disk == data
+    assert on_disk["id"] == "builtin.frameworks.codex_cli" == ROOT.name  # the directory is the plugin id; the kernel reads this very file
+    data = on_disk
     for refs in data["provides"].values():
         for ref in ([refs] if isinstance(refs, str) else refs):
             assert ref.startswith(("narranexus_plugins.frameworks_codex_cli", "narranexus.platform.turn.pipeline")), ref

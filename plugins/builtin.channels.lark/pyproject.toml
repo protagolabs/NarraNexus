@@ -17,3 +17,8 @@ full = ["lark-oapi>=1.4.0,<2.0.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/narranexus_plugins"]
+
+# The manifest ships inside the wheel: the engine reads it from the package
+# (narranexus.kernel.plugins.builtins), the source checkout is the fallback.
+[tool.hatch.build.targets.wheel.force-include]
+"narranexus-plugin.json" = "narranexus_plugins/lark_module/narranexus-plugin.json"

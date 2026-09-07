@@ -111,3 +111,7 @@ register_builtin_provides filters BUILTIN_MANIFEST_DATA by the process distribut
 ## 2026-09-07 — load_builtins() replaces the lazy register_builtin_provides
 
 Registration happens only at boot. load_builtins(registries, role, distribution=) registers every builtin's contributions for a role into a Registries — what hosts.boot does in stage 1, available to private registries (tests, an embedding host) without discovery, marker or write-back. register_builtin_provides (the per-slot lazy path seven platform seams called, which ignored the distribution and could overwrite a user plugin's entry) is gone.
+
+## 2026-09-07 — the manifest has one home: plugins/<id>/narranexus-plugin.json
+
+The 338-line BUILTIN_MANIFEST_DATA dict (a byte-for-byte copy of 28 JSON files, kept in sync by 28 parity tests) is gone. BUILTIN_PLUGINS is the ordered (plugin id, package) list — load order and where the manifest ships; _manifest_path reads the JSON from the package (every plugin wheel force-includes it) or the source checkout; BUILTIN_MANIFEST_DATA is now the parsed files. Adding a builtin = a directory + one line here (until the list is derived too); the kernel no longer names any plugin module path.

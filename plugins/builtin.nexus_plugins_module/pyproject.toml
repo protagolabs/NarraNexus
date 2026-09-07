@@ -17,3 +17,8 @@ full = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/narranexus_plugins"]
+
+# The manifest ships inside the wheel: the engine reads it from the package
+# (narranexus.kernel.plugins.builtins), the source checkout is the fallback.
+[tool.hatch.build.targets.wheel.force-include]
+"narranexus-plugin.json" = "narranexus_plugins/nexus_plugins_module/narranexus-plugin.json"

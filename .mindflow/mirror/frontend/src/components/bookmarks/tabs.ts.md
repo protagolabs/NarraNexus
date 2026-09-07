@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `STRIP_CATEGORIES`/`ALL_TABS`/`BUILTIN_TAB_IDS` become functions (I-3, import-order hazard)
+
+Renamed to `stripCategories()` / `allTabs()` / `builtinTabIds()` and changed from eager
+module-level `const`s to functions that compute their result fresh from `PANELS.list()` on every
+call. This was forced by a real import-order bug, not a style preference: `platform/builtin.ts`
+imports `ArtifactsGlyph` from this file BEFORE `builtin.ts`'s own `PANELS.register(...)` calls run
+(for the artifacts panel's strip icon). If this file had computed the strip tables as eager
+consts, that computation would run against an EMPTY `PANELS` registry and freeze there forever —
+a JS module-level const only evaluates once, at first import, and `tabs.ts` is guaranteed to be
+imported (for the icon) before `builtin.ts` finishes registering anything. Every consumer
+(`ChatHeader.tsx`, `bookmarks/index.ts`, `builtin.test.ts`, `builderTab.test.tsx`) was updated to
+call the functions instead of reading former consts. `CATEGORY_META`/`CATEGORY_ORDER` stay small
+static tables (category branding is shell IA, not per-panel data, so there is no import-order
+risk for them). `AtomicTabId` narrowed from `BuiltinTabId | (string & {})` to plain `string`
+(the type no longer usefully distinguishes "known builtin id" once tab ids can come from any
+plugin's `PANELS.register` call). See `platform/registries/panels.ts`'s mirror doc for the
+`PanelStripDef` shape this reads, and `platform/builtin.ts`'s mirror doc for the other side of
+the import-order dependency.
 
 ## 2026-09-04 (六轮) — `conditional` 说明书里最后一句改对
 

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/builtin.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -18,3 +18,16 @@ Feature-level builtins register with their plugin id as owner (`TEAMS = { owner:
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 Registers the conversation kinds `chat` (shell) and `team` (owner builtin.teams, gone with the plugin) so `when: conversationKind:<k>` has something to name.
+
+## 2026-09-07 — every builtin panel gets `strip` metadata (I-3)
+
+All 12 `PANELS.register(...)` calls (builder, awareness, workspace, channels, smarthome, jobs,
+inbox, artifacts, memory, social, skills, mcp) now pass a `strip` object (label/labelKey/icon/
+category/order, plus `conditional: 'studio'` for builder and `stripLabel`/`stripLabelKey` for
+social/mcp) instead of leaving the bookmarks drawer's strip layout as a separate hardcoded table
+in `bookmarks/tabs.ts` that had to be kept in sync by hand. New lucide-react icon imports
+(FolderOpen, Home, Inbox, ListTodo, Network, Puzzle, Radio, Sparkles, Wand2) and
+`ArtifactsGlyph` from `@/components/bookmarks/tabs` back this. Because this file imports
+`ArtifactsGlyph` from `tabs.ts` BEFORE its own `PANELS.register(...)` calls run, `tabs.ts`'s strip
+helpers must be functions computed from `PANELS.list()` at call time, not module-level consts
+computed once at import — see `tabs.ts`'s mirror doc for the import-order hazard this avoids.

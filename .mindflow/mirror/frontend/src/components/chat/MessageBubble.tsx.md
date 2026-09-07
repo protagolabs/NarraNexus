@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — a throwing plugin message renderer is isolated (I-6)
+
+The shell-bubble JSX (the fallback path when no plugin renderer matches) is extracted into a
+`renderShellBubble = () => (...)` closure. When a renderer DOES match, it is now wrapped in
+`<PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>` instead of being rendered
+bare. Before this, a throwing message renderer bubbled to the route-level `ChunkErrorBoundary`
+above `MessageBubble`, replacing the ENTIRE conversation with an error page over one bad message
+— see `platform/PluginBoundary.tsx`'s mirror doc for the boundary itself and why it is a shared
+module rather than duplicated per content registry.
 
 ---
 

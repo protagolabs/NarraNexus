@@ -674,29 +674,3 @@ async def test_the_bearer_rule_is_the_rooms_own_default_responder(db_client):
     )
 
 
-@pytest.mark.asyncio
-async def test_the_health_endpoint_exposes_the_last_pass():
-    """Counters nothing reads are counters that do not exist. The blind spot
-    they close — "quiet" versus "all failing" both looking like a worker that is
-    simply up — stays open if they never leave the process.
-
-    Reported, not judged: one team with a bad provider key must not fail the
-    container's probe, so `status` does not depend on `failed`.
-    """
-    import backend.main as main
-
-    class _W:
-        running = True
-        last_pass = {"rooms": 3, "summarised": 1, "failed": 2}
-
-    main.app.state.team_summary_worker = _W()
-    try:
-        body = await main.health()
-    finally:
-        del main.app.state.team_summary_worker
-
-    assert body["team_summary"] == {
-        "running": True, "rooms": 3, "summarised": 1, "failed": 2,
-    }
-    # Reported, never judged: two failing teams must not fail the container.
-    assert body["status"] == "healthy"

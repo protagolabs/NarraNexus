@@ -15,10 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_manifest_matches_host_and_is_distribution_only():
-    from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    assert on_disk == next(d for d in BUILTIN_MANIFEST_DATA if d["id"] == "builtin.auth.local")
+    assert on_disk["id"] == ROOT.name  # the directory is the plugin id; the kernel reads this very file
     assert on_disk["distributionOnly"] is True and on_disk["provides"] == {"kernel.auth": "narranexus_plugins.auth_local.provider:CONTRIBUTION"}
 
 

@@ -5,368 +5,88 @@
 @description: The host's own plugins, declared as manifests (D4: builtins are plugins too).
 
 Explicit registration, not discovery (Python Packaging guide: explicit is
-deterministic, greppable and fast). Each manifest's ``provides`` names the
-``Contribution`` constants the legacy modules export; the loader registers
-exactly those, and import-time registration of the same objects is idempotent.
-
-Batch 0 lists the three kinds already on ``Registry[T]``: agent-loop
-frameworks, provider drivers, memory kinds. Later batches add a manifest per
-extracted builtin (channels, modules, ui, ...) — one entry here per plugin.
+deterministic, greppable and fast): ``BUILTIN_PLUGINS`` is the ordered list of
+(plugin id, package) pairs and the manifest of each is the plugin's own
+``narranexus-plugin.json`` — read from the package (a wheel carries it) or the
+source checkout. The kernel keeps no copy: a plugin's ``provides`` names its
+``Contribution`` symbols and the loader registers exactly those at boot.
 """
 from __future__ import annotations
 
 
+import json
 from functools import lru_cache
+from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
 from narranexus.kernel.plugins.manifest import Manifest, parse_manifest
 from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 
-_NP = "narranexus_plugins.frameworks_nexus_power.core.extension_points"
-_NP_PROTO = "narranexus_plugins.frameworks_nexus_power.core.contracts.protocols"
-_MODULE = "narranexus.platform.module_system"
-_PLUG = "narranexus_plugins"  # the builtin module packages (workspace members under plugins/, batch 6b)
-_DRIVERS = "narranexus_plugins.providers"
-
-BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
-    {
-        "id": "builtin.frameworks.nexus_power",
-        "version": "1.0.0",
-        "displayName": "NexusPower agent loop",
-        "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {
-            "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
-            "turn.pipeline.act.framework.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
-            "turn.pipeline.act.framework.nexus_power.compaction": f"{_NP}:COMPACTION_DEFAULT",
-            "turn.pipeline.act.framework.nexus_power.projector": f"{_NP}:PROJECTOR_DEFAULT",
-            "turn.pipeline.act.framework.nexus_power.expression": f"{_NP}:EXPRESSION_DEFAULT",
-            "turn.pipeline.act.framework.nexus_power.policy": [f"{_NP}:POLICY_LAYERS"],
-        },
-        # The loop's five strategy seats (spec §484): other plugins provide
-        # implementations, configuration binds them (NX_BIND__turn__pipeline__act__framework__nexus_power__stop=...).
-        "declares": {
-            "turn.pipeline.act.framework.nexus_power.stop": {"arity": "one", "contract": f"{_NP_PROTO}:StopPolicy", "default": "no_more_actions", "doc": "When the loop ends a turn."},
-            "turn.pipeline.act.framework.nexus_power.compaction": {"arity": "one", "contract": f"{_NP_PROTO}:CompactionPolicy", "default": "tool_result_pruner", "doc": "How the ledger is compacted."},
-            "turn.pipeline.act.framework.nexus_power.projector": {"arity": "one", "contract": f"{_NP_PROTO}:ContextProjector", "default": "passthrough", "doc": "How the ledger becomes provider messages."},
-            "turn.pipeline.act.framework.nexus_power.expression": {"arity": "one", "contract": f"{_NP_PROTO}:ExpressionPolicy", "default": "contract", "doc": "Which tools count as the agent speaking."},
-            "turn.pipeline.act.framework.nexus_power.policy": {"arity": "many", "contract": f"{_NP_PROTO}:PolicyLayer", "doc": "Tool-call policy layers, checked in order."},
-        },
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.frameworks.claude_code",
-        "version": "1.0.0",
-        "displayName": "Claude Code agent loop",
-        "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"},
-        "install": {"deps": "on_demand"},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.frameworks.codex_cli",
-        "version": "1.0.0",
-        "displayName": "Codex agent loop",
-        "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_codex_cli.contribution:CONTRIBUTION"},
-        "install": {"deps": "on_demand"},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.providers",
-        "version": "1.0.0",
-        "dependencies": {"builtin.llm_clients": ">=1.0"},
-        "displayName": "LLM providers",
-        "description": "Provider drivers: custom anthropic/openai, NetMind, Yunwu, OpenRouter, OAuth subscriptions, system pool.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {
-            "model.providers": [
-                f"{_DRIVERS}.custom_anthropic:CONTRIBUTION",
-                f"{_DRIVERS}.custom_openai:CONTRIBUTION",
-                f"{_DRIVERS}.netmind:CONTRIBUTION",
-                f"{_DRIVERS}.netmind_free:CONTRIBUTION",
-                f"{_DRIVERS}.yunwu:CONTRIBUTION",
-                f"{_DRIVERS}.openrouter:CONTRIBUTION",
-                f"{_DRIVERS}.claude_oauth:CONTRIBUTION",
-                f"{_DRIVERS}.codex_oauth:CONTRIBUTION",
-                f"{_DRIVERS}.system:CONTRIBUTIONS",
-            ]
-        },
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.llm_clients",
-        "version": "1.0.0",
-        "displayName": "Helper LLM clients",
-        "description": "anthropic / openai / cli protocol clients for the helper-LLM slot.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {"model.clients": ["narranexus_plugins.llm_clients.contributions:CONTRIBUTIONS"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.memory_kinds",
-        "version": "1.0.0",
-        "displayName": "Memory kinds",
-        "description": "event / bus / narrative / entity / job / observation memory kinds.",
-        "hosts": ["backend", "mcp", "workers"],
-        "provides": {"agent.capabilities.memory_kinds": ["narranexus_plugins.memory_kinds.specs:CONTRIBUTIONS"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.prompts",
-        "version": "1.0.0",
-        "displayName": "Prompts",
-        "description": "The default system-prompt sections (security / temporal / narrative / modules / bootstrap) and the default assembler.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"prompt": 0},
-        "provides": {
-            "prompt.sections": ["narranexus_plugins.prompts.sections:CONTRIBUTIONS"],
-            "prompt.assembler": "narranexus_plugins.prompts.assembler:CONTRIBUTION",
-        },
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.nexus_plugins_module",
-        "version": "1.0.0",
-        "displayName": "Nexus Plugins Module",
-        "description": "Agent self-extension: scaffold, test, register and observe plugins (local only).",
-        "hosts": ["backend", "mcp"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_NEXUS_PLUGINS_MODULE"]},
-        "protected": True,
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.turn",
-        "version": "1.0.0",
-        "displayName": "Turn Pipeline",
-        "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"stage_strategy": 0, "pipeline_profile": 0, "agent": 0},
-        "provides": {
-            "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
-            "turn.pipeline.ingress": ["narranexus_plugins.turn.stages:INGRESS"],
-            "turn.pipeline.recall": ["narranexus_plugins.turn.stages:RECALL"],
-            "turn.pipeline.compose": ["narranexus_plugins.turn.stages:COMPOSE"],
-            "turn.pipeline.assemble": ["narranexus_plugins.turn.stages:ASSEMBLE"],
-            "turn.pipeline.act": ["narranexus_plugins.turn.stages:ACT"],
-            "turn.pipeline.commit": ["narranexus_plugins.turn.stages:COMMIT"],
-            "turn.pipeline.reflect": ["narranexus_plugins.turn.stages:REFLECT"],
-            "turn.profiles": ["narranexus_plugins.turn.profiles:PROFILE_CONTRIBUTIONS"],
-        },
-        "declares": {
-            path: {"arity": "many", "contract": "narranexus.contracts.agent.pipeline:StageStrategy", "doc": f"{path.rsplit('.', 1)[1].title()} stage strategies; a profile names one."}
-            for path in ("turn.pipeline.ingress", "turn.pipeline.recall", "turn.pipeline.compose", "turn.pipeline.assemble", "turn.pipeline.commit", "turn.pipeline.reflect")
-        },
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.awareness",
-        "version": "1.0.0",
-        "displayName": "Awareness",
-        "description": "Builtin module AwarenessModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "data_access": 0, "route": 0, "hook": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_AWARENESS"], "agent.capabilities.data_access": ["narranexus_plugins.awareness_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.awareness:ROUTES", "backend.routes.agents.profile:ROUTES"], "backend.hooks": ["narranexus_plugins.awareness_module.plugin_hooks:HOOKS"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.basic_info",
-        "version": "1.0.0",
-        "displayName": "BasicInfo",
-        "description": "Builtin module BasicInfoModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_BASIC_INFO"], "agent.capabilities.data_access": ["narranexus_plugins.basic_info_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.narrative:ROUTES"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.chat",
-        "version": "1.0.0",
-        "displayName": "Chat",
-        "description": "Builtin module ChatModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "hook": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHAT"], "backend.hooks": ["narranexus_plugins.chat_module.plugin_hooks:HOOKS"], "agent.capabilities.data_access": ["narranexus_plugins.chat_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.chat_history:ROUTES"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.social_network",
-        "version": "1.0.0",
-        "displayName": "SocialNetwork",
-        "description": "Builtin module SocialNetworkModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SOCIAL_NETWORK"], "agent.capabilities.data_access": ["narranexus_plugins.social_network_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.social_network:ROUTES"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.job",
-        "version": "1.0.0",
-        "displayName": "Job",
-        "description": "Builtin module JobModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "data_access": 0, "route": 0, "hook": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_JOB"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["narranexus_plugins.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"], "backend.hooks": ["narranexus_plugins.job_module.plugin_hooks:HOOKS"], "backend.services": ["narranexus_plugins.job_module.services:SERVICES"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.skills",
-        "version": "1.0.0",
-        "displayName": "Skill",
-        "description": "Builtin module SkillModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SKILLS"], "backend.routes": ["backend.routes.skills:ROUTES"], "backend.services": ["narranexus_plugins.skill_module.services:SERVICES"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.message_bus",
-        "version": "1.0.0",
-        "displayName": "MessageBus",
-        "description": "Builtin module MessageBusModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_MESSAGE_BUS"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.common_tools",
-        "version": "1.0.0",
-        "displayName": "CommonTools",
-        "description": "Builtin module CommonToolsModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_COMMON_TOOLS"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.general_memory",
-        "version": "1.0.0",
-        "displayName": "GeneralMemory",
-        "description": "Builtin module GeneralMemoryModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_GENERAL_MEMORY"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.home_assistant",
-        "version": "1.0.0",
-        "displayName": "HomeAssistant",
-        "description": "Builtin module HomeAssistantModule.",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "route": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_HOME_ASSISTANT"], "backend.routes": ["backend.routes.home_assistant:ROUTES"], "ingress.channels": ["narranexus_plugins.home_assistant_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.lark",
-        "version": "1.0.0",
-        "displayName": "Lark",
-        "description": "Builtin module LarkModule (IM channel: trigger + module + tools). The lark-oapi SDK installs on demand on a slim build.",
-        "hosts": ["backend", "mcp", "workers"],
-        # Heavy dependency (spec section 843): declared here so a distribution
-        # that leaves lark-oapi out of the base install self-heals on first boot
-        # (wheels-only into ~/.narranexus/plugin-deps) or boots without Lark.
-        "backend": {"pip": ["lark-oapi>=1.4.0,<2.0.0"], "imports": ["lark_oapi"]},
-        "install": {"deps": "on_demand"},
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_LARK"], "backend.routes": ["backend.routes.channels.lark:ROUTES"], "backend.hooks": ["narranexus_plugins.lark_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.lark_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.slack",
-        "version": "1.0.0",
-        "displayName": "Slack",
-        "description": "Builtin module SlackModule (IM channel: trigger + module + tools).",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.hooks": ["narranexus_plugins.slack_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.slack_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.telegram",
-        "version": "1.0.0",
-        "displayName": "Telegram",
-        "description": "Builtin module TelegramModule (IM channel: trigger + module + tools).",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.hooks": ["narranexus_plugins.telegram_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.telegram_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.wechat",
-        "version": "1.0.0",
-        "displayName": "WeChat",
-        "description": "Builtin module WeChatModule (IM channel: trigger + module + tools).",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_WECHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_WECHAT"], "backend.routes": ["backend.routes.channels.wechat:ROUTES"], "backend.hooks": ["narranexus_plugins.wechat_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.wechat_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.narramessenger",
-        "version": "1.0.0",
-        "displayName": "Narramessenger",
-        "description": "Builtin module NarramessengerModule (IM channel: trigger + module + tools).",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"], "backend.routes": ["backend.routes.channels.narramessenger:ROUTES"], "backend.hooks": ["narranexus_plugins.narramessenger_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.narramessenger_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.channels.discord",
-        "version": "1.0.0",
-        "displayName": "Discord",
-        "description": "Builtin module DiscordModule (IM channel: trigger + module + tools).",
-        "hosts": ["backend", "mcp", "workers"],
-        "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.hooks": ["narranexus_plugins.discord_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.discord_module.descriptor:CHANNEL"]},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.teams",
-        "version": "1.0.0",
-        "displayName": "Teams",
-        "description": "Agent teams: the /api/teams API and the team bulletin summary worker (feature-level plugin).",
-        "hosts": ["backend"],
-        "api": {"route": 0, "worker": 0, "hook": 0},
-        "dependencies": {"builtin.message_bus": ">=1.0", "builtin.chat": ">=1.0"},
-        "provides": {
-            "backend.routes": ["narranexus_plugins.teams.routes:ROUTES", "narranexus_plugins.teams.marketplace_routes:ROUTES"],
-            "backend.workers": ["narranexus_plugins.teams.summary_worker:WORKERS"],
-            "backend.hooks": ["narranexus_plugins.teams.plugin_hooks:HOOKS"],
-        },
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.auth.local",
-        "version": "1.0.0",
-        "displayName": "Local auth",
-        "description": "Authentication provider of the desktop/local distribution: the X-User-Id header names the user (authProviders, distribution-only).",
-        "hosts": ["backend"],
-        "api": {"auth": 0},
-        "distributionOnly": True,
-        "protected": True,
-        "provides": {"kernel.auth": "narranexus_plugins.auth_local.provider:CONTRIBUTION"},
-        "quality": "gold",
-    },
-    {
-        "id": "builtin.auth.netmind",
-        "version": "1.0.0",
-        "displayName": "NetMind auth",
-        "description": "Authentication provider of the cloud distribution: the NetMind-issued JWT bearer token names the user (authProviders, distribution-only).",
-        "hosts": ["backend"],
-        "api": {"auth": 0},
-        "distributionOnly": True,
-        "protected": True,
-        "provides": {"kernel.auth": "narranexus_plugins.auth_netmind.provider:CONTRIBUTION"},
-        "quality": "gold",
-    },
+# Stage-1 load order = this order. The id names the plugin directory
+# (plugins/<id>/) and the package its manifest ships in
+# (narranexus_plugins.<package>); the manifest itself is the JSON file — the
+# kernel holds NO copy of it (charter: one knowledge, one home; adding a
+# builtin does not touch a 338-line dict here any more).
+BUILTIN_PLUGINS: tuple[tuple[str, str], ...] = (
+    ("builtin.frameworks.nexus_power", "frameworks_nexus_power"),
+    ("builtin.frameworks.claude_code", "frameworks_claude_code"),
+    ("builtin.frameworks.codex_cli", "frameworks_codex_cli"),
+    ("builtin.providers", "providers"),
+    ("builtin.llm_clients", "llm_clients"),
+    ("builtin.memory_kinds", "memory_kinds"),
+    ("builtin.prompts", "prompts"),
+    ("builtin.nexus_plugins_module", "nexus_plugins_module"),
+    ("builtin.turn", "turn"),
+    ("builtin.awareness", "awareness_module"),
+    ("builtin.basic_info", "basic_info_module"),
+    ("builtin.chat", "chat_module"),
+    ("builtin.social_network", "social_network_module"),
+    ("builtin.job", "job_module"),
+    ("builtin.skills", "skill_module"),
+    ("builtin.message_bus", "message_bus_module"),
+    ("builtin.common_tools", "common_tools_module"),
+    ("builtin.general_memory", "general_memory_module"),
+    ("builtin.home_assistant", "home_assistant_module"),
+    ("builtin.channels.lark", "lark_module"),
+    ("builtin.channels.slack", "slack_module"),
+    ("builtin.channels.telegram", "telegram_module"),
+    ("builtin.channels.wechat", "wechat_module"),
+    ("builtin.channels.narramessenger", "narramessenger_module"),
+    ("builtin.channels.discord", "discord_module"),
+    ("builtin.teams", "teams"),
+    ("builtin.auth.local", "auth_local"),
+    ("builtin.auth.netmind", "auth_netmind"),
 )
+MANIFEST_FILENAME = "narranexus-plugin.json"
+
+
+def _manifest_path(plugin_id: str, package: str) -> Path:
+    """The plugin's manifest: the copy packaged inside the wheel (hatch force-include) first, the source checkout second."""
+    try:
+        packaged = files(f"narranexus_plugins.{package}") / MANIFEST_FILENAME
+        if packaged.is_file():
+            return Path(str(packaged))
+    except (ModuleNotFoundError, TypeError):
+        pass
+    checkout = Path(__file__).resolve().parents[4] / "plugins" / plugin_id / MANIFEST_FILENAME
+    if checkout.is_file():
+        return checkout
+    raise FileNotFoundError(f"{plugin_id}: {MANIFEST_FILENAME} not found in package narranexus_plugins.{package} nor at {checkout}")
+
+
+def _read_manifest_data() -> tuple[dict[str, Any], ...]:
+    out: list[dict[str, Any]] = []
+    for plugin_id, package in BUILTIN_PLUGINS:
+        data = json.loads(_manifest_path(plugin_id, package).read_text(encoding="utf-8"))
+        if data.get("id") != plugin_id:
+            raise ValueError(f"{plugin_id}: its manifest declares id {data.get('id')!r}")
+        out.append(data)
+    return tuple(out)
+
+
+# The builtin manifests as parsed JSON, in load order (read once per process).
+BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = _read_manifest_data()
 
 
 def load_builtins(registries: Any, role: str = "backend", *, distribution: Any = None) -> Any:
@@ -412,4 +132,4 @@ def builtin_manifests() -> tuple[Manifest, ...]:
     return build_builtin_manifests(build_kernel_slot_tree())
 
 
-__all__ = ["BUILTIN_MANIFEST_DATA", "build_builtin_manifests", "builtin_manifests", "slot_tree_with_builtins"]
+__all__ = ["BUILTIN_MANIFEST_DATA", "BUILTIN_PLUGINS", "MANIFEST_FILENAME", "build_builtin_manifests", "builtin_manifests", "load_builtins", "slot_tree_with_builtins"]

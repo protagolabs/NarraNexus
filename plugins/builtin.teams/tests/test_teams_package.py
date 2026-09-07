@@ -2,7 +2,7 @@
 @file_name: test_teams_package.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Package contract of `builtin.teams`: the manifest file equals the host's builtin manifest, every provides ref resolves inside the package, and the post-start hook seeds only on a registry host.
+@description: Package contract of `builtin.teams`: the manifest on disk is the plugin's own (the kernel reads it, holds no copy), every provides ref resolves inside the package, and the post-start hook seeds only on a registry host.
 """
 from __future__ import annotations
 
@@ -15,11 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_manifest_matches_host_and_refs_stay_in_package():
-    from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
     from narranexus.kernel.plugins.loader import resolve_symbol
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    assert on_disk == next(d for d in BUILTIN_MANIFEST_DATA if d["id"] == "builtin.teams")
+    assert on_disk["id"] == ROOT.name  # the directory is the plugin id; the kernel reads this very file
     for refs in on_disk["provides"].values():
         for ref in refs:
             assert ref.startswith("narranexus_plugins.teams."), ref

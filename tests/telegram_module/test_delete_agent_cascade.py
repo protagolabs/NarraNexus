@@ -88,7 +88,7 @@ async def test_cleanup_for_agent_removes_credentials_and_inbox(db_client):
         "channel_credentials", {"channel": "telegram", "agent_id": agent_id}
     )
     assert cred_row is None
-    assert stats.get("channel_credentials", 0) >= 1
+    assert stats.get("channel_credentials.telegram", 0) >= 1  # keyed per channel: six channels no longer collapse into one count
 
     # Telegram inbox member dropped; channel + messages dropped because
     # the agent was the only member.
