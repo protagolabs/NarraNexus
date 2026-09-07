@@ -160,7 +160,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import backend.routes.dashboard.routes as routes_mod  # noqa: E402
-import backend.routes.dashboard.jobs as jobs_routes_mod  # noqa: E402
+import narranexus_plugins.job_module.routes_dashboard as jobs_routes_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

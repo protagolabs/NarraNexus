@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.profile as pr
+import narranexus_plugins.awareness_module.routes_profile as pr
 
 OWNER_ID = "user_tc"
 OWNER = {"x-test-user": OWNER_ID}

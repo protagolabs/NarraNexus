@@ -13,8 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from backend.routes import _ownership
-from backend.routes.agents import awareness as aw
-from backend.routes.agents import social_network as sn
+from narranexus_plugins.awareness_module import routes as aw
+from narranexus_plugins.social_network_module import routes as sn
 
 
 def _client(monkeypatch, router, *, caller_user, owner_user):

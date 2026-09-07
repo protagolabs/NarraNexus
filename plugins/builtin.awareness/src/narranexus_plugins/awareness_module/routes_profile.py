@@ -1,5 +1,5 @@
 """
-@file_name: profile.py
+@file_name: routes_profile.py
 @author:
 @date: 2026-08-10
 @description: Agent profile UPDATE endpoint for the MCP data-access seam

@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/channels/narramessenger.py
+code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/routes.py
 stub: false
 last_verified: 2026-09-04
 ---
@@ -126,3 +126,7 @@ The frontend "paste the bind link" entry point for NarraMessenger:
 ## 2026-09-04 · prewarm only (batch 4d.3)
 
 credential / bind / unbind moved to `/api/channels/narramessenger/…` — bind still runs `_narramessenger_service.do_bind(db, agent_id, bind_command)` (the descriptor's `bind_fields` declares the single `bind_command` input, `bind_takes="db"`), unbind runs `do_unbind(db, agent_id)` through the seam (`unbind_service=True`) so the gateway-side unbind is kept. This router keeps the machine-to-machine prewarm pair.
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.narramessenger_module.routes:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

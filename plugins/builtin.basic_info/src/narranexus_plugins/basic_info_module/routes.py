@@ -1,5 +1,5 @@
 """
-@file_name: narrative.py
+@file_name: routes.py
 @author:
 @date: 2026-08-10
 @description: Narrative endpoints for the MCP data-access seam (PR-2).

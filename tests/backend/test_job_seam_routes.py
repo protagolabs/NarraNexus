@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.jobs as jr
+import narranexus_plugins.job_module.routes_agent as jr
 import narranexus.platform.agent_framework.api_config as japi
 import narranexus_plugins.job_module._job_reads as jreads
 import narranexus_plugins.job_module._job_writes as jwrites

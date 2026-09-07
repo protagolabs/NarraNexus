@@ -26,7 +26,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-import backend.routes.agents.chat_history as ch
+import narranexus_plugins.chat_module.routes as ch
 
 OWNER_ID = "owner_u1"
 AGENT_ID = "agent_mine"

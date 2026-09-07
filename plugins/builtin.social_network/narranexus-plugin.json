@@ -21,7 +21,7 @@
       "narranexus_plugins.social_network_module.data_access:DATA_ACCESS"
     ],
     "backend.routes": [
-      "backend.routes.agents.social_network:ROUTES"
+      "narranexus_plugins.social_network_module.routes:ROUTES"
     ]
   },
   "quality": "gold"

@@ -66,3 +66,13 @@ breaking change to a slot's contract ships as a new slot, never as an edit.
 
 Security fixes may shorten or skip the deprecation window; the release notes must say so
 explicitly.
+
+## 6. Route prefixes: builtin vs third-party
+
+A builtin plugin's routers keep the absolute prefixes the product always had
+(`/api/agents/...`, `/api/jobs`, `/api/skills`, `/api/teams`, ...): the frontend and
+every client address them there, and a builtin is the product. A third-party
+plugin's routers are confined to `/api/x/<plugin id>` (the host refuses anything
+else). This is the one deliberate difference between the two; both are declared
+the same way (`backend.routes` in the manifest, a `RouterSpec` in the plugin's
+own package). Nothing under `backend/routes/` belongs to a plugin any more.

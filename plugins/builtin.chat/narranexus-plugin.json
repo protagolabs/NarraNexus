@@ -29,7 +29,7 @@
       "narranexus_plugins.chat_module.data_access:DATA_ACCESS"
     ],
     "backend.routes": [
-      "backend.routes.agents.chat_history:ROUTES"
+      "narranexus_plugins.chat_module.routes:ROUTES"
     ]
   },
   "quality": "gold"

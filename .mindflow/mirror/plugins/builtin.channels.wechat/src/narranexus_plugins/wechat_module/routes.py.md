@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/channels/wechat.py
+code_file: plugins/builtin.channels.wechat/src/narranexus_plugins/wechat_module/routes.py
 stub: false
 last_verified: 2026-09-04
 ---
@@ -113,3 +113,7 @@ paste), bind is a two-step QR flow instead of a single ``POST /bind``.
 ## 2026-09-04 · QR flow only (batch 4d.3)
 
 credential / unbind / set-active moved to `/api/channels/wechat/…`; this router keeps the two-step QR bind (`qrcode/start`, `qrcode/poll`), the only WeChat-specific entry. `has_bind=False` on the descriptor means the generic bind answers "binds through its own flow".
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.wechat_module.routes:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

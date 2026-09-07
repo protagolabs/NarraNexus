@@ -1,5 +1,5 @@
 """
-@file_name: narramessenger.py
+@file_name: routes.py
 @date: 2026-06-18
 @description: Backend API routes for NarraMessenger binding + status.
 

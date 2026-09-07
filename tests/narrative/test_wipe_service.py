@@ -357,7 +357,7 @@ def test_wipe_result_fields_reach_the_api():
     import ast
     import inspect
 
-    from backend.routes.agents import chat_history
+    from narranexus_plugins.chat_module import routes as chat_history
 
     tree = ast.parse(inspect.getsource(chat_history))
     passed: set[str] = set()

@@ -22,8 +22,8 @@
       "narranexus_plugins.awareness_module.data_access:DATA_ACCESS"
     ],
     "backend.routes": [
-      "backend.routes.agents.awareness:ROUTES",
-      "backend.routes.agents.profile:ROUTES"
+      "narranexus_plugins.awareness_module.routes:ROUTES",
+      "narranexus_plugins.awareness_module.routes_profile:ROUTES"
     ],
     "backend.hooks": [
       "narranexus_plugins.awareness_module.plugin_hooks:HOOKS"

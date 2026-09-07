@@ -23,7 +23,7 @@
       "narranexus_plugins.narramessenger_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
-      "backend.routes.channels.narramessenger:ROUTES"
+      "narranexus_plugins.narramessenger_module.routes:ROUTES"
     ],
     "backend.hooks": [
       "narranexus_plugins.narramessenger_module.plugin_hooks:HOOKS"

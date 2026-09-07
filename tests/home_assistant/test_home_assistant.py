@@ -103,7 +103,7 @@ def test_require_agent_owner_enforced(monkeypatch):
     from fastapi import HTTPException
 
     import backend.routes._ownership as own
-    import backend.routes.home_assistant as r
+    import narranexus_plugins.home_assistant_module.routes as r
 
     class _Req:
         def __init__(self, uid):

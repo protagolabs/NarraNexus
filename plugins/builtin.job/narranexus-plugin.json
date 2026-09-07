@@ -26,9 +26,9 @@
       "narranexus_plugins.job_module.data_access:DATA_ACCESS"
     ],
     "backend.routes": [
-      "backend.routes.agents.jobs:ROUTES",
-      "backend.routes.jobs:ROUTES",
-      "backend.routes.dashboard.jobs:ROUTES"
+      "narranexus_plugins.job_module.routes_agent:ROUTES",
+      "narranexus_plugins.job_module.routes:ROUTES",
+      "narranexus_plugins.job_module.routes_dashboard:ROUTES"
     ],
     "backend.hooks": [
       "narranexus_plugins.job_module.plugin_hooks:HOOKS"

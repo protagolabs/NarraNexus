@@ -23,7 +23,7 @@
       "narranexus_plugins.wechat_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
-      "backend.routes.channels.wechat:ROUTES"
+      "narranexus_plugins.wechat_module.routes:ROUTES"
     ],
     "backend.hooks": [
       "narranexus_plugins.wechat_module.plugin_hooks:HOOKS"

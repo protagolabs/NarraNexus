@@ -18,7 +18,7 @@
       "narranexus_plugins.home_assistant_module.contribution:MODULES"
     ],
     "backend.routes": [
-      "backend.routes.home_assistant:ROUTES"
+      "narranexus_plugins.home_assistant_module.routes:ROUTES"
     ],
     "ingress.channels": [
       "narranexus_plugins.home_assistant_module.descriptor:CHANNEL"

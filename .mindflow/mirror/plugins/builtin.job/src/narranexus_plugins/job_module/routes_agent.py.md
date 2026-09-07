@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/agents/jobs.py
+code_file: plugins/builtin.job/src/narranexus_plugins/job_module/routes_agent.py
 last_verified: 2026-09-04
 stub: false
 ---
@@ -43,3 +43,7 @@ by-id 用 GET。三个端点整体包 try 兜 `get_db_client()` 获取失败 →
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `ROUTES` — this router is the `backend.routes` contribution of builtin.job (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.job_module.routes_agent:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

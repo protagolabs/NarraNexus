@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — the plugin-actions divider is conditional (M-1)
+
+The divider between `DETAIL_GROUP_A`'s fixed panel entries and the plugin-contributed
+`ui.chatHeaderActions` entries used to render unconditionally, so every user without a
+chat-header-action plugin saw a dangling separator at the bottom of the ⋯ menu. It now only
+renders when `headerActions.length > 0`; `data-testid="chat-header-plugin-divider"` was added so
+`chatHeaderPluginDivider.test.tsx` can assert presence/absence directly.
 
 ## 2026-09-04 (合并 dev #383 后) — `builder` 成为 ⋯ 菜单的**条件项**
 

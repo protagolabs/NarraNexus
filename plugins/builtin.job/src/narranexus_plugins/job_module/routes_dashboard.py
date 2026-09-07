@@ -1,5 +1,5 @@
 """
-@file_name: jobs.py
+@file_name: routes_dashboard.py
 @author: Bin Liang
 @date: 2026-09-04
 @description: Dashboard job controls (pause / resume / reschedule) — builtin.job's router under /api/dashboard.

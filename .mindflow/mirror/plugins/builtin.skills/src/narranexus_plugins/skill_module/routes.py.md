@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/skills.py
+code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
 last_verified: 2026-09-04
 stub: false
 ---
@@ -107,3 +107,7 @@ call」的工具被调用了 615 次。
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 `ROUTES` — `builtin.skills`' `/api/skills` router (mounted by `backend/plugins_host`, not by main.py); the `skill_module` helper imports are intra-plugin.
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.skill_module.routes:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

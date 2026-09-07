@@ -17,7 +17,7 @@
       "narranexus_plugins.skill_module.contribution:MODULES"
     ],
     "backend.routes": [
-      "backend.routes.skills:ROUTES"
+      "narranexus_plugins.skill_module.routes:ROUTES"
     ],
     "backend.services": [
       "narranexus_plugins.skill_module.services:SERVICES"

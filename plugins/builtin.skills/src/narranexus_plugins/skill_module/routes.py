@@ -1,5 +1,5 @@
 """
-@file_name: skills.py
+@file_name: routes.py
 @author: NetMind.AI
 @date: 2026-02-03
 @description: REST API routes for skills management

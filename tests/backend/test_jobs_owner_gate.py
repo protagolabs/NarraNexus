@@ -21,8 +21,8 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.jobs as jobs_mod
-from backend.routes.jobs import router as jobs_router, job_row_to_response
+import narranexus_plugins.job_module.routes as jobs_mod
+from narranexus_plugins.job_module.routes import router as jobs_router, job_row_to_response
 
 
 class _FakeDB:

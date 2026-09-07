@@ -23,7 +23,7 @@ from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 from narranexus.platform.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents.chat_history as hist_mod
+import narranexus_plugins.chat_module.routes as hist_mod
 
 
 @pytest_asyncio.fixture

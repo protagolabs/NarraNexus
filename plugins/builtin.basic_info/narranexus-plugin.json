@@ -21,7 +21,7 @@
       "narranexus_plugins.basic_info_module.data_access:DATA_ACCESS"
     ],
     "backend.routes": [
-      "backend.routes.agents.narrative:ROUTES"
+      "narranexus_plugins.basic_info_module.routes:ROUTES"
     ]
   },
   "quality": "gold"

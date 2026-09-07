@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.chat_history as ch
+import narranexus_plugins.chat_module.routes as ch
 
 OWNER_ID = "user_tc"
 OWNER = {"x-test-user": OWNER_ID}

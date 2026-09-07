@@ -372,41 +372,15 @@ forbidden_modules = ["narranexus_plugins"]
 unmatched_ignore_imports_alerting = "none"
 ignore_imports = [
     # builtin.channels.* routers
-    "backend.routes.channels.lark -> narranexus_plugins.lark_module.**",
-    "backend.routes.channels.lark -> narranexus_plugins.lark_module",
     "backend.routes.channels.slack -> narranexus_plugins.slack_module.**",
     "backend.routes.channels.slack -> narranexus_plugins.slack_module",
     "backend.routes.channels.telegram -> narranexus_plugins.telegram_module.**",
     "backend.routes.channels.telegram -> narranexus_plugins.telegram_module",
-    "backend.routes.channels.wechat -> narranexus_plugins.wechat_module.**",
-    "backend.routes.channels.wechat -> narranexus_plugins.wechat_module",
-    "backend.routes.channels.narramessenger -> narranexus_plugins.narramessenger_module.**",
-    "backend.routes.channels.narramessenger -> narranexus_plugins.narramessenger_module",
     "backend.routes.channels.discord -> narranexus_plugins.discord_module.**",
     "backend.routes.channels.discord -> narranexus_plugins.discord_module",
     # builtin.job routers
-    "backend.routes.jobs -> narranexus_plugins.job_module.**",
-    "backend.routes.jobs -> narranexus_plugins.job_module",
-    "backend.routes.agents.jobs -> narranexus_plugins.job_module.**",
-    "backend.routes.agents.jobs -> narranexus_plugins.job_module",
-    "backend.routes.dashboard.jobs -> narranexus_plugins.job_module.**",
-    "backend.routes.dashboard.jobs -> narranexus_plugins.job_module",
     # builtin.skills / builtin.home_assistant routers
-    "backend.routes.skills -> narranexus_plugins.skill_module.**",
-    "backend.routes.skills -> narranexus_plugins.skill_module",
-    "backend.routes.home_assistant -> narranexus_plugins.home_assistant_module.**",
-    "backend.routes.home_assistant -> narranexus_plugins.home_assistant_module",
     # data-access twins
-    "backend.routes.agents.awareness -> narranexus_plugins.awareness_module.**",
-    "backend.routes.agents.awareness -> narranexus_plugins.awareness_module",
-    "backend.routes.agents.profile -> narranexus_plugins.awareness_module.**",
-    "backend.routes.agents.profile -> narranexus_plugins.awareness_module",
-    "backend.routes.agents.social_network -> narranexus_plugins.social_network_module.**",
-    "backend.routes.agents.social_network -> narranexus_plugins.social_network_module",
-    "backend.routes.agents.narrative -> narranexus_plugins.basic_info_module.**",
-    "backend.routes.agents.narrative -> narranexus_plugins.basic_info_module",
-    "backend.routes.agents.chat_history -> narranexus_plugins.chat_module.**",
-    "backend.routes.agents.chat_history -> narranexus_plugins.chat_module",
     # the plugin factory drives the PROTECTED self-extension module (part of the distribution)
     "backend.plugins_factory.service -> narranexus_plugins.nexus_plugins_module.**",
     "backend.plugins_factory.service -> narranexus_plugins.nexus_plugins_module",

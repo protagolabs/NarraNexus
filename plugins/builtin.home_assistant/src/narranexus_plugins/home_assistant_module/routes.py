@@ -1,5 +1,5 @@
 """
-@file_name: home_assistant.py
+@file_name: routes.py
 @author: NetMind.AI
 @date: 2026-07-14
 @description: Backend routes for the Home Assistant binding (config panel).

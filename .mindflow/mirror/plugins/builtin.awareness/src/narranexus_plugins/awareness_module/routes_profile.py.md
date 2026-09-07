@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/agents/profile.py
+code_file: plugins/builtin.awareness/src/narranexus_plugins/awareness_module/routes_profile.py
 last_verified: 2026-09-04
 stub: false
 ---
@@ -26,3 +26,7 @@ stub: false
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `ROUTES` — this router is the `backend.routes` contribution of builtin.awareness (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.awareness_module.routes_profile:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/agents/chat_history.py
+code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/routes.py
 last_verified: 2026-09-04
 stub: false
 ---
@@ -257,3 +257,7 @@ Event 的 `event_log` 字段里存的是流式 delta，每个 thinking_delta 是
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `ROUTES` — this router is the `backend.routes` contribution of builtin.chat (prefix `/api/agents`, mounted by `backend/plugins_host`), no longer included by `routes/agents/core.py`; disabling the plugin makes these paths 404 together with the MCP-side provider.
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.chat_module.routes:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

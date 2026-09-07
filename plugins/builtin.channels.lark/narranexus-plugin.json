@@ -34,7 +34,7 @@
       "narranexus_plugins.lark_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
-      "backend.routes.channels.lark:ROUTES"
+      "narranexus_plugins.lark_module.routes:ROUTES"
     ],
     "backend.hooks": [
       "narranexus_plugins.lark_module.plugin_hooks:HOOKS"

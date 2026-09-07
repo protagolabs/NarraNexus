@@ -25,7 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.jobs as jobs_module
+import narranexus_plugins.job_module.routes as jobs_module
 from narranexus_plugins.job_module import job_service as job_service_module
 from narranexus.platform.schema import JobStatus, JobType
 

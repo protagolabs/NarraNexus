@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/channels/lark.py
+code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/routes.py
 stub: false
 last_verified: 2026-09-04
 ---
@@ -148,3 +148,7 @@ adds an OAuth device-code login step that Slack doesn't have.
 ## 2026-09-04 · OAuth flow only (batch 4d.3)
 
 bind / test / unbind / set-active / credential moved to the generic `/api/channels/lark/…` router (bind is `do_bind` behind the descriptor's `bind_fields`, unbind is `do_unbind` through the seam, credential is the store's public view, set-active flips `enabled`). This router keeps the Lark-specific device-code OAuth flow: `auth/login`, `auth/complete` (bot identity capture), `auth/status` (auth_status sync).
+
+## 2026-09-07 — moved into the plugin package
+
+This router is the plugin's own contribution (`narranexus_plugins.lark_module.routes:ROUTES`), not a file under `backend/routes/` that the plugin's manifest reached out to: the package is self-contained (a distribution that leaves the plugin out has no dead router in the wheel), and the backend no longer imports the plugin's private modules to serve it. Builtin routers keep their absolute prefixes (`/api/...`); third-party plugins live under `/api/x/<id>` — the one deliberate difference, recorded in docs/API_POLICY.md.

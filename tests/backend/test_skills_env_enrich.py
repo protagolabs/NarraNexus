@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.routes import skills as skills_routes
+from narranexus_plugins.skill_module import routes as skills_routes
 from narranexus.platform.schema.skill_schema import SkillInfo
 
 

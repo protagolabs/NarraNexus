@@ -59,7 +59,7 @@ def seeded(db_client):
 
 @pytest.fixture
 def route_client(db_client, monkeypatch, seeded):
-    import backend.routes.agents.social_network as sn
+    import narranexus_plugins.social_network_module.routes as sn
 
     async def _db():
         return db_client

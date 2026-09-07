@@ -45,6 +45,5 @@ gap where any plugin could call any OTHER plugin's route.
 
 `HOST_API_VERSION` (E4) is the frontend half of the "ui" kind's contract version
 (`packages/narranexus-contracts/src/narranexus/contracts/__init__.py`'s `API_VERSIONS["ui"]`); a
-cross-check test lives in `host.test.tsx` (`it.fails`, since the two currently disagree —
-frontend `1` vs Python `0` — a fix on the Python side, outside this file's edit scope, is
-required before that test can be promoted to a normal `it`).
+cross-check test in `host.test.tsx` asserts the two numbers match (both `1` as of 2026-09-07 —
+briefly drifted to frontend `1` / Python `0`, caught by this test before it shipped).

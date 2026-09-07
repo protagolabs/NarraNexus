@@ -1,5 +1,5 @@
 """
-@file_name: wechat.py
+@file_name: routes.py
 @author:
 @date: 2026-06-24
 @description: Backend API routes for WeChat (iLink) account binding.

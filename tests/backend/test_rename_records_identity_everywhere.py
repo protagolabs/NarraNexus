@@ -993,7 +993,7 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
     """
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
-    import backend.routes.agents.awareness as aw_route
+    import narranexus_plugins.awareness_module.routes as aw_route
     from narranexus_plugins.awareness_module import (
         IDENTITY_CHANGE_SECTION, build_identity_change_note,
         merge_identity_change_note,
