@@ -12,7 +12,7 @@ at each boundary (``observe.py``) for hooks and snapshots.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 from narranexus.contracts.agent.pipeline import PipelineProfile
 
@@ -32,6 +32,11 @@ class TurnServices:
     timings: dict[str, float] = field(default_factory=dict)
     # set by Ingress when owner LLM config resolution fails: the pipeline stops after Ingress
     aborted: bool = False
+    # Called by the pipeline exactly once, the moment ``ctx.event`` exists (after
+    # the stage that created it — Ingress by default). The runtime uses it to
+    # bind the trace + cost scopes so every helper LLM call from Recall onward
+    # is booked to THIS turn, never to the ambient (parent / previous) event.
+    bind_event: Optional[Callable[[str], None]] = None
 
 
 @dataclass

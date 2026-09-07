@@ -16,6 +16,8 @@ writes here (batch 4d); the retired per-channel tables are copied in once by
 from __future__ import annotations
 
 import json
+
+from loguru import logger
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -43,6 +45,15 @@ class CredentialRecord:
     created_at: Any = None
     updated_at: Any = None
     version: int = 0
+    # Set when the stored secret could not be decrypted (rotated / lost
+    # SKILL_SECRETS_KEY, corrupt row). ``secret`` is then EMPTY and the record
+    # must never reach a transport as if it were a valid credential:
+    # ``list_active`` drops it, single-record readers surface the message.
+    secret_error: Optional[str] = None
+
+    @property
+    def readable(self) -> bool:
+        return self.secret_error is None
 
     @property
     def app_id(self) -> str:
@@ -129,6 +140,11 @@ def validate_bind_fields(descriptor: ChannelDescriptor, values: dict[str, Any]) 
     return None
 
 
+# (channel, agent_id, version) triples already warned about — the watcher polls
+# list_active every few seconds; one line per unreadable row version is the signal.
+_UNREADABLE_WARNED: set[tuple[str, str, int]] = set()
+
+
 class GenericCredentialStore:
     def __init__(self, db: Any, registries: Any = None) -> None:
         self._db = db
@@ -140,16 +156,28 @@ class GenericCredentialStore:
     @staticmethod
     def _row_to_record(row: dict[str, Any]) -> CredentialRecord:
         public = json.loads(row.get("public_json") or "{}")
+        # Decrypt per row: SecretBox.decrypt fails CLOSED (raises) on a token
+        # this key cannot open. Letting that raise out of a list method turned
+        # one bad row — possibly another user's — into a whole-channel outage
+        # (the credential watcher retried forever). The record carries the
+        # error instead; readers decide (list_active skips, get surfaces).
+        secret: dict[str, Any] = {}
+        secret_error: Optional[str] = None
+        try:
+            secret = decode_secrets(row.get("secret_json") or "")
+        except Exception as exc:  # noqa: BLE001 — SecretDecryptError or a corrupt payload
+            secret_error = f"credential unreadable ({type(exc).__name__}: {exc}) — re-bind required"
         return CredentialRecord(
             channel=row["channel"],
             agent_id=row["agent_id"],
             enabled=bool(row.get("enabled", 1)),
             external_id=row.get("external_id") or None,
             public=public if isinstance(public, dict) else {},
-            secret=decode_secrets(row.get("secret_json") or ""),
+            secret=secret,
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
             version=int(row.get("version") or 0),
+            secret_error=secret_error,
         )
 
     async def upsert(self, channel: str, agent_id: str, values: dict[str, Any], *, enabled: Optional[bool] = None) -> CredentialRecord:
@@ -255,8 +283,18 @@ class GenericCredentialStore:
         return True
 
     async def list_active(self, channel: str) -> list[CredentialRecord]:
+        """Enabled bindings whose secret this install can read — an unreadable one is logged (once per row version) and skipped."""
         rows = await self._db.get(TABLE, {"channel": channel, "enabled": 1})
-        return [self._row_to_record(r) for r in rows]
+        out: list[CredentialRecord] = []
+        for record in (self._row_to_record(r) for r in rows):
+            if record.secret_error:
+                key = (record.channel, record.agent_id, record.version)
+                if key not in _UNREADABLE_WARNED:
+                    _UNREADABLE_WARNED.add(key)
+                    logger.warning(f"channel_credentials: {record.channel} binding of agent {record.agent_id} skipped: {record.secret_error}")
+                continue
+            out.append(record)
+        return out
 
     async def list_for_agent(self, agent_id: str) -> list[CredentialRecord]:
         """Every channel binding of one agent (bundle export, agent deletion)."""

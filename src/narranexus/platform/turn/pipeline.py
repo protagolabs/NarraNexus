@@ -129,13 +129,31 @@ class TurnPipeline:
         t = services.timings
         t.setdefault("run_start", time.monotonic())
         t["setup_start"] = time.monotonic()
+        event_bound = False
+
+        def _bind_event_once() -> None:
+            # The Event row is created inside a stage (Ingress); the scopes that
+            # attribute cost and logs to it must be entered before the NEXT LLM
+            # call, which may happen before the pipeline yields anything (Recall
+            # and Compose run helper LLMs and yield nothing). So the check runs
+            # at every stage boundary and every yield, not on the first message.
+            nonlocal event_bound
+            if event_bound or services.bind_event is None:
+                return
+            event = getattr(ctx, "event", None)
+            if event is not None:
+                services.bind_event(str(event.id))
+                event_bound = True
+
         for stage in STAGES:
             if stage is Stage.ACT:
                 t["loop_start"] = time.monotonic()
             await self._hook(stage, did=False, ctx=ctx, profile=profile)
             strategy = self.strategy_for(stage, profile)
             async for msg in strategy.run(StageInputs(ctx=ctx, services=services, profile=profile, silent=silent)):
+                _bind_event_once()
                 yield msg
+            _bind_event_once()
             if stage is Stage.ACT:
                 t["loop_end"] = time.monotonic()
             await self._hook(stage, did=True, ctx=ctx, profile=profile)

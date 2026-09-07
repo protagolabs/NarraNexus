@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/channel/credential_store.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -29,3 +29,7 @@ NarraMessenger and Lark joined the four managers switched in 4d.1, and `credenti
 ## 2026-09-04 · `all_descriptors` (batch 4e)
 
 `all_descriptors(registries=None)` lists every registered channel descriptor — the one registry read the instance factory, contact utils, dashboard and manyfold export use instead of naming channels.
+
+## 2026-09-07 — per-row decrypt guard: secret_error / readable
+
+SecretBox.decrypt fails closed (raises) on a Fernet token this key cannot open. Raising out of list_active turned one bad row — often another user's — into a whole-channel outage (the watcher retried forever). _row_to_record now catches the decrypt failure per row and returns the record with secret={} and secret_error='… re-bind required'; list_active skips such records (one warning per (channel, agent, version)), get()/find_one()/list_all() return them with the flag so callers can surface 'credential unreadable'. Fail-closed is preserved: an unreadable record never reaches a transport as an empty-but-valid credential.

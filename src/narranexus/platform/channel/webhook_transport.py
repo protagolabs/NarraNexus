@@ -22,6 +22,8 @@ import hmac
 import secrets
 from typing import Any, AsyncIterator, Mapping, Optional
 
+from loguru import logger
+
 from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
 from narranexus.platform.channel.webhook_inbox import WebhookInbox
 
@@ -61,10 +63,30 @@ class WebhookChannelTriggerBase(ChannelTriggerBase):
 
     WEBHOOK_POLL_SECONDS: float = 1.0
     WEBHOOK_BATCH: int = 50
+    # Claimed inbox rows are an audit trail for this long, then the daily
+    # retention sweep (ChannelTriggerBase._run_cleanup) purges them.
+    WEBHOOK_EVENT_RETENTION_DAYS: int = 7
 
     def __init__(self, max_workers: int = 3, **kwargs: Any) -> None:
         # The channels supervisor constructs every trigger as ``cls(max_workers=3)``.
         super().__init__(base_workers=max_workers, **kwargs)
+
+    async def _run_cleanup(self) -> None:
+        await super()._run_cleanup()
+        db = getattr(self, "_db", None)
+        if db is None:
+            return
+        try:
+            from datetime import timedelta
+
+            from narranexus.platform.utils import utc_now
+
+            cutoff = utc_now() - timedelta(days=self.WEBHOOK_EVENT_RETENTION_DAYS)
+            purged = await WebhookInbox(db).purge_claimed(self.channel_name, cutoff)
+            if purged:
+                logger.info(f"{type(self).__name__}: purged {purged} claimed webhook events older than {self.WEBHOOK_EVENT_RETENTION_DAYS} days")
+        except Exception as e:  # noqa: BLE001 — retention is best-effort
+            logger.warning(f"{type(self).__name__}: webhook inbox purge failed: {e}")
 
     async def load_active_credentials(self) -> list[Any]:
         from narranexus.platform.channel.credential_store import GenericCredentialStore

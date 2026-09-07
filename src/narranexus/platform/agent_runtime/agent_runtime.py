@@ -484,6 +484,23 @@ class AgentRuntime:
                 explicit=pipeline_profile,
                 registries=self._registries,
             )
+            # The cost scope is entered UNCONDITIONALLY before the pipeline
+            # runs: a run with no Event row must set the ambient id to None,
+            # not inherit it. A nested run started from a post-turn callback
+            # copies the parent's context, so leaving the parent's id in place
+            # would book the child's whole spend onto the parent turn — a
+            # number that reads high with nothing to show it is wrong. The
+            # log binding (bind_event) stays conditional on purpose: inheriting
+            # the outer run_id in logs is what you want there. Both are then
+            # narrowed to the real event id the moment Ingress creates it, via
+            # ``TurnServices.bind_event`` (the pipeline calls it at every stage
+            # boundary and yield, so Recall's helper LLMs are already scoped).
+            _trace_stack.enter_context(cost_event_scope(None))
+
+            def _bind_turn_event(event_id: str) -> None:
+                _trace_stack.enter_context(bind_event(event_id=event_id))
+                _trace_stack.enter_context(cost_event_scope(event_id))
+
             services = TurnServices(
                 db_client=db_client,
                 event_service=self.event_service,
@@ -495,19 +512,11 @@ class AgentRuntime:
                 response_processor=self._response_processor,
                 execute_callback_instance=self._execute_callback_instance,
                 timings={"run_start": _t_run_start},
+                bind_event=_bind_turn_event,
             )
             pipeline = TurnPipeline(self._registries)
-            event_bound = False
             async for msg in pipeline.run(ctx, profile, services, silent=silent):
-                if not event_bound and ctx.event is not None:
-                    # Ingress created the event: bind it to the trace + cost scopes
-                    # for everything that follows (legacy placement, kept).
-                    _trace_stack.enter_context(bind_event(event_id=str(ctx.event.id)))
-                    _trace_stack.enter_context(cost_event_scope(str(ctx.event.id)))
-                    event_bound = True
                 yield msg
-            if not event_bound:
-                _trace_stack.enter_context(cost_event_scope(None))
 
     async def _execute_callback_instance(
         self,

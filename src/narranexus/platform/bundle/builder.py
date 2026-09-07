@@ -556,8 +556,18 @@ async def build_bundle(
             if selection.include_channel_credentials:
                 from narranexus.platform.channel.credential_store import GenericCredentialStore
 
-                # Generic rows: public view + DECRYPTED secrets (the key is per install).
-                cred_rows = [r.to_raw_dict() for r in await GenericCredentialStore(db).list_for_agent(aid)]
+                # Generic rows: public view + DECRYPTED secrets (the key is per
+                # install). The exporter's NarraNexus user id is scrubbed like
+                # every other table (`<original_owner>`); IM-side ids survive
+                # because channel_credentials' ID columns are declared in
+                # STRUCTURED_ID_FIELDS. A row whose secret this install cannot
+                # decrypt is skipped rather than exported as an empty secret.
+                cred_rows = []
+                for record in await GenericCredentialStore(db).list_for_agent(aid):
+                    if record.secret_error:
+                        logger.warning(f"bundle export: skipping {record.channel} credential of {aid}: {record.secret_error}")
+                        continue
+                    cred_rows.append(_scrub_user_id(record.to_raw_dict(), user_id, "channel_credentials"))
                 channel_cred_count += len(cred_rows)
                 (agent_dir / "channel_credentials.json").write_text(
                     json.dumps({CHANNEL_CREDENTIALS_KEY: cred_rows}, indent=2, ensure_ascii=False, default=str),

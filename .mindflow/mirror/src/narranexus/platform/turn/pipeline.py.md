@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/turn/pipeline.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -17,3 +17,7 @@ stub: false
 > 来源 job > default，先查 `turn.profiles` 注册表再回落内置表。`PIPELINE_CONTRIBUTION` 填 `turn.pipeline` 位。
 
 Batch 6b.2b: profiles are registered lazily from the `builtin.turn` manifest when the registry is empty; an unknown profile raises `UnknownEntry`.
+
+## 2026-09-07 — binds the turn Event at every stage boundary and yield
+
+run() calls services.bind_event(event_id) exactly once, as soon as any stage has set ctx.event — checked after every yielded message and after every stage, not on the first yield (Recall/Compose run helper LLMs and yield nothing). This is how the runtime attributes spend and logs to the turn without the pipeline knowing about ExitStacks.

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/bundle/builder.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -359,3 +359,7 @@ mcp_hints.json                        ← 1.1+: opt-in by mcp_selection
 ## 2026-09-04 · credentials exported from the generic store (batch 4d.2)
 
 `channel_credentials.json` is now `{"channel_credentials": [...]}` built from `GenericCredentialStore.list_for_agent(aid)` (`to_raw_dict`: public fields + DECRYPTED secrets — the encryption key is per install, so a bundle must carry plain values). `STRIPPED_TABLES` lists `channel_credentials` so the generic table never leaks through the table-driven paths; the opt-in file is the only way a binding leaves.
+
+## 2026-09-07 — channel credentials are scrubbed and unreadable rows skipped
+
+The generic-store export path had dropped _scrub_user_id: the exporter's NarraNexus user id (and password_hash/secret/api_key keys) left the machine inside channel_credentials.json. Every row now goes through _scrub_user_id(row, user_id, 'channel_credentials') — IM-side ids survive because the table's ID columns are in STRUCTURED_ID_FIELDS. A record whose secret this install cannot decrypt (secret_error set) is skipped with a warning rather than exported as an empty secret.

@@ -72,7 +72,37 @@ async def test_inbox_claims_in_order_and_purges(db_client):
     rest = await inbox.pull("wh_demo", "a1")
     assert [e.payload["id"] for e in rest] == [2] and await inbox.pull("wh_demo", "a1") == []
     assert await inbox.pending("wh_demo", "a2") == 1  # other agents untouched
-    assert await inbox.purge_claimed("wh_demo", "a1") == 3
+    # Retention: only CLAIMED rows older than the cutoff go; the unclaimed a2 row stays.
+    from datetime import timedelta
+
+    from narranexus.platform.utils import utc_now
+
+    assert await inbox.purge_claimed("wh_demo", utc_now() - timedelta(days=1)) == 0
+    assert await inbox.purge_claimed("wh_demo", utc_now() + timedelta(seconds=1)) == 3
+    assert await inbox.pending("wh_demo", "a2") == 1
+    assert await inbox.purge_claimed("wh_demo", utc_now() + timedelta(seconds=1)) == 0
+
+
+@pytest.mark.asyncio
+async def test_pull_claims_atomically_and_skips_rows_another_reader_won(db_client, monkeypatch):
+    """The claim UPDATE re-asserts claimed_at IS NULL; a row someone else claimed between the read and the update is skipped, not delivered twice."""
+    inbox = WebhookInbox(db_client)
+    for i in range(2):
+        await inbox.push("wh_demo", "a1", {"id": i})
+    real_update = db_client.update
+    stolen: list = []
+
+    async def racing_update(table, filters, values):
+        if table == "channel_webhook_events" and not stolen:
+            # another reader claims the same row first
+            stolen.append(filters["id"])
+            await real_update(table, {"id": filters["id"]}, values)
+        return await real_update(table, filters, values)
+
+    monkeypatch.setattr(db_client, "update", racing_update)
+    events = await inbox.pull("wh_demo", "a1")
+    assert [e.payload["id"] for e in events] == [1] and stolen == [events[0].id - 1]
+    assert await inbox.pull("wh_demo", "a1") == []
 
 
 def test_verify_webhook_token_and_hmac():
