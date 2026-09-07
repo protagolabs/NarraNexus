@@ -994,6 +994,25 @@ async def get_agents(request: Request):
         )
 
 
+async def _mark_first_agent_created(db_client, user_id: str) -> None:
+    """Creating an agent through ANY door (API, studio, import) completes the
+    first-agent onboarding step; the welcome flow must not depend on the
+    frontend remembering to post it. Best-effort, never fails the create."""
+    try:
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(user_id)
+        if not user:
+            return
+        current = _read_onboarding(user.metadata)
+        if current.first_agent_created:
+            return
+        metadata = dict(user.metadata or {})
+        metadata[_ONBOARDING_METADATA_KEY] = current.model_copy(update={"first_agent_created": True}).model_dump()
+        await user_repo.update_user(user_id, {"metadata": metadata})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"onboarding first_agent_created not recorded for {user_id}: {exc}")
+
+
 @router.post("/agents", response_model=CreateAgentResponse)
 async def create_agent(http_request: Request, request: CreateAgentRequest):
     """
@@ -1093,6 +1112,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             created_by=created_by,
             bootstrap_active=provision_result.bootstrap_active,
         )
+        await _mark_first_agent_created(db_client, created_by)
 
         return CreateAgentResponse(
             success=True,

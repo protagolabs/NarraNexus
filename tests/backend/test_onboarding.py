@@ -210,3 +210,22 @@ async def test_post_never_clobbers_the_guide_agent_marker(db_client, client):
     user = await UserRepository(db_client).get_user("u_guide")
     assert user.metadata[GUIDE_METADATA_FLAG] is True
     assert user.metadata["onboarding_progress"]["first_agent_created"] is True
+
+
+# ───────────── creating an agent completes the first-agent step ──────────
+@pytest.mark.asyncio
+async def test_creating_an_agent_marks_first_agent_created_server_side(db_client, client):
+    """Found on a fresh install: an agent created through the API left
+    first_agent_created False because only the welcome page posted the flag."""
+    import backend.routes.auth as auth_mod
+
+    await _seed_user(db_client, "u_maker")
+    await auth_mod._mark_first_agent_created(db_client, "u_maker")
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_maker"})
+    assert r.json()["progress"]["first_agent_created"] is True
+    # idempotent, and other steps untouched
+    await auth_mod._mark_first_agent_created(db_client, "u_maker")
+    body = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_maker"}).json()["progress"]
+    assert body == {"first_agent_created": True, "template_applied": False, "dismissed": False, "landing_completed": False}
+    # an unknown user is a no-op, never an error
+    await auth_mod._mark_first_agent_created(db_client, "u_ghost")

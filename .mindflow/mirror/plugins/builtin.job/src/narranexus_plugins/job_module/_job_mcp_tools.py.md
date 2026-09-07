@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/_job_mcp_tools.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-08-17 — 复用 helper + 日志级别提到 warning
@@ -146,3 +146,5 @@ null 说明）；真校验仍在 TriggerConfig（naive validator 的报错足够
 ## 2026-09-04 · no per-module port (batch 5a)
 
 The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.
+
+Fix 2026-09-07: job_create/job_update docs state that cron/run_at are wall-clock times in the given timezone and must never be converted to UTC (a "9am Beijing" request had been stored as `0 1 * * *` + Asia/Shanghai).

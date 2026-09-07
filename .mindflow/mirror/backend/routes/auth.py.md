@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -713,3 +713,5 @@ fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
 The registry view is the only module table; usages renamed.
 
 Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
+
+Fix 2026-09-07 (fresh-install journey): `_mark_first_agent_created()` flips the onboarding step when an agent is created through the API (best-effort, idempotent), so the welcome flow does not depend on the frontend posting it.

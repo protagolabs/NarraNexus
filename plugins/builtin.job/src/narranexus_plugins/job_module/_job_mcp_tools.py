@@ -173,7 +173,10 @@ def create_job_mcp_server() -> FastMCP:
                 cron/interval) | "ongoing" (repeat until end_condition met;
                 use for persistent follow-up goals)
             trigger_config: Shape per job_type; EVERY shape REQUIRES "timezone"
-                (IANA name from User Temporal Context).
+                (IANA name from User Temporal Context). "cron" and "run_at" are
+                WALL-CLOCK times IN that timezone — never convert the user's
+                time to UTC: "9am Beijing" is {"cron": "0 9 * * *", "timezone":
+                "Asia/Shanghai"}, NOT "0 1 * * *".
                 - one_off: {"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"}
                   run_at MUST be naive ISO 8601 — no "Z"/offset suffix.
                 - scheduled: {"cron": "0 8 * * *", "timezone": ...} OR
@@ -401,8 +404,9 @@ def create_job_mcp_server() -> FastMCP:
             guidance_text: APPENDS a "## Manager Guidance" section to the
                 payload (after new payload if both given)
             trigger_config: Same shapes/rules as job_create. EVERY shape
-                REQUIRES "timezone" (IANA name); run_at naive ISO 8601 (no
-                "Z"/offset). Shapes: one_off {"run_at","timezone"}; scheduled
+                REQUIRES "timezone" (IANA name); cron/run_at are wall-clock
+                times IN that timezone (never converted to UTC); run_at naive
+                ISO 8601 (no "Z"/offset). Shapes: one_off {"run_at","timezone"}; scheduled
                 {"cron" OR "interval_seconds","timezone", optional "end_at"
                 naive local = run until then, platform-completed}; ongoing
                 {"interval_seconds","end_condition","timezone", optional
