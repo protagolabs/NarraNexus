@@ -42,7 +42,10 @@ def test_resolved_bindings_override_and_order():
     assert bound_provider(regs, "prompt.assembler") == "acme.brand" and bound_layer(regs, "prompt.assembler") == "USER_CONFIG"
     assert bound_entry(regs, "prompt.assembler").factory() == "acme-assembler"
     names = [e.name for e in bound_entries(regs, "prompt.sections")]
-    assert names[0] == "persona" and "narrative" in names and "security" not in names
+    assert names == ["persona", "modules", "narrative"]  # owner, owner:name and bare name forms, in binding order
+    # a binding written as owner:name for a one-arity slot resolves too (found live: the CLI writes that form)
+    regs.set_bindings(resolve(slot_tree_with_builtins(), [BindingSource(Layer.USER_CONFIG, {"prompt.assembler": "acme.brand:brand"}, origin="t")]))
+    assert bound_entry(regs, "prompt.assembler").factory() == "acme-assembler"
 
 
 def test_bound_plugin_without_a_contribution_is_loud():

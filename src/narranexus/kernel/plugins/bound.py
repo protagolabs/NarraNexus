@@ -11,6 +11,14 @@ from typing import Any, Optional
 from narranexus.contracts import UnknownEntry
 
 
+def _matches(entry: Any, provider: str) -> bool:
+    """A binding value names a plugin (owner), a contribution (name) or both (``owner:name``)."""
+    if entry.owner == provider or entry.name == provider:
+        return True
+    owner, sep, name = provider.partition(":")
+    return bool(sep) and entry.owner == owner and entry.name == name
+
+
 def bound_provider(registries: Any, slot: str) -> Optional[str]:
     """Plugin id bound to a one-arity ``slot``: the resolved binding if the host resolved one, else the slot's default."""
     resolved = getattr(registries, "bindings", None)
@@ -36,12 +44,12 @@ def bound_entry(registries: Any, slot: str) -> Any:
     never a silent fallback to whichever plugin registered first."""
     provider = bound_provider(registries, slot)
     registry = registries.registry_for(slot)
-    for entry in registry.entries():
-        if entry.owner == provider:
-            return entry
     if provider is not None:
-        for entry in registry.entries():  # a binding may also name a contribution directly
-            if entry.name == provider:
+        for entry in registry.entries():
+            if entry.owner == provider:
+                return entry
+        for entry in registry.entries():  # a binding may also name a contribution directly, or owner:name
+            if _matches(entry, provider):
                 return entry
     names = sorted({e.owner for e in registry.entries()})
     raise UnknownEntry(f"{slot}: bound provider {provider!r} has no contribution here (registered: {names})")
@@ -60,7 +68,7 @@ def bound_entries(registries: Any, slot: str) -> list[Any]:
     wanted = list(resolved.many[slot].providers)
     picked: list[Any] = []
     for provider in wanted:
-        picked.extend(e for e in entries if (e.owner == provider or e.name == provider) and e not in picked)
+        picked.extend(e for e in entries if _matches(e, provider) and e not in picked)
     return picked
 
 
