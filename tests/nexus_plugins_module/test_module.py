@@ -59,6 +59,8 @@ def test_tools_answer_json_never_raise(env, tool, monkeypatch):
         "plugin_register": {"plugin_id": "me.x", "report_hash": "h"}, "plugin_activate": {"plugin_id": "me.x"}, "plugin_observe": {"plugin_id": "me.x"},
         "plugin_deactivate": {"plugin_id": "me.x"}, "plugin_rollback": {}, "plugin_diff": {"plugin_id": "me.x"}, "plugin_install": {"source": "acme/x"},
         "plugin_upgrade": {"plugin_id": "me.x"}, "plugin_publish_hint": {"plugin_id": "me.x"}, "plugin_list": {},
+        "platform_overview": {}, "platform_slots": {"domain": "prompt"}, "contract_docs": {"kind": "prompt"}, "agent_self": {},
+        "capability_set": {"module_class": "JobModule", "enabled": False},
     }[tool]
     import json
 
