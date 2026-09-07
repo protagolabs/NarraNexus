@@ -41,6 +41,9 @@ class RenderedSection:
     owner: str
     order: int
     text: str
+    # the provider's declared budget (0 = unbounded), carried so the assembler
+    # can report an overrun without a separate budgets table
+    budget_chars: int = 0
 
     @property
     def chars(self) -> int:
@@ -69,9 +72,18 @@ class PromptAssembler(Protocol):
     async def assemble(self, sections: Sequence[RenderedSection], ctx: PromptContext) -> str: ...
 
 
-def budget_report(sections: Sequence[RenderedSection], budgets: Mapping[str, int]) -> list[str]:
-    """Sections whose rendered size exceeds their declared budget (id: chars > budget)."""
-    return [f"{s.id}: {s.chars} > {budgets[s.id]}" for s in sections if budgets.get(s.id, 0) and s.chars > budgets[s.id]]
+def budget_report(sections: Sequence[RenderedSection], budgets: Mapping[str, int] | None = None) -> list[str]:
+    """Sections whose rendered size exceeds their budget (id: chars > budget).
+
+    The budget is the section's own ``budget_chars`` unless ``budgets``
+    overrides it by id (a distribution may tighten a section).
+    """
+    out: list[str] = []
+    for s in sections:
+        limit = (budgets or {}).get(s.id) or s.budget_chars
+        if limit and s.chars > limit:
+            out.append(f"{s.id}: {s.chars} > {limit}")
+    return out
 
 
 __all__ = ["PromptAssembler", "PromptContext", "PromptSectionProvider", "RenderedSection", "budget_report"]

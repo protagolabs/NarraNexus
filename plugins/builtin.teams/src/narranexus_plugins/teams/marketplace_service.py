@@ -1,5 +1,5 @@
 """
-@file_name: team_marketplace_service.py
+@file_name: marketplace_service.py
 @author: NetMind.AI
 @date: 2026-07-21
 @description: Service protocol layer for the Team Marketplace.

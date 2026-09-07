@@ -20,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class _Runtime:
-    async def _build_user_temporal_block(self, user_id):
+    async def build_user_temporal_block(self, user_id):
         return f"<temporal for {user_id}>"
 
-    async def _build_module_instructions_prompt(self, mods):
+    async def build_module_instructions_prompt(self, mods):
         return "## Modules\n" + "\n".join(m.name for m in mods)
 
 

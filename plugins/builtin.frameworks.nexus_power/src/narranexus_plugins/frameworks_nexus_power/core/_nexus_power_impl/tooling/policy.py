@@ -84,7 +84,14 @@ class PolicyEngine:
     def __init__(self, layers: tuple) -> None:
         self._layers = tuple(layers)
 
+    @property
+    def layers(self) -> tuple:
+        return self._layers
+
     def check(self, call: ToolCall, ctx: PolicyContext) -> Decision:
+        if not self._layers:
+            # No layer at all is a misassembly, not permission: fail closed.
+            return Decision(PolicyVerdict.DENY, "no tool policy layers are installed (fail-closed)")
         for layer in self._layers:
             try:
                 decision = layer.check(call, ctx)

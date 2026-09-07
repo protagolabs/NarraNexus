@@ -209,7 +209,12 @@ class ClaudeOAuthDriver(_DriverBase):
         """
         import asyncio
 
-        from narranexus_plugins.frameworks_claude_code.api import resolve_cli_path
+        try:
+            from narranexus_plugins.frameworks_claude_code.api import resolve_cli_path
+        except ImportError:
+            # A distribution without the Claude Code framework (minimal, ToB)
+            # has no CLI to verify with: UNKNOWN, not a 500.
+            return VERIFY_UNKNOWN, "the Claude Code framework plugin is not part of this distribution; cannot verify"
         from narranexus.platform.agent_framework.loop.broker_client import (
             executor_seam_active,
         )
@@ -250,7 +255,10 @@ class ClaudeOAuthDriver(_DriverBase):
             # the same call the agent adapter makes before every spawn.
             # Without it a healthy, freshly-logged-in host credential fails
             # verification on any install that has not run an agent turn yet.
-            from narranexus_plugins.frameworks_claude_code.api import stage_oauth_credentials as _stage_claude_oauth_credentials
+            try:
+                from narranexus_plugins.frameworks_claude_code.api import stage_oauth_credentials as _stage_claude_oauth_credentials
+            except ImportError:
+                return VERIFY_UNKNOWN, "the Claude Code framework plugin is not part of this distribution; cannot stage credentials"
 
             try:
                 _stage_claude_oauth_credentials(env["CLAUDE_CONFIG_DIR"])

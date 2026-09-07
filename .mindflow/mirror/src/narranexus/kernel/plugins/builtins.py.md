@@ -103,3 +103,7 @@ Batch 6 fix: builtin.turn and the three frameworks list hosts backend+mcp+worker
 ## 2026-09-07 — register_builtin_provides never replaces; duplicate block removed
 
 The lazy builtin registration registered with replace=True, which could silently overwrite a user plugin's same-named entry depending on import order; idempotency only needs the same-object / same-owner no-op the registry already provides, so replace is gone. The duplicated registries-resolution block is collapsed to one.
+
+## 2026-09-07 — lazy registration honours the distribution; providers declares its dependency
+
+register_builtin_provides filters BUILTIN_MANIFEST_DATA by the process distribution's picks (NARRANEXUS_DIST, cached per path): an excluded builtin — an excluded AUTH provider in particular — no longer resurrects through the lazy ensure_* path. builtin.providers now declares dependencies on builtin.llm_clients (it imports its api), so dist doctor sees the coupling.

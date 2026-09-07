@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/assembly.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -77,3 +77,7 @@ LoopAssembly 是循环的全部依赖(硬组件无默认、策略缝带默认,R1
 ## 2026-09-04 · extension points (batch 3d.1)
 
 The strategy seats (expression, policy layers, projector, compaction, stop) are no longer constructed here: `run_turn_events` builds a `SeatContext` and asks `extension_points.resolve_one/resolve_many` for each, so a plugin provider or an `NX_BIND__` binding replaces a seat without touching the assembly. Defaults are the classes this file used to instantiate, in the same order (policy layers) — behaviour unchanged; `LoopAssembly` also receives `stop` explicitly now.
+
+## 2026-09-07 — mandatory safety layers
+
+_with_mandatory_layers puts DisallowedTools / WorkspaceConfinement / ShellConfinement first and appends the seat's bound layers (deduplicated by type): a binding can add policy, never remove the executor-escape mitigations.

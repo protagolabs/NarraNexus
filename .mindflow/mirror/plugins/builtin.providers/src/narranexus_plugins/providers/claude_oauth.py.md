@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/claude_oauth.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -112,3 +112,7 @@ Keychain(仅判存在、不读密文;非 darwin/出错回落文件结论)。
 ## 2026-08-28 补(auto-review I5) — Verify 前调 activate_pyenv
 
 `_one_shot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:Providers 页 Claude OAuth 卡片的'Verify'可能是用户装完插件后第一个触发点(早于任何 agent driver),不重启也要能解析 SDK。
+
+## 2026-09-07 — degrades when the Claude Code framework plugin is absent
+
+Both imports from narranexus_plugins.frameworks_claude_code.api are guarded: a distribution that excludes the framework (minimal, ToB) answers VERIFY_UNKNOWN with a plain reason instead of a 500 from ModuleNotFoundError; the credential-staging import is guarded separately from the staging call so 'no such plugin' and 'staging failed' keep distinct messages.

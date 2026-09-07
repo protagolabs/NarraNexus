@@ -126,3 +126,18 @@ def test_index_repo_template_validates_and_matches_index_entry():
     bad = {"id": "nodot", "repo": "x"}
     tmp = root.parent / "index-repo"
     assert mod.ID_RE.match(bad["id"]) is None and mod.REPO_RE.match(bad["repo"]) is None and tmp.is_dir()
+
+
+def test_scaffold_merges_backend_activations_and_refuses_frontend_collisions(tmp_path):
+    """Several backend kinds → one activate(ctx) that calls each kind's _activate_<kind>; two kinds that
+    generate the same frontend file are refused instead of the second silently overwriting the first."""
+    from narranexus.cli.scaffold import scaffold
+
+    dest = tmp_path / "acme.multi"
+    scaffold("acme.multi", ["routes", "table", "settings"], dest, display_name="Multi")
+    init = (dest / "backend" / "__init__.py").read_text()
+    assert init.count("def activate(") == 1
+    for kind in ("routes", "table", "settings"):
+        assert f"def _activate_{kind}(" in init and f"_activate_{kind}(ctx)" in init
+    with pytest.raises(ValueError, match="both generate"):
+        scaffold("acme.ui", ["ui_page", "ui_panel"], tmp_path / "acme.ui", display_name="UI")

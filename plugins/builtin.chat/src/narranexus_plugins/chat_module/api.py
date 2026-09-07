@@ -10,15 +10,15 @@ registers.
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.contributions import spec_for as _spec_for
+from narranexus.platform.module_system.contributions import module_class_for
 
 PLUGIN_ID = "builtin.chat"
 PACKAGE = "narranexus_plugins.chat_module"
 
 
 def module_class() -> type:
-    """The plugin's module class (resolved lazily through the module spec table)."""
-    return _spec_for(next(s.class_name for s in __import__("narranexus.platform.module_system.contributions", fromlist=["MODULE_SPECS"]).MODULE_SPECS if s.plugin_id == PLUGIN_ID)).load_class()
+    """The plugin's module class (resolved through the platform's one module-spec table)."""
+    return module_class_for(PLUGIN_ID)
 
 
 __all__ = ["PACKAGE", "PLUGIN_ID", "module_class"]

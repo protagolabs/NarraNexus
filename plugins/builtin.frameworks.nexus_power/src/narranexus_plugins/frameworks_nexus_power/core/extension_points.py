@@ -157,8 +157,11 @@ def ensure_registered(registries: Any = None) -> None:
     for path, contributions in PROVIDERS.items():
         registry = regs.registry_for(path)
         for contribution in contributions:
-            if contribution.name not in registry:
-                registry.register_contribution(contribution, owner=NAMESPACE)
+            # Always through the registry: the same object / same owner is a
+            # no-op, a DIFFERENT owner under the same name is RegistryConflict.
+            # "skip if the name exists" let whoever registered first become
+            # 'workspace_confinement'.
+            registry.register_contribution(contribution, owner=NAMESPACE)
 
 
 def _env_binding(path: str) -> Optional[str | list[str]]:

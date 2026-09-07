@@ -1,5 +1,5 @@
 """
-@file_name: team_marketplace_schema.py
+@file_name: marketplace_schema.py
 @author: NetMind.AI
 @date: 2026-07-21
 @description: Pydantic model for the Team Marketplace catalog.

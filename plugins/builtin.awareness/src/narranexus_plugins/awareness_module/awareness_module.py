@@ -1,5 +1,5 @@
 """
-@file_name: awareness.py
+@file_name: awareness_module.py
 @author: NetMind.AI
 @date: 2025-06-06
 @description: This file is used to define the awareness of the agent.

@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.llm_clients/src/narranexus_plugins/llm_clients/cli_helper.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -226,3 +226,7 @@ prompt，客户端提取+校验 JSON），复用其 `_extract_json_from_llm_outp
 ## 2026-08-28 补(auto-review I5) — 惰性 import 前调 activate_pyenv
 
 `_run_claude_oneshot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:用户装完插件后**先**用到 helper LLM(不经 agent driver)时,不重启也能解析到插件 SDK;否则拿到裸 ModuleNotFoundError。模块 import 期那次 activate 只覆盖'启动时已装'。
+
+## 2026-09-07 — OAuth helper names its missing framework
+
+The stage_oauth_credentials import is guarded: without the Claude Code framework plugin the helper raises a RuntimeError that names the missing plugin rather than a bare ModuleNotFoundError.

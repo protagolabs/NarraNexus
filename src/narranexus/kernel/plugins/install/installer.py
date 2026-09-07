@@ -56,7 +56,10 @@ class Installer:
     store: RegistryStore = field(default_factory=lambda: RegistryStore(path=registry_path()))
     client: httpx.Client | None = None
     runner: Runner | None = None
-    blocked: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    # None = the blocklist could not be obtained: remote installs are refused
+    # (fail-closed for code that comes from the network), local paths still
+    # install (an offline desktop must be able to develop a plugin).
+    blocked: Mapping[str, Mapping[str, str]] | None = field(default_factory=dict)
     host: str = field(default_factory=host_version)
 
     # ------------------------------------------------------------- install
@@ -71,11 +74,16 @@ class Installer:
         replace: bool = False,
     ) -> InstallResult:
         src = parse_source_spec(source) if isinstance(source, str) else source
+        if self.blocked is None and not isinstance(src, LocalSource):
+            raise InstallError(
+                f"cannot install {src.describe()}: the plugin index blocklist is unavailable (offline, no cached copy) — "
+                "retry online, or install from a local path"
+            )
         staging = Path(tempfile.mkdtemp(prefix="nx-plugin-install-", dir=str(plugin_home())))
         try:
             fetched = src.fetch(staging, self.client)
             manifest = self._validate(fetched.root)
-            reason = blocked_reason(self.blocked, manifest.id, manifest.version)
+            reason = blocked_reason(self.blocked or {}, manifest.id, manifest.version)
             if reason:
                 raise InstallError(f"{manifest.id} {manifest.version} is blocked: {reason}")
             existing = self.store.read().plugins.get(manifest.id)

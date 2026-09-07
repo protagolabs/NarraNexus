@@ -71,10 +71,13 @@ class FactoryService:
             # offline desktop must still install a local plugin; the block is a
             # revocation signal, not the only gate (permissions, isolation).
             try:
-                blocked = self._index().blocked()
-            except Exception as exc:  # noqa: BLE001 — offline / index down
-                logger.warning(f"[plugins] index blocklist unavailable, installing without it: {exc}")
-                blocked = {}
+                blocked: Any = self._index().blocked()
+            except Exception as exc:  # noqa: BLE001 — offline / index down, no cache
+                # Fail CLOSED for remote sources (the installer refuses them
+                # while the blocklist is unknown), open for local paths: an
+                # offline desktop must still develop a plugin.
+                logger.warning(f"[plugins] index blocklist unavailable: {exc} — remote installs refused until it is")
+                blocked = None
             self.installer = Installer(store=self.store, blocked=blocked)
         return self.installer
 

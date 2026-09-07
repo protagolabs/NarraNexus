@@ -1,6 +1,9 @@
 {
   "id": "builtin.providers",
   "version": "1.0.0",
+  "dependencies": {
+    "builtin.llm_clients": ">=1.0"
+  },
   "displayName": "LLM providers",
   "description": "Provider drivers: custom anthropic/openai, NetMind, Yunwu, OpenRouter, OAuth subscriptions, system pool.",
   "hosts": [

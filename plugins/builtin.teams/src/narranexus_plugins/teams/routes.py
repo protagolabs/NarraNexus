@@ -1,5 +1,5 @@
 """
-@file_name: teams.py
+@file_name: routes.py
 @author: NetMind.AI
 @date: 2026-05-08
 @description: REST API for team membership management

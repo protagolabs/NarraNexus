@@ -66,13 +66,13 @@ async def test_priority_ties_break_on_name_so_the_prompt_is_deterministic():
     runtime = _runtime()
     ordered = _instructions()
 
-    baseline = await runtime._build_module_instructions_prompt(ordered)
+    baseline = await runtime.build_module_instructions_prompt(ordered)
 
     rng = random.Random(20260728)
     for _ in range(20):
         shuffled = ordered[:]
         rng.shuffle(shuffled)
-        assert await runtime._build_module_instructions_prompt(shuffled) == baseline
+        assert await runtime.build_module_instructions_prompt(shuffled) == baseline
 
 
 @pytest.mark.asyncio
@@ -88,8 +88,8 @@ async def test_awareness_socialnetwork_swap_is_a_same_length_reorder():
     swapped = ordered[:]
     swapped[i_awareness], swapped[i_social] = swapped[i_social], swapped[i_awareness]
 
-    a = await runtime._build_module_instructions_prompt(ordered)
-    b = await runtime._build_module_instructions_prompt(swapped)
+    a = await runtime.build_module_instructions_prompt(ordered)
+    b = await runtime.build_module_instructions_prompt(swapped)
     assert len(a) == len(b)  # same-length: invisible to byte counts
     assert a == b  # ...and the total order makes it a no-op
 

@@ -64,7 +64,7 @@ You can reference them when relevant, but prioritize the main narrative above.
 
 # ============================================================================
 # Module instructions section header
-# Used for _build_module_instructions_prompt()
+# Used for build_module_instructions_prompt()
 # ============================================================================
 MODULE_INSTRUCTIONS_HEADER = """
 ## Module Instructions

@@ -25,3 +25,7 @@ Batch 6 fix: `set_host_db(db)` / `host_db()` — plugin contexts get the lifespa
 ## 2026-09-07 — settings fallback covers the DB read; the first boot report survives a repeated lifespan
 
 _settings_for constructs PluginSettings INSIDE the try: the store's DB round-trip happens in the constructor (rows load eagerly), so a transient DB error was escaping as a plugin crash and two restarts auto-disabled a healthy plugin; now it falls back to MemorySettingsStore with a warning. When the registries are already frozen (a second lifespan in-process) boot_backend_plugins returns the first boot's report instead of an empty one that made the factory page list every plugin as unloaded.
+
+## 2026-09-07 — boot refuses index-withdrawn versions
+
+boot() receives blocked_versions from the index CACHE (no network at boot): a plugin the index withdrew after it was installed is rejected at boot as the loader's 'blocked:' state — the README's 'refused at install and at boot' now holds on both halves.

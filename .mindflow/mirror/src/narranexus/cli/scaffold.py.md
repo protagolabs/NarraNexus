@@ -19,3 +19,7 @@ Batch 6d: `scaffold()` also writes `.github/workflows/plugin-ci.yml` (`PLUGIN_CI
 ## 2026-09-07 — templates resolve from the wheel first
 
 resolve_templates_dir() prefers the packaged copy (narranexus/cli/resources/templates, hatch force-include of the repo's templates/), then the source checkout, and otherwise raises a plain 'reinstall narranexus' error — 'narranexus plugin new' used to climb parents[3] from the package and fail with an opaque FileNotFoundError from a wheel.
+
+## 2026-09-07 — one activate per plugin; same-file collisions refused
+
+Several backend kinds produce _activate_<kind>(ctx) helpers and one activate(ctx) calling them in order (N same-named functions left only the last alive). Two kinds that generate the same file (ui_page + ui_panel → frontend/src/index.ts) are refused with the exact conflict instead of the second overwriting the first behind a manifest that declared both.

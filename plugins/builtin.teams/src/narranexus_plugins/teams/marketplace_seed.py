@@ -1,5 +1,5 @@
 """
-@file_name: _team_marketplace_seed.py
+@file_name: marketplace_seed.py
 @author: NetMind.AI
 @date: 2026-07-21
 @description: Bootstrap seed for the Team Marketplace (9 official templates).

@@ -15,6 +15,9 @@ extracted builtin (channels, modules, ui, ...) — one entry here per plugin.
 """
 from __future__ import annotations
 
+import functools
+from pathlib import Path
+
 from functools import lru_cache
 from typing import Any
 
@@ -76,6 +79,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
     {
         "id": "builtin.providers",
         "version": "1.0.0",
+        "dependencies": {"builtin.llm_clients": ">=1.0"},
         "displayName": "LLM providers",
         "description": "Provider drivers: custom anthropic/openai, NetMind, Yunwu, OpenRouter, OAuth subscriptions, system pool.",
         "hosts": ["backend", "mcp", "workers"],
@@ -367,6 +371,25 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
 )
 
 
+@functools.lru_cache(maxsize=4)
+def _selected_ids_for(dist_path: str) -> frozenset[str] | None:
+    from narranexus.kernel.plugins.distribution import load_distribution, resolve_distribution
+
+    spec, base = load_distribution(Path(dist_path))
+    res = resolve_distribution(spec, base)
+    if not res.ok:
+        return None  # the host boot reports the problems loudly; do not second-guess here
+    return frozenset(p.id for p in res.picks)
+
+
+def _distribution_selected_ids() -> frozenset[str] | None:
+    """The plugin ids the process's distribution selected (``NARRANEXUS_DIST``), or None without a distribution."""
+    from narranexus.kernel.plugins.distribution import find_distribution
+
+    path = find_distribution()
+    return None if path is None else _selected_ids_for(str(path))
+
+
 def register_builtin_provides(slot: str, registries: Any = None) -> int:
     """Register every builtin manifest's contributions for ``slot`` into the
     registries (the process-wide ones by default) — what a host boot does for
@@ -392,7 +415,10 @@ def register_builtin_provides(slot: str, registries: Any = None) -> int:
             "the builtin manifest providing this slot must list this process's host role"
         )
     count = 0
+    selected = _distribution_selected_ids()
     for data in BUILTIN_MANIFEST_DATA:
+        if selected is not None and data["id"] not in selected:
+            continue  # a builtin the distribution excludes must not resurrect through the lazy path
         refs = data.get("provides", {}).get(slot)
         if not refs:
             continue

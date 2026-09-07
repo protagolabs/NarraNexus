@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from narranexus.kernel.plugins.bindings import referenced_plugins
@@ -26,23 +27,28 @@ def test_referenced_plugins_understands_every_value_form():
     assert referenced_plugins(None) == set()
 
 
+def _dist(plugins: dict, **over):
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
+    data = {"id": "acme.app", "displayName": "Acme", "engine": ">=1.0 <2", "plugins": plugins, "auth": "builtin.auth.local", **over}
+    data["excludes"] = [m.id for m in builtin_manifests() if m.id not in plugins]
+    return parse_distribution(data)
+
+
 def test_distribution_accepts_owner_name_and_verb_forms():
-    spec = parse_distribution({
-        "id": "acme.app", "displayName": "Acme", "engine": ">=1.0 <2",
-        "plugins": {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.auth.local": "^1.0", "builtin.prompts": "^1.0"},
-        "auth": "builtin.auth.local",
-        "bindings": {"prompt.sections": ["builtin.prompts:security", "-builtin.prompts:modules"]},
-    })
-    res = resolve_distribution(spec, Path("."), host_version=HOST)
+    base = {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.auth.local": "^1.0", "builtin.prompts": "^1.0"}
+    res = resolve_distribution(_dist(base, bindings={"prompt.sections": ["builtin.prompts:security", "-builtin.prompts:modules"]}), Path("."), host_version=HOST)
     assert res.ok, res.problems
-    bad = parse_distribution({
-        "id": "acme.app", "displayName": "Acme", "engine": ">=1.0 <2",
-        "plugins": {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.auth.local": "^1.0"},
-        "auth": "builtin.auth.local",
-        "bindings": {"prompt.sections": ["acme.nowhere:security"]},
-    })
-    res = resolve_distribution(bad, Path("."), host_version=HOST)
+    res = resolve_distribution(_dist(base, bindings={"prompt.sections": ["acme.nowhere:security"]}), Path("."), host_version=HOST)
     assert any("acme.nowhere" in p for p in res.problems)
+
+
+def test_every_builtin_must_be_classified():
+    base = {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.auth.local": "^1.0"}
+    spec = _dist(base)
+    spec = parse_distribution({**json.loads(json.dumps({"id": "acme.app", "displayName": "Acme", "engine": ">=1.0 <2", "plugins": base, "auth": "builtin.auth.local", "excludes": [e for e in spec.excludes if e != "builtin.prompts"]}))})
+    res = resolve_distribution(spec, Path("."), host_version=HOST)
+    assert any("unclassified builtins" in p and "builtin.prompts" in p for p in res.problems)
 
 
 def test_bind_accepts_a_slot_declared_by_a_user_plugin(tmp_path: Path):

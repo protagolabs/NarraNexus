@@ -344,7 +344,13 @@ async def run_turn_events(
     wait_state = WaitState()
     dispatcher = ToolDispatcher(
         (builtin, scheduling, *_steer_channels(opts.steerable, wait_state), mcp),
-        policy=PolicyEngine(ep.resolve_many(ep.POLICY, seat)),
+        # The three builtin safety layers are NOT negotiable through the seat:
+        # a binding that names only a custom layer used to REPLACE workspace
+        # and shell confinement (the 2026-08-07 executor-escape mitigations)
+        # for every turn on the host, silently. Mandatory layers run first,
+        # the seat's providers append; a layer bound twice is deduplicated by
+        # type.
+        policy=PolicyEngine(_with_mandatory_layers(ep.resolve_many(ep.POLICY, seat))),
         ctx=ctx,
         disallowed_tools=frozenset(opts.disallowed_tools),
         deferred_tools=frozenset(opts.deferred_tools),
@@ -433,3 +439,16 @@ def _insert_harness(
         else:
             break
     return [*platform_messages[:cut], *harness_messages, *platform_messages[cut:]]
+
+
+def _with_mandatory_layers(bound: tuple) -> tuple:
+    """Mandatory safety layers first, then the seat's layers (types already present are not repeated)."""
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.policy import (
+        DisallowedToolsLayer,
+        ShellConfinementLayer,
+        WorkspaceConfinementLayer,
+    )
+
+    mandatory = (DisallowedToolsLayer(), WorkspaceConfinementLayer(), ShellConfinementLayer())
+    present = {type(layer) for layer in mandatory}
+    return mandatory + tuple(layer for layer in bound if type(layer) not in present)

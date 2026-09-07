@@ -204,7 +204,12 @@ class CliHelperSDK:
         # no prior claude agent_loop to seed the shared dir. Same stager the
         # agent loop uses (macOS Keychain export included).
         if cli_helper_config.auth_type == "oauth":
-            from narranexus_plugins.frameworks_claude_code.api import stage_oauth_credentials as _stage_claude_oauth_credentials
+            try:
+                from narranexus_plugins.frameworks_claude_code.api import stage_oauth_credentials as _stage_claude_oauth_credentials
+            except ImportError as exc:
+                raise RuntimeError(
+                    "the claude OAuth helper needs the Claude Code framework plugin, which is not part of this distribution"
+                ) from exc
             _cfg_dir = env.get("CLAUDE_CONFIG_DIR")
             if _cfg_dir:
                 _stage_claude_oauth_credentials(_cfg_dir)

@@ -1,7 +1,7 @@
 {
   "id": "narranexus.minimal",
   "displayName": "NarraNexus Minimal",
-  "description": "The smallest useful distribution: single-agent chat with the NexusPower framework and local auth \u2014 the base a custom distribution starts from.",
+  "description": "The smallest useful distribution: single-agent chat with the NexusPower framework and local auth — the base a custom distribution starts from.",
   "engine": ">=1.15 <2",
   "plugins": {
     "builtin.chat": "^1.0",
@@ -13,7 +13,8 @@
     "builtin.llm_clients": "^1.0",
     "builtin.memory_kinds": "^1.0",
     "builtin.common_tools": "^1.0",
-    "builtin.auth.local": "^1.0"
+    "builtin.auth.local": "^1.0",
+    "builtin.prompts": "^1.0"
   },
   "excludes": [
     "builtin.frameworks.claude_code",

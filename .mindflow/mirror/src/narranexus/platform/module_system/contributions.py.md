@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/module_system/contributions.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -50,3 +50,7 @@ The registry view is the only module table; usages renamed.
 ## 2026-09-04 · module specs load from `narranexus_plugins` (batch 6b)
 
 `ModuleSpec.load_class` imports `narranexus_plugins.<package>.<package>`; the descriptor refs (`_MOD`) name the same namespace. The builtin module code is no longer under `module_system/`.
+
+## 2026-09-07 — module_class_for()
+
+One resolver for 'the module class a plugin contributes' (BY_PLUGIN); the seventeen api.py facades delegate to it instead of carrying an identical inline copy that raised StopIteration for a disabled plugin.

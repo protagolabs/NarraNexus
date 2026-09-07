@@ -88,3 +88,51 @@ def test_declared_permissions_gate_enabling(tmp_path: Path, monkeypatch):
     installer.upgrade("acme.needy")
     rec = store.read().plugins["acme.needy"]
     assert rec.enabled is False and rec.permissions_acknowledged is False
+
+
+def test_blocklist_state_is_honest(tmp_path: Path, monkeypatch):
+    """Never-fetched ≠ nothing blocked: the index raises, and the installer refuses REMOTE sources while the blocklist is unknown but still installs a local path."""
+    import httpx
+
+    from narranexus.kernel.plugins.install.index import Index, IndexUnavailable
+    from narranexus.kernel.plugins.install.installer import InstallError
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    index = Index(cache_dir=tmp_path / "cache", client=httpx.Client(transport=httpx.MockTransport(down)))
+    with pytest.raises(IndexUnavailable):
+        index.blocked()
+    assert index.cached_blocked() is None
+    # a cached copy IS an answer, even offline
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / "blocked_versions.json").write_text(json.dumps({"acme.bad": {"below": "2.0.0", "reason": "leaks"}}))
+    index2 = Index(cache_dir=tmp_path / "cache", client=httpx.Client(transport=httpx.MockTransport(down)))
+    assert index2.blocked() == {"acme.bad": {"below": "2.0.0", "reason": "leaks"}}
+    assert index2.cached_blocked() == {"acme.bad": {"below": "2.0.0", "reason": "leaks"}}
+
+    monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    store = RegistryStore(path=tmp_path / "home" / "registry.json", lkg=tmp_path / "home" / "registry.lkg.json")
+    installer = Installer(store=store, host="1.19.0", blocked=None)
+    with pytest.raises(InstallError, match="blocklist is unavailable"):
+        installer.install("github:acme/whatever")
+    local = _plugin(tmp_path / "acme.local", "acme.local")
+    installer.install(LocalSource(local, mode="link"))
+    assert "acme.local" in store.read().plugins
+
+
+def test_index_ignores_ids_that_are_not_third_party(tmp_path: Path):
+    import httpx
+
+    from narranexus.kernel.plugins.install.index import Index
+
+    payload = {"plugins": [{"id": "builtin.chat", "repo": "x/y"}, {"id": "Bad Id", "repo": "x/y"}, {"id": "acme.ok", "repo": "acme/ok"}]}
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("index.json"):
+            return httpx.Response(200, json=payload)
+        return httpx.Response(200, json={})
+
+    index = Index(cache_dir=tmp_path / "cache", client=httpx.Client(transport=httpx.MockTransport(serve)))
+    assert [e.id for e in index.entries()] == ["acme.ok"]

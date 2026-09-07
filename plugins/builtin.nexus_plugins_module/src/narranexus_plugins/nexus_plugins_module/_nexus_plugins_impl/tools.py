@@ -45,40 +45,62 @@ def create_nexus_plugins_mcp_server() -> FastMCP:
     mcp = FastMCP("nexus_plugins_module")
 
     # ---- awareness: what am I running on, what am I, what can be replaced ----
+    # The same cloud refusal as every other tool (SelfExtensionService raises
+    # GuardError there); these five do not go through the service, so they
+    # guard themselves — the module's "every tool refuses on cloud" promise
+    # must hold per tool, not depend on the server never being mounted.
+    def _guard() -> None:
+        from narranexus.kernel.deployment import is_cloud_mode
+
+        from .guards import GuardError
+
+        if is_cloud_mode():
+            raise GuardError("plugin awareness tools are not available on the cloud deployment")
+
     @mcp.tool()
-    async def platform_overview(agent_id: str, user_id: str) -> str:
+    async def platform_overview() -> str:
         """The platform you run on: host version, deployment mode, the distribution (if any), every builtin and user plugin, the slot domains and the bindings that differ from the defaults. Start here when you need to reason about the system's shape; go deeper with platform_slots / contract_docs / plugin_docs."""
         from .awareness import platform_overview as _po
 
-        return _run(_po)
+        return _run(lambda: (_guard(), _po())[1])
 
     @mcp.tool()
-    async def platform_slots(agent_id: str, user_id: str, domain: str = "") -> str:
+    async def platform_slots(domain: str = "") -> str:
         """The extension slots of one domain (kernel, prompt, turn, model, agent, ingress, backend, content, ui) — or all — with contract, arity, candidates registered here and what is bound now (and by which layer)."""
         from .awareness import platform_slots as _ps
 
-        return _run(lambda: _ps(domain))
+        return _run(lambda: (_guard(), _ps(domain))[1])
 
     @mcp.tool()
-    async def contract_docs(agent_id: str, user_id: str, kind: str) -> str:
+    async def contract_docs(kind: str) -> str:
         """Detailed documentation of one contract kind (e.g. prompt, framework, tool, module, provider, hook, route): its version and stability, the slots that carry it, the contract classes with docstrings and public methods. Use before writing a plugin for that kind."""
         from .awareness import contract_docs as _cd
 
-        return _run(lambda: _cd(kind))
+        return _run(lambda: (_guard(), _cd(kind))[1])
 
     @mcp.tool()
     async def agent_self(agent_id: str, user_id: str) -> str:
-        """Who you are right now: name/description/owner, your capability switches (enabled, locked, budget), your model slots and framework, and the system-prompt sections in effect."""
+        """Who you are right now: name/description, whether the caller owns you, your capability switches (enabled, locked, budget), your model slots and framework, and the system-prompt sections in effect."""
         from .awareness import agent_self as _as
 
-        return await _arun(_as(await _db(), agent_id, user_id))
+        async def go():
+            _guard()
+            return await _as(await _db(), agent_id, user_id)
+
+        return await _arun(go())
 
     @mcp.tool()
-    async def capability_set(agent_id: str, user_id: str, module_class: str, enabled: bool) -> str:
-        """Switch one of YOUR capabilities (a module class from agent_self) on or off; owner only, base capabilities cannot be switched off; applies from the next turn. Say what you changed and why."""
+    async def capability_set(agent_id: str, module_class: str, enabled: bool) -> str:
+        """Switch one of YOUR capabilities (a module class from agent_self) on or off; owner only (the caller's identity is taken from the request, not from an argument), base capabilities cannot be switched off; applies from the next turn. Say what you changed and why."""
+        from narranexus.platform.module_system._mcp_identity import caller_user_id_from_request
+
         from .awareness import capability_set as _cs
 
-        return await _arun(_cs(await _db(), agent_id, user_id, module_class, enabled))
+        async def go():
+            _guard()
+            return await _cs(await _db(), agent_id, caller_user_id_from_request(), module_class, enabled)
+
+        return await _arun(go())
 
     @mcp.tool()
     async def plugin_list(agent_id: str, user_id: str) -> str:

@@ -1,5 +1,5 @@
 """
-@file_name: marketplace_teams.py
+@file_name: marketplace_routes.py
 @author: NetMind.AI
 @date: 2026-07-21
 @description: /api/marketplace/teams/* — Team Marketplace API.

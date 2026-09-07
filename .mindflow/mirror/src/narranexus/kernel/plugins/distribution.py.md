@@ -11,3 +11,7 @@ stub: false
 ## 2026-09-07 — bindings validated through the binding grammar
 
 resolve_distribution checks every plugin id a binding value references (via bindings.referenced_plugins) against the selected set; a bare contribution-name form is accepted when it matches a selected manifest's provided symbol name. Before this a legal 'owner:name' or '-id' binding made the whole app refuse to boot.
+
+## 2026-09-07 — every builtin must be classified
+
+resolve_distribution reports 'unclassified builtins' when a builtin of this engine is neither in plugins nor in excludes — builtin.prompts had fallen outside all four distributions while doctor stayed green. Bindings are validated through bindings.referenced_plugins.

@@ -36,6 +36,11 @@ def _spec(**over):
         "auth": "builtin.auth.local",
     }
     data.update(over)
+    # every builtin must be selected or excluded (an unclassified one is a problem)
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
+    named = set(data["plugins"]) | set(data.get("excludes", []))
+    data["excludes"] = list(data.get("excludes", [])) + [m.id for m in builtin_manifests() if m.id not in named]
     return parse_distribution(data)
 
 

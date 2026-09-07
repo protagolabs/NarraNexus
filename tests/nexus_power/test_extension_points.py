@@ -117,5 +117,30 @@ def test_assembly_resolves_every_seat_through_the_extension_points():
     src = inspect.getsource(assembly)
     for seat in ("ep.EXPRESSION", "ep.POLICY", "ep.PROJECTOR", "ep.COMPACTION", "ep.STOP"):
         assert f"resolve_one({seat}" in src or f"resolve_many({seat}" in src, seat
-    for direct in ("ExpressionContract(", "ToolResultPruner(", "PassthroughProjector(", "DisallowedToolsLayer()"):
+    for direct in ("ExpressionContract(", "ToolResultPruner(", "PassthroughProjector("):
         assert direct not in src, direct
+
+
+def test_safety_layers_cannot_be_removed_by_a_binding():
+    """The three builtin safety layers are mandatory: a binding that names only a custom layer appends it, and an empty engine denies."""
+    from narranexus_plugins.frameworks_nexus_power.core import assembly
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.policy import (
+        DisallowedToolsLayer,
+        PolicyEngine,
+        ShellConfinementLayer,
+        WorkspaceConfinementLayer,
+    )
+
+    class CustomLayer:
+        def check(self, call, ctx):
+            raise AssertionError("not called in this test")
+
+    custom = CustomLayer()
+    layers = assembly._with_mandatory_layers((custom,))
+    assert [type(x) for x in layers] == [DisallowedToolsLayer, WorkspaceConfinementLayer, ShellConfinementLayer, CustomLayer]
+    # a bound duplicate of a mandatory type is not repeated
+    assert [type(x) for x in assembly._with_mandatory_layers((ShellConfinementLayer(), custom))][:3] == [DisallowedToolsLayer, WorkspaceConfinementLayer, ShellConfinementLayer]
+    assert len(assembly._with_mandatory_layers((ShellConfinementLayer(), custom))) == 4
+    empty = PolicyEngine(())
+    decision = empty.check(type("Call", (), {"name": "x", "arguments": {}})(), None)
+    assert not decision.allowed and "fail-closed" in decision.reason

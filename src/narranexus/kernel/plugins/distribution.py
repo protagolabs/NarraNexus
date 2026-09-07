@@ -160,6 +160,12 @@ def resolve_distribution(
 
     selected = {p.id for p in res.picks}
     selected_manifests = [p.manifest for p in res.picks if p.manifest is not None]
+    # Every builtin of this engine must be either selected or excluded: a
+    # builtin added later (builtin.prompts was) otherwise silently fell
+    # outside every distribution while doctor stayed green.
+    unclassified = sorted(pid for pid in by_id if pid not in spec.plugins and pid not in spec.excludes)
+    if unclassified:
+        res.problems.append(f"unclassified builtins (add to plugins or excludes): {', '.join(unclassified)}")
     excluded = []
     for pid in spec.excludes:
         if pid in by_id:

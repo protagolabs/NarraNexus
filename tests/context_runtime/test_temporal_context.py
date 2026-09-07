@@ -8,7 +8,7 @@
 with `prompt_turn_context_relocation_enabled` on (default) it renders into
 the [Turn context] block of the current user message instead of the system
 prompt; the heading string "User Temporal Context" is unchanged (job MCP
-tool docstrings reference it). `_build_user_temporal_block` itself is
+tool docstrings reference it). `build_user_temporal_block` itself is
 unchanged and keeps its direct tests below.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -52,7 +52,7 @@ def test_user_temporal_context_forbids_mental_date_arithmetic():
 
 
 @pytest.mark.asyncio
-async def test_build_user_temporal_block_uses_user_timezone(db_client):
+async def testbuild_user_temporal_block_uses_user_timezone(db_client):
     from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     # Seed a user row with a specific timezone
@@ -69,7 +69,7 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
     runtime.db = db_client
     runtime.agent_id = "agent_unused"
 
-    block = await runtime._build_user_temporal_block("u_tz_test")
+    block = await runtime.build_user_temporal_block("u_tz_test")
     assert "Asia/Shanghai" in block
     # No date literal: the block names the timezone and delegates "now" to
     # Real World Information (see test_user_temporal_context_states_no_second_now).
@@ -78,14 +78,14 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
 
 
 @pytest.mark.asyncio
-async def test_build_user_temporal_block_absent_user_returns_empty(db_client):
+async def testbuild_user_temporal_block_absent_user_returns_empty(db_client):
     from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.db = db_client
     runtime.agent_id = "agent_unused"
 
-    block = await runtime._build_user_temporal_block(None)
+    block = await runtime.build_user_temporal_block(None)
     assert block == ""
 
 

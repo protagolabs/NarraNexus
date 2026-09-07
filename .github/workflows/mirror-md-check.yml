@@ -56,7 +56,7 @@ jobs:
           mapfile -t CHANGED < <(
             git diff --name-only --no-renames --diff-filter=AM "$BASE" "$HEAD" \
               | grep -E '\.(py|ts|tsx|rs)$' \
-              | grep -v -E '(^tests/|^frontend/node_modules/|\.test\.|^scripts/|\.d\.ts$)' \
+              | grep -v -E '(^tests/|^frontend/node_modules/|\.test\.|^scripts/|\.d\.ts$|^templates/|^plugins/[^/]+/tests/|^distributions/[^/]+/plugins/)' \
               || true
           )
 

@@ -14,7 +14,7 @@ import pytest
 
 from narranexus.kernel.plugins.install.deps import DepsError, build_command, install_deps
 from narranexus.kernel.plugins.install.index import Index
-from narranexus.kernel.plugins.install.integrity import IntegrityError, sha256_file, sri_for, verify_sha256
+from narranexus.kernel.plugins.install.integrity import sha256_file, sri_for
 
 
 def test_build_command_is_wheels_only_with_pypi_and_extra_indexes(tmp_path: Path):
@@ -67,7 +67,10 @@ def test_integrity_helpers(tmp_path: Path):
     f = tmp_path / "plugin.js"
     f.write_bytes(b"hello")
     digest = sha256_file(f)
-    assert verify_sha256(f, digest.upper()) == digest
-    with pytest.raises(IntegrityError):
-        verify_sha256(f, "0" * 64)
+    # No source verification exists (integrity.py says so in its header); the
+    # recorded hashes only detect local tampering, so there is no verify_*.
+    from narranexus.kernel.plugins.install import integrity as integrity_mod
+
+    assert not hasattr(integrity_mod, "verify_sha256")
+    assert "NO SOURCE VERIFICATION" in (integrity_mod.__doc__ or "")
     assert sri_for(f).startswith("sha256-") and len(sri_for(f)) > 20

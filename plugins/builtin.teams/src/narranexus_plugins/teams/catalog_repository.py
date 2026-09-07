@@ -1,5 +1,5 @@
 """
-@file_name: team_catalog_repository.py
+@file_name: catalog_repository.py
 @author: NetMind.AI
 @date: 2026-07-21
 @description: Team Marketplace catalog repository (cloud-authoritative index).

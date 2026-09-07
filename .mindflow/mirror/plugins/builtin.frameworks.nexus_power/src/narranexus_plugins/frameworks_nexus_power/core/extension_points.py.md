@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/extension_points.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -16,3 +16,7 @@ A provider is `Callable[[SeatContext], impl]`; `SeatContext` carries the turn op
 
 - Registered twice on purpose: the manifest (booted hosts) and `ensure_registered` (any process running the loop without a plugin boot — the executor subprocess runner) — `Registry.register` and `HookCaller.add` are idempotent on same owner + name. Third-party seat providers therefore reach the loop only when their plugin is loaded in the process that runs it; the subprocess runner sees the defaults and env bindings.
 - The kernel `bindings.resolve` needs every one-slot in the tree to have a default; the seats use a small local resolver over `parse_env` + `slot.default` for the same layering (env > default) without that global precondition.
+
+## 2026-09-07 — seat providers register through the registry's conflict rule
+
+ensure_registered always calls register_contribution: same object / same owner is a no-op, a different owner under the same name is RegistryConflict — 'skip if the name exists' let whoever registered first become workspace_confinement.

@@ -17,3 +17,7 @@ fetch 到 plugin home 下的 staging → manifest 按本宿主校验（不满足
 ## 2026-09-07 — permissions are a gate; acknowledgement records tokens; upgrades that widen re-arm
 
 A plugin that declares any permission is installed enabled=False (state registered) unless permissions_acknowledged — before this the 'acknowledge with …' hint was decoration and the plugin ran on the next boot. acknowledge_permissions(store, id) is the one door (CLI --ack, factory endpoint): it records the acknowledged permission tokens on the record and enables. upgrade() compares the new manifest's tokens with the acknowledged set and re-arms the gate when they grew. is_gated(rec) is what enable paths consult.
+
+## 2026-09-07 — blocked=None refuses remote installs
+
+When the blocklist is unknown (None) the installer refuses network sources fail-closed and still installs local paths (an offline desktop must develop plugins).

@@ -1,5 +1,5 @@
 """
-@file_name: team_summary_worker.py
+@file_name: summary_worker.py
 @author: NarraNexus
 @date: 2026-08-10
 @description: Background worker that keeps each team's progress summary fresh.

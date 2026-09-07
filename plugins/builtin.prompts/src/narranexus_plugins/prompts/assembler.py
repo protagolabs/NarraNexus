@@ -24,7 +24,7 @@ class DefaultPromptAssembler(PromptAssembler):
         kept = [s for s in sections if s.text]
         for s in kept:
             ctx.part_sizes[s.id] = s.chars
-        over = budget_report(kept, self._budgets)
+        over = budget_report(kept, self._budgets)  # section-declared budgets, overridable by id
         if over:
             logger.warning(f"[prompt] sections over their declared budget: {', '.join(over)}")
         return "\n\n".join(s.text for s in kept).strip()

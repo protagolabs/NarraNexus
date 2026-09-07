@@ -70,6 +70,18 @@ MODULE_SPECS: tuple[ModuleSpec, ...] = (
 )
 
 BY_PLUGIN: dict[str, tuple[ModuleSpec, ...]] = {}
+
+
+def module_class_for(plugin_id: str) -> type:
+    """The module class a builtin plugin contributes (its ``api.module_class()`` facade delegates here).
+
+    KeyError names the plugin when it contributes no module — a clear error
+    instead of the StopIteration the seventeen inline copies used to raise.
+    """
+    specs = BY_PLUGIN.get(plugin_id)
+    if not specs:
+        raise KeyError(f"{plugin_id} contributes no module (agent.capabilities.modules)")
+    return specs[0].load_class()
 for _spec in MODULE_SPECS:
     BY_PLUGIN.setdefault(_spec.plugin_id, ())
     BY_PLUGIN[_spec.plugin_id] = BY_PLUGIN[_spec.plugin_id] + (_spec,)

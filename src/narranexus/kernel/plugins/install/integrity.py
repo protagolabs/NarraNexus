@@ -1,4 +1,6 @@
 """
+
+SCOPE — NO SOURCE VERIFICATION: what is installed is exactly what the GitHub Release (or repo tarball) served; there is no signature or pinned digest that could tell a tampered release from a genuine one. The hashes recorded here (sha256 of the fetched assets, SRI for the frontend bundle) detect LOCAL tampering after install and let the loader refuse a changed bundle — nothing more. Publisher signing is a follow-up; until then the trust boundary is the release channel itself.
 @file_name: integrity.py
 @author: Bin Liang
 @date: 2026-09-03
@@ -25,13 +27,6 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_sha256(path: Path, expected: str) -> str:
-    actual = sha256_file(path)
-    if actual.lower() != expected.lower():
-        raise IntegrityError(f"{path.name}: sha256 mismatch (expected {expected[:12]}…, got {actual[:12]}…)")
-    return actual
-
-
 def sri_for(path: Path) -> str:
     """Subresource-integrity value (``sha256-<base64>``) for a frontend asset."""
     raw = hashlib.sha256(path.read_bytes()).digest()
@@ -48,4 +43,4 @@ def hash_assets(root: Path, names: tuple[str, ...]) -> dict[str, str]:
     return out
 
 
-__all__ = ["IntegrityError", "hash_assets", "sha256_file", "sri_for", "verify_sha256"]
+__all__ = ["IntegrityError", "hash_assets", "sha256_file", "sri_for", ]

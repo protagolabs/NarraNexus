@@ -1,5 +1,5 @@
 """
-@file_name: narrative_config.py
+@file_name: config.py
 @author: NetMind.AI
 @date: 2025-11-24
 @description: Global configuration for the narrative retrieval system

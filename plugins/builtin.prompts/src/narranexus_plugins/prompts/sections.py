@@ -6,7 +6,6 @@
 """
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 from loguru import logger
@@ -45,7 +44,7 @@ class TemporalSection:
         if settings.prompt_turn_context_relocation_enabled or ctx.user_id is None:
             return None
         try:
-            return await ctx.runtime._build_user_temporal_block(ctx.user_id)
+            return await ctx.runtime.build_user_temporal_block(ctx.user_id)
         except Exception as exc:  # noqa: BLE001 — a missing temporal block never breaks a turn
             logger.warning(f"        Failed to build User Temporal Context: {exc}")
             return None
@@ -86,42 +85,27 @@ class ModulesSection:
     async def render(self, ctx: PromptContext) -> Optional[str]:
         if not ctx.module_instructions:
             return None
-        return await ctx.runtime._build_module_instructions_prompt(list(ctx.module_instructions))
+        return await ctx.runtime.build_module_instructions_prompt(list(ctx.module_instructions))
 
 
 class BootstrapSection:
-    """First-run bootstrap injection (file-read approach) for the owner's first turns; deletes Bootstrap.md once its threshold passed."""
+    """First-run bootstrap injection (file-read approach) for the owner's first turns.
+
+    Pure rendering: the platform settles the Bootstrap.md lifecycle (threshold
+    check, auto-delete, ``ctx_data.bootstrap_active``) BEFORE the sections
+    render — this section only reads that flag. A distribution that drops the
+    section loses the injected text, never the lifecycle."""
 
     id = "bootstrap"
     order = 50
     budget_chars = 3000
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
-        try:
-            from narranexus.platform.bootstrap.lifecycle import is_bootstrap_active
-            from narranexus.platform.context_runtime.prompts import BOOTSTRAP_INJECTION_PROMPT
-            from narranexus.platform.repository import AgentRepository
+        if not getattr(ctx.ctx_data, "bootstrap_active", False):
+            return None
+        from narranexus.platform.context_runtime.prompts import BOOTSTRAP_INJECTION_PROMPT
 
-            agent_record = await AgentRepository(ctx.db).get_agent(ctx.agent_id)
-            if not (agent_record and agent_record.created_by and agent_record.created_by == ctx.user_id):
-                return None
-            status = await is_bootstrap_active(ctx.db, ctx.agent_id, agent_record.created_by, agent_record.agent_metadata)
-            if status.present and not status.active:
-                try:
-                    os.remove(status.bootstrap_path)
-                    logger.info(
-                        f"        Auto-deleted Bootstrap.md after {status.event_count} events "
-                        f"(threshold={status.threshold}, agent={ctx.agent_id})"
-                    )
-                except OSError as rm_err:
-                    logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
-                return None
-            if status.active:
-                ctx.ctx_data.bootstrap_active = True
-                return BOOTSTRAP_INJECTION_PROMPT
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"        Failed to inject Bootstrap: {exc}")
-        return None
+        return BOOTSTRAP_INJECTION_PROMPT
 
 
 SECURITY = Contribution("security", lambda: SecuritySection())

@@ -74,15 +74,26 @@ def start_stderr_drain(process: asyncio.subprocess.Process) -> "asyncio.Task[byt
     async def _drain() -> bytes:
         if stream is None:
             return b""
-        while True:
-            chunk = await stream.read(65536)
-            if not chunk:
-                return bytes(tail)
-            tail.extend(chunk)
-            if len(tail) > _STDERR_TAIL_BYTES:
-                del tail[: len(tail) - _STDERR_TAIL_BYTES]
+        try:
+            while True:
+                chunk = await stream.read(65536)
+                if not chunk:
+                    return bytes(tail)
+                tail.extend(chunk)
+                if len(tail) > _STDERR_TAIL_BYTES:
+                    del tail[: len(tail) - _STDERR_TAIL_BYTES]
+        except Exception as exc:  # noqa: BLE001 — the pipe closed under us; keep what was read, say so
+            logger.warning(f"nexus runner stderr drain stopped for pid {process.pid}: {type(exc).__name__}: {exc}")
+            tail.extend(f"\n[stderr drain stopped: {type(exc).__name__}: {exc}]".encode())
+            return bytes(tail)
 
     task = asyncio.create_task(_drain(), name=f"nexus-runner-stderr-{process.pid}")
+    # Fire-and-forget discipline: a lost exception is a buried mine (and a
+    # pooled runner whose drain died silently would deadlock on the next turn).
+    task.add_done_callback(
+        lambda t: (not t.cancelled() and t.exception())
+        and logger.warning(f"nexus runner stderr drain failed for pid {process.pid}: {t.exception()}")
+    )
     setattr(process, "_nx_stderr_tail", task)
     return task
 

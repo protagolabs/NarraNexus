@@ -39,6 +39,11 @@ CORE = {"builtin.chat": "^1.0", "builtin.basic_info": "^1.0", "builtin.awareness
 def _dist(base: Path, **over):
     data = {"id": "acme.app", "displayName": "Acme", "engine": ">=1.0 <2", "plugins": dict(CORE), "auth": "builtin.auth.local"}
     data.update(over)
+    # every builtin is selected or excluded (an unclassified one is a problem)
+    from narranexus.kernel.plugins.builtins import builtin_manifests
+
+    named = set(data["plugins"]) | set(data.get("excludes", []))
+    data["excludes"] = list(data.get("excludes", [])) + [m.id for m in builtin_manifests() if m.id not in named]
     return resolve_distribution(parse_distribution(data), base, host_version=HOST)
 
 

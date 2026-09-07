@@ -1,3 +1,4 @@
+import os
 """
 @file_name: context_runtime.py
 @author: NetMind.AI
@@ -427,6 +428,12 @@ class ContextRuntime:
             runtime=self,
             deployment_mode=get_deployment_mode(),
         )
+        # The Bootstrap.md lifecycle (threshold, auto-delete, the
+        # ctx_data.bootstrap_active flag) is the platform's, settled here
+        # before any section renders: a prompt section is optional and
+        # reorderable, so a lifecycle side effect inside one would vanish the
+        # moment a distribution dropped it.
+        await self._settle_bootstrap(ctx_data, pctx.user_id)
         rendered: List[RenderedSection] = []
         for provider in sections_for():
             try:
@@ -435,7 +442,7 @@ class ContextRuntime:
                 logger.warning(f"        prompt section {getattr(provider, 'id', provider)!r} failed: {exc}")
                 text = None
             if text:
-                rendered.append(RenderedSection(id=provider.id, owner=type(provider).__module__, order=getattr(provider, "order", 100), text=text))
+                rendered.append(RenderedSection(id=provider.id, owner=type(provider).__module__, order=getattr(provider, "order", 100), text=text, budget_chars=int(getattr(provider, "budget_chars", 0) or 0)))
                 logger.debug(f"        Added prompt section {provider.id}: {len(text)} chars")
         full_prompt = await assembler_for().assemble(rendered, pctx)
         part_sizes: Dict[str, int] = dict(pctx.part_sizes) or {s.id: s.chars for s in rendered}
@@ -609,7 +616,32 @@ class ContextRuntime:
             logger.warning(f"        Timezone lookup failed for {user_id}: {e}; using UTC")
             return DEFAULT_TIMEZONE
 
-    async def _build_user_temporal_block(
+    async def _settle_bootstrap(self, ctx_data: Any, user_id: Optional[str]) -> None:
+        """Owner's first turns: mark ``ctx_data.bootstrap_active`` while Bootstrap.md is inside its threshold; delete it once past."""
+        try:
+            from narranexus.platform.bootstrap.lifecycle import is_bootstrap_active
+            from narranexus.platform.repository import AgentRepository
+
+            agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
+            if not (agent_record and agent_record.created_by and agent_record.created_by == user_id):
+                return
+            status = await is_bootstrap_active(self.db, self.agent_id, agent_record.created_by, agent_record.agent_metadata)
+            if status.present and not status.active:
+                try:
+                    os.remove(status.bootstrap_path)
+                    logger.info(
+                        f"        Auto-deleted Bootstrap.md after {status.event_count} events "
+                        f"(threshold={status.threshold}, agent={self.agent_id})"
+                    )
+                except OSError as rm_err:
+                    logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
+                return
+            if status.active:
+                ctx_data.bootstrap_active = True
+        except Exception as exc:  # noqa: BLE001 — bootstrap must never break a turn
+            logger.warning(f"        Failed to settle Bootstrap: {exc}")
+
+    async def build_user_temporal_block(
         self, user_id: Optional[str], user_tz: Optional[str] = None
     ) -> str:
         """
@@ -682,7 +714,7 @@ class ContextRuntime:
 
         # 1. Temporal block (relocated Part 0 — same wording, same heading)
         try:
-            temporal_block = await self._build_user_temporal_block(
+            temporal_block = await self.build_user_temporal_block(
                 ctx_data.user_id, block_tz
             )
             if temporal_block:
@@ -802,7 +834,7 @@ class ContextRuntime:
         """
         return sorted(module_instructions_list, key=lambda x: (x.priority, x.name))
 
-    async def _build_module_instructions_prompt(
+    async def build_module_instructions_prompt(
         self,
         module_instructions_list: List[ModuleInstructions]
     ) -> str:
@@ -831,7 +863,7 @@ class ContextRuntime:
             System prompt string
         """
         logger.debug(f"      → build_system_prompt() called with {len(module_instructions_list)} instructions")
-        return await self._build_module_instructions_prompt(module_instructions_list)
+        return await self.build_module_instructions_prompt(module_instructions_list)
 
     async def build_input_for_framework(
         self,

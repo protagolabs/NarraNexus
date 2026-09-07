@@ -85,7 +85,7 @@ ERROR_SUBSTRINGS = {
     "plugin_register": "run plugin_test first",
     "plugin_rollback": "no last-known-good snapshot",
     "plugin_test": "No such file or directory",
-    "capability_set": "only the agent's owner may change its capabilities",
+    "capability_set": "caller identity unavailable",  # the identity is injected, never a tool argument; absent → fail-closed
 }
 
 

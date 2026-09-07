@@ -1,5 +1,5 @@
 """
-@file_name: _bundle_migrations/__init__.py
+@file_name: __init__.py
 @author: NetMind.AI
 @date: 2026-05-08
 @description: Bundle format version migrations (PRD §8.6)

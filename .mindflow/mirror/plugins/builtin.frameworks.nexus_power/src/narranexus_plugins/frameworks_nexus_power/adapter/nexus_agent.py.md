@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/adapter/nexus_agent.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -113,3 +113,7 @@ queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因�
 5 层里最短的正确回路。
 
 Fix 2026-09-06 (found on a fresh install): `start_stderr_drain(process)` reads the runner's stderr continuously from spawn (bounded 4 KB tail via `stderr_tail`), because reading it only after exit let a chatty child fill the 64 KB pipe and deadlock the turn (child blocked on stderr write, parent waiting on stdout).
+
+## 2026-09-07 — stderr drain never buries an exception
+
+_drain catches a closed pipe, appends a marker to the tail and returns what it read; the task has a done_callback that logs a failure — a drain that died silently left the pooled runner's stderr unread and the deadlock this drain exists to prevent came back.

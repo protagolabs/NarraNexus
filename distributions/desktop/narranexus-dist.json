@@ -29,7 +29,8 @@
     "builtin.channels.narramessenger": "^1.0",
     "builtin.channels.discord": "^1.0",
     "builtin.teams": "^1.0",
-    "builtin.auth.local": "^1.0"
+    "builtin.auth.local": "^1.0",
+    "builtin.prompts": "^1.0"
   },
   "excludes": [
     "builtin.auth.netmind"

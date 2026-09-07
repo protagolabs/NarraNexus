@@ -140,6 +140,18 @@ def write_runtime_bindings(res: DistributionResolution | None) -> Path | None:
 _LAST_REPORT: BootReport | None = None
 
 
+def _cached_blocklist() -> dict[str, dict[str, str]] | None:
+    """The index blocklist from the on-disk cache, no network: a plugin the index withdrew after it was installed is refused at boot (loader `blocked:`)."""
+    try:
+        from narranexus.kernel.plugins.install.index import Index
+        from narranexus.kernel.plugins.paths import plugin_home
+
+        return Index(cache_dir=plugin_home() / ".index-cache").cached_blocked()
+    except Exception as exc:  # noqa: BLE001 — never fail a boot over the cache
+        logger.debug(f"[plugins] cached blocklist unavailable: {exc}")
+        return None
+
+
 def boot_backend_plugins() -> BootReport:
     global _LAST_REPORT
     if HOST_SERVICES.try_require(HOST_VERSION) is None:
@@ -159,6 +171,7 @@ def boot_backend_plugins() -> BootReport:
         cloud=is_cloud_mode(),
         host_version=host_version(),
         activator=activator(),
+        blocked_versions=_cached_blocklist(),
         register_table=register_table,
         store=registry_store(),
         distribution=res,

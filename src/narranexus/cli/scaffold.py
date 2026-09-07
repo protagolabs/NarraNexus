@@ -14,6 +14,7 @@ concatenate, dicts merge, scalars last-wins); every file has ``__PLUGIN_ID__``,
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -130,7 +131,8 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
         "quality": "bronze",
     }
     written: list[Path] = []
-    init_lines: list[str] = []
+    init_parts: list[tuple[str, str]] = []  # (kind, template body)
+    owners: dict[Path, str] = {}  # target path -> kind that wrote it
     for kind in kinds:
         src = templates_dir / kind
         fragment = src / "manifest.fragment.json"
@@ -141,9 +143,19 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
                 continue
             rel = path.relative_to(src)
             if rel.parts[0] == "backend" and rel.name == "__init__.py":
-                init_lines.append(substitute(path.read_text(encoding="utf-8"), plugin_id, display_name))
+                init_parts.append((kind, substitute(path.read_text(encoding="utf-8"), plugin_id, display_name)))
                 continue
             target = dest / Path(substitute(str(rel), plugin_id, display_name))
+            if target in owners:
+                # Two kinds writing the same file (ui_page + ui_panel both own
+                # frontend/src/index.ts): the second would silently overwrite
+                # the first while the merged manifest declared both — an empty
+                # route with no error. Refuse with the exact conflict.
+                raise ValueError(
+                    f"kinds {owners[target]!r} and {kind!r} both generate {rel}: scaffold one UI kind and add the other's "
+                    f"registration to {rel} by hand"
+                )
+            owners[target] = kind
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(substitute(path.read_text(encoding="utf-8"), plugin_id, display_name), encoding="utf-8")
             written.append(target)
@@ -156,7 +168,18 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
         "activate(ctx) runs on the plugin's first activation event.\n"
         '"""\nfrom __future__ import annotations\n\n'
     )
-    body = "\n\n".join(init_lines) if init_lines else "def activate(ctx):\n    ctx.log.info('activated')\n"
+    # Each kind's template defines its own activate(ctx); N kinds would have
+    # produced N same-named functions with only the last one alive (ruff F811,
+    # and the one at the top — the one a developer edits first — dead). Each
+    # becomes _activate_<kind>(ctx) and one activate(ctx) calls them all.
+    if not init_parts:
+        body = "def activate(ctx):\n    ctx.log.info('activated')\n"
+    elif len(init_parts) == 1:
+        body = init_parts[0][1]
+    else:
+        renamed = [re.sub(r"^def activate\(", f"def _activate_{kind}(", text, count=1, flags=re.M) for kind, text in init_parts]
+        calls = "\n".join(f"    _activate_{kind}(ctx)" for kind, _ in init_parts)
+        body = "\n\n".join(renamed) + "\n\n\ndef activate(ctx):\n    \"\"\"Runs every kind's activation in scaffold order.\"\"\"\n" + calls + "\n"
     init.write_text(header + body + "\n", encoding="utf-8")
     written.append(init)
     mpath = dest / "narranexus-plugin.json"

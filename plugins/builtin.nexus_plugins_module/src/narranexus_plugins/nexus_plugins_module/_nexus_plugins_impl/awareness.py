@@ -102,7 +102,9 @@ async def agent_self(db: Any, agent_id: str, user_id: str) -> dict[str, Any]:
         slots = {"error": str(exc)}
     sections = [{"id": p.id, "order": getattr(p, "order", None), "budget_chars": getattr(p, "budget_chars", 0)} for p in sections_for(KERNEL_REGISTRIES)]
     return {
-        "agent": {"agent_id": agent_id, "name": getattr(agent, "agent_name", None), "description": getattr(agent, "agent_description", None), "owner": getattr(agent, "created_by", None), "is_owner": getattr(agent, "created_by", None) == user_id},
+        # no owner id: the agent has no use for it, and handing it to the model
+        # is what made a self-reported user_id a way through the owner check
+        "agent": {"agent_id": agent_id, "name": getattr(agent, "agent_name", None), "description": getattr(agent, "agent_description", None), "is_owner": getattr(agent, "created_by", None) == user_id},
         "capabilities": caps,
         "model_slots": slots,
         "prompt_sections": sections,
@@ -110,10 +112,14 @@ async def agent_self(db: Any, agent_id: str, user_id: str) -> dict[str, Any]:
     }
 
 
-async def capability_set(db: Any, agent_id: str, user_id: str, module_class: str, enabled: bool) -> dict[str, Any]:
+async def capability_set(db: Any, agent_id: str, user_id: Optional[str], module_class: str, enabled: bool) -> dict[str, Any]:
+    """``user_id`` is the INJECTED caller identity (never a tool argument): the
+    owner check must not run on a value the model can type in."""
     from narranexus.platform.module_system.capability_service import CapabilityService
     from narranexus.platform.repository import AgentRepository
 
+    if not user_id:
+        return {"error": "caller identity unavailable; capability changes are refused (fail-closed)"}
     agent = await AgentRepository(db).get_agent(agent_id)
     if agent is None or agent.created_by != user_id:
         return {"error": "only the agent's owner may change its capabilities"}

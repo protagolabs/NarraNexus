@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/tooling/policy.py
-last_verified: 2026-08-10
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -34,3 +34,7 @@ user 的调用方显式传入，解析失败的根被丢弃而非放宽。相对
 # tooling/policy — fail-closed 策略引擎
 
 有序 layer、deny 永远赢、layer 崩溃即拒(多租户自研决策,业界无背书,Codex fail-open 是反面)。WorkspaceConfinement 只查内建工具路径参数(mcp__ 的副作用在服务端),拒绝并点名路径,不静默改写。
+
+## 2026-09-07 — an empty PolicyEngine denies
+
+Zero layers is a misassembly, not permission: check() answers DENY (fail-closed) instead of ALLOW; layers is exposed for tests.

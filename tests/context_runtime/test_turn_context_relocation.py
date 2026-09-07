@@ -464,7 +464,7 @@ async def test_empty_turn_context_yields_no_header(db_client, monkeypatch):
     async def _boom(_user_id):
         raise RuntimeError("temporal lookup failed")
 
-    monkeypatch.setattr(runtime, "_build_user_temporal_block", _boom)
+    monkeypatch.setattr(runtime, "build_user_temporal_block", _boom)
 
     # No narrative, no temporal context, no module blocks, no recent actions.
     block = await runtime._build_turn_context_block(

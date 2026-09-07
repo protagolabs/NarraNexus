@@ -557,3 +557,7 @@ The tool-surface loop asks each module for its `ToolSurface` once (MCP server �
 ## 2026-09-07 — [SYSPROMPT-BREAKDOWN] parts follow the section registry
 
 The parts= field is rendered from part_sizes in emitted order instead of six hardcoded ids: a plugin-contributed prompt section appears by its id and a renamed builtin section can no longer read =0 forever. The six builtin ids and the prefix-bucket hashes / ctx_sha256 are unchanged, so existing grep one-liners still match.
+
+## 2026-09-07 — public prompt-building surface; Bootstrap lifecycle settled before sections render
+
+build_user_temporal_block / build_module_instructions_prompt are public: prompt sections (a plugin) call them, so they are a contract and no longer underscore-private. _settle_bootstrap runs before the sections loop: the Bootstrap.md threshold check, its auto-delete and ctx_data.bootstrap_active belong to the platform, not to an optional, reorderable prompt section. RenderedSection carries each provider's budget_chars so the assembler's overrun report is live.

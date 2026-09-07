@@ -13,3 +13,7 @@ stub: false
 The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.
 
 2026-09-07: awareness tools `platform_overview`, `platform_slots`, `contract_docs`, `agent_self`, `capability_set` (async helpers `_arun`/`_db`).
+
+## 2026-09-07 — honest tool signatures; per-tool cloud guard
+
+platform_overview / platform_slots / contract_docs no longer take agent_id/user_id they never used (a signature is the model's contract; spare parameters invite invented values); capability_set takes no user_id (identity comes from caller_user_id_from_request). All five awareness tools refuse on the cloud deployment themselves (GuardError) instead of relying on the server never being mounted there.
