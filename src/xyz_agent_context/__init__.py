@@ -68,10 +68,10 @@ class _AliasLoader(importlib.abc.Loader):
         return loader
 
     def get_code(self, fullname: str):
-        return self._delegate().get_code(self._target)
+        return getattr(self._delegate(), "get_code")(self._target)  # the target's SourceFileLoader has it; the abstract Loader type does not
 
     def get_source(self, fullname: str):
-        return self._delegate().get_source(self._target)
+        return getattr(self._delegate(), "get_source")(self._target)
 
     def is_package(self, fullname: str) -> bool:
         return self._target_spec.submodule_search_locations is not None

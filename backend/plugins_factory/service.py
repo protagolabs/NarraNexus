@@ -316,6 +316,8 @@ class FactoryService:
     def record_error(self, plugin_id: str, *, kind: str, message: str, stack: str = "") -> int:
         # Only installed plugins have an error log: the id is a raw path
         # segment, and an unbounded dict keyed by it was a memory leak.
+        from narranexus.kernel.plugins.builtins import builtin_manifests
+
         if plugin_id not in self.store.read().plugins and not any(m.id == plugin_id for m in builtin_manifests()):
             raise NotInstalled(f"{plugin_id} is not installed")
         if plugin_id not in self._errors and len(self._errors) >= ERROR_LOG_PLUGINS_LIMIT:
