@@ -30,10 +30,7 @@ from narranexus.contracts import API_VERSIONS, ManifestError, Stability
 from narranexus.kernel.plugins.compat import Range, Version
 from narranexus.kernel.plugins.slots import Slot, SlotTree, validate_path
 
-# Segments are [a-z0-9] words joined by single '_' or '-': no leading/trailing/
-# doubled separators, so the flattened id (dots → '_') terminated by '__' is an
-# injective table / env prefix (contracts.table.table_prefix_for).
-PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*(\.[a-z0-9]+([_-][a-z0-9]+)*)+$")
+from narranexus.contracts.distribution import PLUGIN_ID_RE  # noqa: E402 — the one plugin-id grammar
 SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$")
 BUILTIN_PREFIX = "builtin."
 

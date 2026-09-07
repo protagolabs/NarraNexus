@@ -21,3 +21,7 @@ A plugin that declares any permission is installed enabled=False (state register
 ## 2026-09-07 — blocked=None refuses remote installs
 
 When the blocklist is unknown (None) the installer refuses network sources fail-closed and still installs local paths (an offline desktop must develop plugins).
+
+## 2026-09-07 — check_updates closes its client
+
+Through sources._http.

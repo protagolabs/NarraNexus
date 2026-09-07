@@ -106,7 +106,7 @@ class Registry(Generic[T]):
             # providing module was purged from sys.modules and re-executed);
             # the first registration stands. A different owner still conflicts.
             if existing.factory is not factory:
-                logger.debug(f"[registry:{self.kind}] {key!r} re-registered by its owner {owner!r}; keeping the first")
+                logger.info(f"[registry:{self.kind}] {key!r} re-registered by its owner {owner!r} with a different factory; keeping the first")
             return Disposable(lambda: None)
         if self._frozen:
             raise RegistryFrozen(f"{self.kind}: cannot register {name!r} after freeze()")

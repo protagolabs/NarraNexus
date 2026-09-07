@@ -37,3 +37,7 @@ stub: false
 ## 2026-09-04 · owner-level idempotency
 
 Re-registering an existing name by the *same owner* is a no-op (first registration wins) even with a fresh factory object: after a module re-import (sys.modules purge, `PluginTestHost` unshadowing `backend`) the manifest loader produces new `Contribution` objects for the same (owner, name) and must not raise. A different owner still conflicts; `replace=True` still replaces.
+
+## 2026-09-07 — same-owner re-registration with a different factory is logged at info
+
+A module re-import legitimately produces a fresh factory for the same name; the first registration stands, and the event is visible (info) rather than debug-only.

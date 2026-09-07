@@ -14,12 +14,13 @@ destination aborts the fetch). Network goes through an injectable
 from __future__ import annotations
 
 import io
+from contextlib import contextmanager
 import shutil
 import tarfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 import httpx
 
@@ -172,7 +173,22 @@ def _validate_repo(repo: str) -> str:
     parts = repo.strip().strip("/").split("/")
     if len(parts) != 2 or not all(p and all(c.isalnum() or c in "-_." for c in p) for p in parts):
         raise SourceError(f"repo must be 'owner/name', got {repo!r}")
+    if any(p in (".", "..") or p.startswith(".") for p in parts):
+        raise SourceError(f"repo must be 'owner/name', got {repo!r}")  # 'owner/..' would rewrite the API path
     return "/".join(parts)
+
+
+@contextmanager
+def _http(client: httpx.Client | None) -> Iterator[httpx.Client]:
+    """The caller's client as-is, or a client of our own that is closed on exit."""
+    if client is not None:
+        yield client
+        return
+    own = httpx.Client()
+    try:
+        yield own
+    finally:
+        own.close()
 
 
 @dataclass(frozen=True)
@@ -186,7 +202,10 @@ class GitHubReleaseSource:
         return f"github:{self.repo}@{self.tag or 'latest'}"
 
     def fetch(self, staging: Path, client: httpx.Client | None = None) -> FetchResult:
-        client = client or httpx.Client()
+        with _http(client) as http:
+            return self._fetch(staging, http)
+
+    def _fetch(self, staging: Path, client: httpx.Client) -> FetchResult:
         repo = _validate_repo(self.repo)
         url = f"{GITHUB_API}/repos/{repo}/releases/{'tags/' + self.tag if self.tag else 'latest'}"
         release = _get_json(client, url)
@@ -240,7 +259,10 @@ class GitHubRepoSource:
         return f"github-repo:{self.repo}@{self.ref or 'default'}"
 
     def fetch(self, staging: Path, client: httpx.Client | None = None) -> FetchResult:
-        client = client or httpx.Client()
+        with _http(client) as http:
+            return self._fetch(staging, http)
+
+    def _fetch(self, staging: Path, client: httpx.Client) -> FetchResult:
         repo = _validate_repo(self.repo)
         ref = self.ref
         if not ref:

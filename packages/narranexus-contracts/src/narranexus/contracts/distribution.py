@@ -14,8 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from narranexus.contracts._base import PluginError
 
 DISTRIBUTION_FILENAME = "narranexus-dist.json"
-DISTRIBUTION_ID_RE = re.compile(r"^[a-z0-9_-]+(\.[a-z0-9_-]+)+$")
-PLUGIN_ID_RE = re.compile(r"^[a-z0-9_-]+(\.[a-z0-9_-]+)+$")
+# The one plugin-id grammar (the kernel's manifest validation and the index
+# validator import it): [a-z0-9] words joined by single '_'/'-', at least two
+# dot-separated segments; no leading/trailing/doubled separators, so the
+# flattened id terminated by '__' is an injective table / env prefix.
+PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*(\.[a-z0-9]+([_-][a-z0-9]+)*)+$")
+DISTRIBUTION_ID_RE = PLUGIN_ID_RE
 
 Deployment = Literal["desktop", "cloud", "headless"]
 Target = Literal["desktop", "docker", "wheel"]
@@ -134,6 +138,7 @@ def parse_distribution(data: Mapping[str, Any], *, origin: str = DISTRIBUTION_FI
 
 
 __all__ = [
+    "PLUGIN_ID_RE",
     "DISTRIBUTION_FILENAME",
     "Branding",
     "Defaults",

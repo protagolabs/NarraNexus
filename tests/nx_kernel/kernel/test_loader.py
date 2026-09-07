@@ -101,7 +101,7 @@ def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot():
     assert set(snap["agent.capabilities.memory_kinds"].values()) == {"builtin.memory_kinds"}
     by_id = {p.plugin_id: p for p in report.loaded}
     assert by_id["builtin.providers"].entries == len(golden["provider_drivers"])
-    assert all(p.duration_ms >= 0 for p in report.loaded)
+    assert all(p.duration_ms > 0 for p in report.loaded if not p.error)  # the timer is live, not a constant
 
 
 def test_loading_twice_into_the_process_registries_is_idempotent():

@@ -35,7 +35,9 @@ def test_scoped_view_exposes_as_the_plugin_and_frozen_refuses():
     assert root.owner_of(WEATHER) == "acme.weather"
     assert scoped.require(WEATHER) == "facade"
     root.freeze()
-    with pytest.raises(Exception, match="frozen"):
+    from narranexus.contracts import PluginError
+
+    with pytest.raises(PluginError, match="locator is frozen"):
         root.expose(ServiceRef("x"), 1, owner="a")
 
 

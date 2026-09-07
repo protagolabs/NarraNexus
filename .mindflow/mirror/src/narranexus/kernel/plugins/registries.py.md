@@ -53,3 +53,7 @@ loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得�
 Batch 6c: `SLOT_KINDS["kernel.auth"] = "auth"`.
 
 2026-09-07: `Registries.bindings` / `set_bindings()` hold the host's resolved bindings; `SLOT_KINDS` maps `prompt.sections` / `prompt.assembler` to kind `prompt`.
+
+## 2026-09-07 — registry_for is thread-safe
+
+Lazy registry creation is serialised with an RLock (two threads asking first used to be able to create two registries for one slot).

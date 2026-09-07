@@ -87,7 +87,7 @@ def toml_template(catalog: list[dict[str, Any]]) -> str:
             else:
                 names = [f'"{c["owner"]}:{c["name"]}"' for c in s["contributions"]]
                 value = "[" + ", ".join(names) + "]"
-            prefix = "# " if s["distribution_only"] or not s["contributions"] else "# "
+            prefix = "# "  # every line commented: the template documents, the user uncomments what to change
             lines.append(f"# {s['path']}: {s['doc']}  candidates: {cands}")
             lines.append(f'{prefix}"{s["path"]}" = {value}')
     return "\n".join(lines) + "\n"

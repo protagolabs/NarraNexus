@@ -41,7 +41,7 @@ class PluginTestHost:
     plugin_dir: Path
     home: Path
     role: str = "backend"
-    host_version: str = "1.19.0"
+    host_version: str = field(default_factory=lambda: __import__("narranexus.kernel.plugins.compat", fromlist=["host_version"]).host_version())
     db_client: Any = None
     registries: Registries = field(default_factory=Registries)
     bus: EventBus = field(default_factory=EventBus)
@@ -60,6 +60,19 @@ class PluginTestHost:
         self._previous_home = os.environ.get(ENV_PLUGIN_HOME)
         self.home.mkdir(parents=True, exist_ok=True)
         os.environ[ENV_PLUGIN_HOME] = str(self.home)
+        try:
+            return self._enter()
+        except BaseException:
+            self._restore_env()  # a failing setup must not leave the plugin home pointed at a temp dir
+            raise
+
+    def _restore_env(self) -> None:
+        if self._previous_home is None:
+            os.environ.pop(ENV_PLUGIN_HOME, None)
+        else:
+            os.environ[ENV_PLUGIN_HOME] = self._previous_home
+
+    def _enter(self) -> "PluginTestHost":
         self._store = RegistryStore(path=self.home / "registry.json", lkg=self.home / "registry.lkg.json")
         # The test host acknowledges the plugin's declared permissions: its author is the one running it.
         Installer(store=self._store, host=self.host_version).install(LocalSource(self.plugin_dir, mode="link"), permissions_acknowledged=True)
@@ -86,10 +99,7 @@ class PluginTestHost:
             uninstall_synthetic_package(pid)
             plugin_finder().unregister_deps(pid)
         self.bus.close()
-        if self._previous_home is None:
-            os.environ.pop(ENV_PLUGIN_HOME, None)
-        else:
-            os.environ[ENV_PLUGIN_HOME] = self._previous_home
+        self._restore_env()
 
     def _context_factory(self, manifest: Manifest) -> PluginContext:
         schema = SettingsSchema()

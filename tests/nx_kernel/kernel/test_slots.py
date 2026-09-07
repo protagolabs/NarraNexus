@@ -115,7 +115,7 @@ def test_range_contains(range_text, inside, outside):
     r = Range.parse(range_text)
     assert all(r.contains(v) for v in inside), range_text
     assert not any(r.contains(v) for v in outside), range_text
-    assert str(r) == range_text.strip() or range_text == "*"
+    assert str(r) == ("*" if range_text == "*" else range_text.strip())  # both branches round-trip
 
 
 def test_range_rejects_garbage():

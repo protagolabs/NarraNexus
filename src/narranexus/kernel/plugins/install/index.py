@@ -66,8 +66,10 @@ class Index:
         p = self._cache_path(name)
         if not self._fresh(name):
             try:
-                client = self.client or httpx.Client()
-                resp = client.get(f"{self.base_url}/{name}", timeout=20.0, follow_redirects=True)
+                from narranexus.kernel.plugins.install.sources import _http
+
+                with _http(self.client) as client:
+                    resp = client.get(f"{self.base_url}/{name}", timeout=20.0, follow_redirects=True)
                 resp.raise_for_status()
                 if len(resp.content) > MAX_INDEX_BYTES:
                     raise ValueError(f"{name} exceeds {MAX_INDEX_BYTES // (1024 * 1024)} MB")

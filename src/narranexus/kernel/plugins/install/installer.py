@@ -192,8 +192,10 @@ class Installer:
             raise InstallError(f"{plugin_id} is not installed")
         available: str | None = None
         if rec.source.type == "github" and rec.source.repo:
-            client = self.client or httpx.Client()
-            resp = client.get(f"https://api.github.com/repos/{rec.source.repo}/releases/latest", timeout=20.0, follow_redirects=True)
+            from narranexus.kernel.plugins.install.sources import _http
+
+            with _http(self.client) as client:
+                resp = client.get(f"https://api.github.com/repos/{rec.source.repo}/releases/latest", timeout=20.0, follow_redirects=True)
             if resp.status_code == 200:
                 tag = str(resp.json().get("tag_name") or "").lstrip("v")
                 available = tag if tag and tag != rec.installed_version.lstrip("v") else None

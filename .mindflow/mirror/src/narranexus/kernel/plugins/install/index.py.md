@@ -12,3 +12,7 @@ stub: false
 ## 2026-09-07 — blocklist state is honest; ids validated; bounded fetch
 
 blocked() raises IndexUnavailable when the blocklist was never obtained and nothing is cached (a stale cache is still an answer); cached_blocked() reads the cache without network for boot. Index entries must satisfy the manifest PLUGIN_ID_RE and never start with builtin. (the publish-time validator's rules, enforced at read time). A fetched file is capped at MAX_INDEX_BYTES.
+
+## 2026-09-07 — self-created client closed
+
+The index fetch uses sources._http so a client it creates is closed.

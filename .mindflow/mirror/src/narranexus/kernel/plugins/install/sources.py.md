@@ -14,3 +14,7 @@ MockTransport）；资产上限 200MB。`parse_source_spec` 解析 `owner/repo[@
 ## 2026-09-07 — streamed downloads; bounded extraction
 
 _get streams and aborts the moment the body passes MAX_ASSET_BYTES (the old code read the whole body first, so the limit protected nothing); JSON responses go through _get_json. extract_zip/extract_tarball enforce MAX_EXTRACT_BYTES / MAX_ARCHIVE_MEMBERS on declared sizes AND bytes actually written (a header can lie) — a 200 MB zip bomb can no longer fill the disk.
+
+## 2026-09-07 — _http(): self-created clients are closed; 'owner/..' refused
+
+fetch() wraps _fetch() in _http(client): a caller's client is used as-is, a client of our own is closed on exit (they leaked before). _validate_repo refuses '.'/'..'/dot-leading segments (owner/.. rewrote the API path).

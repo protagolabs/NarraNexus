@@ -11,7 +11,10 @@ import re
 import sys
 from pathlib import Path
 
-ID_RE = re.compile(r"^[a-z0-9_-]+(\.[a-z0-9_-]+)+$")
+try:  # the engine's grammar when narranexus is installed; the same expression otherwise
+    from narranexus.contracts.distribution import PLUGIN_ID_RE as ID_RE
+except ImportError:  # pragma: no cover
+    ID_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*(\.[a-z0-9]+([_-][a-z0-9]+)*)+$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 FIELDS = {"id", "repo", "author", "description", "tags", "kinds"}
 

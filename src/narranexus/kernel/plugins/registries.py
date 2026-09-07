@@ -15,6 +15,8 @@ kind-specific key normalisation (framework names are case-insensitive).
 """
 from __future__ import annotations
 
+import threading
+
 from typing import Any, Callable
 
 from narranexus.contracts import API_VERSIONS
@@ -66,6 +68,7 @@ class Registries:
     """All registries of one process, keyed by slot path."""
 
     def __init__(self, slots: SlotTree | None = None) -> None:
+        self._lock = threading.RLock()
         self.slots: SlotTree = slots if slots is not None else build_kernel_slot_tree()
         self.hooks: HookRegistry = HookRegistry()
         # The host hook vocabulary is the kernel's: every process declares the
@@ -94,16 +97,19 @@ class Registries:
         """The registry backing ``path`` (created on first use; the slot must exist)."""
         reg = self._by_path.get(path)
         if reg is None:
-            self.slots.get(path)  # UnknownEntry if the slot is not declared
-            kind = SLOT_KINDS.get(path)
-            reg = Registry(
-                path,
-                api_version=API_VERSIONS[kind] if kind else 0,
-                normalize=_NORMALIZERS.get(path),
-            )
-            if self._frozen:
-                reg.freeze()
-            self._by_path[path] = reg
+            with self._lock:  # two threads asking first must get ONE registry
+                reg = self._by_path.get(path)
+                if reg is None:
+                    self.slots.get(path)  # UnknownEntry if the slot is not declared
+                    kind = SLOT_KINDS.get(path)
+                    reg = Registry(
+                        path,
+                        api_version=API_VERSIONS[kind] if kind else 0,
+                        normalize=_NORMALIZERS.get(path),
+                    )
+                    if self._frozen:
+                        reg.freeze()
+                    self._by_path[path] = reg
         return reg
 
     def paths(self) -> tuple[str, ...]:

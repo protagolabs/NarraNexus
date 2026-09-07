@@ -92,6 +92,8 @@ async def test_agents_lists_own_and_public_and_close_keeps_a_borrowed_db(home: P
     assert {a["agent_id"] for a in await engine.agents()} == {"a_mine", "a_other", "a_pub"}
     got = []
     engine.events().subscribe("onDidStartRun", lambda payload: got.append(payload), owner="test")
+    await engine.events().emit("onDidStartRun", {"run_id": "r1"})
+    assert got == [{"run_id": "r1"}]  # a subscribable bus: the subscriber sees the emit
     await engine.close()
     assert engine._db is None
     assert await repo.find({}) and len(await repo.find({})) == 3  # the borrowed client is still open

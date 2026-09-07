@@ -22,3 +22,7 @@ Batch 6d: `PluginTestHost.module(name="")` returns the plugin's imported backend
 ## 2026-09-07 — the test host acknowledges the plugin's permissions
 
 PluginTestHost installs with permissions_acknowledged=True — its author is the one running it — otherwise every plugin that declares a permission would boot disabled inside its own test host.
+
+## 2026-09-07 — host version from metadata; env restored on a failing setup
+
+PluginTestHost.host_version defaults to compat.host_version() instead of a hardcoded string; __enter__ restores NARRANEXUS_PLUGIN_HOME (via _restore_env, shared with __exit__) when setup raises.

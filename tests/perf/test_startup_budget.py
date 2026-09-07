@@ -26,7 +26,7 @@ from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
 N_PLUGINS = 25
-PER_MANIFEST_MS = 20.0
+PER_MANIFEST_MS = 1.0  # measured well under 0.1 ms; the old 20 ms hid a 200x regression
 PER_PLUGIN_BOOT_MS = 60.0
 
 
@@ -63,21 +63,26 @@ def test_stage2_boot_scales_linearly_and_never_imports_plugin_code(tmp_path: Pat
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     assert len(report.user_plugin_ids) == N_PLUGINS and report.isolated == {}
     assert elapsed_ms < N_PLUGINS * PER_PLUGIN_BOOT_MS, f"boot took {elapsed_ms:.0f} ms for {N_PLUGINS} plugins"
-    # the sleeping __init__ was never imported (declarative boot only)
-    assert elapsed_ms < 5000
+    # (the sleeping __init__ was never imported: the per-plugin bound above is far below one sleep)
+
+
+def _lookup_cost_us(n: int) -> float:
+    regs = Registries()
+    reg = regs.registry_for("backend.routes")
+    for i in range(n):
+        reg.register(f"r{i}", (lambda i=i: i), owner=f"perf.p{i}")
+    regs.freeze()
+    rounds = 20000
+    started = time.perf_counter()
+    for _ in range(rounds):
+        reg.get(f"r{n - 1}")
+    return (time.perf_counter() - started) * 1e6 / rounds
 
 
 def test_frozen_registry_lookup_is_constant_time():
-    regs = Registries()
-    reg = regs.registry_for("backend.routes")
-    for i in range(500):
-        reg.register(f"r{i}", (lambda i=i: i), owner=f"perf.p{i}")
-    regs.freeze()
-    started = time.perf_counter()
-    for _ in range(20000):
-        reg.get("r499")
-    per_us = (time.perf_counter() - started) * 1e6 / 20000
-    assert per_us < 20.0, f"{per_us:.2f} µs per lookup"
+    """A real cross-size comparison: 100x more entries must not make a lookup materially slower (an O(n) scan would)."""
+    small, large = _lookup_cost_us(50), _lookup_cost_us(5000)
+    assert large < max(small * 3.0, 2.0), f"{small:.2f} µs @50 vs {large:.2f} µs @5000"
 
 
 @pytest.mark.parametrize("path", ["turn.pipeline.act.framework", "backend.routes", "content.skills"])
@@ -86,4 +91,4 @@ def test_registries_construction_is_cheap(path: str):
     for _ in range(20):
         Registries().registry_for(path)
     per_ms = (time.perf_counter() - started) * 1000.0 / 20
-    assert per_ms < 25.0, f"{per_ms:.2f} ms per Registries()"
+    assert per_ms < 5.0, f"{per_ms:.2f} ms per Registries()"  # measured ~0.1 ms; 25 ms let a 100x regression through

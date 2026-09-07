@@ -55,3 +55,7 @@ Ids are [a-z0-9] words joined by single '_'/'-' (no doubled, leading or trailing
 ## 2026-09-07 — backend.publicPrefixes
 
 BackendSpec.publicPrefixes: the route prefixes (under the plugin's /api/x/<id>) that serve without authentication; the host registers them at mount time and refuses an auth='none' router outside them.
+
+## 2026-09-07 — plugin-id grammar imported from contracts
+
+PLUGIN_ID_RE comes from narranexus.contracts.distribution instead of a third copy.

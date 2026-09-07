@@ -251,6 +251,10 @@ def _resolve_many(slot, ordered: list[BindingSource]) -> BoundMany:
         verbs = value if isinstance(value, list) else [value]
         for verb in verbs:
             if verb.startswith("="):
+                # "=" restarts the list. parse_toml / parse_env hand over one
+                # verb per provider, but a BindingSource built in code (a
+                # distribution's bindings, tests) may carry "=a,b" as one
+                # value, so the comma split stays.
                 providers = [v for v in verb[1:].split(",") if v]
             elif verb.startswith("-"):
                 providers = [p for p in providers if p != verb[1:]]
