@@ -1,8 +1,38 @@
 ---
 code_file: src/narranexus/platform/channel/message_source_handler.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 全局字典换成注册表视图；import 期不再有任何注册
+
+`MessageSourceRegistry._handlers` 这张类变量字典没了。它是内核注册表的影子：同样的职责，
+却由九处模块顶层 `register(...)` 写入，八处外面裹着 `except ValueError: pass`——那个
+`pass` 把「两个插件抢同一个 source 名」这个真冲突静音成了「谁先 import 谁赢」，而
+`register` 自己的 docstring 还写着「重复注册抛异常是故意的」。
+
+现在 `MessageSourceView` 在**调用时**读两张注册表，按各自 `names()` 元组缓存（照
+`TriggerMapView` / `_ChannelSpecs` 的形状，因为 `get()` 每轮要调好几次、每渲染一行历史
+还要再调一次）：
+
+- `ingress.channels` — 每个 `ChannelDescriptor` 投影出自己的 handler；
+- `ingress.message_sources` — 非渠道来源的 `MessageSourceSpec`。
+
+`MessageSourceRegistry` 保留成一个无状态的命名空间（十几个调用点写法不变），**没有
+`register()`**：一个来源只能通过它所属插件的 contribution 进来，这正是让 owner、
+`builtin_overrides` 禁用、发行版排除对它生效的原因。
+
+**默认 handler 的语义收紧了。** 它现在只答 `SOURCELESS_SOURCES`（owner 聊天 / `a2a` /
+`callback` / `skill_study`）——这四个是平台自己那张表，写成数据而不是「凡是查不到的」，
+就是为了把它们和「本该有 handler 却没有」区分开。一个**已注册的渠道**落到默认 handler
+会按名字去重地打 WARNING：那正是原来无声吞掉的场景（IM 回复被判成没回复、行前缀变成
+`[NarraNexus UI]`），现在它是信号。
+
+`_lazy_extractor` 把 `"pkg.mod:function"` 包成首次调用才 import 的闭包——构建视图是读操
+作，急切解析会让「问一句有哪些来源」拖进每个渠道的 SDK，那正是本次要拆掉的耦合。
+
+`im_channel_prefixes()` 因此也自动跟着注册表走：渠道的描述符一进注册表就被覆盖，发行版
+一排除就消失，不再依赖「谁 import 过谁」。
 
 ## 2026-08-17 — 来源声明从这里渲染；owner 工具判定收归一处
 

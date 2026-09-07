@@ -139,6 +139,31 @@ def framework_meta(name: str) -> FrameworkMeta:
     )
 
 
+def framework_capabilities(name: str) -> frozenset[str]:
+    """The registered framework's declared capabilities — the ONE accessor for
+    every host that must answer "can this framework be steered / replayed
+    natively / …" WITHOUT constructing its driver.
+
+    Fail-closed on an unknown or misbound name (empty set, never a guess): the
+    orchestrator gates features ON the answer, so a wrong "yes" leaves a user's
+    interjection queued with nothing draining it. The three name-keyed
+    frozensets this replaced (``_STEER_CAPABLE_FRAMEWORKS``,
+    ``NATIVE_REPLAY_FRAMEWORKS``, and the ``framework != "nexus_power"`` gate in
+    step_3) each meant a third-party framework was silently downgraded no
+    matter what it implemented.
+    """
+    try:
+        return framework_meta(name).capabilities
+    except (UnknownEntry, FrameworkNotInstalledError):
+        return frozenset()
+
+
+def framework_has_capability(name: str, capability: str) -> bool:
+    """Whether framework ``name`` declares ``capability`` (see
+    ``framework_capabilities`` for the fail-closed rule)."""
+    return capability in framework_capabilities(name)
+
+
 def default_framework_for_protocol(protocol: str) -> str:
     """The framework a freshly onboarded provider card of ``protocol`` lands on.
 

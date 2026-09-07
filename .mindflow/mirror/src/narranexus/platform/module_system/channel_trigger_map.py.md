@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — `_resolve_all` 变成纯读
+
+删掉 `_build()` 路径里的 `WorkingSource.register(cls.channel_name)`。解析 trigger 类是
+**读**；在读路径上改两个进程级开放枚举，意味着 `WorkingSource("lark")` 能不能解析取决于
+有没有人先读过这张表。注册现在只发生在渠道 contribution 建立时
+（`channel/contributions.py:register_working_source`），见那份 mirror。
+
 ## Why it exists
 
 Single source of truth mapping `channel_name -> ChannelTriggerBase subclass`,

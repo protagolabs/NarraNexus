@@ -118,7 +118,7 @@ async def _lifespan(app: FastAPI):
     # The plugin platform boots FIRST: every seam the turn uses (frameworks,
     # providers, helper clients, memory kinds, prompt sections, stage
     # strategies) is populated by the manifests, not by lazy self-registration.
-    from narranexus.platform.module_system.plugins_boot import boot_executor_plugins
+    from narranexus.platform.module_system.plugins_boot import boot_executor_plugins, mark_host_healthy
 
     boot_executor_plugins()
     # Prime warm-runner pools for the frameworks in EXECUTOR_PREWARM_FRAMEWORKS
@@ -150,6 +150,11 @@ async def _lifespan(app: FastAPI):
                 logger.debug(f"[Executor] driver for {name!r} has no warmup(); skipped")
         except Exception as e:  # noqa: BLE001 - warmup is best-effort, never fatal
             logger.warning(f"[Executor] {name} warmup skipped: {e}")
+    # Health is declared here and nowhere earlier: everything this process
+    # needs to serve a turn is up, and only now may the plugin boot clear its
+    # crash marker and move the last-known-good snapshot (a boot that got the
+    # registries populated and then died in warmup must NOT count as healthy).
+    mark_host_healthy("workers")
     yield
 
 

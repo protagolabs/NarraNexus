@@ -68,8 +68,6 @@ class CredentialRecord:
 
 
 def descriptor_for(channel: str, registries: Any = None) -> ChannelDescriptor:
-    import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
-
     regs = registries
     if regs is None:
         from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
@@ -83,8 +81,6 @@ def descriptor_for(channel: str, registries: Any = None) -> ChannelDescriptor:
 
 def all_descriptors(registries: Any = None) -> tuple[ChannelDescriptor, ...]:
     """Every registered channel descriptor (builtin and plugin), registration order."""
-    import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
-
     regs = registries
     if regs is None:
         from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES

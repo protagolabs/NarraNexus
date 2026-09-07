@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/module_system/run_worker_supervisor.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-09-03（批 2b.5）— `run()` 先 `boot_worker_plugins()` 再 `build_specs`
@@ -150,3 +150,16 @@ door for zombies — this is the door.)
 ## 2026-09-04 · `main(argv)` (batch 6a)
 
 Argument parsing moved into `main(argv=None) -> int` (called by the `xyz_agent_context.module.run_worker_supervisor` shim); package path `narranexus.platform.module_system`.
+
+
+## 2026-09-07 — marks the plugin boot healthy only once it serves (round-2 🟡-6)
+
+The plugin boot no longer declares itself healthy on its last line; this
+entrypoint calls `plugins_boot.mark_host_healthy(<role>)` after the process is
+actually serving, which is the only moment that may clear the boot-crash marker
+and move the last-known-good registry snapshot. Reaching the boot and then dying
+must count as a failed boot.
+
+## 2026-09-07 — is_builtin_id 收编（round-2 P2-I6）
+
+『是否 builtin』只在 contracts.distribution.is_builtin_id 一处判断（BUILTIN_PREFIX 同处）；九处 startswith('builtin.') 副本全部改调它（distribution_scaffold 的保留命名空间检查是另一个判断，未合并）。

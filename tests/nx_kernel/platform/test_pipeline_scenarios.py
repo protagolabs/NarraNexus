@@ -134,11 +134,8 @@ async def test_scenario_1_swap_the_recall_strategy_through_a_plugin_profile(db_c
             yield  # pragma: no cover
 
     # A private Registries (the process ones may be frozen by an earlier boot in the session).
-    from narranexus.platform.turn import TurnPipeline
-
     regs = Registries()
     load_builtins(regs, "backend")
-    TurnPipeline(regs)
     regs.registry_for(slot_path(Stage.RECALL)).register_contribution(Contribution("graph", GraphRecall), owner="acme.graph_recall")
     regs.registry_for("turn.profiles").register_contribution(
         Contribution("research", lambda: PipelineProfile(id="research", strategies={Stage.RECALL: "graph", Stage.ACT: "silent"})), owner="acme.graph_recall"
@@ -157,11 +154,8 @@ async def test_scenario_4_audit_hook_observes_every_commit(db_client):
     async def audit(stage, output, agent_id, run_id):
         seen.append(output)
 
-    from narranexus.platform.turn import TurnPipeline
-
     regs = Registries()
     load_builtins(regs, "backend")
-    TurnPipeline(regs)
     regs.hooks.add("onDidCommit", audit, owner="acme.audit")
     await _run(db_client, registries=regs)
     assert len(seen) == 1 and isinstance(seen[0], CommitContext)

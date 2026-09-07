@@ -41,21 +41,87 @@ def test_corrupt_registry_boots_builtins_only(plugin_home: Path):
     assert report.user_plugin_ids == ()
 
 
+# A plugin whose LAST provides entry is a missing symbol, with a valid
+# registry entry, a valid hook impl and a valid service exposed BEFORE it —
+# so isolation has all three kinds of partial state to withdraw.
+HALF_BODY = (
+    "from narranexus.contracts.settings import SettingsSchema, SettingField\n"
+    "from narranexus.kernel.plugins.hooks import hookimpl\n"
+    "from narranexus.kernel.plugins.registry import Contribution\n"
+    "from narranexus.contracts.services import ServiceRef\n"
+    "SETTINGS = Contribution('schema', lambda: SettingsSchema(fields=(SettingField('token', 'string'),)))\n"
+    "HOOKS = (hookimpl('onDidStartRun')(lambda run_id: None),)\n"
+    "HALF_SERVICE = ServiceRef('acme.half.thing')\n"
+    "SERVICES = ((HALF_SERVICE, object()),)\n"
+)
+HALF_PROVIDES = {
+    "backend.settings": ["nxplugins.acme_half:SETTINGS"],
+    "backend.hooks": ["nxplugins.acme_half:HOOKS"],
+    "backend.services": ["nxplugins.acme_half:SERVICES"],
+}
+HALF_API = {"settings": 0, "route": 0, "hook": 0, "services": 0, "table": 0}
+
+
+def _half_service_ref():
+    from narranexus.contracts.services import ServiceRef
+
+    return ServiceRef("acme.half.thing")
+
+
 def test_isolated_plugin_leaves_no_partial_registrations(plugin_home: Path):
-    body = (
-        "from narranexus.contracts.settings import SettingsSchema, SettingField\n"
-        "from narranexus.kernel.plugins.registry import Contribution\n"
-        "SETTINGS = Contribution('schema', lambda: SettingsSchema(fields=(SettingField('token', 'string'),)))\n"
-    )
     make_plugin(
-        plugin_home, "acme.half", body=body,
-        extra={"provides": {"backend.settings": ["nxplugins.acme_half:SETTINGS"], "backend.routes": ["nxplugins.acme_half:NOPE"]}, "api": {"settings": 0, "route": 0}},
+        plugin_home, "acme.half", body=HALF_BODY,
+        extra={"provides": {**HALF_PROVIDES, "backend.routes": ["nxplugins.acme_half:NOPE"]}, "api": HALF_API},
     )
     store = register(plugin_home, "acme.half", plugin_home / "acme.half")
     registries = Registries()
     report = boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store)
     assert "acme.half" in report.isolated
+    # All THREE things remove_owner does, not just the registry entries:
+    # deleting hooks.block / services.release_owner from it used to stay green.
     assert "acme.half" not in {e.owner for e in registries.registry_for("backend.settings").entries()}
+    assert registries.hooks.caller("onDidStartRun").owners() == ()
+    assert registries.services.try_require(_half_service_ref()) is None
+
+
+def test_a_refused_table_withdraws_everything_the_plugin_registered(plugin_home: Path):
+    """A table refusal is an isolation, and isolation means NOTHING of the plugin runs.
+
+    The refusal happens AFTER load(), so the plugin's routes, hooks and
+    services are already registered; ``boot`` used to record it in
+    ``report.isolated`` and leave all of them live — an owner-controlled way to
+    keep a route mounted while the report says the plugin is isolated. Deleting
+    the ``registries.remove_owner`` call in boot's table loop turns this red.
+    """
+    body = HALF_BODY + (
+        "from narranexus.contracts.route import RouterSpec\n"
+        "from narranexus.contracts.table import ColumnSpec, TableSpec\n"
+        "ROUTES = (Contribution('api', lambda: RouterSpec(router=object(), prefix='/api/x/acme.half')),)\n"
+        "TABLES = (Contribution('items', lambda: TableSpec('ext_acme_half__items', (ColumnSpec('id', 'TEXT', 'VARCHAR(64)', primary_key=True),))),)\n"
+    )
+    make_plugin(
+        plugin_home, "acme.half", body=body,
+        extra={
+            "provides": {
+                **HALF_PROVIDES,
+                "backend.routes": ["nxplugins.acme_half:ROUTES"],
+                "backend.tables": ["nxplugins.acme_half:TABLES"],
+            },
+            "api": HALF_API,
+        },
+    )
+    store = register(plugin_home, "acme.half", plugin_home / "acme.half")
+    registries = Registries()
+
+    def refuse(spec, owner):
+        raise ValueError("migration refused this table")
+
+    report = boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store, register_table=refuse)
+    assert "acme.half" in report.isolated
+    owners = {owner for entries in registries.snapshot().values() for owner in entries.values()}
+    assert "acme.half" not in owners, registries.snapshot()
+    assert registries.hooks.caller("onDidStartRun").owners() == ()
+    assert registries.services.try_require(_half_service_ref()) is None
 
 
 def test_refused_table_counts_as_a_crash(plugin_home: Path):

@@ -196,7 +196,14 @@ def test_get_all_skill_env_vars_empty_when_box_unavailable(module, key, monkeypa
     def _boom():
         raise ValueError("SKILL_SECRETS_KEY is set but is not a valid Fernet key")
 
-    monkeypatch.setattr(sb, "get_secret_box", _boom)
+    # Patch the PUBLIC seam, not the private module: `skill_module` reaches the
+    # secret box through `narranexus.platform.marketplace.get_secret_box`
+    # (batch 6c — a plugin package may not import another package's private
+    # module). Patching `sb.get_secret_box` here left the real box in place and
+    # the fail-closed path untested.
+    import narranexus.platform.marketplace as marketplace
+
+    monkeypatch.setattr(marketplace, "get_secret_box", _boom)
     assert module.get_all_skill_env_vars() == {}
 
 

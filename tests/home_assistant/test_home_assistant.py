@@ -121,32 +121,40 @@ def test_require_agent_owner_enforced(monkeypatch):
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
 
+    # A plugin router calls the ``contracts.web.WebHost`` seam; a test that
+    # builds its own app instead of going through ``backend.plugins_host``
+    # must publish the host itself (the seam fails loud, never open).
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
+
+
     async def run():
         owners["agent_x"] = "u1"
         # Owner matches → no raise.
-        await r.assert_owned(_Req("u1"), "agent_x")
+        await r.require_agent_owner(_Req("u1"), "agent_x")
         # Different owner → 403.
         try:
-            await r.assert_owned(_Req("u2"), "agent_x")
+            await r.require_agent_owner(_Req("u2"), "agent_x")
             raise AssertionError("expected 403")
         except HTTPException as e:
             assert e.status_code == 403
         # Agent missing → 404.
         try:
-            await r.assert_owned(_Req("u1"), "ghost")
+            await r.require_agent_owner(_Req("u1"), "ghost")
             raise AssertionError("expected 404")
         except HTTPException as e:
             assert e.status_code == 404
         # Ownership LOOKUP failure → 503 (infrastructure fault, not "not found").
         owners["agent_x"] = None
         try:
-            await r.assert_owned(_Req("u1"), "agent_x")
+            await r.require_agent_owner(_Req("u1"), "agent_x")
             raise AssertionError("expected 503")
         except HTTPException as e:
             assert e.status_code == 503
         owners["agent_x"] = "u1"
         # Local mode (no user_id) → not enforced.
-        await r.assert_owned(_Req(None), "agent_x")
+        await r.require_agent_owner(_Req(None), "agent_x")
 
     asyncio.run(run())
 

@@ -4,10 +4,15 @@ last_verified: 2026-09-07
 stub: false
 ---
 
-# registry.py — driver_type → class map
+# registry.py — driver_type → class lookup over the `model.providers` slot
 
-Module-level ``dict`` populated by the ``@register`` decorator at import
-time. The resolver consults it via ``get_driver_class(driver_type)``;
+**There is no `DRIVER_REGISTRY` constant.** Entries live in the kernel's `model.providers` registry
+and are reached through the ``driver_registry()`` ACCESSOR, resolved at call time — a module-level
+constant bound to the process registries made a private ``Registries()`` in a test invisible to this
+module. Nothing is registered at import: ``@register`` attaches the driver's ``Contribution`` to the
+class (the symbol ``builtin.providers``' manifest names) and the host boot registers it;
+``register_driver(cls, owner=...)`` is the explicit path for a test or an embedding host. The
+resolver consults it via ``get_driver_class(driver_type)``;
 unknown keys return ``None`` and the resolver raises
 ``LLMConfigNotConfigured`` — that's intentionally loud so a misconfigured
 row never silently routes to a default that bills the wrong account.
@@ -45,3 +50,9 @@ above instead of half-working.
 ## 2026-09-07 — @register attaches, register_driver registers; driver_registry() at call time
 
 The class decorator only attaches the driver's Contribution (the symbol the manifest names) — no import-time registry write; register_driver(cls, owner=) is the explicit path for tests / an embedding host. ensure_builtin_drivers is gone: the host boot populates model.providers from builtin.providers' manifest.
+
+## 2026-09-07（round-2 T2-C6）— the historical notes below use the retired name
+
+The three 2026-09-03/04 sections above talk about `DRIVER_REGISTRY` and `ensure_builtin_drivers` in
+the present tense; both are gone (`9314cb77b`). They are kept as the record of HOW the module got
+here — read them as history, and read the header for what is true today.

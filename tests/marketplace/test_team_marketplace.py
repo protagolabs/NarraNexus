@@ -236,7 +236,13 @@ def app(db_client, tmp_path, monkeypatch):
     async def _fake_user(request):
         return USER_ID
 
-    monkeypatch.setattr(routes, "resolve_current_user_id", _fake_user)
+    monkeypatch.setattr(routes, "current_user_id", _fake_user)  # the sdk.web seam name
+    # A plugin router calls the ``contracts.web.WebHost`` seam; a test that
+    # builds its own app instead of going through ``backend.plugins_host``
+    # must publish the host itself (the seam fails loud, never open).
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
     # local publisher gate (no staff role in tests)
     import narranexus.platform.utils.deployment_mode as dm
 

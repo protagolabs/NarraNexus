@@ -585,6 +585,13 @@ from backend.routes.channels.generic import router as channels_generic_router  #
 # Generic channel routes (/api/channels/{channel}/…) serve ANY channel in
 # ingress.channels — shell-level, not plugin-owned.
 app.include_router(channels_generic_router, prefix="/api/channels", tags=["Channels"])
+# GET /api/plugins/channels — the catalog the shell renders (name / display name /
+# ui / owner per ingress.channels entry), so the frontend keeps no channel table.
+# Under /api/plugins, not /api/channels: it is a read of the plugin registry, not
+# an ownership-gated operation on one agent's binding.
+from backend.routes.channels.catalog import router as channels_catalog_router  # noqa: E402
+
+app.include_router(channels_catalog_router, prefix="/api/plugins", tags=["Channels"])
 # jobs / skills / home-assistant / the six IM channel routers are backend.routes
 # contributions of their builtin plugins (batch 3c.5), mounted below by
 # mount_plugin_routes together with the data-access twins and teams.

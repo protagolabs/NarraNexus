@@ -3,6 +3,16 @@ code_file: src/narranexus/platform/module_system/__init__.py
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — caller identity 的**服务端**解析器也转公开（批 6c，A2-1）
+
+原来的注释写着「注入侧公开、服务端解析保持私有」。批 6b 之后这条界线站不住了：
+每个 MCP 工具都住进了独立的插件 wheel，而调用 `caller_user_id_from_request` /
+`caller_team_id_from_request` / `caller_event_id_from_request` / `caller_root_run_id` /
+`caller_turn_source` / `caller_errand_scope` / `resolve_caller_agent_id` 的**正是**它们
+——实测 7 个插件调用点在直接 import `module_system._mcp_identity`。
+「包内私有」对一个另行打包的消费者不成立，于是这 7 个符号从门面公开。
+`_mcp_identity` 里的其余部分（bearer 解析细节、placeholder 表）仍然私有。
+
 ## 2026-09-07 — header redrawn
 
 The file header now draws the post-batch-6 tree (`module_system/` with `registry.py` / `contributions.py`; concrete modules in `plugins/builtin.<id>/src/narranexus_plugins/<pkg>/`). Comment-only change.

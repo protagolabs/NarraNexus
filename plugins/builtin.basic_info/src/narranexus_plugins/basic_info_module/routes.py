@@ -40,8 +40,8 @@ from fastapi import APIRouter, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from backend.auth import resolve_current_user_id
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import current_user_id
+from narranexus.sdk.web import require_agent_owner
 from narranexus.platform.narrative import NarrativeService
 from narranexus_plugins.basic_info_module import (
     fetch_narrative_view,
@@ -55,7 +55,7 @@ router = APIRouter()
 
 class CreateNarrativeRequest(BaseModel):
     # No user_id field: the narrative's owner is the AUTHENTICATED caller
-    # (resolve_current_user_id), never a body-supplied id — assert_owned only
+    # (current_user_id), never a body-supplied id — assert_owned only
     # proves agent ownership, and a trusted-body user_id would let an owner
     # attribute rows to arbitrary users (pre-open review #6).
     title: str = Field(min_length=1, max_length=300)
@@ -75,7 +75,7 @@ async def view_narrative(agent_id: str, narrative_id: str, request: Request) -> 
     counterpart of the ``view_narrative`` MCP tool. Returns the SAME dict the
     seam's DirectStore returns (both call the shared ``fetch_narrative_view``),
     so the two paths are byte-identical by construction."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await fetch_narrative_view(await get_db_client(), agent_id, narrative_id)
     except Exception as e:  # noqa: BLE001 — get_db_client() only; fetch_* never raises
@@ -87,7 +87,7 @@ async def view_narrative(agent_id: str, narrative_id: str, request: Request) -> 
 async def view_event(agent_id: str, event_id: str, request: Request) -> dict:
     """One past turn's full detail by event id — the Http counterpart of the
     ``view_event`` MCP tool (shared ``fetch_event_view``)."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await fetch_event_view(await get_db_client(), agent_id, event_id)
     except Exception as e:  # noqa: BLE001
@@ -102,7 +102,7 @@ async def switch_narrative(agent_id: str, narrative_id: str, request: Request) -
     ``check_narrative_switch``). A validation, not a re-attribution: turn
     re-filing only happens inside a live agent run (step_4_persist_results),
     which neither this route nor the tool can reach."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await check_narrative_switch(await get_db_client(), agent_id, narrative_id)
     except Exception as e:  # noqa: BLE001
@@ -117,10 +117,10 @@ async def create_narrative(agent_id: str, body: CreateNarrativeRequest, request:
     See the module docstring for why this actually creates, unlike the
     signal-only ``create_narrative`` MCP tool.
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     if not (body.title or "").strip():
         return NarrativeCreateResponse(success=False, error="title is required")
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         db = await get_db_client()
         service = NarrativeService(agent_id=agent_id, database_client=db)

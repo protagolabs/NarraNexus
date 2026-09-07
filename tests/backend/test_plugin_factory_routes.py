@@ -109,6 +109,12 @@ def test_cloud_mode_refuses_mutations_but_lists(client, monkeypatch, tmp_path: P
     assert c.post("/api/plugin-factory/install", json={"source": str(tmp_path)}, headers=H).status_code == 403
     assert c.post("/api/plugin-factory/x/enable", headers=H).status_code == 403
     assert c.post("/api/plugin-factory/bisect/start", headers=H).status_code == 403
+    # The frontend error sink is a mutation like the rest: 403, not an
+    # unhandled CloudManaged escaping the handler as a 500 with a stack trace
+    # in exactly the window when the UI is already failing.
+    assert c.post("/api/plugin-factory/acme.a/errors", json={"kind": "x", "message": "m"}, headers=H).status_code == 403
+    # …and the GETTER stays readable in cloud: reading the log is a read.
+    assert c.get("/api/plugin-factory/acme.a/errors", headers=H).status_code == 200
 
 
 def test_main_app_mounts_the_factory_router():

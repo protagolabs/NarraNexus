@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from backend.auth import resolve_current_user_id
+from narranexus.sdk.web import current_user_id
 from narranexus.platform.repository import HomeAssistantBindingRepository
 from narranexus.platform.schema.home_assistant_schema import HAConfig
 from narranexus.platform.utils.db.db_factory import get_db_client
@@ -32,7 +32,7 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 # (read/overwrite others' HA bindings, or ping a victim's home with their
 # stored token). Local mode (no JWT identity) does not enforce; see the
 # helper's security-posture docstring before adding sensitive operations.
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import require_agent_owner
 
 router = APIRouter()
 
@@ -64,9 +64,9 @@ def _mask(token: str) -> str:
 @router.get("/binding")
 async def get_binding(request: Request, agent_id: str) -> dict:
     """Return the agent's HA binding with the token masked (or {bound: False})."""
-    await resolve_current_user_id(request)
+    await current_user_id(request)
     db = await get_db_client()
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     row = await HomeAssistantBindingRepository(db).get_by_agent(agent_id)
     if not row or not row.config_json:
         return {"bound": False}
@@ -80,9 +80,9 @@ async def get_binding(request: Request, agent_id: str) -> dict:
 @router.put("/binding")
 async def put_binding(request: Request, body: HABindingBody) -> dict:
     """Save/replace the agent's HA binding (base_url + token + verify_tls)."""
-    await resolve_current_user_id(request)
+    await current_user_id(request)
     db = await get_db_client()
-    await assert_owned(request, body.agent_id)
+    await require_agent_owner(request, body.agent_id)
     cfg = HAConfig(base_url=body.base_url, token=body.token, verify_tls=body.verify_tls)
     ok = await HomeAssistantBindingRepository(db).upsert_config(body.agent_id, cfg.model_dump_json())
     if not ok:
@@ -93,7 +93,7 @@ async def put_binding(request: Request, body: HABindingBody) -> dict:
 @router.post("/test")
 async def test_connection(request: Request, body: HATestBody) -> dict:
     """Probe a base_url+token: ping the HA API and count entities."""
-    await resolve_current_user_id(request)
+    await current_user_id(request)
     # Import here to avoid pulling module code into route import time.
     from narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client import HAClient, HAError
 
@@ -118,9 +118,9 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     that a URL+token typed into the form work. Returns {ok, entity_count} or
     {ok: False, error}; the stored token is never returned.
     """
-    await resolve_current_user_id(request)
+    await current_user_id(request)
     db = await get_db_client()
-    await assert_owned(request, body.agent_id)
+    await require_agent_owner(request, body.agent_id)
     # Import here to avoid pulling module code into route import time.
     from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import resolve_client
 

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/hooks.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -40,3 +40,7 @@ spec 加参数不破坏旧插件（参考文档 §B-15）；实现声明了 spec
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `HookCaller.add` is idempotent for the same (fn, owner): import-time registration (`module/contributions.register_all`) and the manifest-driven load name the same function and must yield one implementation, not a double call. A different owner adding the same fn is still a second implementation.
+
+## 2026-09-07 — 注释去掉已删的 register_all（round-2）
+
+幂等 add 的动机是测试热重载再导入，不再是导入期注册。

@@ -13,6 +13,7 @@ import pytest
 
 from narranexus.contracts import IncompatibleProvider, PluginError
 from narranexus.contracts.settings import SettingField, SettingsSchema
+from narranexus.contracts.table import table_prefix_for
 from narranexus.kernel.events.bus import EventBus
 from narranexus.kernel.plugins.context import build_context
 from narranexus.kernel.plugins.registries import Registries
@@ -68,13 +69,35 @@ def test_db_is_confined_to_the_plugin_prefix():
     asyncio.run(builtin.db.get("events", {}))  # builtins keep core access
 
 
+def test_a_plugin_cannot_reach_a_sibling_whose_id_extends_its_own():
+    """``table_prefix_for``'s docstring names this exploit: with a SINGLE
+    underscore terminator, ``acme.weather``'s prefix ``ext_acme_weather_`` is a
+    prefix of every table of ``acme.weather_x``, so the confinement check would
+    let the first plugin read and write the second one's rows. The negative case
+    has to be a real sibling table name — asserting on the error string alone
+    stays green when the terminator changes."""
+    sibling_table = table_prefix_for("acme.weather_x") + "items"
+    assert sibling_table.startswith("ext_acme_weather_")  # the tempting near-miss
+    ctx = _ctx("acme.weather")
+    for call in (
+        lambda: ctx.db.get(sibling_table, {}),
+        lambda: ctx.db.insert(sibling_table, {"a": 1}),
+    ):
+        with pytest.raises(PluginError, match="outside ext_acme_weather__"):
+            asyncio.run(call())
+    # and the sibling reaches its own rows, so the guard is not simply refusing everything
+    asyncio.run(_ctx("acme.weather_x").db.insert(sibling_table, {"a": 1}))
+
+
 def test_registries_are_scoped_to_provides_and_api_versions_checked():
     ctx = _ctx(provides=("backend.routes",))
     assert ctx.registries.registry_for("backend.routes").kind == "backend.routes"
     with pytest.raises(PluginError, match="not in the manifest"):
         ctx.registries.registry_for("backend.tables")
-    assert ctx.api_version("route") == 0
-    ctx.require_api("route", 0)
+    # api_version("route") == 0 is today's constant on both sides; what has
+    # teeth is that a plugin asking for a version this host does not have is
+    # refused, and that an unknown kind is not silently version 0.
+    ctx.require_api("route", ctx.api_version("route"))
     with pytest.raises(IncompatibleProvider):
         ctx.require_api("route", 5)
     with pytest.raises(PluginError, match="unknown contract kind"):

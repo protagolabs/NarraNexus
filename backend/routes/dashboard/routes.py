@@ -289,8 +289,13 @@ def _iso(value) -> str | None:
 # 3s/30s fan-out doesn't bloat with rarely-needed deep data.
 # ---------------------------------------------------------------------------
 
-async def _resolve_viewer(request: Request) -> str:
-    """Shared identity resolution mirroring the main endpoint."""
+async def resolve_viewer(request: Request) -> str:
+    """Shared identity resolution mirroring the main endpoint.
+
+    Public (not ``_``-prefixed) because ``backend/plugin_sdk_host.py``
+    publishes it on the plugin web seam: builtin.job's dashboard router lives
+    in a plugin package and must not reach into a private module of ours.
+    """
     if "user_id" in request.query_params:
         raise HTTPException(
             status_code=400,
@@ -299,8 +304,12 @@ async def _resolve_viewer(request: Request) -> str:
     return await resolve_current_user_id(request)
 
 
-async def _assert_agent_visible(viewer_id: str, agent_id: str) -> dict:
-    """Ensure viewer can see this agent (owned OR public). Returns agent row."""
+async def assert_agent_visible(viewer_id: str, agent_id: str) -> dict:
+    """Ensure viewer can see this agent (owned OR public). Returns agent row.
+
+    Public for the same reason as ``resolve_viewer`` — it is part of the
+    ``contracts.web.WebHost`` surface plugin routers call.
+    """
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -325,7 +334,7 @@ async def job_detail(job_id: str, request: Request):
     recent_history; blocked jobs include blocking_dependencies; failed jobs
     include the full error.
     """
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -342,7 +351,7 @@ async def job_detail(job_id: str, request: Request):
     job = rows[0]
 
     # Check caller can see the owning agent
-    agent = await _assert_agent_visible(viewer_id, job["agent_id"])
+    agent = await assert_agent_visible(viewer_id, job["agent_id"])
     owns_agent = agent["created_by"] == viewer_id
     if not owns_agent:
         raise HTTPException(status_code=403, detail="not owned")  # public can't peek internals
@@ -411,7 +420,7 @@ async def session_detail(session_id: str, request: Request):
     Returns enriched info: most recent bus message in the session's channel
     plus session metadata. Only owner of the agent can read details.
     """
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
 
     # Scan registry to find this session_id
     registry = get_session_registry()
@@ -426,7 +435,7 @@ async def session_detail(session_id: str, request: Request):
     if not match:
         raise HTTPException(status_code=404, detail="session not found")
 
-    agent = await _assert_agent_visible(viewer_id, agent_id)
+    agent = await assert_agent_visible(viewer_id, agent_id)
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
 
@@ -462,8 +471,8 @@ async def session_detail(session_id: str, request: Request):
 @router.get("/agents/{agent_id}/sparkline")
 async def agent_sparkline(agent_id: str, request: Request, hours: int = 24):
     """v2.1: 24h events-per-hour buckets for the sparkline micro-viz."""
-    viewer_id = await _resolve_viewer(request)
-    await _assert_agent_visible(viewer_id, agent_id)
+    viewer_id = await resolve_viewer(request)
+    await assert_agent_visible(viewer_id, agent_id)
     hours = max(1, min(168, int(hours)))  # clamp 1..168 (7 days)
     buckets = await fetch_sparkline_24h(agent_id, hours=hours)
     return {"success": True, "buckets": buckets, "hours": hours}
@@ -472,7 +481,7 @@ async def agent_sparkline(agent_id: str, request: Request, hours: int = 24):
 @router.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, request: Request):
     """v2.1: reset a failed job back to 'pending' so the trigger can pick it up."""
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -481,7 +490,7 @@ async def retry_job(job_id: str, request: Request):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
+    agent = await assert_agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
     if rows[0]["status"] not in ("failed", "blocked", "cancelled"):

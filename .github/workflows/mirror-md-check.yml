@@ -52,11 +52,16 @@ jobs:
           # rename as D + A, so the new path shows up as an addition.
           # Same flag on the source list, so a renamed .py is also seen (it
           # needs its md moved alongside).
+          # `vite.config.ts` / `vitest.config.ts` are excluded for the same
+          # reason as `scripts/`: a bundler config is build wiring, not a piece
+          # of the product whose INTENT a mirror md would carry. Three of them
+          # (frontend/packages/{sdk,ui-kit,chat-widget}) arrived with the batch-6
+          # frontend packages and the bot named all three.
           # Source files that should have a mirror md.
           mapfile -t CHANGED < <(
             git diff --name-only --no-renames --diff-filter=AM "$BASE" "$HEAD" \
               | grep -E '\.(py|ts|tsx|rs)$' \
-              | grep -v -E '(^tests/|^frontend/node_modules/|\.test\.|^scripts/|\.d\.ts$|^templates/|^plugins/[^/]+/tests/|^distributions/[^/]+/plugins/)' \
+              | grep -v -E '(^tests/|^frontend/node_modules/|\.test\.|^scripts/|\.d\.ts$|^templates/|^plugins/[^/]+/tests/|^distributions/[^/]+/plugins/|(^|/)vite\.config\.ts$|(^|/)vitest\.config\.ts$)' \
               || true
           )
 

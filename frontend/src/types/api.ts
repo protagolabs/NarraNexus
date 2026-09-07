@@ -1438,6 +1438,14 @@ export interface FactoryBisect {
 }
 
 /** GET /api/channels/{channel}/schema — the generic bind form of a channel (plugin platform batch 4b). */
+/** One row of `GET /api/plugins/channels` — the host's `ingress.channels` registry as data. */
+export interface PluginChannelRow {
+  name: string;
+  display_name?: string;
+  owner: string;
+  ui?: { label?: string; icon?: string; order?: number };
+}
+
 export interface ChannelSchemaField {
   name: string;
   kind: 'string' | 'secret' | 'url' | 'bool' | 'int' | 'select';

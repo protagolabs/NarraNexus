@@ -4,6 +4,14 @@
 @date: 2026-09-03
 @description: Plugin boot for the agent-side processes (mcp module servers, workers supervisor).
 
+Health is NOT declared here. ``BootReport.mark_healthy`` clears the boot-crash
+counter and moves the last-known-good snapshot, so it may only fire once the
+process actually serves — these hosts call ``mark_host_healthy(role)`` from
+their entrypoint after the server / supervisor is up. Marking it at the end of
+``boot()`` meant a process that booted the plugins and then died before serving
+still advanced the rollback target, which is precisely the state safe mode
+exists to escape.
+
 These hosts register declarative contributions only: tools, MCP servers,
 skills, workers. They never activate user plugin code (activation needs the
 backend's context: settings store, service locator, event bus) and never
@@ -32,12 +40,24 @@ def _boot(role: Role) -> BootReport:
         role, registries=KERNEL_REGISTRIES, cloud=is_cloud_mode(), host_version=host_version(),
         distribution=resolve_from_env(host_version=host_version()),
     )
-    report.mark_healthy()  # no separate health probe here: reaching this line is health
     from narranexus.platform.bindings_runtime import resolve_runtime_bindings
 
     resolve_runtime_bindings(resolve_from_env(host_version=host_version()), snapshot=False)
     _REPORTS[role] = report
     return report
+
+
+def mark_host_healthy(role: Role) -> None:
+    """The entrypoint's health signal: called AFTER the host is serving.
+
+    Idempotent and never raises — a host that calls it twice (a supervisor that
+    restarts its workers) just re-snapshots, and a host that never reaches it
+    leaves the boot marker in place, which is what turns a crash loop into
+    safe mode.
+    """
+    report = _REPORTS.get(role)
+    if report is not None:
+        report.mark_healthy()
 
 
 def boot_mcp_plugins() -> BootReport:
@@ -63,4 +83,4 @@ def boot_channel_plugins() -> BootReport:
     return _boot("workers")
 
 
-__all__ = ["boot_channel_plugins", "boot_executor_plugins", "boot_mcp_plugins", "boot_worker_plugins"]
+__all__ = ["boot_channel_plugins", "boot_executor_plugins", "boot_mcp_plugins", "boot_worker_plugins", "mark_host_healthy"]

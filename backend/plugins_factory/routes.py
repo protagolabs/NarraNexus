@@ -205,9 +205,9 @@ async def errors(plugin_id: str) -> dict[str, Any]:
 
 @router.post("/{plugin_id}/errors")
 async def report_error(plugin_id: str, body: ErrorBody) -> dict[str, Any]:
-    # A mutation like every other: cloud-guarded, off the event loop (the audit
-    # write fsyncs), 404 for a plugin that is not installed.
-    service()._guard_mutation()
+    # A mutation like every other: cloud-guarded inside the service method (so
+    # `_run` answers 403, not 500), off the event loop (the audit write
+    # fsyncs), 404 for a plugin that is not installed.
     count = await _run(service().record_error, plugin_id, kind=body.kind, message=body.message, stack=body.stack)
     return {"success": True, "data": {"count": count}}
 

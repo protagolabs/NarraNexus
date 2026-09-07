@@ -554,3 +554,13 @@ The codex_oauth / claude_oauth probes resolve their driver class with `get_drive
 ## 2026-09-07 — 框架接口全部注册表驱动（B6）
 
 _SUPPORTED_AGENT_FRAMEWORKS 常量换 _supported_agent_frameworks()；GET agent-framework 的 frameworks[] 每项带 display_name/protocol/oauth_source/available（前端 picker、providerBacksFramework 从此读，不再各自抄表）；_probe_agent_framework_auth 的 leg 1 按 meta.agent_protocols 匹配、leg 2 用 meta.oauth_source 同名的 OAuth driver 探测（无 oauth_source 的框架直接报『仅 API-key』），两段 codex/claude 分支合一；nexus_power 的安装门豁免不再按名字，改由 framework_installed 对无安装配方的框架返回 True。仍按名字判断的只剩 _ensure_codex_installed（codex wheel 内置二进制的复核，属于该插件的 belt-and-suspenders，fail-closed 门已覆盖）。
+
+## 2026-09-07（round-2 P2-I2 / P2-I8）— import moves + the 403 text is built, not literal
+
+`SLOT_REQUIRED_PROTOCOLS` now comes from `agent_framework.providers.framework_binding` (it left the
+schema layer with the two policy functions that read the framework registry).
+`FRAMEWORK_LOCKED_DETAIL` became `framework_locked_detail()`: the body names the frameworks the
+deployment actually allows instead of hardcoding "Claude Code or NexusPower". The route's existing
+`ValueError → 400` / `CloudPolicyViolation → 403` mapping is unchanged and is now what a binding to
+an uninstalled framework hits — it used to escape as a `RuntimeError` and 500 the whole provider
+page, i.e. the one page that can undo the binding.

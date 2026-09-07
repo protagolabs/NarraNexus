@@ -68,3 +68,13 @@ load() 第一遍遍历（同时查重 id）收集本角色所有 manifest 的 de
 ## 2026-09-07 — 有界导入 + 阶段 deadline；service 二次暴露是冲突（round-2）
 
 resolve_symbol 接受 importer；非 builtin manifest 用 _bounded_importer（自己的包走 import_plugin_module(timeout)，其它照常）；PluginImportTimeout → PluginLoad.slow=True；deadline 在每个用户插件前复查。_expose_services：同 owner 重复暴露是 no-op，不同 owner 抛 RegistryConflict（旧代码 try_require 为真就静默跳过并计数）。
+
+
+## 2026-09-07 — LoadReport.warnings (round-2 G2-I2)
+
+Non-fatal manifest findings now have a home on the report instead of only the log.
+The first entry is the `api`-does-not-cover-its-slot-kinds deprecation window
+(docs/API_POLICY.md section 4): builtins are refused at parse time, third-party
+manifests get one line here per load until the window closes. It is filled from
+`manifest.missing_api_kinds` against the registries' own slot tree, so the check
+sees the slots the plugins in THIS load declared.

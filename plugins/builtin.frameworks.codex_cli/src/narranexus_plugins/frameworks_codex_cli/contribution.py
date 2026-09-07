@@ -31,6 +31,10 @@ META = FrameworkMeta(
     protocol="openai",
     oauth_source="codex_oauth",
     login_marker=(".codex", "auth.json"),
+    # Authenticates from ``~/.codex/auth.json`` in the host's single HOME.
+    uses_shared_cli_login=True,
+    # ``CodexSDKv2.capabilities()`` is the base contract; CLI-flattened history.
+    capabilities=frozenset(),
 )
 CONTRIBUTION = Contribution("codex_cli", lambda: _factory, meta={"framework": META})
 

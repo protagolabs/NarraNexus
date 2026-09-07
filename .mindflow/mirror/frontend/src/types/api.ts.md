@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `PluginChannelRow`
+
+`GET /api/plugins/channels` 的一行：宿主 `ingress.channels` 注册表的数据形态，
+供 [[registerBuiltinChannels]] 建 Channels 区的行用。
 
 ## 2026-09-03 — `BoundChannel`；删 `AgentModelOverview`
 

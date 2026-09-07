@@ -9,6 +9,7 @@ import type {
   AgentCapabilitiesView,
   ChannelCredentialView,
   ChannelSchema,
+  PluginChannelRow,
   MigrationFramework,
   MigrationDetectResponse,
   StandardizedAgentImport,
@@ -1791,6 +1792,13 @@ class ApiClient {
 
   async getLarkAuthStatus(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>(`/api/lark/auth/status?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  /** The `ingress.channels` catalog: one row per channel plugin the host loaded, with its
+   *  `ChannelUi` (label / lucide icon name / order) and owning plugin id. `registerBuiltinChannels`
+   *  builds the Channels section from this instead of restating each row in TypeScript. */
+  async pluginChannels(): Promise<ApiResponse & { data?: PluginChannelRow[] }> {
+    return this.request('/api/plugins/channels');
   }
 
   // Telegram Integration API

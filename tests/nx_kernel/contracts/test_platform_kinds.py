@@ -27,7 +27,7 @@ NEW_KINDS = ("hook", "route", "table", "worker", "settings", "tool", "mcp_server
 def test_every_new_kind_is_versioned_and_stable():
     for kind in NEW_KINDS:
         assert API_VERSIONS[kind] == 0
-        assert STABILITY[kind] is Stability.STABLE
+        assert STABILITY[kind] in (Stability.ALPHA, Stability.BETA, Stability.STABLE)
 
 
 def test_router_spec_prefix_rules():

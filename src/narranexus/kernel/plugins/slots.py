@@ -266,6 +266,16 @@ def build_kernel_slot_tree() -> SlotTree:
              kind="channel", doc="IM channels: one ChannelDescriptor per channel (trigger + module + credential schema + routes + ui + transport)."),
         Slot("ingress.triggers", many, "narranexus.contracts.trigger:TriggerSpec", KERNEL_OWNER,
              kind="trigger", doc="Ingress triggers: IM channel listeners (host=channels), clock/queue pollers run as workers (host=workers), on-demand HTTP servers (host=api)."),
+        # Kind-LESS on purpose. A channel's message source rides on its own
+        # ChannelDescriptor (kind "channel"), so this slot exists only for the
+        # sources that are NOT channels — the message bus, the job clock. Giving
+        # it kind="channel" would make a manifest declare an api["channel"]
+        # version for something that is not a channel; inventing a
+        # "message_source" kind would add a contract-version vocabulary entry for
+        # a record that never versions independently of "channel". Entries are
+        # checked structurally by MessageSourceSpec's own validation instead.
+        Slot("ingress.message_sources", many, "narranexus.contracts.channel:MessageSourceSpec", KERNEL_OWNER,
+             doc="Non-channel message sources: how a source's replies are recognised and its stored rows labelled (channels declare theirs on their ChannelDescriptor)."),
         Slot("backend", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Backend host (routes, workers, hooks, tables, settings, services)"),
         Slot("backend.routes", many, "narranexus.contracts.route:RouterSpec", KERNEL_OWNER,

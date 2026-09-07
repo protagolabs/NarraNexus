@@ -39,8 +39,8 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import current_user_id
+from narranexus.sdk.web import require_agent_owner
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
 from narranexus.platform.repository import JobRepository
@@ -188,7 +188,7 @@ async def _assert_job_owner(request: Request, db_client, job_id: str) -> Optiona
     row = await db_client.get_one("instance_jobs", filters={"job_id": job_id})
     if not row:
         return None
-    await assert_owned(request, row.get("agent_id"))
+    await require_agent_owner(request, row.get("agent_id"))
     return row
 
 
@@ -266,7 +266,7 @@ async def list_jobs(
 
     Retrieves data from instance_jobs table and dependency relationships from module_instances table
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.debug(f"Listing jobs for agent: {agent_id}, user: {user_id}, status: {status}")
 
     try:
@@ -469,10 +469,10 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     """
     logger.info(f"Creating Job Complex: {len(body.jobs)} jobs")
 
-    await assert_owned(request, body.agent_id)
+    await require_agent_owner(request, body.agent_id)
     # Identity is the authenticated caller, not the request body — the agent is
     # already proven to be theirs by assert_owned above.
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
 
     try:
         # 1. Validate dependencies
@@ -560,7 +560,7 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
     `narranexus_plugins.job_module.update_job_from_args` implementation.
     Only passed fields change.
     """
-    await assert_owned(request, body.agent_id)
+    await require_agent_owner(request, body.agent_id)
 
     # The ~90-line build-updates logic (effective_type ordering, trigger_config
     # + compute_next_run, next_run_time, status validation) is the shared
@@ -597,7 +597,7 @@ async def pause_job(job_id: str, request: Request, body: JobPauseBody):
     non-agent caller gets the exact same semantics the agent's own
     `job_pause` tool has.
     """
-    await assert_owned(request, body.agent_id)
+    await require_agent_owner(request, body.agent_id)
 
     try:
         db_client = await get_db_client()
@@ -644,7 +644,7 @@ async def search_jobs_semantic(
     — vectors were retired from job search; the tool kept its name for
     LLM-facing continuity.
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     # Same user-scoping decision as list_jobs above: the caller's own identity
     # is the filter — an "optional user_id" query param let any client read
@@ -652,7 +652,7 @@ async def search_jobs_semantic(
     # removed (jobs are per-user records under the agent). This is deliberately
     # STRICTER than the agent-path seam route (agents/jobs.py), which trusts the
     # agent to pass a user_id (it queries its OWN agent's jobs).
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises
@@ -676,11 +676,11 @@ async def search_jobs_by_keywords(
     (`narranexus_plugins.job_module.search_jobs_by_keywords`) with the
     agent path — see search_jobs_semantic above for the user-scoping rationale.
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     # Caller's own identity is the filter (stricter than the agent-path seam
     # route — see search_jobs_semantic above).
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         db_client = await get_db_client()
     except Exception as e:  # noqa: BLE001 — the shared helper never raises

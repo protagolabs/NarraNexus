@@ -1,6 +1,6 @@
 ---
 code_dir: src/narranexus/platform/agent_framework/providers/driver
-last_verified: 2026-05-13
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -31,7 +31,7 @@ file path, system-pool quota deduction — lives inside the Driver.
 | File | Job |
 |---|---|
 | ``base.py`` | ``ProviderCard`` dataclass + ``Driver`` Protocol + ``_DriverBase`` helper |
-| ``registry.py`` | ``DRIVER_REGISTRY`` map + ``@register`` decorator |
+| ``registry.py`` | the ``model.providers`` registry, reached through the ``driver_registry()`` accessor + ``@register`` / ``register_driver`` |
 | ``derive.py`` | Pure helpers: ``derive_driver_type`` / ``is_slot_broken`` / ``pick_default_model`` |
 | ``backfill.py`` | One-shot migration of legacy ``user_providers`` rows (idempotent) |
 | ``self_heal.py`` | Reverse-validation + auto-repair for broken slot bindings |
@@ -72,3 +72,15 @@ file path, system-pool quota deduction — lives inside the Driver.
 * Sync-from-catalog (catalog evolves, append new models to user.models)
   is intentionally NOT auto-triggered by self-heal. It must remain
   user-initiated to respect deliberate deletions.
+
+## 2026-09-07（round-2 T2-C6）— there is no `DRIVER_REGISTRY` constant
+
+The table above said `registry.py` holds a `DRIVER_REGISTRY` map. It does not, and has not since
+`9314cb77b`: the drivers live in the kernel's `model.providers` registry, reached at CALL time via
+`driver_registry()` (a module-level constant bound to the process registries made a test's private
+`Registries()` invisible to this package). `@register` only ATTACHES the driver's `Contribution` to
+the class — the symbol `builtin.providers`' manifest names — and the host boot is what registers it;
+`register_driver(cls, owner=...)` is the explicit path for a test or an embedding host. A process
+that has not booted the plugin platform therefore has an EMPTY provider registry and
+`get_driver_class` answers `None`, which the resolver turns into a loud `LLMConfigNotConfigured` —
+that is the intended failure, not a bug.

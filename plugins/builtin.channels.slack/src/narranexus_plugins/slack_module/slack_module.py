@@ -24,10 +24,6 @@ from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
 from narranexus.platform.channel.message_source_handler import is_owner_tool
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema import (
     ContextData,
     ModuleConfig,
@@ -40,7 +36,8 @@ from ._slack_mcp_tools import register_slack_mcp_tools
 from .slack_sdk_client import SlackSDKClient, SlackSDKError
 
 # ───────────────────────────────────────────────────────────────────────────
-# MessageSourceRegistry handler — let ChatModule extract the actual reply
+# Reply extractor (named by descriptor.reply_extractor_ref) — let ChatModule
+# extract the actual reply
 # Slack agents emit, instead of dumping a "Background activity (slack)"
 # placeholder. Symmetrical to lark_module._extract_lark_reply.
 #
@@ -104,24 +101,6 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return "(sent via slack_cli)"
 
     return inner_args.get("text") or "(sent via slack_cli)"
-
-
-# Register at module-import time so chat_module._extract_user_visible_response
-# sees the handler before any Slack turn lands. Idempotency guarded by
-# MessageSourceRegistry: duplicate registration raises ValueError, which
-# we swallow under reload scenarios but let propagate on first import.
-try:
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="slack",
-        display_label="Slack",
-        user_reply_tool_names=("slack_cli", "notify_owner"),
-        row_prefix_template="[Slack · {sender_name} · {sender_id} · {chat_id}]",
-        extract_reply_fn=_extract_slack_reply,
-        dedicated_trigger=True,
-    ))
-except ValueError:
-    # Re-import (test hot-reload, etc.) — handler already registered.
-    pass
 
 
 # ── Slack App Manifest ──────────────────────────────────────────────────

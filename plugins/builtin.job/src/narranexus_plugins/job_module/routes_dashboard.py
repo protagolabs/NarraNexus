@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.routes.dashboard.routes import _assert_agent_visible, _resolve_viewer
+from narranexus.sdk.web import agent_visible, resolve_viewer
 from narranexus.contracts.route import RouterSpec
 from narranexus.kernel.plugins.registry import Contribution
 
@@ -27,7 +27,7 @@ router = APIRouter()
 @router.post("/jobs/{job_id}/pause")
 async def pause_job(job_id: str, request: Request):
     """v2.1: pause an active/pending job."""
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -36,7 +36,7 @@ async def pause_job(job_id: str, request: Request):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
+    agent = await agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core (repository, not backend-specific SQL) — also keeps pause
@@ -51,7 +51,7 @@ async def pause_job(job_id: str, request: Request):
 @router.post("/jobs/{job_id}/resume")
 async def resume_job(job_id: str, request: Request):
     """v2.1: resume a paused job (back to pending so trigger can take it)."""
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -60,7 +60,7 @@ async def resume_job(job_id: str, request: Request):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
+    agent = await agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core: handles paused / paused_no_quota / cooling / blocked_failed,
@@ -89,7 +89,7 @@ async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
     time fields into trigger_config, revalidate, recompute next_run. The job's
     status is left unchanged. Auth/ownership stays here, mirroring pause/resume.
     """
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
     from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
@@ -98,7 +98,7 @@ async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
+    agent = await agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
     # exclude_none: only overlay the fields the user actually changed, so e.g.

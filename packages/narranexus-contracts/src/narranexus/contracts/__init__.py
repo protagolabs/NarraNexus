@@ -59,6 +59,14 @@ API_VERSIONS: dict[str, int] = {
     "module": 0,
     "auth": 0,
     "prompt": 0,
+    # Batch 6c. Not a manifest/slot kind: these two name the surfaces a plugin
+    # AUTHOR imports (contracts.web + the channel base classes re-exported by
+    # narranexus.sdk). They are versioned and graded here because that is the
+    # only table the griffe gate and the release notes read — a surface a
+    # third party builds on and nobody grades is exactly the Hyrum's-Law trap
+    # docs/API_POLICY.md §1 refuses.
+    "web": 0,
+    "channel_authoring": 0,
 }
 
 # The OLDEST contract version a plugin may still declare per kind. Equal to
@@ -101,6 +109,13 @@ STABILITY: dict[str, Stability] = {
     "module": Stability.STABLE,
     "auth": Stability.STABLE,
     "prompt": Stability.STABLE,
+    # ALPHA, honestly (docs/API_POLICY.md §2): ``web`` is one batch old and its
+    # ownership/visibility split is still under review; ``channel_authoring``
+    # re-exports base classes batch 4 landed and whose credential seam is a
+    # tracked follow-up. Marking either STABLE to look tidy would promise a
+    # deprecation window we cannot honour yet.
+    "web": Stability.ALPHA,
+    "channel_authoring": Stability.ALPHA,
 }
 
 

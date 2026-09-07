@@ -99,3 +99,12 @@ The entire configuration is serialized to `~/.nexusagent/llm_config.json` by `LL
 ## 2026-09-07 — agent 槽协议要求与订阅卡归属改由注册表派生（B6）
 
 AGENT_FRAMEWORK_REQUIRED_PROTOCOLS/CLI_FRAMEWORK_BY_OAUTH_SOURCE 两张名字表删除。get_slot_required_protocols 对 agent 槽读 FrameworkMeta.agent_protocols（调用期局部导入 loop.driver——注册表在 schema 之上，schema 不持框架名），空框架=bound 默认，未知框架抛 ValueError（写入方转 400）。framework_can_drive_provider 的订阅规则用 framework_for_oauth_source。SLOT_REQUIRED_PROTOCOLS 注解修正为 dict[SlotName, ...]（原 str 注解让 pyright 在路由的 slot.value 上报错）。
+
+## 2026-09-07（round-2 P2-I8）— schemas only: the binding policy moved out
+
+`SLOT_REQUIRED_PROTOCOLS`, `SUBSCRIPTION_AUTH_TYPES`, `get_slot_required_protocols` and
+`framework_can_drive_provider` moved to `platform/agent_framework/providers/framework_binding.py`.
+They are business rules that read the framework registry, and expressing that upward dependency as a
+function-body import (`# Local import: the framework registry lives above the schema layer`) made the
+layering violation invisible to import-linter, whose contracts are static-only. This file now holds
+enums and pydantic models, so anything may import it without pulling the framework registry.

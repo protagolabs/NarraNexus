@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/slot_service.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -117,3 +117,11 @@ Gotchas:
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
 
 Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
+
+## 2026-09-07（round-2 P2-I1）— the owner-default framework literal is gone
+
+`(owner_agent_slot or {}).get("agent_framework") or "nexus_power"` became `framework_of(owner_agent_slot)`.
+The bare literal was the third disagreeing answer to "which framework": under a binding to another
+plugin, `set_agent_slot` validated the card against nexus_power's protocol list (`"any"` → both
+accepted) while the resolver ran the bound framework and rejected the same card at turn time.
+`FRAMEWORK_LOCKED_DETAIL` became `framework_locked_detail()` (built from the frameworks that qualify).

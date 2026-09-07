@@ -46,7 +46,7 @@ from narranexus.platform.utils.logging import timed
 from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 from narranexus.platform.agent_framework.api_config import claude_config
 from narranexus.platform.agent_framework.providers.model_catalog import resolve_cli_alias
-from narranexus.platform.agent_framework.adapters._tool_policy_guard import build_tool_policy_guard
+from narranexus.platform.agent_framework.adapters import build_tool_policy_guard
 from narranexus_plugins.frameworks_claude_code.cli_binary import (
     PINNED_CLI_VERSION,
     effective_cli_version,

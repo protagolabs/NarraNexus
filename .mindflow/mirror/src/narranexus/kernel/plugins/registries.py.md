@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 注释指向改到 `narranexus.contracts.services`
+
+`kernel/plugins/service_refs.py` 已删除（A2-3），三条 ref 搬进契约包。
+
 ## 2026-09-04（批 3c.1）— `remove_owner` 跨全部注册表 + 钩子 block；`agent.capabilities.modules` kind 映射
 
 ## 2026-09-04（批 3a）— 七个阶段位、profiles、context_providers 的 kind 映射
@@ -25,11 +29,13 @@ stub: false
 ## 2026-09-03 — `Registries` 门面：每个扩展位一张注册表，进程内唯一实例
 
 平台代码从这里取注册表（`registry_for(path)`），不再各处私建 dict——批 0 的出口判据
-「registries 已被平台消费」就是 `loop/driver.FRAMEWORK_REGISTRY`、`providers/driver/registry.
-DRIVER_REGISTRY`、`memory/spec.MEMORY_KIND_REGISTRY` 三者都 `is KERNEL_REGISTRIES.registry_for(...)`
-（`tests/nx_kernel/kernel/test_loader.py` 钉住）。注册表按扩展位路径惰性创建，契约版本来自
-`SLOT_KINDS`（路径→kind），键归一化来自 `_NORMALIZERS`（框架名大小写不敏感）——这两张小表是
-「kind 特有知识」唯一允许出现在内核的地方，因为它们是纯数据。
+「registries 已被平台消费」是：框架 / provider driver / memory kind 三处都通过**调用时的访问器**
+（`framework_registry()`、`driver_registry()`、`memory_kind_registry()`）拿到
+`KERNEL_REGISTRIES.registry_for(...)` 本身（`tests/nx_kernel/kernel/test_loader.py` 钉住）。
+曾经的三个模块级常量 `FRAMEWORK_REGISTRY` / `DRIVER_REGISTRY` / `MEMORY_KIND_REGISTRY` **已全部删除**：
+模块级常量会在 import 期就绑定一张注册表，而注册只允许发生在 boot，两者不相容。注册表按扩展位路径
+惰性创建，契约版本与键归一化都来自 `Slot` 自身（`Slot.kind` / `Slot.case_insensitive`），树旁边不再
+有第二张路径键表要同步。
 `one` 与 `many` 位都用同一个 `Registry`：元数是绑定语义（换/追加），注册表只是「按名字存候选」。
 `freeze()` 传播到已建与后建的注册表。`snapshot()` 给出 path→{name→owner} 的确定性视图，
 loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得到干净实例。
@@ -65,3 +71,15 @@ SLOT_KINDS maps backend.services to the 'services' contract kind.
 ## 2026-09-07 — registry_for 读 Slot 自身的 kind/normalize（B7）
 
 SLOT_KINDS/_NORMALIZERS 删除；未知槽抛 UnknownEntry 并在尚无任何注册表时附『是否已 boot』提示（插件声明的槽在 boot 前不存在，裸 Registries() 上取 turn.pipeline.act.framework 正是这种情况）。
+
+
+## 2026-09-07 — freeze() closes all THREE surfaces (round-2 K2-I6)
+
+`freeze()` only froze the per-slot registries, so after boot a plugin could still
+`hooks.add` / `hooks.declare` / `services.expose` — "nothing registers after boot"
+was true for one third of the platform. It now also freezes the hook registry and
+the service locator, which is exactly the set `remove_owner` withdraws. A slot
+whose registry is created lazily AFTER the freeze is born frozen (that branch
+existed and is now asserted); `tests/nx_kernel/hosts/test_turn_loaded_for_every_turn_host.py`
+drives a real boot and checks every surface, because the suite's process-global
+`KERNEL_REGISTRIES` is deliberately never frozen and cannot exercise it.

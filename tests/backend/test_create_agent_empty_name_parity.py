@@ -69,7 +69,7 @@ def route_client(db_client, monkeypatch, seeded):
     async def _allow(_request, _agent_id):
         return None
 
-    monkeypatch.setattr(sn, "assert_owned", _allow)
+    monkeypatch.setattr(sn, "require_agent_owner", _allow)  # the sdk.web seam name
 
     app = FastAPI()
 

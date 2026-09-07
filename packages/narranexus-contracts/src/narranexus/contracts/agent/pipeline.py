@@ -17,6 +17,7 @@ of the public contract yet — alpha).
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Protocol, runtime_checkable
 
@@ -52,6 +53,74 @@ class TurnPipeline(Protocol):
 ActStrategy = StageStrategy
 
 
+# --- the ``when`` clause grammar -------------------------------------------
+#
+# A profile says WHEN it applies as data, so selecting one is not an if-chain
+# in the platform (which no plugin profile could ever reach). Deliberately
+# tiny and closed — a predicate language, not an expression language: no
+# arbitrary attribute access, no calls, no numbers, no eval. The frontend's
+# slot-point predicates (``frontend/src/platform/registries/when.ts``) are the
+# same IDEA with a different vocabulary (``conversationKind:`` / ``agentHas:``
+# / ``setting:``); that grammar is keyed on UI facts and cannot express a turn
+# fact like ``source == 'discord'``, so this is a sibling, not a copy. Both
+# stay closed vocabularies for the same reason: a typo must be a parse error,
+# never "always true".
+#
+#   clause  := term (" or " term)*          -- lowest precedence
+#   term    := atom (" and " atom)*
+#   atom    := "!"? NAME                    -- truthiness of a context key
+#            | NAME ("==" | "!=") VALUE     -- string comparison
+#   VALUE   := "'...'" | '"..."' | bare word
+#
+# Unknown keys are falsy (absent context is not a match), never an error: the
+# host decides what facts a turn exposes and may add more over time.
+_ATOM_RE = re.compile(
+    r"""^(?P<neg>!)?\s*(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*
+        (?:(?P<op>==|!=)\s*(?P<value>'[^']*'|"[^"]*"|[A-Za-z0-9_.:@/-]+))?$""",
+    re.VERBOSE,
+)
+
+
+class WhenSyntaxError(ValueError):
+    """A ``when`` clause that does not parse. Loud at selection time rather
+    than silently never (or always) matching."""
+
+
+def _eval_atom(atom: str, ctx: Mapping[str, Any]) -> bool:
+    m = _ATOM_RE.match(atom.strip())
+    if not m:
+        raise WhenSyntaxError(
+            f"invalid when clause {atom!r}: expected NAME, !NAME, NAME == 'value' or NAME != 'value'"
+        )
+    key, op, raw = m.group("key"), m.group("op"), m.group("value")
+    value = ctx.get(key)
+    if op is None:
+        holds = bool(value)
+    else:
+        wanted = raw[1:-1] if raw and raw[0] in "'\"" else (raw or "")
+        holds = (str(value) if value is not None else "") == wanted
+        if op == "!=":
+            holds = not holds
+    return not holds if m.group("neg") else holds
+
+
+def evaluate_when(clause: str, ctx: Mapping[str, Any]) -> bool:
+    """Whether ``clause`` holds for the facts in ``ctx``.
+
+    An EMPTY clause is ``False``: a profile with no ``when`` does not take part
+    in automatic selection at all (it is reachable by being named explicitly,
+    or by being the fallback ``default``). That is deliberately the opposite of
+    the frontend's "empty always holds" — here "always holds" would mean a
+    profile that silently wins every turn.
+    """
+    if not clause or not clause.strip():
+        return False
+    return any(
+        all(_eval_atom(atom, ctx) for atom in term.split(" and "))
+        for term in clause.split(" or ")
+    )
+
+
 @dataclass(frozen=True)
 class CapabilityFilter:
     """Which capabilities take part under a profile (``None`` = all enabled)."""
@@ -67,13 +136,25 @@ class CapabilityFilter:
 
 @dataclass(frozen=True)
 class PipelineProfile:
-    """A named selection of stage strategies plus budgets and a capability filter."""
+    """A named selection of stage strategies plus budgets, a capability filter,
+    and the condition under which the host picks it.
+
+    ``when`` is the profile's own answer to "when do I apply?" (grammar above),
+    and ``order`` breaks ties — LOWEST first, so a specific profile outranks a
+    broad one. Together they replace the platform-side if-chain that used to
+    decide this: a plugin profile can now say ``when="source == 'discord'"``
+    and be selected without a platform edit. An empty ``when`` means the
+    profile is only reachable by being named explicitly (or by being the
+    fallback ``default``).
+    """
 
     id: str
     strategies: Mapping[Stage, str] = field(default_factory=dict)  # stage -> strategy name; missing = default
     budgets: Budgets = field(default_factory=Budgets)
     capability_filter: CapabilityFilter = field(default_factory=CapabilityFilter)
     narrative_persistence: str = "durable"  # "durable" | "ephemeral"
+    when: str = ""
+    order: int = 100
 
     def strategy_for(self, stage: Stage, default: str = "default") -> str:
         return self.strategies.get(stage, default)
@@ -87,6 +168,8 @@ class PipelineProfile:
             budgets=override.budgets or self.budgets,
             capability_filter=override.capability_filter or self.capability_filter,
             narrative_persistence=override.narrative_persistence or self.narrative_persistence,
+            when=self.when,
+            order=self.order,
         )
 
 
@@ -110,4 +193,6 @@ __all__ = [
     "StageStrategy",
     "TurnOverride",
     "TurnPipeline",
+    "WhenSyntaxError",
+    "evaluate_when",
 ]

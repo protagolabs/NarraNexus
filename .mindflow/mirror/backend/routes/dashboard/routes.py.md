@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `_resolve_viewer` / `_assert_agent_visible` 转公开（批 6c，G2-I1）
+
+改名为 `resolve_viewer` / `assert_agent_visible`。`builtin.job` 的 dashboard router
+自批 6b 起住在插件包里，却在 import 这两个**下划线私有**函数；
+一个第三方复制不到的私有符号被跨包调用，这个下划线就已经在说谎。
+它们现在是 `contracts.web.WebHost` 表面的一部分，由 [[plugin_sdk_host]] 发布，
+插件走 `narranexus.sdk.web`。本文件内部的 4 处调用同批改名。
 
 ## 2026-08-27 — 只改了两行注释,但契约本身是这次修的重点
 

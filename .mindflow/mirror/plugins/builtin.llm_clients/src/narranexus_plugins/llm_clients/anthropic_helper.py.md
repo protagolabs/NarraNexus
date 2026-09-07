@@ -1,8 +1,18 @@
 ---
 code_file: plugins/builtin.llm_clients/src/narranexus_plugins/llm_clients/anthropic_helper.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
+
+本文件曾 import `narranexus.platform` 的下划线私有模块。批 6c 在拥有它的包上开出了
+具名公开函数（`module_system` 的 caller-identity 解析器 / `marketplace` 的
+store·pipeline·secret-box / `agent_framework.llm.prompt_probe_emit` /
+`agent_framework.adapters.build_tool_policy_guard`），本文件改用它们。
+理由不是命名规范：这些 MCP 工具和 helper 自批 6b 起是**独立的 wheel**，
+「包内私有」对它们已经不成立了。`pyproject.toml` 的
+`plugins never import a private platform module` 契约（只查直接 import）守住这条线。
 
 ## 2026-09-03（批 1）— 模型解析合一
 

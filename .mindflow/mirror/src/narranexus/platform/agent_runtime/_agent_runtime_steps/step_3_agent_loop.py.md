@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -1014,3 +1014,13 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 > **2026-08-20**: `_resolve_agent_framework_name` 的缺行/空列/DB 故障兜底由 `claude_code` 改为 `nexus_power`（平台默认框架变更；仅注释同步，逻辑走 model_identity._DEFAULT_FRAMEWORK）。
 
 > **2026-08-21**: `driver.agent_loop(...)` 新增显式 `steering=ctx.steering`(挨着 `cancellation`)。所有可达 driver(claude/codex/nexus/remote)的 `agent_loop` 都吃 `**kwargs`,故非 nexus driver 安全吸收忽略;只有 NexusAgent 真正消费它(接 SteerChannel)。见 [[nexus_agent.py]] 同日条目。
+
+## 2026-09-07（round-2 A2-5）— the fast-mode viability check is registry-derived
+
+`_framework_override_viable` gated on `if framework != "nexus_power"`. It now asks
+`_resolves_provider_from_slot(framework)`, i.e. `FrameworkMeta.uses_shared_cli_login is False` — the
+same registry fact the cloud gate reads, so there is one answer rather than two. The check's meaning
+is unchanged (it mirrors the hard-fail conditions of a driver that resolves its provider from the
+agent slot: OAuth subscription credentials, no model on either protocol slot); what changed is that a
+third-party framework of that shape no longer skips it and bricks the turn. Fail-closed on an unknown
+name = "CLI-backed, skip", which is the pre-existing behaviour for every name but nexus_power.

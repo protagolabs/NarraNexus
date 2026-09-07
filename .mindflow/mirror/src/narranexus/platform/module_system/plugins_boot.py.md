@@ -21,3 +21,19 @@ Batch 6c: the mcp/workers boots pass `resolve_from_env()` so `NARRANEXUS_DIST` s
 ## 2026-09-07 — boot_executor_plugins
 
 The per-user executor boots the workers role before serving: it runs turns and needs the same contribution set; before this it never booted and every seam self-registered lazily.
+
+
+## 2026-09-07 — health is declared by the entrypoint, not by the boot (round-2 🟡-6)
+
+`_boot` ended with `report.mark_healthy()` and the comment "reaching this line is
+health". It is not: `mark_healthy` clears the boot-crash marker AND moves the
+last-known-good snapshot, so a process that populated its registries and then
+died before serving still advanced the rollback target — precisely the state safe
+mode exists to escape, and it made the marker unable to detect a crash loop for
+the four agent-side roles. `mark_host_healthy(role)` is the new, idempotent
+signal, called by each entrypoint once it actually serves: the executor at the
+end of its lifespan startup (after the framework warmup), the workers supervisor
+once the worker tasks and heartbeat are running, the channels supervisor once the
+triggers and `/healthz` are up, the mcp runner once the host server is listening.
+The backend already worked this way (`backend/main.py` marks healthy after
+`auto_migrate` + `fire_startup`).

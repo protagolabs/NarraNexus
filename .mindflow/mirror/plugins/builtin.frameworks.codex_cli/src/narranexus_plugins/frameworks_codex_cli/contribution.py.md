@@ -11,3 +11,11 @@ The `agent.frameworks` contribution of the Codex CLI framework: `CONTRIBUTION` =
 ## 2026-09-07 — META 携带框架事实（B6）
 
 FrameworkMeta 增补 protocol/oauth_source/runtime_name/login_marker（值即原宿主七张名字表里属于本框架的那一行），导出为 META；宿主全部在调用期从注册表派生，本插件是这些事实的唯一持有者。
+
+## 2026-09-07（round-2 P2-I3）— META states the cloud-safety fact and the empty capability set
+
+`uses_shared_cli_login=True`: the CLI authenticates from `~/.codex/auth.json`, a file in the host's single HOME, so
+it CAN ride a shared login. Whether cloud nonetheless offers it is the OPERATOR's decision
+(`cloud_policy.cli_login_exempt_frameworks`), never this plugin's — a plugin attesting its own cloud
+safety would be fail-open by construction. `capabilities=frozenset()` matches the driver's base
+contract; its history is flattened at the CLI doorstep, so no `native_replay` either.

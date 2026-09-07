@@ -61,7 +61,7 @@ from narranexus.platform.schema import (
 # merge/delete another user's social-network entities, or spin up agents
 # under someone else's account. Local mode (no JWT identity) does not
 # enforce; see the helper's security-posture docstring before assuming auth.
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import require_agent_owner
 
 
 router = APIRouter()
@@ -110,7 +110,7 @@ async def search_social_network_entities(
 
     NOTE: This route MUST be registered before /{user_id} to avoid path shadowing.
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     logger.info(f"Searching social network entities: agent={agent_id}, query='{query}', type={search_type}")
 
     try:
@@ -203,7 +203,7 @@ async def get_user_social_network_info(agent_id: str, user_id: str, request: Req
     Owner-only (cloud mode). Queries data from instance_social_entities table
     (via SocialNetworkModule's instance_id).
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     logger.info(f"Getting social network info for user: {user_id}, agent: {agent_id}")
 
     try:
@@ -245,7 +245,7 @@ async def get_all_social_network_entities(agent_id: str, request: Request):
     Owner-only (cloud mode). Queries data from instance_social_entities table
     (via SocialNetworkModule's instance_id).
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     logger.debug(f"Getting all social network entities for agent: {agent_id}")
 
     try:
@@ -370,7 +370,7 @@ async def recall_social_network(agent_id: str, body: RecallSocialBody, request: 
     The whole body is wrapped so an instance-resolution db failure answers 200
     with the tool's message shape (matching DirectStore), never a 500 — the
     store docstring's 'handlers answer 200' contract."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db_client = await get_db_client()
         instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
@@ -390,7 +390,7 @@ async def recall_social_network(agent_id: str, body: RecallSocialBody, request: 
 async def contact_info(agent_id: str, body: ContactInfoBody, request: Request) -> dict:
     """Contact details for one entity — byte-parity twin of `get_contact_info`.
     Shapes `recall_entity_info` via the shared `format_contact_result`."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db_client = await get_db_client()
         instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
@@ -408,7 +408,7 @@ async def contact_info(agent_id: str, body: ContactInfoBody, request: Request) -
 async def agent_social_stats(agent_id: str, body: AgentStatsBody, request: Request) -> dict:
     """Owner-perspective social stats — byte-parity twin of `get_agent_social_stats`.
     Shapes `get_agent_stats` via the shared `format_stats_result`."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db_client = await get_db_client()
         instance_id, error = await _resolve_social_instance_id(db_client, agent_id)
@@ -462,7 +462,7 @@ async def extract_entity_info(agent_id: str, body: ExtractEntityBody, request: R
     entity_description protected from direct overwrite) stay identical to
     the agent-facing path.
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     try:
         db_client = await get_db_client()
@@ -497,7 +497,7 @@ async def merge_entities(agent_id: str, body: MergeEntitiesBody, request: Reques
     body; both the tool and this route now call the same module method so
     the merge semantics can't drift between the two entry points).
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     try:
         db_client = await get_db_client()
@@ -530,7 +530,7 @@ async def delete_entity(agent_id: str, body: DeleteEntityBody, request: Request)
     Delegates to `SocialNetworkModule.delete_entity` (pre-open review #2 —
     see the `merge` endpoint above for the same rationale).
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     try:
         db_client = await get_db_client()
@@ -559,7 +559,7 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
     creator agent's. Any non-fatal provisioning warning (a half-provisioned
     agent) is surfaced in the response so ops can see it (incident lesson #5).
     """
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     try:
         db_client = await get_db_client()

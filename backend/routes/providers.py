@@ -21,9 +21,9 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from narranexus.platform.agent_framework.providers.cloud_policy import (
-    FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     framework_allowed_in_cloud,
+    framework_locked_detail,
     netmind_slots_only,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import (
@@ -37,10 +37,12 @@ from narranexus.platform.agent_framework.loop.driver import (
     framework_meta,
     framework_metas,
 )
+from narranexus.platform.agent_framework.providers.framework_binding import (
+    SLOT_REQUIRED_PROTOCOLS,
+)
 from narranexus.platform.schema.provider_schema import (
     LLMConfig,
     SlotName,
-    SLOT_REQUIRED_PROTOCOLS,
 )
 from narranexus.platform.utils.deployment_mode import (
     is_cloud_mode,
@@ -1083,7 +1085,7 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     # here as a framework-name comparison; that is what kept NexusPower
     # locked out of cloud after it shipped.
     if not framework_allowed_in_cloud(body.framework, _is_staff(request)):
-        raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
+        raise HTTPException(status_code=403, detail=framework_locked_detail())
     supported = _supported_agent_frameworks()
     if body.framework not in supported:
         raise HTTPException(

@@ -118,7 +118,7 @@ async def main(only: Optional[set[str]] = None) -> None:
         start_channel_health_server,
     )
 
-    from narranexus.platform.module_system.plugins_boot import boot_channel_plugins
+    from narranexus.platform.module_system.plugins_boot import boot_channel_plugins, mark_host_healthy
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -130,6 +130,8 @@ async def main(only: Optional[set[str]] = None) -> None:
 
     # One aggregated /healthz for every channel (best-effort; None in tests).
     health_task = await start_channel_health_server(started)
+    # Triggers are running and /healthz answers: only now is the boot healthy.
+    mark_host_healthy("workers")
 
     # Graceful shutdown. We install our OWN handlers for BOTH signals:
     #   - SIGINT  (Ctrl+C): asyncio.run() would handle this, but the health

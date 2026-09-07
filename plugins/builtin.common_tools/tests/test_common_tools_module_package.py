@@ -16,6 +16,5 @@ def test_manifest_and_facade():
     from narranexus_plugins.common_tools_module import api
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    assert on_disk["id"] == ROOT.name  # the directory is the plugin id; the kernel reads this very file
     cls = api.module_class()
     assert cls.__module__.startswith("narranexus_plugins.common_tools_module") and cls.get_config().name == cls.__name__

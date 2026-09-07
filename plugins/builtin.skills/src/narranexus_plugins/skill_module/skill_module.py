@@ -252,9 +252,7 @@ def configured_env_var_names(env_config: dict) -> Set[str]:
         # decrypt_env_config is itself total on non-dict; this is an entry guard,
         # not a second sanitization layer.
         return set()
-    from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import (
-        get_secret_box,
-    )
+    from narranexus.platform.marketplace import get_secret_box
 
     try:
         box = get_secret_box()
@@ -994,7 +992,7 @@ class SkillModule(XYZBaseModule):
 
     def set_skill_env_config(self, skill_name: str, env_config: dict) -> None:
         """Save env var values to .skill_meta.json (Fernet encrypted)."""
-        from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import get_secret_box
+        from narranexus.platform.marketplace import get_secret_box
 
         meta_data = self._read_skill_meta(skill_name)
 
@@ -1086,7 +1084,7 @@ class SkillModule(XYZBaseModule):
         same skill failed, so we don't overwrite the still-recoverable
         ciphertext of the failed one.
         """
-        from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import get_secret_box
+        from narranexus.platform.marketplace import get_secret_box
 
         try:
             box = get_secret_box()

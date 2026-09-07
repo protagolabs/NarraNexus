@@ -27,7 +27,7 @@ from narranexus.platform.services.service_audit import ServiceAuditor
 # message_bus turn means we are already answering a peer (so their next
 # message is a reply). MessageBusTrigger picks the recipient's directive from
 # it, and both tools write the same table — so both must record it.
-from narranexus.platform.module_system._mcp_identity import (
+from narranexus.platform.module_system import (
     caller_errand_scope,
     caller_event_id_from_request,
     caller_root_run_id,
@@ -849,7 +849,7 @@ def register_message_bus_mcp_tools(
         """
         try:
             from narranexus.platform.message_bus.team_files import list_team_files
-            from narranexus.platform.module_system._mcp_identity import resolve_caller_agent_id
+            from narranexus.platform.module_system import resolve_caller_agent_id
             from narranexus.platform.utils.db.db_factory import get_db_client
 
             db = await get_db_client()

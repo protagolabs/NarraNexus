@@ -1062,8 +1062,10 @@ class MessageBusTrigger:
                 # Skip IM-channel-owned channels — each has its own dedicated
                 # trigger that already processed the message; re-consuming
                 # would fire AgentRuntime a second time and send duplicate
-                # replies. Prefixes derive from MessageSourceRegistry (see
-                # im_channel_prefixes) so new channels can't be forgotten.
+                # replies. Prefixes derive from the message-source view over the
+                # channel registry (see im_channel_prefixes), so a channel is
+                # covered the moment its descriptor is registered and drops out
+                # the moment the distribution excludes it.
                 # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
                 #
                 # `InboxRecorder` (2026-08-17) stopped writing IM turns into
@@ -3719,12 +3721,13 @@ class MessageBusTrigger:
 
             handler = MessageSourceRegistry.get(WorkingSource.MESSAGE_BUS.value)
             if handler.name != WorkingSource.MESSAGE_BUS.value:
-                # The bus handler was never registered (rename, a swallowed
-                # duplicate-registration ValueError, a lazy-import moved later).
+                # The bus handler is absent from ``ingress.message_sources``
+                # (builtin.message_bus disabled or excluded, or a process that
+                # never booted the plugin platform).
                 # Treat it as "we can't prove delivery", never as "nothing was
                 # delivered" — the latter is the lie this whole change fights.
                 logger.warning(
-                    "message_bus handler not registered in MessageSourceRegistry "
+                    "message_bus message source not registered (ingress.message_sources) "
                     f"(got {handler.name!r}); delivery detection assuming delivered"
                 )
                 return True

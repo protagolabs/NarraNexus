@@ -162,7 +162,11 @@ async def test_dispatch_passes_unknown_framework_through():
     behaviour deliberately chosen over silent fallback."""
     db = _FakeDB(owner_framework="future_framework_X")
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "future_framework_X"
+    # Normalised to the registry's case-insensitive key (the overlay now goes
+    # through the ONE accessor ``resolve_framework_name``), but NOT rewritten to
+    # the default — the unknown name still reaches get_agent_loop_driver, which
+    # raises ValueError so a typo surfaces.
+    assert name == "future_framework_x"
     with pytest.raises(ValueError):
         get_agent_loop_driver(framework=name, working_path="/tmp")
 

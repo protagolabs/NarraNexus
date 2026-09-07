@@ -117,3 +117,11 @@ Fix 2026-09-06 (found on a fresh install): `start_stderr_drain(process)` reads t
 ## 2026-09-07 — stderr drain never buries an exception
 
 _drain catches a closed pipe, appends a marker to the tail and returns what it read; the task has a done_callback that logs a failure — a drain that died silently left the pooled runner's stderr unread and the deadlock this drain exists to prevent came back.
+
+## 2026-09-07（round-2 G2-I7）— `capabilities()` declares `native_replay`
+
+The driver consumes structured provider messages, so a past turn's event_log folds back into
+positioned monologue/tool segments instead of a flattened prose row. That fact used to live in
+`history_projection.NATIVE_REPLAY_FRAMEWORKS`; it is now the driver's own declaration, mirrored
+statically in `contribution.META.capabilities` for the hosts that must answer before a driver exists.
+Keep the two in step — `test_nexus_power_meta_matches_driver_capabilities` pins it.

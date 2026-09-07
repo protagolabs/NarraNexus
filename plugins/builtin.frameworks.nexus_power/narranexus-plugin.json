@@ -8,14 +8,17 @@
     "mcp",
     "workers"
   ],
+  "api": {
+    "framework": 0
+  },
   "provides": {
     "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
-    "turn.pipeline.act.framework.nexus_power.stop": "narranexus_plugins.frameworks_nexus_power.core.extension_points:STOP_DEFAULT",
-    "turn.pipeline.act.framework.nexus_power.compaction": "narranexus_plugins.frameworks_nexus_power.core.extension_points:COMPACTION_DEFAULT",
-    "turn.pipeline.act.framework.nexus_power.projector": "narranexus_plugins.frameworks_nexus_power.core.extension_points:PROJECTOR_DEFAULT",
-    "turn.pipeline.act.framework.nexus_power.expression": "narranexus_plugins.frameworks_nexus_power.core.extension_points:EXPRESSION_DEFAULT",
+    "turn.pipeline.act.framework.nexus_power.stop": "narranexus_plugins.frameworks_nexus_power.core.extension_points:STOP_CONTRIBUTION",
+    "turn.pipeline.act.framework.nexus_power.compaction": "narranexus_plugins.frameworks_nexus_power.core.extension_points:COMPACTION_CONTRIBUTION",
+    "turn.pipeline.act.framework.nexus_power.projector": "narranexus_plugins.frameworks_nexus_power.core.extension_points:PROJECTOR_CONTRIBUTION",
+    "turn.pipeline.act.framework.nexus_power.expression": "narranexus_plugins.frameworks_nexus_power.core.extension_points:EXPRESSION_CONTRIBUTION",
     "turn.pipeline.act.framework.nexus_power.policy": [
-      "narranexus_plugins.frameworks_nexus_power.core.extension_points:POLICY_LAYERS"
+      "narranexus_plugins.frameworks_nexus_power.core.extension_points:POLICY_CONTRIBUTIONS"
     ]
   },
   "declares": {

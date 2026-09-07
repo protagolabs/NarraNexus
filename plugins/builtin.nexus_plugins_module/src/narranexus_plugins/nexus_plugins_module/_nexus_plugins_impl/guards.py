@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from narranexus.contracts.distribution import is_builtin_id
 from narranexus.contracts import PluginError
 from narranexus.kernel.plugins.manifest import PLUGIN_ID_RE
 
@@ -35,7 +36,7 @@ class GuardError(PluginError):
 def check_plugin_id(plugin_id: str) -> str:
     if not PLUGIN_ID_RE.match(plugin_id):
         raise GuardError(f"invalid plugin id {plugin_id!r}: expected <publisher>.<name> in [a-z0-9_.-]")
-    if plugin_id.startswith("builtin."):
+    if is_builtin_id(plugin_id):
         raise GuardError("the builtin. prefix is reserved for the host's own plugins")
     if plugin_id in PROTECTED_PLUGIN_IDS:
         raise GuardError(f"{plugin_id} is protected")
@@ -43,7 +44,7 @@ def check_plugin_id(plugin_id: str) -> str:
 
 
 def check_not_protected(plugin_id: str) -> str:
-    if plugin_id in PROTECTED_PLUGIN_IDS or plugin_id.startswith("builtin."):
+    if plugin_id in PROTECTED_PLUGIN_IDS or is_builtin_id(plugin_id):
         raise GuardError(f"{plugin_id} is protected: builtin plugins cannot be changed by an agent")
     return plugin_id
 

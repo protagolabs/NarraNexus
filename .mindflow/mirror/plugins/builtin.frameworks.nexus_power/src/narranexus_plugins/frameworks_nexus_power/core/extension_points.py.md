@@ -24,3 +24,13 @@ ensure_registered always calls register_contribution: same object / same owner i
 ## 2026-09-07 — seats under the framework slot; bindings through the kernel
 
 NAMESPACE is turn.pipeline.act.framework.nexus_power (OWNER stays the plugin id): the seats are descendants of the framework slot, so the slot tree's nesting rule and every binding layer apply. resolve_one / resolve_many use kernel.plugins.bound (bound_entry / bound_entries) — the private env-only binding parser, bound_provider(s) and the per-turn ensure_registered are gone; registration happens once at boot.
+
+## 2026-09-07（round-2 G2-I5）— seat symbols follow API_POLICY §8
+
+`STOP_DEFAULT` / `COMPACTION_DEFAULT` / `PROJECTOR_DEFAULT` / `EXPRESSION_DEFAULT` /
+`POLICY_LAYERS` → `STOP_CONTRIBUTION` / `COMPACTION_CONTRIBUTION` / `PROJECTOR_CONTRIBUTION` /
+`EXPRESSION_CONTRIBUTION` / `POLICY_CONTRIBUTIONS`. §8 says a one-arity slot is filled by
+`CONTRIBUTION` and a many-arity one by `CONTRIBUTIONS`; five seats live in this one module, so the
+seat name prefixes the §8 word (the rule §8 gained in the same change). The `_DEFAULT` suffix was a
+sixth naming vocabulary that said nothing about arity. Symbol names only — seat contribution names
+(`no_more_actions`, `tool_result_pruner`, …), which bindings refer to, are untouched.

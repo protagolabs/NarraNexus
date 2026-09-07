@@ -26,13 +26,15 @@ from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from loguru import logger
+
 from narranexus.contracts import API_VERSIONS, ManifestError, Stability
 from narranexus.kernel.plugins.compat import Range, Version
 from narranexus.kernel.plugins.slots import Slot, SlotTree, validate_path
 
 from narranexus.contracts.distribution import PLUGIN_ID_RE  # noqa: E402 — the one plugin-id grammar
 SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$")
-BUILTIN_PREFIX = "builtin."
+from narranexus.contracts.distribution import BUILTIN_PREFIX, is_builtin_id  # noqa: E402 — the one builtin predicate
 
 Host = Literal["backend", "mcp", "workers", "frontend"]
 ALL_HOSTS: tuple[Host, ...] = ("backend", "mcp", "workers", "frontend")
@@ -57,6 +59,13 @@ class BackendSpec(_Strict):
     # unauthenticated POST can reach a lazily-mounted plugin at all. A
     # RouterSpec(auth="none") whose prefix is not declared here is refused.
     publicPrefixes: tuple[str, ...] = ()
+    # Route prefixes (under the plugin's own /api/x/<id>) that STILL require
+    # auth but skip the provider/quota gate: config-class endpoints a user whose
+    # free tier is exhausted must still reach, the same reason the host's own
+    # QUOTA_BYPASS_PREFIXES exists. Same shape and same mount-time registration
+    # as ``publicPrefixes``: a billing bypass the manifest never declared is
+    # refused, and an entry outside the plugin's own prefix is ignored.
+    quotaBypassPrefixes: tuple[str, ...] = ()
     # Import names that prove ``pip`` is present (``lark-oapi`` → ``lark_oapi``);
     # an on-demand builtin is checked against these at boot.
     imports: tuple[str, ...] = ()
@@ -283,7 +292,7 @@ class Manifest(_Strict):
 
     @property
     def is_builtin(self) -> bool:
-        return self.id.startswith(BUILTIN_PREFIX)
+        return is_builtin_id(self.id)
 
     @property
     def semantic_version(self) -> Version:
@@ -343,6 +352,7 @@ def parse_manifest(
     _check_provides_against_tree(manifest, tree)
     _check_redeclares(manifest, tree)
     _check_api_versions(manifest)
+    _check_api_covers_slot_kinds(manifest, tree, allow_builtin=allow_builtin)
     if host_version is not None:
         _check_min_app_version(manifest, host_version)
     return manifest
@@ -454,6 +464,64 @@ def _check_redeclares(manifest: Manifest, tree: SlotTree) -> None:
             )
         if path not in tree:
             raise ManifestError(f"{manifest.id}: redeclares[{path!r}] is not a known slot")
+
+
+def slot_kinds_of(manifest: Manifest, tree: SlotTree) -> tuple[str, ...]:
+    """Every contract kind this manifest touches: the kind of each slot it
+    provides into, plus the kind of each slot it declares for others.
+
+    This is the set ``api`` has to version. It is computed from the SLOT
+    (``Slot.kind``), never from the manifest's own wishes, which is what makes
+    ``api`` a gate rather than a self-description.
+    """
+    kinds: set[str] = set()
+    for path in manifest.provides:
+        slot = tree.try_get(path)
+        if slot is not None:
+            kind = slot.kind
+        else:
+            decl = manifest.declares.get(path)
+            kind = decl.kind if decl is not None else None
+        if kind:
+            kinds.add(kind)
+    for decl in manifest.declares.values():
+        if decl.kind:
+            kinds.add(decl.kind)
+    return tuple(sorted(kinds))
+
+
+def missing_api_kinds(manifest: Manifest, tree: SlotTree) -> tuple[str, ...]:
+    """Kinds the manifest provides/declares into but never versions in ``api``."""
+    return tuple(k for k in slot_kinds_of(manifest, tree) if k not in manifest.api)
+
+
+def _check_api_covers_slot_kinds(manifest: Manifest, tree: SlotTree, *, allow_builtin: bool) -> None:
+    """``api`` must name every contract kind the manifest actually fills.
+
+    ``_check_api_versions`` only walks the keys that ARE in ``api``: a kind the
+    manifest never mentions gets no version check at all, so bumping
+    ``API_VERSIONS["framework"]`` would load a framework plugin written against
+    the old contract as if it were compatible and fail much later inside the
+    turn. The gate is only fail-closed if the set of kinds is derived from the
+    slots instead of from the plugin.
+
+    Builtins are the host's own code and the template third parties copy: for
+    them this is a hard ``ManifestError``. A published third-party manifest
+    predates the rule, so it gets the deprecation window of
+    docs/API_POLICY.md section 4 — a WARNING now (surfaced on the load report
+    by ``loader.load``), an error in the release the policy names.
+    """
+    missing = missing_api_kinds(manifest, tree)
+    if not missing:
+        return
+    detail = ", ".join(f"{k!r} (version {API_VERSIONS[k]})" for k in missing)
+    message = (
+        f"{manifest.id}: api does not declare the contract kind(s) of the slots it fills: {detail}. "
+        f"Add them to \"api\" so a contract bump can refuse this plugin instead of loading it blind."
+    )
+    if allow_builtin:
+        raise ManifestError(message)
+    logger.warning(f"[plugins] {message} (a future release refuses the manifest; docs/API_POLICY.md section 4)")
 
 
 def _check_api_versions(manifest: Manifest) -> None:

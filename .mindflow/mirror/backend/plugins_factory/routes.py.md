@@ -25,4 +25,4 @@ safe-mode/leave/bisect/{start,answer,stop}/errors（GET/POST）/assets（带 `X-
 
 ## 2026-09-07 — proposals/errors are guarded; slots through the service
 
-GET /proposals and decide use the authenticated caller (401 without one); POST /{id}/errors is cloud-guarded and runs through _run (its audit write fsyncs); GET /slots goes through FactoryService.slots() like every sibling.
+GET /proposals and decide use the authenticated caller (401 without one); POST /{id}/errors runs through _run (its audit write fsyncs) and is cloud-guarded INSIDE FactoryService.record_error, not at the route: a guard outside _run raises CloudManaged past _run's handler and answers 500 instead of the 403 every sibling mutation returns; GET /slots goes through FactoryService.slots() like every sibling.

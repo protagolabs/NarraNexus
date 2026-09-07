@@ -3,6 +3,19 @@ code_file: src/narranexus/platform/module_system/data_access/channel_store.py
 stub: false
 last_verified: 2026-09-07
 ---
+
+## 2026-09-07 — `_ChannelSpecs._build` 变成纯读，并删掉死 import
+
+两处改动，同一个主题：
+
+- 删掉 `_registry()` 里的 `import narranexus.platform.module_system  # noqa: F401 —
+  registers the builtin descriptors`。`register_all` 已不存在，这个 import 什么也不注册。
+- 删掉 `_build()` 里的 `WorkingSource.register(d.name)`。`SUPPORTED_CHANNELS` 的成员判断
+  在 HTTP 请求路径上（`backend/routes/agents/channel_credentials.py`），而这一行让「读一
+  下渠道表」变成「改两个进程级开放枚举」。注册收归 contribution 时刻。
+
+没 boot 的进程里的行为不变、并且被测试钉住：`CHANNELS` 为空、`SUPPORTED_CHANNELS` 不含
+任何名字、按名取用抛 `KeyError` / `UnknownChannel`，而不是悄悄放行。
 ## 2026-08-11 (三轮审查) — 写失败信封用稳定错误码，不泄漏 DB 连接文本
 
 `_run_mutation` 的失败信封原来放 `str(e)`——连接期异常（aiomysql `Can't connect to … (111)`）带**主机/端口/用户名**，会经信封→工具→model→用户。改为：`_db()` 失败→`"db_unavailable"`、写失败（非 ValueError）→`"write_failed"`，细节只进 `logger.exception`。`ValueError` 单独接住（apply_patch 的「no credential」/「unknown field」是安全可行动信息，原样透出）。守卫测试 [[test_channel_store]]（含断言 host/user 不出现在信封）。

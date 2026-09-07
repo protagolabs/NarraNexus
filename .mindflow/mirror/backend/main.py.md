@@ -4,6 +4,14 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 挂载 `GET /api/plugins/channels` 渠道目录
+
+在 `channels_generic_router` 之后挂 `channels_catalog_router`，前缀 `/api/plugins`（**不是**
+`/api/channels`：它是对插件注册表的读取，不是对某个 agent 绑定的操作，而 `/api/channels/*`
+那一组全是 ownership 门控的）。它答的是「本部署有哪些渠道」，来源是 `ingress.channels`
+注册表——目的是让前端不再自己维护一张六行渠道表，见
+`backend/routes/channels/catalog.py` 的 mirror。
+
 ## 2026-09-03（批 2c）— 挂 `plugin_factory_router`，启动报告交给工场 service
 
 ## 2026-09-03（批 2b.5）— lifespan 接插件启动
@@ -401,15 +409,25 @@ values, so lifespan wiring is harmless when the feature is off.
   - `backend.auth.auth_middleware` — 注入 HTTP 鉴权中间件
   - `narranexus.platform.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
   - `narranexus.platform.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
-  - 全部路由模块：`websocket`, `agents`, `jobs`, `auth`, `skills`, `providers`, `inbox`
+  - 壳层路由模块：`websocket`, `agents`, `auth`, `providers`, `inbox`, `channels` 等。
+    `jobs` / `skills` / home-assistant / 六个 IM 渠道路由**不在这里**——它们是各自 builtin 的
+    `backend.routes` 贡献（批 3c.5），由 `mount_plugin_routes` 挂载；照旧清单去 import 会找不到模块。
 
 ## 设计决策
 
-**中间件注册顺序（LIFO 陷阱）**
+**中间件注册顺序（LIFO）**
 
-FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后注册的中间件最先处理请求。目前的注册顺序是：先注册 `CORSMiddleware`，再通过 `app.middleware("http")` 注册 `auth_middleware`。结果是 `auth_middleware` 实际上在 CORS 之前运行。这意味着浏览器的 CORS preflight（OPTIONS）请求会先进入 `auth_middleware`，如果不在那里做特殊处理，就会被 401 拦截，CORS 头永远不会被加上。因此 `auth_middleware` 内部有一段硬编码的 `if request.method == "OPTIONS": return await call_next(request)` 来放行 preflight，把控制权还给 CORS 中间件。
+FastAPI/Starlette 的中间件以 LIFO 执行：**最后注册的最先处理请求（最外层）**。
+`main.py:499-503` 的注册顺序是 `auth` → `body_size` → `access_log` → `CORSMiddleware`，
+所以实际链路是 **CORS → access_log → body_size → auth → routes**，
+**CORS 在最外层、跑在 auth 之前**（本段旧文案写反过，说 auth 先于 CORS——不成立）。
 
-这是一个被动防御方案——不改变注册顺序，而是在 auth 里主动放行。如果将来在 auth 和 CORS 之间插入新的中间件，必须同样考虑 OPTIONS 放行。
+即便如此，`auth_middleware` 里那句 `if request.method == "OPTIONS": return await call_next(request)`
+仍然是承重的：`CORSMiddleware` 只对**带 `Origin` 头**的 preflight 自行短路应答，
+其余 OPTIONS 会继续往内传，落到 auth 上；没有这句放行，它们会被 401。
+任何新增的、对所有请求生效的 HTTP 中间件都要同样放行 OPTIONS。
+顺序契约由 `tests/backend/test_body_size_gate.py` 断言钉住（详见下方 2026-08-20 小节），
+不再只靠注释。
 
 **lifespan 而非 startup/shutdown 事件**
 
@@ -425,13 +443,13 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 
 ## Gotcha / 边界情况
 
-- **OPTIONS 请求必须在 auth 中手动放行**：见上文 LIFO 陷阱。任何新增的 HTTP 中间件，如果需要对所有请求生效，都必须同样放行 OPTIONS，否则跨域调用全部失败，症状是浏览器报 CORS error 但服务器日志里看到的是 401。
+- **OPTIONS 请求必须在 auth 中手动放行**：见上文「中间件注册顺序（LIFO）」。任何新增的 HTTP 中间件，如果需要对所有请求生效，都必须同样放行 OPTIONS，否则跨域调用全部失败，症状是浏览器报 CORS error 但服务器日志里看到的是 401。
 - **SPA fallback 的路由顺序**：前端挂载代码在 `main.py` 底部，必须在所有 `app.include_router(...)` 之后执行。如果新增路由但忘记在前端挂载代码之前注册，SPA fallback 会先匹配到新路径并返回 `index.html`，导致 API 调用失效。
 - **`auto_migrate` 访问私有属性**：`db._backend` 是私有字段，重构 `AsyncDatabaseClient` 时需要检查这里。
 
 ## 新人易踩的坑
 
-直接改中间件注册顺序（比如把 CORSMiddleware 移到 auth_middleware 之后）会修复"CORS 先执行"的直觉期望，但如果同时删掉 `auth_middleware` 里的 OPTIONS 放行逻辑，结果是一样的——auth 先跑，preflight 被 401。两个地方必须同步考虑。
+CORS 已经在最外层了；删掉 `auth_middleware` 里的 OPTIONS 放行逻辑仍会让不带 `Origin` 的 preflight 被 401。中间件顺序和这段放行必须一起考虑。
 
 在 `lifespan` 里 yield 之后报错（比如 `close_db_client` 抛出异常），uvicorn 会打印错误但不会阻止进程退出，这是正常的关闭行为，不是 bug。
 

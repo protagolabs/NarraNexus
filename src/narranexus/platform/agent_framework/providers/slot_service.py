@@ -27,10 +27,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from narranexus.platform.agent_framework.providers.cloud_policy import (
-    FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     ensure_slot_provider_allowed,
     framework_allowed_in_cloud,
+    framework_locked_detail,
 )
 from narranexus.platform.agent_framework.providers.model_identity import (
     effective_agent_slot,
@@ -147,9 +147,12 @@ class AgentSlotService:
             owner_agent_slot = await self.db.get_one(
                 "user_slots", {"user_id": owner, "slot_name": "agent"}
             )
-            owner_framework = (
-                (owner_agent_slot or {}).get("agent_framework") or "nexus_power"
-            )
+            # ONE accessor for "which framework, given no explicit choice":
+            # a bare "nexus_power" literal here disagreed with the resolver the
+            # moment a distribution bound turn.pipeline.act.framework to
+            # another plugin — the UI accepted a card this validated against
+            # nexus_power and the turn then ran claude_code and rejected it.
+            owner_framework = framework_of(owner_agent_slot)
             eff_framework = agent_framework or owner_framework
             # A per-agent pin is the same choice as the user-level switch,
             # so it asks cloud_policy rather than re-deriving a rule. Two
@@ -170,7 +173,7 @@ class AgentSlotService:
                 and not framework_allowed_in_cloud(eff_framework, actor_is_staff)
                 and eff_framework != owner_framework
             ):
-                raise CloudPolicyViolation(FRAMEWORK_LOCKED_DETAIL)
+                raise CloudPolicyViolation(framework_locked_detail())
         validate_slot_binding(prov, slot_name, eff_framework)
 
         now = datetime.now(timezone.utc).isoformat()

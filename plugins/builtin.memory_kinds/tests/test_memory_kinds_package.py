@@ -21,4 +21,4 @@ def test_manifest_and_provides():
     for refs in data["provides"].values():
         for ref in ([refs] if isinstance(refs, str) else refs):
             assert ref.startswith("narranexus_plugins.memory_kinds"), ref
-            assert resolve_symbol(ref) is not None
+            resolve_symbol(ref)

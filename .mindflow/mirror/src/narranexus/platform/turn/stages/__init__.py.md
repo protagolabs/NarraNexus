@@ -18,3 +18,15 @@ Batch 6 fix: the stage slots are kernel-declared; `declare_stage_slots` only fil
 ## 2026-09-07 — declare_stage_slots only
 
 ensure_registered (lazy builtin strategies) is gone.
+
+## 2026-09-07（round-2 P2-I7 / A2-4）— `declare_stage_slots` deleted; only the path grammar is left
+
+The helper built a SECOND `Slot` for each of the seven `turn.pipeline.<stage>` paths with no `kind`,
+and `SlotTree.declare_all` keeps whichever declaration landed first. In any process that constructed
+a `TurnPipeline` before boot (a test host, a CLI, a future eager pipeline), the seven slots third
+parties are meant to extend therefore reported `api_version == 0`, which made every
+`api["stage_strategy"]` compatibility check on a stage plugin pass vacuously — the fail-closed gate
+disabled silently. The manifest (`builtin.turn`) is now the single declaration; a test that needs the
+tree calls `load_builtins(regs, "backend")` like the hosts do. What remains: `slot_path(stage)`,
+`OWNER`, `STAGE_CONTRACT`. The old module docstring about "import-time registration mirrors the
+frameworks/providers" described a file that has not registered anything for two batches.

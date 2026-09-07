@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/registry.py
-last_verified: 2026-07-31
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -67,3 +67,8 @@ failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
 
 - `validate()` 只检查"三个 slot 是否都配置了"，不验证 API key 是否有效。连接测试是独立的 `test_provider()` 操作，不在 validate 流程里。
 - `yunwu` 和 `openrouter` 在 `add_provider()` 里的处理方式和 `netmind` 完全相同（都是 unique + dual providers），但在 `_DUAL_PROVIDER_CONFIGS`（`providers/user_service.py` 里）和这里的 builder 函数里有各自独立的 base_url 硬编码，两处要同步维护。
+
+## 2026-09-07（round-2 P2-I8）— `SLOT_REQUIRED_PROTOCOLS` now comes from `providers/framework_binding`
+
+Import site only; the table and its meaning are unchanged. It left `schema/provider_schema` with the
+two policy functions that read the framework registry.

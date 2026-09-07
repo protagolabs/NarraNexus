@@ -116,3 +116,9 @@ Keychain(仅判存在、不读密文;非 darwin/出错回落文件结论)。
 ## 2026-09-07 — degrades when the Claude Code framework plugin is absent
 
 Both imports from narranexus_plugins.frameworks_claude_code.api are guarded: a distribution that excludes the framework (minimal, ToB) answers VERIFY_UNKNOWN with a plain reason instead of a 500 from ModuleNotFoundError; the credential-staging import is guarded separately from the staging call so 'no such plugin' and 'staging failed' keep distinct messages.
+
+## 2026-09-07（round-2 G2-I5）— `CONTRIBUTION` → `CONTRIBUTIONS`
+
+`model.providers` is a MANY-arity slot, so API_POLICY §8 wants the plural. The nine provider modules
+were split between the two spellings for the same slot, which is exactly the drift §8 exists to stop.
+Symbol name and manifest ref only; the registered driver name is unchanged.

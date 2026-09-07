@@ -77,9 +77,13 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     from backend.auth import auth_middleware
     from backend.plugins_host import mount_plugin_routes
 
+    from narranexus.kernel.plugins.loader import discover
+
     app = FastAPI()
     app.middleware("http")(auth_middleware)
-    mount_plugin_routes(app, backend)
+    # The manifest is the authority on what is public: the mount reads the
+    # plugin's declared publicPrefixes (no manifest → auth="none" is refused).
+    mount_plugin_routes(app, backend, manifests=discover(cloud=False, user_registry_path=registry_path(), host_version="1.19.0").manifests)
     client = TestClient(app)
     assert client.get("/api/x/acme.hello_world/hello").status_code == 401
     assert client.get("/api/x/acme.hello_world/hello", headers={"X-User-Id": "u1"}).json()["message"] == "hello"

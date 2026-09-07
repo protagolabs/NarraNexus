@@ -11,9 +11,11 @@ free-tier wallet, which is the same upstream reached through our gateway:
   - Bring-your-own API-key providers can be REGISTERED (the credential
     wallet stays open) but not BOUND to a slot — binding is what makes a
     provider drive real runs. Own keys are a local/desktop feature.
-  - The agent framework cannot be changed: the user-level switch is
-    staff-only (gated in backend/routes/providers.py) and a per-agent
-    pin to a DIFFERENT framework is rejected here.
+  - The agent framework cannot be changed to one that could ride the
+    image's shared CLI login: the user-level switch is staff-only (gated
+    in backend/routes/providers.py) and a per-agent pin to a DIFFERENT,
+    non-allowed framework is rejected here. Which frameworks qualify is
+    derived from the framework registry, not a list in this file.
 
 Staff keeps full provider/framework choice (same exemption as the older
 OAuth credential-riding gates); local deployments are never gated.
@@ -36,8 +38,10 @@ because the rule lived in two route files and nowhere shared):
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
+from narranexus.platform.agent_framework.loop.driver import framework_metas
 from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
@@ -56,48 +60,97 @@ NETMIND_ONLY_DETAIL = (
     "local (desktop) version only."
 )
 
-# Frameworks a cloud non-staff user may select.
+# Which frameworks a cloud non-staff user may select is DERIVED, not a name
+# table (the frozenset that used to live here meant a third-party framework
+# could never be selected on cloud no matter how it authenticates).
 #
-# The hazard this gate exists for is CREDENTIAL RIDING, not framework
-# variety: `claude_code` and `codex_cli` authenticate through a CLI that
-# reads a credential FILE from HOME (~/.claude/.credentials.json,
-# ~/.codex/auth.json), and the cloud image runs one `app` user with one
-# HOME — so those files are container-global and staged by a staff login.
-# A non-staff user switching to such a framework would consume staff's
-# quota under staff's identity. `claude_code` is nonetheless allowed
-# because cloud provisions each user an API-key NetMind card for it; it is
-# the OAuth CARD that stays staff-only (see `_OAUTH_CARD_TYPES` in
-# backend/routes/providers.py).
+# The hazard this gate exists for is CREDENTIAL RIDING, not framework variety:
+# a framework whose CLI reads a credential FILE from HOME
+# (~/.claude/.credentials.json, ~/.codex/auth.json) is a hazard in the cloud
+# image, which runs one `app` user with one HOME staged by a staff login — a
+# non-staff user selecting it would consume staff's quota under staff's
+# identity. That fact is the framework's own
+# ``FrameworkMeta.uses_shared_cli_login`` (default True = fail-closed: a
+# framework that never thought about the question is treated as a rider).
 #
-# NexusPower cannot ride those files by construction: it drives the
-# provider API directly with the key of the card bound to the agent slot,
-# and REFUSES subscription OAuth credentials outright (see
-# `adapters/nexus/nexus_agent._resolve_provider`). A cloud non-staff user
-# can only bind NetMind capacity (CLOUD_BINDABLE_SOURCES), so running it
-# means running on their own account — exactly what this policy wants.
+# NexusPower declares False by construction: it drives the provider API
+# directly with the key of the card bound to the agent slot, and REFUSES
+# subscription OAuth credentials outright (see
+# `adapter/nexus_agent._resolve_provider`). A cloud non-staff user can only
+# bind NetMind capacity (CLOUD_BINDABLE_SOURCES), so running it means running
+# on their own account — exactly what this policy wants.
 #
-# Adding a framework here is a security decision: it belongs only if the
-# framework can NEVER reach a shared credential file.
-CLOUD_ALLOWED_FRAMEWORKS = frozenset({"claude_code", "nexus_power"})
+# The second half is an OPERATOR decision and must NEVER be attestable by the
+# plugin (a `meta["cloud_safe"] = True` would be fail-open by construction):
+# a rider framework is still offered when the operator provisions each cloud
+# user their own card for it. `claude_code` is that case today — cloud
+# provisions a per-user API-key NetMind card, and it is the OAuth CARD that
+# stays staff-only (see `_OAUTH_CARD_TYPES` in backend/routes/providers.py).
+# The exemption list is operator-owned config, read from the environment so a
+# deployment can widen or (safely) empty it without a code change.
+ENV_CLI_LOGIN_EXEMPT = "CLOUD_CLI_LOGIN_EXEMPT_FRAMEWORKS"
 
-FRAMEWORK_LOCKED_DETAIL = (
-    "This agent framework is staff-only in cloud mode: it authenticates "
-    "through a shared CLI login rather than your own provider key. Cloud "
-    "accounts can use Claude Code or NexusPower; the others are available "
-    "in the local (desktop) version."
-)
+_DEFAULT_CLI_LOGIN_EXEMPT: frozenset[str] = frozenset({"claude_code"})
+
+
+def cli_login_exempt_frameworks() -> frozenset[str]:
+    """Rider frameworks the OPERATOR nonetheless offers to cloud non-staff.
+
+    Comma-separated ``CLOUD_CLI_LOGIN_EXEMPT_FRAMEWORKS`` overrides the
+    default; an empty value means "no exemptions" (the strictest setting), so
+    an operator can close this door without editing code. Never read from a
+    plugin: adding a framework here asserts the operator provisions per-user
+    credentials for it, which the framework cannot attest about itself.
+    """
+    raw = os.getenv(ENV_CLI_LOGIN_EXEMPT)
+    if raw is None:
+        return _DEFAULT_CLI_LOGIN_EXEMPT
+    return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
+def cloud_allowed_frameworks() -> tuple[str, ...]:
+    """The registered frameworks a cloud non-staff user may select, in
+    registration order — derived from each one's ``FrameworkMeta``."""
+    return tuple(
+        meta.name
+        for meta in framework_metas()
+        if not meta.uses_shared_cli_login or meta.name in cli_login_exempt_frameworks()
+    )
+
+
+def framework_locked_detail() -> str:
+    """The 403 body for a framework cloud refuses, naming the ones it allows.
+
+    Built from the allowed frameworks' DISPLAY names at call time: the prose
+    used to hardcode "Claude Code or NexusPower", so a distribution that
+    shipped a different set told its users the wrong thing.
+    """
+    allowed = [meta.display_name for meta in framework_metas() if meta.name in cloud_allowed_frameworks()]
+    if allowed:
+        offer = f"Cloud accounts can use {', '.join(allowed)}"
+    else:
+        offer = "No agent framework is available to cloud accounts on this deployment"
+    return (
+        "This agent framework is staff-only in cloud mode: it authenticates "
+        f"through a shared CLI login rather than your own provider key. {offer}; "
+        "the others are available in the local (desktop) version."
+    )
 
 
 def framework_allowed_in_cloud(framework: str, actor_is_staff: bool) -> bool:
     """May this actor select ``framework``?
 
     Staff keeps full choice; local deployments are never gated. For a
-    cloud non-staff actor the answer is membership of
-    :data:`CLOUD_ALLOWED_FRAMEWORKS` — see the rationale there.
+    cloud non-staff actor the answer is derived from the framework's own
+    ``FrameworkMeta.uses_shared_cli_login`` plus the operator exemption list
+    — see the rationale above :func:`cloud_allowed_frameworks`.
+
+    Fail-closed on a name the registry does not know: an unregistered or
+    misbound framework is refused, never let through for being new.
     """
     if not netmind_slots_only(actor_is_staff):
         return True
-    return framework in CLOUD_ALLOWED_FRAMEWORKS
+    return (framework or "").strip().lower() in cloud_allowed_frameworks()
 
 
 class CloudPolicyViolation(Exception):

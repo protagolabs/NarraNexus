@@ -57,3 +57,6 @@ async def test_capabilities_routes(db_client, monkeypatch):
     other = _client(db_client, monkeypatch, viewer_id="u2")
     assert other.get("/api/agents/ag1/capabilities").status_code == 403
     assert other.put("/api/agents/ag1/capabilities/JobModule", json={"enabled": True}).status_code == 403
+    # DELETE goes through the same _require_owner; without this line, dropping
+    # that call let a non-owner reset any agent's capability overrides.
+    assert other.delete("/api/agents/ag1/capabilities/JobModule").status_code == 403

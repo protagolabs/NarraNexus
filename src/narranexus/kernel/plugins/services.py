@@ -14,22 +14,15 @@ the "plugin installed but does nothing" failure the platform refuses.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 from narranexus.contracts import Disposable, PluginError, RegistryConflict, UnknownEntry
+# ``ServiceRef`` is contract data (a name plus a type), so it lives in
+# ``narranexus.contracts.services`` next to the refs the platform and the
+# builtins share; the LOCATOR is kernel machinery and stays here.
+from narranexus.contracts.services import ServiceRef
 
 T = TypeVar("T")
-
-
-@dataclass(frozen=True)
-class ServiceRef(Generic[T]):
-    """A typed key for a service; equality is by id so two modules can declare the same ref."""
-
-    id: str
-
-    def __post_init__(self) -> None:
-        if not self.id or "/" in self.id or " " in self.id:
-            raise PluginError(f"service ref id must be a non-empty token, got {self.id!r}")
 
 
 @dataclass(frozen=True)

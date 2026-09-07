@@ -8,6 +8,9 @@
     "mcp",
     "workers"
   ],
+  "api": {
+    "llm_client": 0
+  },
   "provides": {
     "model.clients": [
       "narranexus_plugins.llm_clients.contributions:CONTRIBUTIONS"

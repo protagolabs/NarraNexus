@@ -49,7 +49,7 @@ async def _caller_job_origin() -> tuple[Optional[str], Optional[str]]:
     work out where this came from".
     """
     try:
-        from narranexus.platform.module_system._mcp_identity import caller_team_id_from_request
+        from narranexus.platform.module_system import caller_team_id_from_request
         from narranexus.platform.message_bus.team_rooms import primary_room_of
         from narranexus.platform.utils.db.db_factory import get_db_client
 

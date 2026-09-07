@@ -151,7 +151,7 @@ class HookCaller:
         for existing in self._impls:
             if existing.fn is fn and existing.owner == owner:
                 # Idempotent like Registry.register: the import-time registration
-                # (module/contributions.register_all) and the manifest-driven load
+                # (a package re-imported in tests) and the manifest-driven load
                 # name the same function; one implementation, not two calls.
                 return Disposable(lambda: None)
         impl = HookImpl(

@@ -3,6 +3,16 @@ code_file: plugins/builtin.job/src/narranexus_plugins/job_module/_job_mcp_tools.
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
+
+本文件曾 import `narranexus.platform` 的下划线私有模块。批 6c 在拥有它的包上开出了
+具名公开函数（`module_system` 的 caller-identity 解析器 / `marketplace` 的
+store·pipeline·secret-box / `agent_framework.llm.prompt_probe_emit` /
+`agent_framework.adapters.build_tool_policy_guard`），本文件改用它们。
+理由不是命名规范：这些 MCP 工具和 helper 自批 6b 起是**独立的 wheel**，
+「包内私有」对它们已经不成立了。`pyproject.toml` 的
+`plugins never import a private platform module` 契约（只查直接 import）守住这条线。
+
 ## 2026-08-17 — 复用 helper + 日志级别提到 warning
 
 自带的那份团队房定位换成 [[team_rooms]] 的 `primary_room_of`——它落地时就丢了兄

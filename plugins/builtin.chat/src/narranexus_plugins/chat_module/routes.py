@@ -20,8 +20,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from backend.auth import resolve_current_user_id
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import current_user_id
+from narranexus.sdk.web import require_agent_owner
 from narranexus_plugins.chat_module import fetch_chat_history
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
@@ -44,7 +44,7 @@ from narranexus.platform.schema import (
     EventLogResponse,
 )
 from narranexus.platform.schema.api_schema import InstanceInfo
-from backend.routes.agents.chat_history_timeline import build_event_timeline
+from narranexus_plugins.chat_module.chat_history_timeline import build_event_timeline
 
 
 router = APIRouter()
@@ -228,7 +228,7 @@ async def get_chat_history(
     semantically reads as "let me filter by anyone I name", which is the
     cross-user-read class of bug. Identity is now strictly the caller.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.debug(f"Getting chat history for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -443,7 +443,7 @@ async def clear_conversation_history(
             detail="Select at least one scope: conversations and/or memory",
         )
 
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     db_client = await get_db_client()
 
     # Ownership: 404 masks both "no such agent" and "not yours".
@@ -519,7 +519,7 @@ async def get_simple_chat_history(
     shared ``limit`` and starve the conversation tab. ``include`` selects the
     stream so each tab gets its own ``limit`` / ``offset`` / ``total_count``.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     want_activity = include != "chat"
     logger.debug(
         f"Getting simple chat history for agent: {agent_id}, user: {user_id}, "
@@ -1052,7 +1052,7 @@ async def get_chat_history_by_instance(
     ``agent_id`` inside the shared fn (a foreign instance reads as empty — no
     existence oracle). Distinct from GET /{agent_id}/chat-history (the frontend
     narratives+events view)."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — fetch_chat_history never raises

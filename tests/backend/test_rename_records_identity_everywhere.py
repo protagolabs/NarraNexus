@@ -1017,6 +1017,7 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
     # answering 404 for an agent that is right there.
     import backend.routes._ownership as ownership
 
+    _real_owner = aw_route.require_agent_owner
     monkey = getattr(aw_route, "get_db_client", None)
     assert monkey is not None
     aw_route.get_db_client = _db
@@ -1026,7 +1027,10 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
         return None
 
     ownership.assert_owned = _owned
-    aw_route.assert_owned = _owned
+    # The plugin route calls the sdk.web seam, whose name in the module is
+    # `require_agent_owner`; patching the old `assert_owned` here merely added
+    # an unused module attribute and left the real gate running.
+    aw_route.require_agent_owner = _owned
     try:
         app = FastAPI()
 
@@ -1045,7 +1049,7 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
     finally:
         aw_route.get_db_client = monkey
         ownership.assert_owned = own_monkey
-        aw_route.assert_owned = own_monkey
+        aw_route.require_agent_owner = _real_owner
 
     after = await _profile(db_client)
     assert IDENTITY_CHANGE_SECTION in after, "the cloud route dropped the record"

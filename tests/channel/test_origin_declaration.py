@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import pytest
 
-import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
 from narranexus.platform.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -89,11 +88,9 @@ def test_labels_speak_the_agent_s_two_situations(source, expected):
     third concept for nothing) and each channel says its own brand, cased the
     way that brand is actually written.
     """
-    import narranexus_plugins.job_module  # noqa: F401
-    import narranexus_plugins.lark_module  # noqa: F401
-    import narranexus_plugins.narramessenger_module  # noqa: F401
-    import narranexus_plugins.wechat_module  # noqa: F401
-
+    # No imports needed: the labels come from what the process BOOTED
+    # (``ingress.channels`` descriptors + ``ingress.message_sources`` specs),
+    # not from whichever plugin modules happen to have been imported.
     assert MessageSourceRegistry.get(source).label == expected
 
 

@@ -4,6 +4,17 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 删掉 `descriptor_for` / `all_descriptors` 里的死 import
+
+两处 `import narranexus.platform.module_system  # noqa: F401 — registers the builtin
+descriptors (idempotent)` 已删。`register_all` 早就不存在了，这个 import 什么也不注册，
+注释描述的是一份代码已经没有的契约。
+
+行为**没有**变化，这一点由 `tests/channel/test_unbooted_process_fails_loud.py` 钉住：没
+boot 的进程里 `descriptor_for` 照旧抛 `UnknownChannel`（响亮，不是「悄悄当作存在」），
+`all_descriptors` 照旧返回空元组——空是诚实的答案（这个进程不知道任何渠道），配合前一条
+就不会被误读成「而且查询还能用」。
+
 # channel/credential_store.py — GenericCredentialStore
 
 ## Intent

@@ -33,11 +33,11 @@ from narranexus.platform.agent_framework.providers.driver.resolver import (
 )
 from narranexus.platform.agent_framework.providers.model_identity import _display_for
 from narranexus.platform.agent_framework.providers.user_service import UserProviderService
-from narranexus.platform.schema.provider_schema import (
-    ProviderProtocol,
-    get_slot_required_protocols,
+from narranexus.platform.agent_framework.providers.framework_binding import (
     framework_can_drive_provider,
+    get_slot_required_protocols,
 )
+from narranexus.platform.schema.provider_schema import ProviderProtocol
 
 
 class _Driver:

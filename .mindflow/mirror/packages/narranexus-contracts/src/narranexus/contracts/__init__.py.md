@@ -4,6 +4,15 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `web` / `channel_authoring` 两个 alpha 条目（批 6c）
+
+它们**不是** manifest/slot kind，而是「插件作者会 import 的表面」：
+`contracts.web` 的 `WebHost`，以及 `narranexus.sdk` re-export 的那批 channel 基类。
+放进 `API_VERSIONS` / `STABILITY` 的唯一理由是：griffe 门禁和 release notes 只读这两张表，
+一个第三方赖以写代码、却没人给它定级的表面，正是 `docs/API_POLICY.md` §1 拒绝承担的
+Hyrum's Law。两条都诚实地标 ALPHA（理由写在 API_POLICY §2），
+为了让门禁好看而标 STABLE 等于承诺一个还兑现不了的废弃窗口。
+
 ## 2026-09-04（批 3c.1）— `API_VERSIONS["module"]`
 
 ## 2026-09-04（批 3a）— `API_VERSIONS` += stage_strategy / pipeline_profile / context_provider

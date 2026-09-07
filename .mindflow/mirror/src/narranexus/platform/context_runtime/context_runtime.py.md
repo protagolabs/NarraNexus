@@ -561,3 +561,23 @@ The parts= field is rendered from part_sizes in emitted order instead of six har
 ## 2026-09-07 — public prompt-building surface; Bootstrap lifecycle settled before sections render
 
 build_user_temporal_block / build_module_instructions_prompt are public: prompt sections (a plugin) call them, so they are a contract and no longer underscore-private. _settle_bootstrap runs before the sections loop: the Bootstrap.md threshold check, its auto-delete and ctx_data.bootstrap_active belong to the platform, not to an optional, reorderable prompt section. RenderedSection carries each provider's budget_chars so the assembler's overrun report is live.
+
+## 2026-09-07（round-2 P2-I4）— required prompt sections fail the prompt instead of vanishing
+
+The section render loop caught every exception and continued with `text = None`, and an empty render
+simply produced no section. Correct for a DEGRADABLE contribution ("one section must not take the
+turn down"), wrong for a load-bearing one: the cloud security preamble (the 2026-06-17 incident's
+mitigation) was droppable by a binding, by a `builtin_overrides` disable of `builtin.prompts`, or by
+one raising provider — with a single warning and no difference visible in `[SYSPROMPT-BREAKDOWN]`.
+
+Now: `section_required(provider, deployment_mode)` (reads `PromptSectionProvider.required_in`
+defensively, so a section written against the older Protocol is treated as degradable). A required
+section that renders empty or raises → `RequiredSectionMissing`, no prompt. Per MODE, not
+unconditional: `SecuritySection` legitimately returns `None` on desktop, so a plain `required: bool`
+would have broken every local turn. Optional sections keep their per-section isolation unchanged.
+`_report_missing_section` emits the one `[SYSPROMPT-BREAKDOWN]` line before the raise (the normal
+emission point is never reached), and `MISSING_SECTION_SIZE` prints as `<id>=MISSING` there, so the
+existing greps see which contribution went missing rather than a subtly shorter prompt.
+
+Also: `_expand_native_turns` asks `framework_supports_native_replay(identity.framework)` instead of
+membership of `NATIVE_REPLAY_FRAMEWORKS` — the capability, not a builtin name table.

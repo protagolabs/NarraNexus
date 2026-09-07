@@ -110,18 +110,20 @@ def _shell_confinement(ctx: SeatContext):
     return ShellConfinementLayer()
 
 
-# One-arity seats are provided as a single Contribution (the manifest names the
-# symbol directly); the many-arity policy seat as a tuple.
-STOP_DEFAULT = Contribution("no_more_actions", lambda: _stop_default)
-COMPACTION_DEFAULT = Contribution("tool_result_pruner", lambda: _compaction_default)
-PROJECTOR_DEFAULT = Contribution("passthrough", lambda: _projector_default)
-EXPRESSION_DEFAULT = Contribution("contract", lambda: _expression_default)
-STOP_POLICIES = (STOP_DEFAULT,)
-COMPACTION_POLICIES = (COMPACTION_DEFAULT,)
-PROJECTORS = (PROJECTOR_DEFAULT,)
-EXPRESSION_POLICIES = (EXPRESSION_DEFAULT,)
+# ``docs/API_POLICY.md`` §8: a one-arity slot is filled by ``CONTRIBUTION`` and
+# a many-arity one by ``CONTRIBUTIONS``. Five seats live in ONE module here, so
+# the seat name prefixes the §8 word (``STOP_CONTRIBUTION``, …) — the ``_DEFAULT``
+# suffix these carried was a sixth vocabulary that said nothing about arity.
+STOP_CONTRIBUTION = Contribution("no_more_actions", lambda: _stop_default)
+COMPACTION_CONTRIBUTION = Contribution("tool_result_pruner", lambda: _compaction_default)
+PROJECTOR_CONTRIBUTION = Contribution("passthrough", lambda: _projector_default)
+EXPRESSION_CONTRIBUTION = Contribution("contract", lambda: _expression_default)
+STOP_POLICIES = (STOP_CONTRIBUTION,)
+COMPACTION_POLICIES = (COMPACTION_CONTRIBUTION,)
+PROJECTORS = (PROJECTOR_CONTRIBUTION,)
+EXPRESSION_POLICIES = (EXPRESSION_CONTRIBUTION,)
 # Order is the check order; the same order the assembly always used.
-POLICY_LAYERS = (
+POLICY_CONTRIBUTIONS = (
     Contribution("disallowed_tools", lambda: _disallowed_tools),
     Contribution("workspace_confinement", lambda: _workspace_confinement),
     Contribution("shell_confinement", lambda: _shell_confinement),
@@ -132,7 +134,7 @@ PROVIDERS: dict[str, tuple[Contribution[Any], ...]] = {
     COMPACTION: COMPACTION_POLICIES,
     PROJECTOR: PROJECTORS,
     EXPRESSION: EXPRESSION_POLICIES,
-    POLICY: POLICY_LAYERS,
+    POLICY: POLICY_CONTRIBUTIONS,
 }
 
 
@@ -167,22 +169,22 @@ def resolve_many(path: str, ctx: SeatContext, registries: Any = None) -> tuple[A
 
 __all__ = [
     "COMPACTION",
-    "COMPACTION_DEFAULT",
+    "COMPACTION_CONTRIBUTION",
     "COMPACTION_POLICIES",
     "DECLARED_SLOTS",
     "EXPRESSION",
-    "EXPRESSION_DEFAULT",
+    "EXPRESSION_CONTRIBUTION",
     "EXPRESSION_POLICIES",
     "NAMESPACE",
     "OWNER",
     "POLICY",
-    "POLICY_LAYERS",
+    "POLICY_CONTRIBUTIONS",
     "PROJECTOR",
     "PROJECTORS",
-    "PROJECTOR_DEFAULT",
+    "PROJECTOR_CONTRIBUTION",
     "PROVIDERS",
     "STOP",
-    "STOP_DEFAULT",
+    "STOP_CONTRIBUTION",
     "STOP_POLICIES",
     "SeatContext",
     "resolve_many",

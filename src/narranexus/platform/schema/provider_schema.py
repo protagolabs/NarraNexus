@@ -12,6 +12,14 @@ Core concepts:
 - Provider: A connection to an LLM service (api_key + base_url + protocol)
 - Slot: A functional role in the system that requires a specific protocol
 - Source: How the provider was created (see ProviderSource enum)
+
+Schemas ONLY. The rules that decide which card may be bound to a slot read
+the framework registry, which lives above this layer; they are in
+``platform.agent_framework.providers.framework_binding``
+(``SLOT_REQUIRED_PROTOCOLS`` / ``SUBSCRIPTION_AUTH_TYPES`` /
+``get_slot_required_protocols`` / ``framework_can_drive_provider``). Keep
+policy out of here: expressing the upward dependency as a function-body
+import is what made the layering violation invisible to import-linter.
 """
 
 from __future__ import annotations
@@ -152,108 +160,3 @@ class LLMConfig(BaseModel):
         default_factory=dict,
         description="Map of slot name -> SlotConfig (keys: agent, helper_llm)",
     )
-
-
-# =============================================================================
-# Slot Protocol Requirements (runtime metadata, not persisted)
-# =============================================================================
-
-SLOT_REQUIRED_PROTOCOLS: dict[SlotName, list[ProviderProtocol]] = {
-    SlotName.AGENT: [ProviderProtocol.ANTHROPIC],
-    # helper_llm accepts both protocols: the resolver dispatches to the
-    # OpenAI helper (Chat Completions) or the Anthropic helper (Messages
-    # API) per the assigned provider's protocol. This is what lets a
-    # single Claude key serve agent AND helper.
-    SlotName.HELPER_LLM: [ProviderProtocol.OPENAI, ProviderProtocol.ANTHROPIC],
-}
-"""
-Maps each slot to the list of protocols it currently supports.
-When a user assigns a provider to a slot, the provider's protocol
-must be in this list. Expand the lists as new adapters are added.
-"""
-
-
-def get_slot_required_protocols(
-    slot_name: str,
-    *,
-    agent_framework: str | None = None,
-) -> list[ProviderProtocol]:
-    """Return the protocols allowed for a slot in the current framework.
-
-    The agent slot follows the framework: ``FrameworkMeta.agent_protocols`` of
-    the registered framework (a CLI-backed framework speaks exactly one
-    protocol because its CLI does; a framework that drives the provider API
-    itself accepts either). An absent framework means the bound default; a
-    framework the registry does not know raises ``ValueError`` — the writers
-    surface that as a 400 instead of persisting a binding nothing can run.
-    Other slots keep their static requirement.
-    """
-    if slot_name == SlotName.AGENT.value:
-        # Local import: the framework registry lives above the schema layer.
-        from narranexus.contracts import UnknownEntry
-        from narranexus.platform.agent_framework.loop.driver import (
-            framework_meta,
-            resolve_framework_name,
-        )
-
-        name = resolve_framework_name(agent_framework)
-        try:
-            meta = framework_meta(name)
-        except UnknownEntry as exc:
-            raise ValueError(f"Unknown agent framework {name!r}") from exc
-        return [ProviderProtocol(p) for p in meta.agent_protocols]
-    return SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
-
-
-SUBSCRIPTION_AUTH_TYPES = frozenset(
-    {AuthType.OAUTH.value, AuthType.OAUTH_TOKEN.value}
-)
-"""Auth types that carry a CLI SUBSCRIPTION credential rather than an API key.
-
-Both transports of the same thing: ``oauth`` = the CLI's own credential
-store on the host, ``oauth_token`` = a ``setup-token`` long-lived token
-env-injected at spawn. Neither can make a direct Messages /
-Chat-Completions call — only the CLI that owns the credential can spend it.
-"""
-
-
-
-def framework_can_drive_provider(
-    framework: str | None,
-    *,
-    source: str,
-    auth_type: str,
-    protocol: str,
-) -> bool:
-    """Can ``framework`` actually run the AGENT slot on this provider card?
-
-    Two gates, in order:
-
-    1. Protocol — the framework's :data:`AGENT_FRAMEWORK_REQUIRED_PROTOCOLS`.
-    2. Subscription credential — a card whose ``auth_type`` is in
-       :data:`SUBSCRIPTION_AUTH_TYPES` is redeemable ONLY by the CLI
-       framework registered for its source (see
-       :data:`CLI_FRAMEWORK_BY_OAUTH_SOURCE`).
-
-    API-key / bearer-token cards pass gate 2 untouched: whether a given
-    endpoint serves a given framework well is the provider's characteristic,
-    not something the platform polices at config time (binding rule #15).
-    This function is about what is *technically redeemable*, nothing else.
-
-    Frontend twin: ``frontend/src/lib/agentFramework.ts``
-    ``providerBacksFramework()`` — keep the two in step so a picker never
-    offers a binding the writers reject.
-    """
-    allowed = get_slot_required_protocols(
-        SlotName.AGENT.value, agent_framework=framework
-    )
-    if protocol not in [p.value for p in allowed]:
-        return False
-    if auth_type in SUBSCRIPTION_AUTH_TYPES:
-        from narranexus.platform.agent_framework.loop.driver import (
-            framework_for_oauth_source,
-            resolve_framework_name,
-        )
-
-        return resolve_framework_name(framework) == framework_for_oauth_source(source)
-    return True

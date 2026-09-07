@@ -13,13 +13,8 @@ from __future__ import annotations
 
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.schema.hook_schema import WorkingSource
 
 _MOD = "narranexus_plugins"
-
-# The channel's working source (and TriggerType) — registered here, by the channel itself,
-# so the platform holds no channel-name table. Imported first by the package.
-SOURCE = WorkingSource.register("lark")
 
 DESCRIPTOR = ChannelDescriptor(
     name="lark",
@@ -52,9 +47,18 @@ DESCRIPTOR = ChannelDescriptor(
     meta={
         "storage": "generic",  # 4d: the manager persists in channel_credentials
     },
+    # Message source: how this channel's replies are recognised and its stored
+    # rows labelled. Descriptor fields, not a module-level
+    # ``MessageSourceRegistry.register`` at import — so a distribution that drops
+    # this plugin drops the handler with it, and importing the package registers
+    # nothing. The extractor is a REF: naming it must not import the SDK.
+    reply_tools=("lark_cli", "notify_owner"),
+    row_prefix_template="[Lark · {sender_name} in {room_name}]",
+    reply_extractor_ref=f"{_MOD}.lark_module.lark_module:_extract_lark_reply",
+    dedicated_trigger=True,
     ui=ChannelUi(label="Lark / Feishu", icon="message-square", order=10),
 )
 
 CHANNEL = (Contribution("lark", lambda: DESCRIPTOR),)
 
-__all__ = ["CHANNEL", "DESCRIPTOR", "SOURCE"]
+__all__ = ["CHANNEL", "DESCRIPTOR"]

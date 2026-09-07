@@ -86,6 +86,46 @@ LEGACY_TABLES: tuple[LegacyTable, ...] = (
 LEGACY_BY_TABLE = {t.table: t for t in LEGACY_TABLES}
 
 
+async def purge_legacy_for_agent(db: Any, agent_id: str, *, channel: Optional[str] = None) -> dict[str, int]:
+    """Delete an agent's rows from the retired per-channel credential tables.
+
+    Keyed on ``agent_id`` ALONE — no generic ``channel_credentials`` row, no
+    installed plugin and no ``ChannelDescriptor`` is required. That is the whole
+    point: ``LEGACY_TABLES`` is the single source of truth for which tables ever
+    held a channel secret, so "delete my agent" can mean "delete my credentials"
+    even in a distribution that excludes the channel (both shipped example
+    distributions exclude all six) or for an agent whose legacy row was never
+    copied into the generic store. Those rows are base64 bot tokens and app
+    secrets; leaving them is a data-retention bug, not a tidiness one.
+
+    ``channel`` narrows the sweep to one channel — what ``ChannelModuleBase``
+    passes, so the per-channel walk stays per-channel and the agent-deletion
+    route's own sweep (``channel=None``) covers everything, installed or not.
+    The two overlap harmlessly: the second DELETE matches nothing.
+
+    Best-effort per TABLE: an install that never had one must not fail the
+    deletion, so a missing table is logged at debug and the sweep continues.
+    Returns ``{table: rows_deleted}`` for tables that actually deleted something
+    (the caller merges it into its stats; a table with nothing to delete
+    contributes no key).
+    """
+    purged: dict[str, int] = {}
+    if not agent_id:
+        return purged
+    for spec in LEGACY_TABLES:
+        if channel is not None and spec.channel != channel:
+            continue
+        try:
+            affected = await db.delete(spec.table, {"agent_id": agent_id})
+        except Exception as exc:  # noqa: BLE001 — table absent on a fresh install
+            logger.debug(f"[credential-legacy] {spec.table}/{agent_id}: not purged ({exc})")
+            continue
+        count = affected if isinstance(affected, int) else 0
+        if count > 0:
+            purged[spec.table] = count
+    return purged
+
+
 async def copy_legacy_tables(db: Any) -> dict[str, int]:
     """Copy every row of the retired tables that has no generic row yet. Returns rows copied per channel."""
     store = GenericCredentialStore(db)
@@ -113,4 +153,4 @@ async def copy_legacy_tables(db: Any) -> dict[str, int]:
     return counts
 
 
-__all__ = ["LEGACY_BY_TABLE", "LEGACY_TABLES", "LegacyTable", "copy_legacy_tables"]
+__all__ = ["LEGACY_BY_TABLE", "LEGACY_TABLES", "LegacyTable", "copy_legacy_tables", "purge_legacy_for_agent"]

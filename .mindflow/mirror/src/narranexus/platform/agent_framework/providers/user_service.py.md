@@ -452,3 +452,14 @@ Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026
 ## 2026-09-07 — 框架事实改从注册表派生（B6）
 
 _SUPPORTED_AGENT_FRAMEWORKS 换成 supported_agent_frameworks()（=available_agent_loop_frameworks，路由层同源）；onboard_one_key 的 provider→framework 硬映射换 default_framework_for_protocol；add_provider 的订阅卡→框架用 framework_for_oauth_source；validate_slot_binding 的错误提示同样。set_slot 在槽位尚无框架时改用 resolve_framework_name()（bound 默认，与 resolver 一致）——旧默认 'claude_code' 是过期硬编码，曾让默认框架用户的 openai 卡被拒绝。
+
+## 2026-09-07（round-2 P2-I2 / P2-I8）— the binding rules moved, and the boundary answers 400
+
+`framework_can_drive_provider` / `get_slot_required_protocols` now come from
+`providers/framework_binding` (they were in `schema/provider_schema` and reached up into
+`agent_framework` through function-body imports — a layering inversion import-linter could not see).
+
+`set_slot`'s owner-level read calls `framework_binding.resolved_framework_name()` rather than
+`driver.resolve_framework_name()`: a `turn.pipeline.act.framework` binding naming a framework no
+plugin provides must be a `ValueError` here (the route maps it to 400), not the `RuntimeError` the
+route has no handler for. Otherwise the one page that can undo a bad binding answers 500.

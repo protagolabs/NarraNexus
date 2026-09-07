@@ -25,10 +25,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from loguru import logger
 
-from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import (
-    ArtifactStore,
-    get_template_store,
-)
+from narranexus.platform.marketplace import ArtifactStore, get_template_store
 from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
 from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 from narranexus.platform.utils.deployment_mode import get_deployment_mode

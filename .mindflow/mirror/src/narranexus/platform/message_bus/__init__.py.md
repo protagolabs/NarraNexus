@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/message_bus/__init__.py
-last_verified: 2026-08-18
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 包 import 不再注册总线的消息来源
+
+顶层那段 `MessageSourceRegistry.register(MessageSourceHandler(name="message_bus", ...))`
+（外裹 `except ValueError: pass`）已删。它的实测后果是：只 import
+`narranexus.platform.agent_framework` 就会打出「registered handler for 'message_bus'」，
+而此时每一个内核 slot 都还是空的——一张与插件平台完全平行、无人可禁用的表。
+
+这条来源现在由拥有总线模块的插件 `builtin.message_bus` 在自己的 `contribution.py` 里以
+`MessageSourceSpec` 提供，进 `ingress.message_sources`。字段语义（`message_agent` /
+`message_team` / `notify_owner` 都算送达，但只有 `notify_owner` 是 owner 可见）原样搬过
+去，注释也跟着搬——那正是 2026-08-01 把真实总线送达记成 NO-REPLY、污染了兜底决策所依据
+的指标的那条教训。
 
 ## 2026-08-04 (review 三) — 名单的活消费方补齐
 

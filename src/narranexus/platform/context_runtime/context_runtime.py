@@ -81,6 +81,13 @@ def build_reply_language_section(language: str | None) -> str:
 
 
 
+#: ``part_sizes`` sentinel for a section that is required in this deployment
+#: mode and rendered nothing — printed as ``<id>=MISSING`` in
+#: ``[SYSPROMPT-BREAKDOWN]``. Negative so it can never collide with a real
+#: character count.
+MISSING_SECTION_SIZE = -1
+
+
 class ContextRuntime:
     """
     ContextRuntime is responsible for building the Context required for the Agent Loop.
@@ -413,7 +420,12 @@ class ContextRuntime:
         # narrative / modules / bootstrap), the ``prompt.assembler`` binding
         # joins them. A distribution or narranexus.toml reorders, drops or
         # replaces without touching this file.
-        from narranexus.contracts.prompt import PromptContext, RenderedSection
+        from narranexus.contracts.prompt import (
+            PromptContext,
+            RenderedSection,
+            RequiredSectionMissing,
+            section_required,
+        )
         from narranexus.platform.prompt_slots import assembler_for, sections_for
         from narranexus.platform.utils.deployment_mode import get_deployment_mode
 
@@ -436,11 +448,28 @@ class ContextRuntime:
         await self._settle_bootstrap(ctx_data, pctx.user_id)
         rendered: List[RenderedSection] = []
         for provider in sections_for():
+            # Per-section isolation is the right policy for a DEGRADABLE
+            # contribution ("one section must not take the turn down") and the
+            # wrong one for a load-bearing one: the cloud security preamble used
+            # to be droppable by a binding, a builtin_overrides disable or one
+            # raising provider, with a single warning and no visible difference.
+            # A section that declares itself required in THIS deployment mode
+            # fails the prompt instead, and shows up in [SYSPROMPT-BREAKDOWN] as
+            # ``<id>=MISSING`` so the existing greps see it.
+            required = section_required(provider, pctx.deployment_mode)
             try:
                 text = await provider.render(pctx)
-            except Exception as exc:  # noqa: BLE001 — one section must not take the turn down
+            except Exception as exc:  # noqa: BLE001 — one OPTIONAL section must not take the turn down
+                if required:
+                    self._report_missing_section(provider.id, rendered)
+                    logger.error(f"        required prompt section {provider.id!r} raised: {exc}")
+                    raise RequiredSectionMissing(provider.id, pctx.deployment_mode, exc) from exc
                 logger.warning(f"        prompt section {getattr(provider, 'id', provider)!r} failed: {exc}")
                 text = None
+            if not text and required:
+                self._report_missing_section(provider.id, rendered)
+                logger.error(f"        required prompt section {provider.id!r} rendered empty")
+                raise RequiredSectionMissing(provider.id, pctx.deployment_mode)
             if text:
                 rendered.append(RenderedSection(id=provider.id, owner=type(provider).__module__, order=getattr(provider, "order", 100), text=text, budget_chars=int(getattr(provider, "budget_chars", 0) or 0)))
                 logger.debug(f"        Added prompt section {provider.id}: {len(text)} chars")
@@ -453,6 +482,22 @@ class ContextRuntime:
         self._last_narrative_meta = narrative_meta
         self._maybe_dump_system_prompt(self.agent_id, full_prompt, part_sizes, module_instructions_list)
         return full_prompt.strip()
+
+    def _report_missing_section(self, section_id: str, rendered: List[Any]) -> None:
+        """Emit the one [SYSPROMPT-BREAKDOWN] line for a refused prompt.
+
+        The turn is about to fail, so the normal emission point (after
+        assembly) is never reached — and "the prompt build raised" alone does
+        not say WHICH contribution went missing. This line carries the sections
+        that did render plus ``<id>=MISSING``, which is what the existing greps
+        already look at.
+        """
+        try:
+            part_sizes = {s.id: s.chars for s in rendered}
+            part_sizes[section_id] = MISSING_SECTION_SIZE
+            self._log_system_prompt_breakdown(self.agent_id, 0, part_sizes, [], {})
+        except Exception as exc:  # noqa: BLE001 — diagnostics must never mask the real failure
+            logger.warning(f"[SYSPROMPT-BREAKDOWN] emission failed: {exc}")
 
     @staticmethod
     def _maybe_dump_system_prompt(
@@ -562,8 +607,15 @@ class ContextRuntime:
         # The section set is whatever the prompt.sections registry rendered
         # (a plugin section shows up here by its id), in emitted order, plus the
         # runtime-appended parts (turn_context, reply_language). The six builtin
-        # ids keep their names so existing grep one-liners still match.
-        parts_str = " ".join(f"{name}={size}" for name, size in part_sizes.items())
+        # ids keep their names so existing grep one-liners still match. A size of
+        # ``MISSING_SECTION_SIZE`` prints as ``<id>=MISSING``: a section that is
+        # REQUIRED in this deployment mode and rendered nothing (the prompt is
+        # refused, and this line is what says which one) — a numeric 0 would be
+        # indistinguishable from a section that simply had nothing to say.
+        parts_str = " ".join(
+            f"{name}=" + ("MISSING" if size == MISSING_SECTION_SIZE else str(size))
+            for name, size in part_sizes.items()
+        )
         # ALL module instruction sizes — not just the top few — so the per-turn
         # grower (a module whose contribute_instructions embeds accumulating ctx_data)
         # is identifiable by diffing this list across rounds.
@@ -1359,15 +1411,18 @@ class ContextRuntime:
             return {}
 
         from narranexus.platform.agent_framework.loop.history_projection import (
-            NATIVE_REPLAY_FRAMEWORKS,
             fold_event_log_to_messages,
+            framework_supports_native_replay,
         )
         from narranexus.platform.agent_framework.providers.model_identity import (
             resolve_agent_model_identity,
         )
 
         identity = await resolve_agent_model_identity(self.agent_id, self.db)
-        if identity.framework not in NATIVE_REPLAY_FRAMEWORKS:
+        # Registry-derived (the framework's declared ``native_replay``
+        # capability), not a builtin name table: a third-party framework whose
+        # driver stamps positioned monologue segments gets native replay too.
+        if not framework_supports_native_replay(identity.framework):
             return {}
 
         rows = await self.db.get_by_ids(

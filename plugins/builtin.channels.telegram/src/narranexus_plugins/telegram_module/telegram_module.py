@@ -31,10 +31,6 @@ from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
 from narranexus.platform.channel.message_source_handler import is_owner_tool
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema import (
     ContextData,
     ModuleConfig,
@@ -47,7 +43,8 @@ from ._telegram_mcp_tools import register_telegram_mcp_tools
 from .telegram_sdk_client import TelegramSDKClient, TelegramSDKError
 
 # ───────────────────────────────────────────────────────────────────────────
-# MessageSourceRegistry handler — see slack_module._extract_slack_reply for
+# Reply extractor (named by descriptor.reply_extractor_ref) — see
+# slack_module._extract_slack_reply for
 # the full rationale. TL;DR: ChatModule's default extractor only knows
 # about ``notify_owner``; Telegram agents reply via
 # ``tg_cli(method="sendMessage", args={"text": "..."})``, so without
@@ -103,21 +100,6 @@ def _extract_telegram_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return "(sent via tg_cli)"
 
     return inner_args.get("text") or "(sent via tg_cli)"
-
-
-# Register at module-import time. Idempotent guard mirrors lark_module.
-try:
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="telegram",
-        display_label="Telegram",
-        user_reply_tool_names=("tg_cli", "notify_owner"),
-        row_prefix_template="[Telegram · {sender_name} · {sender_id} · {chat_id}]",
-        extract_reply_fn=_extract_telegram_reply,
-        dedicated_trigger=True,
-    ))
-except ValueError:
-    # Re-import (test hot-reload, etc.) — handler already registered.
-    pass
 
 
 # ── Discovery prompt (no credential bound) ─────────────────────────────

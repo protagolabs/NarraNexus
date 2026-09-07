@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 import jwt
 
-from backend.auth_errors import TOKEN_EXPIRED, TOKEN_INVALID, AuthError
+from narranexus.sdk.web import TOKEN_EXPIRED, TOKEN_INVALID, auth_error, decode_session_token
 from narranexus.kernel.plugins.registry import Contribution
 
 
@@ -24,15 +24,13 @@ class NetMindAuthProvider:
         header = request.headers.get("Authorization", "") or ""
         if not header.startswith("Bearer "):
             return None
-        from backend.auth import decode_token
-
         token = header[7:]
         try:
-            payload = decode_token(token)
+            payload = decode_session_token(token)
         except jwt.ExpiredSignatureError:
-            raise AuthError(TOKEN_EXPIRED, "Token expired") from None
+            raise auth_error(TOKEN_EXPIRED, "Token expired") from None
         except jwt.InvalidTokenError:
-            raise AuthError(TOKEN_INVALID, "Invalid token") from None
+            raise auth_error(TOKEN_INVALID, "Invalid token") from None
         return {"user_id": payload["user_id"], "role": payload.get("role", "user"), "provider": self.id, "token": token}
 
 

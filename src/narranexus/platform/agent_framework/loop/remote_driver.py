@@ -55,6 +55,7 @@ from narranexus.platform.agent_runtime.executor_protocol import (
 from narranexus.platform.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
+from narranexus.platform.agent_framework.loop.driver import framework_capabilities
 from narranexus.platform.agent_framework.loop.executor_errors import (
     ExecutorUnreachableError,
 )
@@ -70,17 +71,14 @@ _STEER_POLL_S = 0.2
 #: transient (the pump keeps draining) rather than terminal.
 _STEER_POST_TIMEOUT_S = 30.0
 
-#: Which frameworks' in-container driver can actually honor live steering. Only
-#: nexus_power drains a steering inlet (adapters/nexus/nexus_agent.py declares
-#: {"event_log","steering"}); claude_code / codex_cli return the base contract
-#: (adapters/claude/sdk.py, adapters/codex/*), so a steer POSTed to their
-#: executor would queue with nothing to drain it. RemoteAgentLoopDriver is the
-#: ONE remote shell for every framework, so it must reflect the WRAPPED driver's
-#: capability, not a blanket yes. The authoritative source is the in-container
-#: driver's own capabilities(); this static set mirrors it (safe under the
-#: submodule-pin lockstep) and the executor's GET /capabilities is the explicit
-#: probe if a framework's answer ever needs to be confirmed at runtime.
-_STEER_CAPABLE_FRAMEWORKS = frozenset({"nexus_power"})
+#: What this remote shell can carry ACROSS the executor hop. A framework's own
+#: capabilities are its ``FrameworkMeta.capabilities`` (registry-derived, so a
+#: third-party framework that drains a steering inlet gets live steering the
+#: moment it registers); this set is the property of the TRANSPORT, not of any
+#: framework: the executor exposes ``POST /steer`` + ``steer_consumed`` frames
+#: and nothing else, so every other capability the wrapped driver ships is not
+#: reachable through this shell and must not be claimed here.
+_REMOTE_CARRIED_CAPABILITIES = frozenset({"steering"})
 
 
 # Ceiling for a single NDJSON event line pulled from the executor. Chosen
@@ -104,28 +102,32 @@ class RemoteAgentLoopDriver:
         self._steer_url = base + "/steer"
 
     def capabilities(self) -> set[str]:
-        """``{"steering"}`` for a steer-capable framework (nexus_power), else the
-        base contract (empty) — the remote hop now carries live steering for the
-        frameworks whose in-container driver can drain it: this driver POSTs each
-        injection to the executor's ``/steer`` and forwards the loop's
-        ``steer_consumed`` back to the orchestrator's channel (see ``agent_loop``).
+        """The wrapped framework's declared capabilities, narrowed to what this
+        hop can carry — ``{"steering"}`` when the framework's
+        ``FrameworkMeta.capabilities`` says it drains a steering inlet, else the
+        base contract (empty).
 
         Framework-AWARE, not a blanket yes: ``RemoteAgentLoopDriver`` is the one
-        remote shell for every framework, and only nexus_power drains a steering
-        inlet (claude_code / codex_cli return the base contract, so a steer sent
-        to their executor would queue with nothing to read it). See
-        ``_STEER_CAPABLE_FRAMEWORKS`` for the source-of-truth note.
+        remote shell for EVERY framework, so a steer POSTed to a framework whose
+        in-container driver never drains one would queue with nothing to read it.
+        The answer now comes from the framework REGISTRY rather than a frozenset
+        of builtin names, so a third-party framework that implements steering
+        gets it, and one that does not is refused — the silent-downgrade class
+        this replaced.
 
-        Declared statically rather than probed over HTTP: the executor image and
+        Read statically rather than probed over HTTP: the executor image and
         this code deploy in lockstep (submodule pin), so a running orchestrator's
         remote executor always has ``/steer``; a delivery that still fails (a
         version-skew window, the run already ended) degrades visibly — the
         injection is logged undelivered and, never acked, resurfaces as a fresh
-        turn (iron rule #16). The ``/capabilities`` endpoint is the explicit probe
-        if a framework's answer ever needs runtime confirmation; per-turn probing
-        is pure latency here.
+        turn (iron rule #16). ``framework_capabilities`` is fail-closed on an
+        unregistered name, which is the conservative direction here: no steering
+        claimed means the injection resurfaces as a turn, rather than being
+        swallowed by an executor that cannot drain it. The ``/capabilities``
+        endpoint stays the explicit probe if a framework's answer ever needs
+        runtime confirmation; per-turn probing is pure latency.
         """
-        return {"steering"} if self.framework in _STEER_CAPABLE_FRAMEWORKS else set()
+        return set(framework_capabilities(self.framework) & _REMOTE_CARRIED_CAPABILITIES)
 
     async def _handle_frame(self, line: bytes, steer_channel: Any) -> dict[str, Any] | None:
         """One NDJSON frame from the executor → the event dict to yield, or

@@ -68,6 +68,18 @@ def test_every_listing_of_the_builtins_agrees_with_the_plugin_directories():
     assert all(f'name = "{name}"' in lock for name in dist_names.values())
     pyright = (REPO / "pyrightconfig.json").read_text()  # commented JSON — substring check
     assert all(f'"plugins/{pid}/src"' in pyright for pid in ids)
+    # pytest's import path: a plugin missing here fails its own package test as a
+    # COLLECTION ERROR, not an assertion — a failure shape nobody recognises.
+    pythonpath = set(pyproject["tool"]["pytest"]["ini_options"]["pythonpath"])
+    assert {f"plugins/{pid}/src" for pid in ids} <= pythonpath, sorted({f"plugins/{pid}/src" for pid in ids} - pythonpath)
+    # import-linter: "builtin packages are independent" is the machinery behind
+    # the hard rule that builtins never import each other (spec section 19.1);
+    # a package missing from its ``modules`` list is simply not governed.
+    contracts = pyproject["tool"]["importlinter"]["contracts"]
+    independence = [c for c in contracts if c["name"].startswith("builtin packages are independent")]
+    assert len(independence) == 1, [c["name"] for c in contracts]
+    packages = {pkg for _, pkg in BUILTIN_PLUGINS}
+    assert {f"narranexus_plugins.{pkg}" for pkg in packages} == set(independence[0]["modules"])
     for dist_dir in sorted(p for p in (REPO / "distributions").iterdir() if p.is_dir()):
         spec = json.loads((dist_dir / "narranexus-dist.json").read_text())
         classified = set(spec["plugins"]) | set(spec.get("excludes", []))
@@ -98,3 +110,24 @@ def test_a_builtin_whose_package_is_absent_is_skipped_not_fatal(monkeypatch):
         monkeypatch.undo()
         mod._manifest_data_and_missing.cache_clear()
     assert mod.missing_builtins() == ()
+
+
+def test_every_builtin_manifest_versions_exactly_the_contract_kinds_it_fills():
+    """``api`` is the fail-closed contract gate (docs/API_POLICY.md section 5) and
+    it only checks the kinds it is given. A builtin that provides into a
+    ``framework``/``provider``/``services`` slot without an ``api`` entry for
+    that kind survives a contract bump silently and then fails deep inside a
+    turn. Builtins are also the template third parties copy, so the set must be
+    EXACT: a kind the plugin does not fill (three channels claimed ``route``,
+    ``builtin.turn`` claimed ``agent``) teaches the wrong shape."""
+    from narranexus.kernel.plugins.manifest import Manifest, slot_kinds_of
+
+    tree = slot_tree_with_builtins()
+    mismatched = {}
+    for data in BUILTIN_MANIFEST_DATA:
+        manifest = Manifest.model_validate(data)
+        expected = set(slot_kinds_of(manifest, tree))
+        if expected != set(manifest.api):
+            mismatched[manifest.id] = {"missing": sorted(expected - set(manifest.api)), "spurious": sorted(set(manifest.api) - expected)}
+    assert mismatched == {}, mismatched
+    assert len(BUILTIN_MANIFEST_DATA) == len(BUILTIN_PLUGINS)  # the loop above ran over every builtin

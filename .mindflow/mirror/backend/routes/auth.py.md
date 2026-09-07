@@ -4,6 +4,19 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 删除 agent：多一遍与发行版无关的 legacy 凭据清扫（14a）
+
+原有的 14 号步骤是「按 module_registry 遍历每个 `ChannelModuleBase` 子类，各自
+`cleanup_for_agent`」。这条路径只覆盖**本发行版装了**的渠道；被排除的渠道（两个示例发行
+版排除了全部六个）没有模块可走，它退役前的 `lark_credentials` /
+`channel_*_credentials` 行——base64 bot token 和 app secret——就永远留在库里，包括用户删掉
+agent 之后。
+
+14a 补的就是这一遍：`credential_legacy.purge_legacy_for_agent(db, agent_id)`，按
+`agent_id` 扫 `LEGACY_TABLES`（曾经存过渠道密钥的表的唯一真值表），不需要描述符、不需要
+插件。与 14 里的每渠道清理重叠无害（第二条 DELETE 匹配不到行）；按表尽力而为，从来没有
+这张表的安装不会让删除失败。
+
 ## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
 
 `/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
@@ -719,3 +732,14 @@ Fix 2026-09-07 (fresh-install journey): `_mark_first_agent_created()` flips the 
 ## 2026-09-07 — agents directory channel UNION is fully parameterised
 
 The bound_channels enrichment builds its UNION through channel.binding_tables.bound_channels_query: channel names and agent ids are parameters, derived tables use index aliases. Behaviour (one query, owned agents only, degrade to [] on failure) unchanged.
+
+
+## 2026-09-07 — `_funnel_client_ip` 提升成共享模块 `backend/routes/_client_ip.py`
+
+跳数常量和取值函数搬去 `backend/routes/_client_ip.py`（导出 `client_ip` /
+`TRUSTED_PROXY_HOPS`），本文件 import 它。动机不是整洁：渠道 webhook 的匿名限流
+（`backend/routes/channels/generic.py`）新写了一份 `request.client.host`，于是
+仓里同时存在两个「客户端 IP 是什么」的答案，而其中一个在云端恒为 nginx 容器地址。
+跳数是**部署拓扑属性**，两份跳数就是这个修复要防的漂移，所以它只能有一个家。
+上文 R2/R4/R5+R6 记的所有决策（从右数、≥1 钳制、空/垃圾值回默认）原样搬过去，
+测试也改成打 `_client_ip`。

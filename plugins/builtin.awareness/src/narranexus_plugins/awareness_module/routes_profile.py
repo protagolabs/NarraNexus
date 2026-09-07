@@ -27,7 +27,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import require_agent_owner
 from narranexus_plugins.awareness_module import update_agent_profile_from_args
 from narranexus.platform.utils.db.db_factory import get_db_client
 
@@ -54,7 +54,7 @@ async def update_profile(agent_id: str, body: ProfileUpdateBody, request: Reques
     """Set the agent's display name and/or one-line peer description — twin of
     the ``update_agent_profile`` MCP tool. Returns ``{"message": <tool string>}``
     (byte-parity with the seam's DirectStore, which returns the same string)."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — surface as the tool's own error string

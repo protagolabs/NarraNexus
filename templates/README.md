@@ -17,6 +17,7 @@ that runs against `narranexus.sdk.testing.PluginTestHost`.
 | mcp_server | `agent.capabilities.mcp_servers` (remote) |
 | bundle | `content.bundles` (`.nxbundle`) |
 | skill | `content.skills` (`SKILL.md`) |
+| framework | `turn.pipeline.act.framework` (an agent-loop framework: driver + `FrameworkMeta`) |
 | stage_strategy | `turn.pipeline.recall` (a Recall strategy; the same shape fits every stage slot) |
 | pipeline_profile | `turn.profiles` (names the strategy each stage runs) |
 | context_provider | `agent.capabilities.context_providers` (Assemble-only prompt contributions) |
@@ -29,6 +30,8 @@ The symbols a manifest names are UPPER_SNAKE plural nouns of what they hold:
 `ROUTES`, `TABLES`, `WORKERS`, `HOOKS`, `SETTINGS`, `TOOLS`, `MCP_SERVERS`,
 `BUNDLES`, `SKILLS`, `RECALL_STRATEGIES`, `PROFILES`, `CONTEXT_PROVIDERS`,
 `CHANNEL` / `TRIGGERS` / `MODULES` — tuples of `Contribution` (hook functions
-for `HOOKS`). Builtin plugins keep the same vocabulary in their
-`contribution.py` (`CONTRIBUTION` for a one-arity slot, `CONTRIBUTIONS` for a
-many-arity one, `MODULES` / `TRIGGERS` for channels). `docs/API_POLICY.md` §7.
+for `HOOKS`). A ONE-arity slot is filled by a single `Contribution` named
+`CONTRIBUTION` (`framework`); when one module fills several one-arity slots the
+seat name prefixes it (`STOP_CONTRIBUTION`). Builtin plugins keep the same
+vocabulary in their `contribution.py`, and every module filling the same
+many-arity slot spells it the same way. `docs/API_POLICY.md` §8.

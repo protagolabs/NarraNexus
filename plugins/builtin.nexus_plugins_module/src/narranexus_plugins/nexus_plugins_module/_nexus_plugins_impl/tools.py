@@ -92,7 +92,7 @@ def create_nexus_plugins_mcp_server() -> FastMCP:
     @mcp.tool()
     async def capability_set(agent_id: str, module_class: str, enabled: bool) -> str:
         """Switch one of YOUR capabilities (a module class from agent_self) on or off; owner only (the caller's identity is taken from the request, not from an argument), base capabilities cannot be switched off; applies from the next turn. Say what you changed and why."""
-        from narranexus.platform.module_system._mcp_identity import caller_user_id_from_request
+        from narranexus.platform.module_system import caller_user_id_from_request
 
         from .awareness import capability_set as _cs
 

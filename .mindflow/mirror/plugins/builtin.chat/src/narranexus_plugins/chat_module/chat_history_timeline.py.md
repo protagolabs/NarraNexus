@@ -1,12 +1,19 @@
 ---
-code_file: backend/routes/agents/chat_history_timeline.py
-last_verified: 2026-08-31
+code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_history_timeline.py
+last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 随 builtin.chat 搬进插件包
+
+批 6b 把 chat 的 router 搬进 `plugins/builtin.chat`，但这个投影函数留在
+`backend/routes/agents/`，于是插件里多出一条 `from backend.routes.agents...`
+的宿主 import（`docs/API_POLICY.md` §1 禁止）。它是 chat 的业务逻辑、不是宿主
+服务，唯一调用方就是同包的 `routes.py`——所以跟着搬，而不是包成 seam。
+
 ## 2026-08-31 — 刻意与唯一调用方同目录
 
-`backend/routes/agents/` 下其余 18 个文件都是 router 模块，本文件是第一个
+（搬迁前的记录）`backend/routes/agents/` 下其余 18 个文件都是 router 模块，本文件是第一个
 **纯函数**模块（PR #378 review 🟢 提示）。这是**有意的**：它只有一个调用方
 `chat_history.py`，放在旁边比放进 `_chat_history_impl/` 少一层间接。
 

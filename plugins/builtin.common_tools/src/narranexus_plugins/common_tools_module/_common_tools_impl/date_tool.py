@@ -54,7 +54,7 @@ from typing import Any, Dict, Optional
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from narranexus.platform.module_system._mcp_identity import caller_user_id_from_request
+from narranexus.platform.module_system import caller_user_id_from_request
 from narranexus.platform.utils.timezone import (
     DEFAULT_TIMEZONE,
     WEEKDAY_NAMES,

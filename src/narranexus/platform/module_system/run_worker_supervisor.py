@@ -81,6 +81,7 @@ from narranexus.platform.module_system.run_channel_triggers import start_channel
 from narranexus.platform.channel.channel_health_server import (
     start_channel_health_server,
 )
+from narranexus.contracts.distribution import is_builtin_id
 
 # All known worker names. --only / --exclude select over this set.
 ALL_WORKERS = ("poller", "jobs", "bus", "channels")
@@ -278,7 +279,7 @@ def _adapt_trigger_worker(owner: str, spec: Any) -> WorkerSpec:
 
     # Builtin triggers keep their bare name (run.sh / compose address "jobs");
     # third-party ones are namespaced like plugin workers.
-    name = spec.name if owner.startswith("builtin.") else f"{owner}:{spec.name}"
+    name = spec.name if is_builtin_id(owner) else f"{owner}:{spec.name}"
     return WorkerSpec(name, _factory)
 
 
@@ -552,7 +553,7 @@ async def run(
 
     # Plugin platform boot (workers role): plugin worker specs come from the
     # backend.workers registry, so boot before selecting specs.
-    from narranexus.platform.module_system.plugins_boot import boot_worker_plugins
+    from narranexus.platform.module_system.plugins_boot import boot_worker_plugins, mark_host_healthy
 
     boot_worker_plugins()
 
@@ -586,6 +587,8 @@ async def run(
 
     wrappers = [asyncio.ensure_future(_supervise(ctx, s)) for s in specs]
     heartbeat = asyncio.ensure_future(_heartbeat_loop(ctx))
+    # Supervising: the plugin boot may now clear its marker and move the LKG.
+    mark_host_healthy("workers")
 
     try:
         await ctx.stop_event.wait()

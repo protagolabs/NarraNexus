@@ -24,6 +24,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from narranexus.platform.utils import utc_now
+from narranexus.contracts.distribution import is_builtin_id
 
 TABLE = "agent_capabilities"
 BUDGET_WARN_RATIO = 2.0
@@ -46,7 +47,7 @@ class CapabilityService:
 
     def default_enabled(self, module_class: str) -> bool:
         """The no-row default: builtin modules on, plugin modules off (context budget)."""
-        return self.owner_of(module_class).startswith("builtin.")
+        return is_builtin_id(self.owner_of(module_class))
 
     def is_locked(self, module_class: str) -> bool:
         """Base modules stay on: a turn cannot run without them."""
@@ -92,7 +93,7 @@ class CapabilityService:
                 "icon": (display.icon if display else "🔌"),
                 "description": cfg.description,
                 "owner": self.owner_of(name),
-                "builtin": self.owner_of(name).startswith("builtin."),
+                "builtin": is_builtin_id(self.owner_of(name)),
                 "enabled": enabled[name],
                 "default_enabled": self.default_enabled(name),
                 "explicit": name in explicit,

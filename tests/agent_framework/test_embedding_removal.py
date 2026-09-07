@@ -131,7 +131,8 @@ def test_required_slots_no_embedding():
 #    SLOT_REQUIRED_PROTOCOLS must not map it ──────────────────────────────────
 
 def test_slot_required_protocols_no_embedding():
-    from narranexus.platform.schema.provider_schema import SLOT_REQUIRED_PROTOCOLS, SlotName
+    from narranexus.platform.agent_framework.providers.framework_binding import SLOT_REQUIRED_PROTOCOLS
+    from narranexus.platform.schema.provider_schema import SlotName
     assert not hasattr(SlotName, "EMBEDDING"), "SlotName.EMBEDDING must be removed"
     assert "embedding" not in {getattr(s, "value", s) for s in SLOT_REQUIRED_PROTOCOLS}, (
         "SLOT_REQUIRED_PROTOCOLS must not have an EMBEDDING entry"

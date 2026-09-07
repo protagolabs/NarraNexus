@@ -11,8 +11,22 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from narranexus.contracts.route import RouterSpec
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
+
+
+def _manifest(pid: str, *, public=()):
+    """A real parsed manifest: the mount path now asks it whether a public
+    prefix was declared, so a bare RouterSpec with no manifest is (correctly)
+    refused. See tests/backend/test_plugin_route_policy.py for that contract."""
+    return parse_manifest(
+        {"id": pid, "version": "0.1.0", "displayName": pid, "hosts": ["backend"],
+         "backend": {"activate": True, "publicPrefixes": list(public)},
+         "api": {"route": 0}, "provides": {}},
+        tree=slot_tree_with_builtins(),
+    )
 
 
 def _router(text: str) -> APIRouter:
@@ -31,19 +45,23 @@ def host_app(monkeypatch):
 
     assert isinstance(PLUGIN_EXEMPT_PREFIXES, set)
     monkeypatch.setattr("backend.auth.PLUGIN_EXEMPT_PREFIXES", set())
+    # Empty ON ENTRY, not merely a set: a leak from another test would
+    # otherwise hand these 401 assertions a free pass.
+    from backend import auth as _a
+    assert _a.PLUGIN_EXEMPT_PREFIXES == set()
     app = FastAPI()
     app.middleware("http")(auth_middleware)
     return app
 
 
-def _mount(app, entries):
+def _mount(app, entries, manifests=()):
     from backend.plugins_host import mount_plugin_routes
 
     registries = Registries()
     reg = registries.registry_for("backend.routes")
     for owner, name, spec in entries:
         reg.register_contribution(Contribution(name, (lambda s=spec: s)), owner=owner)
-    return mount_plugin_routes(app, registries)
+    return mount_plugin_routes(app, registries, manifests=list(manifests))
 
 
 def test_user_route_mounts_and_is_fail_closed(host_app):
@@ -63,6 +81,7 @@ def test_auth_none_route_is_public_and_only_that_prefix(host_app):
             ("acme.weather", "hook", RouterSpec(_router("open"), "/api/x/acme.weather/webhook", auth="none")),
             ("acme.weather", "api", RouterSpec(_router("closed"), "/api/x/acme.weather/private")),
         ],
+        manifests=[_manifest("acme.weather", public=("/api/x/acme.weather/webhook",))],
     )
     assert "/api/x/acme.weather/webhook" in auth_mod.PLUGIN_EXEMPT_PREFIXES
     client = TestClient(host_app)
@@ -95,7 +114,7 @@ def test_broken_factory_is_isolated(host_app):
         raise RuntimeError("no router for you")
 
     reg.register_contribution(Contribution("api", boom), owner="acme.weather")
-    report = mount_plugin_routes(host_app, registries)
+    report = mount_plugin_routes(host_app, registries, manifests=[])
     assert report.mounted == [] and "RuntimeError" in report.refused[0][2]
 
 

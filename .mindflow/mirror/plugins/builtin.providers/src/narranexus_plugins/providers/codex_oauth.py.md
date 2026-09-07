@@ -1,7 +1,7 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/codex_oauth.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
@@ -136,3 +136,9 @@ going through the driver's ``build_*_config`` methods.
 ## 2026-07-07 — helper 槽也由订阅覆盖
 
 新增 `build_cli_helper_config`（framework=codex_cli）。OAuth 仍不能直连 chat-completions，但 helper 经 CliHelperSDK 走 `codex exec` 一次性，故订阅同时覆盖 agent+helper 两槽。
+
+## 2026-09-07（round-2 G2-I5）— `CONTRIBUTION` → `CONTRIBUTIONS`
+
+`model.providers` is a MANY-arity slot, so API_POLICY §8 wants the plural. The nine provider modules
+were split between the two spellings for the same slot, which is exactly the drift §8 exists to stop.
+Symbol name and manifest ref only; the registered driver name is unchanged.

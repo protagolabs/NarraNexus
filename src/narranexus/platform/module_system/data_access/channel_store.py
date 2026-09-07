@@ -194,8 +194,6 @@ class _ChannelSpecs(Mapping[str, ChannelSpec]):
         self._cache_key: tuple = ()
 
     def _registry(self):
-        import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
-
         regs = self._registries
         if regs is None:
             from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
@@ -218,10 +216,12 @@ class _ChannelSpecs(Mapping[str, ChannelSpec]):
         for entry in registry.entries():
             try:
                 d = entry.factory()
-                if d.has_inbound:
-                    from narranexus.platform.schema.hook_schema import WorkingSource
-
-                    WorkingSource.register(d.name)  # a plugin channel's inbound turns need their source
+                # No registration here. Building this view is a READ (SUPPORTED_CHANNELS
+                # is a membership test on an HTTP request path); it used to register the
+                # descriptor's WorkingSource, so whether ``WorkingSource("lark")``
+                # resolved depended on whether anyone had read the channel map yet. The
+                # source is registered once, where the channel enters the registry
+                # (channel/contributions.py:register_working_source).
                 if d.credential_manager_ref:
                     out[d.name] = _spec_from_descriptor(d)
             except Exception as e:  # noqa: BLE001 — one broken descriptor must not hide every channel

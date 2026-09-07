@@ -11,6 +11,15 @@ message-source handler and a hard-coded frontend row. ``ChannelDescriptor``
 is that record as data: the platform reads every one of those tables from
 the registry, and a channel plugin is one descriptor plus its classes.
 
+A channel also declares its MESSAGE SOURCE here (``reply_tools`` /
+``row_prefix_template`` / ``reply_extractor_ref`` / ``dedicated_trigger``):
+the facts that used to be a module-level ``MessageSourceRegistry.register``
+call executed as an import side effect, invisible to the registry, to
+``registry.json`` and to distributions. ``ChannelDescriptor.message_source``
+projects them as a ``MessageSourceSpec``, the same record a NON-channel
+source (the message bus, the job clock) contributes into
+``ingress.message_sources``.
+
 ``credential_schema`` is the generic bind form (batch 4b) — fields the
 platform stores split into public and secret halves; ``transport`` says how
 events arrive (``socket`` = the trigger keeps a connection, ``poll`` = it
@@ -74,6 +83,64 @@ class ChannelUi:
 _CHANNEL_NAME_RE = re.compile(r"[a-z0-9_]+")
 
 
+_REF_RE_HINT = "'pkg.mod:Symbol'"
+
+
+def _validate_ref(owner: str, field_name: str, ref: str) -> None:
+    if ref and ref.count(":") != 1:
+        raise ValueError(f"{owner}: {field_name} must look like {_REF_RE_HINT}, got {ref!r}")
+
+
+@dataclass(frozen=True)
+class MessageSourceSpec:
+    """How one ``working_source`` answers the chat-history pipeline's two questions.
+
+    "Did the agent reply to whoever contacted it this turn?" (``reply_tools`` +
+    ``reply_extractor_ref``) and "how is a stored row of this source labelled to
+    the LLM?" (``row_prefix_template``). It is pure DATA — the behaviour lives in
+    the platform's ``MessageSourceHandler``, which is built from one of these.
+
+    Two kinds of provider:
+
+    * a channel — its ``ChannelDescriptor.message_source`` projects one, so the
+      channel stays ONE record and a channel excluded from a distribution takes
+      its message source with it;
+    * a non-channel source (the message bus, the job clock) — its plugin
+      contributes one into the ``ingress.message_sources`` slot.
+
+    Sources that need nothing source-specific (owner chat, ``a2a``,
+    ``callback``, ``skill_study``) declare NOTHING: the platform's default
+    handler is exactly right for them, and that is the only fallback left.
+    """
+
+    name: str
+    display_label: str = ""
+    """Brand name the agent reads in its origin declaration. Empty derives from ``name``."""
+
+    reply_tools: tuple[str, ...] = ()
+    """Substrings of a tool name that count as delivering to this source."""
+
+    owner_visible_reply_tools: Optional[tuple[str, ...]] = None
+    """The subset whose output surfaces in the OWNER's web chat. ``None`` = all of
+    ``reply_tools`` (right for chat and every IM channel, where the conversation IS
+    with the owner). The bus overrides it: its peer sends reach other agents."""
+
+    row_prefix_template: str = "[{name}]"
+    """``str.format`` template over the row's flattened ``meta_data`` + ``channel_tag``."""
+
+    reply_extractor_ref: str = ""
+    """``"pkg.mod:function"`` of a ``(tool_name, arguments) -> str | None`` extractor,
+    resolved LAZILY on first use: naming it must not import the channel's SDK."""
+
+    dedicated_trigger: bool = False
+    """True when this source runs its own long-lived trigger process. Read by
+    ``im_channel_prefixes()`` (bus re-dispatch and unread-injection guards)."""
+
+    def __post_init__(self) -> None:
+        if not self.name or not _CHANNEL_NAME_RE.fullmatch(self.name):
+            raise ValueError(f"message source name must be lowercase [a-z0-9_], got {self.name!r}")
+        _validate_ref(self.name, "reply_extractor_ref", self.reply_extractor_ref)
+
 @dataclass(frozen=True)
 class ChannelDescriptor:
     name: str  # channel key ("lark"); also the WorkingSource value for inbound turns
@@ -95,6 +162,11 @@ class ChannelDescriptor:
     has_test: bool = True
     unbind_service: bool = False  # unbind goes through the service (lark) rather than the manager
     ui: Optional[ChannelUi] = None
+    # --- message source (see MessageSourceSpec; ``message_source`` projects these) ---
+    reply_tools: tuple[str, ...] = ()
+    row_prefix_template: str = ""
+    reply_extractor_ref: str = ""  # "pkg.mod:function", resolved lazily on first extraction
+    dedicated_trigger: bool = False
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -106,14 +178,32 @@ class ChannelDescriptor:
         for ref in (self.trigger_ref, self.module_ref, self.credential_manager_ref):
             if ref and ref.count(":") != 1:
                 raise ValueError(f"{self.name}: class reference must look like 'pkg.mod:Class', got {ref!r}")
+        _validate_ref(self.name, "reply_extractor_ref", self.reply_extractor_ref)
 
     @property
     def has_inbound(self) -> bool:
         return bool(self.trigger_ref) and self.transport != "none"
+
+    @property
+    def message_source(self) -> "MessageSourceSpec":
+        """This channel's message source — the record the reply/label pipeline reads.
+
+        ``display_name`` doubles as the brand label (they were two spellings of one
+        fact and had to agree by hand), and ``row_prefix_template`` falls back to the
+        channel's own name so a channel that declares nothing still labels its rows
+        as ITSELF rather than as the platform UI."""
+        return MessageSourceSpec(
+            name=self.name,
+            display_label=self.display_name,
+            reply_tools=self.reply_tools,
+            row_prefix_template=self.row_prefix_template or f"[{self.display_name}]",
+            reply_extractor_ref=self.reply_extractor_ref,
+            dedicated_trigger=self.dedicated_trigger,
+        )
 
     def resolve(self, ref: str) -> Any:
         module_path, _, attr = ref.partition(":")
         return getattr(importlib.import_module(module_path), attr)
 
 
-__all__ = ["ChannelDescriptor", "ChannelUi", "CredentialField", "CredentialSchema", "FieldKind", "Transport"]
+__all__ = ["ChannelDescriptor", "ChannelUi", "CredentialField", "CredentialSchema", "FieldKind", "MessageSourceSpec", "Transport"]

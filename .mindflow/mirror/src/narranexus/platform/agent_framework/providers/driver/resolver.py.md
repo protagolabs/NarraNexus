@@ -128,7 +128,7 @@ user_id
               ├─ visibility check (owner_user_id matches OR is null)
               ├─ self_heal_if_broken (rewrites slot.model if needed)
               ├─ on-the-fly driver_type derive if backfill hasn't run yet
-              ├─ DRIVER_REGISTRY[driver_type] → Driver instance
+              ├─ get_driver_class(driver_type) → Driver instance  (driver_registry(), not a constant)
               └─ driver.build_<kind>_config(slot.model)
                  OR CodexConfig for codex_cli / codex_cli_v2 / codex_official
 ```
@@ -157,3 +157,11 @@ billing surprises in the old code.
 ## 2026-09-07 — 框架白名单换注册表（B6）
 
 _KNOWN_AGENT_FRAMEWORKS/_is_codex_framework/_is_protocol_agnostic_framework 删除。_agent_framework_from_slot 用 resolve_framework_name（空→bound 默认）+framework_meta 校验，未注册的名字抛 LLMConfigNotConfigured 而不是静默换成 nexus_power（设置页写 Claude Code 却跑默认框架正是要拒绝的替换）。_resolve_slot_target 按 FrameworkMeta.protocol 选配置形状：openai→build_codex_config，any→按卡片协议，anthropic→claude 配置——第三方框架无需改 resolver。
+
+## 2026-09-07（round-2 T2-C6）— the pipeline reads `driver_registry()`, not a `DRIVER_REGISTRY` constant
+
+The diagram above named a symbol that no longer exists anywhere in the repo. Lookup goes through
+`registry.get_driver_class(driver_type)`, which resolves the kernel's `model.providers` registry at
+call time; `None` means "nobody provides that driver_type in THIS process" (unbooted platform, or a
+distribution that excludes `builtin.providers`) and the resolver raises `LLMConfigNotConfigured`
+rather than routing to a default that would bill the wrong account.

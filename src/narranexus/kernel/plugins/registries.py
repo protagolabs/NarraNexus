@@ -48,7 +48,7 @@ class Registries:
         self._frozen = False
         self._bindings: Any = None  # ResolvedBindings once a host resolved them (bound.py reads it)
         # Named services plugins expose to each other and to the platform
-        # (see kernel/plugins/service_refs.py); one locator per process, so a
+        # (see narranexus.contracts.services); one locator per process, so a
         # builtin's service and a user plugin's activate(ctx) share it.
         from narranexus.kernel.plugins.services import ServiceLocator
 
@@ -79,9 +79,15 @@ class Registries:
         return tuple(sorted(self._by_path))
 
     def freeze(self) -> None:
+        """Close every surface a plugin can register into, not only the slot
+        registries: hooks and the service locator are the other two things
+        ``remove_owner`` withdraws, so leaving them open after boot left "nothing
+        registers after boot" true for one third of the platform."""
         self._frozen = True
         for reg in self._by_path.values():
             reg.freeze()
+        self.hooks.freeze()
+        self.services.freeze()
 
     @property
     def frozen(self) -> bool:

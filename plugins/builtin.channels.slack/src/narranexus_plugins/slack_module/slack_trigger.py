@@ -560,8 +560,8 @@ class SlackTrigger(ChannelTriggerBase):
         # from caching.
         client = SlackSDKClient(credential.bot_token)
 
-        from backend.config import settings as backend_settings
-        max_bytes = backend_settings.max_upload_bytes
+        from narranexus.sdk.web import host_settings
+        max_bytes = host_settings().max_upload_bytes
 
         out: list[Attachment] = []
         for ref in refs:

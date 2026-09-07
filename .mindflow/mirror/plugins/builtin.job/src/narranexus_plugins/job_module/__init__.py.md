@@ -1,8 +1,18 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/__init__.py
-last_verified: 2026-08-18
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 包 import 不再注册 job 的消息来源
+
+删掉顶层的 `try: MessageSourceRegistry.register(MessageSourceHandler(name="job", ...))
+except ValueError: pass`。反向的失败同样真实：某个角色下如果只 import 了 job 的子模块而
+没 import 这个包，`job` 的 handler 就不存在，`chat_module` 会把定时任务的回复当成普通聊
+天行——一个只在特定角色/发行版下出现、没有任何日志的行为差异。
+
+这条来源搬到 `contribution.py` 的 `MESSAGE_SOURCES`，走 `ingress.message_sources` 位，由
+manifest 声明。
 
 # job_module/__init__.py — package surface
 

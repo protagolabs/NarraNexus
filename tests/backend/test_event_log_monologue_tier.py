@@ -21,7 +21,7 @@ plain thinking: never brighten CoT, never invent a boundary.
 """
 from __future__ import annotations
 
-from backend.routes.agents.chat_history_timeline import build_event_timeline
+from narranexus_plugins.chat_module.chat_history_timeline import build_event_timeline
 
 
 def _thinking(content: str, monologue: str | None = None) -> dict:

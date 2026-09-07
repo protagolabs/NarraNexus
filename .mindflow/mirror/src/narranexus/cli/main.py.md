@@ -26,3 +26,7 @@ Batch 6d: `plugin list` rows carry `quality` (read from each plugin's manifest).
 ## 2026-09-07 — doctor exit code; link acknowledges; enable respects the permissions gate; TEMPLATES_DIR from scaffold
 
 plugin doctor returns 1 whenever anything is rejected or blocked (the 'and not users' clause answered 0 with four of five plugins rejected). plugin link acknowledges the linked plugin's permissions (it is the developer's own tree). plugin enable refuses (exit 2) a plugin whose declared permissions are not acknowledged unless --ack is given, which records them through the shared installer helper. TEMPLATES_DIR is imported from scaffold (one definition).
+
+## 2026-09-07 — is_builtin_id 收编（round-2 P2-I6）
+
+『是否 builtin』只在 contracts.distribution.is_builtin_id 一处判断（BUILTIN_PREFIX 同处）；九处 startswith('builtin.') 副本全部改调它（distribution_scaffold 的保留命名空间检查是另一个判断，未合并）。

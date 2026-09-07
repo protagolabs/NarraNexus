@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/derive.py
-last_verified: 2026-08-28
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -82,7 +82,12 @@ post-call to decide whether to deduct from ``user_quotas``.
 
 OAuth rows store a sentinel string ``claude-cli:~/.claude/.credentials.json``
 or ``codex-cli:~/.codex/auth.json`` in ``auth_ref`` depending on
-provider source. ``resolve_claude_credentials_path`` and
+provider source. The two recognised sources are exactly
+``CLI_SUBSCRIPTION_SOURCES = {"claude_oauth", "codex_oauth"}``; anything else gets ``None``
+(the guard lives inside the function, see the 2026-08-27 note). ``derive_driver_type`` maps
+``source == "codex_oauth"`` to the driver_type of the same name, the twin of
+``claude_oauth`` — the pair is what makes "one CLI framework owns one subscription card source"
+mechanical rather than a per-call-site `if`. ``resolve_claude_credentials_path`` and
 ``resolve_codex_credentials_path`` expand those sentinels at use-time,
 respecting the relevant override env vars so admins can relocate the
 credentials file (or tests can inject a fake one).
@@ -93,6 +98,16 @@ The key business rule: the check is against the **card's own**
 ``models`` array, not against the global catalog. A user who configured
 a private model that we don't recognise is fine; only a slot whose
 model isn't in its own provider's list is broken.
+
+**`SLOT_MODEL_SENTINELS` is the load-bearing exemption.** It holds `"default"`, the UI/config
+convention meaning "use whatever the call site passed, or the catalog default" (see
+`OpenAIAgentsSDK._resolve_model`). `is_slot_broken` returns False for a sentinel BEFORE the
+membership test, and it must: self-heal would otherwise "repair" such a row by pinning the slot to a
+concrete model, silently killing the per-call-site override the sentinel exists to allow — a
+degradation with no error anywhere. Note the ordering also means an empty/None `slot_model` is still
+broken (a mis-configured row), because the sentinel check is an exact-membership test, not a
+truthiness one. Adding a second sentinel is a one-line change here and requires no edit to
+self_heal.
 
 ``pick_default_model`` prefers the first element of card.models, falls
 back to ``model_catalog.get_default_models(source, protocol)[0]``,

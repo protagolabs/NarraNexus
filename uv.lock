@@ -1985,40 +1985,88 @@ source = { editable = "packages/narranexus-contracts" }
 name = "narranexus-plugin-auth-local"
 version = "1.0.0"
 source = { editable = "plugins/builtin.auth.local" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 
 [[package]]
 name = "narranexus-plugin-auth-netmind"
 version = "1.0.0"
 source = { editable = "plugins/builtin.auth.netmind" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 
 [[package]]
 name = "narranexus-plugin-awareness"
 version = "1.0.0"
 source = { editable = "plugins/builtin.awareness" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-basic-info"
 version = "1.0.0"
 source = { editable = "plugins/builtin.basic_info" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-discord"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.discord" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-lark"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.lark" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.optional-dependencies]
 full = [
@@ -2026,183 +2074,377 @@ full = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "lark-oapi", marker = "extra == 'full'", specifier = ">=1.4.0,<2.0.0" }]
+requires-dist = [
+    { name = "lark-oapi", marker = "extra == 'full'", specifier = ">=1.4.0,<2.0.0" },
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-narramessenger"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.narramessenger" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-slack"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.slack" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-telegram"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.telegram" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-channels-wechat"
 version = "1.0.0"
 source = { editable = "plugins/builtin.channels.wechat" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-chat"
 version = "1.0.0"
 source = { editable = "plugins/builtin.chat" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-common-tools"
 version = "1.0.0"
 source = { editable = "plugins/builtin.common_tools" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-frameworks-claude-code"
 version = "1.0.0"
 source = { editable = "plugins/builtin.frameworks.claude_code" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-frameworks-codex-cli"
 version = "1.0.0"
 source = { editable = "plugins/builtin.frameworks.codex_cli" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-frameworks-nexus-power"
 version = "1.0.0"
 source = { editable = "plugins/builtin.frameworks.nexus_power" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-general-memory"
 version = "1.0.0"
 source = { editable = "plugins/builtin.general_memory" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-home-assistant"
 version = "1.0.0"
 source = { editable = "plugins/builtin.home_assistant" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-job"
 version = "1.0.0"
 source = { editable = "plugins/builtin.job" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-llm-clients"
 version = "1.0.0"
 source = { editable = "plugins/builtin.llm_clients" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-memory-kinds"
 version = "1.0.0"
 source = { editable = "plugins/builtin.memory_kinds" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-message-bus"
 version = "1.0.0"
 source = { editable = "plugins/builtin.message_bus" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-nexus-plugins-module"
 version = "1.0.0"
 source = { editable = "plugins/builtin.nexus_plugins_module" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-prompts"
 version = "1.0.0"
 source = { editable = "plugins/builtin.prompts" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 
 [[package]]
 name = "narranexus-plugin-providers"
 version = "1.0.0"
 source = { editable = "plugins/builtin.providers" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-skills"
 version = "1.0.0"
 source = { editable = "plugins/builtin.skills" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-social-network"
 version = "1.0.0"
 source = { editable = "plugins/builtin.social_network" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-teams"
 version = "1.0.0"
 source = { editable = "plugins/builtin.teams" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 
 [[package]]
 name = "narranexus-plugin-turn"
 version = "1.0.0"
 source = { editable = "plugins/builtin.turn" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
 
 [package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 provides-extras = ["full"]
 
 [[package]]
 name = "narranexus-plugin-ui"
 version = "1.0.0"
 source = { editable = "plugins/builtin.ui" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
 
 [[package]]
 name = "narranexus-sdk"

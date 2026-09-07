@@ -156,3 +156,12 @@ The MCP host used to mount CORE_MCP_MODULES (the platform's builtin table) plus 
 ## 2026-09-07 — no CORE_MCP_MODULES table
 
 Core vs channel modules are told apart by the contribution meta the plugin declared, read from the registry at call time.
+
+
+## 2026-09-07 — marks the plugin boot healthy only once it serves (round-2 🟡-6)
+
+The plugin boot no longer declares itself healthy on its last line; this
+entrypoint calls `plugins_boot.mark_host_healthy(<role>)` after the process is
+actually serving, which is the only moment that may clear the boot-crash marker
+and move the last-known-good registry snapshot. Reaching the boot and then dying
+must count as a failed boot.

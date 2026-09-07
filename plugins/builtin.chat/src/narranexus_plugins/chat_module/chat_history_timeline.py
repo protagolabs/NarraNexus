@@ -2,12 +2,17 @@
 @file_name: chat_history_timeline.py
 @author: NarraNexus
 @date: 2026-08-30
-@description: Pure event_log -> timeline projection for the event-log route.
+@description: Pure event_log -> timeline projection for builtin.chat's event-log route.
 
 Lifted out of chat_history.py, which is well past the 800-line convention.
 Everything here is a pure function over already-loaded rows: no DB, no request
 context, so `tests/backend/test_event_log_monologue_tier.py` can feed it step
 dicts directly instead of standing up a database.
+
+Lives in the plugin package (batch 6b) rather than under `backend/routes/`:
+its ONE caller is `routes.py` in this package, and it is chat business logic,
+not a host service — importing it from `backend.routes.agents` was the last
+`backend.*` import in the chat plugin, and a private one at that.
 """
 
 from typing import Any, Dict, List

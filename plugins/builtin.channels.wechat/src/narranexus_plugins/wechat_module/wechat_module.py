@@ -22,10 +22,6 @@ from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
 from narranexus.platform.channel.message_source_handler import is_owner_tool
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema import ContextData, ModuleConfig, WorkingSource
 
 from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManager
@@ -55,20 +51,6 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
     if "wechat_send" in (tool_name or ""):
         return args.get("text", "") or "(sent via wechat_send)"
     return None
-
-
-# Register at import time (idempotent — mirrors telegram_module).
-try:
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="wechat",
-        display_label="WeChat",
-        user_reply_tool_names=("wechat_send", "notify_owner"),
-        row_prefix_template="[WeChat · {sender_name} · {sender_id}]",
-        extract_reply_fn=_extract_wechat_reply,
-        dedicated_trigger=True,
-    ))
-except ValueError:
-    pass
 
 
 _NO_BIND_INSTRUCTION = """\

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
 from narranexus.contracts.prompt import PromptAssembler, PromptSectionProvider
 from narranexus.kernel.plugins.bound import bound_entries, bound_entry
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
@@ -20,9 +22,23 @@ def sections_for(registries: Any = None) -> list[PromptSectionProvider]:
     """The section providers in effect: binding order when bound, else declared ``order``.
 
     The registries are populated by the host boot (builtin.prompts' manifest);
-    an empty slot answers an empty prompt, never a silently re-registered one."""
+    an empty slot answers an empty list, never a silently re-registered one — an
+    unbooted process must fail visibly rather than grow a prompt from nowhere.
+
+    A section that is LOAD-BEARING for a deployment mode says so itself
+    (``PromptSectionProvider.required_in``) and the render loop in
+    ``context_runtime`` refuses to produce a prompt without it. That covers a
+    required section that renders empty or raises; a distribution that removes
+    the PROVIDER entirely is out of reach here (there is nothing left to ask),
+    so the empty slot is logged loudly instead."""
     regs = registries or KERNEL_REGISTRIES
     entries = bound_entries(regs, SECTIONS_SLOT)
+    if not entries:
+        logger.error(
+            f"[prompt] {SECTIONS_SLOT} is empty — every turn's system prompt will be blank. "
+            f"Has this process booted the plugin platform, and does the distribution include a "
+            f"prompt-section plugin?"
+        )
     providers = [e.factory() for e in entries]
     resolved = getattr(regs, "bindings", None)
     if resolved is None or SECTIONS_SLOT not in resolved.many or not resolved.many[SECTIONS_SLOT].providers:

@@ -34,6 +34,7 @@ from narranexus.kernel.plugins.loader import Discovery, LoadReport, discover, lo
 from narranexus.kernel.plugins.manifest import Manifest
 from narranexus.kernel.plugins.paths import deps_dir, registry_path
 from narranexus.kernel.plugins.registries import Registries
+from narranexus.contracts.distribution import is_builtin_id
 
 Role = Literal["backend", "mcp", "workers"]
 TableRegistrar = Callable[[Any, str], None]  # (TableSpec, owner)
@@ -254,13 +255,27 @@ def boot(
         # of the first holds the slug at prepare time.)
         if register_table is not None and "backend.tables" in registries.paths():
             for entry in registries.registry_for("backend.tables").entries():
-                if entry.owner.startswith("builtin.") or entry.owner in report.isolated:
+                if is_builtin_id(entry.owner) or entry.owner in report.isolated:
                     continue
                 try:
                     register_table(entry.factory(), entry.owner)
                 except Exception as exc:  # noqa: BLE001
                     report.isolated[entry.owner] = f"table {entry.name!r}: {exc}"
-                    logger.warning(f"[plugins] {entry.owner}: table {entry.name!r} refused: {exc}")
+                    # Isolation means NOTHING of it runs. A refused table used to
+                    # leave the plugin's routes mounted, its hooks firing and its
+                    # services resolvable while the report said "isolated" — a
+                    # third-party plugin could get that state on purpose by
+                    # shipping a colliding TableSpec. Withdraw all three the way
+                    # a load failure does (registries.remove_owner covers
+                    # registry entries, hooks.block and services.release_owner).
+                    try:
+                        withdrawn = registries.remove_owner(entry.owner)
+                    except Exception as rollback_exc:  # noqa: BLE001 — the rollback must not fail the boot
+                        withdrawn = 0
+                        logger.error(f"[plugins] {entry.owner}: could not withdraw partial registrations: {rollback_exc}")
+                    logger.warning(
+                        f"[plugins] {entry.owner}: table {entry.name!r} refused ({withdrawn} registration(s) withdrawn): {exc}"
+                    )
         if activator is not None:
             for manifest in lifecycle:
                 if manifest.id in report.isolated:

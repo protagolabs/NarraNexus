@@ -23,3 +23,7 @@ Which registered modules take part in an agent's turns is the owner's choice (pl
 ## 2026-09-07 — budget ratio clamped; updated_at refreshed
 
 With no baseline hint the ratio was float('inf'), which the route serialised as Infinity (invalid JSON); clamped to 100x the warn ratio. set_enabled now writes updated_at on the update path (the column silently meant created_at).
+
+## 2026-09-07 — is_builtin_id 收编（round-2 P2-I6）
+
+『是否 builtin』只在 contracts.distribution.is_builtin_id 一处判断（BUILTIN_PREFIX 同处）；九处 startswith('builtin.') 副本全部改调它（distribution_scaffold 的保留命名空间检查是另一个判断，未合并）。

@@ -40,7 +40,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import require_agent_owner
 from narranexus_plugins.job_module import (
     fetch_job_by_id,
     search_jobs_semantic,
@@ -118,7 +118,7 @@ class JobKeywordSearchBody(BaseModel):
 @router.get("/{agent_id}/jobs/{job_id}")
 async def job_by_id(agent_id: str, job_id: str, request: Request) -> dict:
     """Full detail of one job — twin of the ``job_retrieval_by_id`` MCP tool."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await fetch_job_by_id(await get_db_client(), agent_id, job_id)
     except Exception as e:  # noqa: BLE001 — get_db_client() only; fetch never raises
@@ -129,7 +129,7 @@ async def job_by_id(agent_id: str, job_id: str, request: Request) -> dict:
 @router.post("/{agent_id}/jobs/search-semantic")
 async def job_search_semantic(agent_id: str, body: JobSemanticSearchBody, request: Request) -> dict:
     """Keyword (BM25) job search — twin of the ``job_retrieval_semantic`` tool."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await search_jobs_semantic(
             await get_db_client(), agent_id, body.query, body.user_id, body.status, body.limit,
@@ -142,7 +142,7 @@ async def job_search_semantic(agent_id: str, body: JobSemanticSearchBody, reques
 @router.post("/{agent_id}/jobs/search-keywords")
 async def job_search_keywords(agent_id: str, body: JobKeywordSearchBody, request: Request) -> dict:
     """Keyword-list job search — twin of the ``job_retrieval_by_keywords`` tool."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         return await search_jobs_by_keywords(
             await get_db_client(), agent_id, body.keywords, body.user_id, body.status, body.limit,
@@ -157,7 +157,7 @@ async def job_update(agent_id: str, job_id: str, body: JobUpdateSeamBody, reques
     """Update a job's fields — twin of the ``job_update`` MCP tool. Shares the
     ``update_job_from_args`` implementation with DirectStore (byte-parity) and
     the frontend ``/api/jobs/{job_id}`` route."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — update_job_from_args never raises
@@ -173,7 +173,7 @@ async def job_create(agent_id: str, body: JobCreateSeamBody, request: Request) -
     similar-title embedding check + owner LLM-context setup run HERE, backend
     side, which is where the DB (and thus the owner's LLM config) lives in
     cloud."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — create_job_from_args never raises
@@ -186,7 +186,7 @@ async def job_create(agent_id: str, body: JobCreateSeamBody, request: Request) -
 async def job_pause(agent_id: str, job_id: str, request: Request) -> dict:
     """Pause a job — twin of the ``job_pause`` MCP tool. Shares
     ``pause_job_from_args`` with DirectStore (byte-parity)."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — pause_job_from_args never raises
@@ -199,7 +199,7 @@ async def job_pause(agent_id: str, job_id: str, request: Request) -> dict:
 async def job_cancel(agent_id: str, job_id: str, request: Request) -> dict:
     """Cancel a job (terminal) — twin of the ``job_cancel`` MCP tool. Shares
     ``cancel_job_from_args`` with DirectStore (byte-parity)."""
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
     try:
         db = await get_db_client()
     except Exception as e:  # noqa: BLE001 — cancel_job_from_args never raises

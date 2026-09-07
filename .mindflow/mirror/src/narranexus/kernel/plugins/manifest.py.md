@@ -67,3 +67,33 @@ declares 项新增 kind（校验为契约种类）与 caseInsensitive，透传�
 ## 2026-09-07 — 只有一元复合槽的提供者拥有子槽（round-2 K2-I5）
 
 _check_declares_in_own_namespace 的 under_provided 只认 arity=one 的 provides（或 default 指向本插件的内核根）；多元槽的每个提供者都可声明其子槽会让第二个声明者在 boot 时撞 RegistryConflict。
+
+
+## 2026-09-07 — `BackendSpec.quotaBypassPrefixes`
+
+`publicPrefixes` 的计费孪生：插件声明「这些前缀仍然要鉴权，但跳过 provider/配额门」，
+即免费额度耗尽的用户也必须够得着的配置类端点（宿主自己的 `QUOTA_BYPASS_PREFIXES` 是同
+一个理由）。形状和校验与 `publicPrefixes` 完全一致，因为二者由 backend 宿主的同一个
+`RoutePolicy` 在**挂载时**处理：越界条目丢弃，manifest 没声明过的运行时 `quota_bypass`
+被拒。放在 manifest 里而不是只看 `RouterSpec.quota_bypass`，是因为计费旁路必须出现在用户
+批准过的那份声明里，而不是插件运行时自己算出来的值。
+
+
+## 2026-09-07 — `api` must version every kind the manifest fills (round-2 G2-I2)
+
+`_check_api_versions` walks the keys that ARE in `api`, so a kind the manifest
+never names got no version check at all — 8 of 29 builtins were in that state
+(the three frameworks, providers, llm_clients, memory_kinds, job, skills), and a
+bump of `API_VERSIONS["framework"]` would have loaded them as compatible and
+failed deep inside a turn. `slot_kinds_of(manifest, tree)` derives the required
+set from `Slot.kind` (the slot decides, not the plugin — that is what makes `api`
+a gate instead of a self-description) and `_check_api_covers_slot_kinds` enforces
+it: a hard `ManifestError` for builtins (host code, and the template third
+parties copy), a WARNING for third-party manifests because tightening validation
+on published plugins is a breaking change — `docs/API_POLICY.md` section 4 carries
+the window (warning in 1.20, error in 1.21) and `loader.load` puts the line on
+`LoadReport.warnings` so the factory page shows it.
+
+## 2026-09-07 — is_builtin_id 收编（round-2 P2-I6）
+
+『是否 builtin』只在 contracts.distribution.is_builtin_id 一处判断（BUILTIN_PREFIX 同处）；九处 startswith('builtin.') 副本全部改调它（distribution_scaffold 的保留命名空间检查是另一个判断，未合并）。

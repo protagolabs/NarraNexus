@@ -5,7 +5,7 @@
 @description: builtin.awareness's AgentDataStore bodies: update_awareness / update_agent_profile.
 
 Registered into ``agent.capabilities.data_access`` by the builtin.awareness manifest
-(and at import by ``module/contributions.register_all``). Handlers take the
+Handlers take the
 store's db client first; module internals are imported inside each handler so
 registering the contribution stays free of the module's import cost.
 """

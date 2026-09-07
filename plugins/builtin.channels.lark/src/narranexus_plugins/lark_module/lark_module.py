@@ -18,10 +18,6 @@ from typing import Any, Optional
 from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema.module_schema import ModuleAgentInstance, ModuleDisplay
 from narranexus.platform.schema import (
     ModuleConfig,
@@ -40,7 +36,7 @@ _cli = LarkCLIClient()
 
 
 def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
-    """MessageSourceRegistry extractor for `working_source="lark"`.
+    """Reply extractor for `working_source="lark"` (descriptor.reply_extractor_ref).
 
     Lark agents reply via `lark_cli im +messages-send` / `+messages-reply`,
     not via `notify_owner`. The reply payload sits inside
@@ -88,33 +84,6 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
             return parts[i + 1]
     # Recognised as a send command but couldn't pull the text.
     return "(sent via lark_cli)"
-
-
-# Register at module-import time so chat_module._extract_user_visible_response
-# sees the handler before any Lark turn lands. Idempotency is handled by
-# MessageSourceRegistry rejecting duplicates — if this file is imported
-# twice (unusual but possible under reload), it will surface as a hard
-# error in the second registration, which is the correct loud-fail.
-#
-# 2026-05-13 merge note: the previous module-level `_lark_send_to_agent`
-# function + manual `ChannelSenderRegistry.register("lark", ...)` call in
-# LarkModule.__init__ are now subsumed by ChannelModuleBase — the base's
-# __init__ registers `self.send_to_agent` automatically. The MessageSource
-# registration below remains separate because it serves a different
-# pipeline (chat_module reply extraction, not channel-to-agent delivery).
-try:
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="lark",
-        display_label="Lark",
-        user_reply_tool_names=("lark_cli", "notify_owner"),
-        row_prefix_template="[Lark · {sender_name} in {room_name}]",
-        extract_reply_fn=_extract_lark_reply,
-        dedicated_trigger=True,
-    ))
-except ValueError:
-    # Re-import (test hot-reload, etc.) — handler already registered.
-    pass
-
 
 
 # ───────────────────────────────────────────────────────────────────────────

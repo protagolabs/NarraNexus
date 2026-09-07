@@ -314,6 +314,12 @@ class FactoryService:
         return {"domains": slot_catalog(KERNEL_REGISTRIES)}
 
     def record_error(self, plugin_id: str, *, kind: str, message: str, stack: str = "") -> int:
+        # A mutation like every other sibling: the guard is the method's FIRST
+        # statement, not the route's, so `_run`'s `except CloudManaged` turns it
+        # into the same 403 instead of letting it escape as a 500 (the frontend
+        # error sink cannot tell "refused by design" from "backend broken").
+        # The GETTER stays unguarded — reading the log is a read.
+        self._guard_mutation()
         # Only installed plugins have an error log: the id is a raw path
         # segment, and an unbounded dict keyed by it was a memory leak.
         from narranexus.kernel.plugins.builtins import builtin_manifests

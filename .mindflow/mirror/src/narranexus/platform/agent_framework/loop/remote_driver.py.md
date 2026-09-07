@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 ---
 
 ## 2026-09-03（批 2a.5）— 转发 `deferred_tools`
@@ -226,3 +226,15 @@ The first draft called it `()` → `TypeError: 'bool' object is not
 callable`, which aborted runs at the first event. Read it, do not call
 it. Regression test:
 `tests/agent_runtime/test_executor_seam.py::test_remote_driver_honours_cancellation_property`.
+
+## 2026-09-07（round-2 P2-I3 / G2-I7）— steering is registry-derived, narrowed to what the hop carries
+
+`_STEER_CAPABLE_FRAMEWORKS = frozenset({"nexus_power"})` is gone. `capabilities()` now intersects the
+WRAPPED framework's `FrameworkMeta.capabilities` with `_REMOTE_CARRIED_CAPABILITIES` — a property of
+the TRANSPORT (the executor exposes `POST /steer` + `steer_consumed` frames and nothing else), not of
+any framework. So a third-party framework that really drains a steering inlet gets live steering the
+moment it registers, one that does not is still refused, and a capability the hop cannot carry
+(`native_replay`) is never claimed here. Still read statically, not probed per turn: the executor
+image and this code deploy in lockstep, and `framework_capabilities` is fail-closed on an
+unregistered name — the conservative direction, since "no steering" means the injection resurfaces as
+a fresh turn instead of being swallowed by an executor that cannot drain it.

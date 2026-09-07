@@ -33,9 +33,13 @@ from narranexus.platform.schema.module_schema import ModuleConfig
 
 from .base import XYZBaseModule, mcp_base_url, mcp_host, mcp_mount_path, mcp_port, mcp_server_url
 
-# Injection-side surface of caller identity. Published here so callers
-# OUTSIDE this package (context_runtime builds the per-agent mcp spec) do not
-# reach into a private module; the server-side resolution stays private.
+# Caller identity, both sides. Published here so callers OUTSIDE this package
+# do not reach into a private module: the INJECTION side for context_runtime
+# (it builds the per-agent mcp spec), and — since batch 6b moved every MCP
+# tool into a plugin package — the SERVER side too. The resolvers used to be
+# deliberately private, which stopped being defensible the moment the tools
+# that must call them shipped as separate wheels: seven plugin call sites were
+# importing ``module_system._mcp_identity`` directly.
 from ._mcp_identity import (
     AGENT_ID_HEADER,
     TURN_SOURCE_HEADER,
@@ -48,7 +52,14 @@ from ._mcp_identity import (
     IDENTITY_TOKEN_HEADER,
     BEARER_AGENT_PREFIX,
     agent_id_headers,
+    caller_errand_scope,
+    caller_event_id_from_request,
+    caller_root_run_id,
+    caller_team_id_from_request,
+    caller_turn_source,
+    caller_user_id_from_request,
     parse_bearer_identity,
+    resolve_caller_agent_id,
     stamp_identity_token,
 )
 
@@ -159,7 +170,14 @@ __all__ = [
     "IDENTITY_TOKEN_HEADER",
     "BEARER_AGENT_PREFIX",
     "agent_id_headers",
+    "caller_errand_scope",
+    "caller_event_id_from_request",
+    "caller_root_run_id",
+    "caller_team_id_from_request",
+    "caller_turn_source",
+    "caller_user_id_from_request",
     "parse_bearer_identity",
+    "resolve_caller_agent_id",
     "stamp_identity_token",
     # ===== Base class =====
     "XYZBaseModule",

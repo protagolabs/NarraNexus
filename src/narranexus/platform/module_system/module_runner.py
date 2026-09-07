@@ -316,7 +316,7 @@ class ModuleRunner:
         # Plugin platform boot for the mcp role: registers declarative
         # contributions (tools / mcp servers / skills) so the module servers
         # below see them; user plugin code is not activated in this process.
-        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins
+        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins, mark_host_healthy
 
         boot_mcp_plugins()
 
@@ -371,6 +371,8 @@ class ModuleRunner:
                 pass
 
         logger.info(f"\n✅ MCP host running on port {port} ({len(instances)} module servers, single-process, single-loop)")
+        # Serving: the mcp boot may now clear its marker and move the LKG.
+        mark_host_healthy("mcp")
 
         try:
             await server.serve()

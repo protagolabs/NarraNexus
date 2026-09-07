@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from narranexus.kernel.plugins.service_refs import SKILL_WORKSPACES
+from narranexus.contracts.services import SKILL_WORKSPACES
 
 
 def skill_workspace(agent_id: str, user_id: Optional[str]):

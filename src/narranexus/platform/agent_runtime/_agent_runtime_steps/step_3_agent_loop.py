@@ -120,22 +120,51 @@ def _dispatch_identity_token(ensured, user_id) -> str | None:
     return get_local_issuer().token_for(user_id)
 
 
+def _resolves_provider_from_slot(framework: str) -> bool:
+    """Whether ``framework`` resolves its provider from the agent slot's card
+    (rather than a CLI credential of its own).
+
+    Reads ``FrameworkMeta.uses_shared_cli_login`` — the same registry fact the
+    cloud gate reads — so there is one answer, not two. Fail-closed on an
+    unknown name: an unregistered framework is treated as CLI-backed and skips
+    the viability check, which is the pre-existing behaviour for every name
+    other than nexus_power.
+    """
+    from narranexus.contracts import UnknownEntry
+    from narranexus.platform.agent_framework.loop.driver import (
+        FrameworkNotInstalledError,
+        framework_meta,
+    )
+
+    try:
+        return not framework_meta(framework).uses_shared_cli_login
+    except (UnknownEntry, FrameworkNotInstalledError):
+        return False
+
+
 def _framework_override_viable(
     framework: str, *, claude: Any = None, codex: Any = None
 ) -> bool:
     """Can THIS turn's provider config actually serve the override?
 
-    Mirrors NexusAgent._build_request_payload's two hard-fail conditions
-    (OAuth subscription credentials; no model on either protocol slot)
-    so a fast-mode override never bricks a turn that would have worked
-    on the slot framework (review finding: no-fallback override). Other
-    framework names pass through — this is a viability check, not
-    policy (binding rule #15).
+    Mirrors the two hard-fail conditions of a driver that resolves its
+    provider from the agent slot itself (OAuth subscription credentials; no
+    model on either protocol slot) so a fast-mode override never bricks a turn
+    that would have worked on the slot framework (review finding: no-fallback
+    override). A CLI-backed framework brings its own credential and passes
+    through — this is a viability check, not policy (binding rule #15).
+
+    Which frameworks the check applies to is REGISTRY-DERIVED: a framework that
+    declares ``uses_shared_cli_login=False`` in its ``FrameworkMeta`` is one
+    that drives the provider API with the bound card's key, i.e. exactly the
+    shape these two conditions describe. The literal ``framework !=
+    "nexus_power"`` this replaced meant a third-party framework of the same
+    shape silently skipped the viability check and bricked the turn instead.
 
     ``claude``/``codex`` default to the ambient per-task configs; tests
     inject fakes instead of mutating the shared proxies.
     """
-    if framework != "nexus_power":
+    if not _resolves_provider_from_slot(framework):
         return True
     if claude is None or codex is None:
         from narranexus.platform.agent_framework.api_config import (

@@ -132,7 +132,15 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 
 # Step 3: Install Python dependencies directly into standalone Python
 #
-# NON-editable install (`pip install .` — no `-e`).
+# NON-editable install through UV (`uv sync --no-editable` — never plain pip).
+#
+# uv, not pip: this project's dependency list names 30 workspace members
+# (narranexus-contracts, narranexus-sdk, 28 narranexus-plugin-*) that exist
+# only in this repo and are resolved through `[tool.uv.sources]` — a uv-only
+# table. pip ignores it, looks the names up on PyPI, and the build dies with
+# "No matching distribution found for narranexus-contracts". Every other
+# install path in the repo (CI, Dockerfile.manyfold, run.sh) already uses uv;
+# tests/backend/test_plugins_extra_lockstep.py keeps this one classified.
 #
 # Editable installs drop a `.pth` / `__editable__` file into site-packages whose
 # contents are the ABSOLUTE path to the build machine's source tree
@@ -145,10 +153,20 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 # fully relocatable — move the .app anywhere and the imports still resolve.
 echo ""
 echo "--- Step 3: Installing Python dependencies ---"
-# --timeout/--retries: ride through transient network stalls instead of hanging
+# `uv pip install --python`, not `uv sync`: sync manages the PROJECT's own
+# `.venv`, while the bundle needs the packages inside the standalone
+# interpreter under Resources/python. `--no-editable` keeps the relocatable
+# property described above. NO `--extra plugins`: the desktop build stays the
+# LIGHT one — the coding-agent SDKs (~186 MB claude-agent-sdk) are installed on
+# demand by the Settings → Plugins installer, not baked into the bundle.
+#
+# UV_HTTP_TIMEOUT: ride through transient network stalls instead of hanging
 # forever on one wedged socket. Output streamed (not `| tail`) so a stall is
 # visible in the log rather than silent.
-"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir --timeout 30 --retries 10 "$PROJECT_ROOT"
+UV_HTTP_TIMEOUT=30 uv pip install \
+    --python "$PYTHON_DIR/bin/python3" \
+    --no-cache --no-editable \
+    "$PROJECT_ROOT"
 echo "Python dependencies installed"
 
 # Step 3.5: Bundle Node.js + CLI runtime dependencies.

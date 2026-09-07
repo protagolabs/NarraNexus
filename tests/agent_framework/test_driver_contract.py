@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover - optional dependency
 _CAPABILITY_VOCABULARY = {
     "steering", "plan", "resume", "fork", "sleep", "subagent_announce",
     "event_log", "interrupt_soft", "raw_context", "arg_streaming",
+    "native_replay",
 }
 
 

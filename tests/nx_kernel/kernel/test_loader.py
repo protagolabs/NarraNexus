@@ -163,6 +163,7 @@ def test_builtin_failure_is_fatal_and_duplicate_ids_are_rejected():
             "id": "builtin.broken",
             "version": "1.0.0",
             "displayName": "Broken",
+            "api": {"llm_client": 0},  # a builtin must version the kind of every slot it fills
             "provides": {"model.clients": ["tests.nx_kernel.kernel.test_loader:NOT_A_CONTRIBUTION"]},
         },
         tree=build_kernel_slot_tree(),

@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Path, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from backend.routes._client_ip import client_ip
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from backend.routes._ownership import check_owned
 from narranexus.contracts.channel import ChannelDescriptor
@@ -32,7 +33,12 @@ from narranexus.platform.channel.webhook_transport import SECRET_FIELD, new_webh
 
 router = APIRouter()
 
-# Anonymous inbound webhooks: per binding and per source address.
+# Anonymous inbound webhooks: per binding and per source address. The source
+# address comes from the shared proxy-hop helper, never `request.client.host`:
+# uvicorn runs without --proxy-headers behind the deploy stack's nginx, so the
+# socket peer is the SAME container address for every cloud request and this
+# limiter would be one global 600/min bucket that any single abuser could
+# exhaust, 429ing every agent's inbound webhooks at once.
 _webhook_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
 _webhook_ip_limiter = SlidingWindowRateLimiter(limit=600, window_sec=60.0)
 
@@ -147,8 +153,7 @@ async def channel_webhook(request: Request, channel: str, agent_id: str = Path(.
     d = _descriptor(channel)
     if d.transport != "webhook":
         raise HTTPException(status_code=404, detail=f"{channel} is not a webhook channel")
-    client_ip = request.client.host if request.client else "?"
-    if not _webhook_limiter.allow(f"{channel}:{agent_id}") or not _webhook_ip_limiter.allow(client_ip):
+    if not _webhook_limiter.allow(f"{channel}:{agent_id}") or not _webhook_ip_limiter.allow(client_ip(request)):
         raise HTTPException(status_code=429, detail="too many webhook requests")
     raw = await request.body()
     record = await GenericCredentialStore(await _db()).get(channel, agent_id)

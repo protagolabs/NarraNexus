@@ -30,7 +30,7 @@ from typing import Any, Callable, Mapping
 from loguru import logger
 
 from narranexus.contracts import ManifestError, PluginError
-from narranexus.kernel.plugins.manifest import Host, Manifest
+from narranexus.kernel.plugins.manifest import Host, Manifest, missing_api_kinds
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.slots import Slot
 from narranexus.kernel.plugins.hooks import HookImplSpec
@@ -56,6 +56,12 @@ class LoadReport:
     role: Host
     loaded: list[PluginLoad] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)  # not for this host
+    # Non-fatal manifest findings surfaced to the factory page, one line each:
+    # today the deprecation window of docs/API_POLICY.md section 4 (a
+    # third-party manifest whose ``api`` does not version every contract kind
+    # it fills). A builtin never reaches here — for builtins the same finding
+    # is a ManifestError at parse time.
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def errors(self) -> list[PluginLoad]:
@@ -363,6 +369,13 @@ def load(
         if role not in manifest.effective_hosts():
             report.skipped.append(manifest.id)
             continue
+        if not manifest.is_builtin:
+            missing_kinds = missing_api_kinds(manifest, registries.slots)
+            if missing_kinds:
+                report.warnings.append(
+                    f"{manifest.id}: api does not version the contract kind(s) {list(missing_kinds)} of the slots it fills; "
+                    "a future release refuses the manifest (docs/API_POLICY.md section 4)"
+                )
         started = time.perf_counter()
         entries = 0
         error: str | None = None

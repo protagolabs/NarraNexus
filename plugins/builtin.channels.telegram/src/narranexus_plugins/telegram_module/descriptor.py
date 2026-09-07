@@ -13,13 +13,8 @@ from __future__ import annotations
 
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.schema.hook_schema import WorkingSource
 
 _MOD = "narranexus_plugins"
-
-# The channel's working source (and TriggerType) — registered here, by the channel itself,
-# so the platform holds no channel-name table. Imported first by the package.
-SOURCE = WorkingSource.register("telegram")
 
 DESCRIPTOR = ChannelDescriptor(
     name="telegram",
@@ -48,9 +43,18 @@ DESCRIPTOR = ChannelDescriptor(
     has_test=True,
     unbind_service=False,
     meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials; no mirror needed
+    # Message source: how this channel's replies are recognised and its stored
+    # rows labelled. Descriptor fields, not a module-level
+    # ``MessageSourceRegistry.register`` at import — so a distribution that drops
+    # this plugin drops the handler with it, and importing the package registers
+    # nothing. The extractor is a REF: naming it must not import the SDK.
+    reply_tools=("tg_cli", "notify_owner"),
+    row_prefix_template="[Telegram · {sender_name} · {sender_id} · {chat_id}]",
+    reply_extractor_ref=f"{_MOD}.telegram_module.telegram_module:_extract_telegram_reply",
+    dedicated_trigger=True,
     ui=ChannelUi(label="Telegram", icon="send", order=30),
 )
 
 CHANNEL = (Contribution("telegram", lambda: DESCRIPTOR),)
 
-__all__ = ["CHANNEL", "DESCRIPTOR", "SOURCE"]
+__all__ = ["CHANNEL", "DESCRIPTOR"]

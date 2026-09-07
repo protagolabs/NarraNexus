@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 两处消费方跟着注册表视图走
+
+`im_channel_prefixes()`（专属 trigger 渠道的 channel_id 前缀，用来防止 bus 二次派发）现在
+读的是 `ingress.channels` 上的消息来源视图，不再是 import 期写出来的全局字典。所以一个
+渠道的前缀在它的描述符进注册表那一刻就被覆盖，在发行版排除它那一刻消失——不再取决于这
+个进程 import 过谁。
+
+`_bus_turn_delivered` 里「message_bus handler 没注册」那条 warning 的措辞跟着改：现在的
+真实原因是 `builtin.message_bus` 被禁用/排除，或这个进程压根没 boot 插件平台，而不是
+「一次被吞掉的重复注册 ValueError」——后者已经不可能发生了。fail-to-True 的语义不变。
 
 ## 2026-09-03 — 团队房沉默不再贴系统行；prompt 从「全都回」改成「回有实质要求的」
 

@@ -4,22 +4,27 @@
 @date: 2026-09-04
 @description: Platform-side accessors for services builtins expose (skills workspace, job instances, run-once).
 
-Thin wrappers over ``KERNEL_REGISTRIES.services`` + ``kernel/plugins/service_refs``
+Thin wrappers over ``KERNEL_REGISTRIES.services`` + ``contracts.services``
 so the bundle importer, marketplace, skill sync, onboarding and Arena
-provisioning never name a builtin module. ``require`` fails loud (UnknownEntry)
-when the owning builtin is disabled; callers that have a degraded path use
-the ``try_*`` variants.
+provisioning never name a builtin module.
+
+The services are registered by the manifest loader when the HOST BOOTS — that
+is the only registration path; importing this module, or the providing plugin,
+registers nothing. A process that did not boot therefore has an EMPTY locator,
+and that case is deliberately indistinguishable from "the owning builtin is
+disabled in this distribution": both raise ``UnknownEntry`` from ``require``,
+loudly and at the call site. Callers that have a degraded path use the ``try_*``
+variants and get ``None``.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
+from narranexus.contracts.services import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
 from narranexus.contracts.skill import SkillWorkspace
-from narranexus.kernel.plugins.service_refs import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
 
 
 def _services():
-    import narranexus.platform.module_system  # noqa: F401 — registers the builtins' services (idempotent)
     from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
     return KERNEL_REGISTRIES.services

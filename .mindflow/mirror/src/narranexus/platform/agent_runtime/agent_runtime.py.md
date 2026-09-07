@@ -328,3 +328,12 @@ The pipeline extraction had moved cost_event_scope inside the yield loop, so eve
 ## 2026-09-07 — step bodies and the two turn helpers moved to agent_runtime.steps
 
 The nine step imports kept only so 'ar.step_*' resolved for the turn plugin are gone, together with _turn_timing_line / _stream_step3_with_interrupt_drain / INTERRUPT_DRAIN_BUDGET_S (now public in steps.py). agent_runtime.py imports only RunContext; the stage strategies call the steps through the public surface.
+
+## 2026-09-07（round-2 G2-I3 / A2-10）— the pipeline class comes from the binding, not an import
+
+`from narranexus.platform.turn import TurnPipeline` became
+`turn_pipeline_for(self._registries)(self._registries)`. The class moved into `builtin.turn`'s own
+package, so the platform must reach it through `bound_entry("turn.pipeline")` — otherwise binding the
+slot to `acme.turn` would still leave the builtin implementation imported and live in the process,
+and the "replace the whole turn runtime" acceptance scenario would not hold. `resolve_profile` stays
+a platform import: choosing the profile is about the turn's facts, not about any one pipeline.

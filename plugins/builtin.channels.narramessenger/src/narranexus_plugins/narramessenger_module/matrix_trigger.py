@@ -2827,9 +2827,9 @@ class MatrixTrigger(ChannelTriggerBase):
         if not refs:
             return []
 
-        from backend.config import settings as backend_settings
+        from narranexus.sdk.web import host_settings
 
-        max_bytes = backend_settings.max_upload_bytes
+        max_bytes = host_settings().max_upload_bytes
 
         out: List[Attachment] = []
         for ref in refs:

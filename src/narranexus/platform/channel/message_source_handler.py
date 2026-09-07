@@ -2,46 +2,59 @@
 @file_name: message_source_handler.py
 @author: Bin Liang
 @date: 2026-05-11
-@description: Per-source dispatch table for chat-history processing.
+@description: Per-source dispatch table for chat-history processing — a call-time view over the plugin registries, not a global anyone can write at import.
 
-Each WorkingSource value (`chat`, `lark`, `message_bus`, `job`, `a2a`,
-`callback`, `skill_study`, future channels …) maps to one
-MessageSourceHandler that answers two questions for the chat-history
+Each ``WorkingSource`` value (``chat``, ``lark``, ``message_bus``, ``job``,
+``a2a``, ``callback``, ``skill_study``, future channels …) resolves to one
+``MessageSourceHandler`` that answers two questions for the chat-history
 pipeline:
 
   1. Write-side  — "Did the agent reply to the user this turn via this
-     source's tools?" (`is_user_reply_tool(tool_name)`)
+     source's tools?" (``is_user_reply_tool`` / ``extract_reply_text``)
   2. Read-side   — "How should this stored row be labelled to the LLM?"
-     (`format_row_prefix(msg)`)
+     (``format_row_prefix``)
 
-Channels that need custom behaviour (Lark recognises `lark_cli` tools,
-Matrix would recognise matrix-specific tools, etc.) register their own
-handler at module-load time:
+Where the answers come from
+===========================
+Two registries, read at call time and cached on their name tuples (the shape
+``module_system/channel_trigger_map.py`` and ``data_access/channel_store.py``
+use):
 
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="lark",
-        user_reply_tool_names=(
-            "notify_owner",
-            "lark_cli +messages-send",
-            "lark_cli +messages-reply",
-        ),
-        row_prefix_template="[Lark · {sender_name} in {room_name}]",
-    ))
+* ``ingress.channels`` — every ``ChannelDescriptor``. A channel declares its
+  message source as FIELDS of the descriptor it already ships
+  (``reply_tools`` / ``row_prefix_template`` / ``reply_extractor_ref`` /
+  ``dedicated_trigger``); ``ChannelDescriptor.message_source`` projects them.
+  A channel is therefore still ONE record, and a channel excluded from a
+  distribution or disabled in ``registry.json`` takes its handler with it.
+* ``ingress.message_sources`` — ``MessageSourceSpec`` entries for sources that
+  are NOT channels: the message bus and the job clock, contributed by
+  ``builtin.message_bus`` / ``builtin.job`` from their own ``contribution.py``.
 
-All sources that need nothing channel-specific (`chat`, `a2a`,
-`callback`, `skill_study`, …) fall back to the default handler, which
-recognises both owner-facing names (`reply_owner` / `notify_owner`, since
-owner chat itself resolves here) and renders rows with a
-"[NarraNexus UI · user=<id>]" prefix.
+Until 2026-09-07 this was a class-level dict written by nine module-level
+``MessageSourceRegistry.register(...)`` calls, each wrapped in
+``except ValueError: pass``. That table had no owner, never appeared in the
+slot tree, ignored ``builtin_overrides`` and distributions, and its answer
+depended on whether anything had happened to import the channel's module in
+this process — a Lark turn resolving the default handler recorded a delivered
+reply as NO-REPLY, silently. The two registries above are now the only way in.
 
-Why a registry instead of `if working_source == "lark": ...`
-- Iron rule #3 (modules independent): chat_module / context_runtime
-  must not import lark_module or message_bus.
-- Iron rule #4 (generic vs scenario-specific separated): per-source
-  knowledge lives with its source module, generic dispatch lives here.
-- Easy to extend: a new IM trigger ships one `Registry.register(...)`
-  call and zero changes elsewhere.
-- Easy to debug: `MessageSourceRegistry.dump()` shows the full table.
+The one remaining fallback
+==========================
+``_DEFAULT_HANDLER`` answers the genuinely source-less sources listed in
+``SOURCELESS_SOURCES`` (owner chat, ``a2a``, ``callback``, ``skill_study``):
+they introduce no reply tool of their own and the default behaviour is exactly
+right for them. Anything else landing on the default is a signal, not a
+default: a name that IS a registered channel is logged at WARNING (once per
+name) because it means a channel shipped without its message-source fields.
+
+Why a registry instead of ``if working_source == "lark": ...``
+- Iron rule #3 (modules independent): chat_module / context_runtime must not
+  import lark_module or message_bus.
+- Iron rule #4 (generic vs scenario-specific separated): per-source knowledge
+  lives with its source's plugin, generic dispatch lives here.
+- Easy to extend: a new IM channel ships four descriptor fields and zero
+  changes here.
+- Easy to debug: ``MessageSourceRegistry.dump()`` shows the full table.
 """
 from __future__ import annotations
 
@@ -50,6 +63,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from loguru import logger
+
+from narranexus.contracts.channel import MessageSourceSpec
 
 
 # OpenAI Responses-API "citation" tokens that the model emits inline
@@ -377,58 +392,183 @@ We never need to register `chat` explicitly — the default behaviour
 is exactly what `chat` needs."""
 
 
-class MessageSourceRegistry:
-    """Global registry. Channel-specific modules register one handler
-    each at import/module-load time."""
+SOURCELESS_SOURCES: frozenset[str] = frozenset({"chat", "a2a", "callback", "skill_study"})
+"""The sources that legitimately have no registration — the platform's own table.
 
-    _handlers: Dict[str, MessageSourceHandler] = {}
+They introduce no reply tool and no row prefix of their own, so
+``_DEFAULT_HANDLER`` IS their handler; there is nothing for a plugin to
+contribute. Spelled out as data (not as "whatever is missing") so a
+registered channel that lands on the default is distinguishable from these,
+and can be warned about."""
 
-    @classmethod
-    def register(cls, handler: MessageSourceHandler) -> None:
-        """Register `handler` against its `name`.
 
-        Raises if the name is already taken — this is intentional;
-        accidental duplicate registration would silently shadow another
-        channel's reply detection, which is a class of bug we never
-        want to debug at runtime."""
-        if handler.name in cls._handlers:
-            raise ValueError(
-                f"duplicate MessageSourceHandler registration for {handler.name!r}"
-            )
-        cls._handlers[handler.name] = handler
-        logger.info(
-            f"MessageSourceRegistry: registered handler for '{handler.name}' "
-            f"(reply tools={handler.user_reply_tool_names})"
+def _lazy_extractor(ref: str) -> ReplyExtractor:
+    """A ``ReplyExtractor`` that imports ``ref`` ("pkg.mod:function") on FIRST CALL.
+
+    Building the view must stay as cheap as reading a registry: resolving the ref
+    eagerly would import every channel's module (and its SDK) the moment anything
+    asked which sources exist — the import-order coupling this file exists to end."""
+    resolved: list[ReplyExtractor] = []
+
+    def extract(tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
+        if not resolved:
+            import importlib
+
+            module_path, _, attr = ref.partition(":")
+            resolved.append(getattr(importlib.import_module(module_path), attr))
+        return resolved[0](tool_name, arguments)
+
+    return extract
+
+
+def handler_from_spec(spec: MessageSourceSpec) -> MessageSourceHandler:
+    """Build the runtime handler for one declared source. Pure; no imports fire here."""
+    return MessageSourceHandler(
+        name=spec.name,
+        user_reply_tool_names=tuple(spec.reply_tools),
+        owner_visible_reply_tool_names=(
+            None if spec.owner_visible_reply_tools is None else tuple(spec.owner_visible_reply_tools)
+        ),
+        display_label=spec.display_label,
+        row_prefix_template=spec.row_prefix_template,
+        extract_reply_fn=_lazy_extractor(spec.reply_extractor_ref) if spec.reply_extractor_ref else None,
+        dedicated_trigger=spec.dedicated_trigger,
+    )
+
+
+class MessageSourceView:
+    """name -> handler, derived from ``ingress.channels`` + ``ingress.message_sources``.
+
+    Rebuilt only when either registry's name tuple changes (the cache shape
+    ``TriggerMapView`` / ``_ChannelSpecs`` use): ``get()`` is called several times
+    per turn and once per history row rendered, so an uncached build would
+    re-project every descriptor on a read path.
+
+    Per-entry isolation, fail-closed: one descriptor that cannot be built is
+    warned about once and skipped — it loses ITS handler (falls back to the
+    default, and the fallback warns), never everyone else's.
+
+    Takes an explicit ``registries`` for tests and for any host that runs a
+    private ``Registries()``; ``None`` means the process kernel registries.
+    """
+
+    def __init__(self, registries: Any = None) -> None:
+        self._registries = registries
+        self._cache: Dict[str, MessageSourceHandler] | None = None
+        self._cache_key: tuple = ()
+        self._warned_default: set[str] = set()
+        self._warned_broken: set[str] = set()
+
+    def _regs(self):
+        if self._registries is not None:
+            return self._registries
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+        return KERNEL_REGISTRIES
+
+    def _registry(self, path: str):
+        try:
+            return self._regs().registry_for(path)
+        except Exception:  # noqa: BLE001 — slot absent (a host with a private, partial slot tree)
+            return None
+
+    def _build(self) -> Dict[str, MessageSourceHandler]:
+        channels = self._registry("ingress.channels")
+        sources = self._registry("ingress.message_sources")
+        key = (
+            channels.names() if channels is not None else (),
+            sources.names() if sources is not None else (),
         )
+        if self._cache is not None and key == self._cache_key:
+            return self._cache
+        out: Dict[str, MessageSourceHandler] = {}
+        for registry, project in ((channels, lambda d: d.message_source), (sources, lambda spec: spec)):
+            if registry is None:
+                continue
+            for entry in registry.entries():
+                try:
+                    spec = project(entry.factory())
+                    if not spec.reply_tools and not spec.reply_extractor_ref:
+                        # Declares no message source: it has none, and the default
+                        # handler answers for it (an inbound-less credential-only
+                        # channel, for instance).
+                        continue
+                    out[spec.name] = handler_from_spec(spec)
+                except Exception as e:  # noqa: BLE001 — one broken entry must not hide every source
+                    if entry.name not in self._warned_broken:
+                        self._warned_broken.add(entry.name)
+                        logger.warning(f"message source {entry.name!r} unavailable, skipped ({type(e).__name__}: {e})")
+        self._cache, self._cache_key = out, key
+        return out
 
-    @classmethod
-    def get(cls, working_source: str) -> MessageSourceHandler:
-        """Return the handler for `working_source`, falling back to the
-        default handler when nothing is registered. Never returns None
-        — callers can use the result unconditionally."""
-        return cls._handlers.get(working_source, _DEFAULT_HANDLER)
+    def channel_names(self) -> tuple[str, ...]:
+        registry = self._registry("ingress.channels")
+        return registry.names() if registry is not None else ()
 
-    @classmethod
-    def handlers(cls) -> Dict[str, MessageSourceHandler]:
-        """Read-only snapshot of all registered handlers.
+    def get(self, working_source: str) -> MessageSourceHandler:
+        """The handler for ``working_source``; the default handler when nothing declares it.
 
-        Exists so MessageBusTrigger can derive the dedicated-trigger
-        channel prefixes from registrations instead of a hand-maintained
-        list (which drifted: wechat/narramessenger/discord were missing)."""
-        return dict(cls._handlers)
+        Never returns None — callers use the result unconditionally. A name that is
+        a REGISTERED channel yet has no handler is the case the silent default used
+        to hide (a delivered IM reply recorded as NO-REPLY), so it is logged at
+        WARNING, once per name per process."""
+        handlers = self._build()
+        handler = handlers.get(working_source)
+        if handler is not None:
+            return handler
+        if (
+            working_source
+            and working_source not in SOURCELESS_SOURCES
+            and working_source in self.channel_names()
+            and working_source not in self._warned_default
+        ):
+            self._warned_default.add(working_source)
+            logger.warning(
+                f"MessageSourceRegistry: channel {working_source!r} is registered but declares no "
+                f"message source (reply_tools / reply_extractor_ref) — its replies will be judged "
+                f"and its rows labelled as plain NarraNexus UI"
+            )
+        return _DEFAULT_HANDLER
 
-    @classmethod
-    def dump(cls) -> Dict[str, Dict[str, Any]]:
-        """Snapshot of the registry for debug logging. JSON-serialisable
-        — drops the (non-serialisable) extract_reply_fn callable, replaces
-        it with a `"<custom>" if present else None` flag so we still see
-        which handlers have custom extraction."""
+    def handlers(self) -> Dict[str, MessageSourceHandler]:
+        """Snapshot of every declared source's handler (name -> handler)."""
+        return dict(self._build())
+
+    def dump(self) -> Dict[str, Dict[str, Any]]:
+        """JSON-serialisable snapshot for debug logging — drops the extractor callable,
+        replacing it with a ``"<custom>" if present else None`` flag."""
         out: Dict[str, Dict[str, Any]] = {}
-        for name, h in cls._handlers.items():
+        for name, h in self._build().items():
             d = asdict(h)
             d["extract_reply_fn"] = "<custom>" if h.extract_reply_fn else None
             out[name] = d
         return out
+
+
+_VIEW = MessageSourceView()
+
+
+class MessageSourceRegistry:
+    """The process-wide ``MessageSourceView`` as a namespace.
+
+    Kept as a class so the ~15 call sites read the same as before; it holds NO
+    state of its own. There is deliberately no ``register()``: a source enters
+    through its plugin's contribution (``ingress.channels`` descriptor fields or
+    an ``ingress.message_sources`` spec), which is what makes ownership,
+    ``builtin_overrides`` and distribution excludes apply to it.
+    """
+
+    @classmethod
+    def get(cls, working_source: str) -> MessageSourceHandler:
+        return _VIEW.get(working_source)
+
+    @classmethod
+    def handlers(cls) -> Dict[str, MessageSourceHandler]:
+        return _VIEW.handlers()
+
+    @classmethod
+    def dump(cls) -> Dict[str, Dict[str, Any]]:
+        return _VIEW.dump()
 
 
 # ============================================================================
@@ -461,17 +601,17 @@ def im_channel_prefixes() -> tuple[str, ...]:
     every message on those channels fired a SECOND agent run wearing the
     Owner-Relay peer-agent prompt (2026-07-03 wechat incident: fabricated
     context_token sends + bogus "我已经在微信上回复你啦" platform DMs). Deriving
-    from `dedicated_trigger` keeps a future channel covered the moment it
-    registers; computed per call because channel modules register at import time
-    and import order is not guaranteed.
+    from `dedicated_trigger` keeps a future channel covered the moment its
+    descriptor lands in the registry; computed per call because the registry is
+    populated at boot and this module is imported long before that.
 
     Lives here rather than in `message_bus_trigger` because this is where the
-    registry it reads lives, and because `local_bus` — a lower layer than the
+    view it reads lives, and because `local_bus` — a lower layer than the
     trigger — now needs it too.
     """
     return tuple(sorted(
         f"{name}_"
-        for name, handler in MessageSourceRegistry.handlers().items()
+        for name, handler in _VIEW.handlers().items()
         if handler.dedicated_trigger
     ))
 
@@ -524,7 +664,7 @@ def render_origin_declaration(
     tools = tuple(expressive_tools or ())
     if not tools:
         return ""
-    handler = MessageSourceRegistry.get(working_source)
+    handler = _VIEW.get(working_source)
     others = ", ".join(f"`{t}`" for t in tools[1:])
     return ORIGIN_DECLARATION_TEMPLATE.format(
         label=handler.label,

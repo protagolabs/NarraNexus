@@ -6,7 +6,7 @@
 
 Contract (Owner decisions 2026-07-29):
 - ONLY when the agent's framework consumes structured history
-  (NATIVE_REPLAY_FRAMEWORKS) do current-narrative assistant rows expand
+  (declaring the ``native_replay`` capability) do current-narrative assistant rows expand
   into the event_log-rebuilt assistant/tool sequence;
 - the user row of a replayed turn keeps its flattened form (timeline
   tag anchoring); cross-narrative rows and rows without a foldable log

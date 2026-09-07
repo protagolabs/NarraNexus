@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/marketplace/__init__.py
-last_verified: 2026-07-24
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 从「零 re-export」改为四个惰性公开名（批 6c，A2-1）
+
+原本的规矩是「不 re-export，消费者显式 import 服务模块」，而 docstring 自己承认
+「若干外部消费者仍在直接 import `_skill_marketplace_impl`，属历史欠债」。
+批 6b 之后这批消费者变成了 `builtin.skills` / `builtin.teams` 两个独立 wheel，
+欠债就从「不好看」升级成「插件在 import 另一个包的私有模块」，被新的 import-linter
+契约挡住。四个名字（`ArtifactStore` / `get_template_store` / `InstallPipeline` /
+`get_secret_box`）因此成为公开门面——它们正是那两个插件真正需要的 seam，
+而服务模块并不暴露它们。
+
+**惰性**（PEP 562）而不是 eager import：`install_pipeline` 会拖起整个 marketplace registry，
+`secret_box` 会碰密钥文件；为了拿到 `skill_marketplace_service` 而 import 本包的人
+不该为这两样买单，同包内的 import 顺序也不必被打乱。
+`TYPE_CHECKING` 分支让 pyright 仍能看到真类型。
+平台**内部**消费者继续直接 import `_skill_marketplace_impl`，那是包内私有的正常用法。
 
 # marketplace/__init__.py — marketplace domain subpackage anchor
 

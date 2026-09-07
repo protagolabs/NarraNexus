@@ -150,3 +150,19 @@ FRAMEWORK_REGISTRY (a module constant bound to the process registries at import)
 ## 2026-09-07 — 注册表派生的框架事实 helper（B6）
 
 framework_metas/framework_meta/default_framework_for_protocol/framework_for_oauth_source/framework_installed 集中于此：整个宿主只有这一处读 FrameworkMeta。framework_meta 对未知名抛 UnknownEntry（绝不悄悄回落默认）；default_framework_for_protocol 偏好『锁定该协议的第一个注册框架→第一个 any 框架→bound 默认』，注册顺序即 builtin manifest 顺序，所以 anthropic→claude_code、openai→codex_cli 的历史配对在这些插件启用时保持，不启用时自然退化为发行版实际装载的框架。framework_installed 从 plugin_paths 搬来：宿主内置（install=None）即可用，按需框架用 meta.install.probe_package 走 plugin_paths.package_installed 探测；get_agent_loop_driver 的 fail-closed 门不再依赖 PLUGIN_FRAMEWORKS 名单。
+
+## 2026-09-07（round-2 P2-I1 / P2-I3）— one accessor for the default, one accessor for capabilities
+
+`resolve_framework_name()` is now the ONLY answer to "which framework, given no explicit choice".
+`model_identity.DEFAULT_AGENT_FRAMEWORK` (a second constant with the same value) and the bare
+`"nexus_power"` literal in `slot_service.set_agent_slot` are gone: with a distribution binding
+`turn.pipeline.act.framework` to another plugin, those three disagreed, and the user's symptom was a
+card the UI accepted and a turn that then failed with an unrelated `LLMConfigNotConfigured`.
+
+`framework_capabilities(name)` / `framework_has_capability(name, cap)` are the same idea for the
+capability axis: every host that must answer "can this framework be steered / replayed natively"
+BEFORE a driver exists reads `FrameworkMeta.capabilities` through them. Fail-closed on an unknown or
+misbound name (empty set) — the orchestrator gates features ON the answer, so a wrong "yes" leaves a
+user's interjection queued with nothing draining it. These replaced three name-keyed frozensets
+(`_STEER_CAPABLE_FRAMEWORKS`, `NATIVE_REPLAY_FRAMEWORKS`, `CLOUD_ALLOWED_FRAMEWORKS`) and one
+`framework != "nexus_power"`, each of which silently downgraded every third-party framework.

@@ -11,9 +11,10 @@ from types import SimpleNamespace
 
 from narranexus.contracts.agent.pipeline import PipelineProfile
 from narranexus.contracts.agent.stages import STAGES, Stage
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.turn import TurnPipeline
+from narranexus_plugins.turn.pipeline import TurnPipeline
 from narranexus.platform.turn.inputs import TurnServices
 from narranexus.platform.turn.stages import slot_path
 
@@ -34,8 +35,10 @@ def _silent_strategy(stage: Stage, log: list, *, creates_event: bool = False):
 
 
 def _registries(log: list) -> Registries:
+    # The stage slots come from builtin.turn's manifest, the way every host
+    # gets them (the pipeline used to declare a kind-less second copy itself).
     regs = Registries()
-    TurnPipeline(regs)
+    load_builtins(regs, "backend")
     for stage in STAGES:
         regs.registry_for(slot_path(stage)).register_contribution(
             _silent_strategy(stage, log, creates_event=stage is Stage.INGRESS), owner="test", replace=True
@@ -61,7 +64,7 @@ def test_event_is_bound_right_after_the_stage_that_created_it_even_with_zero_yie
 def test_no_event_means_no_binding_call():
     log: list = []
     regs = Registries()
-    TurnPipeline(regs)
+    load_builtins(regs, "backend")
     for stage in STAGES:
         regs.registry_for(slot_path(stage)).register_contribution(_silent_strategy(stage, log), owner="test", replace=True)
     services = TurnServices(None, None, None, None, None, None, None, None, execute_callback_instance=lambda *a, **k: None)

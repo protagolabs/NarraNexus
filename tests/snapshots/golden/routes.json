@@ -516,6 +516,11 @@
   ],
   [
     "GET",
+    "/api/plugins/channels",
+    "channel_catalog"
+  ],
+  [
+    "GET",
     "/api/providers",
     "get_providers"
   ],

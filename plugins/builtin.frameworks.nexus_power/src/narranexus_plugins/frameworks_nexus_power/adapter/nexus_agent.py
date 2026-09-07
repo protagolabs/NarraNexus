@@ -252,8 +252,18 @@ class NexusAgent:
         injection to the executor's ``/steer`` endpoint and forwards the loop's
         ``steer_consumed`` frames back (it declares ``steering`` framework-aware,
         i.e. only when it wraps a steer-capable driver like this one). So a cloud
-        nexus_power run is steerable end to end, not degraded to a fresh turn."""
-        return {"event_log", "steering"}
+        nexus_power run is steerable end to end, not degraded to a fresh turn.
+
+        ``native_replay``: this driver consumes structured provider messages, so
+        a past turn's event_log folds back into positioned monologue/tool
+        segments instead of a flattened prose row (see
+        ``platform.agent_framework.loop.history_projection``). CLI-backed
+        drivers flatten at their doorstep and cannot declare it.
+
+        Static twin: ``contribution.META.capabilities`` — the hosts that must
+        answer these questions before a driver exists read that; keep both in
+        step (``test_nexus_power_meta_matches_driver_capabilities``)."""
+        return {"event_log", "steering", "native_replay"}
 
     @timed("llm.nexus.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(

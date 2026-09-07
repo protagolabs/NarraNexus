@@ -75,3 +75,14 @@ Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar item
 ## 2026-09-07 — 自述名来自 FrameworkMeta（B6）
 
 FRAMEWORK_DISPLAY_NAMES 删除；_display_for 读 framework_meta(name).self_description（runtime_name 或 display_name，由框架插件持有，是 prompt 字符串），未知名回落原名。
+
+## 2026-09-07（round-2 P2-I1）— the default framework comes from the ONE accessor, and still never raises
+
+`DEFAULT_AGENT_FRAMEWORK` (a second copy of `driver.DEFAULT_AGENT_LOOP_FRAMEWORK`) is deleted;
+`framework_of` calls `driver.resolve_framework_name`, so the prompt's identity, the slot writer's
+validation and the driver that actually runs cannot disagree under a distribution that binds a
+different default. The module's promise is unchanged and now explicitly guarded: `resolve_framework_name`
+can raise `FrameworkNotInstalledError` on a misbinding, so `framework_of` and `_display_for` catch
+that alongside `UnknownEntry` and degrade to the raw column value / the code default — identity
+resolution must never break the system-prompt build, while the TURN path still refuses that binding
+loudly.

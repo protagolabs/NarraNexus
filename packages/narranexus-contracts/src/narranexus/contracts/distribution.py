@@ -20,6 +20,17 @@ DISTRIBUTION_FILENAME = "narranexus-dist.json"
 # flattened id terminated by '__' is an injective table / env prefix.
 PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*(\.[a-z0-9]+([_-][a-z0-9]+)*)+$")
 DISTRIBUTION_ID_RE = PLUGIN_ID_RE
+BUILTIN_PREFIX = "builtin."
+
+
+def is_builtin_id(plugin_id: str) -> bool:
+    """Whether ``plugin_id`` is a builtin (engine-maintained) plugin.
+
+    The ONE predicate for the load-bearing "is this a builtin?" question —
+    worker naming, UI badges, disable permissions, boot isolation, route
+    trust all ask it here instead of each spelling the prefix.
+    """
+    return plugin_id.startswith(BUILTIN_PREFIX)
 
 Deployment = Literal["desktop", "cloud", "headless"]
 Target = Literal["desktop", "docker", "wheel"]
@@ -138,6 +149,8 @@ def parse_distribution(data: Mapping[str, Any], *, origin: str = DISTRIBUTION_FI
 
 
 __all__ = [
+    "BUILTIN_PREFIX",
+    "is_builtin_id",
     "PLUGIN_ID_RE",
     "DISTRIBUTION_FILENAME",
     "Branding",

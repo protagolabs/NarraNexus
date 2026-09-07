@@ -110,7 +110,9 @@ def test_invalid_manifests_fail_loud_and_name_the_field(overrides, message):
 
 
 def test_builtin_prefix_is_reserved_unless_allowed():
-    data = _base(id="builtin.weather")
+    # api must version the kind of every slot it provides into (model.providers
+    # -> "provider"); for a builtin that is a hard error, so the fixture states it.
+    data = _base(id="builtin.weather", api={"provider": 0})
     with pytest.raises(ManifestError, match="reserved"):
         parse_manifest(data, tree=_tree())
     assert parse_manifest(data, tree=_tree(), allow_builtin=True).is_builtin
@@ -180,7 +182,7 @@ def test_declared_slot_carries_kind_and_case_insensitivity_and_rejects_unknown_k
 def test_default_provider_of_a_kernel_root_may_declare_its_children():
     # ``prompt``'s declared default is builtin.prompts, so prompt.* is its to declare — the
     # ownership rule of the tree (the provider of a composite owns its children); a stranger may not.
-    data = _base(id="builtin.prompts", provides={}, declares={"prompt.sections": {"arity": "many", "contract": "x:Section", "kind": "prompt"}})
+    data = _base(id="builtin.prompts", provides={}, api={"prompt": 0}, declares={"prompt.sections": {"arity": "many", "contract": "x:Section", "kind": "prompt"}})
     (slot,) = parse_manifest(data, tree=_tree(), allow_builtin=True).declared_slots()
     assert (slot.path, slot.owner) == ("prompt.sections", "builtin.prompts")
     with pytest.raises(ManifestError, match="own namespace"):

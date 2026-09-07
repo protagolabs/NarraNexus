@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/netmind_free.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -35,3 +35,9 @@ resolver 接受了这张卡、slot 也绑上了，但没有 Driver 能把它变�
 
 `test_every_dual_card_type_has_a_driver` 就是为这一类遗漏加的门禁：任何双行卡型
 都必须能推导出 driver_type 且该 driver_type 已注册。
+
+## 2026-09-07（round-2 G2-I5）— `CONTRIBUTION` → `CONTRIBUTIONS`
+
+`model.providers` is a MANY-arity slot, so API_POLICY §8 wants the plural. The nine provider modules
+were split between the two spellings for the same slot, which is exactly the drift §8 exists to stop.
+Symbol name and manifest ref only; the registered driver name is unchanged.

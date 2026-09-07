@@ -18,7 +18,7 @@ import json
 from functools import lru_cache
 
 from loguru import logger
-from importlib.resources import files
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -65,13 +65,24 @@ MANIFEST_FILENAME = "narranexus-plugin.json"
 
 
 def _manifest_path(plugin_id: str, package: str) -> Path:
-    """The plugin's manifest: the copy packaged inside the wheel (hatch force-include) first, the source checkout second."""
+    """The plugin's manifest: the copy packaged inside the wheel (hatch force-include) first, the source checkout second.
+
+    The package is LOCATED, never imported. ``importlib.resources.files()``
+    imports the package it is asked about, so merely reading 29 JSON files used
+    to drag every builtin plugin's code (106 modules, ~1.2 s, message-source
+    handlers registering themselves) into every process that touched the
+    kernel — which also made a distribution's ``excludes`` cosmetic. A spec
+    found by ``find_spec`` gives the package directory without executing it.
+    """
     try:
-        packaged = files(f"narranexus_plugins.{package}") / MANIFEST_FILENAME
-        if packaged.is_file():
-            return Path(str(packaged))
-    except (ModuleNotFoundError, TypeError):
-        pass
+        spec = importlib.util.find_spec(f"narranexus_plugins.{package}")
+    except (ImportError, ValueError):  # a broken/partially-installed parent package
+        spec = None
+    if spec is not None:
+        for location in spec.submodule_search_locations or ():
+            packaged = Path(location) / MANIFEST_FILENAME
+            if packaged.is_file():
+                return packaged
     checkout = Path(__file__).resolve().parents[4] / "plugins" / plugin_id / MANIFEST_FILENAME
     if checkout.is_file():
         return checkout

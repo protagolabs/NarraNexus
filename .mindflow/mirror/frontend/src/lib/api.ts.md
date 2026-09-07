@@ -4,6 +4,13 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
+
+`GET /api/plugins/channels` 把 `ingress.channels` 注册表当数据返回
+（name / display_name / owner / ui.{label,icon,order}）。
+[[registerBuiltinChannels]] 用它建 Channels 区的行，取代原先在 TypeScript 里
+逐字重抄六个 Python `ChannelUi(...)` 的做法。
+
 ## 2026-09-07 — `factoryAction`'s acknowledge-permissions carries a body (I-12)
 
 `factoryAction(id, action, opts?)` gained a third `{ permissionsAcknowledged?: boolean }` param —

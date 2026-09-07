@@ -37,6 +37,8 @@ from narranexus.platform.schema.provider_schema import (
     ProviderSource,
     SlotConfig,
     SlotName,
+)
+from narranexus.platform.agent_framework.providers.framework_binding import (
     SLOT_REQUIRED_PROTOCOLS,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import get_default_models

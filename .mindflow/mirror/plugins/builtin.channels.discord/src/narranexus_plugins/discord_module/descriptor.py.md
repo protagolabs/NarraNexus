@@ -1,8 +1,24 @@
 ---
 code_file: plugins/builtin.channels.discord/src/narranexus_plugins/discord_module/descriptor.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 描述符收下消息来源；删掉模块级 `SOURCE`
+
+新增四个字段：`reply_tools` / `row_prefix_template` / `reply_extractor_ref` /
+`dedicated_trigger`。它们此前是 `discord_module.py` 顶层一次
+`MessageSourceRegistry.register(...)`（外裹 `except ValueError: pass`）。搬进描述符之后，
+Discord 仍然是**一条记录**，而且发行版排除本插件就同时带走它的 handler——原来那张类变量
+字典既不认 owner，也不受 `builtin_overrides` 约束。
+
+`reply_extractor_ref` 是 `"pkg.mod:function"` 字符串，和 `trigger_ref` / `module_ref` 同
+一形状：声明它不能 import 本渠道的 SDK，平台在第一次真正抽取回复时才解析
+（`message_source_handler._lazy_extractor`）。
+
+删掉模块级 `SOURCE = WorkingSource.register("discord")`。注册收归
+`channel/contributions.py:register_working_source`，由 `contribution.py` 在 boot 时调一
+次——只对本发行版装了、`registry.json` 没禁的插件发生。
 
 # discord_module/descriptor.py — the channel as one record
 

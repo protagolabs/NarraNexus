@@ -32,9 +32,11 @@ Folding rules (mirroring TurnLedger's projection invariants):
 Claude/codex turns also have event_logs, but their assistant TEXT never
 enters ``all_steps`` (it reaches ``final_output`` via append_text), so
 folding them yields tool traffic without prose. That is why native
-replay is a NexusPower-only feature (Owner decision 2026-07-29 Q1):
-only nexus turns carry positioned ``monologue`` segments (stamped by
-``ExecutionState.record_thinking``).
+replay needs the framework's own say-so (Owner decision 2026-07-29 Q1):
+only a driver that stamps positioned ``monologue`` segments (as
+``ExecutionState.record_thinking`` does) may declare the ``native_replay``
+capability. Among the builtins that is NexusPower; the gate itself is
+registry-derived, so a third-party framework qualifies by declaring it.
 """
 
 from __future__ import annotations
@@ -44,11 +46,22 @@ from typing import Any
 
 _SYNTHETIC_MISSING_RESULT = "[no result was recorded for this call]"
 
-#: Frameworks whose driver consumes structured provider messages and can
-#: therefore receive native turn replays instead of flattened history.
-#: CLI-backed drivers (claude_code, codex_cli) flatten at their doorstep
-#: and structurally cannot — see the module docstring.
-NATIVE_REPLAY_FRAMEWORKS = frozenset({"nexus_power"})
+#: The capability word a framework declares when its driver consumes
+#: structured provider messages and can therefore receive native turn replays
+#: instead of flattened history. CLI-backed drivers (claude_code, codex_cli)
+#: flatten at their doorstep and structurally cannot — see the module
+#: docstring. This used to be a frozenset of builtin NAMES, which silently
+#: downgraded every third-party framework no matter what it implemented.
+NATIVE_REPLAY_CAPABILITY = "native_replay"
+
+
+def framework_supports_native_replay(framework: str) -> bool:
+    """Whether ``framework`` declares ``native_replay`` in its
+    ``FrameworkMeta.capabilities`` (registry-derived; fail-closed on an
+    unknown or misbound name, i.e. the safe flattened-history direction)."""
+    from narranexus.platform.agent_framework.loop.driver import framework_has_capability
+
+    return framework_has_capability(framework, NATIVE_REPLAY_CAPABILITY)
 
 
 def fold_event_log_to_messages(entries: list[Any]) -> list[dict[str, Any]]:

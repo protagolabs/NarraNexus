@@ -405,8 +405,12 @@ MARKETPLACE_PUBLIC_READ_PREFIXES = ("/api/marketplace/skills", "/api/marketplace
 
 
 def _is_marketplace_public_read(request: "Request") -> bool:
+    # path_under_prefix, not startswith: a prefix set is a set of PATH prefixes,
+    # and string matching is not segment matching (`/api/marketplace/skills`
+    # would otherwise open `/api/marketplace/skills-admin`). Same rule for every
+    # prefix set in this file.
     return request.method == "GET" and any(
-        request.url.path.startswith(p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
+        path_under_prefix(request.url.path, p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
     )
 
 
@@ -724,7 +728,7 @@ async def auth_middleware(request: Request, call_next):
         if (
             local_path.startswith("/api/")
             and local_path not in AUTH_EXEMPT_PATHS
-            and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
+            and not any(path_under_prefix(local_path, p) for p in AUTH_EXEMPT_PREFIXES)
             and not _is_plugin_exempt(local_path)
         ):
             from backend.auth_provider import auth_provider
@@ -758,7 +762,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Check exemptions
-    if path in AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES) or _is_plugin_exempt(path):
+    if path in AUTH_EXEMPT_PATHS or any(path_under_prefix(path, p) for p in AUTH_EXEMPT_PREFIXES) or _is_plugin_exempt(path):
         response = await call_next(request)
         return response
 
@@ -876,7 +880,7 @@ async def auth_middleware(request: Request, call_next):
 
     if (
         request.method in SAFE_HTTP_METHODS
-        or any(path.startswith(p) for p in QUOTA_BYPASS_PREFIXES)
+        or any(path_under_prefix(path, p) for p in QUOTA_BYPASS_PREFIXES)
         or _is_plugin_quota_bypass(path)
     ):
         return await call_next(request)

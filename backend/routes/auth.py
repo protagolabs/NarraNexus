@@ -74,6 +74,7 @@ from backend.auth_errors import (
     NETMIND_TOKEN_INVALID,
     AuthError,
 )
+from backend.routes._client_ip import client_ip
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from narranexus.platform.agent_profile import apply_agent_profile_change
 from narranexus.platform.utils.deployment_mode import is_power_login_enabled
@@ -336,52 +337,6 @@ _FUNNEL_STAGES = frozenset({
 })
 
 
-# Counting X-Forwarded-For from the RIGHT depends on exactly ONE fact: the
-# number of proxy hops in front of this backend. (Not on any proxy's XFF
-# semantics — whether the edge appends to or overwrites a forged header,
-# the entry it contributes is the same distance from the right.) Today the
-# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops
-# (the DEPLOY repo's docker/nginx.conf — not a file in this repo — carries
-# the reverse pointer for topology editors);
-# the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
-# repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
-# proxy) MUST bump this — misconfigure it and per-IP silently collapses
-# into one shared bucket. Overridable per deployment, no config required.
-
-
-def _parse_trusted_proxy_hops(raw: Optional[str]) -> int:
-    """Clamp to >= 1: hops=0 would make ``parts[-0] == parts[0]`` — the
-    CALLER-written entry — and `len(parts) >= 0` is always true, so the
-    short-chain fallback would never fire (empty header would even
-    IndexError). Empty/garbage values fall back to the default rather
-    than blowing up at import time (the executor_reaper precedent)."""
-    try:
-        return max(1, int(raw or 2))
-    except (TypeError, ValueError):
-        return 2
-
-
-_TRUSTED_PROXY_HOPS = _parse_trusted_proxy_hops(
-    os.getenv("FUNNEL_TRUSTED_PROXY_HOPS")
-)
-
-
-def _funnel_client_ip(request: Request) -> str:
-    """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
-    from the right (N = _TRUSTED_PROXY_HOPS — the ONLY assumption, see its
-    comment). A shorter-than-expected chain (local runs, tests, or a
-    directly-forged single-entry header) falls back to the socket peer
-    rather than trusting caller-supplied text."""
-    parts = [
-        p.strip()
-        for p in (request.headers.get("x-forwarded-for") or "").split(",")
-        if p.strip()
-    ]
-    if len(parts) >= _TRUSTED_PROXY_HOPS:
-        return parts[-_TRUSTED_PROXY_HOPS]
-    return request.client.host if request.client else "-"
-
-
 def _note_dropped_report() -> None:
     _funnel_dropped["count"] += 1
     now = monotonic()
@@ -409,7 +364,7 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
     if payload.stage not in _FUNNEL_STAGES:
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
-    ip = _funnel_client_ip(request)
+    ip = client_ip(request)
     # The order carries TWO invariants ("and" short-circuits):
     #   1. per-IP FIRST caps caller-chosen key ALLOCATION: a new email key
     #      under limit>0 is always allowed-and-allocated by the limiter
@@ -1661,6 +1616,23 @@ async def delete_agent(
                     )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Channel cleanup walk failed (non-critical): {e}")
+
+        # 14a. Retired per-channel credential tables — ONE distribution-independent
+        # sweep. The walk above only visits channels whose plugin this
+        # distribution installs and registry.json has not disabled; a channel
+        # that was dropped still has its pre-cutover `lark_credentials` /
+        # `channel_*_credentials` rows (base64 bot tokens, app secrets) in the
+        # database, and nothing else would ever delete them. `LEGACY_TABLES` is
+        # the single source of truth for which tables ever held a channel secret,
+        # so this is keyed on agent_id alone and needs no descriptor. Overlaps
+        # harmlessly with the per-channel purge (the second DELETE matches
+        # nothing); best-effort per table, never fails the deletion.
+        try:
+            from narranexus.platform.channel.credential_legacy import purge_legacy_for_agent
+
+            stats.update(await purge_legacy_for_agent(db_client, agent_id))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Legacy channel-credential purge failed (non-critical): {e}")
 
         # 14b. team_members (subproject 1) — drop this agent from every team it's a member of.
         # Without this, the team panel keeps showing the deleted agent_id as a ghost member.

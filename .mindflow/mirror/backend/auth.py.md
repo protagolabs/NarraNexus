@@ -412,3 +412,29 @@ Batch 6c.2: identity comes from the bound authProviders plugin (`backend.auth_pr
 ## 2026-09-07 — segment-boundary plugin exemptions; plugin quota bypass; provider-first authentication
 
 path_under_prefix() matches a plugin's auth-exempt / quota-bypass prefix on a path-SEGMENT boundary (Starlette routes by segment; string prefixes let /api/x/acme.w exempt /api/x/acme.w2 and /webhook exempt /webhook-admin). PLUGIN_QUOTA_BYPASS_PREFIXES honours RouterSpec.quota_bypass (declared in the contract, previously ignored by everyone). Authentication now asks the bound kernel.auth provider FIRST: a distribution binding a cookie/SSO/header provider is reachable without a bearer (the 'Bearer or 401' gate ran before the seam and made it impossible to exercise); a None identity with no bearer is TOKEN_MISSING (after the anonymous marketplace read), with a bearer TOKEN_INVALID. The nx service bearer keeps its earlier, separate trust path.
+
+
+## 2026-09-07 — 每一个前缀**集合**都走 `path_under_prefix`（改一处扫一类）
+
+`path_under_prefix` 是本文件已有的段边界判定（`path == base or path.startswith(base + "/")`），
+它当初是为了修「`/api/x/acme.w` 豁免了 `/api/x/acme.w2/...`」而引入的。但那一轮只把它接到了
+**插件**那两个集合上；三个静态集合仍然是裸 `startswith`，而它们的条目**都没有尾斜杠**：
+
+- `QUOTA_BYPASS_PREFIXES`（`/api/providers`、`/api/quota`、`/api/admin`、`/api/auth`、
+  `/api/transcription`、`/api/billing`、`/api/analytics`、`/api/notices`）
+- `AUTH_EXEMPT_PREFIXES`（两处调用点：cloud 分支与 local 分支）
+- `MARKETPLACE_PUBLIC_READ_PREFIXES`（GET-only）
+
+也就是说 `/api/quota-admin`、`/api/authz`、`/api/billing-internal` 这类**兄弟路径**会连带
+拿到豁免/旁路。今天对着 250 条 golden 路由验证过 0 命中——是潜伏，不是活 bug——但代价是
+「下一条加进列表的前缀会不会顺手开掉它的兄弟」这件事没有任何机制回答。四处全部改用
+`path_under_prefix`。
+
+未改的三处 `startswith` 是**有意**的，它们不是前缀集合：`_is_manyfold_path` 的
+`/v1/`、`/manyfold/` 和中间件里的 `/api/`、`/ws/` 都自带尾斜杠，本身就是段边界；
+其余命中是 `Bearer ` 与 `mf_` 前缀，与路径无关。
+
+测试：`tests/backend/test_path_under_prefix.py`（helper 本身的参数化单测——精确相等 / 真
+后代 / 同串前缀兄弟 / 带尾斜杠的前缀 / 前缀长于路径，外加一条读源码的守卫，断言这三个集合
+不再和 `startswith` 出现在同一行），以及 `tests/backend/test_auth_middleware_quota.py` 里
+`/api/quota-admin/grant` 仍然 402 的桩路由。

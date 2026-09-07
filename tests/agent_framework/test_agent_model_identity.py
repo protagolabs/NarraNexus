@@ -19,8 +19,8 @@ from collections import defaultdict
 
 import pytest
 
+from narranexus.platform.agent_framework.loop.driver import DEFAULT_AGENT_LOOP_FRAMEWORK
 from narranexus.platform.agent_framework.providers.model_identity import (
-    DEFAULT_AGENT_FRAMEWORK,
     effective_agent_slot,
     framework_of,
     slot_rebinds,
@@ -170,7 +170,34 @@ def test_effective_agent_slot_falls_to_owner_default_for_a_stub():
 
 
 def test_framework_of_defaults_to_the_platform_default():
-    assert DEFAULT_AGENT_FRAMEWORK == "nexus_power"
+    """There is ONE accessor for "which framework": ``framework_of`` goes
+    through ``resolve_framework_name``, so the identity overlay, the slot
+    writer's validation and the driver cannot disagree. Reverting it to a local
+    ``or DEFAULT_AGENT_FRAMEWORK`` literal makes the env/binding case below
+    red."""
+    assert DEFAULT_AGENT_LOOP_FRAMEWORK == "nexus_power"
     assert framework_of(None) == "nexus_power"
     assert framework_of({"agent_framework": None}) == "nexus_power"
     assert framework_of({"agent_framework": "codex_cli"}) == "codex_cli"
+
+
+def test_framework_of_follows_the_resolver_not_a_local_literal(monkeypatch):
+    monkeypatch.setenv("AGENT_LOOP_FRAMEWORK", "claude_code")
+    assert framework_of(None) == "claude_code"
+    assert framework_of({"agent_framework": None}) == "claude_code"
+    # An explicit column still wins the precedence.
+    assert framework_of({"agent_framework": "codex_cli"}) == "codex_cli"
+
+
+def test_framework_of_never_raises_on_a_broken_binding(monkeypatch):
+    """model_identity promises identity resolution can never break the
+    system-prompt build, and ``resolve_framework_name`` can now raise
+    ``FrameworkNotInstalledError`` on a misbinding."""
+    from narranexus.platform.agent_framework.loop import driver as driver_mod
+
+    def _boom() -> str:
+        raise driver_mod.FrameworkNotInstalledError("acme_turbo")
+
+    monkeypatch.setattr(driver_mod, "bound_default_framework", _boom)
+    assert framework_of(None) == "nexus_power"
+    assert framework_of({"agent_framework": "acme_turbo"}) == "acme_turbo"

@@ -23,6 +23,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Setup uv
+        # build-desktop.sh installs the project into the bundled standalone
+        # interpreter with `uv pip install`. It CANNOT be plain pip: the 30
+        # workspace members (narranexus-contracts / -sdk / 28 plugins) resolve
+        # only through `[tool.uv.sources]`, a uv-only table. Without this step
+        # the script dies at "uv: command not found".
+        uses: astral-sh/setup-uv@v4
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:

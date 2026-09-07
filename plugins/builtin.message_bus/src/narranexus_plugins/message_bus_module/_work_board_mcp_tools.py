@@ -31,7 +31,7 @@ from loguru import logger
 
 from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
-from narranexus.platform.module_system._mcp_identity import (
+from narranexus.platform.module_system import (
     caller_root_run_id,
     caller_team_id_from_request,
 )

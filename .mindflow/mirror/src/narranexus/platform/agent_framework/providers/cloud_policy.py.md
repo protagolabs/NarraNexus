@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/cloud_policy.py
-last_verified: 2026-07-29
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -73,3 +73,22 @@ review（2026-07-18）发现 manyfold 的跨用户 provider 克隆完全绕过�
 
 - staff 判定不在本模块（角色来自 request.state，由路由传入布尔）——保持本
   模块为纯 env 叶子，可单测、无 FastAPI 依赖。
+
+## 2026-09-07（round-2 P2-I3）— the cloud framework gate is derived; the exemption stays operator-owned
+
+`CLOUD_ALLOWED_FRAMEWORKS = frozenset({"claude_code", "nexus_power"})` and the prose
+`FRAMEWORK_LOCKED_DETAIL` are gone. The gate now has two halves, deliberately:
+
+* the framework's OWN fact — `FrameworkMeta.uses_shared_cli_login`, default `True` (fail-closed: a
+  framework that never considered the question is treated as able to ride the image's single HOME
+  credential file). NexusPower declares `False` by construction, so cloud may offer it *because of
+  what it is*, not because it is on a list;
+* the OPERATOR's fact — `cli_login_exempt_frameworks()`, read from
+  `CLOUD_CLI_LOGIN_EXEMPT_FRAMEWORKS` (default `claude_code`, because cloud provisions each user
+  their own API-key NetMind card for it). This must never be attestable by the plugin: a
+  `meta["cloud_safe"] = True` would be fail-open by construction, which is the exact hazard the gate
+  exists for. Setting the env var empty closes the door with no code change.
+
+`framework_locked_detail()` builds the 403 body from the DISPLAY names of whatever qualifies, so a
+distribution that ships a different set no longer tells its users "Claude Code or NexusPower".
+Unknown names stay refused.

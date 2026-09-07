@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/netmind.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 ## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
@@ -31,3 +31,9 @@ constructing a bogus config.
 an aggregator, it doesn't forward Anthropic's server-side tools.
 The tool-policy hook denies WebSearch upfront on this card so the
 caller doesn't hang.
+
+## 2026-09-07（round-2 G2-I5）— `CONTRIBUTION` → `CONTRIBUTIONS`
+
+`model.providers` is a MANY-arity slot, so API_POLICY §8 wants the plural. The nine provider modules
+were split between the two spellings for the same slot, which is exactly the drift §8 exists to stop.
+Symbol name and manifest ref only; the registered driver name is unchanged.

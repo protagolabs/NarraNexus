@@ -2,55 +2,128 @@
 @file_name: test_message_source_handler.py
 @author: Bin Liang
 @date: 2026-05-11
-@description: Contract tests for MessageSourceHandler + MessageSourceRegistry.
+@description: Contract tests for MessageSourceHandler + the registry-backed MessageSourceView.
 
 Behaviour pinned:
-1. A handler can be registered against a working_source value.
-2. Duplicate registration raises (force protects against accidental re-registration).
-3. Unknown working_source falls back to the default handler.
-4. The default handler covers `chat`/`a2a`/`callback`/`skill_study` triggers
-   without explicit registration.
-5. `format_row_prefix` substitutes meta_data + channel_tag fields into the template.
-6. `is_user_reply_tool` matches tool names by `<pattern> in tool_name` so the
+1. A source enters the view through its plugin's contribution — a
+   ``ChannelDescriptor``'s message-source fields, or an
+   ``ingress.message_sources`` spec — and NEVER through an import side effect.
+2. A source that is not declared falls back to the default handler; a source
+   that IS a registered channel yet declares none warns, because that silent
+   default is what recorded delivered IM replies as NO-REPLY.
+3. The default handler covers `chat`/`a2a`/`callback`/`skill_study` without any
+   declaration — they are the source-less sources.
+4. `format_row_prefix` substitutes meta_data + channel_tag fields into the template.
+5. `is_user_reply_tool` matches tool names by `<pattern> in tool_name` so the
    MCP-prefixed form (`mcp__chat_module__notify_owner`)
    still matches the pattern `notify_owner`.
-7. Registry dump returns a JSON-serializable snapshot for debugging.
+6. A view's dump returns a JSON-serializable snapshot for debugging.
+7. The reply extractor named by a descriptor is resolved LAZILY — building the
+   view must not import the channel's module.
 """
 from __future__ import annotations
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def reset_registry():
-    """Each test gets a clean registry — and the ORIGINAL registrations come
-    back afterwards. Modules register at import time, so a bare clear() left
-    the registry permanently empty for every test that ran later in the same
-    session (broke tests/message_bus/test_bus_channel_inbox_skip.py, which
-    checks the real registrations)."""
-    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
-    saved = dict(MessageSourceRegistry._handlers)  # type: ignore[attr-defined]
-    MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
-    yield
-    MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
-    MessageSourceRegistry._handlers.update(saved)  # type: ignore[attr-defined]
+from narranexus.contracts.channel import ChannelDescriptor, MessageSourceSpec
+from narranexus.kernel.plugins.registries import Registries
+from narranexus.kernel.plugins.registry import Contribution
 
 
-def test_register_and_get_returns_handler():
-    from narranexus.platform.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
+@pytest.fixture
+def view():
+    """A view over a PRIVATE, empty ``Registries`` — the whole point of the
+    change is that a message source is registry state, so a test can build its
+    own registry instead of mutating a process-global dict and restoring it."""
+    from narranexus.platform.channel.message_source_handler import MessageSourceView
+
+    regs = Registries()
+    v = MessageSourceView(regs)
+    v.registries = regs  # type: ignore[attr-defined]  — handed to the test for registration
+    return v
+
+
+def _register_channel(view, descriptor: ChannelDescriptor, owner: str = "test.channel") -> None:
+    view.registries.registry_for("ingress.channels").register_contribution(
+        Contribution(descriptor.name, lambda: descriptor), owner=owner
     )
 
-    h = MessageSourceHandler(
+
+def _register_source(view, spec: MessageSourceSpec, owner: str = "test.source") -> None:
+    view.registries.registry_for("ingress.message_sources").register_contribution(
+        Contribution(spec.name, lambda: spec), owner=owner
+    )
+
+
+def test_channel_descriptor_fields_become_the_handler(view):
+    """A channel declares its message source as descriptor fields; nothing else."""
+    _register_channel(view, ChannelDescriptor(
         name="lark",
-        user_reply_tool_names=("notify_owner", "lark_cli +messages-send"),
+        display_name="Lark",
+        trigger_ref="pkg.mod:Trigger",
+        reply_tools=("notify_owner", "lark_cli +messages-send"),
         row_prefix_template="[Lark · {sender_name}]",
-    )
-    MessageSourceRegistry.register(h)
+        dedicated_trigger=True,
+    ))
+    got = view.get("lark")
+    assert got.name == "lark"
+    assert got.label == "Lark"
+    assert got.user_reply_tool_names == ("notify_owner", "lark_cli +messages-send")
+    assert got.row_prefix_template == "[Lark · {sender_name}]"
+    assert got.dedicated_trigger is True
 
-    got = MessageSourceRegistry.get("lark")
-    assert got is h
+
+def test_non_channel_source_comes_from_the_message_sources_slot(view):
+    """The bus and the job clock are message sources without being channels."""
+    _register_source(view, MessageSourceSpec(
+        name="message_bus",
+        display_label="NarraNexus",
+        reply_tools=("notify_owner", "message_agent"),
+        owner_visible_reply_tools=("notify_owner",),
+        row_prefix_template="[private message from {from_agent}]",
+    ))
+    got = view.get("message_bus")
+    assert got.effective_owner_visible_names == ("notify_owner",)
+    assert got.is_user_reply_tool("mcp__x__message_agent")
+    assert not got.is_owner_visible_reply_tool("mcp__x__message_agent")
+
+
+def test_a_source_disappears_with_its_registration(view):
+    """A channel excluded from a distribution / disabled in registry.json is not
+    in ``ingress.channels``, so it has no handler — the property the old
+    class-level dict could not express (a disabled channel's handler survived
+    because something had imported its module)."""
+    _register_channel(view, ChannelDescriptor(
+        name="lark", display_name="Lark", trigger_ref="pkg.mod:T",
+        reply_tools=("lark_cli",), row_prefix_template="[Lark]",
+    ))
+    assert view.get("lark").name == "lark"
+    view.registries.registry_for("ingress.channels").remove_owner("test.channel")
+    assert view.get("lark") is not None
+    assert view.get("lark").row_prefix_template == "[NarraNexus UI]"
+
+
+def test_registered_channel_without_a_message_source_warns(view, caplog):
+    """The silent case, turned into a signal.
+
+    A channel in the registry that declares no reply tools resolves to the
+    default handler — its IM replies would be judged with ``reply_owner`` /
+    ``notify_owner`` and its rows labelled ``[NarraNexus UI]``. That is exactly
+    the failure the old registry hid, so it must be loud."""
+    _register_channel(view, ChannelDescriptor(name="mute", display_name="Mute", trigger_ref="pkg.mod:T"))
+    with caplog.at_level("WARNING"):
+        assert view.get("mute").name == "default"
+
+
+def test_sourceless_sources_use_the_default_without_warning(view):
+    """chat / a2a / callback / skill_study declare nothing BY DESIGN."""
+    from narranexus.platform.channel.message_source_handler import SOURCELESS_SOURCES
+
+    for source in sorted(SOURCELESS_SOURCES):
+        h = view.get(source)
+        assert h.name == "default"
+        assert "notify_owner" in h.user_reply_tool_names
+        assert source not in view._warned_default  # type: ignore[attr-defined]
 
 
 def test_get_unknown_source_returns_default_handler():
@@ -62,17 +135,23 @@ def test_get_unknown_source_returns_default_handler():
     assert "notify_owner" in default.user_reply_tool_names
 
 
-def test_duplicate_registration_raises():
-    from narranexus.platform.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
-    )
+def test_the_extractor_ref_is_resolved_lazily(view):
+    """Naming an extractor must not import the module that holds it — otherwise
+    building the view (a read) drags in every channel's SDK, which is the
+    import coupling this design removes."""
+    import sys
 
-    h1 = MessageSourceHandler(name="lark", user_reply_tool_names=("a",))
-    h2 = MessageSourceHandler(name="lark", user_reply_tool_names=("b",))
-    MessageSourceRegistry.register(h1)
-    with pytest.raises(ValueError, match="duplicate"):
-        MessageSourceRegistry.register(h2)
+    module_name = "tests.channel._lazy_extractor_probe"
+    sys.modules.pop(module_name, None)
+    _register_source(view, MessageSourceSpec(
+        name="probe",
+        reply_tools=("probe_send",),
+        reply_extractor_ref=f"{module_name}:extract",
+    ))
+    handler = view.get("probe")           # built…
+    assert module_name not in sys.modules  # …without importing the extractor
+    assert handler.extract_reply_text("probe_send", {"text": "hi"}) == "hi"
+    assert module_name in sys.modules
 
 
 def test_is_user_reply_tool_matches_mcp_prefixed_names():
@@ -336,19 +415,15 @@ def test_extract_reply_text_strips_tokens_through_custom_extractor():
     assert out == "中朝外交：习近平抵达平壤"
 
 
-def test_dump_returns_serializable_snapshot():
-    from narranexus.platform.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
-    )
+def test_dump_returns_serializable_snapshot(view):
     import json
 
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="lark",
-        user_reply_tool_names=("lark_cli +messages-send",),
+    _register_channel(view, ChannelDescriptor(
+        name="lark", display_name="Lark", trigger_ref="pkg.mod:T",
+        reply_tools=("lark_cli +messages-send",),
         row_prefix_template="[Lark · {sender_name}]",
     ))
-    snapshot = MessageSourceRegistry.dump()
+    snapshot = view.dump()
     # Must be JSON-serialisable for debug logging.
     json.dumps(snapshot)
     assert "lark" in snapshot

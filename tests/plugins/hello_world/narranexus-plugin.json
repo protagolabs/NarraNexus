@@ -28,7 +28,10 @@
   "backend": {
     "package": "backend",
     "pip": [],
-    "activate": true
+    "activate": true,
+    "publicPrefixes": [
+      "webhook"
+    ]
   },
   "frontend": {
     "entry": "plugin.js",

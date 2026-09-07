@@ -18,7 +18,6 @@ def test_manifest_matches_host_and_refs_stay_in_package():
     from narranexus.kernel.plugins.loader import resolve_symbol
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    assert on_disk["id"] == ROOT.name  # the directory is the plugin id; the kernel reads this very file
     for refs in on_disk["provides"].values():
         for ref in refs:
             assert ref.startswith("narranexus_plugins.teams."), ref

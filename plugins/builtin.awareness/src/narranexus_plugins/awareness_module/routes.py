@@ -14,7 +14,7 @@ import uuid
 from fastapi import APIRouter, Request
 from loguru import logger
 
-from backend.routes._ownership import assert_owned
+from narranexus.sdk.web import require_agent_owner
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
 from narranexus.platform.repository import InstanceRepository
@@ -76,7 +76,7 @@ async def get_agent_awareness(agent_id: str, request: Request):
     auto-minted empty one (side-effect-free GET + no instance-spray on lookups).
     """
     logger.debug(f"Getting awareness for agent: {agent_id}")
-    await assert_owned(request, agent_id)
+    await require_agent_owner(request, agent_id)
 
     try:
         db_client = await get_db_client()
@@ -127,7 +127,7 @@ async def update_agent_awareness(
     path, where an unknown agent_id is an ERROR, not a licence to mint an
     instance for it (the frontend keeps the auto-create default).
     """
-    await assert_owned(http_request, agent_id)
+    await require_agent_owner(http_request, agent_id)
     logger.info(f"Updating awareness for agent: {agent_id}")
     logger.info(f"  → Request awareness content (first 100 chars): {request.awareness[:100] if request.awareness else 'None'}...")
 

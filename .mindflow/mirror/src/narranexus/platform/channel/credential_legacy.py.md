@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/channel/credential_legacy.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 新增 `purge_legacy_for_agent`：与发行版无关的一遍清扫
+
+`LEGACY_TABLES` 本来就是「哪些表曾经存过渠道密钥」的唯一真值表，所以删除 agent 的清理没
+有理由再绕一圈描述符/已安装插件。`purge_legacy_for_agent(db, agent_id, channel=None)` 只
+按 `agent_id` 删，`channel=` 可把范围收到一个渠道（`ChannelModuleBase` 这么用）。
+
+它存在的原因是两个都会把 base64 bot token / app secret 永久留在库里的洞：
+
+- `cleanup_for_agent` 的提前返回（见 `channel_module_base`）；
+- 清理遍历只访问**已注册**的渠道模块，而两个示例发行版都排除了全部六个渠道——「删除我
+  的 agent」对这些部署等于不删凭据。
+
+按**表**尽力而为：从来没有这张表的安装不能因此让删除失败（`debug` 一行，继续下一张）。
+返回 `{表: 删除行数}`，只包含真的删掉了东西的表，方便调用方并进 stats 而不会凭空多键。
 
 # channel/credential_legacy.py — the retired per-channel tables, described once
 

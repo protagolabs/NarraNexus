@@ -202,6 +202,8 @@ class ChannelModuleBase(XYZBaseModule):
           3. For any inbox channel left empty, delete its ``bus_messages``
              + ``bus_channels`` rows.
           4. Delete the binding.
+          5. Purge the retired per-channel credential table for this channel
+             (before 1, because it is keyed on agent_id alone).
 
         Subclasses with extra cleanup (Lark's CLI profile + workspace
         directory; future channels with on-disk caches; etc.) override
@@ -209,10 +211,20 @@ class ChannelModuleBase(XYZBaseModule):
         """
         from loguru import logger
 
+        from narranexus.platform.channel.credential_legacy import purge_legacy_for_agent
         from narranexus.platform.channel.credential_store import GenericCredentialStore
 
         stats: dict[str, int] = {}
         store = GenericCredentialStore(db)
+        # Pre-cutover rows in the retired per-channel table (batch 4d kept the
+        # tables; rule #6: never drop data in a migration) still hold the bot
+        # token / app secret, and they are keyed on agent_id ALONE — they do not
+        # need, and must not wait for, a generic row. Running this AFTER the
+        # early return below meant an agent whose legacy row was never copied
+        # (the copy goes through ``descriptor_for`` and is skipped for any
+        # channel this distribution does not install) kept its secrets forever,
+        # which is exactly the residue this purge was written to remove.
+        await purge_legacy_for_agent(db, agent_id, channel=self.channel_name)
         try:
             if await store.get(self.channel_name, agent_id) is None:
                 return stats
@@ -234,20 +246,6 @@ class ChannelModuleBase(XYZBaseModule):
                     await db.delete("bus_channels", {"channel_id": cid})
             if await store.unbind(self.channel_name, agent_id):
                 stats[f"channel_credentials.{self.channel_name}"] = 1
-            # Pre-cutover rows in the retired per-channel table (batch 4d kept
-            # the tables; rule: never drop data in a migration) still hold the
-            # bot token / app secret. "Delete my agent" must delete them too.
-            # Best-effort: an install that never had the table must not fail
-            # the deletion.
-            from narranexus.platform.channel.credential_legacy import LEGACY_TABLES
-
-            for legacy in LEGACY_TABLES:
-                if legacy.channel != self.channel_name:
-                    continue
-                try:
-                    await db.delete(legacy.table, {"agent_id": agent_id})
-                except Exception as e:  # noqa: BLE001 — table absent on a fresh install
-                    logger.debug(f"{type(self).__name__} cleanup_for_agent: legacy table {legacy.table} not purged: {e}")
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"{type(self).__name__} cleanup_for_agent failed: {e}"

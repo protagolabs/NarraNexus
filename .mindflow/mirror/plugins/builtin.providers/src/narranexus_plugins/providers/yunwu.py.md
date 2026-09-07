@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/yunwu.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 ## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
@@ -23,3 +23,9 @@ auth_type values (Yunwu uses api_key for both protocols, unlike
 NetMind's bearer_token-for-anthropic quirk).
 
 Aggregator semantics: ``supports_anthropic_server_tools=False``.
+
+## 2026-09-07（round-2 G2-I5）— `CONTRIBUTION` → `CONTRIBUTIONS`
+
+`model.providers` is a MANY-arity slot, so API_POLICY §8 wants the plural. The nine provider modules
+were split between the two spellings for the same slot, which is exactly the drift §8 exists to stop.
+Symbol name and manifest ref only; the registered driver name is unchanged.

@@ -25,6 +25,7 @@ from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Registry
 from narranexus.kernel.plugins.services import ScopedServices
 from narranexus.kernel.settings.plugin_settings import PluginSettings
+from narranexus.contracts.distribution import is_builtin_id
 
 Role = Literal["backend", "mcp", "workers"]
 
@@ -43,7 +44,7 @@ class PluginDb:
         self.plugin_id = plugin_id
         self._client = client
         self._prefix = table_prefix_for(plugin_id)
-        self._builtin = plugin_id.startswith("builtin.")
+        self._builtin = is_builtin_id(plugin_id)
 
     def table(self, name: str) -> str:
         if not self._builtin and not name.startswith(self._prefix):

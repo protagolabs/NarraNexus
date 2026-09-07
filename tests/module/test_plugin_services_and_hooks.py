@@ -14,7 +14,7 @@ import pytest
 
 from narranexus.contracts.job import JobRunOutcome
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.kernel.plugins.service_refs import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
+from narranexus.contracts.services import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
 from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.utils import plugin_services
 from narranexus.platform.utils.host_hooks import call_host_hook

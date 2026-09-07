@@ -4,11 +4,21 @@
 @date: 2026-09-04
 @description: Call a host event (contracts.events) from platform code against the process kernel registries.
 
-Builtins implement host events through ``backend.hooks`` (registered by
-``module/contributions.register_all`` at import and by the manifest loader at
-boot). Platform code that fires one goes through here so the builtin
-registrations are guaranteed to exist in this process regardless of import
-order, and so the call site names the event, not a module.
+Builtins implement host events through ``backend.hooks``, registered by the
+manifest loader when the HOST BOOTS — that is the only registration path, and
+importing anything (this module included) registers nothing. So the guarantee
+this file offers is narrower than it once claimed: it names the EVENT rather
+than a module, and it reads whatever the process actually booted.
+
+In a process that never booted the plugin platform the hook registry is empty
+and ``call_host_hook`` runs ZERO implementations, returning an empty
+``HookOutcome`` — no error, because that is the same answer as "every
+implementation of this event is disabled in this distribution", and the callers
+of an advisory host event have to tolerate that either way. If you get an empty
+outcome where you expected work, check that the process booted
+(``hosts.boot`` / ``kernel.plugins.builtins.load_builtins``) before suspecting
+the hook. Lookups that must NOT be silent (a channel descriptor, a named
+service) fail loud instead — ``UnknownChannel`` / ``UnknownEntry``.
 """
 from __future__ import annotations
 
@@ -16,7 +26,6 @@ from typing import Any
 
 
 def _hooks():
-    import narranexus.platform.module_system  # noqa: F401 — registers the builtins' hooks/services (idempotent)
     from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
     return KERNEL_REGISTRIES.hooks

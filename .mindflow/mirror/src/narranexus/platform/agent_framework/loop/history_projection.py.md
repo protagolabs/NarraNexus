@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/history_projection.py
-last_verified: 2026-07-29
+last_verified: 2026-09-07
 stub: false
 ---
 # history_projection — event_log → provider 消息的原生回放折叠
@@ -16,3 +16,14 @@ output 按最老未答配对兜底)。逐行 fail-open:坏行降级回放,绝不
 为什么只服务 NexusPower(Owner 拍板 Q1):claude/codex 的 assistant text 走
 append_text 进 final_output,从不进 all_steps——它们的 log 折出来只有工具流没有
 文字;只有 nexus turn 带定位的 monologue 段(record_thinking 存进 step dict)。
+
+## 2026-09-07（round-2 G2-I7）— native replay is a declared capability, not a name table
+
+`NATIVE_REPLAY_FRAMEWORKS = frozenset({"nexus_power"})` became
+`framework_supports_native_replay(framework)`, which asks the registry whether the framework declares
+the `native_replay` capability (new word in `CAPABILITY_VOCABULARY`). Rationale unchanged: only a
+driver that stamps positioned `monologue` segments can be replayed natively; a CLI-backed driver
+flattens at its doorstep. What changed is WHO decides — the framework, by declaring it — so a
+third-party framework is no longer silently flattened with no error anywhere. Fail-closed on an
+unknown name (flattened history is the safe direction). Consumer:
+`context_runtime._expand_native_turns`.

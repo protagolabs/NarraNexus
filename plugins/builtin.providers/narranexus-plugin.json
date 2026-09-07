@@ -11,16 +11,19 @@
     "mcp",
     "workers"
   ],
+  "api": {
+    "provider": 0
+  },
   "provides": {
     "model.providers": [
-      "narranexus_plugins.providers.custom_anthropic:CONTRIBUTION",
-      "narranexus_plugins.providers.custom_openai:CONTRIBUTION",
-      "narranexus_plugins.providers.netmind:CONTRIBUTION",
-      "narranexus_plugins.providers.netmind_free:CONTRIBUTION",
-      "narranexus_plugins.providers.yunwu:CONTRIBUTION",
-      "narranexus_plugins.providers.openrouter:CONTRIBUTION",
-      "narranexus_plugins.providers.claude_oauth:CONTRIBUTION",
-      "narranexus_plugins.providers.codex_oauth:CONTRIBUTION",
+      "narranexus_plugins.providers.custom_anthropic:CONTRIBUTIONS",
+      "narranexus_plugins.providers.custom_openai:CONTRIBUTIONS",
+      "narranexus_plugins.providers.netmind:CONTRIBUTIONS",
+      "narranexus_plugins.providers.netmind_free:CONTRIBUTIONS",
+      "narranexus_plugins.providers.yunwu:CONTRIBUTIONS",
+      "narranexus_plugins.providers.openrouter:CONTRIBUTIONS",
+      "narranexus_plugins.providers.claude_oauth:CONTRIBUTIONS",
+      "narranexus_plugins.providers.codex_oauth:CONTRIBUTIONS",
       "narranexus_plugins.providers.system:CONTRIBUTIONS"
     ]
   },

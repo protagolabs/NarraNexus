@@ -26,9 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPException
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
-from backend.config import settings as backend_settings
-from backend.routes._mcp_egress import filter_public_mcp_servers
+from narranexus.sdk.web import current_user_id, filter_public_mcp_servers, host_settings
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.schema.skill_schema import (
@@ -292,7 +290,7 @@ async def list_skills(
     include_disabled: bool = Query(False, description="Whether to include disabled Skills"),
 ):
     """Get skill list. Identity from auth_middleware (X-User-Id / JWT)."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"GET /api/skills - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -325,7 +323,7 @@ async def install_skill(
     1. Install from GitHub: source=github, url=repository URL
     2. Upload zip file: source=zip, file=zip file
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}")
 
     def _reject(reason: str) -> HTTPException:
@@ -349,7 +347,7 @@ async def install_skill(
         # All install entrances converge on the InstallPipeline (scan gate,
         # conflict/config migration, .skill_meta hash fields, audit trail,
         # auto-archive). Response shape is unchanged.
-        from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from narranexus.platform.marketplace import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -368,7 +366,7 @@ async def install_skill(
                 content = await file.read()
                 enforce_max_bytes(
                     len(content),
-                    backend_settings.max_upload_bytes,
+                    host_settings().max_upload_bytes,
                     label="Skill package",
                 )
                 zip_path = temp_dir / safe_filename
@@ -405,11 +403,11 @@ async def remove_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Remove a Skill. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
-        from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from narranexus.platform.marketplace import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -437,7 +435,7 @@ async def disable_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Disable a Skill. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"PUT /api/skills/{skill_name}/disable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -463,7 +461,7 @@ async def enable_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Enable a Skill. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"PUT /api/skills/{skill_name}/enable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -503,7 +501,7 @@ async def study_skill(
     3. Start background task to run AgentRuntime
     4. Background task automatically updates study_status and study_result upon completion
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"POST /api/skills/{skill_name}/study - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -547,7 +545,7 @@ async def get_study_status(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get Skill study status (for frontend polling). Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         study_info = skill_module.get_study_status(skill_name)
@@ -575,7 +573,7 @@ async def get_skill_env(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get skill's required env vars and their configuration status. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -624,7 +622,7 @@ async def set_skill_env(
     body: dict = None,
 ):
     """Set env var values for a skill. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -677,7 +675,7 @@ async def get_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get Skill details. Identity from auth_middleware."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     logger.info(f"GET /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:

@@ -82,7 +82,7 @@ from narranexus.platform.schema.team_schema import (
     TeamListResponse,
     TeamOperationResponse,
 )
-from backend.auth import resolve_current_user_id
+from narranexus.sdk.web import current_user_id
 
 
 router = APIRouter()
@@ -98,7 +98,7 @@ async def _user_id_for_request(request: Request) -> str:
     # auth_middleware populates request.state.user_id either way, so
     # downstream filtering is identical. See backend/auth.py for the
     # mode-specific identity source.
-    return await resolve_current_user_id(request)
+    return await current_user_id(request)
 
 
 # --- Team group chat (over the message bus) --------------------------------
@@ -414,7 +414,7 @@ async def upload_team_chat_attachment(
     ``{base}/{user_id}/_shared/bus_files`` so every team agent can Read it. For
     audio uploads we run Whisper (same as the single-agent path) so @mentioned
     agents receive the spoken content as text via the attachment marker."""
-    from backend.config import settings as backend_settings
+    from narranexus.sdk.web import host_settings
 
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
@@ -425,7 +425,7 @@ async def upload_team_chat_attachment(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     raw_bytes = await file.read()
-    max_bytes = backend_settings.max_upload_bytes
+    max_bytes = host_settings().max_upload_bytes
     if len(raw_bytes) > max_bytes:
         raise HTTPException(
             status_code=413,
@@ -1230,9 +1230,9 @@ async def mint_team_view_token(team_id: str, artifact_id: str, request: Request)
     db, _team = await _require_team_owner(request, team_id)
     art = await _authorize_team_artifact(db, team_id, artifact_id)
 
-    from backend.routes.artifacts import _token as artifact_token
+    from narranexus.sdk.web import artifact_view_token
 
-    token = artifact_token.mint(agent_id=art.agent_id, artifact_id=artifact_id)
+    token = artifact_view_token(agent_id=art.agent_id, artifact_id=artifact_id)
     return {"token": token, "raw_url": f"/api/public/artifacts/raw/{token}/"}
 
 

@@ -13,7 +13,8 @@
     "trigger": 0,
     "data_access": 0,
     "route": 0,
-    "hook": 0
+    "hook": 0,
+    "services": 0
   },
   "provides": {
     "agent.capabilities.modules": [
@@ -35,6 +36,9 @@
     ],
     "backend.services": [
       "narranexus_plugins.job_module.services:SERVICES"
+    ],
+    "ingress.message_sources": [
+      "narranexus_plugins.job_module.contribution:MESSAGE_SOURCES"
     ]
   },
   "quality": "gold"

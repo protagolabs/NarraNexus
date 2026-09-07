@@ -11,34 +11,33 @@
   "api": {
     "stage_strategy": 0,
     "pipeline_profile": 0,
-    "framework": 0,
-    "agent": 0
+    "framework": 0
   },
   "provides": {
-    "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
+    "turn.pipeline": "narranexus_plugins.turn.pipeline:CONTRIBUTION",
     "turn.pipeline.ingress": [
-      "narranexus_plugins.turn.stages:INGRESS"
+      "narranexus_plugins.turn.stages:INGRESS_STRATEGIES"
     ],
     "turn.pipeline.recall": [
-      "narranexus_plugins.turn.stages:RECALL"
+      "narranexus_plugins.turn.stages:RECALL_STRATEGIES"
     ],
     "turn.pipeline.compose": [
-      "narranexus_plugins.turn.stages:COMPOSE"
+      "narranexus_plugins.turn.stages:COMPOSE_STRATEGIES"
     ],
     "turn.pipeline.assemble": [
-      "narranexus_plugins.turn.stages:ASSEMBLE"
+      "narranexus_plugins.turn.stages:ASSEMBLE_STRATEGIES"
     ],
     "turn.pipeline.act": [
-      "narranexus_plugins.turn.stages:ACT"
+      "narranexus_plugins.turn.stages:ACT_STRATEGIES"
     ],
     "turn.pipeline.commit": [
-      "narranexus_plugins.turn.stages:COMMIT"
+      "narranexus_plugins.turn.stages:COMMIT_STRATEGIES"
     ],
     "turn.pipeline.reflect": [
-      "narranexus_plugins.turn.stages:REFLECT"
+      "narranexus_plugins.turn.stages:REFLECT_STRATEGIES"
     ],
     "turn.profiles": [
-      "narranexus_plugins.turn.profiles:PROFILE_CONTRIBUTIONS"
+      "narranexus_plugins.turn.profiles:PROFILES"
     ]
   },
   "declares": {

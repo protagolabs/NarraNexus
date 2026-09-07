@@ -1,8 +1,21 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_module.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
+
+顶层那段 `try: MessageSourceRegistry.register(...) except ValueError: pass` 已删；
+`_extract_lark_reply` 原样保留，现在由 `descriptor.py` 的 `reply_extractor_ref` 按名字指
+过来、首次抽取时才解析。
+
+原注释声称「重复注册会 hard error，这是正确的 loud-fail」，而三行之下的 `pass` 恰好把它
+抵消了——两个插件抢同一个 source 名不会报错，只是「谁先 import 谁赢」。现在名字冲突由
+`Registry.register` 抛 `RegistryConflict`，真的响。
+
+行为面的净效果：`lark_cli` 这类回复工具是否被识别，不再取决于本进程有没有 import 过这个模
+块，而取决于本发行版是否装了这个渠道。
 ## 2026-08-11 (lark 零凭据收尾)
 
 `send_to_agent`(ChannelSenderRegistry 跨模块投递)的凭据存在性检查改走 seam `get_credential("lark")`；删死 import XYZBaseModule。line 568 的 `LarkCredentialManager(self.db)` 是 trigger/workers 路径(self.db，mcp 里为 None 不可达)，非 strip 阻塞。

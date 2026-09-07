@@ -349,7 +349,7 @@ class AgentRuntime:
             # stages through the strategies the profile names; the legacy
             # fast_mode / silent / TurnProfile flags resolve to a builtin profile.
             # Every stage body is the former inline step block, moved verbatim.
-            from narranexus.platform.turn import TurnPipeline, resolve_profile
+            from narranexus.platform.turn import resolve_profile, turn_pipeline_for
             from narranexus.platform.turn.inputs import TurnServices
 
             profile = resolve_profile(
@@ -390,7 +390,10 @@ class AgentRuntime:
                 timings={"run_start": _t_run_start},
                 bind_event=_bind_turn_event,
             )
-            pipeline = TurnPipeline(self._registries)
+            # The pipeline CLASS comes from the ``turn.pipeline`` binding, not
+            # from an import: the platform must not know which plugin fills the
+            # slot whose whole purpose is replacing the turn runtime.
+            pipeline = turn_pipeline_for(self._registries)(self._registries)
             async for msg in pipeline.run(ctx, profile, services, silent=silent):
                 yield msg
 

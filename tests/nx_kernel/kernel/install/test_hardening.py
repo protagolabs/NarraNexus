@@ -14,36 +14,72 @@ import pytest
 
 from narranexus.kernel.plugins.install import deps, sources
 from narranexus.kernel.plugins.install.installer import InstallError, Installer
-from narranexus.kernel.plugins.install.sources import LocalSource, SourceError, extract_zip
+from narranexus.kernel.plugins.install.sources import LocalSource, SourceError, extract_tarball, extract_zip
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 
-from .conftest import make_zip
+from .conftest import make_tar, make_zip
 
 
-def test_download_stops_at_the_byte_limit(monkeypatch):
+class _CountingStream(httpx.SyncByteStream):
+    """A real streaming body: it yields chunks lazily and records what the
+    server actually produced, so a client that reads the whole body before
+    checking its size can be told apart from one that aborts mid-stream."""
+
+    def __init__(self, chunk: bytes, chunks: int, served: list[int]) -> None:
+        self.chunk, self.chunks, self.served = chunk, chunks, served
+
+    def __iter__(self):
+        for _ in range(self.chunks):
+            self.served.append(len(self.chunk))
+            yield self.chunk
+
+
+def test_download_aborts_mid_stream_at_the_byte_limit(monkeypatch):
+    """The limit must stop the TRANSFER, not merely report on a finished one.
+
+    The only assertion that can tell the two implementations apart is that the
+    server produced FEWER bytes than the payload: reading the whole body and
+    then raising raises ``SourceError`` just the same. No content-length header
+    here, so the precheck cannot short-circuit the stream (its own test below).
+    """
     monkeypatch.setattr(sources, "MAX_ASSET_BYTES", 1000)
     served: list[int] = []
+    total = 500 * 10
 
     def handler(request: httpx.Request) -> httpx.Response:
-        def body():
-            for _ in range(10):
-                served.append(500)
-                yield b"x" * 500
-
-        return httpx.Response(200, stream=httpx.ByteStream(b"".join(body())) if False else None, content=None) if False else httpx.Response(200, content=b"".join(body()))
+        return httpx.Response(200, stream=_CountingStream(b"x" * 500, 10, served), headers={})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(SourceError, match="exceeds"):
         sources._get(client, "https://example.test/big.zip", accept="application/octet-stream")
+    assert 0 < sum(served) < total, f"the whole {total}-byte body was produced before the limit fired: {served}"
 
 
-def test_archive_expansion_is_bounded(tmp_path: Path):
-    bomb = make_zip({f"f{i}.bin": b"\0" * 10_000 for i in range(5)})
+def test_download_refuses_an_oversized_content_length_without_reading_a_byte(monkeypatch):
+    """A truthful ``content-length`` is refused before the body is streamed at all."""
+    monkeypatch.setattr(sources, "MAX_ASSET_BYTES", 1000)
+    served: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_CountingStream(b"x" * 500, 10, served),
+                              headers={"content-length": "5000"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(SourceError, match="exceeds"):
+        sources._get(client, "https://example.test/big.zip", accept="application/octet-stream")
+    assert served == []
+
+
+@pytest.mark.parametrize("extract, make", [(extract_zip, make_zip), (extract_tarball, make_tar)])
+def test_archive_expansion_is_bounded(tmp_path: Path, extract, make):
+    """Both budgets, for BOTH archive formats: the tarball path carried the same
+    two ``budget`` calls with no test at all, so deleting either was green."""
+    bomb = make({f"f{i}.bin": b"\0" * 10_000 for i in range(5)})
     with pytest.raises(SourceError, match="expands past"):
-        extract_zip(bomb, tmp_path / "out", max_total_bytes=20_000)
+        extract(bomb, tmp_path / "out", max_total_bytes=20_000)
     with pytest.raises(SourceError, match="more than"):
-        extract_zip(bomb, tmp_path / "out2", max_members=2)
-    assert extract_zip(bomb, tmp_path / "ok") == 5
+        extract(bomb, tmp_path / "out2", max_members=2)
+    assert extract(bomb, tmp_path / "ok") == 5
 
 
 def test_dependency_subprocess_env_is_an_allow_list(monkeypatch):

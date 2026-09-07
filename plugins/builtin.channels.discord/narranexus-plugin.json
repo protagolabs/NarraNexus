@@ -11,7 +11,6 @@
   "api": {
     "module": 0,
     "trigger": 0,
-    "route": 0,
     "hook": 0,
     "channel": 0
   },

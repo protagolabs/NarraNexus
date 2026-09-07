@@ -8,7 +8,7 @@ A Claude Code Login / Codex CLI Login card is a credential FOR A SPECIFIC CLI,
 not a generic provider key. nexus_power drives the provider HTTP API and
 refuses subscription auth outright, so binding such a card to a nexus_power
 agent slot is a guaranteed run-time failure — it must be refused at config
-time instead. The rule lives in ``provider_schema.framework_can_drive_provider``
+time instead. The rule lives in ``framework_binding.framework_can_drive_provider``
 and is enforced through the shared ``validate_slot_binding``, so both slot
 writers (user-level and per-agent) inherit it.
 """
@@ -19,7 +19,7 @@ import pytest
 from narranexus.platform.agent_framework.providers.user_service import (
     validate_slot_binding,
 )
-from narranexus.platform.schema.provider_schema import framework_can_drive_provider
+from narranexus.platform.agent_framework.providers.framework_binding import framework_can_drive_provider
 
 
 def _card(source: str, protocol: str, auth_type: str) -> dict:

@@ -29,7 +29,7 @@ from narranexus_plugins.lark_module.lark_cli_client import LarkCLIClient
 # One canonical owner check (backend/routes/_ownership.py); module-level
 # alias keeps the historical local name at its ~per-route call sites. No
 # import cycle: this subpackage never gets imported back from _ownership.
-from backend.routes._ownership import check_owned as _verify_agent_ownership
+from narranexus.sdk.web import check_agent_owner as _verify_agent_ownership
 
 router = APIRouter()
 _cli = LarkCLIClient()

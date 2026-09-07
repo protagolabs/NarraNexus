@@ -20,9 +20,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from loguru import logger
 
-from backend.auth import reject_cross_origin, resolve_current_user_id
+from narranexus.sdk.web import IDENTITY_UNRESOLVED, auth_error, current_user_id, reject_cross_origin
 from narranexus_plugins.teams.marketplace_service import TeamMarketplaceService
-from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 from narranexus.contracts.route import RouterSpec
 from narranexus.kernel.plugins.registry import Contribution
 
@@ -40,7 +39,7 @@ def _require_publisher(request: Request) -> None:
         return
     role = getattr(request.state, "role", None)
     if not getattr(request.state, "user_id", None):
-        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
+        raise auth_error(IDENTITY_UNRESOLVED, "Authentication required")
     if role != "staff":
         raise HTTPException(status_code=403, detail="staff role required")
 
@@ -92,7 +91,7 @@ async def install_preflight(template_id: str, request: Request):
     """Resolve the bundle (store or cloud), verify sha256, run the LOCAL
     importer preflight. Returns the standard preflight payload; the frontend
     then confirms via POST /api/bundle/import/confirm."""
-    user_id = await resolve_current_user_id(request)
+    user_id = await current_user_id(request)
     try:
         return await TeamMarketplaceService().install_preflight(template_id, user_id)
     except FileNotFoundError:

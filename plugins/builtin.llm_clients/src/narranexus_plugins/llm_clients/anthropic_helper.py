@@ -44,7 +44,7 @@ from narranexus.platform.utils.cost_tracker import (
     record_cost,
     warn_missing_usage,
 )
-from narranexus.platform.agent_framework.llm._prompt_probe import emit as _probe_emit
+from narranexus.platform.agent_framework.llm import prompt_probe_emit as _probe_emit
 from narranexus.platform.utils.logging import timed
 
 

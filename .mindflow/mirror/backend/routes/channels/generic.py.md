@@ -25,3 +25,7 @@ CredentialConflict from the store becomes HTTP 409 with the product-level messag
 ## 2026-09-07 — webhook: header/HMAC only, uniform 401, rate limited, safe ids; bind conflict 409
 
 The inbound webhook no longer accepts ?token= (the request line lands in every reverse-proxy access log). Unknown binding and bad secret both answer 401 (the distinction is logged) so the anonymous endpoint is not an agent-enumeration oracle; a sliding window per binding and per source address bounds the DB reads; agent_id is constrained to the safe id pattern.
+
+The **source address** comes from `backend/routes/_client_ip.py::client_ip`, never `request.client.host`. Uvicorn runs without `--proxy-headers` behind the deploy stack's nginx, so the socket peer is the SAME container address for every cloud request: keyed on it, the 600/min limiter is one GLOBAL bucket, and any single anonymous caller can 429 every agent's inbound webhooks at once — a limiter that reads as protection while measuring nothing. `_client_ip` is the shared implementation (the auth funnel is the other caller): the proxy-hop count is a property of the deployment and must have exactly one home.
+
+The middleware wiring is tested end to end in `tests/backend/test_channel_webhook_middleware.py` with the REAL `auth_middleware` and cloud mode forced — a hand-rolled identity middleware cannot tell "exempt by design" from "never behind auth at all".

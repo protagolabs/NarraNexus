@@ -20,5 +20,9 @@ def test_manifest_and_provides():
     data = on_disk
     for refs in data["provides"].values():
         for ref in ([refs] if isinstance(refs, str) else refs):
-            assert ref.startswith(("narranexus_plugins.frameworks_nexus_power", "narranexus.platform.turn.pipeline")), ref
-            assert resolve_symbol(ref) is not None
+            # No exception any more: ``turn.pipeline``'s implementation moved into
+            # builtin.turn's own package, so every builtin provides ref is inside
+            # ``narranexus_plugins.`` (the shared assertion is in
+            # tests/nx_kernel/platform/test_contribution_symbol_naming.py).
+            assert ref.startswith("narranexus_plugins.frameworks_nexus_power"), ref
+            resolve_symbol(ref)

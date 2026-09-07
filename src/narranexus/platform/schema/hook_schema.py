@@ -207,9 +207,12 @@ class WorkingSource(OpenStrEnum):
 
 
 # Core members (the former Enum body). IM channels — builtin and plugin alike —
-# register theirs from their ChannelDescriptor (``module/<channel>_module/descriptor.py``,
-# imported first by the channel package; ``module/contributions.register_all``
-# and the data-access seam repeat it idempotently).
+# get theirs from their ChannelDescriptor, registered in exactly ONE place:
+# ``channel/contributions.py:register_working_source``, called by
+# ``contributions_from`` when the channel plugin's ``contribution.py`` is imported
+# at boot. It used to also fire from ``descriptor.py`` at import and from the READ
+# paths of the channel/trigger views (a cache miss on ``SUPPORTED_CHANNELS``), so
+# whether ``WorkingSource("lark")`` resolved depended on who had read what.
 WorkingSource._add("CHAT", "chat")
 WorkingSource._add("JOB", "job")
 WorkingSource._add("A2A", "a2a")

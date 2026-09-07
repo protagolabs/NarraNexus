@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/module_system/run_channel_triggers.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-07-22 — now launched BY the worker supervisor, not the startup paths
@@ -87,3 +87,12 @@ Three shutdown hazards caught by the 2026-07-08 end-to-end run (all fixed):
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `main()` calls `boot_channel_plugins()` after `auto_migrate` and before `start_channel_triggers`: the trigger map is a registry view now, and a disabled builtin must already be gone. `start_channel_triggers` itself is unchanged (still takes an injectable `trigger_map`).
+
+
+## 2026-09-07 — marks the plugin boot healthy only once it serves (round-2 🟡-6)
+
+The plugin boot no longer declares itself healthy on its last line; this
+entrypoint calls `plugins_boot.mark_host_healthy(<role>)` after the process is
+actually serving, which is the only moment that may clear the boot-crash marker
+and move the last-known-good registry snapshot. Reaching the boot and then dying
+must count as a failed boot.

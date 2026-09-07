@@ -19,7 +19,7 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from narranexus.platform.artifact import ArtifactError, ArtifactService
-from narranexus.platform.module_system._mcp_identity import (
+from narranexus.platform.module_system import (
     caller_event_id_from_request,
     caller_team_id_from_request,
 )

@@ -24,6 +24,7 @@ from typing import Any, Callable
 from narranexus.contracts import BindingConflict, ManifestError, UnknownEntry
 
 from narranexus.cli.scaffold import TEMPLATES_DIR  # noqa: E402 — one definition of where the templates live
+from narranexus.contracts.distribution import is_builtin_id
 
 
 def _store():
@@ -52,7 +53,7 @@ def _print(obj: Any, *, as_json: bool) -> None:
 def cmd_new(args: argparse.Namespace) -> int:
     from narranexus.kernel.plugins.manifest import PLUGIN_ID_RE
 
-    if not PLUGIN_ID_RE.match(args.id) or args.id.startswith("builtin."):
+    if not PLUGIN_ID_RE.match(args.id) or is_builtin_id(args.id):
         print(f"invalid plugin id {args.id!r} (expected <publisher>.<name>, not builtin.)", file=sys.stderr)
         return 2
     dest = Path(args.dir or args.id).resolve()
@@ -125,7 +126,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def _toggle_builtin(plugin_id: str, enabled: bool) -> bool:
     """builtin.* ids are toggled through registry.json builtin_overrides; returns False for non-builtins."""
-    if not plugin_id.startswith("builtin."):
+    if not is_builtin_id(plugin_id):
         return False
     from narranexus.kernel.plugins.builtins import builtin_manifests
 

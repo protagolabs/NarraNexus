@@ -177,7 +177,7 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
             return {"ok": False, "error": "no_matrix_credentials",
                     "hint": "credential is not on the Matrix transport"}
 
-        from backend.config import settings as backend_settings
+        from narranexus.sdk.web import host_settings
 
         owner_id = await _get_owner(agent_id) or agent_id
         return await send_media_impl(
@@ -187,7 +187,7 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
             token=cred.matrix_access_token,
             room_id=room_id,
             file_path=file_path,
-            max_bytes=backend_settings.max_upload_bytes,
+            max_bytes=host_settings().max_upload_bytes,
             caption=caption or None,
         )
 

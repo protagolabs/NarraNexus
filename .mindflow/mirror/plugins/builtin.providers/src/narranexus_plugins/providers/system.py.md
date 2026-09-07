@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.providers/src/narranexus_plugins/providers/system.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 ## 2026-09-03 — 末尾新增 `CONTRIBUTIONS`（本地为空元组）
@@ -71,3 +71,7 @@ Cloud migration (Phase 3) inserts a ``user_providers`` row with
 the values from the existing ``SYSTEM_DEFAULT_LLM_*`` env vars.
 Once that's in place, any user whose slot binding points at this
 row routes through SystemDriver.
+
+## 2026-09-07（round-2 G2-I5）— comment only: the plural matches its eight siblings
+
+`CONTRIBUTIONS` was already correct here; the other eight modules on `model.providers` moved to it.

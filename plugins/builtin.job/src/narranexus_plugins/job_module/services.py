@@ -5,14 +5,14 @@
 @description: Services builtin.job exposes on the process locator (``jobs.instances``, ``jobs.run_once``).
 
 Onboarding / Arena provisioning create jobs and the Manyfold sync route runs
-one on demand; they resolve these through ``kernel/plugins/service_refs`` so
+one on demand; they resolve these through ``narranexus.contracts.services`` so
 the platform imports nothing from the job module.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from narranexus.kernel.plugins.service_refs import JOB_INSTANCES, JOB_RUN_ONCE
+from narranexus.contracts.services import JOB_INSTANCES, JOB_RUN_ONCE
 
 
 def job_instances(db: Any):

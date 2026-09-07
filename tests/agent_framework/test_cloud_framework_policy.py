@@ -18,13 +18,13 @@ cloud-legal all three kept rejecting it.
 import pytest
 
 from narranexus.platform.agent_framework.providers.cloud_policy import (
-    CLOUD_ALLOWED_FRAMEWORKS,
+    cloud_allowed_frameworks,
     framework_allowed_in_cloud,
 )
-from narranexus.platform.schema.provider_schema import (
-    ProviderProtocol,
+from narranexus.platform.agent_framework.providers.framework_binding import (
     get_slot_required_protocols,
 )
+from narranexus.platform.schema.provider_schema import ProviderProtocol
 
 
 @pytest.fixture()
@@ -74,7 +74,7 @@ def test_unknown_framework_is_refused_in_cloud(cloud):
     """Fail closed: a framework nobody has classified must not slip
     through just because it is new."""
     assert framework_allowed_in_cloud("brand_new_thing", False) is False
-    assert "brand_new_thing" not in CLOUD_ALLOWED_FRAMEWORKS
+    assert "brand_new_thing" not in cloud_allowed_frameworks()
 
 
 def test_nexus_power_agent_slot_accepts_both_protocols():

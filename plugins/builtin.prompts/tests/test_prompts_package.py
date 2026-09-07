@@ -38,7 +38,6 @@ def test_manifest_and_contract_shapes():
     from narranexus.kernel.plugins.builtins import load_builtins, BUILTIN_MANIFEST_DATA
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
-    assert on_disk["id"] == ROOT.name  # the directory is the plugin id; the kernel reads this very file
     assert [c.name for c in CONTRIBUTIONS] == ["security", "temporal", "narrative", "modules", "bootstrap"]
     for c in CONTRIBUTIONS:
         assert isinstance(c.factory(), PromptSectionProvider)

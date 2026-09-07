@@ -104,5 +104,6 @@ if is_cloud_mode():
 
 # Plugin-platform contribution list for ``builtin.providers``: empty on local
 # deployments (SystemDriver only registers on cloud), so the loader stays a
-# no-op there exactly like the import-time gate above.
+# no-op there exactly like the import-time gate above. Plural per §8 like its
+# eight siblings on this many-arity slot.
 CONTRIBUTIONS = tuple(c for c in (getattr(SystemDriver, "contribution", None),) if c is not None)

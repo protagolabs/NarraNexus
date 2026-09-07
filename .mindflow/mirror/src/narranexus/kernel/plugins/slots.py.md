@@ -4,6 +4,19 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 新增 `ingress.message_sources` 种子位（无 kind）
+
+给「不是渠道的消息来源」一个位：消息总线（`builtin.message_bus`）、Job 时钟
+（`builtin.job`）。渠道自己的消息来源仍然长在它的 `ChannelDescriptor` 上，所以这个位
+只收剩下的那两类。
+
+**为什么 `kind=None`**：`kind` 是 `contracts.API_VERSIONS` 的键，用来给该位的 registry
+定契约版本。给它 `kind="channel"` 会逼 `builtin.message_bus` 在 manifest 的 `api` 里为
+一个**不是渠道**的东西声明 `channel` 版本；新造一个 `message_source` kind 又等于在契约
+词表里加一个永远跟着 `channel` 一起变的版本号。两个都是假信息，所以选择不给 kind，
+`MessageSourceSpec` 自己的 `__post_init__` 做结构校验（名字合法、extractor ref 形状对）。
+这是「宁可少一个闸门，也不要一个说谎的闸门」。
+
 ## 2026-09-04（批 3c.1）— `agent.capabilities.modules`（many，契约 `Capability`）
 
 ## 2026-09-04（批 3a）— `turn.profiles`、`agent.capabilities.context_providers`；`turn.pipeline.act` 改 many

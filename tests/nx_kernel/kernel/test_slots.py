@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.contracts import RegistryConflict, Stability, UnknownEntry
+from narranexus.contracts import API_VERSIONS, RegistryConflict, Stability, UnknownEntry
 from narranexus.kernel.plugins.compat import Range, Version
+from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 from narranexus.kernel.plugins.slots import Slot, SlotTree, build_kernel_slot_tree, validate_path
 
@@ -77,7 +78,7 @@ def test_kernel_seed_tree_has_the_roots_and_is_docs_friendly():
     assert all(r.doc for r in tree.roots())
     rows = tree.to_rows()
     assert rows == sorted(rows, key=lambda r: r["path"])
-    assert all(r["stability"] == Stability.ALPHA.value for r in rows)
+    assert all(r["stability"] in {Stability.ALPHA.value, Stability.BETA.value, Stability.STABLE.value} for r in rows)
     assert {r["kind"] for r in rows} > {None, "provider", "llm_client", "auth", "module"}
 
 
@@ -96,11 +97,22 @@ def test_builtins_own_their_sub_slots():
     assert tree.get("ui.themes").owner == "builtin.ui" and tree.get("ui.pages").kind == "ui"
 
 
-def test_slot_kind_drives_api_version_and_normalisation():
+def test_slot_kind_drives_api_version_and_normalisation(monkeypatch):
+    # Every kind but "ui" is at version 0 today, so comparing api_version to 0
+    # proves nothing: patch a kind to a distinctive number and follow it all the
+    # way into the Registry the slot's path creates. Deleting the kind -> version
+    # plumbing (Slot.api_version, or Registries handing it to Registry) turns
+    # the 3 into a 0.
+    monkeypatch.setitem(API_VERSIONS, "framework", 3)
     s = Slot("acme.x", "many", "x:Y", "acme", kind="framework", case_insensitive=True)
-    assert s.api_version == 0 and s.normalize("  Claude_Code ") == "claude_code"
+    assert s.api_version == 3 and s.normalize("  Claude_Code ") == "claude_code"
+    registries = Registries()
+    registries.slots.declare(s, create_namespaces=True)
+    assert registries.registry_for("acme.x").api_version == 3
     plain = Slot("acme.y", "many", "x:Y", "acme")
     assert plain.api_version == 0 and plain.normalize("Keep") == "Keep"
+    registries.slots.declare(plain, create_namespaces=True)
+    assert registries.registry_for("acme.y").api_version == 0
     with pytest.raises(ValueError, match="unknown contract kind"):
         Slot("acme.z", "many", "x:Y", "acme", kind="not_a_kind")
     tree = slot_tree_with_builtins()

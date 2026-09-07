@@ -1,8 +1,21 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
+
+顶层那段 `try: MessageSourceRegistry.register(...) except ValueError: pass` 已删；
+`_extract_telegram_reply` 原样保留，现在由 `descriptor.py` 的 `reply_extractor_ref` 按名字指
+过来、首次抽取时才解析。
+
+原注释声称「重复注册会 hard error，这是正确的 loud-fail」，而三行之下的 `pass` 恰好把它
+抵消了——两个插件抢同一个 source 名不会报错，只是「谁先 import 谁赢」。现在名字冲突由
+`Registry.register` 抛 `RegistryConflict`，真的响。
+
+行为面的净效果：`tg_cli` 这类回复工具是否被识别，不再取决于本进程有没有 import 过这个模
+块，而取决于本发行版是否装了这个渠道。
 
 ## 2026-08-19 — owner 工具判定改用 is_owner_tool
 

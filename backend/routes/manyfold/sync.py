@@ -67,7 +67,8 @@ router = APIRouter()
 # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.
 def _provider_working_source(provider: str) -> Optional[WorkingSource]:
     """The inbound WorkingSource of an IM provider — any channel with a descriptor in ``ingress.channels``."""
-    import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
+    # The channel registry is populated by the host boot; an unbooted process
+    # answers with no channels (the plain MANYFOLD turn), never by importing one.
     from narranexus.platform.module_system.data_access.channel_store import CHANNELS
 
     key = (provider or "").lower().strip()

@@ -26,10 +26,6 @@ from typing import Any, Optional
 from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema import (
     ContextData,
     ModuleConfig,
@@ -45,7 +41,8 @@ from ._narramessenger_credential_manager import (
 from ._narramessenger_mcp_tools import register_narramessenger_mcp_tools
 
 # ───────────────────────────────────────────────────────────────────────────
-# MessageSourceRegistry handler — so ChatModule captures NarraMessenger
+# Reply extractor (named by descriptor.reply_extractor_ref) — so ChatModule
+# captures NarraMessenger
 # replies into chat history. The agent replies via ``narra_reply`` (or sends
 # proactively via ``narra_send``); without this handler every turn would
 # persist as "Background activity (narramessenger)" and the agent would lose
@@ -77,20 +74,6 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
         return text or None
 
     return None
-
-
-try:
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="narramessenger",
-        display_label="NarraMessenger",
-        user_reply_tool_names=("narra_reply", "narra_send"),
-        row_prefix_template="[NarraMessenger · {sender_name} · {sender_id} · {chat_id}]",
-        extract_reply_fn=_extract_narramessenger_reply,
-        dedicated_trigger=True,
-    ))
-except ValueError:
-    # Re-import (test hot-reload, etc.) — handler already registered.
-    pass
 
 
 # ───────────────────────────────────────────────────────────────────────────

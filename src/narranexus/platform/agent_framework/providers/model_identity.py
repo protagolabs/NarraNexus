@@ -38,14 +38,14 @@ from typing import Any
 
 from loguru import logger
 
-# Canonical framework name → how the agent names its own runtime INSIDE the
-# system prompt. `codex_cli` / `nexus_power` mirror the frontend's framework
-# picker (`lib/agentFramework.AGENT_FRAMEWORKS`, which every UI label now
-
-# Platform default since 2026-08-20 (#336). THE constant: user_service's
-# owner-level read, slot_service's directory projection and the identity
-# overlay below all import it, so changing the default is one edit.
-DEFAULT_AGENT_FRAMEWORK = "nexus_power"
+# How the agent names its own runtime INSIDE the system prompt comes from the
+# registered framework's ``FrameworkMeta.self_description`` (``_display_for``),
+# and WHICH framework a slot row resolves to comes from the ONE accessor
+# ``loop.driver.resolve_framework_name`` (explicit > env > the
+# ``turn.pipeline.act.framework`` binding > the code default). This module used
+# to keep a second ``DEFAULT_AGENT_FRAMEWORK`` literal, which silently
+# disagreed with the resolver the moment a distribution bound a different
+# default framework.
 
 
 @dataclass(frozen=True)
@@ -67,14 +67,17 @@ class AgentModelIdentity:
 def _display_for(framework: str) -> str:
     """What the agent says its runtime is: the registered framework's
     ``FrameworkMeta.self_description`` (a prompt string owned by the framework
-    plugin). Unknown names fall back to the raw canonical string — never
-    invent a brand."""
+    plugin). Unknown or uninstalled names fall back to the raw canonical
+    string — never invent a brand, and never raise (this module's promise)."""
     from narranexus.contracts import UnknownEntry
-    from narranexus.platform.agent_framework.loop.driver import framework_meta
+    from narranexus.platform.agent_framework.loop.driver import (
+        FrameworkNotInstalledError,
+        framework_meta,
+    )
 
     try:
         return framework_meta(framework).self_description
-    except UnknownEntry:
+    except (UnknownEntry, FrameworkNotInstalledError):
         return framework
 
 
@@ -107,9 +110,33 @@ def effective_agent_slot(
 
 
 def framework_of(slot: dict | None) -> str:
-    """Framework name a slot row resolves to; the platform default when the
-    row is missing or the column is null."""
-    return (slot or {}).get("agent_framework") or DEFAULT_AGENT_FRAMEWORK
+    """Framework name a slot row resolves to — through the ONE accessor.
+
+    ``loop.driver.resolve_framework_name`` applies the whole precedence
+    (explicit > ``AGENT_LOOP_FRAMEWORK`` env > the
+    ``turn.pipeline.act.framework`` binding > the code default), so a
+    distribution that binds a different default framework cannot make the
+    prompt's identity, the slot writer's validation and the driver disagree.
+
+    Never raises — this module's promise (see
+    ``resolve_agent_model_identity``): a binding that names a framework no
+    plugin provides (``FrameworkNotInstalledError``) or an unregistered name
+    degrades to the raw column value, else the code default. The turn path
+    still refuses that binding loudly; the system prompt must not fail to
+    build over it.
+    """
+    from narranexus.contracts import UnknownEntry
+    from narranexus.platform.agent_framework.loop.driver import (
+        DEFAULT_AGENT_LOOP_FRAMEWORK,
+        FrameworkNotInstalledError,
+        resolve_framework_name,
+    )
+
+    raw = (slot or {}).get("agent_framework") or None
+    try:
+        return resolve_framework_name(raw)
+    except (UnknownEntry, FrameworkNotInstalledError):
+        return raw or DEFAULT_AGENT_LOOP_FRAMEWORK
 
 
 async def resolve_agent_model_identity(
@@ -129,10 +156,11 @@ async def resolve_agent_model_identity(
     displayed identity matches what the driver actually runs.
 
     Never raises: any missing row / null column / DB error degrades to
-    ``(DEFAULT_AGENT_FRAMEWORK, "")`` so identity resolution can never break
-    the system-prompt build. The default framework is displayed via the
-    same map, so the prompt still says something truthful-by-fallback
-    rather than a wrong brand.
+    ``(resolve_framework_name(None), "")`` — and even a broken framework
+    binding degrades (see ``framework_of``) — so identity resolution can never
+    break the system-prompt build. The resolved framework is displayed through
+    its own ``FrameworkMeta``, so the prompt still says something
+    truthful-by-fallback rather than a wrong brand.
     """
     slot: dict | None = None
     try:
@@ -151,7 +179,7 @@ async def resolve_agent_model_identity(
     except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
         logger.warning(
             f"[agent_identity] slot lookup failed for agent={agent_id}: {e}; "
-            f"falling back to {DEFAULT_AGENT_FRAMEWORK}"
+            f"falling back to the bound default framework"
         )
         slot = None
 

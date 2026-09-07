@@ -130,9 +130,8 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
             if cls.channel_name != spec.name:
                 logger.error(f"channel trigger {entry.name!r}: spec name != class channel_name {cls.channel_name!r}; skipped")
                 continue
-            from narranexus.platform.schema.hook_schema import WorkingSource
-
-            WorkingSource.register(cls.channel_name)  # plugin channels name their own inbound source
+            # Resolving a trigger class is a READ; the channel's WorkingSource is
+            # registered once at contribution time (channel/contributions.py).
             loaded[cls.channel_name] = cls
         return loaded
 

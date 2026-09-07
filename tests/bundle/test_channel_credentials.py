@@ -190,6 +190,46 @@ async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, 
     assert "user_providers" in manifest.get("stripped", [])  # providers never travel
 
 
+async def test_provider_secrets_are_absent_from_the_archive_itself(db_client, tmp_workspace_root, tmp_path):
+    """Assert on the ARCHIVE, not on the manifest's self-description.
+
+    ``stripped_lists`` in builder.py is a hand-written literal with no derivation
+    from ``STRIPPED_TABLES``: dropping ``user_providers`` from the sensitive-table
+    set while leaving the literal alone ships every provider API key inside the
+    bundle AND has the manifest report that it was stripped — the worst of both,
+    and green under an assertion that only reads the manifest. So: write a real
+    row with a distinctive secret, export with credentials opted IN (the widest
+    export the product offers), then search every member of the zip for it.
+    """
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle, STRIPPED_TABLES
+
+    aid, uid = "agent_cred0009", "test_user"
+    secret = "sk-do-not-ship-me-4d5e6f"
+    await _seed_agent(db_client, aid, "Creddy9", uid)
+    await _seed_lark_cred(db_client, aid, "prof_scrub")
+    await db_client.insert("user_providers", {
+        "provider_id": "prov_scrub", "user_id": uid, "name": "scrub-me", "source": "custom",
+        "protocol": "anthropic", "auth_type": "api_key", "api_key": secret,
+        "base_url": "https://scrub.example", "is_active": 1,
+    })
+    assert (await db_client.get_one("user_providers", {"provider_id": "prov_scrub"}))["api_key"] == secret
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(agent_ids=[aid], include_channel_credentials=True), bundle)
+
+    with zipfile.ZipFile(bundle) as z:
+        members = z.namelist()
+        assert members, "empty bundle: the scan below would prove nothing"
+        offenders = {name for name in members if secret.encode() in z.read(name)}
+    assert offenders == set(), offenders
+    assert not any("user_providers" in name for name in members), members
+
+    # ... and the manifest's claim is derived from the same set the export honours.
+    manifest = json.loads(_read_member(bundle, "manifest.json"))
+    assert "user_providers" in manifest.get("stripped", [])
+    assert "user_providers" in STRIPPED_TABLES
+
+
 async def test_import_forces_inactive_and_remaps_agent(db_client, tmp_workspace_root, tmp_path):
     """Imported credential lands with enabled=0 (even though source=1) and its
     agent_id is remapped to the freshly-minted agent."""

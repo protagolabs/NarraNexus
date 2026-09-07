@@ -135,35 +135,27 @@ def test_empty_tool_name_returns_none():
 # ── registration is the critical "is the extractor wired in?" check ────
 
 
-def test_slack_handler_is_registered_in_message_source_registry():
-    """Importing slack_module MUST register a handler keyed by 'slack'
-    so chat_module._extract_user_visible_response picks it up. Without
-    this registration the extractor function is dead code: ChatModule
-    falls back to _DEFAULT_HANDLER, doesn't recognise slack_cli, and
-    every Slack turn lands as a "Background activity (slack)"
-    placeholder that the next turn's history loader then drops.
+def test_slack_handler_comes_from_the_channel_descriptor():
+    """The Slack message source is a fact of the DESCRIPTOR, resolved through the
+    registry — not a module-level ``MessageSourceRegistry.register`` that only
+    existed if something had imported slack_module.
 
-    Uses ``importlib.reload`` because another test file
-    (``tests/channel/test_message_source_handler.py``) clears the
-    registry between tests via an autouse fixture. Once cleared,
-    ``import slack_module`` is a no-op for module-level side effects
-    because Python caches the module in sys.modules — so we explicitly
-    reload to re-trigger the top-level ``MessageSourceRegistry.register``
-    call. This mirrors what happens on a fresh process boot.
+    Until 2026-09-07 this test had to ``importlib.reload`` the module to
+    re-trigger that import-time call, which is the whole shape of the bug: the
+    handler's existence depended on import order, so in a process where nothing
+    had imported the module a delivered Slack reply resolved the DEFAULT handler
+    and was recorded as NO-REPLY. Now the descriptor is in ``ingress.channels``
+    from boot and the view projects the handler from it.
     """
-    import importlib
-    from narranexus.platform.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
-    from narranexus_plugins.slack_module import slack_module
-
-    if "slack" not in MessageSourceRegistry._handlers:  # type: ignore[attr-defined]
-        importlib.reload(slack_module)
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
+    from narranexus_plugins.slack_module.descriptor import DESCRIPTOR
 
     handler = MessageSourceRegistry.get("slack")
     assert handler.name == "slack", (
         f"Expected handler.name='slack', got {handler.name!r}. "
-        f"If this is 'default' it means slack_module's module-level "
-        f"MessageSourceRegistry.register() call did not run."
+        f"If this is 'default', slack's ChannelDescriptor is not in ingress.channels "
+        f"(did this process boot the plugin platform?) or declares no reply_tools."
     )
     assert "slack_cli" in handler.user_reply_tool_names
+    assert handler.user_reply_tool_names == DESCRIPTOR.reply_tools
+    assert handler.row_prefix_template == DESCRIPTOR.row_prefix_template

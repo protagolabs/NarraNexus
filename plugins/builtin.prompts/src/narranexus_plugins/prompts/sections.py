@@ -2,7 +2,7 @@
 @file_name: sections.py
 @author: Bin Liang
 @date: 2026-09-07
-@description: The five default system-prompt sections, in the order the platform assembled them before the prompt became a slot: security iron rules (cloud only), the user's temporal context, the main narrative, the module instructions and the first-run bootstrap injection. Each is a ``PromptSectionProvider`` contribution; a distribution or ``narranexus.toml`` may reorder or drop them, a plugin may add its own.
+@description: The five default system-prompt sections, in the order the platform assembled them before the prompt became a slot: security iron rules (cloud only), the user's temporal context, the main narrative, the module instructions and the first-run bootstrap injection. Each is a ``PromptSectionProvider`` contribution; a distribution or ``narranexus.toml`` may reorder or drop them, a plugin may add its own — except where ``required_in`` says the section is load-bearing for a deployment mode (only ``security``, only on cloud).
 """
 from __future__ import annotations
 
@@ -17,11 +17,21 @@ OWNER = "builtin.prompts"
 
 
 class SecuritySection:
-    """Cloud deployments prepend the iron rules (incident 2026-06-17); local builds do not."""
+    """Cloud deployments prepend the iron rules (incident 2026-06-17); local builds do not.
+
+    ``required_in=("cloud",)``: on cloud this section is load-bearing, so a
+    binding that drops it, a ``builtin_overrides`` disable of this plugin, or
+    one raising render refuses the whole prompt (``RequiredSectionMissing``)
+    instead of silently shipping every turn without the iron rules. Local and
+    desktop builds are unaffected — ``render`` returns ``None`` there BY DESIGN,
+    which is exactly why the flag is per deployment mode rather than a plain
+    ``required: bool``.
+    """
 
     id = "security"
     order = 10
     budget_chars = 4000
+    required_in = ("cloud",)
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
         if ctx.deployment_mode != "cloud":
@@ -37,6 +47,8 @@ class TemporalSection:
     id = "temporal"
     order = 20
     budget_chars = 2000
+    # Degradable: a missing temporal block costs context, never correctness.
+    required_in: tuple[str, ...] = ()
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
         from narranexus.platform.settings import settings
@@ -56,6 +68,7 @@ class NarrativeSection:
     id = "narrative"
     order = 30
     budget_chars = 20000
+    required_in: tuple[str, ...] = ()
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
         if not ctx.narrative_list:
@@ -81,6 +94,7 @@ class ModulesSection:
     id = "modules"
     order = 40
     budget_chars = 60000
+    required_in: tuple[str, ...] = ()
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
         if not ctx.module_instructions:
@@ -99,6 +113,7 @@ class BootstrapSection:
     id = "bootstrap"
     order = 50
     budget_chars = 3000
+    required_in: tuple[str, ...] = ()
 
     async def render(self, ctx: PromptContext) -> Optional[str]:
         if not getattr(ctx.ctx_data, "bootstrap_active", False):

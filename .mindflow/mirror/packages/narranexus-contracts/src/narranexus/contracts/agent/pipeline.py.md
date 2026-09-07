@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/agent/pipeline.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -13,3 +13,18 @@ stub: false
 `TurnPipeline`（`turn` / `turn.pipeline` 位的契约：`run(ingress, profile)` 产出平台消息流）与
 `ActStrategy`（`turn.pipeline.act` 位，形状就是 `StageStrategy`）在批 1 只为让扩展位树里每个契约符号
 真实存在（预审 Important：树引用了不存在的符号）；批 3 的编排器实现前者。
+
+## 2026-09-07（round-2 A2-7）— `PipelineProfile.when` / `.order`: a profile says when it applies
+
+Registering a profile was an open slot; SELECTING one was an if-chain in the platform naming the five
+builtin ids, so a plugin's profile could never win a turn unless the caller named it explicitly.
+`when` (a tiny closed predicate grammar) plus `order` (lowest first) move that decision onto the
+profile as data, and `platform.turn.resolve_profile` became `explicit > best matching when > default`.
+
+The grammar is deliberately a PREDICATE language, not an expression language: truthiness, `!`,
+`==`/`!=` against a quoted or bare word, ` and `, ` or `. No attribute access, no calls, no `eval`. A
+typo is `WhenSyntaxError` at selection time — never "always true". An unknown context key is falsy so
+the host may publish new turn facts without breaking old profiles; an EMPTY clause never matches (the
+opposite of the frontend's slot-point `when`, where empty means always — here that would be a profile
+silently winning every turn). The frontend grammar (`conversationKind:` / `agentHas:` / `setting:`)
+is a sibling with a UI vocabulary; it cannot express a turn fact like `source == 'discord'`.

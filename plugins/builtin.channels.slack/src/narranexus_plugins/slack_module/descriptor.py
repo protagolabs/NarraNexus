@@ -13,13 +13,8 @@ from __future__ import annotations
 
 from narranexus.contracts.channel import ChannelDescriptor, ChannelUi, CredentialField, CredentialSchema
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.schema.hook_schema import WorkingSource
 
 _MOD = "narranexus_plugins"
-
-# The channel's working source (and TriggerType) — registered here, by the channel itself,
-# so the platform holds no channel-name table. Imported first by the package.
-SOURCE = WorkingSource.register("slack")
 
 DESCRIPTOR = ChannelDescriptor(
     name="slack",
@@ -50,9 +45,18 @@ DESCRIPTOR = ChannelDescriptor(
     has_test=True,
     unbind_service=False,
     meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials; no mirror needed
+    # Message source: how this channel's replies are recognised and its stored
+    # rows labelled. Descriptor fields, not a module-level
+    # ``MessageSourceRegistry.register`` at import — so a distribution that drops
+    # this plugin drops the handler with it, and importing the package registers
+    # nothing. The extractor is a REF: naming it must not import the SDK.
+    reply_tools=("slack_cli", "notify_owner"),
+    row_prefix_template="[Slack · {sender_name} · {sender_id} · {chat_id}]",
+    reply_extractor_ref=f"{_MOD}.slack_module.slack_module:_extract_slack_reply",
+    dedicated_trigger=True,
     ui=ChannelUi(label="Slack", icon="hash", order=20),
 )
 
 CHANNEL = (Contribution("slack", lambda: DESCRIPTOR),)
 
-__all__ = ["CHANNEL", "DESCRIPTOR", "SOURCE"]
+__all__ = ["CHANNEL", "DESCRIPTOR"]

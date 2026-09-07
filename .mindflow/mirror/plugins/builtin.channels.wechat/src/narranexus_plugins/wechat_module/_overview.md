@@ -1,7 +1,7 @@
 ---
-code_file: plugins/builtin.channels.wechat/src/narranexus_plugins/wechat_module/__init__.py
+code_file: plugins/builtin.channels.wechat/src/narranexus_plugins/wechat_module/
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-09-07
 ---
 
 # wechat_module/ — personal-WeChat (iLink) channel

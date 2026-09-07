@@ -84,7 +84,7 @@ Their bespoke routers were retired (the generic `/api/channels` router serves th
 
 ## 2026-09-04 · builtin module packages live under plugins/ (batch 6b)
 
-The 17 module builtins' contributions are named through `_PLUG = "narranexus_plugins"` — each is a uv workspace member at `plugins/<id>/src/narranexus_plugins/<pkg>/` with its own `pyproject.toml`, `narranexus-plugin.json` (an on-disk copy of the entry here; the package test asserts equality until distributions generate this list in 6c), `api.py` facade, README, CHANGELOG and tests. The platform-side contribution tables (`module_system.contributions`) stay in the engine.
+Each module builtin is a uv workspace member at `plugins/<id>/src/narranexus_plugins/<pkg>/` with its own `pyproject.toml`, `narranexus-plugin.json`, `api.py` facade, README, CHANGELOG and tests. (Superseded below: the on-disk JSON is the manifest's ONLY home — this file holds no copy — and the platform-side contribution table `module_system.contributions` was deleted; each plugin owns its own `contribution.py`.)
 
 ## 2026-09-04 · `register_builtin_provides(slot)` (batch 6b.2)
 
@@ -123,3 +123,8 @@ build_builtin_manifests 第一遍用 Manifest.model_validate（不需要树）�
 ## 2026-09-07 — manifest 首次使用才读，缺包可容忍（round-2 K2-I2/G2-C1）
 
 BUILTIN_MANIFEST_DATA 由模块 __getattr__ 惰性给出（builtin_manifest_data() lru_cache）；某 builtin 包不存在（wheel 发行版只装子集）时跳过并进 missing_builtins()，不再 FileNotFoundError 杀进程。
+
+
+## 2026-09-07 — reading a manifest LOCATES the package, never imports it (round-2 G2-C1(c))
+
+`_manifest_path` used `importlib.resources.files(f"narranexus_plugins.{pkg}")`, which IMPORTS the package it is asked about: reading 29 JSON files pulled 106 plugin modules (~1.2 s) into every process that so much as touched the kernel, registered their message-source handlers before any distribution filter ran (making `excludes` cosmetic), and was invisible to import-linter because the module name is a string. It now uses `importlib.util.find_spec(...).submodule_search_locations` — the package directory without executing it — and falls back to the source checkout as before. After a full `builtin_manifest_data()` the only `narranexus_plugins.*` entry in `sys.modules` is the bare namespace package, which holds no code; `tests/nx_kernel/kernel/test_import_side_effects.py` asserts exactly that in a clean subprocess.

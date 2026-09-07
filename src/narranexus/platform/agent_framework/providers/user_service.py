@@ -34,7 +34,6 @@ from narranexus.platform.agent_framework.loop.driver import (
     available_agent_loop_frameworks,
     default_framework_for_protocol,
     framework_for_oauth_source,
-    resolve_framework_name,
 )
 from narranexus.platform.schema.provider_schema import (
     AuthType,
@@ -44,8 +43,11 @@ from narranexus.platform.schema.provider_schema import (
     ProviderSource,
     SlotConfig,
     SlotName,
+)
+from narranexus.platform.agent_framework.providers.framework_binding import (
     framework_can_drive_provider,
     get_slot_required_protocols,
+    resolved_framework_name,
 )
 
 
@@ -675,7 +677,12 @@ class UserProviderService:
             # No framework on the slot yet → the bound default, the same
             # framework the resolver will run (a stale hardcoded name here
             # once refused every openai card for users on the default).
-            agent_framework = (existing_slot or {}).get("agent_framework") or resolve_framework_name()
+            # The config boundary's resolver: a broken
+            # ``turn.pipeline.act.framework`` binding must answer 400 here (the
+            # route maps ValueError), not a RuntimeError the route has no
+            # handler for — the provider page is the one place the user can
+            # undo that binding.
+            agent_framework = (existing_slot or {}).get("agent_framework") or resolved_framework_name()
         validate_slot_binding(prov, slot_name, agent_framework)
 
         # Upsert slot

@@ -18,7 +18,8 @@ from narranexus.contracts.agent.stages import STAGES, IngressContext, Stage
 from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.turn import TurnPipeline, resolve_profile
+from narranexus_plugins.turn.pipeline import TurnPipeline
+from narranexus.platform.turn import resolve_profile
 from narranexus.platform.turn.inputs import TurnServices
 from narranexus_plugins.turn.profiles import BUILTIN_PROFILES
 from narranexus.platform.turn.stages import slot_path
@@ -64,9 +65,11 @@ def _fake_strategy(stage: Stage, log: list, name: str = "default", *, abort: boo
 
 
 def _registries_with(log: list, extra: dict[Stage, list[str]] | None = None, abort_at: Stage | None = None) -> Registries:
+    # The seven stage slots come from builtin.turn's manifest, exactly the way
+    # a host gets them (``TurnPipeline.__init__`` no longer declares a second,
+    # kind-less copy — see turn/stages/__init__.py).
     regs = Registries()
     load_builtins(regs, "backend")
-    TurnPipeline(regs)  # declares the stage slots + default strategies
     for stage in STAGES:
         reg = regs.registry_for(slot_path(stage))
         reg.register_contribution(_fake_strategy(stage, log, abort=abort_at is stage), owner="test", replace=True)

@@ -8,6 +8,9 @@
     "mcp",
     "workers"
   ],
+  "api": {
+    "framework": 0
+  },
   "provides": {
     "turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"
   },

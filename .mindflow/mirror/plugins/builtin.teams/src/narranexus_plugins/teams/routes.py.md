@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.teams/src/narranexus_plugins/teams/routes.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
+
+批 6b 把 router 搬进插件包时，`from backend.*` 没跟着走：本文件当时还在 import 宿主的
+私有模块（`routes._ownership` / `routes._mcp_egress` / `routes.dashboard.routes` 的下划线
+函数）或非契约的公开符号（`backend.auth` / `backend.auth_errors` / `backend.config`）。
+现在全部改成 `narranexus.sdk.web` 的 seam（实现见 [[plugin_sdk_host]]，形状见
+[[web]]）。这不是改 import 路径的洁癖——第三方照抄这个 router 时，
+`assert_owned` / `resolve_current_user_id` 一个都拿不到，只剩「自己重写鉴权」
+（2026-08-12 那批 IDOR 的来源）这一条路。`pyproject.toml` 的
+`plugins never import the host (backend)` 契约把这条线钉死，豁免列表为空。
 
 ## 2026-09-03 — idle 条目带 `last_turn_silent`
 
@@ -438,7 +449,7 @@ MessageBusTrigger 在服务端产生(见 `message_bus_trigger.py.md` 的 team
 singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 可见。详见 `auth.py.md`。
 
-# teams.py — REST routes for team membership (subproject 1)
+# routes.py — REST routes for team membership (subproject 1)
 
 `/api/teams` CRUD + `/api/teams/:id/members` add/remove。
 
@@ -450,7 +461,7 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 
 ### 权限模型
 
-每个端点都用 `_user_id_for_request(request)` 拿 user_id（local 走 `get_local_user_id`，cloud 走 `request.state.user_id`）。所有 team 操作必须 `team.owner_user_id == request_user_id`，跨用户操作返回 403。
+每个端点都用 `_user_id_for_request(request)` 拿 user_id。它**两种形态共用一条路径**：`narranexus.sdk.web.current_user_id(request)`，因为 `auth_middleware` 在 cloud（JWT）和 local（`X-User-Id` 头）两边都会把身份写进 `request.state.user_id`，下游过滤逻辑因此完全一致。（曾经写过的 local 分支 `get_local_user_id` 已不存在，别照着去找。）所有 team 操作必须 `team.owner_user_id == request_user_id`，跨用户操作返回 403。
 
 `POST /:id/members` 还要校验 `agent.created_by == request_user_id`（不能把别人的 agent 加进自己 team）。
 

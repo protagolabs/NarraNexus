@@ -4,6 +4,25 @@ stub: false
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — legacy 凭据清理移到提前返回之前
+
+`cleanup_for_agent` 里 `LEGACY_TABLES` 的清理原来排在「该 agent 在通用
+`channel_credentials` 里没有行 → 直接 return」**之后**，于是它恰好跳过了它被写出来要解决
+的那个场景：legacy 行从来没被拷进通用表的 agent。而拷贝
+（`credential_legacy.copy_legacy_tables`）走 `descriptor_for`，对任何本发行版没装的渠道
+都会 `UnknownChannel` 并被 warning 吞掉——也就是说，越是「插件被排除」的部署，残留越确定
+发生。
+
+现在清理在 return 之前跑，且改为调 `credential_legacy.purge_legacy_for_agent(db,
+agent_id, channel=self.channel_name)`：它只按 `agent_id` 定位，不需要通用行、不需要描述
+符。`channel=` 让这一步保持**每渠道**语义，`stats` 仍然只可能多出
+`channel_credentials.<channel>` 这一个键（M10 定下的「一个渠道一条」不变，purge 的返回值
+故意不并进 stats，否则会重复计数）。
+
+真正兜底的那一遍在 `backend/routes/auth.py` 的删除 agent 路由里（见该文件），因为这里的
+遍历只走 module_registry 里注册着的 `ChannelModuleBase` 子类——被发行版排除的渠道根本没
+有模块可走。
+
 ## 2026-08-19 — plain-text（巡查）回合不声明任何回复工具
 
 `expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合无任何回复工具适用,声明会让回复提醒命名它、与「写纯文本别调工具」互斥。覆盖全部 6 个渠道模块。只撤声明,schema 不动。同类见 [[chat_module]]。

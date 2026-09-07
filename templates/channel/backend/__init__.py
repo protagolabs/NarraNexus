@@ -1,18 +1,40 @@
 """An IM channel as a plugin: the descriptor (credential schema, webhook
 transport, UI row), the trigger (webhook-fed; parses the platform's event
-shape into ParsedMessage) and the module (the agent's send tool)."""
+shape into ParsedMessage) and the module (the agent's send tool).
+
+Everything comes from ``narranexus.sdk`` — the ONE import root a plugin is
+allowed. The channel base classes used to be scaffolded as
+``narranexus.platform.*`` imports: seven of this file's eight imports pointed
+at modules ``docs/API_POLICY.md`` §1 says are not a public API and that the
+griffe gate (which diffs ``contracts`` + ``sdk``) never looks at, so a patch
+release could break every plugin written from this template with nothing in
+the release notes. They are graded ``channel_authoring`` = alpha (API_POLICY
+§2): still moving, but now visibly."""
 from typing import Any, Dict, List, Optional
 
-from narranexus.platform.channel.channel_context_builder_base import ChannelContextBuilderBase
-from narranexus.platform.channel.channel_module_base import ChannelModuleBase
-from narranexus.platform.channel.webhook_transport import WebhookChannelTriggerBase
-from narranexus.platform.schema.hook_schema import WorkingSource
-from narranexus.platform.schema.module_schema import ModuleConfig
-from narranexus.platform.schema.parsed_message import ChatType, MessageContentType, ParsedMessage
-from narranexus.sdk import ChannelDescriptor, ChannelUi, Contribution, CredentialField, CredentialSchema, TriggerSpec
+from narranexus.sdk import (
+    ChannelContextBuilderBase,
+    ChannelDescriptor,
+    ChannelModuleBase,
+    ChannelUi,
+    ChatType,
+    Contribution,
+    CredentialField,
+    CredentialSchema,
+    GenericCredentialStore,
+    MessageContentType,
+    ModuleConfig,
+    ParsedMessage,
+    TriggerSpec,
+    WebhookChannelTriggerBase,
+    WorkingSource,
+)
 
 CHANNEL_NAME = "__PLUGIN_PKG__"
-# The channel's working source — registered by the channel itself; the platform holds no channel-name table.
+# The channel's working source — registered by the channel itself; the platform holds
+# no channel-name table. It has to happen before the class bodies below, which read
+# ``SOURCE`` at DEFINITION time; the host registers the same value idempotently when it
+# imports this module's contributions at boot.
 SOURCE = WorkingSource.register(CHANNEL_NAME)
 
 DESCRIPTOR = ChannelDescriptor(
@@ -31,6 +53,16 @@ DESCRIPTOR = ChannelDescriptor(
     module_ref="nxplugins.__PLUGIN_PKG__:__PLUGIN_PKG___Module",
     has_bind=True,
     has_test=False,
+    # The channel's MESSAGE SOURCE, declared here and nowhere else: which tool calls
+    # count as "the agent answered whoever wrote in" and how a stored row of this
+    # channel is labelled to the LLM. Get this wrong (or omit it) and a delivered
+    # reply is recorded as NO-REPLY and the row reads as if it came from the
+    # NarraNexus web UI. ``reply_extractor_ref`` is optional and lazy — point it at a
+    # ``(tool_name, arguments) -> str | None`` function only when the reply text is
+    # not in an ``arguments["content"]`` field.
+    reply_tools=("__PLUGIN_PKG___send",),
+    row_prefix_template="[__DISPLAY_NAME__ · {sender_name} · {chat_id}]",
+    dedicated_trigger=False,  # True only if this channel runs its own long-lived trigger process
     ui=ChannelUi(label="__DISPLAY_NAME__", icon="message-square", order=90),
 )
 
@@ -111,8 +143,6 @@ class __PLUGIN_PKG___Module(ChannelModuleBase):
         return ModuleConfig(name="__PLUGIN_PKG___Module", priority=9, enabled=True, description="__DISPLAY_NAME__ channel.", module_type="capability")
 
     async def get_credential(self, agent_id: str) -> Optional[Any]:
-        from narranexus.platform.channel.credential_store import GenericCredentialStore
-
         return await GenericCredentialStore(self.database_client).get(CHANNEL_NAME, agent_id)
 
     async def send_to_agent(self, agent_id: str, target_id: str, message: str, **kwargs: Any) -> dict:

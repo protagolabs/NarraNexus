@@ -85,17 +85,36 @@ Network → "Social").
 
 
 
-# tabs.ts — Atomic-tab registry (single source of truth)
+# tabs.ts — the strip as a PROJECTION of the panel registry
 
-Owner-decided IA (2026-06-11): tab ids, labels, icons, category
-grouping, bookmarkStore-signal→status mapping (deriveTabStatus) and
-the opened-clears-info rule (markTabOpened) all live here. The strip
-and the panel host both consume this file; adding a tab = one entry
-here + one render branch in [[BookmarkPanelHost]].
+本文件**不再是 tab 的来源**（2026-06-11 那版才是，改到今天已经反过来了）。
+tab 从哪来：每条 `PANELS` 注册项自带 `strip` 元数据（label / labelKey / icon /
+stripLabel / order / category / conditional），`tabDefFor(entry)` 把它投影成一个
+`AtomicTabDef`，`stripCategories()` 再按 `strip.order` 排序、按 `strip.category`
+分组。**没有 `ALL_TAB_DEFS` 这个东西**，也没有任何一张写死 id 的表。
 
-Status semantics per tab: jobs (failedJobs badge > running spinner >
-info dot), inbox (unread badge), awareness (external-update info dot);
-others currently 'none'. Attention/badges clear only when the
-underlying condition resolves — markTabOpened clears info tiers only.
+因此「加一个 tab」= 在自己的插件（或 `platform/builtin.ts`）里
+`PANELS.register(id, { component, strip: {...} })` **一处**。
+[[BookmarkPanelHost]] 里也没有 render 分支可加——它是纯查表
+（`PANELS.get(tab)?.component`），这正是当年那句「一个 tab 一个 panel、绝不堆栈」
+的 IA 在结构上被兑现的样子：面板组件和它的入口是同一条注册记录的两半，不可能只落一半。
 
-Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.
+本文件今天真正拥有的东西只有三样：
+
+- **类目品牌表** `CATEGORY_ORDER` / `CATEGORY_META`（config / activity / narra /
+  nexus / skills）。这是 shell 的信息架构，不是某块面板的属性，所以不下放给注册项；
+  注册项只用 key 认领类目，认不出来的 key 回落 `config`。
+- **可见性规则的唯一出口** `visibleTabs(ctx)`。`stripCategories()` / `allTabs()`
+  故意**不过滤**——按 id 反查 def、解析抽屉标题都要拿到全量表，一旦在这里过滤，
+  已经停在 `builder` 上的抽屉标题会掉回 `rail.builder` 字面量。所有「让用户挑」
+  的入口（ChatHeader ⋯ 菜单、⌘K palette）必须走 `visibleTabs`，绕过它就会把
+  `builder` 发给每个 agent（⌘K 那一轮的原始 bug）。
+- **bookmarkStore 信号 → tab 状态** 的映射（`deriveTabStatus` / `markTabOpened`）。
+  jobs 是 failedJobs 徽标 > running 转圈 > info 点，inbox 是未读徽标，awareness 是
+  外部更新 info 点，其余 `none`。attention / 徽标只在底层条件解除时消失，
+  `markTabOpened` **只**清 info 档——「点开过」不等于「处理过」。
+
+外加一个本地图标 `ArtifactsGlyph`（lucide 没有这个形，按其笔画约定手绘，cast 成
+`LucideIcon` 供注册表/palette/header 混用）。它正是把上面三张表做成**函数**而非
+模块级常量的原因：`platform/builtin.ts` 为了拿这个图标会先 import 本文件，此时
+`PANELS` 还是空的，任何 eager const 都会永久冻结在空表上。

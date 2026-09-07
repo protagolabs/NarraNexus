@@ -28,6 +28,9 @@ def test_capability_vocabulary_is_the_planned_set():
         {
             "steering", "plan", "resume", "fork", "sleep", "subagent_announce",
             "event_log", "interrupt_soft", "raw_context", "arg_streaming",
+            # native turn replay: the host reads it from FrameworkMeta before a
+            # driver exists (history_projection), the driver declares it too.
+            "native_replay",
         }
     )
 
@@ -128,8 +131,29 @@ def _netmind_driver_cls() -> type:
     return cls
 
 
+def _netmind_card():
+    """A NetMind ANTHROPIC-row card: the row the agent slot points at, so the
+    base's build_* drives reach a real builder instead of every one of them
+    answering NotImplementedError."""
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+
+    return ProviderCard(
+        provider_id="p_contract",
+        user_id="u_contract",
+        source="netmind",
+        name="netmind-contract",
+        driver_type="netmind",
+        protocol="anthropic",
+        api_key="k",
+        base_url="https://example.invalid/v1",
+        auth_type="bearer_token",
+        models=["m-a", "m-b"],
+    )
+
+
 class TestNetmindProviderContract(ProviderDriverContractTests):
     driver_cls = _netmind_driver_cls()
+    card_factory = staticmethod(_netmind_card)
 
 
 def _memory_specs():

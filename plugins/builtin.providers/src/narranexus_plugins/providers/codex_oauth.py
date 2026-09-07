@@ -269,6 +269,9 @@ class CodexOAuthDriver(_DriverBase):
         return DriverHealth(ok=True, detail=f"credentials present at {path}")
 
 
-# Plugin-platform contribution named by ``builtin.providers`` (see
-# narranexus.kernel.plugins.builtins); the loader registers this same object.
-CONTRIBUTION = CodexOAuthDriver.contribution
+# Plugin-platform contributions named by ``builtin.providers``'s manifest; the
+# loader registers these same objects. ``model.providers`` is a MANY-arity
+# slot, so the symbol is the plural ``CONTRIBUTIONS`` (``docs/API_POLICY.md``
+# §8) — the nine provider modules used to be split between two spellings of
+# the same thing on the same slot.
+CONTRIBUTIONS = (CodexOAuthDriver.contribution,)

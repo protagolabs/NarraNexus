@@ -27,10 +27,6 @@ from loguru import logger
 
 from narranexus.platform.channel import ChannelModuleBase
 from narranexus.platform.channel.message_source_handler import is_owner_tool
-from narranexus.platform.channel.message_source_handler import (
-    MessageSourceHandler,
-    MessageSourceRegistry,
-)
 from narranexus.platform.schema import (
     ContextData,
     ModuleConfig,
@@ -43,7 +39,8 @@ from ._discord_mcp_tools import register_discord_mcp_tools
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
 # ───────────────────────────────────────────────────────────────────────────
-# MessageSourceRegistry handler — let ChatModule extract the actual reply a
+# Reply extractor (named by descriptor.reply_extractor_ref) — let ChatModule
+# extract the actual reply a
 # Discord agent emits, instead of dumping a "Background activity (discord)"
 # placeholder. Symmetrical to _extract_slack_reply / _extract_lark_reply.
 #
@@ -84,27 +81,6 @@ def _extract_discord_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return text or "(sent via discord)"
 
     return None
-
-
-try:
-    MessageSourceRegistry.register(
-        MessageSourceHandler(
-            name="discord",
-            display_label="Discord",
-            user_reply_tool_names=(
-                "discord_send",
-                "discord_reply",
-                "discord_dm",
-                "notify_owner",
-            ),
-            row_prefix_template="[Discord · {sender_name} · {sender_id} · {chat_id}]",
-            extract_reply_fn=_extract_discord_reply,
-            dedicated_trigger=True,
-        )
-    )
-except ValueError:
-    # Re-import (test hot-reload, etc.) — handler already registered.
-    pass
 
 
 # ── Discovery prompt (no credential bound) ─────────────────────────────

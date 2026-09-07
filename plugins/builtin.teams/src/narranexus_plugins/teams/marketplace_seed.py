@@ -24,7 +24,7 @@ from typing import Any, Dict, List
 import httpx
 from loguru import logger
 
-from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import get_template_store
+from narranexus.platform.marketplace import get_template_store
 from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
 from narranexus_plugins.teams.marketplace_schema import TeamTemplate
 from narranexus_plugins.teams.marketplace_service import store_key_for

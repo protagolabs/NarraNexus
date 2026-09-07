@@ -33,3 +33,23 @@ boot(inspect=True) discovers and registers exactly like a real boot but writes n
 ## 2026-09-07 — 阶段 2 真有上限；捆绑插件也有生命周期（round-2 K2-C1/C2/I4）
 
 load() 现在带 import_timeout_s+deadline：用户插件的每个 nxplugins.* 导入走 importer.import_plugin_module 的守护线程门，超时记 slow（不算 crash、撤回其部分注册），所以一个 import 卡死的插件不再拖垮健康检查窗口（旧实现的 deadline 只包住不跑插件代码的 prepare 循环）。表注册/activator.register/状态回写从 if users: 里提出来，作用于『本次 boot 装载的所有非 builtin』= 发行版捆绑插件 + 运行期插件（example-tob 的 acme.crm 以前永远不激活）；捆绑插件不计 crash。registry.json 只读一次（_read_registry），损坏时捆绑插件仍能 boot。写回记账段在 lifecycle 为空时也执行（全部被 deadline 拦下时仍要记 slow）。
+
+
+## 2026-09-07 — a refused table withdraws the plugin's registrations (round-2 T2-C1)
+
+`register_table` refusing a `TableSpec` is an isolation, but the post-load table
+loop only wrote `report.isolated[owner]` and returned: the plugin's routes stayed
+mounted, its hooks kept firing and its services stayed resolvable while the report
+said it was isolated. Because the refusal happens AFTER `load()`, this was
+owner-controlled — ship a colliding `TableSpec` and keep a live route that no
+report lists. The `except` now calls `registries.remove_owner(owner)` (registry
+entries + `hooks.block` + `services.release_owner`, the same three things a load
+failure withdraws), guarded so a rollback failure logs instead of killing the
+boot, and reports how many registrations went. Builtins never enter this loop
+(they are skipped by owner prefix) and keep failing fatally in `load()`.
+`tests/nx_kernel/hosts/test_boot_hardening.py::test_a_refused_table_withdraws_everything_the_plugin_registered`
+asserts on `registries.snapshot()` / hooks / services, not on the report.
+
+## 2026-09-07 — is_builtin_id 收编（round-2 P2-I6）
+
+『是否 builtin』只在 contracts.distribution.is_builtin_id 一处判断（BUILTIN_PREFIX 同处）；九处 startswith('builtin.') 副本全部改调它（distribution_scaffold 的保留命名空间检查是另一个判断，未合并）。

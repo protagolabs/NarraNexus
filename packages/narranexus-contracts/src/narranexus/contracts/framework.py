@@ -33,6 +33,12 @@ CAPABILITY_VOCABULARY: frozenset[str] = frozenset(
         "interrupt_soft",
         "raw_context",
         "arg_streaming",
+        # The driver consumes structured provider messages, so a past turn can
+        # be replayed natively (its positioned monologue/tool segments folded
+        # back) instead of flattened to prose. A CLI-backed driver flattens at
+        # its doorstep and structurally cannot — see
+        # ``platform.agent_framework.loop.history_projection``.
+        "native_replay",
     }
 )
 
@@ -69,17 +75,18 @@ class AgentLoopDriver(Protocol):
         Capability negotiation seam: the orchestrator and frontend switch
         optional behaviour on the declared set instead of hardcoding
         per-framework knowledge. An empty set means "base contract only". The
-        remote (HTTP) driver returns ``{"steering"}`` for a steer-capable
-        framework (nexus_power) and empty otherwise — it carries steering over
-        the hop via the executor's ``/steer`` endpoint + ``steer_consumed`` frames
-        (see remote_driver.py / executor_service.py), so its answer is
-        framework-aware, not a blanket empty. The consumer is live: the
+        remote (HTTP) driver answers from the WRAPPED framework's
+        ``FrameworkMeta.capabilities`` intersected with what the executor hop
+        can actually carry (``steering``, via ``/steer`` + ``steer_consumed``
+        frames — see remote_driver.py / executor_service.py), so its answer is
+        registry-derived rather than a name table. The consumer is live: the
         orchestrator gates a run's steerability on
         ``"steering" in driver.capabilities()``.
 
-        Every declared string must come from ``CAPABILITY_VOCABULARY`` (declare
-        only what actually ships — ``NexusAgent`` ships ``event_log`` and
-        ``steering`` today).
+        Every declared string must come from ``CAPABILITY_VOCABULARY``, and
+        must agree with the framework's own ``FrameworkMeta.capabilities``
+        (the static twin the host reads when no driver exists yet). Declare
+        only what actually ships.
         """
         ...
 
@@ -126,9 +133,14 @@ class FrameworkMeta:
     """Static description of a framework — the ONLY place framework-specific
     facts live. Every host-side table that used to be keyed on a framework
     name (protocol requirement, subscription-card ownership, install probe,
-    login marker, the agent's self-description) is derived from the framework
+    login marker, the agent's self-description, live steering, native history
+    replay, the cloud credential-riding gate) is derived from the framework
     registry's ``Contribution.meta["framework"]`` at call time, so a
     third-party framework is a first-class citizen the moment it registers.
+    There is no remaining host-side table keyed on a framework NAME; the one
+    thing a framework may not attest about itself is the operator's cloud
+    exemption (see ``providers/cloud_policy.py``), because a fail-open
+    self-declaration is exactly what that gate exists to prevent.
 
     ``install`` is ``None`` for frameworks that ship inside the host and a
     ``FrameworkInstall`` for the on-demand ones. ``oauth_source`` names the
@@ -138,6 +150,26 @@ class FrameworkMeta:
     runtime in prompts (defaults to ``display_name``); ``login_marker`` is the
     ``(subdir, filename)`` under the home directory whose presence means the
     CLI is logged in.
+
+    ``capabilities`` is the STATIC twin of ``AgentLoopDriver.capabilities()``:
+    the words in it must come from :data:`CAPABILITY_VOCABULARY` and must
+    match what the driver actually implements. It exists because some hosts
+    must know a framework's capability WITHOUT constructing its driver — the
+    remote (executor) shell decides whether to carry live steering over the
+    hop, and history projection decides whether a past turn can be replayed
+    natively, both before any driver exists in this process. Declaring a word
+    the driver does not honour is worse than omitting it: the orchestrator
+    gates behaviour on the declaration (a declared-but-undrained ``steering``
+    leaves the user's interjection queued forever).
+
+    ``uses_shared_cli_login`` says the framework can authenticate through a
+    credential FILE in the host's HOME (``~/.claude/.credentials.json``,
+    ``~/.codex/auth.json``) rather than a per-agent provider key. It defaults
+    to ``True`` — fail-closed: a framework that does not think about this
+    question is treated as able to ride a shared login, which is what the
+    cloud gate refuses for non-staff users. Set it ``False`` only when the
+    framework drives the provider API with the key of the card bound to the
+    agent slot and REFUSES subscription credentials outright.
     """
 
     name: str
@@ -147,6 +179,19 @@ class FrameworkMeta:
     oauth_source: str | None = None
     runtime_name: str | None = None
     login_marker: tuple[str, str] | None = None
+    capabilities: frozenset[str] = frozenset()
+    uses_shared_cli_login: bool = True
+
+    def __post_init__(self) -> None:
+        unknown = frozenset(self.capabilities) - CAPABILITY_VOCABULARY
+        if unknown:
+            raise ValueError(
+                f"FrameworkMeta({self.name!r}): capabilities {sorted(unknown)} are not in "
+                f"CAPABILITY_VOCABULARY {sorted(CAPABILITY_VOCABULARY)}"
+            )
+        # Normalise so a plugin passing a set/list/tuple still gets a hashable,
+        # frozen field on a frozen dataclass.
+        object.__setattr__(self, "capabilities", frozenset(self.capabilities))
 
     @property
     def agent_protocols(self) -> tuple[str, ...]:

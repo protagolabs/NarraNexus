@@ -5,7 +5,7 @@
 @description: builtin.job's AgentDataStore bodies: job reads (by id / semantic / keywords) and writes (create / update / pause / cancel).
 
 Registered into ``agent.capabilities.data_access`` by the builtin.job manifest
-(and at import by ``module/contributions.register_all``). Handlers take the
+Handlers take the
 store's db client first; module internals are imported inside each handler so
 registering the contribution stays free of the module's import cost.
 """

@@ -38,6 +38,15 @@ META = FrameworkMeta(
     # SDK it actually is (the prompt derives from this string).
     runtime_name="Claude Agent SDK",
     login_marker=(".claude", ".credentials.json"),
+    # The CLI authenticates from ``~/.claude/.credentials.json`` — a file in
+    # the host's single HOME — so it CAN ride a shared login. Whether cloud
+    # nonetheless offers it is the operator's call, not this plugin's (see
+    # ``providers/cloud_policy.py``): a plugin attesting its own cloud safety
+    # would be fail-open by construction.
+    uses_shared_cli_login=True,
+    # ``ClaudeAgentSDK.capabilities()`` is the base contract; its history is
+    # flattened at the CLI doorstep, so no ``native_replay`` either.
+    capabilities=frozenset(),
 )
 CONTRIBUTION = Contribution("claude_code", lambda: _factory, meta={"framework": META})
 
