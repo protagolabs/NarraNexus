@@ -61,3 +61,7 @@ Lazy registry creation is serialised with an RLock (two threads asking first use
 ## 2026-09-07 — backend.services kind
 
 SLOT_KINDS maps backend.services to the 'services' contract kind.
+
+## 2026-09-07 — registry_for 读 Slot 自身的 kind/normalize（B7）
+
+SLOT_KINDS/_NORMALIZERS 删除；未知槽抛 UnknownEntry 并在尚无任何注册表时附『是否已 boot』提示（插件声明的槽在 boot 前不存在，裸 Registries() 上取 turn.pipeline.act.framework 正是这种情况）。

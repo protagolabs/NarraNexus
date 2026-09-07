@@ -28,6 +28,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `model.providers` | provider | 0 | `narranexus.contracts.provider:ProviderDriver` | `"model.providers": ["pkg.module:SYMBOL"]` |
 | `prompt.sections` | prompt | 0 | `narranexus.contracts.prompt:PromptSectionProvider` | `"prompt.sections": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.act` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:ActStrategy` | `"turn.pipeline.act": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.act.framework.nexus_power.policy` | — | — | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:PolicyLayer` | `"turn.pipeline.act.framework.nexus_power.policy": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.assemble` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.assemble": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.commit` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.commit": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.compose` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.compose": ["pkg.module:SYMBOL"]` |
@@ -35,7 +36,22 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `turn.pipeline.recall` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.recall": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.reflect` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.reflect": ["pkg.module:SYMBOL"]` |
 | `turn.profiles` | pipeline_profile | 0 | `narranexus.contracts.agent.pipeline:PipelineProfile` | `"turn.profiles": ["pkg.module:SYMBOL"]` |
+| `ui.agent_card_badges` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.agent_card_badges": ["pkg.module:SYMBOL"]` |
+| `ui.channels` | ui | 1 | `narranexus.contracts.ui:ChannelConfig` | `"ui.channels": ["pkg.module:SYMBOL"]` |
+| `ui.chat_header_actions` | ui | 1 | `narranexus.contracts.ui:SlotAction` | `"ui.chat_header_actions": ["pkg.module:SYMBOL"]` |
+| `ui.commands` | ui | 1 | `narranexus.contracts.ui:Command` | `"ui.commands": ["pkg.module:SYMBOL"]` |
+| `ui.composer_extensions` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.composer_extensions": ["pkg.module:SYMBOL"]` |
+| `ui.conversation_kinds` | ui | 1 | `narranexus.contracts.ui:ConversationKind` | `"ui.conversation_kinds": ["pkg.module:SYMBOL"]` |
+| `ui.message_actions` | ui | 1 | `narranexus.contracts.ui:SlotAction` | `"ui.message_actions": ["pkg.module:SYMBOL"]` |
+| `ui.message_renderers` | ui | 1 | `narranexus.contracts.ui:MessageRenderer` | `"ui.message_renderers": ["pkg.module:SYMBOL"]` |
+| `ui.pages` | ui | 1 | `narranexus.contracts.ui:Page` | `"ui.pages": ["pkg.module:SYMBOL"]` |
+| `ui.panels` | ui | 1 | `narranexus.contracts.ui:Panel` | `"ui.panels": ["pkg.module:SYMBOL"]` |
+| `ui.settings_sections` | ui | 1 | `narranexus.contracts.ui:SettingsSection` | `"ui.settings_sections": ["pkg.module:SYMBOL"]` |
+| `ui.sidebar` | ui | 1 | `narranexus.contracts.ui:SidebarItem` | `"ui.sidebar": ["pkg.module:SYMBOL"]` |
+| `ui.sidebar_sections` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.sidebar_sections": ["pkg.module:SYMBOL"]` |
 | `ui.themes` | theme | 0 | `narranexus.contracts.ui:Theme` | `"ui.themes": ["pkg.module:SYMBOL"]` |
+| `ui.timeline_events` | ui | 1 | `narranexus.contracts.ui:TimelineEvent` | `"ui.timeline_events": ["pkg.module:SYMBOL"]` |
+| `ui.top_bar_items` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.top_bar_items": ["pkg.module:SYMBOL"]` |
 
 Frontend contributions are declared under `frontend.ui` (`pages`, `panels`, `commands`, `themes`) and registered by the plugin's bundle at activation.
 

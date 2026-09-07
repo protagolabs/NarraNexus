@@ -59,3 +59,7 @@ BackendSpec.publicPrefixes: the route prefixes (under the plugin's /api/x/<id>) 
 ## 2026-09-07 — plugin-id grammar imported from contracts
 
 PLUGIN_ID_RE comes from narranexus.contracts.distribution instead of a third copy.
+
+## 2026-09-07 — SlotDeclaration 增 kind/caseInsensitive；默认提供者可声明根的子槽（B7）
+
+declares 项新增 kind（校验为契约种类）与 caseInsensitive，透传到 Slot。_check_declares_in_own_namespace 增加树参数：内核根的 default 等于本插件（prompt→builtin.prompts、ui→builtin.ui）时视同该插件 provides 该复合槽，其子槽归它声明——树本身的归属规则（复合槽的提供者拥有其子槽）的直接表达。

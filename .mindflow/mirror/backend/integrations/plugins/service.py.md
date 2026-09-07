@@ -79,3 +79,7 @@ uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + b
 ## 2026-09-07 — 登录标记来自 PluginSpec.login_marker（B6）
 
 _LOGIN_MARKERS 名字表删除；_logged_in 读 spec.login_marker（源自 FrameworkMeta.login_marker）。
+
+## 2026-09-07 — specs 首次使用时派生（B7）
+
+路由模块在导入期就建单例（锁/busy 集是实例态），而框架注册表的槽由 builtin.turn 在 boot 时声明，导入期还不存在；specs 改为首次访问时从注册表派生，请求一定在 boot 之后。

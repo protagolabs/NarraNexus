@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.contracts import ManifestError, PluginError, RegistryFrozen, UnknownEntry
-from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA, builtin_manifests
+from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA, builtin_manifests, slot_tree_with_builtins
 from narranexus.kernel.plugins.loader import discover, load, load_order, resolve_symbol
 from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
@@ -36,19 +36,22 @@ def _golden_for_this_process() -> dict:
 
 
 def test_registry_for_creates_per_slot_with_kind_version_and_normalizer():
-    regs = Registries()
+    regs = Registries(slot_tree_with_builtins())
     fw = regs.registry_for("turn.pipeline.act.framework")
     assert fw is regs.registry_for("turn.pipeline.act.framework")
     fw.register("Claude_Code", lambda: 1, owner="p")
     assert fw.names() == ("claude_code",)
     assert regs.registry_for("model.providers").api_version == 0
-    with pytest.raises(UnknownEntry):
+    with pytest.raises(UnknownEntry, match="unknown slot"):
         regs.registry_for("nope.slot")
     assert regs.paths() == ("model.providers", "turn.pipeline.act.framework")
+    # An unbooted process (no plugin-declared slots yet) says so.
+    with pytest.raises(UnknownEntry, match="booted the plugin platform"):
+        Registries().registry_for("turn.pipeline.act.framework")
 
 
 def test_freeze_propagates_and_applies_to_later_registries():
-    regs = Registries()
+    regs = Registries(slot_tree_with_builtins())
     fw = regs.registry_for("turn.pipeline.act.framework")
     regs.freeze()
     assert regs.frozen and fw.frozen
@@ -137,6 +140,7 @@ def _user_manifest(**overrides):
 
 
 DEMO_CLIENTS = (Contribution("demo", lambda: object()),)
+UPPER_CLIENTS = (Contribution("Demo", lambda: object()),)
 NOT_A_CONTRIBUTION = 42
 
 
@@ -204,3 +208,40 @@ def test_resolve_symbol_reports_module_and_attribute_errors():
         resolve_symbol("no.such.module:X")
     with pytest.raises(PluginError, match="has no attribute 'X'"):
         resolve_symbol("tests.nx_kernel.kernel.test_loader:X")
+
+
+def test_every_declared_slot_exists_before_any_plugin_provides():
+    """``acme.fw`` loads FIRST (users load by id) yet provides into a slot
+    ``acme.turn`` declares, and declares a seat under it. The loader applies
+    every declaration in a first pass, shallowest first, so neither the load
+    order nor the depth of a declaration decides whether a slot exists — and
+    the slot's own kind / case-insensitivity reach its registry."""
+    turn = _user_manifest(
+        id="acme.turn",
+        declares={
+            "acme.turn.pipeline.act": {"arity": "many", "contract": "x:Act", "kind": "stage_strategy"},
+            "acme.turn.pipeline.act.framework": {"arity": "many", "contract": "x:Fw", "kind": "framework", "caseInsensitive": True},
+        },
+        provides={"acme.turn.pipeline.act": ["tests.nx_kernel.kernel.test_loader:DEMO_CLIENTS"]},
+    )
+    tree = build_kernel_slot_tree()
+    tree.declare_all(turn.declared_slots())
+    fw = parse_manifest(
+        {
+            "id": "acme.fw",
+            "version": "1.0.0",
+            "displayName": "fw",
+            "declares": {"acme.turn.pipeline.act.framework.acme_fw.seat": {"arity": "many", "contract": "x:Seat"}},
+            "provides": {
+                "acme.turn.pipeline.act.framework": ["tests.nx_kernel.kernel.test_loader:UPPER_CLIENTS"],
+                "acme.turn.pipeline.act.framework.acme_fw.seat": ["tests.nx_kernel.kernel.test_loader:DEMO_CLIENTS"],
+            },
+        },
+        tree=tree,
+    )
+    regs = Registries()
+    report = load(regs, [fw, turn], role="backend")
+    assert [p.plugin_id for p in report.loaded] == ["acme.fw", "acme.turn"] and not report.errors
+    assert regs.slots.get("acme.turn.pipeline.act").arity == "many"  # the real declaration, not an auto-namespace
+    assert regs.registry_for("acme.turn.pipeline.act.framework").names() == ("demo",)  # UPPER "Demo" normalised
+    assert regs.registry_for("acme.turn.pipeline.act.framework.acme_fw.seat").names() == ("demo",)

@@ -115,3 +115,7 @@ Registration happens only at boot. load_builtins(registries, role, distribution=
 ## 2026-09-07 — the manifest has one home: plugins/<id>/narranexus-plugin.json
 
 The 338-line BUILTIN_MANIFEST_DATA dict (a byte-for-byte copy of 28 JSON files, kept in sync by 28 parity tests) is gone. BUILTIN_PLUGINS is the ordered (plugin id, package) list — load order and where the manifest ships; _manifest_path reads the JSON from the package (every plugin wheel force-includes it) or the source checkout; BUILTIN_MANIFEST_DATA is now the parsed files. Adding a builtin = a directory + one line here (until the list is derived too); the kernel no longer names any plugin module path.
+
+## 2026-09-07 — builtin manifest 校验前先声明全部 builtin 槽（B7）
+
+build_builtin_manifests 第一遍用 Manifest.model_validate（不需要树）取每个 builtin 的 declared_slots 并 declare_all 进树，第二遍才 parse_manifest——否则 nexus_power 的 provides['turn.pipeline.act.framework'] 会在 builtin.turn 之前被判为未声明。slot_tree_with_builtins 同样走 declare_all。BUILTIN_PLUGINS 新增 (builtin.ui, ui)。

@@ -60,3 +60,7 @@ load() withdraws a non-builtin plugin's contributions and hooks (registries.remo
 ## 2026-09-07 — backend.services installer
 
 SERVICES_SLOT entries are exposed on Registries.services under the manifest id (released with the owner), the same shape as the hooks special case.
+
+## 2026-09-07 — 两阶段：先声明所有槽，再注册贡献（B7）
+
+load() 第一遍遍历（同时查重 id）收集本角色所有 manifest 的 declared_slots 并 declare_all（由浅到深）；第二遍才 provides。动机：builtin.frameworks.* 在 BUILTIN 顺序里先于 builtin.turn，却要向 builtin.turn 声明的 turn.pipeline.act.framework 注册——加载顺序不再决定槽是否存在。

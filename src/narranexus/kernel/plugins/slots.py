@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Literal, Mapping
+from typing import Any, Iterable, Iterator, Literal, Mapping
 
-from narranexus.contracts import RegistryConflict, Stability, UnknownEntry
+from narranexus.contracts import API_VERSIONS, RegistryConflict, Stability, UnknownEntry
 
 Arity = Literal["one", "many"]
 
@@ -50,6 +50,15 @@ class Slot:
     distribution_only: bool = False  # only bindable from the distribution/default layers
     doc: str = ""
     meta: Mapping[str, Any] = field(default_factory=dict)
+    # The contract KIND (a key of ``contracts.API_VERSIONS``) the slot's entries
+    # are written against: the registry backing the slot carries that kind's
+    # version, so a manifest's ``api[kind]`` is checked against the right
+    # number. ``None`` for namespaces and slots whose entries carry no versioned
+    # contract. Declared WITH the slot (kernel seed or manifest ``declares``)
+    # instead of in a path-keyed table beside it.
+    kind: str | None = None
+    # Entry names are matched case-insensitively (framework names are).
+    case_insensitive: bool = False
 
     def __post_init__(self) -> None:
         validate_path(self.path)
@@ -57,6 +66,17 @@ class Slot:
             raise ValueError(f"slot {self.path!r}: arity must be 'one' or 'many'")
         if self.arity == "many" and self.default is not None:
             raise ValueError(f"slot {self.path!r}: a many-arity slot has no single default")
+        if self.kind is not None and self.kind not in API_VERSIONS:
+            raise ValueError(f"slot {self.path!r}: unknown contract kind {self.kind!r}; known: {sorted(API_VERSIONS)}")
+
+    @property
+    def api_version(self) -> int:
+        """The contract version entries of this slot are checked against (0 when kind-less)."""
+        return API_VERSIONS[self.kind] if self.kind else 0
+
+    def normalize(self, name: str) -> str:
+        """Canonical form of an entry name for this slot."""
+        return name.strip().lower() if self.case_insensitive else name
 
     @property
     def parent(self) -> str | None:
@@ -93,6 +113,23 @@ class SlotTree:
         self._slots[slot.path] = slot
         return slot
 
+    def declare_all(self, slots: Iterable[Slot]) -> int:
+        """Declare every slot of ``slots`` that the tree lacks, SHALLOWEST FIRST.
+
+        Plugins declare independently of each other and of load order: a
+        framework plugin's ``turn.pipeline.act.framework.<seat>`` must not
+        auto-create ``turn.pipeline.act`` as a namespace before ``builtin.turn``
+        declares it as the many-arity stage slot it is. Ordering by depth makes
+        every real declaration land before any ancestor it would otherwise be
+        filled in for. Returns the number declared.
+        """
+        declared = 0
+        for slot in sorted(slots, key=lambda s: (s.path.count("."), s.path)):
+            if slot.path not in self._slots:
+                self.declare(slot, create_namespaces=True)
+                declared += 1
+        return declared
+
     # -------------------------------------------------------------- lookup
 
     def get(self, path: str) -> Slot:
@@ -117,6 +154,15 @@ class SlotTree:
     def paths(self) -> tuple[str, ...]:
         return tuple(sorted(self._slots))
 
+    def roots(self) -> tuple[Slot, ...]:
+        """Top-level slots (the domains) in DECLARATION order — the kernel seeds
+        first, in the order they are seeded, then plugin-declared namespaces."""
+        return tuple(s for s in self._slots.values() if s.parent is None)
+
+    def by_kind(self, kind: str) -> tuple[Slot, ...]:
+        """Every slot whose entries are written against contract ``kind`` (path order)."""
+        return tuple(self._slots[p] for p in sorted(self._slots) if self._slots[p].kind == kind)
+
     def to_rows(self) -> list[dict[str, Any]]:
         """Stable, JSON-friendly view for docs generation and the factory UI."""
         return [
@@ -128,6 +174,7 @@ class SlotTree:
                 "default": s.default,
                 "stability": s.stability.value,
                 "distribution_only": s.distribution_only,
+                "kind": s.kind,
                 "doc": s.doc,
             }
             for s in (self._slots[p] for p in sorted(self._slots))
@@ -153,117 +200,96 @@ def namespace_slot(path: str, *, owner: str, doc: str = "") -> Slot:
 
 
 def build_kernel_slot_tree() -> SlotTree:
-    """The roots every process starts from (spec §6.2, batch-0 subset).
+    """The roots every process starts from (spec §6.2).
 
-    Stage slots live UNDER ``turn.pipeline`` (``turn.pipeline.act``,
-    ``turn.pipeline.recall`` …) so that dotted-path descendancy is the same
-    relation as composite ownership: replacing the pipeline hides every stage
-    the replacement does not redeclare (bindings nesting rule).
-
-    Children that a builtin plugin declares (the remaining stages,
-    the nexus_power seams, the UI sub-points) arrive with those plugins in later
-    batches; declaring them here would put their definition in the wrong owner.
+    The kernel seeds the DOMAIN roots (in display order — their ``doc`` is the
+    domain title the catalog and the docs generator show) and the slots the
+    kernel itself is the authority for. Children that belong to a builtin
+    plugin are declared by that plugin's manifest and arrive with it at boot:
+    ``builtin.turn`` declares the seven stage slots, the profiles and the
+    agent-loop framework seat under the pipeline it provides; ``builtin.prompts``
+    declares ``prompt.*``; ``builtin.ui`` declares ``ui.*``. Declaring them here
+    would put their definition in the wrong owner. The loader declares every
+    manifest's slots BEFORE any plugin provides, so load order never decides
+    whether a slot exists.
     """
     tree = SlotTree()
     one = "one"
     many = "many"
     seeds: list[Slot] = [
         Slot("kernel", one, "narranexus.kernel:Kernel", KERNEL_OWNER, default=KERNEL_OWNER,
-             distribution_only=True, doc="Kernel root; never bound directly."),
+             distribution_only=True, doc="Kernel (auth / db / secrets / events) — distribution-only"),
         Slot("kernel.db", one, "narranexus.contracts.services:DatabaseBackend", KERNEL_OWNER,
              default="builtin.kernel", distribution_only=True, doc="Database backend (sqlite | sqlite_proxy | mysql)."),
         Slot("kernel.secrets", one, "narranexus.contracts.services:SecretStore", KERNEL_OWNER,
              default="builtin.kernel", distribution_only=True, doc="Secret storage (secret_box | keychain | vault)."),
         Slot("kernel.auth", one, "narranexus.contracts.services:AuthProvider", KERNEL_OWNER,
-             default="builtin.auth.local", distribution_only=True, doc="Authentication provider; distribution-level choice."),
+             default="builtin.auth.local", distribution_only=True, kind="auth",
+             doc="Authentication provider; distribution-level choice."),
         Slot("kernel.events", one, "narranexus.contracts.services:EventSink", KERNEL_OWNER,
              default="builtin.kernel", distribution_only=True, doc="Host event bus implementation."),
+        # The prompt domain: the system prompt is sections joined by an assembler;
+        # builtin.prompts (the root's provider) declares prompt.sections / prompt.assembler.
+        Slot("prompt", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default="builtin.prompts",
+             doc="Prompt (system-prompt sections and assembler)"),
         Slot("turn", one, "narranexus.contracts.agent.pipeline:TurnPipeline", KERNEL_OWNER,
-             default="builtin.turn", doc="Turn domain root."),
+             default="builtin.turn", doc="Turn pipeline (stages, profiles, agent-loop framework)"),
         Slot("turn.pipeline", one, "narranexus.contracts.agent.pipeline:TurnPipeline", KERNEL_OWNER,
              default="builtin.turn", doc="The whole turn runtime; its provider declares the stage slots."),
-        # The seven stage slots (spec section 7.2). Kernel-declared so every host
-        # role loads the builtin.turn strategies at boot — a process must never
-        # discover a stage slot only when a platform module happens to import.
-        Slot("turn.pipeline.ingress", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Ingress stage strategies; a profile names one."),
-        Slot("turn.pipeline.recall", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Recall stage strategies; a profile names one."),
-        Slot("turn.pipeline.compose", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Compose stage strategies; a profile names one."),
-        Slot("turn.pipeline.assemble", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Assemble stage strategies; a profile names one."),
-        Slot("turn.pipeline.act", many, "narranexus.contracts.agent.pipeline:ActStrategy", KERNEL_OWNER,
-             doc="Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it."),
-        Slot("turn.pipeline.commit", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Commit stage strategies; a profile names one."),
-        Slot("turn.pipeline.reflect", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
-             doc="Reflect stage strategies; a profile names one."),
-        Slot("turn.pipeline.act.framework", one, "narranexus.contracts.framework:AgentLoopDriver", KERNEL_OWNER,
-             default="builtin.frameworks.nexus_power", doc="Agent-loop framework used by the Act stage."),
-        Slot("turn.profiles", many, "narranexus.contracts.agent.pipeline:PipelineProfile", KERNEL_OWNER,
-             doc="Named pipeline profiles (default/fast/voice/job/silent + plugin-defined)."),
-        # The prompt domain (2026-09-07): the system prompt is sections joined by an assembler.
-        Slot("prompt", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default="builtin.prompts",
-             doc="Prompt domain root; its provider ships the default sections and assembler."),
-        Slot("prompt.sections", many, "narranexus.contracts.prompt:PromptSectionProvider", KERNEL_OWNER,
-             doc="System-prompt sections (security / temporal / narrative / modules / bootstrap + plugin-defined); a binding orders or drops them."),
-        Slot("prompt.assembler", one, "narranexus.contracts.prompt:PromptAssembler", KERNEL_OWNER,
-             default="builtin.prompts", doc="Joins the rendered sections into the final system prompt (replaceable per distribution / narranexus.toml)."),
         Slot("model", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
-             doc="Model domain root."),
+             doc="Models (providers, clients, resolver)"),
         Slot("model.providers", many, "narranexus.contracts.provider:ProviderDriver", KERNEL_OWNER,
-             doc="LLM provider drivers (credential/endpoint axis)."),
+             kind="provider", doc="LLM provider drivers (credential/endpoint axis)."),
         Slot("model.clients", many, "narranexus.contracts.llm_client:LlmClient", KERNEL_OWNER,
-             doc="Helper-LLM protocol clients (atomic call axis)."),
+             kind="llm_client", doc="Helper-LLM protocol clients (atomic call axis)."),
         Slot("model.resolver", one, "narranexus.contracts.llm_client:ModelResolver", KERNEL_OWNER,
              default="builtin.providers", doc="Model-name resolution (the three legacy _resolve_model paths, unified in batch 1)."),
         Slot("agent", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
-             doc="Agent capability domain root."),
+             doc="Agent capabilities (modules, tools, memory kinds, MCP, data access)"),
         Slot("agent.capabilities", one, "narranexus.contracts.agent.agent_spec:CapabilitySet", KERNEL_OWNER,
              default=KERNEL_OWNER, doc="Capability namespace; children are the four capability tiers."),
         Slot("agent.capabilities.memory_kinds", many, "narranexus.contracts.memory:MemoryKindContract", KERNEL_OWNER,
-             doc="Memory kinds (recall / commit / reflect participants)."),
+             kind="memory", doc="Memory kinds (recall / commit / reflect participants)."),
         Slot("agent.capabilities.data_access", many, "narranexus.contracts.data_access:DataAccessSpec", KERNEL_OWNER,
-             doc="AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps)."),
+             kind="data_access", doc="AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps)."),
         Slot("agent.capabilities.modules", many, "narranexus.contracts.agent.capability:Capability", KERNEL_OWNER,
-             doc="L4 capabilities (XYZBaseModule classes — each module IS a Capability: its lifecycle methods are its stage participations); meta carries plugin_id / channel; what the platform knows about a module is its own ModuleConfig; every module server is mounted by path on the single MCP host."),
+             kind="module", doc="L4 capabilities (XYZBaseModule classes — each module IS a Capability: its lifecycle methods are its stage participations); meta carries plugin_id / channel; what the platform knows about a module is its own ModuleConfig; every module server is mounted by path on the single MCP host."),
         Slot("agent.capabilities.context_providers", many, "narranexus.contracts.agent.capability:ContextProvider", KERNEL_OWNER,
-             doc="Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section."),
+             kind="context_provider", doc="Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section."),
         Slot("agent.capabilities.tools", many, "narranexus.contracts.tool:ToolProvider", KERNEL_OWNER,
-             doc="Tool providers (Act participants); plugin tools default to tool_search."),
+             kind="tool", doc="Tool providers (Act participants); plugin tools default to tool_search."),
         Slot("agent.capabilities.mcp_servers", many, "narranexus.contracts.mcp_server:McpServerSpec", KERNEL_OWNER,
-             doc="Site-level MCP servers merged into every agent's tool surface."),
-        Slot("backend", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
-             doc="Backend service domain root."),
-        Slot("backend.routes", many, "narranexus.contracts.route:RouterSpec", KERNEL_OWNER,
-             doc="HTTP routers mounted by the backend host (plugins under /api/x/<id>)."),
-        Slot("backend.tables", many, "narranexus.contracts.table:TableSpec", KERNEL_OWNER,
-             doc="Database tables (pure data; created by auto_migrate even when the plugin is inactive)."),
-        Slot("backend.workers", many, "narranexus.contracts.worker:WorkerSpec", KERNEL_OWNER,
-             doc="Supervised background workers (workers process or backend lifespan)."),
-        Slot("backend.settings", many, "narranexus.contracts.settings:SettingsSchema", KERNEL_OWNER,
-             doc="Per-plugin settings schemas (NXP_<ID>_* env > stored row > default)."),
-        Slot("backend.hooks", many, "narranexus.kernel.plugins.hooks:HookImplSpec", KERNEL_OWNER,
-             doc="Hook implementations for declared host hooks (pluggy semantics)."),
-        Slot("backend.services", many, "narranexus.kernel.plugins.services:ServiceRef", KERNEL_OWNER,
-             doc="Services a plugin exposes on the service locator: a tuple of (ServiceRef, implementation) pairs, released with the owner."),
+             kind="mcp_server", doc="Site-level MCP servers merged into every agent's tool surface."),
         Slot("ingress", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
-             doc="Ingress domain root (channels, triggers)."),
+             doc="Ingress (channels, triggers)"),
         Slot("ingress.channels", many, "narranexus.contracts.channel:ChannelDescriptor", KERNEL_OWNER,
-             doc="IM channels: one ChannelDescriptor per channel (trigger + module + credential schema + routes + ui + transport)."),
+             kind="channel", doc="IM channels: one ChannelDescriptor per channel (trigger + module + credential schema + routes + ui + transport)."),
         Slot("ingress.triggers", many, "narranexus.contracts.trigger:TriggerSpec", KERNEL_OWNER,
-             doc="Ingress triggers: IM channel listeners (host=channels), clock/queue pollers run as workers (host=workers), on-demand HTTP servers (host=api)."),
-        Slot("ui", one, "narranexus.contracts.ui:Shell", KERNEL_OWNER, default="builtin.ui",
-             distribution_only=True, doc="Frontend shell; distribution-level choice."),
-        Slot("ui.themes", many, "narranexus.contracts.ui:Theme", KERNEL_OWNER,
-             doc="Frontend themes (override declared design tokens only)."),
+             kind="trigger", doc="Ingress triggers: IM channel listeners (host=channels), clock/queue pollers run as workers (host=workers), on-demand HTTP servers (host=api)."),
+        Slot("backend", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
+             doc="Backend host (routes, workers, hooks, tables, settings, services)"),
+        Slot("backend.routes", many, "narranexus.contracts.route:RouterSpec", KERNEL_OWNER,
+             kind="route", doc="HTTP routers mounted by the backend host (plugins under /api/x/<id>)."),
+        Slot("backend.tables", many, "narranexus.contracts.table:TableSpec", KERNEL_OWNER,
+             kind="table", doc="Database tables (pure data; created by auto_migrate even when the plugin is inactive)."),
+        Slot("backend.workers", many, "narranexus.contracts.worker:WorkerSpec", KERNEL_OWNER,
+             kind="worker", doc="Supervised background workers (workers process or backend lifespan)."),
+        Slot("backend.settings", many, "narranexus.contracts.settings:SettingsSchema", KERNEL_OWNER,
+             kind="settings", doc="Per-plugin settings schemas (NXP_<ID>_* env > stored row > default)."),
+        Slot("backend.hooks", many, "narranexus.kernel.plugins.hooks:HookImplSpec", KERNEL_OWNER,
+             kind="hook", doc="Hook implementations for declared host hooks (pluggy semantics)."),
+        Slot("backend.services", many, "narranexus.kernel.plugins.services:ServiceRef", KERNEL_OWNER,
+             kind="services", doc="Services a plugin exposes on the service locator: a tuple of (ServiceRef, implementation) pairs, released with the owner."),
         Slot("content", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
-             doc="Content-pack domain root."),
+             doc="Content (skills, bundles)"),
         Slot("content.bundles", many, "narranexus.contracts.bundle:BundleSpec", KERNEL_OWNER,
-             doc="Team-template .nxbundle files offered by the marketplace."),
+             kind="bundle", doc="Team-template .nxbundle files offered by the marketplace."),
         Slot("content.skills", many, "narranexus.contracts.skill:SkillSpec", KERNEL_OWNER,
-             doc="Skill directories (SKILL.md) scanned into every agent's skill catalog."),
+             kind="skill", doc="Skill directories (SKILL.md) scanned into every agent's skill catalog."),
+        # The frontend shell; builtin.ui (the root's provider) declares ui.* — the
+        # sixteen frontend registries (themes, pages, panels, commands, slot points...).
+        Slot("ui", one, "narranexus.contracts.ui:Shell", KERNEL_OWNER, default="builtin.ui",
+             distribution_only=True, kind="ui", doc="Frontend (shell, themes, pages, panels, commands, slot points)"),
     ]
     for slot in seeds:
         tree.declare(slot)

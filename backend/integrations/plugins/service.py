@@ -47,15 +47,25 @@ class PluginService:
     """Orchestrates install/detect/uninstall across a plugin's components."""
 
     def __init__(self, specs: dict[str, PluginSpec] | None = None) -> None:
-        # Derived at construction, not import: a framework registered later in
-        # startup is visible to every service created after it.
-        self._specs = specs if specs is not None else build_plugin_specs()
+        # Derived on FIRST USE, not at construction: the route module builds
+        # its process-level singleton at import, before the plugin platform
+        # has booted, and the framework registry (whose slot builtin.turn
+        # declares at boot) does not exist yet then. Every request comes
+        # after boot, so the first request sees the complete registry.
+        self._given_specs = specs
+        self._specs_cache: dict[str, PluginSpec] | None = None
         self._locks: dict[str, asyncio.Lock] = {}
         self._busy: set[str] = set()
         self._installers: dict[str, PluginInstaller] = {
             "pip": PipTargetInstaller(),
             "npm": NpmPrefixInstaller(),
         }
+
+    @property
+    def _specs(self) -> dict[str, PluginSpec]:
+        if self._specs_cache is None:
+            self._specs_cache = self._given_specs if self._given_specs is not None else build_plugin_specs()
+        return self._specs_cache
 
     def _spec(self, plugin_id: str) -> PluginSpec:
         try:

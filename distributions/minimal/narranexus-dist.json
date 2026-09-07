@@ -14,7 +14,8 @@
     "builtin.memory_kinds": "^1.0",
     "builtin.common_tools": "^1.0",
     "builtin.auth.local": "^1.0",
-    "builtin.prompts": "^1.0"
+    "builtin.prompts": "^1.0",
+    "builtin.ui": "^1.0"
   },
   "excludes": [
     "builtin.frameworks.claude_code",

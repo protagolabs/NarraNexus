@@ -17,14 +17,14 @@ from narranexus.kernel.plugins.manifest import (
     load_manifest,
     parse_manifest,
 )
-from narranexus.kernel.plugins.slots import Slot, SlotTree, build_kernel_slot_tree
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+from narranexus.kernel.plugins.slots import SlotTree
 
 
 def _tree() -> SlotTree:
-    tree = build_kernel_slot_tree()
-    tree.declare(Slot("ui.pages", "many", "narranexus.contracts.ui:Page", "builtin.ui"))
-    tree.declare(Slot("ui.panels", "many", "narranexus.contracts.ui:Panel", "builtin.ui"))
-    return tree
+    # The kernel tree plus every builtin's declarations (ui.pages / ui.panels
+    # come from builtin.ui, the stage slots from builtin.turn).
+    return slot_tree_with_builtins()
 
 
 def _base(**overrides) -> dict:
@@ -167,3 +167,21 @@ def test_manifest_is_immutable():
     with pytest.raises(ValidationError, match="frozen"):
         m.version = "9.9.9"  # type: ignore[misc]
     assert isinstance(m, Manifest)
+
+
+def test_declared_slot_carries_kind_and_case_insensitivity_and_rejects_unknown_kinds():
+    data = _base(declares={"acme.weather.sources": {"arity": "many", "contract": "x:Y", "kind": "provider", "caseInsensitive": True}})
+    (slot,) = parse_manifest(data, tree=_tree()).declared_slots()
+    assert (slot.kind, slot.case_insensitive, slot.api_version) == ("provider", True, 0)
+    with pytest.raises(ManifestError, match="contract kind"):
+        parse_manifest(_base(declares={"acme.weather.sources": {"arity": "many", "contract": "x:Y", "kind": "nope"}}), tree=_tree())
+
+
+def test_default_provider_of_a_kernel_root_may_declare_its_children():
+    # ``prompt``'s declared default is builtin.prompts, so prompt.* is its to declare — the
+    # ownership rule of the tree (the provider of a composite owns its children); a stranger may not.
+    data = _base(id="builtin.prompts", provides={}, declares={"prompt.sections": {"arity": "many", "contract": "x:Section", "kind": "prompt"}})
+    (slot,) = parse_manifest(data, tree=_tree(), allow_builtin=True).declared_slots()
+    assert (slot.path, slot.owner) == ("prompt.sections", "builtin.prompts")
+    with pytest.raises(ManifestError, match="own namespace"):
+        parse_manifest(_base(provides={}, declares={"prompt.sections": {"arity": "many", "contract": "x:Section"}}), tree=_tree())

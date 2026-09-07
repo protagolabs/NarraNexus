@@ -171,6 +171,20 @@ class SlotDeclaration(_Strict):
     distribution_only: bool = False
     stability: Literal["alpha", "beta", "stable"] = "alpha"
     doc: str = ""
+    # Contract kind (a key of contracts.API_VERSIONS) the slot's entries are
+    # written against; the registry backing the slot carries that version.
+    kind: str | None = None
+    # Entry names are matched case-insensitively (e.g. framework names).
+    case_insensitive: bool = Field(default=False, alias="caseInsensitive")
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str | None) -> str | None:
+        from narranexus.contracts import API_VERSIONS
+
+        if v is not None and v not in API_VERSIONS:
+            raise ValueError(f"kind must be a contract kind ({sorted(API_VERSIONS)}), got {v!r}")
+        return v
 
     @field_validator("contract")
     @classmethod
@@ -294,6 +308,8 @@ class Manifest(_Strict):
                 distribution_only=decl.distribution_only,
                 stability=Stability(decl.stability),
                 doc=decl.doc,
+                kind=decl.kind,
+                case_insensitive=decl.case_insensitive,
             )
             for path, decl in self.declares.items()
         )
@@ -323,7 +339,7 @@ def parse_manifest(
     if manifest.is_builtin and not allow_builtin:
         raise ManifestError(f"{manifest.id}: the 'builtin.' prefix is reserved for the host's own plugins")
 
-    _check_declares_in_own_namespace(manifest)
+    _check_declares_in_own_namespace(manifest, tree)
     _check_provides_against_tree(manifest, tree)
     _check_redeclares(manifest, tree)
     _check_api_versions(manifest)
@@ -393,16 +409,19 @@ def _check_provides_against_tree(manifest: Manifest, tree: SlotTree) -> None:
             )
 
 
-def _check_declares_in_own_namespace(manifest: Manifest) -> None:
+def _check_declares_in_own_namespace(manifest: Manifest, tree: SlotTree) -> None:
     """A plugin may declare slots under its own id or under a composite slot it provides.
 
     Own namespace (``acme.weather.sources``) keeps third-party extension points
     attributable, and its missing ancestors are safe to auto-create. Under a
     provided composite (``builtin.turn`` provides ``turn.pipeline`` and declares
     ``turn.pipeline.recall``) is the ownership rule of the slot tree itself:
-    the provider of a composite owns its children.
+    the provider of a composite owns its children — and a kernel root whose
+    declared ``default`` is this plugin (``prompt`` → ``builtin.prompts``,
+    ``ui`` → ``builtin.ui``) is provided by it in the same sense, so its
+    children (``prompt.sections``, ``ui.themes``) are declared by that plugin.
     """
-    provided = set(manifest.provides)
+    provided = set(manifest.provides) | {s.path for s in tree.roots() if s.default == manifest.id}
     for path in manifest.declares:
         own = path != manifest.id and path.startswith(manifest.id + ".")
         under_provided = any(path.startswith(p + ".") for p in provided)

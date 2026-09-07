@@ -15,3 +15,7 @@ capability_set's user_id is the caller identity the MCP layer injects, never a t
 ## 2026-09-07 — platform_overview lists the parsed manifests
 
 builtin_plugins come from builtin_manifests() (Manifest objects), not from a kernel dict.
+
+## 2026-09-07 — 按 kind 找槽改用 SlotTree.by_kind（B7）
+
+SLOT_KINDS 已删。

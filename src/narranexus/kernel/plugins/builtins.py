@@ -57,6 +57,7 @@ BUILTIN_PLUGINS: tuple[tuple[str, str], ...] = (
     ("builtin.teams", "teams"),
     ("builtin.auth.local", "auth_local"),
     ("builtin.auth.netmind", "auth_netmind"),
+    ("builtin.ui", "ui"),
 )
 MANIFEST_FILENAME = "narranexus-plugin.json"
 
@@ -107,7 +108,15 @@ def load_builtins(registries: Any, role: str = "backend", *, distribution: Any =
 
 
 def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:
-    """Validate the builtin manifest data against ``tree`` (uncached)."""
+    """Validate the builtin manifest data against ``tree`` (uncached).
+
+    Pass 1 declares every builtin's own slots into ``tree`` (a plugin's
+    ``declares`` need no tree to parse), so pass 2 can check each manifest's
+    ``provides`` against the slots the OTHER builtins declare —
+    ``builtin.frameworks.*`` provide into ``turn.pipeline.act.framework``,
+    which ``builtin.turn`` declares, whatever their relative order.
+    """
+    tree.declare_all(slot for data in BUILTIN_MANIFEST_DATA for slot in Manifest.model_validate(data).declared_slots())
     return tuple(parse_manifest(data, tree=tree, allow_builtin=True) for data in BUILTIN_MANIFEST_DATA)
 
 
@@ -119,10 +128,7 @@ def slot_tree_with_builtins() -> SlotTree:
     ``turn.pipeline.recall``, which only exists once ``builtin.turn`` declared it.
     """
     tree = build_kernel_slot_tree()
-    for manifest in builtin_manifests():
-        for slot in manifest.declared_slots():
-            if slot.path not in tree:
-                tree.declare(slot, create_namespaces=True)
+    tree.declare_all(slot for manifest in builtin_manifests() for slot in manifest.declared_slots())
     return tree
 
 

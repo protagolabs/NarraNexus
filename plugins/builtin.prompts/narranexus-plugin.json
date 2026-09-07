@@ -17,5 +17,20 @@
     ],
     "prompt.assembler": "narranexus_plugins.prompts.assembler:CONTRIBUTION"
   },
-  "quality": "gold"
+  "quality": "gold",
+  "declares": {
+    "prompt.sections": {
+      "arity": "many",
+      "contract": "narranexus.contracts.prompt:PromptSectionProvider",
+      "kind": "prompt",
+      "doc": "System-prompt sections (security / temporal / narrative / modules / bootstrap + plugin-defined); a binding orders or drops them."
+    },
+    "prompt.assembler": {
+      "arity": "one",
+      "contract": "narranexus.contracts.prompt:PromptAssembler",
+      "kind": "prompt",
+      "default": "builtin.prompts",
+      "doc": "Joins the rendered sections into the final system prompt (replaceable per distribution / narranexus.toml)."
+    }
+  }
 }

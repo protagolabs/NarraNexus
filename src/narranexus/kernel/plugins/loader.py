@@ -32,6 +32,7 @@ from loguru import logger
 from narranexus.contracts import ManifestError, PluginError
 from narranexus.kernel.plugins.manifest import Host, Manifest
 from narranexus.kernel.plugins.registries import Registries
+from narranexus.kernel.plugins.slots import Slot
 from narranexus.kernel.plugins.hooks import HookImplSpec
 from narranexus.kernel.plugins.registry import Contribution
 
@@ -306,10 +307,20 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     for pid, reason in sorted(plan.blocked.items()):
         logger.warning(f"[plugins] {pid} not loaded: {reason}")
         report.loaded.append(PluginLoad(plugin_id=pid, version="", slots=(), entries=0, duration_ms=0.0, error=reason))
+    # Pass 1 — every slot any loading plugin declares exists before ANY plugin
+    # provides: ``builtin.frameworks.*`` fill ``turn.pipeline.act.framework``
+    # (declared by ``builtin.turn``) whatever their relative load order; the
+    # tree declares shallowest-first so a deeper declaration never pre-empts a
+    # real one as an auto-namespace. Idempotent per process.
+    declared: list[Slot] = []
     for manifest in plan.ordered:
         if manifest.id in seen:
             raise ManifestError(f"duplicate plugin id {manifest.id!r} in load set")
         seen.add(manifest.id)
+        if role in manifest.effective_hosts():
+            declared.extend(manifest.declared_slots())
+    registries.slots.declare_all(declared)
+    for manifest in plan.ordered:
         if role not in manifest.effective_hosts():
             report.skipped.append(manifest.id)
             continue
@@ -317,11 +328,6 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
         entries = 0
         error: str | None = None
         try:
-            # A plugin's own slot declarations must exist before it (or anyone)
-            # provides into them; declaring is idempotent per process.
-            for slot in manifest.declared_slots():
-                if slot.path not in registries.slots:
-                    registries.slots.declare(slot, create_namespaces=True)
             for path, value in manifest.provides.items():
                 specs = (value,) if isinstance(value, str) else value
                 if path == HOOKS_SLOT:

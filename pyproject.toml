@@ -27,6 +27,7 @@ dependencies = [
     "narranexus-plugin-auth-local",
     "narranexus-plugin-auth-netmind",
     "narranexus-plugin-teams",
+    "narranexus-plugin-ui",
     "narranexus-plugin-frameworks-claude-code",
     "narranexus-plugin-frameworks-codex-cli",
     "narranexus-plugin-frameworks-nexus-power",
@@ -181,6 +182,7 @@ narranexus-plugin-prompts = { workspace = true }
 narranexus-plugin-auth-local = { workspace = true }
 narranexus-plugin-auth-netmind = { workspace = true }
 narranexus-plugin-teams = { workspace = true }
+narranexus-plugin-ui = { workspace = true }
 narranexus-plugin-frameworks-claude-code = { workspace = true }
 narranexus-plugin-frameworks-codex-cli = { workspace = true }
 narranexus-plugin-frameworks-nexus-power = { workspace = true }

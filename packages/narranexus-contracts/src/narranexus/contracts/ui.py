@@ -5,9 +5,14 @@
 @description: The frontend shell as a slot contract (``ui``), mirrored on the Python side.
 
 The real frontend contribution registries live in TypeScript
-(``frontend/src/platform/registries``). The Python side only needs to name
-the shell so a distribution can bind its own; ``Shell`` is the data the
-backend needs to serve it (where the built assets are, which entry file).
+(``frontend/src/platform/registries``). The Python side names the shell so a
+distribution can bind its own (``Shell`` is the data the backend needs to
+serve it) and mirrors the ENTRY SHAPES of the sixteen frontend registries so
+the ``ui.*`` slots ``builtin.ui`` declares carry a contract a manifest can be
+checked against and the docs can render. The TypeScript ``*Def`` interfaces
+are the truth; these records hold the declarative subset a manifest's
+``frontend.ui`` section can express (ids, labels, order, routes) — behaviour
+(components, callbacks) only exists in the bundle.
 """
 from __future__ import annotations
 
@@ -34,4 +39,116 @@ class Theme:
     dark: bool = False
 
 
-__all__ = ["Shell", "Theme"]
+@dataclass(frozen=True)
+class Page:
+    """A routed page (``ui.pages``): the shell mounts ``path`` under ``layout``; ``guard`` is ``protected`` or ``public``."""
+
+    id: str
+    path: str
+    layout: str = "app"
+    guard: str = "protected"
+
+
+@dataclass(frozen=True)
+class SidebarItem:
+    """A sidebar navigation item (``ui.sidebar``)."""
+
+    id: str
+    label_key: str
+    to: str
+    order: int = 100
+
+
+@dataclass(frozen=True)
+class Panel:
+    """An agent drawer panel (``ui.panels``); ``category`` picks the rail group."""
+
+    id: str
+    label_key: str
+    category: str = "config"
+
+
+@dataclass(frozen=True)
+class SettingsSection:
+    """A settings page section (``ui.settings_sections``)."""
+
+    id: str
+    label_key: str
+    order: int = 100
+
+
+@dataclass(frozen=True)
+class Command:
+    """A command-palette command (``ui.commands``)."""
+
+    id: str
+    label: str
+    hint: str = ""
+
+
+@dataclass(frozen=True)
+class ChannelConfig:
+    """A channel configuration card (``ui.channels``) keyed by channel id."""
+
+    id: str
+    label: str
+    order: int = 100
+
+
+@dataclass(frozen=True)
+class MessageRenderer:
+    """A chat message renderer (``ui.message_renderers``) tried in ``order``."""
+
+    id: str
+    order: int = 100
+
+
+@dataclass(frozen=True)
+class TimelineEvent:
+    """A run-timeline event renderer (``ui.timeline_events``) keyed by event type."""
+
+    id: str
+
+
+@dataclass(frozen=True)
+class ConversationKind:
+    """A conversation kind (``ui.conversation_kinds``)."""
+
+    id: str
+    label_key: str
+
+
+@dataclass(frozen=True)
+class SlotComponent:
+    """A component mounted at a slot point (composer extensions, sidebar sections, agent card badges, top bar items)."""
+
+    id: str
+    when: str = ""
+    order: int = 100
+
+
+@dataclass(frozen=True)
+class SlotAction:
+    """An action offered at a slot point (chat header actions, message actions)."""
+
+    id: str
+    label: str
+    when: str = ""
+    order: int = 100
+
+
+__all__ = [
+    "ChannelConfig",
+    "Command",
+    "ConversationKind",
+    "MessageRenderer",
+    "Page",
+    "Panel",
+    "SettingsSection",
+    "Shell",
+    "SidebarItem",
+    "SlotAction",
+    "SlotComponent",
+    "Theme",
+    "TimelineEvent",
+]

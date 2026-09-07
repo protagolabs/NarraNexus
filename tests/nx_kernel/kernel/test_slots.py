@@ -10,6 +10,7 @@ import pytest
 
 from narranexus.contracts import RegistryConflict, Stability, UnknownEntry
 from narranexus.kernel.plugins.compat import Range, Version
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 from narranexus.kernel.plugins.slots import Slot, SlotTree, build_kernel_slot_tree, validate_path
 
 
@@ -61,28 +62,68 @@ def test_navigation_children_descendants_paths():
     assert tree.try_get("nope") is None
 
 
-def test_kernel_seed_tree_has_the_batch0_roots_and_is_docs_friendly():
+def test_kernel_seed_tree_has_the_roots_and_is_docs_friendly():
     tree = build_kernel_slot_tree()
-    for path in ("kernel.db", "kernel.auth", "turn.pipeline", "turn.pipeline.act.framework",
-                 "model.providers", "model.clients", "agent.capabilities.memory_kinds", "ui"):
+    for path in ("kernel.db", "kernel.auth", "turn.pipeline", "model.providers", "model.clients",
+                 "agent.capabilities.memory_kinds", "prompt", "ui"):
         assert path in tree
     assert tree.get("kernel.auth").distribution_only is True
-    assert tree.get("turn.pipeline.act.framework").default == "builtin.frameworks.nexus_power"
-    assert tree.get("turn.pipeline.act.framework").parent == "turn.pipeline.act"
-    assert {s.path for s in tree.descendants("turn.pipeline")} == {
-        "turn.pipeline.ingress", "turn.pipeline.recall", "turn.pipeline.compose", "turn.pipeline.assemble",
-        "turn.pipeline.act", "turn.pipeline.act.framework", "turn.pipeline.commit", "turn.pipeline.reflect",
-    }
     assert tree.get("model.providers").arity == "many"
+    # The kernel declares only what it is the authority for: a builtin's children
+    # (stage slots, prompt.*, ui.*) arrive with that builtin's manifest.
+    assert "turn.pipeline.act.framework" not in tree and "prompt.sections" not in tree and "ui.themes" not in tree
+    # Domain roots in display order, titled by their doc (the catalog and docs read both).
+    assert [r.path for r in tree.roots()] == ["kernel", "prompt", "turn", "model", "agent", "ingress", "backend", "content", "ui"]
+    assert all(r.doc for r in tree.roots())
     rows = tree.to_rows()
     assert rows == sorted(rows, key=lambda r: r["path"])
     assert all(r["stability"] == Stability.ALPHA.value for r in rows)
+    assert {r["kind"] for r in rows} > {None, "provider", "llm_client", "auth", "module"}
 
 
-def test_every_kernel_slot_contract_symbol_resolves():
+def test_builtins_own_their_sub_slots():
+    tree = slot_tree_with_builtins()
+    fw = tree.get("turn.pipeline.act.framework")
+    assert (fw.owner, fw.default, fw.parent, fw.kind, fw.case_insensitive) == (
+        "builtin.turn", "builtin.frameworks.nexus_power", "turn.pipeline.act", "framework", True)
+    assert {s.path for s in tree.descendants("turn.pipeline") if s.owner == "builtin.turn"} >= {
+        "turn.pipeline.ingress", "turn.pipeline.recall", "turn.pipeline.compose", "turn.pipeline.assemble",
+        "turn.pipeline.act", "turn.pipeline.act.framework", "turn.pipeline.commit", "turn.pipeline.reflect",
+    }
+    assert tree.get("turn.pipeline.act").arity == "many"  # a real declaration, not an auto-namespace
+    assert tree.get("turn.profiles").owner == "builtin.turn" and tree.get("turn.profiles").kind == "pipeline_profile"
+    assert tree.get("prompt.sections").owner == "builtin.prompts" and tree.get("prompt.assembler").default == "builtin.prompts"
+    assert tree.get("ui.themes").owner == "builtin.ui" and tree.get("ui.pages").kind == "ui"
+
+
+def test_slot_kind_drives_api_version_and_normalisation():
+    s = Slot("acme.x", "many", "x:Y", "acme", kind="framework", case_insensitive=True)
+    assert s.api_version == 0 and s.normalize("  Claude_Code ") == "claude_code"
+    plain = Slot("acme.y", "many", "x:Y", "acme")
+    assert plain.api_version == 0 and plain.normalize("Keep") == "Keep"
+    with pytest.raises(ValueError, match="unknown contract kind"):
+        Slot("acme.z", "many", "x:Y", "acme", kind="not_a_kind")
+    tree = slot_tree_with_builtins()
+    assert {s.path for s in tree.by_kind("stage_strategy")} == {f"turn.pipeline.{st}" for st in ("ingress", "recall", "compose", "assemble", "act", "commit", "reflect")}
+    assert [s.path for s in tree.by_kind("prompt")] == ["prompt.assembler", "prompt.sections"]
+
+
+def test_declare_all_is_shallowest_first_so_a_deep_declaration_never_preempts_a_real_one():
+    tree = build_kernel_slot_tree()
+    deep = Slot("turn.pipeline.act.framework.acme.seat", "many", "x:Seat", "acme.fw")
+    real_act = Slot("turn.pipeline.act", "many", "x:Act", "builtin.turn")
+    real_fw = Slot("turn.pipeline.act.framework", "one", "x:Fw", "builtin.turn", default="acme.fw")
+    assert tree.declare_all([deep, real_fw, real_act]) == 3  # the auto-created acme namespace is not counted
+    assert tree.get("turn.pipeline.act").arity == "many" and tree.get("turn.pipeline.act").owner == "builtin.turn"
+    assert tree.get("turn.pipeline.act.framework").default == "acme.fw"
+    assert tree.get("turn.pipeline.act.framework.acme").owner == "acme.fw"  # auto-namespace, owned by the declarer
+    assert tree.declare_all([deep]) == 0  # idempotent
+
+
+def test_every_slot_contract_symbol_resolves():
     import importlib
 
-    for row in build_kernel_slot_tree().to_rows():
+    for row in slot_tree_with_builtins().to_rows():
         module_path, _, symbol = row["contract"].partition(":")
         module = importlib.import_module(module_path)
         assert hasattr(module, symbol), f"{row['path']}: {row['contract']} does not exist"

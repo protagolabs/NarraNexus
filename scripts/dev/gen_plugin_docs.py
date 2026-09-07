@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from narranexus.contracts import API_VERSIONS, STABILITY
-from narranexus.kernel.plugins.builtins import builtin_manifests
+from narranexus.kernel.plugins.builtins import builtin_manifests, slot_tree_with_builtins
 from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "plugins"
@@ -57,12 +57,12 @@ def render() -> str:
         "bound only from the distribution or default layers. Bind a slot in `narranexus.toml`",
         "or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the live state.",
     ]
-    from narranexus.kernel.plugins.catalog import DOMAINS
+    from narranexus.kernel.plugins.catalog import domains
 
-    rows = build_kernel_slot_tree().to_rows()
-    domains = sorted({r["path"].split(".", 1)[0] for r in rows}, key=lambda d: DOMAINS.get(d, (d, 99))[1])
-    for domain in domains:
-        lines += ["", f"### {DOMAINS.get(domain, (domain, 99))[0]}", "", "| Path | Arity | Contract | Default | Owner | Flags | Notes |", "|---|---|---|---|---|---|---|"]
+    tree = slot_tree_with_builtins()
+    rows = tree.to_rows()
+    for domain, title in domains(tree):
+        lines += ["", f"### {title}", "", "| Path | Arity | Contract | Default | Owner | Flags | Notes |", "|---|---|---|---|---|---|---|"]
         for row in rows:
             if row["path"].split(".", 1)[0] != domain:
                 continue
@@ -80,7 +80,6 @@ def render() -> str:
 
 
 def render_contributes() -> str:
-    from narranexus.kernel.plugins.registries import SLOT_KINDS
 
     lines = [
         "# Contribution kinds",
@@ -94,11 +93,11 @@ def render_contributes() -> str:
         "| Slot | Kind | API version | Contract | Manifest key |",
         "|---|---|---|---|---|",
     ]
-    tree = build_kernel_slot_tree()
+    tree = slot_tree_with_builtins()
     for row in tree.to_rows():
         if row["arity"] != "many":
             continue
-        kind = SLOT_KINDS.get(row["path"], "—")
+        kind = row["kind"] or "—"
         version = API_VERSIONS.get(kind, "—") if kind != "—" else "—"
         lines.append(f"| `{row['path']}` | {kind} | {version} | `{row['contract']}` | `\"{row['path']}\": [\"pkg.module:SYMBOL\"]` |")
     lines += ["", "Frontend contributions are declared under `frontend.ui` (`pages`, `panels`, `commands`, `themes`) and registered by the plugin's bundle at activation.", ""]

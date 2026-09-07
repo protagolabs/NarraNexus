@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from narranexus.kernel.deployment import get_deployment_mode
 from narranexus.kernel.plugins.compat import host_version
-from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, SLOT_KINDS
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
 
 def platform_overview() -> dict[str, Any]:
@@ -69,7 +69,7 @@ def contract_docs(kind: str) -> dict[str, Any]:
 
     if kind not in API_VERSIONS:
         return {"error": f"unknown kind {kind!r}", "kinds": sorted(API_VERSIONS)}
-    slots = [p for p, k in SLOT_KINDS.items() if k == kind]
+    slots = [s.path for s in KERNEL_REGISTRIES.slots.by_kind(kind)]
     tree = KERNEL_REGISTRIES.slots
     contracts: dict[str, Any] = {}
     for path in slots:

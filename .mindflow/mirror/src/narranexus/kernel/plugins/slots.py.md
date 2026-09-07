@@ -66,3 +66,7 @@ Batch 6 fix: all seven `turn.pipeline.<stage>` slots are kernel-declared (StageS
 ## 2026-09-07 — backend.services slot
 
 Services a plugin exposes on the locator are a manifest contribution (tuple of (ServiceRef, impl)); they used to be exposed by an import-time side effect of the platform's builtin table.
+
+## 2026-09-07 — Slot 自带 kind/case_insensitive；子槽归属回插件（B7）
+
+Slot 新增 kind（contracts.API_VERSIONS 的键，注册表据此取契约版本）与 case_insensitive（条目名归一化），派生 api_version/normalize；registries.py 的 SLOT_KINDS/_NORMALIZERS 两张按路径键的表删除——槽的事实随槽声明，不再有一张需要与树同步的旁表。SlotTree 新增 roots()（声明序=展示序，根的 doc 即域标题，catalog/文档生成读它，DOMAINS 表删除）、by_kind()、declare_all()（按深度由浅到深声明：深层声明不能先于真实声明把祖先造成 namespace——nexus_power 的 seat 若先于 builtin.turn 处理，turn.pipeline.act 会被造成 one-arity namespace）。内核只播种它自己是权威的槽：七个阶段槽+act.framework+turn.profiles 由 builtin.turn 的 manifest declares，prompt.* 由 builtin.prompts，ui.*（16 个前端注册表）由新的 manifest-only 插件 builtin.ui；原注释『内核声明以保证每个角色 boot 就有』的诉求由 loader 的两阶段 declare 保证。

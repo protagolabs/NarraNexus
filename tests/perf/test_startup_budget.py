@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.hosts.boot import boot
-from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins, BUILTIN_MANIFEST_DATA
 from narranexus.kernel.plugins.lifecycle import PluginRecord, RegistryStore
 from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
@@ -41,7 +41,7 @@ def _synthetic_plugin(home: Path, i: int) -> Path:
 
 
 def test_manifest_parse_budget():
-    tree = build_kernel_slot_tree()
+    tree = slot_tree_with_builtins()
     started = time.perf_counter()
     rounds = 20
     for _ in range(rounds):
@@ -87,8 +87,9 @@ def test_frozen_registry_lookup_is_constant_time():
 
 @pytest.mark.parametrize("path", ["turn.pipeline.act.framework", "backend.routes", "content.skills"])
 def test_registries_construction_is_cheap(path: str):
+    tree = slot_tree_with_builtins()  # built once: the budget is the Registries facade, not the tree
     started = time.perf_counter()
     for _ in range(20):
-        Registries().registry_for(path)
+        Registries(tree).registry_for(path)
     per_ms = (time.perf_counter() - started) * 1000.0 / 20
     assert per_ms < 5.0, f"{per_ms:.2f} ms per Registries()"  # measured ~0.1 ms; 25 ms let a 100x regression through

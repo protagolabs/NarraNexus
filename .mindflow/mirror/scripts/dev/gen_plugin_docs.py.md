@@ -16,3 +16,7 @@ spec §13「文档不落后」。`tests/nx_kernel/test_docs_generated.py` 断言
 The hand-written `HOST_API_TABLE` lists the content registries and the seven slot points with the `when` grammar.
 
 2026-09-07: slots.md groups the slot table by domain (catalog.DOMAINS order).
+
+## 2026-09-07 — 从带 builtin 声明的树生成（B7）
+
+slots.md/contributes.md 改用 slot_tree_with_builtins()（内核树已不含阶段/prompt/ui 子槽）、catalog.domains() 排序标题、row['kind'] 取种类。

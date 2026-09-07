@@ -11,7 +11,9 @@ def _load_builtins_for_tests() -> None:
     from narranexus.kernel.plugins.builtins import load_builtins
     from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
-    if not KERNEL_REGISTRIES.frozen and not KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework").names():
+    # ``paths()`` lists the registries a load created; an unbooted process has none
+    # (and no plugin-declared slots yet, so probing one by name would raise).
+    if not KERNEL_REGISTRIES.frozen and not KERNEL_REGISTRIES.paths():
         load_builtins(KERNEL_REGISTRIES, "backend")
 
 

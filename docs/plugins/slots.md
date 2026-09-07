@@ -45,7 +45,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `kernel` | one | `narranexus.kernel:Kernel` | `builtin.kernel` | `builtin.kernel` | distribution-only | Kernel root; never bound directly. |
+| `kernel` | one | `narranexus.kernel:Kernel` | `builtin.kernel` | `builtin.kernel` | distribution-only | Kernel (auth / db / secrets / events) — distribution-only |
 | `kernel.auth` | one | `narranexus.contracts.services:AuthProvider` | `builtin.auth.local` | `builtin.kernel` | distribution-only | Authentication provider; distribution-level choice. |
 | `kernel.db` | one | `narranexus.contracts.services:DatabaseBackend` | `builtin.kernel` | `builtin.kernel` | distribution-only | Database backend (sqlite | sqlite_proxy | mysql). |
 | `kernel.events` | one | `narranexus.contracts.services:EventSink` | `builtin.kernel` | `builtin.kernel` | distribution-only | Host event bus implementation. |
@@ -55,31 +55,37 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `prompt` | one | `narranexus.contracts:Namespace` | `builtin.prompts` | `builtin.kernel` | — | Prompt domain root; its provider ships the default sections and assembler. |
-| `prompt.assembler` | one | `narranexus.contracts.prompt:PromptAssembler` | `builtin.prompts` | `builtin.kernel` | — | Joins the rendered sections into the final system prompt (replaceable per distribution / narranexus.toml). |
-| `prompt.sections` | many | `narranexus.contracts.prompt:PromptSectionProvider` | — | `builtin.kernel` | — | System-prompt sections (security / temporal / narrative / modules / bootstrap + plugin-defined); a binding orders or drops them. |
+| `prompt` | one | `narranexus.contracts:Namespace` | `builtin.prompts` | `builtin.kernel` | — | Prompt (system-prompt sections and assembler) |
+| `prompt.assembler` | one | `narranexus.contracts.prompt:PromptAssembler` | `builtin.prompts` | `builtin.prompts` | — | Joins the rendered sections into the final system prompt (replaceable per distribution / narranexus.toml). |
+| `prompt.sections` | many | `narranexus.contracts.prompt:PromptSectionProvider` | — | `builtin.prompts` | — | System-prompt sections (security / temporal / narrative / modules / bootstrap + plugin-defined); a binding orders or drops them. |
 
 ### Turn pipeline (stages, profiles, agent-loop framework)
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `turn` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | Turn domain root. |
+| `turn` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | Turn pipeline (stages, profiles, agent-loop framework) |
 | `turn.pipeline` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | The whole turn runtime; its provider declares the stage slots. |
-| `turn.pipeline.act` | many | `narranexus.contracts.agent.pipeline:ActStrategy` | — | `builtin.kernel` | — | Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. |
-| `turn.pipeline.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.kernel` | — | Agent-loop framework used by the Act stage. |
-| `turn.pipeline.assemble` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Assemble stage strategies; a profile names one. |
-| `turn.pipeline.commit` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Commit stage strategies; a profile names one. |
-| `turn.pipeline.compose` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Compose stage strategies; a profile names one. |
-| `turn.pipeline.ingress` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Ingress stage strategies; a profile names one. |
-| `turn.pipeline.recall` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Recall stage strategies; a profile names one. |
-| `turn.pipeline.reflect` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Reflect stage strategies; a profile names one. |
-| `turn.profiles` | many | `narranexus.contracts.agent.pipeline:PipelineProfile` | — | `builtin.kernel` | — | Named pipeline profiles (default/fast/voice/job/silent + plugin-defined). |
+| `turn.pipeline.act` | many | `narranexus.contracts.agent.pipeline:ActStrategy` | — | `builtin.turn` | — | Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. |
+| `turn.pipeline.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.turn` | — | Agent-loop framework used by the Act stage (framework plugins provide; names are case-insensitive). |
+| `turn.pipeline.act.framework.nexus_power` | one | `narranexus.contracts:Namespace` | `builtin.frameworks.nexus_power` | `builtin.frameworks.nexus_power` | — | Namespace owned by builtin.frameworks.nexus_power. |
+| `turn.pipeline.act.framework.nexus_power.compaction` | one | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:CompactionPolicy` | `tool_result_pruner` | `builtin.frameworks.nexus_power` | — | How the ledger is compacted. |
+| `turn.pipeline.act.framework.nexus_power.expression` | one | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:ExpressionPolicy` | `contract` | `builtin.frameworks.nexus_power` | — | Which tools count as the agent speaking. |
+| `turn.pipeline.act.framework.nexus_power.policy` | many | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:PolicyLayer` | — | `builtin.frameworks.nexus_power` | — | Tool-call policy layers, checked in order. |
+| `turn.pipeline.act.framework.nexus_power.projector` | one | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:ContextProjector` | `passthrough` | `builtin.frameworks.nexus_power` | — | How the ledger becomes provider messages. |
+| `turn.pipeline.act.framework.nexus_power.stop` | one | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:StopPolicy` | `no_more_actions` | `builtin.frameworks.nexus_power` | — | When the loop ends a turn. |
+| `turn.pipeline.assemble` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Assemble stage strategies; a profile names one. |
+| `turn.pipeline.commit` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Commit stage strategies; a profile names one. |
+| `turn.pipeline.compose` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Compose stage strategies; a profile names one. |
+| `turn.pipeline.ingress` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Ingress stage strategies; a profile names one. |
+| `turn.pipeline.recall` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Recall stage strategies; a profile names one. |
+| `turn.pipeline.reflect` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.turn` | — | Reflect stage strategies; a profile names one. |
+| `turn.profiles` | many | `narranexus.contracts.agent.pipeline:PipelineProfile` | — | `builtin.turn` | — | Named pipeline profiles (default/fast/voice/job/silent + plugin-defined). |
 
 ### Models (providers, clients, resolver)
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `model` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Model domain root. |
+| `model` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Models (providers, clients, resolver) |
 | `model.clients` | many | `narranexus.contracts.llm_client:LlmClient` | — | `builtin.kernel` | — | Helper-LLM protocol clients (atomic call axis). |
 | `model.providers` | many | `narranexus.contracts.provider:ProviderDriver` | — | `builtin.kernel` | — | LLM provider drivers (credential/endpoint axis). |
 | `model.resolver` | one | `narranexus.contracts.llm_client:ModelResolver` | `builtin.providers` | `builtin.kernel` | — | Model-name resolution (the three legacy _resolve_model paths, unified in batch 1). |
@@ -88,7 +94,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `agent` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Agent capability domain root. |
+| `agent` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Agent capabilities (modules, tools, memory kinds, MCP, data access) |
 | `agent.capabilities` | one | `narranexus.contracts.agent.agent_spec:CapabilitySet` | `builtin.kernel` | `builtin.kernel` | — | Capability namespace; children are the four capability tiers. |
 | `agent.capabilities.context_providers` | many | `narranexus.contracts.agent.capability:ContextProvider` | — | `builtin.kernel` | — | Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section. |
 | `agent.capabilities.data_access` | many | `narranexus.contracts.data_access:DataAccessSpec` | — | `builtin.kernel` | — | AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps). |
@@ -101,15 +107,15 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `ingress` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Ingress domain root (channels, triggers). |
+| `ingress` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Ingress (channels, triggers) |
 | `ingress.channels` | many | `narranexus.contracts.channel:ChannelDescriptor` | — | `builtin.kernel` | — | IM channels: one ChannelDescriptor per channel (trigger + module + credential schema + routes + ui + transport). |
 | `ingress.triggers` | many | `narranexus.contracts.trigger:TriggerSpec` | — | `builtin.kernel` | — | Ingress triggers: IM channel listeners (host=channels), clock/queue pollers run as workers (host=workers), on-demand HTTP servers (host=api). |
 
-### Backend host (routes, workers, hooks, tables, settings)
+### Backend host (routes, workers, hooks, tables, settings, services)
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `backend` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Backend service domain root. |
+| `backend` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Backend host (routes, workers, hooks, tables, settings, services) |
 | `backend.hooks` | many | `narranexus.kernel.plugins.hooks:HookImplSpec` | — | `builtin.kernel` | — | Hook implementations for declared host hooks (pluggy semantics). |
 | `backend.routes` | many | `narranexus.contracts.route:RouterSpec` | — | `builtin.kernel` | — | HTTP routers mounted by the backend host (plugins under /api/x/<id>). |
 | `backend.services` | many | `narranexus.kernel.plugins.services:ServiceRef` | — | `builtin.kernel` | — | Services a plugin exposes on the service locator: a tuple of (ServiceRef, implementation) pairs, released with the owner. |
@@ -121,16 +127,31 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `content` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Content-pack domain root. |
+| `content` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Content (skills, bundles) |
 | `content.bundles` | many | `narranexus.contracts.bundle:BundleSpec` | — | `builtin.kernel` | — | Team-template .nxbundle files offered by the marketplace. |
 | `content.skills` | many | `narranexus.contracts.skill:SkillSpec` | — | `builtin.kernel` | — | Skill directories (SKILL.md) scanned into every agent's skill catalog. |
 
-### Frontend (shell, themes)
+### Frontend (shell, themes, pages, panels, commands, slot points)
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
-| `ui` | one | `narranexus.contracts.ui:Shell` | `builtin.ui` | `builtin.kernel` | distribution-only | Frontend shell; distribution-level choice. |
-| `ui.themes` | many | `narranexus.contracts.ui:Theme` | — | `builtin.kernel` | — | Frontend themes (override declared design tokens only). |
+| `ui` | one | `narranexus.contracts.ui:Shell` | `builtin.ui` | `builtin.kernel` | distribution-only | Frontend (shell, themes, pages, panels, commands, slot points) |
+| `ui.agent_card_badges` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Badges on agent cards. |
+| `ui.channels` | many | `narranexus.contracts.ui:ChannelConfig` | — | `builtin.ui` | — | Channel configuration cards on the agent Channels tab. |
+| `ui.chat_header_actions` | many | `narranexus.contracts.ui:SlotAction` | — | `builtin.ui` | — | Actions in the chat header. |
+| `ui.commands` | many | `narranexus.contracts.ui:Command` | — | `builtin.ui` | — | Command-palette commands (lazy gate onCommand:<id>). |
+| `ui.composer_extensions` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Components next to the message composer. |
+| `ui.conversation_kinds` | many | `narranexus.contracts.ui:ConversationKind` | — | `builtin.ui` | — | Conversation kinds (chat, team, ...). |
+| `ui.message_actions` | many | `narranexus.contracts.ui:SlotAction` | — | `builtin.ui` | — | Per-message actions. |
+| `ui.message_renderers` | many | `narranexus.contracts.ui:MessageRenderer` | — | `builtin.ui` | — | Chat message renderers matched per message. |
+| `ui.pages` | many | `narranexus.contracts.ui:Page` | — | `builtin.ui` | — | Routed pages (lazy gate onPage:<id>). |
+| `ui.panels` | many | `narranexus.contracts.ui:Panel` | — | `builtin.ui` | — | Agent drawer panels (lazy gate onPanel:<id>). |
+| `ui.settings_sections` | many | `narranexus.contracts.ui:SettingsSection` | — | `builtin.ui` | — | Settings page sections. |
+| `ui.sidebar` | many | `narranexus.contracts.ui:SidebarItem` | — | `builtin.ui` | — | Sidebar navigation items. |
+| `ui.sidebar_sections` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Extra sidebar sections. |
+| `ui.themes` | many | `narranexus.contracts.ui:Theme` | — | `builtin.ui` | — | Frontend themes (override declared design tokens only). |
+| `ui.timeline_events` | many | `narranexus.contracts.ui:TimelineEvent` | — | `builtin.ui` | — | Run-timeline event renderers keyed by event type. |
+| `ui.top_bar_items` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Items in the top bar. |
 
 ## Builtin plugins
 
@@ -164,3 +185,4 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `builtin.teams` | 1.0.0 | backend | `backend.routes`, `backend.workers`, `backend.hooks` | gold |
 | `builtin.auth.local` | 1.0.0 | backend | `kernel.auth` | gold |
 | `builtin.auth.netmind` | 1.0.0 | backend | `kernel.auth` | gold |
+| `builtin.ui` | 1.0.0 | backend |  | gold |

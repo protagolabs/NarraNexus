@@ -7,8 +7,9 @@
 Platform code takes its registries from here instead of building private
 dicts, so "who provides what" is answerable in one place and the loader has a
 single object to populate and freeze. The registry for a slot is created on
-first request with the contract version of the slot's kind and any
-kind-specific key normalisation (framework names are case-insensitive).
+first request from the slot's own declaration (``Slot.kind`` gives the
+contract version, ``Slot.case_insensitive`` the key normalisation) — there is
+no path-keyed table beside the tree to keep in step with it.
 
 ``KERNEL_REGISTRIES`` is the process-wide instance; tests build their own
 ``Registries`` to load manifests into a clean slate.
@@ -17,53 +18,12 @@ from __future__ import annotations
 
 import threading
 
-from typing import Any, Callable
+from typing import Any
 
-from narranexus.contracts import API_VERSIONS
+from narranexus.contracts import UnknownEntry
 from narranexus.kernel.plugins.hooks import HookRegistry
 from narranexus.kernel.plugins.registry import Registry
 from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
-
-# slot path -> contract kind (drives api_version on the registry)
-SLOT_KINDS: dict[str, str] = {
-    "kernel.auth": "auth",
-    "prompt.sections": "prompt",
-    "prompt.assembler": "prompt",
-    "turn.pipeline.act.framework": "framework",
-    "model.providers": "provider",
-    "model.clients": "llm_client",
-    "agent.capabilities.memory_kinds": "memory",
-    "agent.capabilities.tools": "tool",
-    "agent.capabilities.context_providers": "context_provider",
-    "agent.capabilities.modules": "module",
-    "agent.capabilities.data_access": "data_access",
-    "turn.profiles": "pipeline_profile",
-    "turn.pipeline.ingress": "stage_strategy",
-    "turn.pipeline.recall": "stage_strategy",
-    "turn.pipeline.compose": "stage_strategy",
-    "turn.pipeline.assemble": "stage_strategy",
-    "turn.pipeline.act": "stage_strategy",
-    "turn.pipeline.commit": "stage_strategy",
-    "turn.pipeline.reflect": "stage_strategy",
-    "agent.capabilities.mcp_servers": "mcp_server",
-    "backend.routes": "route",
-    "backend.tables": "table",
-    "backend.workers": "worker",
-    "ingress.triggers": "trigger",
-    "ingress.channels": "channel",
-    "backend.settings": "settings",
-    "backend.hooks": "hook",
-    "backend.services": "services",
-    "ui.themes": "theme",
-    "content.bundles": "bundle",
-    "content.skills": "skill",
-}
-
-# slot path -> key normalisation
-_NORMALIZERS: dict[str, Callable[[str], str]] = {
-    "turn.pipeline.act.framework": lambda s: s.strip().lower(),
-}
-
 
 class Registries:
     """All registries of one process, keyed by slot path."""
@@ -101,12 +61,14 @@ class Registries:
             with self._lock:  # two threads asking first must get ONE registry
                 reg = self._by_path.get(path)
                 if reg is None:
-                    self.slots.get(path)  # UnknownEntry if the slot is not declared
-                    kind = SLOT_KINDS.get(path)
+                    slot = self.slots.try_get(path)
+                    if slot is None:
+                        hint = "" if self._by_path else " (nothing is registered here: has this process booted the plugin platform? hosts.boot / kernel.plugins.builtins.load_builtins)"
+                        raise UnknownEntry(f"unknown slot {path!r}. Known: {list(self.slots.paths()) or '[]'}{hint}")
                     reg = Registry(
                         path,
-                        api_version=API_VERSIONS[kind] if kind else 0,
-                        normalize=_NORMALIZERS.get(path),
+                        api_version=slot.api_version,
+                        normalize=slot.normalize if slot.case_insensitive else None,
                     )
                     if self._frozen:
                         reg.freeze()
@@ -150,4 +112,4 @@ class Registries:
 
 KERNEL_REGISTRIES = Registries()
 
-__all__ = ["SLOT_KINDS", "Registries", "KERNEL_REGISTRIES"]
+__all__ = ["Registries", "KERNEL_REGISTRIES"]

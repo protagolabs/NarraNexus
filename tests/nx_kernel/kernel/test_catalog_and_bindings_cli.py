@@ -14,7 +14,7 @@ from narranexus.cli import bindings_cli
 from narranexus.contracts import BindingConflict, UnknownEntry
 from narranexus.kernel.plugins.bindings import BindingSource, Layer, resolve
 from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
-from narranexus.kernel.plugins.catalog import DOMAINS, slot_catalog, toml_template
+from narranexus.kernel.plugins.catalog import domains, slot_catalog, toml_template
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 
@@ -32,7 +32,8 @@ def test_catalog_is_grouped_and_ordered_with_live_bindings():
     regs = _regs()
     cat = slot_catalog(regs)
     assert [g["domain"] for g in cat][:4] == ["kernel", "prompt", "turn", "model"]
-    assert all(g["domain"] in DOMAINS for g in cat)
+    assert [g["domain"] for g in cat] == [d for d, _ in domains(regs.slots) if any(g["domain"] == d for g in cat)]
+    assert all(g["title"] == regs.slots.get(g["domain"]).doc for g in cat)
     prompt = next(g for g in cat if g["domain"] == "prompt")
     asm = next(s for s in prompt["slots"] if s["path"] == "prompt.assembler")
     assert asm["candidates"] == ["acme.brand", "builtin.prompts"] and asm["bound"] == {"provider": "builtin.prompts", "layer": "DEFAULT"}

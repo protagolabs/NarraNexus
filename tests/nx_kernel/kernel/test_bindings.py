@@ -20,6 +20,7 @@ from narranexus.kernel.plugins.bindings import (
     resolve,
     write_resolved,
 )
+from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
 from narranexus.kernel.plugins.slots import Slot, SlotTree, build_kernel_slot_tree
 
 
@@ -177,7 +178,7 @@ def test_binding_an_unknown_slot_fails_loud_naming_the_origin():
 
 def test_nesting_rule_fires_on_the_kernel_tree():
     """Replacing the whole turn runtime hides the framework slot unless redeclared."""
-    tree = build_kernel_slot_tree()
+    tree = slot_tree_with_builtins()  # the framework slot is builtin.turn's declaration
     dist = from_mapping(Layer.DISTRIBUTION, {"model.resolver": "builtin.providers"}, origin="dist")
     user = from_mapping(
         Layer.USER_CONFIG,

@@ -19,7 +19,8 @@
     "acme.auth-sso": {
       "path": "./plugins/acme.auth-sso"
     },
-    "builtin.prompts": "^1.0"
+    "builtin.prompts": "^1.0",
+    "builtin.ui": "^1.0"
   },
   "excludes": [
     "builtin.frameworks.claude_code",

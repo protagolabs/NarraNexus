@@ -10,19 +10,15 @@ from typing import Any, Optional
 
 from narranexus.kernel.plugins.bound import bound_layer, bound_provider
 
-# Domain → (title, position). The prompt sits right after the kernel: it is
-# the first thing a distribution author wants to see they can replace.
-DOMAINS: dict[str, tuple[str, int]] = {
-    "kernel": ("Kernel (auth / db / secrets / events) — distribution-only", 0),
-    "prompt": ("Prompt (system-prompt sections and assembler)", 1),
-    "turn": ("Turn pipeline (stages, profiles, agent-loop framework)", 2),
-    "model": ("Models (providers, clients, resolver)", 3),
-    "agent": ("Agent capabilities (modules, tools, memory kinds, MCP, data access)", 4),
-    "ingress": ("Ingress (channels, triggers)", 5),
-    "backend": ("Backend host (routes, workers, hooks, tables, settings)", 6),
-    "content": ("Content (skills, bundles)", 7),
-    "ui": ("Frontend (shell, themes)", 8),
-}
+
+
+def domains(tree: Any) -> list[tuple[str, str]]:
+    """``(domain, title)`` in display order: the tree's root slots in declaration
+    order (the kernel seeds them in display order — prompt right after the
+    kernel, the first thing a distribution author wants to see they can
+    replace — and a plugin's own namespace root follows), titled by the root
+    slot's ``doc``."""
+    return [(root.path, root.doc or root.path) for root in tree.roots()]
 
 
 def _resolved(registries: Any, slot: str, arity: str) -> dict[str, Any]:
@@ -63,8 +59,7 @@ def slot_catalog(registries: Any, *, domain: Optional[str] = None) -> list[dict[
             "contributions": [{"name": e.name, "owner": e.owner} for e in entries],
             "bound": _resolved(registries, path, spec.arity),
         })
-    ordered = sorted(groups.items(), key=lambda kv: DOMAINS.get(kv[0], (kv[0], 99))[1])
-    return [{"domain": d, "title": DOMAINS.get(d, (d, 99))[0], "slots": slots} for d, slots in ordered]
+    return [{"domain": d, "title": title, "slots": groups[d]} for d, title in domains(tree) if d in groups]
 
 
 def toml_template(catalog: list[dict[str, Any]]) -> str:
@@ -92,4 +87,4 @@ def toml_template(catalog: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-__all__ = ["DOMAINS", "slot_catalog", "toml_template"]
+__all__ = ["domains", "slot_catalog", "toml_template"]
