@@ -46,11 +46,15 @@ def resolve_runtime_bindings(
     if toml_path.is_file():
         sources.append(parse_toml(toml_path.read_text(encoding="utf-8"), origin=str(toml_path)))
     sources.append(parse_env(environ))
-    try:
-        resolved = resolve(slot_tree_with_builtins(), sources)
-    except UnboundSlot as exc:
-        logger.warning(f"[plugins] bindings not resolved: {exc}")
-        return None
+    # Non-strict: a one-arity slot with neither binding nor default (a plugin
+    # declaring a defaultless slot) is reported, and every OTHER binding the
+    # operator wrote is still installed. Discarding the whole resolution on one
+    # unbound slot ran the host on a different configuration than the one in
+    # narranexus.toml / NX_BIND__* with one warning line as the only signal.
+    # BindingConflict stays loud (it propagates).
+    resolved = resolve(slot_tree_with_builtins(), sources, strict=False)
+    for path in resolved.unbound:
+        logger.warning(f"[plugins] slot {path} has no binding and no default provider — consumers of it will fail loudly")
     regs.set_bindings(resolved)
     if snapshot:
         try:

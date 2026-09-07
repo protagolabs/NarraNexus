@@ -13,3 +13,7 @@ stub: false
 ## 2026-09-07 — retention sweep purges claimed inbox rows
 
 WebhookChannelTriggerBase overrides _run_cleanup (the trigger's daily retention sweep) to purge claimed inbox rows older than WEBHOOK_EVENT_RETENTION_DAYS (7). Before this purge_claimed had no caller at all and the table grew without bound.
+
+## 2026-09-07 — token comparison on bytes
+
+hmac.compare_digest on str raised TypeError (a 500) for a non-ASCII X-Webhook-Token; comparing UTF-8 bytes makes a malformed header a plain 401.

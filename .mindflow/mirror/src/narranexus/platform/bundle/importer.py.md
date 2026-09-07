@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/bundle/importer.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -406,3 +406,7 @@ Both the preflight clash check and the landing loop iterate `channel_credential_
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+## 2026-09-07 — preflight swallows only UnknownChannel
+
+The credential-clash check caught bare Exception and reported 'no clash' on a DB error or an unreadable row — false consent. Only UnknownChannel (a channel this install does not know) is a non-clash; anything else propagates because preflight is a dry run and may fail loudly.

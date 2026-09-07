@@ -145,6 +145,20 @@ def validate_bind_fields(descriptor: ChannelDescriptor, values: dict[str, Any]) 
 _UNREADABLE_WARNED: set[tuple[str, str, int]] = set()
 
 
+class CredentialConflict(Exception):
+    """A binding already claims this (channel, external id) or (channel, agent): the DB unique index is the enforcement point, this is its product-level shape."""
+
+    def __init__(self, channel: str, external_id: Optional[str], agent_id: str) -> None:
+        self.channel, self.external_id, self.agent_id = channel, external_id, agent_id
+        super().__init__(f"{channel}: this bot ({external_id or agent_id}) is already bound to another agent")
+
+
+def _is_integrity_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    text = str(exc)
+    return "IntegrityError" in name or "UNIQUE constraint" in text or "Duplicate entry" in text
+
+
 class GenericCredentialStore:
     def __init__(self, db: Any, registries: Any = None) -> None:
         self._db = db
@@ -193,12 +207,22 @@ class GenericCredentialStore:
         }
         if enabled is not None:
             row["enabled"] = 1 if enabled else 0
-        if existing:
-            row["version"] = int(existing.get("version") or 0) + 1
-            await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id}, row)
-        else:
-            row.setdefault("enabled", 1)
-            await self._db.insert(TABLE, {"channel": channel, "agent_id": agent_id, "created_at": utc_now(), "version": 0, **row})
+        try:
+            if existing:
+                row["version"] = int(existing.get("version") or 0) + 1
+                await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id}, row)
+            else:
+                row.setdefault("enabled", 1)
+                await self._db.insert(TABLE, {"channel": channel, "agent_id": agent_id, "created_at": utc_now(), "version": 0, **row})
+        except Exception as exc:  # noqa: BLE001 — only the unique-index violation is translated
+            # Two concurrent binds, or a bot already bound elsewhere that the
+            # caller's find_one missed: the unique indexes on (channel, agent_id)
+            # and (channel, external_id) decide, and the loser gets a typed error
+            # instead of a driver message. No application-level pre-check — that
+            # would be the race this translates.
+            if _is_integrity_error(exc):
+                raise CredentialConflict(channel, external_id, agent_id) from exc
+            raise
         record = await self.get(channel, agent_id)
         assert record is not None
         return record
@@ -306,4 +330,4 @@ class GenericCredentialStore:
         return [self._row_to_record(r) for r in rows]
 
 
-__all__ = ["CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "all_descriptors", "bind_fields_for", "descriptor_for", "missing_required", "split_values", "validate_bind_fields"]
+__all__ = ["CredentialConflict", "CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "all_descriptors", "bind_fields_for", "descriptor_for", "missing_required", "split_values", "validate_bind_fields"]

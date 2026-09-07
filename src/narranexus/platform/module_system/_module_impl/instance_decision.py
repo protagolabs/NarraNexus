@@ -22,11 +22,7 @@ from narranexus.platform.schema.decision_schema import DirectTriggerConfig
 from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
 from narranexus.platform.module_system._module_impl.prompts import INSTANCE_DECISION_PROMPT_TEMPLATE
 
-def is_task_module(module_class: str) -> bool:
-    """Lazy lookup (the module package imports this file; a top-level import would be circular)."""
-    from narranexus.platform.module_system import is_task_module as _lookup
-
-    return _lookup(module_class)
+from narranexus.platform.services.instance_sync_service import is_task_module  # noqa: E402 — the one lazy shim (the module package imports both files)
 
 
 

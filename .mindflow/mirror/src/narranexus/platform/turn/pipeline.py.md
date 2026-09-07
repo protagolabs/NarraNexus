@@ -21,3 +21,7 @@ Batch 6b.2b: profiles are registered lazily from the `builtin.turn` manifest whe
 ## 2026-09-07 — binds the turn Event at every stage boundary and yield
 
 run() calls services.bind_event(event_id) exactly once, as soon as any stage has set ctx.event — checked after every yielded message and after every stage, not on the first yield (Recall/Compose run helper LLMs and yield nothing). This is how the runtime attributes spend and logs to the turn without the pipeline knowing about ExitStacks.
+
+## 2026-09-07 — dead except removed
+
+UnknownEntry subclasses KeyError, so the try/raise/except KeyError in resolve_profile always took the second branch; collapsed to one raise.

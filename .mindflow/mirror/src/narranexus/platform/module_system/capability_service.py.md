@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/module_system/capability_service.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -19,3 +19,7 @@ Which registered modules take part in an agent's turns is the owner's choice (pl
 ## 2026-09-04 · reads `module_registry` (batch 5d)
 
 `ModuleRegistry(registries)` when a test passes its own registries, else the process-wide view.
+
+## 2026-09-07 — budget ratio clamped; updated_at refreshed
+
+With no baseline hint the ratio was float('inf'), which the route serialised as Infinity (invalid JSON); clamped to 100x the warn ratio. set_enabled now writes updated_at on the update path (the column silently meant created_at).

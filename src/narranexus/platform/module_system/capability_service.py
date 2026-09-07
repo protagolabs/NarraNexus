@@ -23,6 +23,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from narranexus.platform.utils import utc_now
+
 TABLE = "agent_capabilities"
 BUDGET_WARN_RATIO = 2.0
 
@@ -109,7 +111,10 @@ class CapabilityService:
         hint = {name: (cls.get_config().context_cost_hint or 0) for name, cls in module_map.items()}
         baseline = sum(h for name, h in hint.items() if self.default_enabled(name))
         total = sum(h for name, h in hint.items() if enabled.get(name))
-        ratio = (total / baseline) if baseline else (1.0 if not total else float("inf"))
+        # No baseline (no builtin declares a context_cost_hint) but something
+        # enabled: clamp instead of inf — the route serialises this and
+        # `Infinity` is not JSON.
+        ratio = (total / baseline) if baseline else (1.0 if not total else BUDGET_WARN_RATIO * 100)
         return {"baseline_tokens": baseline, "enabled_tokens": total, "ratio": round(ratio, 2), "over_budget": bool(baseline) and ratio > BUDGET_WARN_RATIO}
 
     # ---- writes ------------------------------------------------------------
@@ -121,7 +126,7 @@ class CapabilityService:
             raise ValueError(f"{module_class} is a base module and cannot be disabled")
         existing = await self._db.get_one(TABLE, {"agent_id": agent_id, "capability": module_class})
         if existing:
-            await self._db.update(TABLE, {"agent_id": agent_id, "capability": module_class}, {"enabled": 1 if enabled else 0})
+            await self._db.update(TABLE, {"agent_id": agent_id, "capability": module_class}, {"enabled": 1 if enabled else 0, "updated_at": utc_now()})
         else:
             await self._db.insert(TABLE, {"agent_id": agent_id, "capability": module_class, "enabled": 1 if enabled else 0})
         logger.info(f"[capabilities] {agent_id}: {module_class} {'enabled' if enabled else 'disabled'}")

@@ -93,7 +93,7 @@ def commit_view(ctx: Any) -> CommitContext:
     return CommitContext(
         event_id=str(ctx.event.id) if ctx.event is not None else "",
         narrative_ids=tuple(n.id for n in (ctx.narrative_list or [])),
-        persisted_capabilities=tuple(sorted({str(getattr(m, "config", None) and m.config.name) for m in (ctx.module_list or []) if getattr(m, "config", None)})),
+        persisted_capabilities=tuple(sorted({str(m.config.name) for m in (ctx.module_list or []) if getattr(m, "config", None)})),
     )
 
 

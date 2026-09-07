@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/module_system/channel_trigger_map.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## Why it exists
@@ -62,3 +62,7 @@ The view is a `MutableMapping` only for an explicit override layer (`monkeypatch
 ## 2026-09-04 · webhook transport (batch 4c)
 
 `TriggerMapView._build` registers each loaded trigger's channel name as a `WorkingSource` (plugin channels name their own inbound source).
+
+## 2026-09-07 — cache keyed on registry state; unavailable warnings de-duplicated
+
+_build() reuses the resolved dict while the registry's name tuple is unchanged (override/hidden layers are applied on top each time so monkeypatch.setitem/delitem still work); an unavailable trigger is warned about once per (name, error) instead of on every membership test.

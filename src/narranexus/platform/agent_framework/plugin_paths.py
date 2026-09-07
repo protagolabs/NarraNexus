@@ -48,7 +48,6 @@ for shared dependencies and the subdirs only fill the gap of the plugin wheels.
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 

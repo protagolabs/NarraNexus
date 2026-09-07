@@ -190,6 +190,8 @@ class _ChannelSpecs(Mapping[str, ChannelSpec]):
 
     def __init__(self, registries: Any = None) -> None:
         self._registries = registries
+        self._cache: dict[str, ChannelSpec] | None = None
+        self._cache_key: tuple = ()
 
     def _registry(self):
         import narranexus.platform.module_system  # noqa: F401 — registers the builtin descriptors (idempotent)
@@ -202,15 +204,31 @@ class _ChannelSpecs(Mapping[str, ChannelSpec]):
         return regs.registry_for("ingress.channels")
 
     def _build(self) -> dict[str, ChannelSpec]:
+        # Cached on the registry's name tuple (the pattern ModuleRegistry uses):
+        # SUPPORTED_CHANNELS is consulted per HTTP request and a Mapping's
+        # items() walks __iter__ + __getitem__, so an uncached build resolved
+        # every descriptor N+1 times per call. A builtin disabled through
+        # registry.json changes the key and invalidates the cache without a
+        # manual hook.
+        registry = self._registry()
+        key = registry.names()
+        if self._cache is not None and key == self._cache_key:
+            return self._cache
         out: dict[str, ChannelSpec] = {}
-        for entry in self._registry().entries():
-            d = entry.factory()
-            if d.has_inbound:
-                from narranexus.platform.schema.hook_schema import WorkingSource
+        for entry in registry.entries():
+            try:
+                d = entry.factory()
+                if d.has_inbound:
+                    from narranexus.platform.schema.hook_schema import WorkingSource
 
-                WorkingSource.register(d.name)  # a plugin channel's inbound turns need their source
-            if d.credential_manager_ref:
-                out[d.name] = _spec_from_descriptor(d)
+                    WorkingSource.register(d.name)  # a plugin channel's inbound turns need their source
+                if d.credential_manager_ref:
+                    out[d.name] = _spec_from_descriptor(d)
+            except Exception as e:  # noqa: BLE001 — one broken descriptor must not hide every channel
+                # Fail CLOSED for that channel: absent from SUPPORTED_CHANNELS → 404,
+                # never implicitly allowed. Mirrors TriggerMapView._build.
+                logger.warning(f"channel descriptor {entry.name!r} unavailable, skipped ({type(e).__name__}: {e})")
+        self._cache, self._cache_key = out, key
         return out
 
     def __getitem__(self, name: str) -> ChannelSpec:

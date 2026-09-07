@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/plugin_paths.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 # plugin_paths.py — 可选框架插件的落点与"是否已装"的单一真值
@@ -59,3 +59,7 @@ remote executor + 镜像预装，本模块不参与该路径。
 ## 2026-08-28 补(auto-review I4) — pyenv 改每插件子目录
 
 pip 树从扁平 `pyenv/<package>` 改成**每插件一个子目录** `pyenv/<plugin_id>/`：卸载=rmtree 该子目录,带走整个依赖闭包(否则 openai_codex_cli_bin ~90MB + 共享依赖会残留,打脸'卸载干净';两插件也不再争同一份共享依赖版本)。新增 `plugin_pyenv(plugin_id)`;`_present_in_pyenv(name,package)` 现两参、查 `pyenv/<name>/<package>`;`activate_pyenv` 遍历 append 每个存在的子目录(不再 append pyenv 根)。npm 仍单一共享 `nodejs` prefix(只 claude 用,按包 uninstall)。
+
+## 2026-09-07 — dead import removed
+
+import os had no remaining use.

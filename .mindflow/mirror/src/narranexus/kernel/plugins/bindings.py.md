@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/bindings.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -32,3 +32,7 @@ stub: false
 `one` 位既无绑定又无默认 → `UnboundSlot`。结果 `ResolvedBindings` 记录每个位的提供者与来源层，
 `write_resolved` 原子写 `bindings.resolved.json` 给工场页与 `narranexus dist doctor` 看。
 绑定目标是否真的是已安装并声明了该位的插件，在 `loader` 校验（这里只做层与结构）。
+
+## 2026-09-07 — resolve(strict=False) and ResolvedBindings.unbound
+
+A one-arity slot with neither binding nor default used to raise UnboundSlot out of resolve(), and the host caught it by discarding the ENTIRE resolution — one plugin declaring a defaultless slot silently voided every narranexus.toml / NX_BIND__* / distribution binding. resolve(..., strict=False) records such slots in ResolvedBindings.unbound (also in the JSON snapshot) and installs everything else; strict=True (the default, what tests and tools use) keeps raising. BindingConflict is loud in both modes.

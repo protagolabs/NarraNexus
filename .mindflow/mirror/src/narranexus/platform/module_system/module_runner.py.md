@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-09-04（批 3c.1）— 端口表从贡献表派生
@@ -148,3 +148,7 @@ The registry view is the only module table; usages renamed.
 ## 2026-09-04 · `main(argv)` (batch 6a)
 
 The CLI block became `main(argv=None) -> int` so the one-release `xyz_agent_context` path shim (and any launcher) can call it; the moved module is `narranexus.platform.module_system.module_runner`.
+
+## 2026-09-07 — all_mcp_modules derives from module_registry at call time
+
+The MCP host used to mount CORE_MCP_MODULES (the platform's builtin table) plus ChannelModuleBase subclasses, computed at import — a plugin-contributed module with tools was never served and its tool calls 404'd silently. all_mcp_modules() now lists every module the registry knows when called (plugin modules included; the runner already skips a module whose mcp_server() is None, now at info level); the import-time DEFAULT_MCP_MODULES constant is gone.

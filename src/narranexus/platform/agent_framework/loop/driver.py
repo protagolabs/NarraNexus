@@ -22,7 +22,11 @@ Selection precedence (most specific wins):
   1. explicit ``framework`` arg to ``get_agent_loop_driver()``
      (the per-agent extension point — pass an agent-scoped choice here)
   2. env var ``AGENT_LOOP_FRAMEWORK``
-  3. ``DEFAULT_AGENT_LOOP_FRAMEWORK`` ("nexus_power")
+  3. the ``turn.pipeline.act.framework`` binding (``bound_default_framework()``:
+     distribution / narranexus.toml / NX_BIND__*), else the slot default
+     ``DEFAULT_AGENT_LOOP_FRAMEWORK`` ("nexus_power"). A binding that names a
+     framework that is not registered is a loud FrameworkNotInstalledError,
+     never a silent fallback.
 """
 
 from __future__ import annotations
@@ -109,8 +113,8 @@ def ensure_builtin_frameworks() -> None:
 
 
 def available_agent_loop_frameworks() -> list[str]:
-    ensure_builtin_frameworks()
     """Names of all registered frameworks (sorted, for stable logging)."""
+    ensure_builtin_frameworks()
     return sorted(FRAMEWORK_REGISTRY.names())
 
 
@@ -127,15 +131,22 @@ def resolve_framework_name(framework: str | None = None) -> str:
 def bound_default_framework() -> str:
     """The framework the ``turn.pipeline.act.framework`` binding names (a plugin id such as
     ``builtin.frameworks.claude_code`` → its registered framework name); the code default otherwise."""
-    from narranexus.kernel.plugins.bound import bound_layer, bound_provider
+    from narranexus.contracts import UnknownEntry
+    from narranexus.kernel.plugins.bound import bound_entry, bound_layer, bound_provider
 
     if bound_layer(KERNEL_REGISTRIES, "turn.pipeline.act.framework") == "DEFAULT":
-        return DEFAULT_AGENT_LOOP_FRAMEWORK
-    provider = bound_provider(KERNEL_REGISTRIES, "turn.pipeline.act.framework")
-    for entry in FRAMEWORK_REGISTRY.entries():
-        if entry.owner == provider or entry.name == provider:
-            return entry.name
-    return DEFAULT_AGENT_LOOP_FRAMEWORK
+        return DEFAULT_AGENT_LOOP_FRAMEWORK  # an UNBOUND slot legitimately means the code default
+    try:
+        return bound_entry(KERNEL_REGISTRIES, "turn.pipeline.act.framework").name
+    except UnknownEntry as exc:
+        # A misbinding must be loud, never a silent fallback: running the turn
+        # on nexus_power while the settings page says "Claude Code" is the
+        # substitution FrameworkNotInstalledError exists to refuse.
+        provider = bound_provider(KERNEL_REGISTRIES, "turn.pipeline.act.framework")
+        raise FrameworkNotInstalledError(
+            f"turn.pipeline.act.framework is bound to {provider!r} but no such framework is registered "
+            f"({exc}); install/enable that plugin or remove the binding"
+        ) from exc
 
 
 def get_agent_loop_driver(

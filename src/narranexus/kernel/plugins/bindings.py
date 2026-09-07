@@ -90,12 +90,16 @@ class BoundMany:
 class ResolvedBindings:
     one: dict[str, Bound] = field(default_factory=dict)
     many: dict[str, BoundMany] = field(default_factory=dict)
+    # one-arity slots that had neither a binding nor a default (only populated
+    # by ``resolve(..., strict=False)``; strict resolution raises instead)
+    unbound: list[str] = field(default_factory=list)
 
     def provider_for(self, path: str) -> str:
         return self.one[path].provider
 
     def to_json(self) -> dict[str, Any]:
         return {
+            "unbound": list(self.unbound),
             "one": {
                 p: {"provider": b.provider, "layer": b.layer.name, "origin": b.origin}
                 for p, b in sorted(self.one.items())
@@ -172,11 +176,18 @@ def resolve(
     sources: Iterable[BindingSource],
     *,
     redeclarations: Mapping[str, Iterable[str]] | None = None,
+    strict: bool = True,
 ) -> ResolvedBindings:
     """Combine the layers over the slot tree.
 
     ``redeclarations`` maps a provider plugin id to the child slot paths it
     keeps alive when it fills a composite slot (manifest ``redeclares``).
+
+    ``strict=False`` records a one-arity slot with neither binding nor default
+    in ``ResolvedBindings.unbound`` instead of raising ``UnboundSlot`` — the
+    host uses it so one unbound slot (a plugin declaring a defaultless slot)
+    cannot silently void every other binding the operator wrote. Conflicts
+    (``BindingConflict``) are loud in both modes.
     """
     redeclared: dict[str, set[str]] = {k: set(v) for k, v in (redeclarations or {}).items()}
     ordered = sorted(sources, key=lambda s: s.layer)
@@ -197,7 +208,12 @@ def resolve(
     for path in tree.paths():
         slot = tree.get(path)
         if slot.arity == "one":
-            resolved.one[path] = _resolve_one(slot, ordered)
+            try:
+                resolved.one[path] = _resolve_one(slot, ordered)
+            except UnboundSlot:
+                if strict:
+                    raise
+                resolved.unbound.append(path)
         else:
             resolved.many[path] = _resolve_many(slot, ordered)
 

@@ -552,10 +552,11 @@ class ContextRuntime:
         _prefix_bucket_hashes) and is optional so existing callers/tests that
         only care about sizes keep working.
         """
-        parts_str = " ".join(
-            f"{name}={part_sizes.get(name, 0)}"
-            for name in ("security", "temporal", "narrative", "modules", "bootstrap", "turn_context")
-        )
+        # The section set is whatever the prompt.sections registry rendered
+        # (a plugin section shows up here by its id), in emitted order, plus the
+        # runtime-appended parts (turn_context, reply_language). The six builtin
+        # ids keep their names so existing grep one-liners still match.
+        parts_str = " ".join(f"{name}={size}" for name, size in part_sizes.items())
         # ALL module instruction sizes — not just the top few — so the per-turn
         # grower (a module whose contribute_instructions embeds accumulating ctx_data)
         # is identifiable by diffing this list across rounds.

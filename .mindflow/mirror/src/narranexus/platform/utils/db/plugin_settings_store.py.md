@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/utils/db/plugin_settings_store.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -12,3 +12,7 @@ stub: false
 放在 `utils/db` 而不是内核，因为内核禁止 import `xyz_agent_context`（secret_box 在市场实现包里）。
 
 Batch 6 fix: without an injected client the store runs every operation on a private long-lived loop thread (`_PrivateLoop`) with that loop's own `get_db_client()`, so the sync `SettingsStore` protocol works from the host event-loop thread (plugin activation) and from plain sync code without touching the host's loop-bound client; an injected client keeps the previous `_run` behaviour.
+
+## 2026-09-07 — updated_at refreshed on update
+
+save_async writes updated_at on the update path; the column existed but only ever held the insert time.

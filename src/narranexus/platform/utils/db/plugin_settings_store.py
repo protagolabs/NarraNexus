@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import json
+
+from narranexus.platform.utils.timezone import utc_now
 from typing import Any, Awaitable, Mapping, TypeVar
 
 from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import SecretBox, get_secret_box
@@ -121,7 +123,7 @@ class DbSettingsStore:
         existing = await db.get_one(TABLE, {"plugin_id": plugin_id, "key": key})
         data = {"value_json": stored, "is_secret": 1 if secret else 0}
         if existing:
-            await db.update(TABLE, {"plugin_id": plugin_id, "key": key}, data)
+            await db.update(TABLE, {"plugin_id": plugin_id, "key": key}, {**data, "updated_at": utc_now()})
         else:
             await db.insert(TABLE, {"plugin_id": plugin_id, "key": key, **data})
 

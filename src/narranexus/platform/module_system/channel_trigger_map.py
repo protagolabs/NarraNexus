@@ -74,6 +74,9 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
         self._registries = registries
         self._overrides: dict[str, type[ChannelTriggerBase]] = {}
         self._hidden: set[str] = set()  # registry names deleted through the override layer
+        self._cache: dict[str, type[ChannelTriggerBase]] | None = None
+        self._cache_key: tuple = ()
+        self._warned: set[tuple[str, str]] = set()  # (name, error) already logged
 
     def _registry(self):
         regs = self._registries
@@ -84,15 +87,34 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
         return regs.registry_for(TRIGGERS_SLOT)
 
     def _build(self) -> dict[str, type[ChannelTriggerBase]]:
+        # Cached on the registry's name tuple (see ModuleRegistry / _ChannelSpecs):
+        # every items()/len()/in call used to re-resolve every trigger spec and
+        # re-warn about every unavailable one.
+        registry = self._registry()
+        key = registry.names()
+        if self._cache is not None and key == self._cache_key:
+            loaded = dict(self._cache)
+        else:
+            loaded = self._resolve_all(registry)
+            self._cache, self._cache_key = dict(loaded), key
+        for name in self._hidden:
+            loaded.pop(name, None)
+        loaded.update(self._overrides)
+        return loaded
+
+    def _resolve_all(self, registry: Any) -> dict[str, type[ChannelTriggerBase]]:
         loaded: dict[str, type[ChannelTriggerBase]] = {}
-        for entry in self._registry().entries():
+        for entry in registry.entries():
             try:
                 spec = entry.factory()
                 if spec.host != "channels":
                     continue
                 cls = spec.resolve()
             except Exception as e:  # noqa: BLE001 — missing dep / import error in one channel
-                logger.warning(f"channel trigger {entry.name!r} unavailable, skipped ({type(e).__name__}: {e})")
+                signature = (entry.name, f"{type(e).__name__}: {e}")
+                if signature not in self._warned:
+                    self._warned.add(signature)
+                    logger.warning(f"channel trigger {entry.name!r} unavailable, skipped ({type(e).__name__}: {e})")
                 continue
             if cls.channel_name != spec.name:
                 logger.error(f"channel trigger {entry.name!r}: spec name != class channel_name {cls.channel_name!r}; skipped")
@@ -101,9 +123,6 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
 
             WorkingSource.register(cls.channel_name)  # plugin channels name their own inbound source
             loaded[cls.channel_name] = cls
-        for name in self._hidden:
-            loaded.pop(name, None)
-        loaded.update(self._overrides)
         return loaded
 
     def __setitem__(self, name: str, cls: Any) -> None:

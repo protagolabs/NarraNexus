@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/channel/channel_module_base.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 
 ## 2026-08-19 — plain-text（巡查）回合不声明任何回复工具
@@ -133,3 +133,7 @@ A channel module declares `mcp_server_name` only; `mcp_server` advertises `mcp_s
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+## 2026-09-07 — cleanup_for_agent purges the retired per-channel credential table; per-channel stats key
+
+Batch 4d switched reads to channel_credentials but kept the legacy tables; deleting an agent left its pre-cutover bot token / app secret behind. The cleanup now also deletes the agent's rows from this channel's LegacyTable (credential_legacy.LEGACY_TABLES is the one list), best-effort so an install without the table still deletes the agent. The deletion stat is keyed channel_credentials.<channel> so six channels no longer collapse into one count in the report.

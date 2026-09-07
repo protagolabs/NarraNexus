@@ -233,7 +233,21 @@ class ChannelModuleBase(XYZBaseModule):
                     await db.delete("bus_messages", {"channel_id": cid})
                     await db.delete("bus_channels", {"channel_id": cid})
             if await store.unbind(self.channel_name, agent_id):
-                stats["channel_credentials"] = 1
+                stats[f"channel_credentials.{self.channel_name}"] = 1
+            # Pre-cutover rows in the retired per-channel table (batch 4d kept
+            # the tables; rule: never drop data in a migration) still hold the
+            # bot token / app secret. "Delete my agent" must delete them too.
+            # Best-effort: an install that never had the table must not fail
+            # the deletion.
+            from narranexus.platform.channel.credential_legacy import LEGACY_TABLES
+
+            for legacy in LEGACY_TABLES:
+                if legacy.channel != self.channel_name:
+                    continue
+                try:
+                    await db.delete(legacy.table, {"agent_id": agent_id})
+                except Exception as e:  # noqa: BLE001 — table absent on a fresh install
+                    logger.debug(f"{type(self).__name__} cleanup_for_agent: legacy table {legacy.table} not purged: {e}")
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"{type(self).__name__} cleanup_for_agent failed: {e}"

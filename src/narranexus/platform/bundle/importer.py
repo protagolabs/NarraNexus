@@ -344,7 +344,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
             cred_payload = json.loads(cred_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        from narranexus.platform.channel.credential_store import GenericCredentialStore
+        from narranexus.platform.channel.credential_store import GenericCredentialStore, UnknownChannel
 
         cred_store = GenericCredentialStore(db)
         for crow in _credential_bundle_rows(cred_payload):
@@ -353,7 +353,11 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
                 continue
             try:
                 bound = await cred_store.find_one(str(channel), external_id=str(external))
-            except Exception:  # noqa: BLE001 — a channel this install does not know
+            except UnknownChannel:
+                # a channel this install does not know: nothing to clash with.
+                # Anything else (DB error, unreadable row) propagates — preflight
+                # is a dry run and may fail loudly; a "no conflicts" answer
+                # produced by a swallowed error would be false consent.
                 bound = None
             if bound is not None:
                 credential_clashes.append({

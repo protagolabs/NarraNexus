@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from backend.routes._ownership import check_owned
 from narranexus.contracts.channel import ChannelDescriptor
-from narranexus.platform.channel.credential_store import GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
+from narranexus.platform.channel.credential_store import CredentialConflict, GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
 from narranexus.platform.channel.webhook_inbox import WebhookInbox
 from narranexus.platform.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
 
@@ -114,7 +114,10 @@ async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[s
         kept = existing.secret.get(SECRET_FIELD) if existing else None
         fields[SECRET_FIELD] = kept or new_webhook_secret()
         issued_secret = None if kept else fields[SECRET_FIELD]  # shown once, at first bind
-    record = await GenericCredentialStore(db).upsert(channel, body.agent_id, fields, enabled=True)
+    try:
+        record = await GenericCredentialStore(db).upsert(channel, body.agent_id, fields, enabled=True)
+    except CredentialConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict)) from None
     logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
     data = record.to_public_dict()
     if d.transport == "webhook":

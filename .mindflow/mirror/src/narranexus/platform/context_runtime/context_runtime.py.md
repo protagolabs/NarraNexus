@@ -553,3 +553,7 @@ signature mismatch。
 The tool-surface loop asks each module for its `ToolSurface` once (MCP server → identity headers, suppressed tools, declared reply tools, origin-first by `claims_source`); the three separate calls and their fail-open arms moved into `XYZBaseModule.contribute_tools`. `gather` / `contribute_instructions` / `contribute_turn_context` are the renamed hooks.
 
 2026-09-07: `build_complete_system_prompt` renders the `prompt.sections` providers into a `PromptContext` and joins them with the bound `prompt.assembler` (platform/prompt_slots); the five former inline parts live in builtin.prompts. Part sizes / narrative meta / the dump keep their shape.
+
+## 2026-09-07 — [SYSPROMPT-BREAKDOWN] parts follow the section registry
+
+The parts= field is rendered from part_sizes in emitted order instead of six hardcoded ids: a plugin-contributed prompt section appears by its id and a renamed builtin section can no longer read =0 forever. The six builtin ids and the prefix-bucket hashes / ctx_sha256 are unchanged, so existing grep one-liners still match.

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/module_system/_module_impl/instance_decision.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 # instance_decision.py — LLM 驱动的 Module Instance 智能决策
@@ -34,3 +34,7 @@ protocol-agnostic 分发，底层框架 / provider 可换而本文件不动。�
 ## 2026-09-04 · overview generated from declarations (batch 5b.2)
 
 `module_overview_text()` renders the prompt's "Module System Overview" (capability modules with display/decision/default, task modules) from `module_configs()`; the `== "JobModule"` check is `is_task_module` (lazy import — the module package imports this file).
+
+## 2026-09-07 — is_task_module shim de-duplicated
+
+The lazy is_task_module shim existed verbatim here and in services/instance_sync_service.py; this file now imports the one in instance_sync_service.

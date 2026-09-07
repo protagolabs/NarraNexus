@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/module_system/data_access/channel_store.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
 ## 2026-08-11 (三轮审查) — 写失败信封用稳定错误码，不泄漏 DB 连接文本
 
@@ -79,3 +79,7 @@ Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents
 ## 2026-09-04 · no narramessenger special case (batch 4e)
 
 `display_name` is the descriptor's for every channel; NarraMessenger's unbind goes through its service (`unbind_service`), so the old "" special case was dead.
+
+## 2026-09-07 — _ChannelSpecs: per-entry isolation and a cache keyed on registry state
+
+One descriptor factory that raised made CHANNELS/SUPPORTED_CHANNELS raise and 500'd the generic credential endpoint for every channel; now a broken descriptor is logged and absent (fail closed for that channel only, mirroring TriggerMapView). The built dict is cached on the registry's name tuple (ModuleRegistry's pattern) so a per-request membership test no longer re-resolves every descriptor N+1 times; WorkingSource.register therefore runs once per registry state, not once per read.

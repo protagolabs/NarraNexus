@@ -42,8 +42,8 @@ def verify_webhook(secret: str, body: bytes, headers: Mapping[str, str], query_t
         return False
     lowered = {k.lower(): v for k, v in headers.items()}
     token = lowered.get(TOKEN_HEADER) or query_token or ""
-    if token and hmac.compare_digest(token, secret):
-        return True
+    if token and hmac.compare_digest(token.encode("utf-8"), secret.encode("utf-8")):
+        return True  # bytes: a non-ASCII header value is a 401, not a TypeError 500
     signature = lowered.get(SIGNATURE_HEADER, "")
     if signature.startswith("sha256="):
         expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()

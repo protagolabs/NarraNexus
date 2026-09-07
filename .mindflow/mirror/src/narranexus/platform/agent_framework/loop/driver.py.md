@@ -138,3 +138,7 @@ LangGraph、自研 loop）只需 `register_agent_loop_driver("name", Factory)`�
 Batch 6b.2b: `ensure_builtin_frameworks()` registers the three builtin framework contributions via the kernel manifest before any lookup; the platform holds no framework import.
 
 2026-09-07: `bound_default_framework()` — a `turn.pipeline.act.framework` binding names the default framework for agents without an explicit one (env `AGENT_LOOP_FRAMEWORK` still wins).
+
+## 2026-09-07 — bound_default_framework is loud on a misbinding
+
+The hand-rolled owner/name match with a bare 'return DEFAULT' fallback ran the turn on nexus_power when the bound framework was missing while the settings page said otherwise — the substitution FrameworkNotInstalledError exists to refuse. Now: an UNBOUND slot (layer DEFAULT) still means the code default; a bound-but-unregistered provider raises FrameworkNotInstalledError through kernel.plugins.bound.bound_entry (the one owner/name/owner:name matcher). Docstring precedence list updated; available_agent_loop_frameworks' docstring restored above the lazy call.

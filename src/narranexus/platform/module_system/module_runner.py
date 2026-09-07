@@ -126,15 +126,17 @@ def discover_channel_modules(module_map: dict) -> list[str]:
 
 
 def all_mcp_modules() -> list[str]:
-    """All MCP-bearing modules (core + every ChannelModuleBase subclass)."""
+    """Every module the registry knows at CALL time — builtin core, channel and
+    plugin-contributed alike (a plugin module that ships an MCP server is
+    served like any other; the runner skips a module whose ``mcp_server()``
+    answers None). Derived from ``module_registry``, never from the platform's
+    builtin table, and never at import: user plugins register at boot."""
     from narranexus.platform.module_system import module_registry
 
-    return list(CORE_MCP_MODULES) + discover_channel_modules(module_registry)
+    core = [name for name in module_registry if name not in discover_channel_modules(module_registry)]
+    return sorted(core) + discover_channel_modules(module_registry)
 
 
-# Computed once at import; if module_registry changes after import (rare), use
-# ``all_mcp_modules()`` instead.
-DEFAULT_MCP_MODULES = all_mcp_modules()
 
 
 
@@ -334,7 +336,7 @@ class ModuleRunner:
                 instances.append((config.server_name, mcp_server))
                 logger.info(f"{module_class.__name__} ready → {mcp_mount_path(config.server_name)}")
             else:
-                logger.warning(f"{module_class.__name__} has no MCP server")
+                logger.info(f"{module_class.__name__} has no MCP server")
 
         if not instances:
             logger.error("No MCP servers to run")

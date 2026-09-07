@@ -87,10 +87,7 @@ def _profile(profile_id: str, regs: Registries) -> PipelineProfile:
             register_builtin_provides(PROFILES_SLOT, regs)
         if profile_id in registry:
             return registry.get(profile_id)
-    try:
-        raise UnknownEntry(f"turn profile {profile_id!r} is not registered (turn.profiles)")
-    except KeyError:
-        raise UnknownEntry(f"pipeline profile {profile_id!r} is not registered") from None
+    raise UnknownEntry(f"turn profile {profile_id!r} is not registered (turn.profiles)")
 
 
 class TurnPipeline:
