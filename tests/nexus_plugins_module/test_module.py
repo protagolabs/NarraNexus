@@ -48,6 +48,47 @@ def test_config_tools_and_cloud_silence(env, monkeypatch):
     assert asyncio.run(module.mcp_server()) is None
 
 
+# Every tool's concrete expected shape for THIS fixture's initial (empty)
+# plugin state, driven through the real MCP `call_tool` boundary (not the
+# service directly, as `tests/nexus_plugins_module/test_flow.py` does) — a
+# wrapper-level regression in `_nexus_plugins_impl/tools.py` (wrong service
+# method, swallowed return value, mis-forwarded args) would pass a plain
+# "json.loads doesn't raise" check but fails these. Success-path tools assert
+# the returned key set and NOT `error`; guard/error-path tools assert the
+# CONCRETE, stable substring of the message (not the whole message — paths
+# like the tmp workspace vary per test run) so a different failure mode
+# (e.g. the guard firing for the wrong reason) is caught. The five
+# self-awareness tools (platform_overview/platform_slots/contract_docs/
+# agent_self/capability_set) have their positive paths covered in depth by
+# plugins/builtin.nexus_plugins_module/tests/test_awareness_tools.py; only
+# `capability_set`'s error path (unowned agent) is asserted here since that
+# is the shape this fixture's empty DB actually produces.
+SUCCESS_KEYS = {
+    "plugin_list": {"registered", "drafts", "safe_mode", "pending_proposals", "slots"},
+    "plugin_docs": {"routes", "_workflow"},
+    "plugin_diff": {"plugin_id", "registered", "tree_hash"},
+    "plugin_install": {"proposal_id", "status"},
+    "plugin_publish_hint": {"plugin_id", "checklist_problems", "steps", "note"},
+    "plugin_validate": {"ok", "plugin_id", "problems", "mismatches"},
+    "platform_overview": {"host_version", "builtin_plugins", "slot_domains"},
+    "platform_slots": None,  # a bare list, not a dict
+    "contract_docs": {"kind", "stability", "slots", "contracts"},
+    "agent_self": {"agent", "capabilities", "model_slots", "prompt_sections"},
+}
+ERROR_SUBSTRINGS = {
+    "plugin_scaffold": "builtin. prefix is reserved",
+    "plugin_edit": "has no draft; scaffold it first",
+    "plugin_activate": "is not registered",
+    "plugin_observe": "is not registered",
+    "plugin_deactivate": "is not registered",
+    "plugin_upgrade": "is not registered",
+    "plugin_register": "run plugin_test first",
+    "plugin_rollback": "no last-known-good snapshot",
+    "plugin_test": "No such file or directory",
+    "capability_set": "only the agent's owner may change its capabilities",
+}
+
+
 @pytest.mark.parametrize("tool", sorted(TOOLS))
 def test_tools_answer_json_never_raise(env, tool, monkeypatch):
     module = NexusPluginsModule("a1", "u1", None)
@@ -69,4 +110,17 @@ def test_tools_answer_json_never_raise(env, tool, monkeypatch):
     content = result[0] if isinstance(result, tuple) else result  # (content, structured) on newer fastmcp
     first = content[0] if isinstance(content, list) else content.content[0]
     payload = first.text
-    json.loads(payload)
+    parsed = json.loads(payload)
+
+    if tool in ERROR_SUBSTRINGS:
+        assert isinstance(parsed, dict) and "error" in parsed, parsed
+        assert ERROR_SUBSTRINGS[tool] in parsed["error"], parsed
+    elif tool == "plugin_search":
+        assert isinstance(parsed, list)  # the official index (unreachable in test) degrades to no results, not an error
+    elif SUCCESS_KEYS.get(tool) is None:
+        assert isinstance(parsed, list)  # platform_slots: a bare list of domain groups
+    else:
+        assert isinstance(parsed, dict) and "error" not in parsed, parsed
+        assert SUCCESS_KEYS[tool] <= set(parsed.keys()), parsed
+        if tool == "plugin_validate":
+            assert parsed["ok"] is False and "narranexus-plugin.json is missing" in parsed["problems"]

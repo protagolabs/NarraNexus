@@ -185,7 +185,7 @@ async def _wait_for_messages(db_client, thread_id, count, timeout=5.0):
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
     """Redirect ``base_working_path`` so test attachments don't pollute
     ``~/.nexusagent/workspaces``. Returns the tmp root."""
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
 
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)

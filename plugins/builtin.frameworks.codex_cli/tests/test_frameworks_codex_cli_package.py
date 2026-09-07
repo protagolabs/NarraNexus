@@ -2,7 +2,7 @@
 @file_name: test_frameworks_codex_cli_package.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Package contract of `builtin.frameworks.codex_cli`: the manifest file equals the host's builtin manifest and every provided symbol resolves inside this package.
+@description: Package contract of `builtin.frameworks.codex_cli`: the manifest file equals the host's builtin manifest. Import isolation between builtin packages (no builtin may import another builtin's narranexus_plugins.* module) is enforced separately by the "builtin packages are independent (api facades excepted)" import-linter contract in pyproject.toml, not by this test.
 """
 from __future__ import annotations
 

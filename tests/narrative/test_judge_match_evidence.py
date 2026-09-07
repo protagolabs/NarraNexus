@@ -441,7 +441,7 @@ def test_dead_single_match_cluster_no_longer_exists():
         prompts,
         retrieval as narrative_retrieval,
     )
-    from xyz_agent_context import prompts_index
+    from narranexus.platform import prompts_index
 
     for name in ("llm_confirm", "NarrativeMatchOutput", "RelationType"):
         assert not hasattr(_retrieval_llm, name), f"_retrieval_llm.{name} still exists"

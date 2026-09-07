@@ -22,7 +22,7 @@ OWNER = {"X-User-Id": "owner1"}
 
 @pytest.fixture
 def client(monkeypatch, db_client, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
 
     app = FastAPI()

@@ -94,6 +94,29 @@ def test_sync_bridge_from_no_running_loop(tmp_path):
     store = DbSettingsStore(_Client(tmp_path / "s.db"), secret_box=SecretBox(Fernet.generate_key()))
     settings = PluginSettings("acme.weather", SCHEMA, store=store, environ={})
     settings.set("api_key", "sk-2")
+    settings.set("retries", 9)
     again = PluginSettings("acme.weather", SCHEMA, store=store, environ={})
     assert again.get("api_key") == "sk-2"
-    assert asyncio.get_event_loop_policy() is not None
+    assert again.get("retries") == 9
+
+    # The claim under test: the sync bridge (`_run()` in
+    # plugin_settings_store.py, called with no running loop) must create and
+    # tear down its OWN private loop per call, never leaking a
+    # thread/loop or leaving this thread's ambient asyncio state broken.
+    # Prove it two ways: (1) repeated calls in a tight loop don't accumulate
+    # threads — a regression that started spawning a worker thread per call
+    # (e.g. always routing through the "inside a running loop" hop) would show
+    # up as thread growth; (2) an independent asyncio.run() driven right
+    # after the bridge calls still works — a regression that left a running
+    # or closed loop registered as this thread's default would break it.
+    import threading
+
+    before = threading.active_count()
+    for i in range(10):
+        settings.set("retries", i)
+    assert threading.active_count() == before, "sync bridge leaked a thread per call"
+
+    async def _probe() -> str:
+        return "ok"
+
+    assert asyncio.run(_probe()) == "ok"

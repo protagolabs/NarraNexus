@@ -463,7 +463,12 @@ def test_builtin_toolset_order_is_deterministic(ctx):
     groups = frozenset({"files", "shell", "context"})
     a = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
     b = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
-    assert a == b and len(a) > 0
+    # Hand-written literal, not a second call to the same code path: if
+    # registration order were ever "fixed" to alphabetical (or any other
+    # derived order), `a == b` alone would stay green while silently
+    # breaking prompt-cache-friendly ordering.
+    assert a == ["read_file", "write_file", "edit_file", "glob", "grep", "ls", "bash"]
+    assert a == b
 
 
 def test_mcp_channel_registers_batches_append_only():

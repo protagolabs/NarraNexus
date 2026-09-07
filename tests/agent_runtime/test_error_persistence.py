@@ -116,17 +116,3 @@ async def test_llm_resolver_error_persists_final_output_on_event(
     env_ctx = _json.loads(event_row["env_context"])
     assert env_ctx["input"].startswith("hello")
 
-
-@pytest.mark.asyncio
-async def test_successful_run_not_affected(
-    db_client, monkeypatch,
-):
-    """Sanity — when resolution succeeds, the error-branch persist logic
-    never fires. (If we later tighten behaviour so this test needs to
-    change, it's a signal we affected the happy path.)"""
-    # This is a non-test: without a full LLM config + MCP subsystem
-    # available in tests, the run cannot complete successfully. We rely
-    # on the provider-resolution tests + existing regression suite to
-    # cover the happy path. Placeholder test kept as documentation of
-    # intent.
-    assert True

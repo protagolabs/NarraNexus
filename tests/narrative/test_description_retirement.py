@@ -327,7 +327,7 @@ def test_every_raw_description_read_is_on_the_allow_list() -> None:
     import re
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2] / "src" / "xyz_agent_context" / "narrative"
+    root = Path(__file__).resolve().parents[2] / "src" / "narranexus" / "platform" / "narrative"
     allowed = {
         # renders into the AGENT's own context prompt, including the cacheable
         # stable prefix. Applying retirement there is a bigger behavioural
@@ -346,8 +346,13 @@ def test_every_raw_description_read_is_on_the_allow_list() -> None:
         "exporters.py",
     }
     pattern = re.compile(r"narrative_info\.description")
+    scanned = list(root.rglob("*.py"))
+    assert len(scanned) >= 20, (
+        f"scan root {root} yielded only {len(scanned)} files — the narrative "
+        "package moved again and this guard is scanning the wrong directory"
+    )
     found = set()
-    for f in root.rglob("*.py"):
+    for f in scanned:
         for line in f.read_text(encoding="utf-8").splitlines():
             if line.lstrip().startswith("#"):
                 continue

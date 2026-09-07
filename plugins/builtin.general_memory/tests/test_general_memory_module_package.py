@@ -2,7 +2,7 @@
 @file_name: test_general_memory_module_package.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Package contract of `builtin.general_memory`: the manifest file equals the host's builtin manifest, the facade resolves the module class, and the package imports only the engine.
+@description: Package contract of `builtin.general_memory`: the manifest file equals the host's builtin manifest, the facade resolves the module class. Import isolation between builtin packages (no builtin may import another builtin's narranexus_plugins.* module) is enforced separately by the "builtin packages are independent (api facades excepted)" import-linter contract in pyproject.toml, not by this test.
 """
 from __future__ import annotations
 

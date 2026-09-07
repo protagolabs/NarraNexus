@@ -17,7 +17,7 @@ from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.channel import credential_codec
 from narranexus.platform.channel.credential_legacy import LEGACY_BY_TABLE, copy_legacy_tables
-from narranexus.platform.channel.credential_store import TABLE, GenericCredentialStore, UnknownChannel, missing_required, split_values
+from narranexus.platform.channel.credential_store import TABLE, CredentialConflict, GenericCredentialStore, UnknownChannel, missing_required, split_values
 from narranexus.platform.module_system.contributions import register_all
 
 PLUGIN = ChannelDescriptor(
@@ -91,8 +91,13 @@ async def test_store_crud_and_secret_at_rest(db_client, regs):
 async def test_external_id_is_unique_per_channel(db_client, regs):
     store = GenericCredentialStore(db_client, regs)
     await store.upsert("acme_chat", "a1", {"bot_token": "t", "bot_id": "same", "workspace": "w"})
-    with pytest.raises(Exception):
+    with pytest.raises(CredentialConflict, match="already bound to another agent"):
         await store.upsert("acme_chat", "a2", {"bot_token": "t", "bot_id": "same", "workspace": "w"})
+    # the losing row must not have been written — a broad `except Exception`
+    # (any unrelated failure: a missing column, a changed signature raising
+    # TypeError) would satisfy `pytest.raises(Exception)` while silently
+    # leaving a2's row committed if the guard were ever relaxed.
+    assert await store.get("acme_chat", "a2") is None
 
 
 @pytest.mark.asyncio

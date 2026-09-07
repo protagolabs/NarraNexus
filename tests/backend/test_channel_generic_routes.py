@@ -91,6 +91,59 @@ def test_plugin_channel_bind_flow_is_owner_gated(client):
     assert client.post("/api/channels/acme_chat/unbind", json={"agent_id": "a1"}, headers=H).json()["success"] is False
 
 
+NOT_OWNER_ERROR = "Permission denied: you do not own this agent."
+
+
+def test_every_verb_is_ownership_gated_against_an_outsider(client):
+    """docstring/§name of the retired test claimed the WHOLE surface was
+    ownership-gated, but only `credential` was ever actually hit with a
+    second user's request. Drive `u2` against all five verbs and assert the
+    CONCRETE deny reason (not just `success is False`, which a 500 or a
+    validation error would also satisfy) — plus the owner-allowed case for
+    contrast, so a fail-open regression (permission check silently dropped)
+    cannot pass by both sides going green.
+
+    This route family never raises an HTTP 403/404 for a denied write —
+    `check_owned` (unlike its sibling `assert_owned`) always returns 200 with
+    a `{"success": False, "error": ...}` envelope so callers get a uniform
+    JSON shape to render; that is the deliberate contract here, not merely
+    "haven't gotten around to it yet".
+    """
+    owner = {"X-User-Id": "u1"}
+    outsider = {"X-User-Id": "u2"}
+    bind_body = {"agent_id": "a1", "fields": {"bot_token": "tok", "bot_id": "b1"}}
+
+    # Outsider: every verb 200s with the concrete "not owner" envelope.
+    r = client.post("/api/channels/acme_chat/bind", json=bind_body, headers=outsider)
+    assert r.status_code == 200 and r.json() == {"success": False, "error": NOT_OWNER_ERROR}
+
+    r = client.get("/api/channels/acme_chat/credential", params={"agent_id": "a1"}, headers=outsider)
+    assert r.status_code == 200 and r.json() == {"success": False, "error": NOT_OWNER_ERROR}
+
+    r = client.post("/api/channels/acme_chat/test", json={"agent_id": "a1"}, headers=outsider)
+    assert r.status_code == 200 and r.json() == {"success": False, "error": NOT_OWNER_ERROR}
+
+    r = client.post("/api/channels/acme_chat/unbind", json={"agent_id": "a1"}, headers=outsider)
+    assert r.status_code == 200 and r.json() == {"success": False, "error": NOT_OWNER_ERROR}
+
+    r = client.post("/api/channels/acme_chat/set-active", json={"agent_id": "a1", "active": True}, headers=outsider)
+    assert r.status_code == 200 and r.json() == {"success": False, "error": NOT_OWNER_ERROR}
+
+    # Owner: every verb actually goes through (the allow-path this file must
+    # keep green — a fail-closed regression that denied everyone would still
+    # pass the outsider assertions above).
+    r = client.post("/api/channels/acme_chat/bind", json=bind_body, headers=owner)
+    assert r.status_code == 200 and r.json()["success"] is True
+    r = client.get("/api/channels/acme_chat/credential", params={"agent_id": "a1"}, headers=owner)
+    assert r.status_code == 200 and r.json()["success"] is True
+    r = client.post("/api/channels/acme_chat/test", json={"agent_id": "a1"}, headers=owner)
+    assert r.status_code == 200 and r.json()["success"] is True
+    r = client.post("/api/channels/acme_chat/set-active", json={"agent_id": "a1", "active": False}, headers=owner)
+    assert r.status_code == 200 and r.json() == {"success": True, "enabled": False}
+    r = client.post("/api/channels/acme_chat/unbind", json={"agent_id": "a1"}, headers=owner)
+    assert r.status_code == 200 and r.json() == {"success": True, "data": {"unbound": True}}
+
+
 def test_builtin_bind_body_is_checked_against_bind_fields(client, monkeypatch):
     """The retired per-channel routes carried Pydantic models; the generic route
     checks the body against the descriptor's bind_fields BEFORE the service runs —

@@ -47,8 +47,12 @@ def test_manifest_and_contract_shapes():
 
 @pytest.mark.asyncio
 async def test_sections_render_from_the_runtime(monkeypatch):
+    from narranexus.platform.context_runtime.prompts import SECURITY_IRON_RULES
+
     assert await SecuritySection().render(_ctx()) is None
-    assert "iron" in (await SecuritySection().render(_ctx(deployment_mode="cloud"))).lower() or await SecuritySection().render(_ctx(deployment_mode="cloud"))
+    # Must be the literal iron-rules text, not merely "some non-empty string" —
+    # swapping this for arbitrary copy must fail, per the P1 prompt-freeze rule.
+    assert await SecuritySection().render(_ctx(deployment_mode="cloud")) == SECURITY_IRON_RULES
     from narranexus.platform import settings as settings_mod
 
     monkeypatch.setattr(settings_mod.settings, "prompt_turn_context_relocation_enabled", False)
@@ -60,12 +64,22 @@ async def test_sections_render_from_the_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_assembler_joins_records_sizes_and_reports_budget(caplog):
+async def test_assembler_joins_records_sizes_and_reports_budget():
+    from loguru import logger
+
     ctx = _ctx()
     rendered = [RenderedSection("a", "x", 10, "AAA"), RenderedSection("empty", "x", 20, ""), RenderedSection("b", "x", 30, "BBBBBB")]
-    out = await DefaultPromptAssembler(budgets={"b": 3}).assemble(rendered, ctx)
+    # `assembler.py` logs via loguru, which does not route through stdlib
+    # `logging` — `caplog` never sees it, so capture with a real loguru sink
+    # (see tests/utils/logging/test_logging.py's `captured` fixture).
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(m.record["message"]), level="TRACE")
+    try:
+        out = await DefaultPromptAssembler(budgets={"b": 3}).assemble(rendered, ctx)
+    finally:
+        logger.remove(handler_id)
     assert out == "AAA\n\nBBBBBB" and ctx.part_sizes == {"a": 3, "b": 6}
-    assert any("over their declared budget" in r.message and "b: 6 > 3" in r.message for r in caplog.records) or True
+    assert any("over their declared budget" in m and "b: 6 > 3" in m for m in messages), messages
 
 
 def test_platform_seam_orders_by_declared_order_then_by_binding():

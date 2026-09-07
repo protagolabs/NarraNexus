@@ -35,7 +35,9 @@ def test_channel_map_is_a_live_view_over_the_registry():
     assert "lark" not in view and set(view) == ALL_CHANNELS - {"lark"}
 
 
-def test_channel_map_skips_a_trigger_whose_import_fails(caplog):
+def test_channel_map_skips_a_trigger_whose_import_fails():
+    from loguru import logger
+
     from narranexus.contracts.trigger import TriggerSpec
     from narranexus.kernel.plugins.registry import Contribution
 
@@ -43,9 +45,20 @@ def test_channel_map_skips_a_trigger_whose_import_fails(caplog):
     regs.registry_for(TRIGGERS_SLOT).register_contribution(
         Contribution("ghost", lambda: TriggerSpec("ghost", "nx.missing_dep:GhostTrigger")), owner="acme.ghost"
     )
-    view = TriggerMapView(regs)
-    assert "ghost" not in view and set(view) == ALL_CHANNELS
-    assert "ghost" in caplog.text or True  # loguru does not route through caplog; presence is asserted above
+    # loguru does not route through stdlib `logging`, so `caplog` never sees
+    # it — capture with a real loguru sink instead (see
+    # tests/utils/logging/test_logging.py's `captured` fixture for the
+    # pattern) so the warning this test claims to assert on is actually read.
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(m.record["message"]), level="TRACE")
+    try:
+        view = TriggerMapView(regs)
+        assert "ghost" not in view and set(view) == ALL_CHANNELS
+    finally:
+        logger.remove(handler_id)
+    assert any("ghost" in m for m in messages), (
+        f"expected a warning naming the skipped 'ghost' trigger; got: {messages}"
+    )
 
 
 def test_jobs_is_a_builtin_trigger_worker_in_its_historical_slot():

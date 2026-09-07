@@ -157,10 +157,33 @@ def test_no_site_composes_an_archive_path_by_hand():
     this bug class actually recurs in — it is not a proof of absence, so do not
     skip a manual sweep because it is green.
     """
+    from tests._paths import engine_source_roots
+
+    def _find_bundle_package() -> Path:
+        """Locate the bundle package under any engine source root.
+
+        Batch 6 moved this package from ``src/xyz_agent_context/bundle`` to
+        ``src/narranexus/platform/bundle``; walking every engine source root
+        (rather than hard-coding one path) means the next move fixes this
+        guard by fixing ``tests/_paths.py`` instead of going silently blind.
+        """
+        for root in engine_source_roots():
+            for candidate in root.rglob("bundle"):
+                if candidate.is_dir() and (candidate / "skill_backup.py").is_file():
+                    return candidate
+        raise AssertionError(
+            "could not find the bundle package (with skill_backup.py) under "
+            "any engine source root — this guard has nothing left to scan"
+        )
+
     suspects = [
         REPO_ROOT / "backend" / "routes" / "bundle.py",
-        *sorted((REPO_ROOT / "src" / "xyz_agent_context" / "bundle").glob("*.py")),
+        *sorted(_find_bundle_package().glob("*.py")),
     ]
+    assert len(suspects) >= 10, (
+        f"only {len(suspects)} suspect file(s) found — the bundle package "
+        "moved again and this guard is scanning far fewer files than it should"
+    )
 
     def _is_path_composition(line: str) -> bool:
         if "archive_target(" in line:  # the sanctioned builders

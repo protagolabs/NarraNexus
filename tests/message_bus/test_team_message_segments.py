@@ -224,9 +224,19 @@ def test_bus_messages_are_never_updated_in_place():
     """
     import pathlib
 
+    from tests._paths import iter_engine_py_files
+
     root = pathlib.Path(__file__).resolve().parents[2]
+    # Batch 6 moved the message-bus and teams packages out of src/ and
+    # backend/ into plugins/*/src — scanning only the old two roots would
+    # miss an in-place update written inside a plugin package entirely.
+    scanned = list(iter_engine_py_files())
+    assert len(scanned) >= 500, (
+        f"only {len(scanned)} engine files scanned — the engine source roots "
+        "shrank and this guard is scanning far less than the codebase"
+    )
     offenders = []
-    for path in list((root / "src").rglob("*.py")) + list((root / "backend").rglob("*.py")):
+    for path in scanned:
         text = path.read_text(encoding="utf-8", errors="ignore")
         if 'update("bus_messages"' in text or "update('bus_messages'" in text:
             offenders.append(str(path.relative_to(root)))

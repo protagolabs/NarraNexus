@@ -162,7 +162,12 @@ def test_disabling_builtin_job_removes_its_twin_routes_and_provider(tmp_path, mo
     mount_plugin_routes(app, regs)
     client = TestClient(app)
     assert client.get("/api/agents/a1/jobs/j1").status_code == 404
-    assert client.get("/api/agents/a1/narratives/n1").status_code != 404  # basic_info's twin is still mounted
+    # basic_info's twin is still mounted: the request reaches the handler
+    # and gets its normal 200 + `{"success": false, ...}` not-found
+    # envelope, not FastAPI's catch-all 404 for an unrouted path — a 500
+    # or any other non-404 status would also satisfy "!= 404".
+    r = client.get("/api/agents/a1/narratives/n1")
+    assert r.status_code == 200 and r.json() == {"success": False, "error": "narrative n1 not found"}
 
 
 def test_core_router_no_longer_includes_the_twins():

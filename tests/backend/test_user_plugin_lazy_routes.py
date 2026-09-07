@@ -72,3 +72,37 @@ def test_plugin_without_loaded_routes_answers_503_and_builtins_are_ignored():
 def test_cloud_mounts_nothing(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     assert mount_user_plugin_routes(FastAPI(), Registries()) == {}
+
+
+def test_lazy_router_is_wired_behind_the_real_auth_middleware():
+    """The two other tests in this file build a bare ``FastAPI()`` with no
+    auth middleware at all, so they cannot tell "wired correctly behind the
+    real middleware stack" from "wired outside it entirely, unauthenticated
+    end to end" — both look identical with no middleware installed. Mount
+    with `backend.auth.auth_middleware` for real (as `test_lazy_router.py`
+    does for the lower-level `mount_lazy_router`) and prove the unauthenticated
+    request 401s before the plugin's own router ever runs.
+    """
+    from backend.auth import auth_middleware
+
+    regs = Registries()
+    register_all(regs)
+    r1 = APIRouter()
+
+    @r1.get("/hello")
+    async def hello():
+        return {"hi": "acme"}
+
+    regs.registry_for("backend.routes").register_contribution(
+        Contribution("main", lambda: RouterSpec(r1, "/api/x/acme.auth")), owner="acme.auth"
+    )
+    app = FastAPI()
+    app.middleware("http")(auth_middleware)
+    mount_user_plugin_routes(app, regs, manifests=[_manifest("acme.auth", {"backend.routes": ["nxplugins.acme_auth:ROUTES"]})])
+    client = TestClient(app)
+
+    r = client.get("/api/x/acme.auth/hello")
+    assert r.status_code == 401
+
+    r = client.get("/api/x/acme.auth/hello", headers={"X-User-Id": "u1"})
+    assert r.status_code == 200 and r.json() == {"hi": "acme"}

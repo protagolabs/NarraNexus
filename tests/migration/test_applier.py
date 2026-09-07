@@ -225,10 +225,10 @@ async def test_hurried_apply_skips_the_llm_but_still_imports_every_session(
     one LLM call per remaining session. Marking the import id makes the applier
     take the deterministic summary path — every session still lands, and the
     result says how many were degraded."""
-    from xyz_agent_context.migration import hurry
-    import xyz_agent_context.migration.applier as applier_mod
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
-    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    from narranexus.platform.migration import hurry
+    import narranexus.platform.migration.applier as applier_mod
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.repository.event_memory_repository as emr_mod
 
     async def _no_defaults(self, aid, uid):
         return {"installed": [], "skipped": [], "failed": []}
@@ -266,9 +266,9 @@ async def test_hurried_apply_skips_the_llm_but_still_imports_every_session(
 @pytest.mark.asyncio
 async def test_unhurried_apply_still_summarizes(db_client, workspace, monkeypatch):
     """Guard the other direction: without a mark, nothing degrades."""
-    import xyz_agent_context.migration.applier as applier_mod
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
-    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    import narranexus.platform.migration.applier as applier_mod
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.repository.event_memory_repository as emr_mod
 
     async def _no_defaults(self, aid, uid):
         return {"installed": [], "skipped": [], "failed": []}
@@ -302,8 +302,8 @@ async def test_hurry_mark_is_dropped_when_the_apply_raises(db_client, workspace,
     so any exception in the steps above it leaked the mark into the process-
     level registry. The user's later RETRY of that same row (the frontend
     reused the import id) then ran hurried although nobody pressed stop."""
-    from xyz_agent_context.migration import hurry
-    import xyz_agent_context.migration.applier as applier_mod
+    from narranexus.platform.migration import hurry
+    import narranexus.platform.migration.applier as applier_mod
 
     async def _boom(db, agent_id):
         raise RuntimeError("awareness lookup exploded")

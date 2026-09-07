@@ -40,6 +40,36 @@ def plugin_module():
     dispose.dispose()
 
 
+class AcmeBuiltinBaselineModule(XYZBaseModule):
+    """Registered under a ``builtin.`` owner so `default_enabled` counts it
+    toward the baseline — no shipped builtin currently declares a nonzero
+    ``context_cost_hint``, so a budget-overrun scenario needs a fixture that
+    supplies one, or `over_budget` can never observably become True."""
+
+    @staticmethod
+    def get_config() -> ModuleConfig:
+        return ModuleConfig(name="AcmeBuiltinBaselineModule", priority=1, enabled=True, description="Fake builtin baseline module", always_load=True, context_cost_hint=1000)
+
+    async def contribute_instructions(self, ctx_data):
+        return ""
+
+    async def contribute_turn_context(self, ctx_data):
+        return ""
+
+    async def mcp_server(self):
+        return None
+
+
+@pytest.fixture
+def builtin_baseline_module():
+    dispose = KERNEL_REGISTRIES.registry_for(MODULES_SLOT).register_contribution(
+        Contribution("AcmeBuiltinBaselineModule", lambda: AcmeBuiltinBaselineModule, meta={"plugin_id": "builtin.acme_baseline", "channel": False}),
+        owner="builtin.acme_baseline",
+    )
+    yield
+    dispose.dispose()
+
+
 @pytest.mark.asyncio
 async def test_defaults_locks_and_explicit_rows(db_client, plugin_module):
     svc = CapabilityService(db_client)
@@ -63,14 +93,32 @@ async def test_defaults_locks_and_explicit_rows(db_client, plugin_module):
 
 
 @pytest.mark.asyncio
-async def test_budget_warns_past_twice_the_builtin_baseline(db_client, plugin_module):
+async def test_budget_warns_past_twice_the_builtin_baseline(db_client, plugin_module, builtin_baseline_module):
     svc = CapabilityService(db_client)
     base = svc.budget(await svc.enabled_map("agent_b"))
-    assert base["over_budget"] is False
+    # Concrete numbers, not just "under budget": the baseline is exactly the
+    # 1000-token fixture builtin (default-enabled), and nothing else is on
+    # yet, so the ratio is exactly 1.0 — not merely "not over budget".
+    assert base == {"baseline_tokens": 1000, "enabled_tokens": 1000, "ratio": 1.0, "over_budget": False}
+
     await svc.set_enabled("agent_b", "AcmeHeavyModule", True)
     enabled = await svc.enabled_map("agent_b")
-    over = svc.warn_if_over_budget("agent_b", enabled)
-    assert (over is not None) == svc.budget(enabled)["over_budget"]
+
+    from loguru import logger
+
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(m.record["message"]), level="TRACE")
+    try:
+        over = svc.warn_if_over_budget("agent_b", enabled)
+    finally:
+        logger.remove(handler_id)
+
+    # Enabling the 5000-token plugin module on top of the 1000-token baseline
+    # is 6x the baseline — past the 2x warn threshold. Assert the concrete
+    # numbers this scenario must produce, not a value re-derived from the
+    # same call under test (that would make the assertion tautological).
+    assert over == {"baseline_tokens": 1000, "enabled_tokens": 6000, "ratio": 6.0, "over_budget": True}
+    assert any("6000" in m and "1000" in m and "6.0" in m for m in messages), messages
 
 
 @pytest.mark.asyncio

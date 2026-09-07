@@ -67,7 +67,11 @@ def test_disabling_a_builtin_removes_its_router_only(plugin_id, path, tmp_path, 
     assert len(report.mounted) == sum(len(v) for v in OWNED.values()) - len(OWNED[plugin_id])
     client = TestClient(app)
     assert client.get(path).status_code == 404
-    assert client.get("/api/jobs/").status_code != 404  # builtin.job's router is still mounted
+    # builtin.job's router is still mounted: the request reaches the route
+    # handler (422 for a missing required query param), not FastAPI's
+    # catch-all 404 for an unmatched path — which a 500 or any other
+    # non-404 status would also satisfy under "!= 404".
+    assert client.get("/api/jobs/").status_code == 422
 
 
 def test_disabling_builtin_job_removes_dashboard_controls_but_not_dashboard_reads(tmp_path, monkeypatch):
