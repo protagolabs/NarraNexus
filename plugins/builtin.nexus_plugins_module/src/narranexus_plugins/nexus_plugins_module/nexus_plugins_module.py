@@ -51,6 +51,9 @@ class NexusPluginsModule(XYZBaseModule):
             "plugin_validate → plugin_test → plugin_register → plugin_activate(scope=agent). Activation needs the "
             "user's approval (a card is shown); observe with plugin_observe before asking for global scope. "
             "Never put credentials in plugin files (use settings). "
+            "Self-awareness: platform_overview (what you run on), platform_slots(domain) and contract_docs(kind) "
+            "(what can be replaced and how), agent_self (your capabilities, model slots, prompt sections), "
+            "capability_set(module_class, enabled) to switch one of your own capabilities. "
             f"State: {summary}\n"
         )
 

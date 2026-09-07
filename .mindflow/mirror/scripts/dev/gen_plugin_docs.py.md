@@ -1,6 +1,6 @@
 ---
 code_file: scripts/dev/gen_plugin_docs.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -14,3 +14,5 @@ spec §13「文档不落后」。`tests/nx_kernel/test_docs_generated.py` 断言
 ## 2026-09-04 · slot points in the Host API table
 
 The hand-written `HOST_API_TABLE` lists the content registries and the seven slot points with the `when` grammar.
+
+2026-09-07: slots.md groups the slot table by domain (catalog.DOMAINS order).

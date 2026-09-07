@@ -1,6 +1,6 @@
 ---
 code_file: backend/plugins_factory/routes.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -20,3 +20,5 @@ safe-mode/leave/bisect/{start,answer,stop}/errors（GET/POST）/assets（带 `X-
 ## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
 
 `POST /builtin/{id}/install-deps`.
+
+2026-09-07: `GET /api/plugin-factory/slots` — the slot catalog of the running process.

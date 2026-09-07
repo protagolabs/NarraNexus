@@ -27,8 +27,58 @@ def _run(fn) -> str:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
+async def _arun(coro) -> str:
+    try:
+        return json.dumps(await coro, default=str)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"NexusPluginsMCP: {type(exc).__name__}: {exc}")
+        return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+
+
+async def _db():
+    from narranexus.platform.utils.db.db_factory import get_db_client
+
+    return await get_db_client()
+
+
 def create_nexus_plugins_mcp_server() -> FastMCP:
     mcp = FastMCP("nexus_plugins_module")
+
+    # ---- awareness: what am I running on, what am I, what can be replaced ----
+    @mcp.tool()
+    async def platform_overview(agent_id: str, user_id: str) -> str:
+        """The platform you run on: host version, deployment mode, the distribution (if any), every builtin and user plugin, the slot domains and the bindings that differ from the defaults. Start here when you need to reason about the system's shape; go deeper with platform_slots / contract_docs / plugin_docs."""
+        from .awareness import platform_overview as _po
+
+        return _run(_po)
+
+    @mcp.tool()
+    async def platform_slots(agent_id: str, user_id: str, domain: str = "") -> str:
+        """The extension slots of one domain (kernel, prompt, turn, model, agent, ingress, backend, content, ui) — or all — with contract, arity, candidates registered here and what is bound now (and by which layer)."""
+        from .awareness import platform_slots as _ps
+
+        return _run(lambda: _ps(domain))
+
+    @mcp.tool()
+    async def contract_docs(agent_id: str, user_id: str, kind: str) -> str:
+        """Detailed documentation of one contract kind (e.g. prompt, framework, tool, module, provider, hook, route): its version and stability, the slots that carry it, the contract classes with docstrings and public methods. Use before writing a plugin for that kind."""
+        from .awareness import contract_docs as _cd
+
+        return _run(lambda: _cd(kind))
+
+    @mcp.tool()
+    async def agent_self(agent_id: str, user_id: str) -> str:
+        """Who you are right now: name/description/owner, your capability switches (enabled, locked, budget), your model slots and framework, and the system-prompt sections in effect."""
+        from .awareness import agent_self as _as
+
+        return await _arun(_as(await _db(), agent_id, user_id))
+
+    @mcp.tool()
+    async def capability_set(agent_id: str, user_id: str, module_class: str, enabled: bool) -> str:
+        """Switch one of YOUR capabilities (a module class from agent_self) on or off; owner only, base capabilities cannot be switched off; applies from the next turn. Say what you changed and why."""
+        from .awareness import capability_set as _cs
+
+        return await _arun(_cs(await _db(), agent_id, user_id, module_class, enabled))
 
     @mcp.tool()
     async def plugin_list(agent_id: str, user_id: str) -> str:

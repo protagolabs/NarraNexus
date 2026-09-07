@@ -113,6 +113,19 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "quality": "gold",
     },
     {
+        "id": "builtin.prompts",
+        "version": "1.0.0",
+        "displayName": "Prompts",
+        "description": "The default system-prompt sections (security / temporal / narrative / modules / bootstrap) and the default assembler.",
+        "hosts": ["backend", "mcp", "workers"],
+        "api": {"prompt": 0},
+        "provides": {
+            "prompt.sections": ["narranexus_plugins.prompts.sections:CONTRIBUTIONS"],
+            "prompt.assembler": "narranexus_plugins.prompts.assembler:CONTRIBUTION",
+        },
+        "quality": "gold",
+    },
+    {
         "id": "builtin.nexus_plugins_module",
         "version": "1.0.0",
         "displayName": "Nexus Plugins Module",

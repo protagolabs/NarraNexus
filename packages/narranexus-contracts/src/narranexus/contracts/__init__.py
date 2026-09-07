@@ -57,6 +57,7 @@ API_VERSIONS: dict[str, int] = {
     "context_provider": 0,
     "module": 0,
     "auth": 0,
+    "prompt": 0,
 }
 
 # Batch 6: every shipped kind is STABLE — a breaking change to any of these

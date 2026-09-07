@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/cli/main.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -20,3 +20,5 @@ Batch 6c: `narranexus dist doctor [path] [--json]` (resolve against this engine,
 Batch 6c.3: `narranexus create-app <id> [--dir --display-name --base --auth --deployment]` and `narranexus build <path> --target desktop|docker|wheel [--out --dockerfile --dry-run]`.
 
 Batch 6d: `plugin list` rows carry `quality` (read from each plugin's manifest).
+
+2026-09-07: `narranexus slots [--domain --json --toml-template]`, `narranexus bind <slot> <provider…>`, `narranexus unbind <slot>`.

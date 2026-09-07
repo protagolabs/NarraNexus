@@ -33,6 +33,9 @@ def _boot(role: Role) -> BootReport:
         distribution=resolve_from_env(host_version=host_version()),
     )
     report.mark_healthy()  # no separate health probe here: reaching this line is health
+    from narranexus.platform.bindings_runtime import resolve_runtime_bindings
+
+    resolve_runtime_bindings(resolve_from_env(host_version=host_version()), snapshot=False)
     _REPORTS[role] = report
     return report
 

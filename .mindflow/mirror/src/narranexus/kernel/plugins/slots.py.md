@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/slots.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -60,3 +60,5 @@ The `agent.capabilities.modules` meta no longer mentions `mcp_port`; module serv
 `MODULE_METADATA` / `MODULE_DISPLAY_CONFIG` no longer exist (`module_display` exported instead); the modules slot doc says the module's own ModuleConfig is its description.
 
 Batch 6 fix: all seven `turn.pipeline.<stage>` slots are kernel-declared (StageStrategy, many) so every host role loads the builtin.turn strategies at boot instead of discovering the slots at a platform import.
+
+2026-09-07: the prompt domain — `prompt` (root, default builtin.prompts), `prompt.sections` (many, PromptSectionProvider), `prompt.assembler` (one, PromptAssembler, default builtin.prompts).

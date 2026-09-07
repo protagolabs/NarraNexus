@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/context_runtime/context_runtime.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -551,3 +551,5 @@ signature mismatch。
 ## 2026-09-04 · one `contribute_tools` call per module (batch 5c)
 
 The tool-surface loop asks each module for its `ToolSurface` once (MCP server → identity headers, suppressed tools, declared reply tools, origin-first by `claims_source`); the three separate calls and their fail-open arms moved into `XYZBaseModule.contribute_tools`. `gather` / `contribute_instructions` / `contribute_turn_context` are the renamed hooks.
+
+2026-09-07: `build_complete_system_prompt` renders the `prompt.sections` providers into a `PromptContext` and joins them with the bound `prompt.assembler` (platform/prompt_slots); the five former inline parts live in builtin.prompts. Part sizes / narrative meta / the dump keep their shape.

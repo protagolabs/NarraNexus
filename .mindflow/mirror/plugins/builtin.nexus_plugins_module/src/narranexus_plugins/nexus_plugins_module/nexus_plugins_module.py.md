@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.nexus_plugins_module/src/narranexus_plugins/nexus_plugins_module/nexus_plugins_module.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -18,3 +18,5 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its platform metadata (batch 5b)
 
 `get_config()` is static and carries what the platform used to table about this module (default / base / always-load membership, instance prefix, role, display, decision metadata as applicable).
+
+2026-09-07: the instruction block names the self-awareness tools.

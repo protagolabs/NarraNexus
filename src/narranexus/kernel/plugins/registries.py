@@ -25,6 +25,8 @@ from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 # slot path -> contract kind (drives api_version on the registry)
 SLOT_KINDS: dict[str, str] = {
     "kernel.auth": "auth",
+    "prompt.sections": "prompt",
+    "prompt.assembler": "prompt",
     "turn.pipeline.act.framework": "framework",
     "model.providers": "provider",
     "model.clients": "llm_client",
@@ -80,6 +82,7 @@ class Registries:
             self.hooks.declare(HookSpec(name, params, firstresult=firstresult, doc=f"stage hook {name}"))
         self._by_path: dict[str, Registry[Any]] = {}
         self._frozen = False
+        self._bindings: Any = None  # ResolvedBindings once a host resolved them (bound.py reads it)
         # Named services plugins expose to each other and to the platform
         # (see kernel/plugins/service_refs.py); one locator per process, so a
         # builtin's service and a user plugin's activate(ctx) share it.
@@ -114,6 +117,14 @@ class Registries:
     @property
     def frozen(self) -> bool:
         return self._frozen
+
+    @property
+    def bindings(self) -> Any:
+        """The host's resolved slot bindings (``None`` until ``set_bindings``); consumers go through ``kernel.plugins.bound``."""
+        return self._bindings
+
+    def set_bindings(self, resolved: Any) -> None:
+        self._bindings = resolved
 
     def remove_owner(self, owner: str) -> int:
         """Remove ``owner``'s contributions from every registry and block its hooks (disabled builtin)."""

@@ -496,6 +496,11 @@
   ],
   [
     "GET",
+    "/api/plugin-factory/slots",
+    "slot_catalog_route"
+  ],
+  [
+    "GET",
     "/api/plugin-factory/{plugin_id}/assets/{path:path}",
     "asset"
   ],

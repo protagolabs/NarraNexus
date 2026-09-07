@@ -33,6 +33,7 @@ members = [
     "narranexus-plugin-memory-kinds",
     "narranexus-plugin-message-bus",
     "narranexus-plugin-nexus-plugins-module",
+    "narranexus-plugin-prompts",
     "narranexus-plugin-providers",
     "narranexus-plugin-skills",
     "narranexus-plugin-social-network",
@@ -1843,6 +1844,7 @@ dependencies = [
     { name = "narranexus-plugin-memory-kinds" },
     { name = "narranexus-plugin-message-bus" },
     { name = "narranexus-plugin-nexus-plugins-module" },
+    { name = "narranexus-plugin-prompts" },
     { name = "narranexus-plugin-providers" },
     { name = "narranexus-plugin-skills" },
     { name = "narranexus-plugin-social-network" },
@@ -1933,6 +1935,7 @@ requires-dist = [
     { name = "narranexus-plugin-memory-kinds", editable = "plugins/builtin.memory_kinds" },
     { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
     { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
+    { name = "narranexus-plugin-prompts", editable = "plugins/builtin.prompts" },
     { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
     { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
     { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
@@ -2150,6 +2153,11 @@ source = { editable = "plugins/builtin.nexus_plugins_module" }
 
 [package.metadata]
 provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-prompts"
+version = "1.0.0"
+source = { editable = "plugins/builtin.prompts" }
 
 [[package]]
 name = "narranexus-plugin-providers"

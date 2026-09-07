@@ -120,8 +120,22 @@ def resolve_framework_name(framework: str | None = None) -> str:
     return (
         framework
         or os.getenv("AGENT_LOOP_FRAMEWORK")
-        or DEFAULT_AGENT_LOOP_FRAMEWORK
+        or bound_default_framework()
     ).strip().lower()
+
+
+def bound_default_framework() -> str:
+    """The framework the ``turn.pipeline.act.framework`` binding names (a plugin id such as
+    ``builtin.frameworks.claude_code`` → its registered framework name); the code default otherwise."""
+    from narranexus.kernel.plugins.bound import bound_layer, bound_provider
+
+    if bound_layer(KERNEL_REGISTRIES, "turn.pipeline.act.framework") == "DEFAULT":
+        return DEFAULT_AGENT_LOOP_FRAMEWORK
+    provider = bound_provider(KERNEL_REGISTRIES, "turn.pipeline.act.framework")
+    for entry in FRAMEWORK_REGISTRY.entries():
+        if entry.owner == provider or entry.name == provider:
+            return entry.name
+    return DEFAULT_AGENT_LOOP_FRAMEWORK
 
 
 def get_agent_loop_driver(

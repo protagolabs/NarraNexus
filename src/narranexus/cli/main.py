@@ -2,7 +2,7 @@
 @file_name: main.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check``, ``narranexus dist doctor|lock``, ``narranexus create-app``, ``narranexus build`` and ``narranexus docs gen``.
+@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check``, ``narranexus dist doctor|lock``, ``narranexus create-app``, ``narranexus build``, ``narranexus slots|bind|unbind`` and ``narranexus docs gen``.
 
 Every mutating verb goes through the same kernel objects the factory API
 uses (``Installer`` / ``RegistryStore`` / ``Bisect``), so the CLI and the
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from narranexus.contracts import ManifestError
+from narranexus.contracts import BindingConflict, ManifestError, UnknownEntry
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "templates"
 
@@ -317,6 +317,39 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_slots(args: argparse.Namespace) -> int:
+    """Every slot by domain: contract, candidates registered here, and what is bound from which layer."""
+    from narranexus.cli.bindings_cli import booted_registries, render_catalog
+    from narranexus.kernel.plugins.catalog import slot_catalog, toml_template
+
+    catalog = slot_catalog(booted_registries(), domain=args.domain or None)
+    if args.toml_template:
+        print(toml_template(catalog), end="")
+    elif args.json:
+        _print(catalog, as_json=True)
+    else:
+        print(render_catalog(catalog))
+    return 0
+
+
+def cmd_bind(args: argparse.Namespace) -> int:
+    """Bind a slot in <plugin home>/narranexus.toml (restart to apply)."""
+    from narranexus.cli.bindings_cli import bind, booted_registries
+    from narranexus.platform.bindings_runtime import config_path
+
+    result = bind(booted_registries(), config_path(), args.slot, args.provider)
+    print(f"{result['slot']} = {result['bound']} → {result['file']} (restart the app to apply)")
+    return 0
+
+
+def cmd_unbind(args: argparse.Namespace) -> int:
+    from narranexus.cli.bindings_cli import unbind
+    from narranexus.platform.bindings_runtime import config_path
+
+    print(f"{args.slot}: {'removed' if unbind(config_path(), args.slot) else 'was not bound'} (restart the app to apply)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="narranexus", description="NarraNexus plugin tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -403,6 +436,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="write the lock/plan but run no packaging command")
     p.set_defaults(fn=cmd_build)
 
+    p = sub.add_parser("slots", help="the slot catalog: what can be replaced, the candidates, and what is bound")
+    p.add_argument("--domain", default="", help="only this domain (kernel, prompt, turn, model, agent, ingress, backend, content, ui)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--toml-template", action="store_true", help="print a commented narranexus.toml with every slot")
+    p.set_defaults(fn=cmd_slots)
+    p = sub.add_parser("bind", help="bind a slot in narranexus.toml: narranexus bind prompt.assembler acme.brand")
+    p.add_argument("slot")
+    p.add_argument("provider", nargs="+", help="plugin id, contribution name or owner:name; several for a many-arity slot (order matters)")
+    p.set_defaults(fn=cmd_bind)
+    p = sub.add_parser("unbind", help="remove a slot binding from narranexus.toml")
+    p.add_argument("slot")
+    p.set_defaults(fn=cmd_unbind)
+
     docs = sub.add_parser("docs", help="generated documentation")
     dsub = docs.add_subparsers(dest="verb", required=True)
     p = dsub.add_parser("gen")
@@ -417,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
     fn: Callable[[argparse.Namespace], int] = args.fn
     try:
         return fn(args)
-    except (ManifestError, FileNotFoundError, KeyError, PermissionError) as exc:
+    except (ManifestError, FileNotFoundError, KeyError, PermissionError, BindingConflict, UnknownEntry) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 — a CLI prints, it does not traceback

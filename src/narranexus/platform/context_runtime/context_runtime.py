@@ -407,148 +407,40 @@ class ContextRuntime:
             The complete system prompt string
         """
         logger.debug("      → build_complete_system_prompt() started")
-        prompt_parts = []
-        narrative_service = NarrativeService(self.agent_id)
-
-        # Per-Part byte accounting for the [SYSPROMPT-BREAKDOWN] diagnostic
-        # (system-prompt-growth incident, 2026-07). Populated as each Part is
-        # appended; emitted as one INFO line before return so every round's
-        # composition is greppable without a debug build.
-        part_sizes: Dict[str, int] = {}
-        narrative_meta: Dict[str, int] = {}
-
-        # ========================================================================
-        # Part -1: Security iron rules (FIRST — highest priority) — CLOUD ONLY.
-        # Hard prohibition on reading anything outside the agent's own
-        # workspace (files + env vars) and on running un-vetted code. This is a
-        # MULTI-TENANT protection; on local/desktop the machine is the user's
-        # own and they legitimately want the agent to operate across their
-        # folders, so injecting it there would cripple the product (and there
-        # are no other tenants / platform secrets to protect). Gated on cloud
-        # mode accordingly. See prompts.SECURITY_IRON_RULES (incident 2026-06-17).
-        # ========================================================================
+        # Since 2026-09-07 the prompt is a slot: providers in ``prompt.sections``
+        # render the parts (builtin.prompts ships security / temporal /
+        # narrative / modules / bootstrap), the ``prompt.assembler`` binding
+        # joins them. A distribution or narranexus.toml reorders, drops or
+        # replaces without touching this file.
+        from narranexus.contracts.prompt import PromptContext, RenderedSection
+        from narranexus.platform.prompt_slots import assembler_for, sections_for
         from narranexus.platform.utils.deployment_mode import get_deployment_mode
-        if get_deployment_mode() == "cloud":
-            prompt_parts.append(SECURITY_IRON_RULES)
-            part_sizes["security"] = len(SECURITY_IRON_RULES)
 
-        # R4 turn-context relocation: when enabled, every per-turn volatile
-        # section (Part 0 temporal, narrative updated_at/current_summary,
-        # recent_actions) moves to the [Turn context] block of the current
-        # user message (see build_input_for_framework) so the system prompt
-        # stays byte-stable across turns. When disabled, the assembly below
-        # restores the pre-R4 SECTION PLACEMENT — not the pre-R4 byte stream:
-        # the three determinism normalisations (narrative timestamp
-        # canonicalisation, module-block (priority, name) total order,
-        # mcp_servers sort) are unconditional and still apply.
-        relocation_enabled = settings.prompt_turn_context_relocation_enabled
-
-        # ========================================================================
-        # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
-        # Injected first so every downstream section + all Module instructions
-        # can reference it. Source of truth = users.timezone (IANA).
-        # With relocation enabled this block moves to the turn context (same
-        # "User Temporal Context" heading — job MCP docstrings reference it).
-        # ========================================================================
-        if not relocation_enabled:
+        pctx = PromptContext(
+            agent_id=self.agent_id,
+            user_id=ctx_data.user_id,
+            ctx_data=ctx_data,
+            narrative_list=list(narrative_list),
+            selected_events=list(selected_events),
+            module_instructions=list(module_instructions_list),
+            db=self.db,
+            runtime=self,
+            deployment_mode=get_deployment_mode(),
+        )
+        rendered: List[RenderedSection] = []
+        for provider in sections_for():
             try:
-                temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
-                if temporal_block:
-                    prompt_parts.append(temporal_block)
-                    part_sizes["temporal"] = len(temporal_block)
-                    logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
-            except Exception as e:
-                logger.warning(f"        Failed to build User Temporal Context: {e}")
-
-        # ========================================================================
-        # Part 1: Narrative Info (main Narrative)
-        # With relocation enabled, only the stable half (id/type/description/
-        # actors — constant within a CLI session) stays here; name,
-        # created_at, updated_at and current_summary travel in the turn
-        # context (created_at joined them in R4d: its VALUE has two clock
-        # sources, see prompts.NARRATIVE_STABLE_PROMPT_TEMPLATE).
-        # ========================================================================
-        if narrative_list:
-            main_narrative = narrative_list[0]
-            narrative_prompt = await narrative_service.combine_main_narrative_prompt(
-                main_narrative, include_volatile=not relocation_enabled
-            )
-            prompt_parts.append(narrative_prompt)
-            part_sizes["narrative"] = len(narrative_prompt)
-            # current_summary (LLM-regenerated each turn) and the dynamic_summary
-            # entry list are the prime suspects for per-turn prompt growth —
-            # surface both so the growth source is measurable per round.
-            try:
-                narrative_meta["nar_summary_chars"] = len(
-                    getattr(main_narrative.narrative_info, "current_summary", "") or ""
-                )
-                narrative_meta["nar_dynamic_entries"] = len(
-                    getattr(main_narrative, "dynamic_summary", []) or []
-                )
-            except Exception:  # noqa: BLE001 — diagnostics must never break a turn
-                pass
-            logger.debug(f"        Added Narrative prompt: {len(narrative_prompt)} chars")
-
-        # ========================================================================
-        # Part 3: Module Instructions
-        # ========================================================================
-        if module_instructions_list:
-            module_prompt = await self._build_module_instructions_prompt(module_instructions_list)
-            prompt_parts.append(module_prompt)
-            part_sizes["modules"] = len(module_prompt)
-            logger.debug(f"        Added Module Instructions: {len(module_prompt)} chars")
-
-        # ========================================================================
-        # Part 5: Bootstrap Injection (first-run setup, creator only)
-        # Derives creator status directly from DB to avoid dependency on
-        # BasicInfoModule being loaded.
-        # ========================================================================
-        try:
-            import os
-            from narranexus.platform.repository import AgentRepository
-
-            agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
-            if agent_record and agent_record.created_by and agent_record.created_by == ctx_data.user_id:
-                # Shared bootstrap-phase judgment (single source of truth for the
-                # two greeting writers + this injection; the step_1 seed gates on
-                # the SAME call, so they can't drift). This side keeps the
-                # auto-delete: when Bootstrap.md is present but over its threshold,
-                # remove it to end perpetual bootstrap mode; otherwise inject.
-                # Function-local import on purpose: bootstrap.lifecycle →
-                # bootstrap.profiles → context_runtime.prompts is a back-edge into
-                # this package, so a module-level import here could hit a
-                # half-initialised context_runtime during import; lazy avoids it.
-                from narranexus.platform.bootstrap.lifecycle import is_bootstrap_active
-
-                status = await is_bootstrap_active(
-                    self.db, self.agent_id, agent_record.created_by, agent_record.agent_metadata
-                )
-                if status.present and not status.active:
-                    try:
-                        os.remove(status.bootstrap_path)
-                        logger.info(
-                            f"        Auto-deleted Bootstrap.md after {status.event_count} events "
-                            f"(threshold={status.threshold}, agent={self.agent_id})"
-                        )
-                    except OSError as rm_err:
-                        logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
-                elif status.active:
-                    prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
-                    ctx_data.bootstrap_active = True
-                    part_sizes["bootstrap"] = len(BOOTSTRAP_INJECTION_PROMPT)
-                    logger.debug("        Added Bootstrap injection (file-read approach)")
-        except Exception as e:
-            logger.warning(f"        Failed to inject Bootstrap: {e}")
-
-        # Combine all parts
-        full_prompt = "\n\n".join(prompt_parts)
+                text = await provider.render(pctx)
+            except Exception as exc:  # noqa: BLE001 — one section must not take the turn down
+                logger.warning(f"        prompt section {getattr(provider, 'id', provider)!r} failed: {exc}")
+                text = None
+            if text:
+                rendered.append(RenderedSection(id=provider.id, owner=type(provider).__module__, order=getattr(provider, "order", 100), text=text))
+                logger.debug(f"        Added prompt section {provider.id}: {len(text)} chars")
+        full_prompt = await assembler_for().assemble(rendered, pctx)
+        part_sizes: Dict[str, int] = dict(pctx.part_sizes) or {s.id: s.chars for s in rendered}
+        narrative_meta: Dict[str, int] = {k: v for k, v in pctx.meta.items() if k.startswith("nar_")}
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
-        # Stash breakdown inputs for the [SYSPROMPT-BREAKDOWN] line — emitted
-        # in build_input_for_framework, where ContextRuntime's final system
-        # prompt string exists (the ctx_sha256 there covers preamble and
-        # all; the true adapter-facing sys_sha256 is emitted by the claude
-        # adapter, see [SYSPROMPT-SHA]). ContextRuntime is per-turn, so
-        # instance state cannot leak across turns.
         self._last_part_sizes = part_sizes
         self._last_module_instructions = module_instructions_list
         self._last_narrative_meta = narrative_meta

@@ -203,6 +203,13 @@ def build_kernel_slot_tree() -> SlotTree:
              default="builtin.frameworks.nexus_power", doc="Agent-loop framework used by the Act stage."),
         Slot("turn.profiles", many, "narranexus.contracts.agent.pipeline:PipelineProfile", KERNEL_OWNER,
              doc="Named pipeline profiles (default/fast/voice/job/silent + plugin-defined)."),
+        # The prompt domain (2026-09-07): the system prompt is sections joined by an assembler.
+        Slot("prompt", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default="builtin.prompts",
+             doc="Prompt domain root; its provider ships the default sections and assembler."),
+        Slot("prompt.sections", many, "narranexus.contracts.prompt:PromptSectionProvider", KERNEL_OWNER,
+             doc="System-prompt sections (security / temporal / narrative / modules / bootstrap + plugin-defined); a binding orders or drops them."),
+        Slot("prompt.assembler", one, "narranexus.contracts.prompt:PromptAssembler", KERNEL_OWNER,
+             default="builtin.prompts", doc="Joins the rendered sections into the final system prompt (replaceable per distribution / narranexus.toml)."),
         Slot("model", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Model domain root."),
         Slot("model.providers", many, "narranexus.contracts.provider:ProviderDriver", KERNEL_OWNER,

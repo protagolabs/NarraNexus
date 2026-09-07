@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.nexus_plugins_module/src/narranexus_plugins/nexus_plugins_module/_nexus_plugins_impl/tools.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -11,3 +11,5 @@ stub: false
 ## 2026-09-04 · no per-module port (batch 5a)
 
 The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.
+
+2026-09-07: awareness tools `platform_overview`, `platform_slots`, `contract_docs`, `agent_self`, `capability_set` (async helpers `_arun`/`_db`).

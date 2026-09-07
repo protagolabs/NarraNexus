@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/__init__.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -41,3 +41,5 @@ stub: false
 Batch 6c: contract kind `auth` (the `kernel.auth` slot / authProviders, spec section 19.5) joins `API_VERSIONS`.
 
 Batch 6d: `STABILITY` marks every kind STABLE (docs/API_POLICY.md governs changes; griffe checks the surface in CI); kind `auth` added in 6c.
+
+2026-09-07: kind `prompt` (stable, like the rest).

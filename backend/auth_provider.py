@@ -21,7 +21,10 @@ _CACHE: dict[str, AuthProvider] = {}
 def bound_provider_id() -> str:
     """The plugin id bound to ``kernel.auth``: the distribution's ``auth``, else the builtin matching the deployment mode."""
     from backend.plugins_boot import distribution
+    from narranexus.kernel.plugins.bound import bound_layer, bound_provider
 
+    if bound_layer(KERNEL_REGISTRIES, AUTH_SLOT) != "DEFAULT":
+        return bound_provider(KERNEL_REGISTRIES, AUTH_SLOT) or LOCAL_PROVIDER
     res = distribution()
     if res is not None:
         return res.spec.auth

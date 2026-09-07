@@ -125,28 +125,13 @@ def distribution() -> DistributionResolution | None:
 
 
 def write_runtime_bindings(res: DistributionResolution | None) -> Path | None:
-    """Resolve the slot bindings once at startup (default < distribution < narranexus.toml < env) and
-    snapshot them to ``<plugin home>/run/bindings.resolved.json`` for the factory page and ``dist doctor``.
-    A conflict is loud (spec section 6.4); a slot nobody binds is only logged."""
-    from narranexus.contracts import UnboundSlot
-    from narranexus.kernel.plugins.bindings import parse_env, parse_toml, resolve, write_resolved
-    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+    """Resolve the slot bindings once at startup (default < distribution < narranexus.toml < env), install them on
+    the process registries and snapshot them — the shared ``platform.bindings_runtime`` does the work."""
     from narranexus.kernel.plugins.paths import plugin_home
+    from narranexus.platform.bindings_runtime import SNAPSHOT_RELPATH, resolve_runtime_bindings
 
-    home = plugin_home()
-    sources = []
-    if res is not None:
-        sources.append(res.bindings)
-    toml_path = home / "narranexus.toml"
-    if toml_path.is_file():
-        sources.append(parse_toml(toml_path.read_text(encoding="utf-8"), origin=str(toml_path)))
-    sources.append(parse_env())
-    try:
-        resolved = resolve(slot_tree_with_builtins(), sources)
-    except UnboundSlot as exc:
-        logger.warning(f"[plugins] bindings not snapshotted: {exc}")
-        return None
-    return write_resolved(resolved, home / "run" / "bindings.resolved.json")
+    resolved = resolve_runtime_bindings(res)
+    return None if resolved is None else plugin_home() / SNAPSHOT_RELPATH
 
 
 def boot_backend_plugins() -> BootReport:

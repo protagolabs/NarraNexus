@@ -25,6 +25,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `ingress.triggers` | trigger | 0 | `narranexus.contracts.trigger:TriggerSpec` | `"ingress.triggers": ["pkg.module:SYMBOL"]` |
 | `model.clients` | llm_client | 0 | `narranexus.contracts.llm_client:LlmClient` | `"model.clients": ["pkg.module:SYMBOL"]` |
 | `model.providers` | provider | 0 | `narranexus.contracts.provider:ProviderDriver` | `"model.providers": ["pkg.module:SYMBOL"]` |
+| `prompt.sections` | prompt | 0 | `narranexus.contracts.prompt:PromptSectionProvider` | `"prompt.sections": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.act` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:ActStrategy` | `"turn.pipeline.act": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.assemble` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.assemble": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.commit` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.commit": ["pkg.module:SYMBOL"]` |

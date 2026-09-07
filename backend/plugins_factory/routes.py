@@ -76,6 +76,15 @@ async def list_plugins() -> dict[str, Any]:
     return {"success": True, "data": await _run(service().list)}
 
 
+@router.get("/slots")
+async def slot_catalog_route() -> dict[str, Any]:
+    """Every slot by domain with candidates and current binding (the process's own registries)."""
+    from narranexus.kernel.plugins.catalog import slot_catalog
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    return {"success": True, "data": {"domains": slot_catalog(KERNEL_REGISTRIES)}}
+
+
 @router.get("/index")
 async def search_index(q: str = "") -> dict[str, Any]:
     return {"success": True, "data": {"plugins": await _run(service().search_index, q)}}

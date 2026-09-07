@@ -20,6 +20,8 @@ from narranexus.platform.schema.context_schema import ContextData
 TOOLS = {
     "plugin_list", "plugin_search", "plugin_docs", "plugin_scaffold", "plugin_edit", "plugin_validate", "plugin_test", "plugin_register",
     "plugin_activate", "plugin_observe", "plugin_deactivate", "plugin_rollback", "plugin_diff", "plugin_install", "plugin_upgrade", "plugin_publish_hint",
+    # self-awareness (2026-09-07)
+    "platform_overview", "platform_slots", "contract_docs", "agent_self", "capability_set",
 }
 
 

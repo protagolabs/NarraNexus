@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/builtins.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -97,3 +97,5 @@ Batch 6b.3: builtin.teams provides two routers, the worker and a `backend.hooks`
 Batch 6c: two authProviders builtins `builtin.auth.local` and `builtin.auth.netmind` (distributionOnly, protected, provide `kernel.auth`).
 
 Batch 6 fix: builtin.turn and the three frameworks list hosts backend+mcp+workers (every turn-running process); `register_builtin_provides` raises a clear RuntimeError when the registries are frozen and the slot is empty (the manifest must list the role) instead of RegistryFrozen mid-turn.
+
+2026-09-07: builtin.prompts manifest (hosts backend/mcp/workers; provides prompt.sections + prompt.assembler).

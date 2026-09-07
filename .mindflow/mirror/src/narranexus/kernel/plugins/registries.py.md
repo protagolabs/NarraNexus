@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/registries.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -51,3 +51,5 @@ loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得�
 `SLOT_KINDS["ingress.channels"] = "channel"`.
 
 Batch 6c: `SLOT_KINDS["kernel.auth"] = "auth"`.
+
+2026-09-07: `Registries.bindings` / `set_bindings()` hold the host's resolved bindings; `SLOT_KINDS` maps `prompt.sections` / `prompt.assembler` to kind `prompt`.

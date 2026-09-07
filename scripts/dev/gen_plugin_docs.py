@@ -51,21 +51,27 @@ def render() -> str:
         lines.append(f"| `{kind}` | {API_VERSIONS[kind]} | {STABILITY[kind].value} |")
     lines += [
         "",
-        "## Slots",
+        "## Slots by domain",
         "",
         "Path → arity → contract → default provider → owner. `distribution-only` slots can be",
-        "bound only from the distribution or default layers.",
-        "",
-        "| Path | Arity | Contract | Default | Owner | Flags | Notes |",
-        "|---|---|---|---|---|---|---|",
+        "bound only from the distribution or default layers. Bind a slot in `narranexus.toml`",
+        "or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the live state.",
     ]
-    for row in build_kernel_slot_tree().to_rows():
-        flags = ", ".join(f for f, on in (("distribution-only", row["distribution_only"]),) if on)
-        lines.append(
-            f"| `{row['path']}` | {row['arity']} | `{row['contract']}` | "
-            f"{('`' + row['default'] + '`') if row['default'] else '—'} | `{row['owner']}` | "
-            f"{flags or '—'} | {row['doc']} |"
-        )
+    from narranexus.kernel.plugins.catalog import DOMAINS
+
+    rows = build_kernel_slot_tree().to_rows()
+    domains = sorted({r["path"].split(".", 1)[0] for r in rows}, key=lambda d: DOMAINS.get(d, (d, 99))[1])
+    for domain in domains:
+        lines += ["", f"### {DOMAINS.get(domain, (domain, 99))[0]}", "", "| Path | Arity | Contract | Default | Owner | Flags | Notes |", "|---|---|---|---|---|---|---|"]
+        for row in rows:
+            if row["path"].split(".", 1)[0] != domain:
+                continue
+            flags = ", ".join(f for f, on in (("distribution-only", row["distribution_only"]),) if on)
+            lines.append(
+                f"| `{row['path']}` | {row['arity']} | `{row['contract']}` | "
+                f"{('`' + row['default'] + '`') if row['default'] else '—'} | `{row['owner']}` | "
+                f"{flags or '—'} | {row['doc']} |"
+            )
     lines += ["", "## Builtin plugins", "", "| Plugin | Version | Hosts | Provides | Quality |", "|---|---|---|---|---|"]
     for m in builtin_manifests():
         provides = ", ".join(f"`{p}`" for p in m.provides)
