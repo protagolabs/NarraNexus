@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from narranexus.contracts.settings import SettingsSchema  # noqa: F401 — the good symbol the bad plugin provides first
@@ -93,3 +94,42 @@ def test_stage2_deadline_records_slow_not_crashed(plugin_home: Path):
     assert report.user_plugin_ids == () and "acme.ok" in report.slow and report.isolated == {}
     rec = store.read().plugins["acme.ok"]
     assert rec.crash_count == 0 and rec.state == "slow" and rec.enabled
+
+
+def test_a_plugin_that_blocks_on_import_is_recorded_slow_inside_the_deadline(plugin_home: Path):
+    """The stage-2 deadline bounds the IMPORTS load() performs, not only the
+    preparation loop: a plugin whose module hangs at import is left unloaded
+    and recorded slow, and boot() returns within the window (deleting the
+    bounded importer makes this hang for 5 s and fail)."""
+    make_plugin(plugin_home, "acme.ok", body="import time\ntime.sleep(5)\nX = 1\n",
+                extra={"provides": {"model.clients": ["nxplugins.acme_ok:X"]}, "api": {"llm_client": 0}})
+    store = register(plugin_home, "acme.ok", plugin_home / "acme.ok")
+    started = time.perf_counter()
+    report = boot("backend", registries=Registries(), cloud=False, host_version="1.19.0", store=store, stage2_deadline_s=1.0)
+    assert time.perf_counter() - started < 3.0
+    assert "acme.ok" in report.slow and "acme.ok" not in report.isolated and report.user_plugin_ids == ()
+    rec = store.read().plugins["acme.ok"]
+    assert rec.crash_count == 0 and rec.state == "slow"
+
+
+def test_two_plugins_with_one_slug_cannot_both_hold_tables(plugin_home: Path):
+    """``acme.a-b`` and ``acme.a_b`` share the ``ext_acme_a_b__`` prefix (and the
+    ``nxplugins.acme_a_b`` package): the second one is isolated at prepare time
+    instead of reading and writing the first one's rows (the installer refuses
+    such an id up front; this is the boot's own guard for a hand-edited registry)."""
+    body = (
+        "from narranexus.contracts.table import ColumnSpec, TableSpec\n"
+        "from narranexus.kernel.plugins.registry import Contribution\n"
+        "TABLES = (Contribution('items', lambda: TableSpec('ext_acme_a_b__items', (ColumnSpec('id', 'TEXT', 'VARCHAR(64)', primary_key=True),))),)\n"
+    )
+    store = None
+    for pid in ("acme.a-b", "acme.a_b"):
+        make_plugin(plugin_home, pid, body=body, extra={"provides": {"backend.tables": [f"nxplugins.{pid.replace('.', '_').replace('-', '_')}:TABLES"]}, "api": {"table": 0}})
+        store = register(plugin_home, pid, plugin_home / pid) if store is None else store
+        if pid == "acme.a_b":
+            from narranexus.kernel.plugins.lifecycle import PluginRecord
+            store.register(pid, PluginRecord(path=str(plugin_home / pid), installed_version="1.0.0"))
+    registered: list[str] = []
+    report = boot("backend", registries=Registries(), cloud=False, host_version="1.19.0", store=store, register_table=lambda spec, owner: registered.append(owner))
+    assert registered == ["acme.a-b"]
+    assert "acme.a_b" in report.isolated and "already installed" in report.isolated["acme.a_b"]

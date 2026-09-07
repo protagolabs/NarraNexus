@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-import re
+
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -52,7 +52,6 @@ def render_catalog(catalog: list[dict[str, Any]]) -> str:
 
 
 # ---------------------------------------------------------------- narranexus.toml editing
-_KEY_RE = re.compile(r'^\s*"?([A-Za-z0-9_.]+)"?\s*=')
 
 
 def read_bindings_table(path: Path) -> dict[str, Any]:
@@ -99,9 +98,31 @@ def write_bindings_table(path: Path, table: dict[str, Any]) -> None:
     path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
 
 
+def _names_a_candidate(value: str, entries: list[Any]) -> bool:
+    """Every token of a binding value must name a registered entry: ``owner`` (any entry of
+    that owner), ``name`` or ``owner:name`` (that entry), optionally verb-prefixed
+    (``+``/``-``/``=``; a bare verb with no payload is an error). A token naming a real
+    owner's NON-existent contribution used to pass (only the owner was checked) and the
+    written binding then silently matched nothing."""
+    for part in value.split(","):
+        token = part.strip()
+        while token and token[0] in "+-=":
+            token = token[1:]
+        if not token:
+            return False
+        owner, _, name = token.partition(":")
+        if name:
+            ok = any(e.owner == owner and e.name == name for e in entries)
+        else:
+            ok = any(e.owner == token or e.name == token for e in entries)
+        if not ok:
+            return False
+    return True
+
+
 def bind(regs: Any, path: Path, slot: str, providers: list[str]) -> dict[str, Any]:
     """Validate and write one binding; returns what the resolved bindings say afterwards."""
-    from narranexus.kernel.plugins.bindings import parse_toml, referenced_plugins, resolve
+    from narranexus.kernel.plugins.bindings import parse_toml, resolve
 
     tree = regs.slots
     if slot not in tree:
@@ -110,8 +131,7 @@ def bind(regs: Any, path: Path, slot: str, providers: list[str]) -> dict[str, An
     if spec.distribution_only:
         raise BindingConflict(f"{slot} is distribution-only: bind it in narranexus-dist.json, not in narranexus.toml")
     entries = list(regs.registry_for(slot).entries())
-    known = {e.owner for e in entries} | {e.name for e in entries}
-    unknown = [p for p in providers if not referenced_plugins(p) <= known and p not in {f"{e.owner}:{e.name}" for e in entries}]
+    unknown = [p for p in providers if not _names_a_candidate(p, entries)]
     if unknown:
         raise UnknownEntry(f"{slot}: {unknown} registered nothing here (candidates: {sorted({e.owner for e in entries})})")
     if spec.arity == "one" and len(providers) != 1:

@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/_base.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -17,3 +17,7 @@ stub: false
 - **错误层级**：`PluginError` 根；`UnknownEntry` 同时是 `KeyError`（遗留 `memory.spec.get_spec`
   抛 KeyError 的调用方不用改），并覆写 `__str__` 去掉 KeyError 的引号包裹；`ManifestError`
   同时是 `ValueError`。「把错误定义出存在之外」（宪章 4）的另一半在各注册表：重名在启动期炸。
+
+## 2026-09-07 — plugin_id_slug（round-2 K2-I3）
+
+唯一的 id→标识符扁平化函数，table_prefix_for/env_name 共用；文档说明它不是单射，唯一性由安装器与合成包守卫保证。

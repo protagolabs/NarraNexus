@@ -63,3 +63,7 @@ PLUGIN_ID_RE comes from narranexus.contracts.distribution instead of a third cop
 ## 2026-09-07 — SlotDeclaration 增 kind/caseInsensitive；默认提供者可声明根的子槽（B7）
 
 declares 项新增 kind（校验为契约种类）与 caseInsensitive，透传到 Slot。_check_declares_in_own_namespace 增加树参数：内核根的 default 等于本插件（prompt→builtin.prompts、ui→builtin.ui）时视同该插件 provides 该复合槽，其子槽归它声明——树本身的归属规则（复合槽的提供者拥有其子槽）的直接表达。
+
+## 2026-09-07 — 只有一元复合槽的提供者拥有子槽（round-2 K2-I5）
+
+_check_declares_in_own_namespace 的 under_provided 只认 arity=one 的 provides（或 default 指向本插件的内核根）；多元槽的每个提供者都可声明其子槽会让第二个声明者在 boot 时撞 RegistryConflict。

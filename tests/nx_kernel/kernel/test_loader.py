@@ -140,7 +140,7 @@ def _user_manifest(**overrides):
 
 
 DEMO_CLIENTS = (Contribution("demo", lambda: object()),)
-UPPER_CLIENTS = (Contribution("Demo", lambda: object()),)
+UPPER_CLIENT = Contribution("Demo", lambda: object())
 NOT_A_CONTRIBUTION = 42
 
 
@@ -212,15 +212,16 @@ def test_resolve_symbol_reports_module_and_attribute_errors():
 
 def test_every_declared_slot_exists_before_any_plugin_provides():
     """``acme.fw`` loads FIRST (users load by id) yet provides into a slot
-    ``acme.turn`` declares, and declares a seat under it. The loader applies
-    every declaration in a first pass, shallowest first, so neither the load
-    order nor the depth of a declaration decides whether a slot exists — and
-    the slot's own kind / case-insensitivity reach its registry."""
+    ``acme.turn`` declares, and — as the provider of that ONE-arity composite —
+    declares a seat under it. The loader applies every declaration in a first
+    pass, shallowest first, so neither the load order nor the depth of a
+    declaration decides whether a slot exists — and the slot's own kind /
+    case-insensitivity reach its registry."""
     turn = _user_manifest(
         id="acme.turn",
         declares={
             "acme.turn.pipeline.act": {"arity": "many", "contract": "x:Act", "kind": "stage_strategy"},
-            "acme.turn.pipeline.act.framework": {"arity": "many", "contract": "x:Fw", "kind": "framework", "caseInsensitive": True},
+            "acme.turn.pipeline.act.framework": {"arity": "one", "contract": "x:Fw", "kind": "framework", "caseInsensitive": True, "default": "acme.fw"},
         },
         provides={"acme.turn.pipeline.act": ["tests.nx_kernel.kernel.test_loader:DEMO_CLIENTS"]},
     )
@@ -233,7 +234,7 @@ def test_every_declared_slot_exists_before_any_plugin_provides():
             "displayName": "fw",
             "declares": {"acme.turn.pipeline.act.framework.acme_fw.seat": {"arity": "many", "contract": "x:Seat"}},
             "provides": {
-                "acme.turn.pipeline.act.framework": ["tests.nx_kernel.kernel.test_loader:UPPER_CLIENTS"],
+                "acme.turn.pipeline.act.framework": "tests.nx_kernel.kernel.test_loader:UPPER_CLIENT",
                 "acme.turn.pipeline.act.framework.acme_fw.seat": ["tests.nx_kernel.kernel.test_loader:DEMO_CLIENTS"],
             },
         },
@@ -245,3 +246,24 @@ def test_every_declared_slot_exists_before_any_plugin_provides():
     assert regs.slots.get("acme.turn.pipeline.act").arity == "many"  # the real declaration, not an auto-namespace
     assert regs.registry_for("acme.turn.pipeline.act.framework").names() == ("demo",)  # UPPER "Demo" normalised
     assert regs.registry_for("acme.turn.pipeline.act.framework.acme_fw.seat").names() == ("demo",)
+
+
+SERVICE_A = (
+    (__import__("narranexus.kernel.plugins.services", fromlist=["ServiceRef"]).ServiceRef("acme.shared.thing"), object()),
+)
+
+
+def test_a_second_owner_of_a_service_ref_is_a_conflict_not_a_silent_skip():
+    """Two plugins exposing the same ServiceRef: the second is isolated with the
+    locator's conflict instead of silently doing nothing; the same owner
+    re-exposing (a second load into one process) stays a no-op."""
+    regs = Registries()
+    first = _user_manifest(id="acme.first", provides={"backend.services": ["tests.nx_kernel.kernel.test_loader:SERVICE_A"]})
+    second = _user_manifest(id="acme.second", provides={"backend.services": ["tests.nx_kernel.kernel.test_loader:SERVICE_A"]})
+    report = load(regs, [first, second], role="backend")
+    by_id = {p.plugin_id: p for p in report.loaded}
+    assert by_id["acme.first"].error is None and by_id["acme.first"].entries == 1
+    assert by_id["acme.second"].error and "RegistryConflict" in by_id["acme.second"].error
+    again = load(Registries(), [first], role="backend")
+    assert again.loaded[0].entries == 1
+    assert load(regs, [first], role="backend").loaded[0].error is None  # same owner again: no-op, no error

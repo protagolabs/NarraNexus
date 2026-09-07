@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+
+from loguru import logger
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -76,18 +78,44 @@ def _manifest_path(plugin_id: str, package: str) -> Path:
     raise FileNotFoundError(f"{plugin_id}: {MANIFEST_FILENAME} not found in package narranexus_plugins.{package} nor at {checkout}")
 
 
-def _read_manifest_data() -> tuple[dict[str, Any], ...]:
+@lru_cache(maxsize=1)
+def _manifest_data_and_missing() -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
+    """Read on FIRST USE, not at import (29 file reads must not tax every process that
+    merely imports the kernel). A builtin whose package is not installed — a wheel-based
+    distribution ships only its subset — is skipped and reported by ``missing_builtins()``
+    rather than killing the process with FileNotFoundError; a distribution naming it then
+    fails resolution with a message that says which plugin is absent."""
     out: list[dict[str, Any]] = []
+    missing: list[str] = []
     for plugin_id, package in BUILTIN_PLUGINS:
-        data = json.loads(_manifest_path(plugin_id, package).read_text(encoding="utf-8"))
+        try:
+            path = _manifest_path(plugin_id, package)
+        except FileNotFoundError as exc:
+            logger.warning(f"[plugins] builtin {plugin_id} is not installed in this engine: {exc}")
+            missing.append(plugin_id)
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("id") != plugin_id:
             raise ValueError(f"{plugin_id}: its manifest declares id {data.get('id')!r}")
         out.append(data)
-    return tuple(out)
+    return tuple(out), tuple(missing)
 
 
-# The builtin manifests as parsed JSON, in load order (read once per process).
-BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = _read_manifest_data()
+def builtin_manifest_data() -> tuple[dict[str, Any], ...]:
+    """The builtin manifests as parsed JSON, in load order (installed packages only)."""
+    return _manifest_data_and_missing()[0]
+
+
+def missing_builtins() -> tuple[str, ...]:
+    """Builtin ids listed in ``BUILTIN_PLUGINS`` whose package this engine does not carry."""
+    return _manifest_data_and_missing()[1]
+
+
+def __getattr__(name: str) -> Any:
+    # ``BUILTIN_MANIFEST_DATA`` stays importable by name; resolved lazily.
+    if name == "BUILTIN_MANIFEST_DATA":
+        return builtin_manifest_data()
+    raise AttributeError(name)
 
 
 def load_builtins(registries: Any, role: str = "backend", *, distribution: Any = None) -> Any:
@@ -116,8 +144,9 @@ def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:
     ``builtin.frameworks.*`` provide into ``turn.pipeline.act.framework``,
     which ``builtin.turn`` declares, whatever their relative order.
     """
-    tree.declare_all(slot for data in BUILTIN_MANIFEST_DATA for slot in Manifest.model_validate(data).declared_slots())
-    return tuple(parse_manifest(data, tree=tree, allow_builtin=True) for data in BUILTIN_MANIFEST_DATA)
+    data_list = builtin_manifest_data()
+    tree.declare_all(slot for data in data_list for slot in Manifest.model_validate(data).declared_slots())
+    return tuple(parse_manifest(data, tree=tree, allow_builtin=True) for data in data_list)
 
 
 def slot_tree_with_builtins() -> SlotTree:
@@ -138,4 +167,4 @@ def builtin_manifests() -> tuple[Manifest, ...]:
     return build_builtin_manifests(build_kernel_slot_tree())
 
 
-__all__ = ["BUILTIN_MANIFEST_DATA", "BUILTIN_PLUGINS", "MANIFEST_FILENAME", "build_builtin_manifests", "builtin_manifests", "load_builtins", "slot_tree_with_builtins"]
+__all__ = ["BUILTIN_PLUGINS", "MANIFEST_FILENAME", "build_builtin_manifests", "builtin_manifest_data", "builtin_manifests", "load_builtins", "missing_builtins", "slot_tree_with_builtins"]

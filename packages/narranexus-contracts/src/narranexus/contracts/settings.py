@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+from narranexus.contracts._base import plugin_id_slug
 from typing import Any, Literal, Mapping
 
 FieldType = Literal["string", "integer", "number", "boolean", "enum"]
@@ -78,10 +80,11 @@ class SettingsSchema:
                 raise ValueError(f"setting key {key!r} must match {_KEY_RE.pattern}")
 
     def env_name(self, plugin_id: str, key: str) -> str:
-        # ``NXP_<ID>__<KEY>``: the double underscore separates the flattened
-        # plugin id from the key so ``a.b`` + ``c_d`` and ``a.b_c`` + ``d``
-        # cannot collide (ids never contain ``__``).
-        return f"NXP_{plugin_id.upper().replace('.', '_').replace('-', '_')}__{key.upper()}"
+        # ``NXP_<SLUG>__<KEY>``: the double underscore separates the plugin
+        # slug from the key so ``a.b`` + ``c_d`` and ``a.b_c`` + ``d`` cannot
+        # collide (ids never contain ``__``); two ids with one slug are refused
+        # at install (see ``plugin_id_slug``).
+        return f"NXP_{plugin_id_slug(plugin_id).upper()}__{key.upper()}"
 
 
 __all__ = ["FieldType", "SettingField", "SettingsSchema"]

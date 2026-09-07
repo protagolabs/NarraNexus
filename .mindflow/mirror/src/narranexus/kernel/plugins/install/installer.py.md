@@ -25,3 +25,7 @@ When the blocklist is unknown (None) the installer refuses network sources fail-
 ## 2026-09-07 — check_updates closes its client
 
 Through sources._http.
+
+## 2026-09-07 — slug 唯一（round-2 K2-I3）
+
+acme.auth-sso 与 acme.auth_sso 共享 ext_/NXP_/nxplugins 前缀：安装时若 slug 已被已装插件或 builtin 持有则 InstallError。

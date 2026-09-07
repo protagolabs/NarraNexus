@@ -119,3 +119,7 @@ The 338-line BUILTIN_MANIFEST_DATA dict (a byte-for-byte copy of 28 JSON files, 
 ## 2026-09-07 — builtin manifest 校验前先声明全部 builtin 槽（B7）
 
 build_builtin_manifests 第一遍用 Manifest.model_validate（不需要树）取每个 builtin 的 declared_slots 并 declare_all 进树，第二遍才 parse_manifest——否则 nexus_power 的 provides['turn.pipeline.act.framework'] 会在 builtin.turn 之前被判为未声明。slot_tree_with_builtins 同样走 declare_all。BUILTIN_PLUGINS 新增 (builtin.ui, ui)。
+
+## 2026-09-07 — manifest 首次使用才读，缺包可容忍（round-2 K2-I2/G2-C1）
+
+BUILTIN_MANIFEST_DATA 由模块 __getattr__ 惰性给出（builtin_manifest_data() lru_cache）；某 builtin 包不存在（wheel 发行版只装子集）时跳过并进 missing_builtins()，不再 FileNotFoundError 杀进程。

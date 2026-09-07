@@ -15,6 +15,7 @@ Plugins import from here and nowhere else. Two tables govern evolution
 from __future__ import annotations
 
 from narranexus.contracts._base import (
+    plugin_id_slug,
     BindingConflict,
     CancellationSignal,
     Disposable,
@@ -34,7 +35,7 @@ API_VERSIONS: dict[str, int] = {
     "agent_events": 0,
     "agent": 0,
     "services": 0,
-    "ui": 0,
+    "ui": 1,  # frontend HostAPI shape (frontend/src/platform/host.ts HOST_API_VERSION); bumped with the batch-6 registries/slot-points surface
     "provider": 0,
     "llm_client": 0,
     "memory": 0,
@@ -65,7 +66,7 @@ API_VERSIONS: dict[str, int] = {
 # for the deprecation window docs/API_POLICY.md §5 promises, and is removed
 # when the window closes. A manifest's api[kind] must satisfy
 # MIN_SUPPORTED_VERSIONS[kind] <= api[kind] <= API_VERSIONS[kind].
-MIN_SUPPORTED_VERSIONS: dict[str, int] = dict(API_VERSIONS)
+MIN_SUPPORTED_VERSIONS: dict[str, int] = {**API_VERSIONS, "ui": 0}  # manifests written against ui 0 stay loadable through the deprecation window
 
 # Stability is declared PER KIND, deliberately: marking a kind stable is a
 # decision (docs/API_POLICY.md), not the by-product of a comprehension over

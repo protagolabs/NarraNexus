@@ -17,9 +17,6 @@ from narranexus.kernel.plugins.distribution import DistributionResolution, load_
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 
-DistLike = "str | Path | DistributionResolution | None"
-
-
 @dataclass
 class Engine:
     """A booted plugin platform for one distribution, usable from any asyncio program."""

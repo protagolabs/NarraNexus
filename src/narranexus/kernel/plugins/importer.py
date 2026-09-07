@@ -33,10 +33,8 @@ import importlib.util
 import sys
 import threading
 import types
-from typing import Any
-import threading
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from narranexus.contracts import PluginError
 

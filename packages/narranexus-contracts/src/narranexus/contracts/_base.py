@@ -151,7 +151,21 @@ class CancellationSignal(Protocol):
     def requested(self) -> bool: ...
 
 
+def plugin_id_slug(plugin_id: str) -> str:
+    """The identifier-safe form of a plugin id: ``.`` and ``-`` become ``_``.
+
+    NOT injective — ``acme.auth-sso`` and ``acme.auth_sso`` (both valid ids)
+    share a slug — so every namespace built on it (``ext_<slug>__`` table
+    prefixes, ``NXP_<SLUG>__`` env names, ``nxplugins.<slug>`` packages) is
+    guarded by a uniqueness check on the slug itself: the installer refuses a
+    plugin whose slug an installed plugin or a builtin already holds, and the
+    host isolates a plugin whose table prefix another loaded owner holds.
+    """
+    return plugin_id.replace(".", "_").replace("-", "_")
+
+
 __all__ = [
+    "plugin_id_slug",
     "Stability",
     "PluginError",
     "RegistryConflict",

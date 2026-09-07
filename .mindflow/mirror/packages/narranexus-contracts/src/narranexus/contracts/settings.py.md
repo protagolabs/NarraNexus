@@ -13,3 +13,7 @@ enum 必须给 choices，default 在构造时就用 `coerce` 校验。`coerce` �
 ## 2026-09-07 — env names are NXP_<ID>__<KEY>
 
 The double underscore between the flattened plugin id and the key makes a.b/c_d and a.b_c/d distinct environment variables.
+
+## 2026-09-07 — env_name 用 plugin_id_slug（round-2）
+
+与表前缀同一扁平化函数。

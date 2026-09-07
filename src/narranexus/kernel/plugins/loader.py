@@ -25,7 +25,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from loguru import logger
 
@@ -48,6 +48,7 @@ class PluginLoad:
     entries: int
     duration_ms: float
     error: str | None = None
+    slow: bool = False  # not loaded because the import deadline / stage deadline ran out (not broken)
 
 
 @dataclass
@@ -146,9 +147,13 @@ def discover(
     return found
 
 
-def resolve_symbol(spec: str) -> Any:
+Importer = Callable[[str], Any]
+
+
+def resolve_symbol(spec: str, importer: Importer | None = None) -> Any:
+    """``module.path:Symbol`` → the object; ``importer`` replaces the plain import (the boot passes a bounded one for user plugins)."""
     module_path, _, attr = spec.partition(":")
-    module = importlib.import_module(module_path)
+    module = (importer or importlib.import_module)(module_path)
     try:
         return getattr(module, attr)
     except AttributeError:
@@ -175,20 +180,22 @@ def _as_hook_impls(value: Any, spec: str) -> list[HookImplSpec]:
     raise PluginError(f"{spec}: expected a HookImplSpec or an iterable of them (use @hookimpl), got {type(value).__name__}")
 
 
-def _expose_services(registries: Registries, manifest: Manifest, spec: str) -> int:
+def _expose_services(registries: Registries, manifest: Manifest, spec: str, importer: Importer | None = None) -> int:
     """``backend.services`` entries are ``(ServiceRef, implementation)`` pairs exposed on the
-    service locator under the manifest's id (released with the owner; a second exposer of the
-    same ref conflicts — the locator's own rule)."""
+    service locator under the manifest's id (released with the owner). A second exposer of
+    the same ref by ANOTHER owner conflicts (the locator raises — "installed but does
+    nothing" is exactly what the platform refuses); the same owner re-exposing (a second
+    load into the same process) is a no-op."""
     count = 0
-    pairs = resolve_symbol(spec)
-    for ref, impl in pairs:
-        if registries.services.try_require(ref) is None:
-            registries.services.expose(ref, impl, owner=manifest.id)
+    for ref, impl in resolve_symbol(spec, importer):
+        if registries.services.try_require(ref) is not None and registries.services.owner_of(ref) == manifest.id:
+            continue
+        registries.services.expose(ref, impl, owner=manifest.id)
         count += 1
     return count
 
 
-def _register_hooks(registries: Registries, manifest: Manifest, spec: str) -> int:
+def _register_hooks(registries: Registries, manifest: Manifest, spec: str, importer: Importer | None = None) -> int:
     """``backend.hooks`` entries are ``HookImplSpec``s produced by ``@hookimpl(name)``.
 
     The owner is the manifest id, never something the plugin chooses. The hook
@@ -196,7 +203,7 @@ def _register_hooks(registries: Registries, manifest: Manifest, spec: str) -> in
     typo in a hook name isolates the plugin instead of silently never firing.
     """
     count = 0
-    for impl in _as_hook_impls(resolve_symbol(spec), spec):
+    for impl in _as_hook_impls(resolve_symbol(spec, importer), spec):
         registries.hooks.add(
             impl.hook, impl.fn, owner=manifest.id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper
         )
@@ -299,8 +306,40 @@ def load_order(manifests: Iterable[Manifest]) -> list[Manifest]:
     return plan_load(manifests).ordered
 
 
-def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -> LoadReport:
-    """Register every contribution of the manifests that target ``role``."""
+def _bounded_importer(manifest: Manifest, timeout_s: float) -> Importer:
+    """Import a user plugin's own modules through the kernel importer's deadline door;
+    anything else (the SDK, the platform) stays a plain import."""
+    from narranexus.kernel.plugins.importer import import_plugin_module, package_name
+
+    own = package_name(manifest.id)
+
+    def _import(module_path: str) -> Any:
+        if module_path == own or module_path.startswith(own + "."):
+            return import_plugin_module(manifest.id, module_path[len(own) + 1:], timeout=timeout_s)
+        return importlib.import_module(module_path)
+
+    return _import
+
+
+def load(
+    registries: Registries,
+    manifests: Iterable[Manifest],
+    *,
+    role: Host,
+    import_timeout_s: float | None = None,
+    deadline: float | None = None,
+) -> LoadReport:
+    """Register every contribution of the manifests that target ``role``.
+
+    ``import_timeout_s`` bounds every USER plugin's imports (its own
+    ``nxplugins.<id>`` modules go through ``importer.import_plugin_module`` on
+    a daemon thread; a timeout records the plugin ``slow``, never crashed);
+    ``deadline`` (a ``time.perf_counter()`` value) is re-checked before each
+    user plugin so N wedged plugins cannot drag a host past its health-check
+    window. Builtins are host code: plain imports, fail-fast.
+    """
+    from narranexus.kernel.plugins.importer import PluginImportTimeout
+
     report = LoadReport(role=role)
     seen: set[str] = set()
     plan = plan_load(manifests)
@@ -327,27 +366,45 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
         started = time.perf_counter()
         entries = 0
         error: str | None = None
+        slow = False
+        importer: Importer | None = None
+        if not manifest.is_builtin:
+            remaining = None if deadline is None else deadline - started
+            if remaining is not None and remaining <= 0:
+                report.loaded.append(PluginLoad(plugin_id=manifest.id, version=manifest.version, slots=(), entries=0, duration_ms=0.0,
+                                                error="slow: stage deadline exceeded before this plugin loaded", slow=True))
+                continue
+            if import_timeout_s is not None:
+                importer = _bounded_importer(manifest, min(import_timeout_s, remaining) if remaining is not None else import_timeout_s)
         try:
             for path, value in manifest.provides.items():
                 specs = (value,) if isinstance(value, str) else value
                 if path == HOOKS_SLOT:
                     registries.slots.get(path)
                     for spec in specs:
-                        entries += _register_hooks(registries, manifest, spec)
+                        entries += _register_hooks(registries, manifest, spec, importer)
                     continue
                 if path == SERVICES_SLOT:
                     registries.slots.get(path)
                     for spec in specs:
-                        entries += _expose_services(registries, manifest, spec)
+                        entries += _expose_services(registries, manifest, spec, importer)
                     continue
                 registry = registries.registry_for(path)
                 for spec in specs:
-                    contributions = _as_contributions(resolve_symbol(spec), spec)
+                    contributions = _as_contributions(resolve_symbol(spec, importer), spec)
                     if not contributions:
                         logger.debug(f"[plugins] {manifest.id}: {spec} produced no contributions")
                     for contribution in contributions:
                         registry.register_contribution(contribution, owner=manifest.id)
                         entries += 1
+        except PluginImportTimeout as exc:
+            # Slow is not broken: the plugin is left unloaded this boot, its
+            # partial registrations withdrawn, and the host stays inside its
+            # health-check window. The importer remembers the wedged module so
+            # activation does not try the same import again.
+            error, slow = f"slow: {exc}", True
+            logger.warning(f"[plugins] {manifest.id}: too slow to import, skipped this boot: {exc}")
+            registries.remove_owner(manifest.id)
         except Exception as exc:  # noqa: BLE001 — classify below
             error = f"{type(exc).__name__}: {exc}"
             if manifest.is_builtin:
@@ -372,6 +429,7 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
                 entries=entries,
                 duration_ms=(time.perf_counter() - started) * 1000.0,
                 error=error,
+                slow=slow,
             )
         )
     return report

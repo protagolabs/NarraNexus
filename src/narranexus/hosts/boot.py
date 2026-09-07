@@ -81,6 +81,10 @@ class BootReport:
         return tuple(p.plugin_id for p in self.users.loaded if not p.error)
 
 
+# Per-plugin bound on a user plugin's imports during stage 2 (the stage deadline caps it further).
+USER_IMPORT_TIMEOUT_S = 30.0
+
+
 def _state_of(reason: str) -> str:
     return reason.split(":", 1)[0]
 
@@ -182,7 +186,7 @@ def boot(
         report.excluded_builtins = left_out
         disabled = set(found.disabled_builtins)
         stage1 = [m for m in distribution.manifests if m.id not in disabled]
-        prepare_bundled_plugins(distribution, store, skip=disabled)
+        prepare_bundled_plugins(distribution, _read_registry(), skip=disabled)
 
     builtins = []
     for manifest in stage1:
@@ -207,32 +211,47 @@ def boot(
     if users and distribution is not None and not distribution.spec.runtime.user_plugins:
         logger.info(f"[plugins] distribution {distribution.spec.id} disallows runtime plugins: {len(users)} skipped")
         users = []
+    loadable: list[Manifest] = []
     if users:
+        # The deadline is a real bound on the whole stage — preparation AND the
+        # imports load() performs (every user module goes through the kernel
+        # importer's daemon-thread door with the time that is left) — so N
+        # wedged plugins cannot drag the host past its health-check window.
+        # A plugin the deadline catches is recorded "slow" (not crashed: slow
+        # is not broken) and left unloaded this boot.
         deadline = time.perf_counter() + stage2_deadline_s
         finder = plugin_finder()
+        registry_file = _read_registry()
         for manifest in users:
             if time.perf_counter() > deadline:
-                # The deadline is a real bound: every plugin after it is
-                # recorded "slow" (not crashed — slow is not broken) and left
-                # unloaded, so N wedged plugins cannot drag the host past its
-                # health-check window.
                 report.slow[manifest.id] = f"slow: stage-2 deadline ({stage2_deadline_s:.0f}s) exceeded before this plugin loaded"
                 continue
-            path = found.paths[manifest.id]
             try:
-                _prepare_user_plugin(manifest, path, finder, store)
-            except PluginImportTimeout as exc:
-                report.slow[manifest.id] = f"slow: {exc}"
-                logger.warning(f"[plugins] {manifest.id}: too slow to import, skipped this boot: {exc}")
+                _prepare_user_plugin(manifest, found.paths[manifest.id], finder, registry_file)
             except Exception as exc:  # noqa: BLE001 — isolate
                 report.isolated[manifest.id] = f"{type(exc).__name__}: {exc}"
                 logger.warning(f"[plugins] {manifest.id}: isolated before load: {exc}")
         loadable = [m for m in users if m.id not in report.isolated and m.id not in report.slow]
-        report.users = load(registries, loadable, role=role)
+        report.users = load(registries, loadable, role=role, import_timeout_s=USER_IMPORT_TIMEOUT_S, deadline=deadline)
         for entry in report.users.loaded:
-            if entry.error:
+            if entry.slow:
+                report.slow[entry.plugin_id] = entry.error or "slow"
+            elif entry.error:
                 report.isolated[entry.plugin_id] = entry.error
-        # tables are pure data: register them even when the plugin never activates
+        loadable = [m for m in loadable if m.id not in report.slow]
+
+    # ---- lifecycle for everything loaded this boot that is not a builtin: the
+    # runtime (stage-2) plugins AND a distribution's bundled ones — bundled
+    # plugins are stage-1 code but carry tables and activate(ctx) like any
+    # other plugin (the shipped example distribution's acme.crm activates on
+    # onStartup only because this loop sees it).
+    bundled = [m for m in builtins if not m.is_builtin and not any(pl.plugin_id == m.id and pl.error for pl in report.builtins.loaded)]
+    lifecycle = bundled + loadable
+    if lifecycle:
+        # tables are pure data: register them even when the plugin never activates.
+        # (One slug, one owner — two ids sharing an ext_<slug>__ prefix cannot both
+        # be here: the installer refuses the second id and the synthetic package
+        # of the first holds the slug at prepare time.)
         if register_table is not None and "backend.tables" in registries.paths():
             for entry in registries.registry_for("backend.tables").entries():
                 if entry.owner.startswith("builtin.") or entry.owner in report.isolated:
@@ -243,32 +262,38 @@ def boot(
                     report.isolated[entry.owner] = f"table {entry.name!r}: {exc}"
                     logger.warning(f"[plugins] {entry.owner}: table {entry.name!r} refused: {exc}")
         if activator is not None:
-            for manifest in loadable:
+            for manifest in lifecycle:
                 if manifest.id in report.isolated:
                     continue
                 report.activation_events[manifest.id] = activator.register(manifest)
-        # Crash accounting runs AFTER every source of isolation (load errors,
-        # table refusals) has been recorded — it used to run before the table
-        # loop, so a plugin whose TableSpec was refused every boot never
-        # reached the auto-disable threshold and replayed forever.
-        if writable:
-            for pid, err in report.isolated.items():
+    # Crash accounting runs AFTER every source of isolation (load errors,
+    # table refusals) has been recorded — it used to run before the table
+    # loop, so a plugin whose TableSpec was refused every boot never
+    # reached the auto-disable threshold and replayed forever. Bundled
+    # plugins are the distribution's own code: no crash counting for them
+    # (their load errors already failed the boot above). Runs even when
+    # nothing loaded: a stage deadline that caught every plugin still records them slow.
+    if writable:
+        runtime_ids = {m.id for m in users}
+        for pid, err in report.isolated.items():
+            if pid not in runtime_ids:
+                continue
+            try:
+                store.record_crash(pid, err)
+            except RegistryError:
+                pass
+        for pid, err in report.slow.items():
+            try:
+                store.transition(pid, "slow", error=err)
+            except RegistryError:
+                pass
+        for manifest in lifecycle:
+            if manifest.id not in report.isolated:
                 try:
-                    store.record_crash(pid, err)
-                except RegistryError:
-                    pass
-            for pid, err in report.slow.items():
-                try:
-                    store.transition(pid, "slow", error=err)
-                except RegistryError:
-                    pass
-            for manifest in loadable:
-                if manifest.id not in report.isolated:
-                    try:
-                        store.transition(manifest.id, "validated")
-                        store.transition(manifest.id, "enabled")
-                    except RegistryError as exc:
-                        logger.debug(f"[plugins] {manifest.id}: state not advanced: {exc}")
+                    store.transition(manifest.id, "validated")
+                    store.transition(manifest.id, "enabled")
+                except RegistryError as exc:
+                    logger.debug(f"[plugins] {manifest.id}: state not advanced: {exc}")
 
     registries.freeze()
     report.duration_ms = (time.perf_counter() - started) * 1000.0
@@ -280,25 +305,48 @@ def boot(
     return report
 
 
-def prepare_bundled_plugins(distribution: DistributionResolution, store: RegistryStore, *, skip: set[str] | frozenset[str] = frozenset()) -> tuple[str, ...]:
-    """Give every bundled (path) plugin of the distribution its synthetic package and private deps so stage 1 can import it. Raises: bundled code is the distribution's own."""
+def prepare_bundled_plugins(
+    distribution: DistributionResolution,
+    store: "RegistryStore | RegistryFile | None",
+    *,
+    skip: set[str] | frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """Give every bundled (path) plugin of the distribution its synthetic package and private
+    deps so stage 1 can import it. Raises on a broken bundle: bundled code is the distribution's
+    own. ``store`` may be the already-read registry (or ``None`` when it is unreadable — a
+    corrupt registry.json must not keep a distribution from booting its own plugins)."""
     finder = plugin_finder()
+    registry_file = store if isinstance(store, RegistryFile) or store is None else _try_read(store)
     prepared = []
     for pick in distribution.picks:
         if pick.path is None or pick.id in skip:
             continue
-        _prepare_user_plugin(pick.manifest, pick.path, finder, store)
+        _prepare_user_plugin(pick.manifest, pick.path, finder, registry_file)
         prepared.append(pick.id)
     return tuple(prepared)
 
 
-def _prepare_user_plugin(manifest: Manifest, path: Path, finder: Any, store: RegistryStore) -> None:
-    """Synthetic package + private deps for one user plugin (no code runs yet)."""
+def _try_read(store: RegistryStore) -> "RegistryFile | None":
+    if not store.path.exists():
+        return None
+    try:
+        return store.read()
+    except RegistryError as exc:
+        logger.error(f"[plugins] {store.path}: unreadable ({exc}); plugin records ignored")
+        return None
+
+
+def _prepare_user_plugin(manifest: Manifest, path: Path, finder: Any, registry: "RegistryFile | None") -> None:
+    """Synthetic package + private deps for one user plugin (no code runs yet).
+
+    ``registry`` is the registry.json read ONCE by the boot (``None`` when it
+    is missing or unreadable): a plugin without a record installs in ``copy``
+    mode, the default — never silently ``link``."""
     backend_pkg = manifest.backend.package if manifest.backend else "backend"
     backend_dir = path / backend_pkg
     if backend_dir.is_dir():
         install_synthetic_package(manifest.id, backend_dir)
-    rec = store.read().plugins.get(manifest.id)
+    rec = registry.plugins.get(manifest.id) if registry is not None else None
     mode = rec.mode if rec else "copy"
     deps = deps_dir(manifest.id, mode=mode, plugin_path=path)
     if deps.is_dir():

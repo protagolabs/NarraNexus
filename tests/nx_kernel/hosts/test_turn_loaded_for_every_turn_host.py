@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.contracts import UnknownEntry
+from narranexus.contracts import RegistryFrozen, UnknownEntry
 from narranexus.contracts.agent.stages import Stage
 from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.registries import Registries
@@ -20,6 +20,9 @@ def test_turn_and_frameworks_are_loaded_by_every_turn_running_role(plugin_home, 
     regs = Registries()
     report = boot(role, registries=regs, cloud=False, host_version="1.15.0")
     assert regs.frozen and not report.builtins.errors
+    # the production invariant: nothing registers after boot
+    with pytest.raises(RegistryFrozen):
+        regs.registry_for("turn.pipeline.recall").register("late", lambda: 1, owner="acme.late")
     assert "builtin.turn" in {e.owner for e in regs.registry_for("turn.pipeline").entries()}
     for stage in Stage:
         assert regs.registry_for(slot_path(stage)).names(), stage

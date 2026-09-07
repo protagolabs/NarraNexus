@@ -15,3 +15,7 @@ frozen dataclass，内核 `schema_registry.register_table` 负责转换。双方
 ## 2026-09-07 — ext_<owner>__ prefix is injective
 
 The isolation prefix is terminated by a DOUBLE underscore: with a single one, acme.weather's prefix was a prefix of acme.weather_x's tables and PluginDb let one plugin read and write its sibling's data. Plugin ids never contain '__' or end in '_' (manifest PLUGIN_ID_RE), so two prefixes are prefix-related only when the ids are equal.
+
+## 2026-09-07 — 前缀文档改为事实（round-2 K2-I3）
+
+table_prefix_for 用 plugin_id_slug；docstring 不再声称对 id 单射，而是说明同 slug 的两个 id 由安装器/boot 拒绝。

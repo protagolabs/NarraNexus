@@ -421,14 +421,25 @@ def _check_declares_in_own_namespace(manifest: Manifest, tree: SlotTree) -> None
     ``ui`` → ``builtin.ui``) is provided by it in the same sense, so its
     children (``prompt.sections``, ``ui.themes``) are declared by that plugin.
     """
-    provided = set(manifest.provides) | {s.path for s in tree.roots() if s.default == manifest.id}
+    # Only a ONE-arity composite has an owner (the nesting rule of the bindings
+    # is defined for one-arity slots alone): every provider of a many-arity
+    # slot could otherwise claim its children, and the second claimant would
+    # fail at boot on a RegistryConflict it never caused.
+    def _one_arity(path: str) -> bool:
+        slot = tree.try_get(path)
+        if slot is not None:
+            return slot.arity == "one"
+        decl = manifest.declares.get(path)
+        return decl is not None and decl.arity == "one"
+
+    provided = {p for p in manifest.provides if _one_arity(p)} | {s.path for s in tree.roots() if s.default == manifest.id}
     for path in manifest.declares:
         own = path != manifest.id and path.startswith(manifest.id + ".")
         under_provided = any(path.startswith(p + ".") for p in provided)
         if not (own or under_provided):
             raise ManifestError(
                 f"{manifest.id}: declares[{path!r}] must live under this plugin's own namespace "
-                f"({manifest.id!r}.<name>) or under a composite slot this plugin provides"
+                f"({manifest.id!r}.<name>) or under a ONE-arity composite slot this plugin provides"
             )
 
 

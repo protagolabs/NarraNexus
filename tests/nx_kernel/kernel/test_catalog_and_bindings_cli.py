@@ -57,6 +57,11 @@ def test_bind_validates_and_edits_only_the_bindings_table(tmp_path: Path):
         bindings_cli.bind(regs, cfg, "prompt.assembler", ["acme.ghost"])
     with pytest.raises(BindingConflict, match="one-arity"):
         bindings_cli.bind(regs, cfg, "prompt.assembler", ["acme.brand", "builtin.prompts"])
+    # a real owner's non-existent contribution, and a verb with no payload, are refused too
+    with pytest.raises(UnknownEntry, match="registered nothing"):
+        bindings_cli.bind(regs, cfg, "prompt.sections", ["builtin.prompts:nope"])
+    with pytest.raises(UnknownEntry, match="registered nothing"):
+        bindings_cli.bind(regs, cfg, "prompt.sections", ["-"])
     out = bindings_cli.bind(regs, cfg, "prompt.assembler", ["acme.brand"])
     assert out["bound"] == "acme.brand"
     out = bindings_cli.bind(regs, cfg, "prompt.sections", ["builtin.prompts:modules", "security"])

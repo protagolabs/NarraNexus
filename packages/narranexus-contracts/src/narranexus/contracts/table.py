@@ -18,20 +18,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from narranexus.contracts._base import plugin_id_slug
+
 EXT_PREFIX = "ext_"
 
 
 def table_prefix_for(owner: str) -> str:
-    """``ext_<owner>__`` — the owner flattened to ``_`` and terminated by a DOUBLE underscore.
+    """``ext_<slug>__`` — the owner's slug terminated by a DOUBLE underscore.
 
-    A single-underscore terminator was not injective: ``acme.weather`` →
-    ``ext_acme_weather_`` was a prefix of ``acme.weather_x``'s tables, so one
-    plugin could read and write its sibling's data through PluginDb. Plugin ids
-    never contain ``__`` and never end in ``_`` (manifest PLUGIN_ID_RE), so
-    ``ext_<id>__`` is a prefix of another plugin's prefix only when the ids are
-    equal.
+    The ``__`` terminator makes the prefix relation clean between DIFFERENT
+    slugs (ids never contain ``__`` and never end in ``_``): ``ext_acme_weather__``
+    is not a prefix of ``ext_acme_weather_x__``. Two ids with the SAME slug
+    (``acme.auth-sso`` / ``acme.auth_sso``) would share a prefix, which is why
+    the installer and the boot's table registration refuse a second owner of an
+    already-held slug (``plugin_id_slug``).
     """
-    return f"{EXT_PREFIX}{owner.replace('.', '_').replace('-', '_')}__"
+    return f"{EXT_PREFIX}{plugin_id_slug(owner)}__"
 
 
 @dataclass(frozen=True)

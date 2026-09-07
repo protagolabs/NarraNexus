@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from narranexus.kernel.plugins.install import deps, sources
-from narranexus.kernel.plugins.install.installer import Installer
+from narranexus.kernel.plugins.install.installer import InstallError, Installer
 from narranexus.kernel.plugins.install.sources import LocalSource, SourceError, extract_zip
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 
@@ -136,3 +136,16 @@ def test_index_ignores_ids_that_are_not_third_party(tmp_path: Path):
 
     index = Index(cache_dir=tmp_path / "cache", client=httpx.Client(transport=httpx.MockTransport(serve)))
     assert [e.id for e in index.entries()] == ["acme.ok"]
+
+
+def test_install_refuses_an_id_whose_slug_is_already_held(tmp_path: Path, monkeypatch):
+    """``acme.auth-sso`` and ``acme.auth_sso`` share table prefix, settings env prefix and
+    package name: the second one cannot be installed."""
+    monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    store = RegistryStore(path=tmp_path / "home" / "registry.json", lkg=tmp_path / "home" / "registry.lkg.json")
+    installer = Installer(store=store, host="1.19.0")
+    installer.install(LocalSource(_plugin(tmp_path / "acme.auth-sso", "acme.auth-sso"), mode="link"))
+    with pytest.raises(InstallError, match="already held by 'acme.auth-sso'"):
+        installer.install(LocalSource(_plugin(tmp_path / "acme.auth_sso", "acme.auth_sso"), mode="link"))
+    assert set(store.read().plugins) == {"acme.auth-sso"}

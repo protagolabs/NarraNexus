@@ -74,3 +74,27 @@ def test_every_listing_of_the_builtins_agrees_with_the_plugin_directories():
         # A distribution may ship third-party plugins too; every BUILTIN must be classified.
         assert {p for p in classified if p.startswith("builtin.")} == set(ids), dist_dir.name
         assert not (set(spec["plugins"]) & set(spec.get("excludes", []))), dist_dir.name
+
+
+def test_a_builtin_whose_package_is_absent_is_skipped_not_fatal(monkeypatch):
+    """A wheel-based distribution ships a subset of the builtins: the engine must
+    import without the others, and say which are missing."""
+    from narranexus.kernel.plugins import builtins as mod
+
+    real = mod._manifest_path
+
+    def _missing(plugin_id, package):
+        if plugin_id == "builtin.teams":
+            raise FileNotFoundError("not shipped")
+        return real(plugin_id, package)
+
+    monkeypatch.setattr(mod, "_manifest_path", _missing)
+    mod._manifest_data_and_missing.cache_clear()
+    try:
+        assert mod.missing_builtins() == ("builtin.teams",)
+        assert "builtin.teams" not in {d["id"] for d in mod.builtin_manifest_data()}
+        assert len(mod.builtin_manifest_data()) == len(BUILTIN_PLUGINS) - 1
+    finally:
+        monkeypatch.undo()
+        mod._manifest_data_and_missing.cache_clear()
+    assert mod.missing_builtins() == ()

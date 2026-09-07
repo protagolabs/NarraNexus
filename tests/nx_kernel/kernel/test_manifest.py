@@ -185,3 +185,11 @@ def test_default_provider_of_a_kernel_root_may_declare_its_children():
     assert (slot.path, slot.owner) == ("prompt.sections", "builtin.prompts")
     with pytest.raises(ManifestError, match="own namespace"):
         parse_manifest(_base(provides={}, declares={"prompt.sections": {"arity": "many", "contract": "x:Section"}}), tree=_tree())
+
+
+def test_a_provider_of_a_many_arity_slot_may_not_declare_its_children():
+    # Every provider of model.providers could otherwise claim its children and the
+    # second claimant would fail at boot with a RegistryConflict it never caused.
+    data = _base(declares={"model.providers.acme": {"arity": "many", "contract": "x:Y"}})
+    with pytest.raises(ManifestError, match="ONE-arity"):
+        parse_manifest(data, tree=_tree())

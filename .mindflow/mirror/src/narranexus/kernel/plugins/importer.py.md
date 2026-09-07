@@ -17,3 +17,7 @@ deps 目录提供（宿主优先——HA 的 site-packages 互踩教训）。首
 ## 2026-09-07 — one daemon thread per import; wedged plugins fail fast; PluginImportTimeout
 
 The two-worker pool could be wedged by two hung imports (a future cannot be cancelled), after which every later import timed out and innocent plugins were auto-disabled. Each import now runs on its own daemon thread; a plugin whose import exceeded the deadline is remembered in _WEDGED and refused immediately afterwards; the timeout is its own PluginImportTimeout so boot records it as slow, not crashed. Only ever called from the boot/activation top level (a worker importing back into a module mid-import on the caller's thread would deadlock on the import lock).
+
+## 2026-09-07 — 重复 import 清理（round-2 K2-M2）
+
+threading/typing 重复导入合并。

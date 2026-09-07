@@ -22,7 +22,7 @@ def plugin_home(tmp_path: Path, monkeypatch) -> Path:
     home.mkdir()
     monkeypatch.setenv(ENV_PLUGIN_HOME, str(home))
     yield home
-    for pid in ("acme.ok", "acme.bad", "acme.dep", "acme.tables"):
+    for pid in ("acme.ok", "acme.bad", "acme.dep", "acme.tables", "acme.a-b", "acme.a_b"):
         importer.uninstall_synthetic_package(pid)
         importer.plugin_finder().unregister_deps(pid)
 

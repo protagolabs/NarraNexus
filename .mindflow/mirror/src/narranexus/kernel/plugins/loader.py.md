@@ -64,3 +64,7 @@ SERVICES_SLOT entries are exposed on Registries.services under the manifest id (
 ## 2026-09-07 — 两阶段：先声明所有槽，再注册贡献（B7）
 
 load() 第一遍遍历（同时查重 id）收集本角色所有 manifest 的 declared_slots 并 declare_all（由浅到深）；第二遍才 provides。动机：builtin.frameworks.* 在 BUILTIN 顺序里先于 builtin.turn，却要向 builtin.turn 声明的 turn.pipeline.act.framework 注册——加载顺序不再决定槽是否存在。
+
+## 2026-09-07 — 有界导入 + 阶段 deadline；service 二次暴露是冲突（round-2）
+
+resolve_symbol 接受 importer；非 builtin manifest 用 _bounded_importer（自己的包走 import_plugin_module(timeout)，其它照常）；PluginImportTimeout → PluginLoad.slow=True；deadline 在每个用户插件前复查。_expose_services：同 owner 重复暴露是 no-op，不同 owner 抛 RegistryConflict（旧代码 try_require 为真就静默跳过并计数）。

@@ -86,9 +86,23 @@ class Installer:
             reason = blocked_reason(self.blocked or {}, manifest.id, manifest.version)
             if reason:
                 raise InstallError(f"{manifest.id} {manifest.version} is blocked: {reason}")
-            existing = self.store.read().plugins.get(manifest.id)
+            installed = self.store.read().plugins
+            existing = installed.get(manifest.id)
             if existing is not None and not replace:
                 raise InstallError(f"{manifest.id} is already installed ({existing.installed_version}); use upgrade")
+            # One slug, one plugin: the table prefix, the settings env prefix and
+            # the synthetic package are all derived from the slug (not injective
+            # over ids — ``acme.auth-sso`` and ``acme.auth_sso`` collide).
+            from narranexus.contracts import plugin_id_slug
+            from narranexus.kernel.plugins.builtins import builtin_manifests
+
+            slug = plugin_id_slug(manifest.id)
+            holders = [pid for pid in [*installed, *(m.id for m in builtin_manifests())] if pid != manifest.id and plugin_id_slug(pid) == slug]
+            if holders:
+                raise InstallError(
+                    f"cannot install {manifest.id}: its identifier form {slug!r} is already held by {holders[0]!r} "
+                    f"(table prefix, settings and package names would collide); pick another id"
+                )
             if existing is not None and existing.mode == "copy" and fetched.mode != "link":
                 # replacing: the old copy goes away only after the new one is in place
                 pass

@@ -15,3 +15,7 @@ booted_registries() boots with inspect=True (no marker, no writes). bind() re-re
 ## 2026-09-07 — booted_registries relies on boot alone
 
 register_all is gone.
+
+## 2026-09-07 — bind 逐 token 校验（round-2 K2-I7）
+
+_names_a_candidate：owner / name / owner:name 每个都必须命中已注册条目，空 verb 拒绝；旧实现只查 owner 存在，owner:不存在的名字会被写进 toml 然后静默匹配不到任何东西。_KEY_RE 死代码删除。

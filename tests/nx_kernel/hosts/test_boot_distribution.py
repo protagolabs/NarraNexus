@@ -108,3 +108,44 @@ def test_lock_matches_the_doctor_view(plugin_home: Path):
     lock = lock_data(res, host_version=HOST)
     assert {r["id"] for r in doc["plugins"]} == set(lock["plugins"]) and doc["bindings"] == lock["bindings"]
     assert json.dumps(lock, sort_keys=True)  # serialisable
+
+
+def test_a_bundled_plugin_gets_its_lifecycle_like_a_user_plugin(plugin_home: Path):
+    """A distribution's bundled plugin is stage-1 code but carries tables and
+    activate(ctx): it must be registered with the activator (and its tables
+    registered) — the shipped example distribution's acme.crm activates on
+    onStartup only because of this."""
+    body = (
+        "from narranexus.contracts.table import ColumnSpec, TableSpec\n"
+        "from narranexus.kernel.plugins.registry import Contribution\n"
+        "TABLES = (Contribution('items', lambda: TableSpec('ext_acme_crm__items', (ColumnSpec('id', 'TEXT', 'VARCHAR(64)', primary_key=True),))),)\n"
+        "def activate(ctx):\n    pass\n"
+    )
+    make_plugin(plugin_home / "dist", "acme.crm", min_app="1.0.0", body=body, extra={"provides": {"backend.tables": ["nxplugins.acme_crm:TABLES"]}, "api": {"table": 0}})
+    res = _dist(plugin_home / "dist", plugins={**CORE, "acme.crm": {"path": "./acme.crm"}})
+    regs = Registries()
+    load_builtins(regs, "backend")
+    registered_events: dict[str, tuple[str, ...]] = {}
+
+    class _Activator:
+        def register(self, manifest):
+            registered_events[manifest.id] = ("onStartup",)
+            return ("onStartup",)
+
+    tables: list[str] = []
+    report = boot("backend", registries=regs, cloud=False, host_version=HOST, distribution=res, activator=_Activator(), register_table=lambda spec, owner: tables.append(owner))
+    assert report.activation_events == {"acme.crm": ("onStartup",)} and tables == ["acme.crm"]
+    assert report.isolated == {}
+
+
+def test_a_corrupt_registry_does_not_keep_a_distribution_from_booting_its_bundle(plugin_home: Path):
+    make_plugin(plugin_home / "dist", "acme.crm", min_app="1.0.0")
+    res = _dist(plugin_home / "dist", plugins={**CORE, "acme.crm": {"path": "./acme.crm"}})
+    (plugin_home / "registry.json").write_text("{not json")
+    from narranexus.kernel.plugins.lifecycle import RegistryStore
+
+    store = RegistryStore(path=plugin_home / "registry.json", lkg=plugin_home / "registry.lkg.json")
+    regs = Registries()
+    load_builtins(regs, "backend")
+    report = boot("backend", registries=regs, cloud=False, host_version=HOST, store=store, distribution=res)
+    assert "acme.crm" in {pl.plugin_id for pl in report.builtins.loaded} and not report.builtins.errors
