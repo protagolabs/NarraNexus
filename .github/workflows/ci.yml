@@ -39,13 +39,16 @@ jobs:
       - name: "Ruff lint (incl. TID251 — plugin code never imports kernel internals)"
         run: uv run ruff check src/ backend/ packages/ plugins/
 
-      - name: Public contract surface (griffe check against the base branch)
+      - name: Public contract surface (griffe check against the PR base)
         # Every change to narranexus.contracts' public API must be explicit:
         # griffe diffs the stable contracts against the PR's base and fails on
         # a breaking change (docs/API_POLICY.md — stable since batch 6).
+        # Pull requests only: on a push there is no base to diff against
+        # (diffing dev against main would flag the whole dev delta forever).
+        if: github.event_name == 'pull_request'
         run: |
-          git fetch --no-tags --depth=1 origin ${{ github.base_ref || 'main' }}
-          uv run scripts/dev/api_check.sh origin/${{ github.base_ref || 'main' }}
+          git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.ref }}
+          uv run scripts/dev/api_check.sh origin/${{ github.event.pull_request.base.ref }}
 
       - name: Import direction (import-linter)
         # Plugin-platform layering: contracts are a leaf, kernel sees only
@@ -147,7 +150,7 @@ jobs:
         # connection orphaned by a closed event loop, wedging the shared SQLite
         # file for 10 retries x 30s busy_timeout). Green said nothing; the
         # duration list was the only place it was visible.
-        run: uv run pytest tests/ -q --durations=15
+        run: uv run pytest -q --durations=15
 
   # ── Frontend checks ─────────────────────────────────────────────────────
   frontend:

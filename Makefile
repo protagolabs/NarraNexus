@@ -55,7 +55,7 @@ help:
 lint: lint-backend lint-frontend
 
 lint-backend:
-	uv run ruff check src/ backend/
+	uv run ruff check src/ backend/ packages/ plugins/
 
 lint-frontend:
 	cd frontend && npx eslint src/
@@ -84,7 +84,7 @@ typecheck-frontend:
 test: test-backend
 
 test-backend:
-	uv run pytest tests/ -v
+	uv run pytest -v
 
 # ── Build ───────────────────────────────────────────────────────────────────
 

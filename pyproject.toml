@@ -246,7 +246,7 @@ ignore = [
 # NameError.
 #
 # Enforcement follows the repo's existing lint scope — CI and `make lint` both
-# run `ruff check src/ backend/` — so scripts/ and tests/ are checked only when
+# run `ruff check src/ backend/ packages/ plugins/` — so scripts/ and tests/ are checked only when
 # someone runs ruff over the tree by hand. Widening that scope is a separate
 # change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
 
@@ -277,6 +277,12 @@ ignore = [
 known-first-party = ["narranexus", "narranexus_plugins", "backend"]
 
 [tool.pytest.ini_options]
+# Every test tree: the engine suite and the 28 builtin plugin packages (their
+# manifest/parity tests are the only guard on the double-written manifests).
+# templates/*/tests are NOT collected here: they run inside a scaffolded plugin
+# (tests/nx_kernel/cli exercises the scaffold). CI and `make test-backend` run
+# bare `pytest`, so this list is the single source of what gets collected.
+testpaths = ["tests", "plugins/*/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Make `uv run pytest` work without a manual PYTHONPATH or editable install:
