@@ -29,8 +29,14 @@ from narranexus.platform.agent_framework.providers.model_catalog import (
 from narranexus.platform.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
 )
+from narranexus.platform.agent_framework.loop.driver import (
+    DEFAULT_AGENT_LOOP_FRAMEWORK,
+    available_agent_loop_frameworks,
+    default_framework_for_protocol,
+    framework_for_oauth_source,
+    resolve_framework_name,
+)
 from narranexus.platform.schema.provider_schema import (
-    CLI_FRAMEWORK_BY_OAUTH_SOURCE,
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -131,7 +137,7 @@ def validate_slot_binding(
         auth_type=prov.get("auth_type", "api_key"),
         protocol=prov["protocol"],
     ):
-        owner_framework = CLI_FRAMEWORK_BY_OAUTH_SOURCE.get(prov.get("source", ""))
+        owner_framework = framework_for_oauth_source(prov.get("source", ""))
         raise ValueError(
             f"Provider '{prov.get('name') or prov.get('provider_id')}' signs in "
             f"through a CLI subscription, so it can only back the "
@@ -503,8 +509,11 @@ class UserProviderService:
         # reads it), then agent, then helper.
         if card_type in ("claude_oauth", "codex_oauth") and new_ids:
             pid = new_ids[0]
+            # The framework is the one whose CLI redeems this subscription
+            # card — the registry's knowledge, not a name table here.
+            framework = framework_for_oauth_source(card_type) or DEFAULT_AGENT_LOOP_FRAMEWORK
             if card_type == "claude_oauth":
-                framework, agent_model, helper_model = "claude_code", "opus", "haiku"
+                agent_model, helper_model = "opus", "haiku"
             else:
                 curated = list(json.loads((await self.db.get_one(
                     "user_providers", {"user_id": user_id, "provider_id": pid}
@@ -516,7 +525,6 @@ class UserProviderService:
                 # subscription; verified 2026-07-08) instead of reusing
                 # curated[0], which wrongly put the flagship gpt-5.5 on the
                 # helper slot.
-                framework = "codex_cli"
                 agent_model = curated[0] if curated else ""
                 helper_model = "gpt-5.4-mini"
 
@@ -664,7 +672,10 @@ class UserProviderService:
             existing_slot = await self.db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": slot_name}
             )
-            agent_framework = (existing_slot or {}).get("agent_framework") or "claude_code"
+            # No framework on the slot yet → the bound default, the same
+            # framework the resolver will run (a stale hardcoded name here
+            # once refused every openai card for users on the default).
+            agent_framework = (existing_slot or {}).get("agent_framework") or resolve_framework_name()
         validate_slot_binding(prov, slot_name, agent_framework)
 
         # Upsert slot
@@ -749,10 +760,12 @@ class UserProviderService:
             raise ValueError(
                 f"provider_type must be one of {allowed}, got {ptype!r}"
             )
-        # Only a pure-OpenAI key runs the codex_cli agent; every
-        # aggregator's anthropic endpoint serves claude_code like an
-        # official Claude key does.
-        framework = "codex_cli" if ptype == "openai" else "claude_code"
+        # Only a pure-OpenAI key is an openai-protocol card; every
+        # aggregator's anthropic endpoint is an anthropic card like an
+        # official Claude key. The framework that card lands on is the
+        # registry's first framework locked to that protocol (claude_code /
+        # codex_cli when their plugins are enabled).
+        framework = default_framework_for_protocol("openai" if ptype == "openai" else "anthropic")
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)
         agent_thinking = ""
@@ -948,15 +961,12 @@ class UserProviderService:
     # ClaudeAgentSDK vs CodexSDK. Reading defaults to "nexus_power" (platform
     # default since 2026-08-20) for any null/missing row.
 
-    # Coding-agent framework names ``set_user_agent_framework`` accepts.
-    # MUST stay in sync with ``agent_framework/__init__.py``
-    # registrations and resolver's ``_KNOWN_AGENT_FRAMEWORKS`` (route
-    # layer imports this constant directly — single source of truth).
-    _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = (
-        "claude_code",
-        "codex_cli",
-        "nexus_power",
-    )
+    @staticmethod
+    def supported_agent_frameworks() -> list[str]:
+        """Framework names ``set_user_agent_framework`` accepts: exactly the
+        frameworks registered in this process (the route layer and the
+        picker read the same list — no whitelist to keep in sync)."""
+        return available_agent_loop_frameworks()
 
     async def get_user_agent_framework(self, user_id: str) -> str:
         """Return the user's chosen coding-agent framework.
@@ -998,10 +1008,10 @@ class UserProviderService:
 
         Raises ``ValueError`` for unknown framework values.
         """
-        if framework not in self._SUPPORTED_AGENT_FRAMEWORKS:
+        supported = self.supported_agent_frameworks()
+        if framework not in supported:
             raise ValueError(
-                f"Unknown agent_framework {framework!r}. "
-                f"Supported: {self._SUPPORTED_AGENT_FRAMEWORKS}"
+                f"Unknown agent_framework {framework!r}. Supported: {supported}"
             )
 
         existing = await self.db.get_one(

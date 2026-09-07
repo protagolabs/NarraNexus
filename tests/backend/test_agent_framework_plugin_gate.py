@@ -136,11 +136,13 @@ def test_set_framework_allows_installed_plugin(make_client, monkeypatch):
     assert svc.set_calls == ["claude_code"]
 
 
-def test_set_framework_nexus_power_exempt_even_when_not_installed(make_client, monkeypatch):
-    # framework_installed always reports True for nexus_power in real code,
-    # but the route's own exemption (body.framework != "nexus_power") must
-    # hold even if that ever regressed.
-    monkeypatch.setattr(providers_mod, "framework_installed", lambda name: False)
+def test_set_framework_host_shipped_framework_passes_gate_without_any_package(make_client, monkeypatch):
+    # nexus_power declares no install recipe, so the registry-driven
+    # framework_installed reports it available even when NO package probe
+    # succeeds — the route needs no name-keyed exemption for it.
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda framework, package: False)
     client, svc = make_client()
 
     resp = client.post(

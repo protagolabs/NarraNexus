@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/plugins/service.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -75,3 +75,7 @@ uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + b
 ## 2026-08-28 补(auto-review C2 第二轮) — install 终态 _status 挪出事件循环
 
 上轮只在路由层两处 run_in_threadpool,漏了 install() 生成器内部的终态 `_status`(它会 fork `claude --version`),仍在 StreamingResponse body 的事件循环上跑。改成 `await asyncio.to_thread(self._status, spec)`。
+
+## 2026-09-07 — 登录标记来自 PluginSpec.login_marker（B6）
+
+_LOGIN_MARKERS 名字表删除；_logged_in 读 spec.login_marker（源自 FrameworkMeta.login_marker）。

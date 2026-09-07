@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/plugins/registry.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -59,3 +59,7 @@ stub: false
   上下文
 
 Batch 6b.2b: `build_plugin_specs()` calls `ensure_builtin_frameworks()` (lazy manifest registration) instead of importing the platform package; the install pins live in each `narranexus_plugins.frameworks_*` package.
+
+## 2026-09-07 — _spec_from_meta 透传 login_marker（B6）
+
+PluginSpec.login_marker 来自 meta.login_marker。

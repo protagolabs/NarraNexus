@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/__init__.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 # agent_framework/__init__.py — agent-loop driver 注册中心
@@ -84,3 +84,7 @@ PR #25 把注册表清理成**每个框架只留一个规范名**：
   `CodexConfig` / `codex_config` 一并 re-export 供下游引用。
 
 The three builtin frameworks no longer live here (batch 6b.2b): their factories, `Contribution`s and SDK re-exports moved to the `builtin.frameworks.*` plugin packages; this package only activates the plugin pyenv and re-exports the loop-driver API.
+
+## 2026-09-07 — docstring 更新（B6）
+
+framework_installed 指向 loop.driver。

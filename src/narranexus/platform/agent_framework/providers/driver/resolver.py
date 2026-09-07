@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from narranexus.contracts import UnknownEntry
 from narranexus.platform.agent_framework.api_config import (
     CodexConfig,
     ClaudeConfig,
@@ -71,31 +72,33 @@ if TYPE_CHECKING:
 _REQUIRED_SLOTS = ("agent", "helper_llm")
 
 
-# Coding-agent framework names this resolver knows. Must stay in sync
-# with the entries registered in ``agent_framework/__init__.py``.
-_KNOWN_AGENT_FRAMEWORKS = ("claude_code", "codex_cli", "nexus_power")
-
-
 def _agent_framework_from_slot(slot: dict | None) -> str:
-    framework = (slot or {}).get("agent_framework") or "nexus_power"
-    if framework not in _KNOWN_AGENT_FRAMEWORKS:
-        return "nexus_power"
-    return framework
+    """The framework the agent slot names, validated against the framework
+    registry. A slot without a framework takes the bound default; a slot
+    naming a framework the registry does not know fails loud — running the
+    turn on the default while the settings page says otherwise is exactly the
+    substitution ``FrameworkNotInstalledError`` exists to refuse."""
+    from narranexus.platform.agent_framework.loop.driver import framework_meta, resolve_framework_name
+
+    name = resolve_framework_name((slot or {}).get("agent_framework"))
+    try:
+        return framework_meta(name).name
+    except UnknownEntry as exc:
+        raise LLMConfigNotConfigured(
+            f"Agent slot names framework {name!r}, which is not registered "
+            f"(plugin disabled or uninstalled?): {exc}"
+        ) from exc
 
 
-def _is_codex_framework(framework: str | None) -> bool:
-    """Codex framework needs a CodexConfig built from an OpenAI-protocol
-    provider; non-codex frameworks (Claude Code) take ClaudeConfig
-    instead. Kept as a helper rather than an inline equality check so a
-    future v3 framework name lands in one spot."""
-    return framework == "codex_cli"
+def _framework_protocol(framework: str) -> str:
+    """The provider protocol the framework drives on the agent slot
+    (``FrameworkMeta.protocol``): a CLI-backed framework is locked to its
+    CLI's protocol; a framework that speaks the provider API directly is
+    ``"any"``. Which config shape the driver builds follows from this, so a
+    third-party framework never needs an edit here."""
+    from narranexus.platform.agent_framework.loop.driver import framework_meta
 
-
-def _is_protocol_agnostic_framework(framework: str | None) -> bool:
-    """Frameworks that speak the provider API directly and therefore
-    accept EITHER protocol on the agent slot. CLI-backed frameworks are
-    locked to their CLI's protocol; NexusPower is not."""
-    return framework == "nexus_power"
+    return framework_meta(framework).protocol
 
 
 def _slot_reasoning_params(slot: dict | None) -> tuple[str, str]:
@@ -134,9 +137,10 @@ def _resolve_slot_target(
     ``anthropic_helper``.
     """
     if slot_name == "agent":
-        if _is_codex_framework(agent_framework):
+        protocol = _framework_protocol(agent_framework)
+        if protocol == "openai":
             return "build_codex_config", "codex"
-        if _is_protocol_agnostic_framework(agent_framework):
+        if protocol == "any":
             # NexusPower drives the provider API itself instead of
             # shelling out to a CLI, so an openai-protocol card is a
             # first-class agent provider for it, not a misconfiguration.

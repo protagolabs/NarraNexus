@@ -40,7 +40,7 @@ from loguru import logger
 # (plugin platform, batch 0). It is re-exported here so every existing import
 # of ``AgentLoopDriver`` from this module keeps resolving to the same object.
 from narranexus.contracts import Disposable, UnknownEntry
-from narranexus.contracts.framework import AgentLoopDriver
+from narranexus.contracts.framework import AgentLoopDriver, FrameworkMeta
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Registry
 
@@ -110,6 +110,87 @@ def register_agent_loop_driver(
 def available_agent_loop_frameworks() -> list[str]:
     """Names of all registered frameworks (sorted, for stable logging)."""
     return sorted(framework_registry().names())
+
+
+def framework_metas() -> list[FrameworkMeta]:
+    """Every registered framework's description, in registration order.
+
+    A registration without ``meta["framework"]`` (a test double registered
+    through ``register_agent_loop_driver``) is described as a protocol-agnostic
+    framework named after its key, so it is selectable everywhere a builtin is.
+    """
+    metas: list[FrameworkMeta] = []
+    for entry in framework_registry().entries():
+        meta = entry.meta.get("framework")
+        metas.append(meta if isinstance(meta, FrameworkMeta) else FrameworkMeta(entry.name, entry.name))
+    return metas
+
+
+def framework_meta(name: str) -> FrameworkMeta:
+    """The registered framework ``name``'s description. Unknown names fail loud
+    (``UnknownEntry``) — a framework the registry does not know is never
+    silently substituted by the default."""
+    key = (name or "").strip().lower()
+    for meta in framework_metas():
+        if meta.name.lower() == key:
+            return meta
+    raise UnknownEntry(
+        f"{FRAMEWORK_SLOT}: unknown framework {key!r}. Registered: {available_agent_loop_frameworks()}"
+    )
+
+
+def default_framework_for_protocol(protocol: str) -> str:
+    """The framework a freshly onboarded provider card of ``protocol`` lands on.
+
+    Preference: the first registered framework LOCKED to that protocol (its CLI
+    can only drive this kind of card), then the first protocol-agnostic one,
+    then the bound default. Registration order is the builtin manifest order,
+    so the historical pairing (anthropic → claude_code, openai → codex_cli)
+    is preserved wherever those plugins are enabled and degrades to whatever
+    the distribution ships otherwise.
+    """
+    wanted = protocol.strip().lower()
+    metas = framework_metas()
+    for meta in metas:
+        if meta.protocol == wanted:
+            return meta.name
+    for meta in metas:
+        if meta.protocol == "any":
+            return meta.name
+    return bound_default_framework()
+
+
+def framework_for_oauth_source(source: str | None) -> str | None:
+    """The ONE framework whose CLI can redeem subscription card ``source``
+    (``user_providers.source``), or ``None`` for API-key cards and sources no
+    framework claims."""
+    if not source:
+        return None
+    for meta in framework_metas():
+        if meta.oauth_source == source:
+            return meta.name
+    return None
+
+
+def framework_installed(name: str) -> bool:
+    """Whether framework ``name`` can run in THIS process.
+
+    A framework that ships inside the host (``install is None``) is available by
+    virtue of being registered; an on-demand one is available when its probe
+    package is importable (plugin pyenv or base environment — cloud images
+    pre-install every SDK, so this reports True there). Unknown names are
+    False: never a silent default.
+    """
+    try:
+        meta = framework_meta(name)
+    except UnknownEntry:
+        return False
+    if meta.install is None:
+        return True
+    # Imported locally to avoid an import cycle with this package's __init__.
+    from narranexus.platform.agent_framework import plugin_paths
+
+    return plugin_paths.package_installed(meta.name, meta.install.probe_package)
 
 
 def resolve_framework_name(framework: str | None = None) -> str:
@@ -194,18 +275,15 @@ def get_agent_loop_driver(
             f"Register one via register_agent_loop_driver()."
         ) from None
 
-    # Fail-closed on the lightweight local build: a PLUGIN framework
-    # (claude_code / codex_cli) whose optional SDK is not installed must refuse
-    # here, BEFORE building the driver (whose lazy SDK import would otherwise
-    # throw a raw ImportError mid-turn). The gate is scoped to plugin
-    # frameworks only — a built-in (nexus_power) or any custom-registered
-    # driver is available by virtue of being registered. Only the in-process
-    # path reaches this: the remote-executor branch above returned already, and
-    # cloud executors pre-install every SDK so the check passes there. Imported
-    # locally to avoid an import cycle with this package's __init__.
-    from narranexus.platform.agent_framework import plugin_paths
-
-    if name in plugin_paths.PLUGIN_FRAMEWORKS and not plugin_paths.framework_installed(name):
+    # Fail-closed on the lightweight local build: a framework whose optional
+    # SDK is not installed must refuse here, BEFORE building the driver (whose
+    # lazy SDK import would otherwise throw a raw ImportError mid-turn). Which
+    # frameworks need a probe is the framework's own ``FrameworkMeta.install``
+    # — a host-shipped or custom-registered driver is available by virtue of
+    # being registered. Only the in-process path reaches this: the
+    # remote-executor branch above returned already, and cloud executors
+    # pre-install every SDK so the check passes there.
+    if not framework_installed(name):
         raise FrameworkNotInstalledError(name)
 
     return factory(**factory_kwargs)

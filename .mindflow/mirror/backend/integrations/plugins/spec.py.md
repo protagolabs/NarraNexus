@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/plugins/spec.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -48,3 +48,7 @@ dict）是为了让 `_installers/` 和 `service.py` 都对着同一套强类型�
 - 铁律 #9 —— 框架/LLM 不绑定：`PluginSpec` 用 `framework_name` 字段承接
   `agent_framework.plugin_paths._FRAMEWORK_PACKAGE` 的 key,两边靠这个字符
   串对齐,而不是互相 import 对方的常量。
+
+## 2026-09-07 — PluginSpec 增加 login_marker（B6）
+
+从 FrameworkMeta.login_marker 派生，服务层据此做登录文件探针；probe_package 的注释改指 FrameworkInstall.probe_package（plugin_paths 不再持表）。

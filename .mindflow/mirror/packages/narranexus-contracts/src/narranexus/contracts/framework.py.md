@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/framework.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -27,3 +27,7 @@ Protocol 方法体是 `...`；每个 adapter 都自己实现 `capabilities()`，
 现在是可断言的常量，契约测试基类用它）和 `FrameworkMeta/InstallSpec`（框架的静态描述，
 吸收 dev 分支 `backend/integrations/plugins/spec.py` 的 pip/npm 安装描述，D7）。
 `AgentEvent` TypedDict（response_processor 的隐式契约）留批 1。
+
+## 2026-09-07 — FrameworkMeta 成为框架事实的唯一家（B6）
+
+新增 protocol(anthropic|openai|any)/oauth_source/runtime_name/login_marker 四个带默认值的字段与 agent_protocols/self_description 两个派生属性。动机：宿主侧曾有七张按框架名硬编码的表（resolver 的 _KNOWN_AGENT_FRAMEWORKS、user_service 的 _SUPPORTED_AGENT_FRAMEWORKS、provider_schema 的 AGENT_FRAMEWORK_REQUIRED_PROTOCOLS 与 CLI_FRAMEWORK_BY_OAUTH_SOURCE、model_identity 的 FRAMEWORK_DISPLAY_NAMES、plugin_paths 的 _FRAMEWORK_PACKAGE、backend plugins service 的 _LOGIN_MARKERS），第三方框架注册了也进不了这些表。现在这些事实随 Contribution.meta['framework'] 进注册表，宿主在调用期派生（loop/driver.py 的 framework_meta 一族）。字段全带默认值=契约 additive（ui/framework api 版本不动）；没有 meta 的裸注册（测试假驱动）被视作 protocol=any 的宿主内置框架。cloud_policy 的 CLOUD_ALLOWED_FRAMEWORKS 刻意不进 meta：那是部署策略（未知框架默认锁云=fail-closed），不是框架能力。

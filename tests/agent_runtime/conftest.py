@@ -100,3 +100,18 @@ def _reset_im_dm_fallback_history():
     reset_im_dm_fallback_history()
     yield
     reset_im_dm_fallback_history()
+
+
+@pytest.fixture(autouse=True)
+def _executor_boot_on_private_registries(monkeypatch):
+    """The executor lifespan (``executor_service.app``) boots the plugin platform
+    and FREEZES the registries it boots into. The process-wide registries are
+    shared by every test in the session and must stay unfrozen for the tests
+    that register fakes into them, so any test here that enters the real app
+    boots into private registries instead."""
+    from narranexus.kernel.plugins.registries import Registries
+    from narranexus.platform.module_system import plugins_boot
+
+    monkeypatch.setattr(plugins_boot, "KERNEL_REGISTRIES", Registries())
+    monkeypatch.setattr(plugins_boot, "_REPORTS", {})
+

@@ -34,6 +34,7 @@ _TEST_SPECS = {
         probe_package="claude_agent_sdk",
         user_version_source="npm_cli",
         size_hint="~190 MB",
+        login_marker=(".claude", ".credentials.json"),
     ),
 }
 

@@ -32,6 +32,7 @@ def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
         probe_package=meta.install.probe_package,
         user_version_source=meta.install.user_version_source,
         size_hint=meta.install.size_hint,
+        login_marker=meta.login_marker,
     )
 
 

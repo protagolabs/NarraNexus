@@ -24,7 +24,6 @@ from narranexus.platform.agent_framework.providers.model_identity import (
     effective_agent_slot,
     framework_of,
     slot_rebinds,
-    FRAMEWORK_DISPLAY_NAMES,
     resolve_agent_model_identity,
 )
 
@@ -146,7 +145,8 @@ async def test_unknown_framework_falls_back_to_raw_name():
     })
     ident = await resolve_agent_model_identity("ag1", db)
     # Unknown canonical name is shown verbatim — never invent a brand.
-    assert "some_future_cli" not in FRAMEWORK_DISPLAY_NAMES
+    from narranexus.platform.agent_framework.loop.driver import available_agent_loop_frameworks
+    assert "some_future_cli" not in available_agent_loop_frameworks()
     assert ident.framework_display == "some_future_cli"
 
 

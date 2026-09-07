@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/resolver.py
-last_verified: 2026-08-10
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -153,3 +153,7 @@ billing surprises in the old code.
 ## 2026-07-07 — helper_llm 槽的 OAuth 走 CLI helper
 
 `_resolve_slot_target` 的 helper_llm 分支：`auth_type==oauth` 的 card 先于 protocol 判断，路由到 `build_cli_helper_config` → cfgs 键 `cli_helper` → 装进 `RuntimeLLMConfigs.cli_helper`。
+
+## 2026-09-07 — 框架白名单换注册表（B6）
+
+_KNOWN_AGENT_FRAMEWORKS/_is_codex_framework/_is_protocol_agnostic_framework 删除。_agent_framework_from_slot 用 resolve_framework_name（空→bound 默认）+framework_meta 校验，未注册的名字抛 LLMConfigNotConfigured 而不是静默换成 nexus_power（设置页写 Claude Code 却跑默认框架正是要拒绝的替换）。_resolve_slot_target 按 FrameworkMeta.protocol 选配置形状：openai→build_codex_config，any→按卡片协议，anthropic→claude 配置——第三方框架无需改 resolver。

@@ -26,7 +26,7 @@ NOT require either. So all three frameworks register LAZY factories: the SDK
 import happens inside the factory (and inside ``__getattr__`` for the public
 class names), never at package import. Each factory first calls
 ``plugin_paths.activate_pyenv()`` so a plugin installed while the app runs
-resolves without a restart. ``framework_installed`` (in ``plugin_paths``) is
+resolves without a restart. ``framework_installed`` (in ``loop.driver``) is
 the separate "is it actually present" gate; registration only means "knows how
 to build it once installed". The public names ``ClaudeAgentSDK`` / ``CodexSDK``
 / ``CodexSDKv2`` stay importable via module ``__getattr__`` (PEP 562), still

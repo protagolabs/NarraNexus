@@ -28,6 +28,17 @@ INSTALL = FrameworkInstall(
     user_version_source="npm_cli",
     size_hint="~190 MB",
 )
-CONTRIBUTION = Contribution("claude_code", lambda: _factory, meta={"framework": FrameworkMeta("claude_code", "Claude Code", install=INSTALL)})
+META = FrameworkMeta(
+    "claude_code",
+    "Claude Code",
+    install=INSTALL,
+    protocol="anthropic",
+    oauth_source="claude_oauth",
+    # The picker says "Claude Code"; the agent introduces its runtime by the
+    # SDK it actually is (the prompt derives from this string).
+    runtime_name="Claude Agent SDK",
+    login_marker=(".claude", ".credentials.json"),
+)
+CONTRIBUTION = Contribution("claude_code", lambda: _factory, meta={"framework": META})
 
-__all__ = ["CONTRIBUTION", "INSTALL"]
+__all__ = ["CONTRIBUTION", "INSTALL", "META"]

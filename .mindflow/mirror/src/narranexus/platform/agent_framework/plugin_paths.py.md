@@ -63,3 +63,7 @@ pip 树从扁平 `pyenv/<package>` 改成**每插件一个子目录** `pyenv/<pl
 ## 2026-09-07 — dead import removed
 
 import os had no remaining use.
+
+## 2026-09-07 — 不再持有框架名（B6）
+
+_FRAMEWORK_PACKAGE/PLUGIN_FRAMEWORKS/framework_installed 删除；只留纯文件系统/importlib 探针 package_installed(framework, package)。哪个包证明哪个框架已装是注册表（FrameworkMeta.install.probe_package）的知识，由 loop.driver.framework_installed 读取。

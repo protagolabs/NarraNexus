@@ -2,8 +2,8 @@
 @file_name: test_plugin_paths.py
 @author: NarraNexus
 @date: 2026-08-28
-@description: Contract tests for plugin_paths — the single source of truth for
-              WHERE optional framework plugins install and whether they exist.
+@description: Contract tests for plugin_paths (WHERE optional framework plugins install and the
+              package probe) and the registry-driven framework_installed built on it.
 
 Regression guard: delete the target logic and one of these must go red.
 """
@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.platform.agent_framework import plugin_paths as pp
+from narranexus.platform.agent_framework.loop.driver import framework_installed
 
 
 @pytest.fixture()
@@ -43,19 +44,20 @@ def test_path_composition(isolated_home):
 
 
 def test_nexus_power_always_installed(isolated_home):
-    # No filesystem, no import — the built-in framework is unconditionally on.
-    assert pp.framework_installed("nexus_power") is True
+    # No filesystem, no import — a framework without an install recipe is
+    # available by virtue of being registered.
+    assert framework_installed("nexus_power") is True
 
 
 def test_unknown_framework_never_installed(isolated_home):
-    assert pp.framework_installed("does_not_exist") is False
+    assert framework_installed("does_not_exist") is False
 
 
 def test_claude_absent_when_neither_pyenv_nor_base(isolated_home, monkeypatch):
     # Force the base-env probe to miss so only the pyenv filesystem matters.
     monkeypatch.setattr(pp, "_present_in_base", lambda pkg: False)
-    assert pp.framework_installed("claude_code") is False
-    assert pp.framework_installed("codex_cli") is False
+    assert framework_installed("claude_code") is False
+    assert framework_installed("codex_cli") is False
 
 
 def test_plugin_pyenv_is_a_per_plugin_subdir(isolated_home):
@@ -67,14 +69,14 @@ def test_claude_present_via_pyenv(isolated_home, monkeypatch):
     monkeypatch.setattr(pp, "_present_in_base", lambda pkg: False)
     # Package lives in the plugin's OWN subdir (pyenv/<plugin_id>/<package>).
     (isolated_home / "pyenv" / "claude_code" / "claude_agent_sdk").mkdir(parents=True)
-    assert pp.framework_installed("claude_code") is True
-    assert pp.framework_installed("codex_cli") is False  # only claude's subdir exists
+    assert framework_installed("claude_code") is True
+    assert framework_installed("codex_cli") is False  # only claude's subdir exists
 
 
 def test_codex_present_via_pyenv(isolated_home, monkeypatch):
     monkeypatch.setattr(pp, "_present_in_base", lambda pkg: False)
     (isolated_home / "pyenv" / "codex_cli" / "openai_codex").mkdir(parents=True)
-    assert pp.framework_installed("codex_cli") is True
+    assert framework_installed("codex_cli") is True
 
 
 def test_claude_pkg_in_wrong_subdir_is_not_installed(isolated_home, monkeypatch):
@@ -82,15 +84,15 @@ def test_claude_pkg_in_wrong_subdir_is_not_installed(isolated_home, monkeypatch)
     # keyed to pyenv/<plugin_id>/<package>, not pyenv/**/<package>.
     monkeypatch.setattr(pp, "_present_in_base", lambda pkg: False)
     (isolated_home / "pyenv" / "codex_cli" / "claude_agent_sdk").mkdir(parents=True)
-    assert pp.framework_installed("claude_code") is False
+    assert framework_installed("claude_code") is False
 
 
 def test_present_via_base_env(isolated_home, monkeypatch):
     # Cloud / normal install: package sits in the ordinary site-packages,
     # not the plugin pyenv. Availability must still report True.
     monkeypatch.setattr(pp, "_present_in_base", lambda pkg: pkg == "claude_agent_sdk")
-    assert pp.framework_installed("claude_code") is True
-    assert pp.framework_installed("codex_cli") is False
+    assert framework_installed("claude_code") is True
+    assert framework_installed("codex_cli") is False
 
 
 def test_activate_pyenv_appends_each_plugin_subdir(isolated_home):

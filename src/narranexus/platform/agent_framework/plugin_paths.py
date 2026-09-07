@@ -37,10 +37,12 @@ backend install/status routes / installers.
 
 Availability vs. import
 -----------------------
-``framework_installed`` answers "is this framework's code present" WITHOUT
-importing it — a filesystem check of the plugin's ``pyenv`` subdir OR a
-``find_spec`` in the ordinary environment (so a cloud image that pre-installs
-the SDKs the normal way reports installed too). ``activate_pyenv`` is the local
+``package_installed`` answers "is this package present" WITHOUT importing it —
+a filesystem check of the plugin's ``pyenv`` subdir OR a ``find_spec`` in the
+ordinary environment (so a cloud image that pre-installs the SDKs the normal
+way reports installed too). Which package proves which framework is the
+framework registry's knowledge (``loop.driver.framework_installed`` reads
+``FrameworkMeta.install.probe_package``); this module holds no framework names. ``activate_pyenv`` is the local
 seam that makes an installed plugin importable in-process without a restart: it
 APPENDS every existing plugin subdir to ``sys.path`` so base packages still win
 for shared dependencies and the subdirs only fill the gap of the plugin wheels.
@@ -56,19 +58,6 @@ from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME as _KERNEL_ENV, plug
 # Env override — lets tests (and any relocated install) point the whole tree
 # elsewhere. Empty/unset falls back to the per-user default below.
 ENV_PLUGIN_HOME = _KERNEL_ENV
-
-# framework name → the top-level python package whose presence proves the
-# plugin is installed. ``nexus_power`` is built-in and needs no probe.
-_FRAMEWORK_PACKAGE: dict[str, str] = {
-    "claude_code": "claude_agent_sdk",
-    "codex_cli": "openai_codex",
-}
-
-# The frameworks whose availability is gated on an optional plugin. Only these
-# are fail-closed in get_agent_loop_driver — a built-in (nexus_power) or any
-# custom-registered driver is available by virtue of being registered.
-PLUGIN_FRAMEWORKS: frozenset[str] = frozenset(_FRAMEWORK_PACKAGE)
-
 
 def plugin_home() -> Path:
     """Root of the user-writable plugin tree (env-overridable). The kernel owns the layout."""
@@ -119,19 +108,13 @@ def _present_in_base(package: str) -> bool:
         return False
 
 
-def framework_installed(name: str) -> bool:
-    """Whether the coding-agent framework ``name`` is available to run.
-
-    ``nexus_power`` is built-in (always True). ``claude_code`` / ``codex_cli``
-    are present when their package is in the plugin ``pyenv`` OR in the base
-    environment. Any other name is unknown → False.
+def package_installed(framework: str, package: str) -> bool:
+    """Whether ``package`` (a framework's ``FrameworkInstall.probe_package``) is
+    present in framework ``framework``'s plugin ``pyenv`` OR in the base
+    environment. Pure filesystem/import-spec probe; which package proves which
+    framework is the registry's knowledge (``loop.driver.framework_installed``).
     """
-    if name == "nexus_power":
-        return True
-    package = _FRAMEWORK_PACKAGE.get(name)
-    if package is None:
-        return False
-    return _present_in_pyenv(name, package) or _present_in_base(package)
+    return _present_in_pyenv(framework, package) or _present_in_base(package)
 
 
 def activate_pyenv() -> None:

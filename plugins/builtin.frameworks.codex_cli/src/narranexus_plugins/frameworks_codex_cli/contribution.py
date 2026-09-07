@@ -24,6 +24,14 @@ INSTALL = FrameworkInstall(
     user_version_source="pip_pkg",
     size_hint="~60 MB",
 )
-CONTRIBUTION = Contribution("codex_cli", lambda: _factory, meta={"framework": FrameworkMeta("codex_cli", "Codex CLI", install=INSTALL)})
+META = FrameworkMeta(
+    "codex_cli",
+    "Codex CLI",
+    install=INSTALL,
+    protocol="openai",
+    oauth_source="codex_oauth",
+    login_marker=(".codex", "auth.json"),
+)
+CONTRIBUTION = Contribution("codex_cli", lambda: _factory, meta={"framework": META})
 
-__all__ = ["CONTRIBUTION", "INSTALL"]
+__all__ = ["CONTRIBUTION", "INSTALL", "META"]

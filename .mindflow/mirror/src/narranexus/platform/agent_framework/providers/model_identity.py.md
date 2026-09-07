@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_identity.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -71,3 +71,7 @@ user_slots / 缺 provider_id 不夺权 / **有 provider 但 framework NULL 不�
 同样锁 dispatch 端行为——两个测试测的是同一份 overlay 的两个出口。
 
 Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.
+
+## 2026-09-07 — 自述名来自 FrameworkMeta（B6）
+
+FRAMEWORK_DISPLAY_NAMES 删除；_display_for 读 framework_meta(name).self_description（runtime_name 或 display_name，由框架插件持有，是 prompt 字符串），未知名回落原名。

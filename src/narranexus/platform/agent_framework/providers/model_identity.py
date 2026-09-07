@@ -41,16 +41,6 @@ from loguru import logger
 # Canonical framework name → how the agent names its own runtime INSIDE the
 # system prompt. `codex_cli` / `nexus_power` mirror the frontend's framework
 # picker (`lib/agentFramework.AGENT_FRAMEWORKS`, which every UI label now
-# derives from); `claude_code` deliberately does NOT — the picker says "Claude
-# Code", the agent introduces its runtime by the SDK it actually is. Changing
-# a value below changes what the agent says about itself — treat it as a
-# prompt edit. Unknown names fall back to the raw canonical string (never
-# invent a brand).
-FRAMEWORK_DISPLAY_NAMES: dict[str, str] = {
-    "codex_cli": "Codex CLI",
-    "claude_code": "Claude Agent SDK",
-    "nexus_power": "NexusPower-beta",
-}
 
 # Platform default since 2026-08-20 (#336). THE constant: user_service's
 # owner-level read, slot_service's directory projection and the identity
@@ -75,7 +65,17 @@ class AgentModelIdentity:
 
 
 def _display_for(framework: str) -> str:
-    return FRAMEWORK_DISPLAY_NAMES.get(framework, framework)
+    """What the agent says its runtime is: the registered framework's
+    ``FrameworkMeta.self_description`` (a prompt string owned by the framework
+    plugin). Unknown names fall back to the raw canonical string — never
+    invent a brand."""
+    from narranexus.contracts import UnknownEntry
+    from narranexus.platform.agent_framework.loop.driver import framework_meta
+
+    try:
+        return framework_meta(framework).self_description
+    except UnknownEntry:
+        return framework
 
 
 def slot_rebinds(override: dict | None) -> bool:

@@ -146,3 +146,7 @@ The hand-rolled owner/name match with a bare 'return DEFAULT' fallback ran the t
 ## 2026-09-07 — framework_registry() resolved at call time; no lazy population
 
 FRAMEWORK_REGISTRY (a module constant bound to the process registries at import) became framework_registry(registries=None): private registries in tests are visible, and the registry is populated by the host boot from the framework plugins' manifests — ensure_builtin_frameworks and its 'registry non-empty' done-flag are gone.
+
+## 2026-09-07 — 注册表派生的框架事实 helper（B6）
+
+framework_metas/framework_meta/default_framework_for_protocol/framework_for_oauth_source/framework_installed 集中于此：整个宿主只有这一处读 FrameworkMeta。framework_meta 对未知名抛 UnknownEntry（绝不悄悄回落默认）；default_framework_for_protocol 偏好『锁定该协议的第一个注册框架→第一个 any 框架→bound 默认』，注册顺序即 builtin manifest 顺序，所以 anthropic→claude_code、openai→codex_cli 的历史配对在这些插件启用时保持，不启用时自然退化为发行版实际装载的框架。framework_installed 从 plugin_paths 搬来：宿主内置（install=None）即可用，按需框架用 meta.install.probe_package 走 plugin_paths.package_installed 探测；get_agent_loop_driver 的 fail-closed 门不再依赖 PLUGIN_FRAMEWORKS 名单。

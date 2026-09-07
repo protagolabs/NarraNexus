@@ -113,19 +113,50 @@ class FrameworkInstall:
     size_hint: str
 
 
+FrameworkProtocol = Literal["anthropic", "openai", "any"]
+"""Which provider protocol a framework can drive on the agent slot.
+
+A CLI-backed framework speaks exactly one protocol because its CLI does;
+a framework that drives the provider HTTP API itself declares ``"any"``.
+"""
+
+
 @dataclass(frozen=True)
 class FrameworkMeta:
-    """Static description of a framework, used by the plugin factory UI and loader.
+    """Static description of a framework — the ONLY place framework-specific
+    facts live. Every host-side table that used to be keyed on a framework
+    name (protocol requirement, subscription-card ownership, install probe,
+    login marker, the agent's self-description) is derived from the framework
+    registry's ``Contribution.meta["framework"]`` at call time, so a
+    third-party framework is a first-class citizen the moment it registers.
 
-    ``install`` is ``None`` for frameworks that ship inside the host (nexus_power)
-    and a ``FrameworkInstall`` for the on-demand ones (claude_code / codex_cli).
-    Carried as ``Contribution.meta["framework"]`` so the installer table in the
-    backend is derived from the framework registry instead of duplicating it.
+    ``install`` is ``None`` for frameworks that ship inside the host and a
+    ``FrameworkInstall`` for the on-demand ones. ``oauth_source`` names the
+    subscription provider card (``user_providers.source``) that ONLY this
+    framework's CLI can redeem — ``None`` when the framework accepts no
+    subscription credential. ``runtime_name`` is what the agent calls its own
+    runtime in prompts (defaults to ``display_name``); ``login_marker`` is the
+    ``(subdir, filename)`` under the home directory whose presence means the
+    CLI is logged in.
     """
 
     name: str
     display_name: str
     install: FrameworkInstall | None = None
+    protocol: FrameworkProtocol = "any"
+    oauth_source: str | None = None
+    runtime_name: str | None = None
+    login_marker: tuple[str, str] | None = None
+
+    @property
+    def agent_protocols(self) -> tuple[str, ...]:
+        """Provider protocols accepted on the agent slot, in preference order."""
+        return ("anthropic", "openai") if self.protocol == "any" else (self.protocol,)
+
+    @property
+    def self_description(self) -> str:
+        """How the agent introduces its runtime (a prompt string — edit with care)."""
+        return self.runtime_name or self.display_name
 
 
 __all__ = [
@@ -134,4 +165,5 @@ __all__ = [
     "InstallComponent",
     "FrameworkInstall",
     "FrameworkMeta",
+    "FrameworkProtocol",
 ]

@@ -191,7 +191,8 @@ def test_the_middleware_is_installed_on_the_real_app():
 
 def test_health_is_reachable_through_the_real_app_stack():
     """And the flag survives the real middleware stack, in the real shape the
-    broker probes: GET /health, 200, a ``busy`` key it can read."""
+    broker probes: GET /health, 200, a ``busy`` key it can read (the lifespan
+    boots into private registries — see conftest)."""
     with TestClient(es.app) as client:
         resp = client.get("/health")
 

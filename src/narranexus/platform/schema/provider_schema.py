@@ -158,7 +158,7 @@ class LLMConfig(BaseModel):
 # Slot Protocol Requirements (runtime metadata, not persisted)
 # =============================================================================
 
-SLOT_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
+SLOT_REQUIRED_PROTOCOLS: dict[SlotName, list[ProviderProtocol]] = {
     SlotName.AGENT: [ProviderProtocol.ANTHROPIC],
     # helper_llm accepts both protocols: the resolver dispatches to the
     # OpenAI helper (Chat Completions) or the Anthropic helper (Messages
@@ -173,37 +173,35 @@ must be in this list. Expand the lists as new adapters are added.
 """
 
 
-AGENT_FRAMEWORK_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
-    "claude_code": [ProviderProtocol.ANTHROPIC],
-    "codex_cli": [ProviderProtocol.OPENAI],
-    "nexus_power": [ProviderProtocol.ANTHROPIC, ProviderProtocol.OPENAI],
-}
-"""
-Agent slot protocol requirements vary by coding-agent framework.
-
-A CLI-backed framework speaks exactly ONE protocol because its CLI does:
-Claude Code consumes Anthropic-protocol providers, Codex CLI consumes
-OpenAI-protocol ones through its config.toml model_provider path.
-
-NexusPower drives the provider API itself, so it accepts EITHER — and it
-must be listed, not left to the fallback below: an absent framework falls
-back to claude_code's requirement, which silently rejected every
-openai-protocol card at bind time while the resolver handled them fine.
-"""
-
-
 def get_slot_required_protocols(
     slot_name: str,
     *,
     agent_framework: str | None = None,
 ) -> list[ProviderProtocol]:
-    """Return the protocols allowed for a slot in the current framework."""
+    """Return the protocols allowed for a slot in the current framework.
+
+    The agent slot follows the framework: ``FrameworkMeta.agent_protocols`` of
+    the registered framework (a CLI-backed framework speaks exactly one
+    protocol because its CLI does; a framework that drives the provider API
+    itself accepts either). An absent framework means the bound default; a
+    framework the registry does not know raises ``ValueError`` — the writers
+    surface that as a 400 instead of persisting a binding nothing can run.
+    Other slots keep their static requirement.
+    """
     if slot_name == SlotName.AGENT.value:
-        framework = agent_framework or "nexus_power"
-        return AGENT_FRAMEWORK_REQUIRED_PROTOCOLS.get(
-            framework,
-            AGENT_FRAMEWORK_REQUIRED_PROTOCOLS["nexus_power"],
+        # Local import: the framework registry lives above the schema layer.
+        from narranexus.contracts import UnknownEntry
+        from narranexus.platform.agent_framework.loop.driver import (
+            framework_meta,
+            resolve_framework_name,
         )
+
+        name = resolve_framework_name(agent_framework)
+        try:
+            meta = framework_meta(name)
+        except UnknownEntry as exc:
+            raise ValueError(f"Unknown agent framework {name!r}") from exc
+        return [ProviderProtocol(p) for p in meta.agent_protocols]
     return SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
 
 
@@ -218,25 +216,6 @@ env-injected at spawn. Neither can make a direct Messages /
 Chat-Completions call — only the CLI that owns the credential can spend it.
 """
 
-
-CLI_FRAMEWORK_BY_OAUTH_SOURCE: dict[str, str] = {
-    ProviderSource.CLAUDE_OAUTH.value: "claude_code",
-    ProviderSource.CODEX_OAUTH.value: "codex_cli",
-}
-"""Subscription card -> the ONE agent framework that can spend it.
-
-A subscription login is a credential for a specific CLI, not a generic
-provider key: ``claude_oauth`` is only redeemable by the ``claude`` CLI
-(``claude_code``), ``codex_oauth`` only by the ``codex`` CLI (``codex_cli``).
-NexusPower drives the provider HTTP API itself and refuses subscription
-credentials outright (``adapters/nexus/nexus_agent._resolve_provider``), so
-it is deliberately absent from every value here.
-
-Deliberately an explicit ALLOW-list keyed by source: a new OAuth card type
-that forgets to register here is rejected for every framework, which
-surfaces at bind time as a clear error instead of at agent-loop time as a
-cryptic runtime failure.
-"""
 
 
 def framework_can_drive_provider(
@@ -271,7 +250,10 @@ def framework_can_drive_provider(
     if protocol not in [p.value for p in allowed]:
         return False
     if auth_type in SUBSCRIPTION_AUTH_TYPES:
-        return (framework or "claude_code") == CLI_FRAMEWORK_BY_OAUTH_SOURCE.get(
-            source
+        from narranexus.platform.agent_framework.loop.driver import (
+            framework_for_oauth_source,
+            resolve_framework_name,
         )
+
+        return resolve_framework_name(framework) == framework_for_oauth_source(source)
     return True

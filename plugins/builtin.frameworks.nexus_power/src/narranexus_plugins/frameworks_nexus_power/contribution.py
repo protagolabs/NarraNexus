@@ -16,6 +16,9 @@ def _factory(**factory_kwargs):
     return NexusAgent(**factory_kwargs)
 
 
-CONTRIBUTION = Contribution("nexus_power", lambda: _factory, meta={"framework": FrameworkMeta("nexus_power", "NexusPower")})
+# NexusPower drives the provider API itself (protocol "any") and refuses
+# subscription credentials outright (no oauth_source).
+META = FrameworkMeta("nexus_power", "NexusPower", protocol="any", runtime_name="NexusPower-beta")
+CONTRIBUTION = Contribution("nexus_power", lambda: _factory, meta={"framework": META})
 
-__all__ = ["CONTRIBUTION"]
+__all__ = ["CONTRIBUTION", "META"]

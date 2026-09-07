@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/user_service.py
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -448,3 +448,7 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
 
 Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
+
+## 2026-09-07 — 框架事实改从注册表派生（B6）
+
+_SUPPORTED_AGENT_FRAMEWORKS 换成 supported_agent_frameworks()（=available_agent_loop_frameworks，路由层同源）；onboard_one_key 的 provider→framework 硬映射换 default_framework_for_protocol；add_provider 的订阅卡→框架用 framework_for_oauth_source；validate_slot_binding 的错误提示同样。set_slot 在槽位尚无框架时改用 resolve_framework_name()（bound 默认，与 resolver 一致）——旧默认 'claude_code' 是过期硬编码，曾让默认框架用户的 openai 卡被拒绝。

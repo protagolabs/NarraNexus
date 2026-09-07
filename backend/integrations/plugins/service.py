@@ -28,15 +28,6 @@ from .errors import PluginBusyError, classify_error
 from .registry import build_plugin_specs
 from .spec import InstallComponent, PluginSpec
 
-# Where each plugin's login/auth state lives — a plain file-existence probe
-# is all the frontend needs (a "log in" CTA vs. not), so we do not shell out
-# to either CLI's own auth-status command.
-_LOGIN_MARKERS: dict[str, tuple[str, str]] = {
-    "claude_code": (".claude", ".credentials.json"),
-    "codex_cli": (".codex", "auth.json"),
-}
-
-
 @dataclass
 class PluginStatus:
     """Everything the Settings -> Plugins UI needs to render one plugin row."""
@@ -80,7 +71,11 @@ class PluginService:
         return lock
 
     def _logged_in(self, plugin_id: str) -> bool:
-        marker = _LOGIN_MARKERS.get(plugin_id)
+        # Where the plugin's login/auth state lives is the framework's own
+        # ``FrameworkMeta.login_marker``; a plain file-existence probe is all
+        # the frontend needs (a "log in" CTA vs. not), so we do not shell out
+        # to the CLI's auth-status command.
+        marker = self._specs[plugin_id].login_marker if plugin_id in self._specs else None
         if marker is None:
             return False
         subdir, filename = marker
