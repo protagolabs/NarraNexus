@@ -216,7 +216,7 @@ async def _get_service():
 # NETMIND_SOURCE — the cost is one extra showing of the welcome flow.
 def _auto_provisioned_sources() -> frozenset[str]:
     from backend.integrations.netmind.netmind_provisioner import NETMIND_SOURCE
-    from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+    from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
 
     return frozenset({NETMIND_SOURCE, FREE_TIER_SOURCE})
 

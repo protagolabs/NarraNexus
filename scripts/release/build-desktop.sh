@@ -138,7 +138,7 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 # contents are the ABSOLUTE path to the build machine's source tree
 # (e.g. /Users/builder/NarraNexus/src). When the dmg is installed on another
 # machine at /Applications/NarraNexus.app/Contents/..., that path no longer
-# exists and every `import xyz_agent_context` / `import backend` blows up
+# exists and every `import narranexus` / `import backend` blows up
 # with ModuleNotFoundError. We saw this on fresh-machine installs.
 #
 # A wheel install copies the real files into site-packages, so the bundle is

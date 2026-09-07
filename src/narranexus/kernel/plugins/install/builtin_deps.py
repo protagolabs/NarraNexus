@@ -8,7 +8,7 @@ A builtin with ``install.deps == "on_demand"`` declares ``backend.pip`` (what
 to install) and ``backend.imports`` (what proves it is there). At boot the
 imports are probed; missing ones trigger a wheels-only install into
 ``~/.narranexus/plugin-deps/<id>`` which is appended to ``sys.path`` (builtin
-code lives in ``xyz_agent_context``, outside the ``nxplugins`` namespace the
+code lives in ``narranexus_plugins`` / ``narranexus.platform``, outside the ``nxplugins`` namespace the
 plugin finder serves, so the finder's per-plugin dependency routing does not
 apply). A failed or disabled install (cloud images bake their dependencies)
 marks the builtin ``deps_missing``: its contributions are removed and the

@@ -1,7 +1,11 @@
 ---
 code_file: src/narranexus/platform/module_system/__init__.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07 — header redrawn
+
+The file header now draws the post-batch-6 tree (`module_system/` with `registry.py` / `contributions.py`; concrete modules in `plugins/builtin.<id>/src/narranexus_plugins/<pkg>/`). Comment-only change.
 
 ## 2026-09-04（批 3c.1）— 门面不再 import 任何内置模块
 

@@ -4,7 +4,7 @@ Custom Exceptions - Custom exception hierarchy
 @file_name: exceptions.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Define custom exception types for xyz_agent_context
+@description: Define custom exception types for the platform layer (narranexus.platform)
 
 =============================================================================
 Design Goals
@@ -46,7 +46,7 @@ from typing import Any, Dict, Optional
 
 class AgentContextError(Exception):
     """
-    Base exception class for xyz_agent_context
+    Base exception class for the platform layer
 
     All custom exceptions inherit from this class, providing:
     - Unified exception interface

@@ -2,23 +2,22 @@
 @file_name: __init__.py
 @author: NetMind.AI
 @date: 2025-12-22
-@description: Unified exports for the Module package
+@description: Unified exports for the module system (the platform-side half of "a module is a plugin capability")
 
-Module structure (after refactoring):
-    module/
+Module structure:
+    module_system/
     ├── __init__.py           # This file - unified exports
-    ├── base.py               # XYZBaseModule base class
+    ├── base.py               # XYZBaseModule base class (a Capability)
     ├── module_service.py     # Module service (protocol layer)
     ├── hook_manager.py       # Hook manager
-    ├── module_runner.py      # MCP runner
+    ├── module_runner.py      # MCP host: one port, every module mounted by path
+    ├── registry.py           # ModuleRegistry — a view over the agent.capabilities.modules slot
+    ├── contributions.py      # Builtin module/trigger/channel specs (being moved into the plugins)
     ├── _mcp_identity.py      # Caller identity for MCP tools (server-side)
-    ├── _module_impl/         # Private implementation
-    │   ├── loader.py         # Module loading
-    │   ├── selector.py       # Module selection
-    │   ├── instance_decision.py # Instance decision
-    │   ├── metadata.py       # Metadata
-    │   └── ctx_merger.py     # ContextData merging
-    └── *_module/             # Concrete module implementations
+    └── _module_impl/         # Private implementation (loader, selector, instance decision, metadata, ctx merger)
+
+The concrete module implementations live in plugin packages:
+    plugins/builtin.<id>/src/narranexus_plugins/<pkg>/   (import name narranexus_plugins.<pkg>)
 
 Usage:
     >>> from narranexus.platform.module_system import ModuleService, XYZBaseModule

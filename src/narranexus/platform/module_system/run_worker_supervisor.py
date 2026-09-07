@@ -12,7 +12,7 @@ heavy package graph, and one per-loop database pool.
 
 Why consolidate
 ===============
-- Memory: ``import xyz_agent_context`` costs ~128 MB resident per process; four
+- Memory: ``import narranexus.platform`` costs ~128 MB resident per process; four
   worker processes paid that four times over. Now once. (MCP stays a separate
   process on purpose — it is a port-bound SSE server, a different kind of thing,
   and already single-process via ``run_mcp_servers_async``.)

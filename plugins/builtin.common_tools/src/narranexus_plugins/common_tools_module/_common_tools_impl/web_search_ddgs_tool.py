@@ -38,7 +38,7 @@ _RUNNER_CMD: list[str] = [sys.executable, "-m", _RUNNER_MODULE]
 
 # Resolve project root + src/ once at import time. The subprocess we
 # spawn below uses ``python -m narranexus.platform.…`` which requires
-# ``xyz_agent_context`` to be importable. uv's editable install via
+# ``narranexus`` to be importable. uv's editable install via
 # ``_editable_impl_*.pth`` can be flaky to pick up — observed 2026-05-13
 # where the live MCP server worked but a fresh subprocess from the same
 # venv could not find the package. Explicitly forcing PYTHONPATH=src on

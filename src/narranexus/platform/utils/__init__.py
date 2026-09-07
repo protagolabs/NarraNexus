@@ -2,7 +2,7 @@
 Utils Package
 
 @file_name: __init__.py
-@description: Utility modules for xyz_agent_context
+@description: Utility modules for the platform layer (narranexus.platform)
 
 Exports:
 - AsyncDatabaseClient: MySQL database operations (async driver, using aiomysql)
