@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/artifacts/kindRegistry.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 只剩内置表 + `downloadExtFor`
+
+`KIND_REGISTRY` 与 `registerArtifactKind`（自带注册栈）删除；本文件是 `BUILTIN_ARTIFACT_KINDS`（对 `BuiltinArtifactKind`
+穷举的 Record）+ `downloadExtFor`（改读 `ARTIFACT_KINDS.get`）。词表类型从 `platform/registries/artifactKinds.ts`
+re-export 以保留既有 import 路径。内置表由 `platform/builtin.ts` 注册进 `ARTIFACT_KINDS`（owner `builtin.ui`），
+消费方一律查注册表，不再直接读本表——插件 kind 与内置 kind 同一条路径解析。
 
 # kindRegistry.ts — kind 能力注册表(单一事实源)
 

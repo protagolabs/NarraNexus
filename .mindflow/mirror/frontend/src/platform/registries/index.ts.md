@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 第 17 个注册表 `artifactKinds`
+
+`REGISTRIES` 加 `artifactKinds: ARTIFACT_KINDS`；`host.ts` 的门面、`loader.ts` 的 `SHELL_REGISTRIES`、
+`registries.test.ts` 的名单与 `docs/plugins/host-api.md`（生成）随之覆盖它。
+
 ## 2026-09-03（批 2d）— 导出 `THEMES`/`COMMANDS` 及主题辅助
 
 ## 2026-09-03 — 注册表包的公开入口

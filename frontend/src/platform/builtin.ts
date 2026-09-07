@@ -29,7 +29,9 @@ import {
   Wand2,
 } from 'lucide-react';
 
-import { CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR, type PanelDef } from '@/platform/registries';
+import { ARTIFACT_KINDS, CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR, type PanelDef } from '@/platform/registries';
+import { BUILTIN_ARTIFACT_KINDS } from '@/components/artifacts/kindRegistry';
+import type { BuiltinArtifactKind } from '@/types/artifact';
 import { ArtifactsGlyph } from '@/components/bookmarks/tabs';
 import type { BuiltinTabId } from '@/components/bookmarks/builtinTabIds';
 import {
@@ -168,3 +170,11 @@ builtinPanel('mcp', { component: McpTab, strip: { label: 'MCP Servers', labelKey
 
 // Settings sections are registered by `pages/settings/registerBuiltinSections.ts`
 // from inside the settings chunk (the panes stay lazy with the page).
+
+// -------------------------------------------------------- artifact kinds
+// The shell's renderer/edit/preview descriptors, one registry entry per
+// builtin kind; a plugin adds a kind the same way through
+// `host.registries.artifactKinds`.
+for (const kind of Object.keys(BUILTIN_ARTIFACT_KINDS) as BuiltinArtifactKind[]) {
+  ARTIFACT_KINDS.register(kind, BUILTIN_ARTIFACT_KINDS[kind], OWNER);
+}

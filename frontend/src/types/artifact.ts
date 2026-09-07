@@ -32,9 +32,9 @@ export type BuiltinArtifactKind =
   // embed verdict.
   | 'application/x-url';
 
-// A plugin may register a renderer for a new kind (see
-// components/artifacts/kindRegistry.ts `registerArtifactKind`), and a newer
-// backend may ship a kind this build does not know, so the wire type is open.
+// A plugin may register a renderer for a new kind (the `ARTIFACT_KINDS`
+// registry, `platform/registries/artifactKinds.ts`), and a newer backend may
+// ship a kind this build does not know, so the wire type is open.
 export type ArtifactKind = BuiltinArtifactKind | (string & {});
 
 /** How a URL tab should be surfaced. Mirrors backend EmbedMode. */

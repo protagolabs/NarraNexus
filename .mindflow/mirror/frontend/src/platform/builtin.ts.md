@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 注册内置 artifact kinds
+
+`BUILTIN_ARTIFACT_KINDS` 的每个 kind 以 owner `builtin.ui` 注册进 `ARTIFACT_KINDS`——壳对自己注册表的贡献仍只在这一处。
+`kindRegistry.ts` 只含 lazy 渲染器 thunk，首屏 chunk 不因此变重。
+
 ## 2026-09-07（批 1 三轮复审移植）— 共用 lazy 的 BundleImport；面板注册走 `builtinPanel(id: BuiltinTabId, …)`
 
 `bundle/import` 与 `templates/install` 此前各自 `lazy()` 一次成了两个组件类型、导航间 remount；现在共用一个常量。

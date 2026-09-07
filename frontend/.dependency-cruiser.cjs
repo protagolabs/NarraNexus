@@ -29,10 +29,12 @@ module.exports = {
     },
     {
       name: 'registries-are-pure',
-      comment: 'src/platform/registries/** holds types and registries only — it imports nothing else from src/',
+      comment:
+        'src/platform/registries/** holds types and registries only — it imports nothing else from src/ ' +
+        'except src/types/** (pure wire types, no runtime code), which a registry value type may reference.',
       severity: 'error',
       from: { path: '^src/platform/registries/' },
-      to: { path: '^src/', pathNot: '^src/platform/registries/' },
+      to: { path: '^src/', pathNot: '^src/(platform/registries|types)/' },
     },
     {
       name: 'no-circular',

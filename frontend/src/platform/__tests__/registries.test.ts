@@ -20,9 +20,10 @@ import { REGISTRIES } from '../registries';
 import { createHostApi } from '../host';
 import { disableBuiltinUi } from '../loader';
 
-/** The sixteen `ui.*` extension points, written out. Adding a seventeenth is an edit here too. */
+/** The seventeen `ui.*` extension points, written out. Adding an eighteenth is an edit here too. */
 const REGISTRY_NAMES = [
   'agentCardBadges',
+  'artifactKinds',
   'channels',
   'chatHeaderActions',
   'commands',
@@ -42,10 +43,14 @@ const REGISTRY_NAMES = [
 
 /** A value each registry will accept. Only `themes` validates its payload today; the rest
  *  take anything, and the point of this probe is the NAME coverage, not the shape. */
-const PROBE: Partial<Record<(typeof REGISTRY_NAMES)[number], unknown>> = { themes: { tokens: {} } };
+const PROBE: Partial<Record<(typeof REGISTRY_NAMES)[number], unknown>> = {
+  themes: { tokens: {} },
+  // artifactKinds validates its descriptor; the smallest valid one.
+  artifactKinds: { renderer: () => null, editSurface: 'none', saveMode: null, selectionToAI: false, preview: 'none' },
+};
 const probeFor = (name: (typeof REGISTRY_NAMES)[number]) => PROBE[name] ?? {};
 
-describe('the sixteen registry names', () => {
+describe('the seventeen registry names', () => {
   it('REGISTRIES holds exactly them', () => {
     expect(Object.keys(REGISTRIES).sort()).toEqual([...REGISTRY_NAMES]);
   });

@@ -6,7 +6,7 @@
  *
  * A plugin sees: the shared framework libraries (so its ESM bundle can
  * mark them external and use the host's single copies), a per-registry
- * facade for each of the 16 registries it may contribute to, a JSON API
+ * facade for each of the 17 registries it may contribute to, a JSON API
  * caller that carries the session auth, an i18n bundle adder scoped to
  * `plugin:<id>`, the error sink, and a disposable stack the loader unwinds
  * on deactivate. Nothing else: stores, components and internals are not

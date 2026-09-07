@@ -18,7 +18,7 @@ import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
 import { fetchArtifactText, fetchArtifactBlobUrl } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
-import { KIND_REGISTRY } from './kindRegistry';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 interface Props {
   artifact: Artifact;
@@ -39,8 +39,10 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const preview = KIND_REGISTRY[artifact.kind]?.preview ?? 'none';
-  const placeholderKey = KIND_REGISTRY[artifact.kind]?.previewPlaceholderKey;
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const descriptor = ARTIFACT_KINDS.get(artifact.kind);
+  const preview = descriptor?.preview ?? 'none';
+  const placeholderKey = descriptor?.previewPlaceholderKey;
 
   useEffect(() => {
     if (!url) return;

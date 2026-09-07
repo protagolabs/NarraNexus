@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 注释：`REGISTRIES` 现有 17 种 `T`
+
+无行为变化。
+
 ## 2026-09-07 — I-2 disabled-owner blacklist + getOrThrow + #private fields (not `private`)
 
 `register()` now rejects (returns a no-op disposer) writes from any owner in the module-level

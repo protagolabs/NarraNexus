@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 改查 `ARTIFACT_KINDS` 注册表并订阅
+
+`KIND_REGISTRY[kind]` → `ARTIFACT_KINDS.get(kind)`，并 `useRegistryEntries(ARTIFACT_KINDS)` 订阅：插件在首屏之后
+注册的 kind 会让已打开的视图重渲染，而不是停在「不支持的类型」。
 
 ## 2026-08-19 — setCollapsed 死调用移除(下方 08-12 条的调用顺序不变量随之失效)
 

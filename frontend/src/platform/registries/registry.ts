@@ -57,7 +57,7 @@ export class Registry<T> {
   readonly kind: string;
   // ECMAScript `#`-private fields, not TypeScript `private` — a `private` field makes the
   // class's structural type include those members, and once `REGISTRIES` (an object of
-  // `Registry<T>` instances for 16 different `T`s) is exported as a value from
+  // `Registry<T>` instances for 17 different `T`s) is exported as a value from
   // `frontend/src/platform/registries/index.ts`, `@narranexus/sdk`'s declaration build (which
   // transitively re-exports `HostAPI`, whose `registries` field is typed off `typeof
   // REGISTRIES`) has to print that structural type into the emitted `.d.ts` — and TS4094

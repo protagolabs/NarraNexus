@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `registries.artifactKinds`
+
+无代码改动（门面按 `REGISTRIES` 派生），注释里的注册表数 16→17。插件通过它注册自己的 artifact 渲染器；
+不能覆盖壳的内置 kind。
+
 ## 2026-09-03（批 2d）— `HostAPI`：插件 `activate(host)` 拿到的全部宿主面
 
 刻意最小（Grafana Angular 教训）：共享框架库（react/react-dom/router/zustand/i18next/lucide，插件 bundle 把它们

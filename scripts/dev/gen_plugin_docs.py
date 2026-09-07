@@ -26,6 +26,7 @@ HOST_API_TABLE = [
     ("pluginId", "this plugin's id"),
     ("libs.react / reactDom / router / zustand / i18next / icons", "the host's single copies; plugin bundles mark them external"),
     ("registries.pages / sidebar / panels / settingsSections / commands / themes", "the structural registries (whole surfaces)"),
+    ("registries.artifactKinds", "artifact kinds: the renderer / edit surface / save mode / preview of an artifact `kind`; a plugin adds kinds the shell does not know (never overrides a builtin one)"),
     ("registries.messageRenderers / timelineEvents", "content registries: own the rendering of a message you recognise / of a timeline event type"),
     ("registries.conversationKinds / chatHeaderActions / composerExtensions / messageActions / sidebarSections / agentCardBadges / topBarItems", "slot points inside existing surfaces; entries carry `when` (conversationKind:<k> | agentHas:<module> | setting:<key>, `!` negates) and `order`"),
     ("register(registry, id, value)", "register as this plugin; disposer tracked; may replace only its own gate entry"),

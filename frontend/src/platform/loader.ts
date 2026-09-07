@@ -121,7 +121,7 @@ const ACTION_SLOTS: Record<string, Registry<SlotActionDef>> = {
 };
 
 /** Every shell registry a disabled builtin's UI row is removed from (`disableBuiltinUi`) —
- *  every entry of `REGISTRIES` (the one 16-name table; see `registries/index.ts`). */
+ *  every entry of `REGISTRIES` (the one 17-name table; see `registries/index.ts`). */
 const SHELL_REGISTRIES = Object.values(REGISTRIES);
 
 export interface PluginModule {

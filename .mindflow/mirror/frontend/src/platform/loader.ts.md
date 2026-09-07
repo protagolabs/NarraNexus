@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `SHELL_REGISTRIES` 自动含 `artifactKinds`
+
+禁用内置 UI 行 / 卸载插件时，artifact kind 条目与其它注册表一起按 owner 清除。注释里的表名数 16→17。
+
 ## 2026-09-03（批 2d）— 插件加载器：元数据先行，代码按激活
 
 `loadPlugins()`：GET `/api/plugin-factory` → 只取 enabled+loaded+有 frontend 的行 → `registerDeclaredUi` 按

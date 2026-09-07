@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 注释指向 `ARTIFACT_KINDS` 注册表
+
+`registerArtifactKind` 已退役。
 
 ## 2026-09-03 — `ArtifactKind` 放开
 
