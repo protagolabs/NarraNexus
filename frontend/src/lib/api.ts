@@ -4,6 +4,7 @@
  */
 
 import type { Artifact, TeamFile } from '@/types/artifact';
+import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 import type {
   AgentCapabilitiesView,
   ChannelCredentialView,
@@ -99,7 +100,6 @@ import type {
   AgentSlotView,
   AgentSlotEffective,
   SlotOverrideStats,
-  AgentModelOverview,
   WorkerStatus,
   WorkerLiveness,
   PluginId,
@@ -700,17 +700,22 @@ class ApiClient {
     });
   }
 
+  /** Read the current user's onboarding progress. The root redirect asks for
+   *  `landing_completed` to decide whether this user still owes the one-time
+   *  welcome flow — server-side state, so a new browser doesn't replay it. */
+  async getOnboarding(): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>('/api/auth/onboarding');
+  }
+
   /** Mark a single onboarding step complete. Write-once-true on the
    *  backend — passing a step here can only ever set it, never clear it.
-   *  The checklist card that used to READ this state is retired (the
-   *  auto-provisioned guide agent replaced it); the write stays because the
-   *  progress metadata still feeds analytics and the server-side
-   *  guide-agent marker shares the same metadata blob. */
+   *  `landing_completed` is written by the welcome flow (on finish, on skip,
+   *  and as a silent backfill for users who predate the flow). */
   async markOnboardingStep(
     userId: string,
     // 'dismissed' left the union with the checklist card (its only setter);
     // the backend still accepts it, so re-adding is a one-line change.
-    step: 'first_agent_created' | 'template_applied',
+    step: 'first_agent_created' | 'template_applied' | 'landing_completed',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',
@@ -1205,7 +1210,8 @@ class ApiClient {
     if (params.limit) search.set('limit', String(params.limit));
     if (params.agentId) search.set('agent_id', params.agentId);
     return this.request<MarketplaceSearchResponse>(
-      `/api/marketplace/skills/search?${search}`
+      `/api/marketplace/skills/search?${search}`,
+      { signal: AbortSignal.timeout(MARKETPLACE_SEARCH_TIMEOUT_MS) },
     );
   }
 
@@ -1695,11 +1701,6 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slots }),
     });
-  }
-
-  /** Effective model per owned agent, one call — for the Dashboard chip. */
-  async getAgentsModelOverview(): Promise<{ success: boolean; data?: { agents: AgentModelOverview } }> {
-    return this.request(`/api/providers/slots/agents-overview`);
   }
 
   /**
@@ -2362,10 +2363,23 @@ class ApiClient {
   async migrateApply(
     importData: StandardizedAgentImport,
     agentId?: string,
+    /** Handle for this one apply, so `migrateHurry` can reach it mid-flight. */
+    importId?: string,
   ): Promise<MigrationApplyResult> {
     return this.request<MigrationApplyResult>('/api/migrate/apply', {
       method: 'POST',
-      body: JSON.stringify({ import_data: importData, agent_id: agentId }),
+      body: JSON.stringify({ import_data: importData, agent_id: agentId, import_id: importId }),
+    });
+  }
+
+  /** Tell a RUNNING import to stop summarizing and just finish. The apply keeps
+   *  going (cutting it would half-populate an agent) but drops to the
+   *  deterministic no-LLM summary for every session it has left — which is the
+   *  difference between seconds and N sequential model calls. */
+  async migrateHurry(importId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('/api/migrate/hurry', {
+      method: 'POST',
+      body: JSON.stringify({ import_id: importId }),
     });
   }
 }

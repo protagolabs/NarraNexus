@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-08-06
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 不再导出 `visibleCategories`（见 [[tabs]] 同日条）
+
+## 2026-09-03 — 再导出 `visibleCategories` / `visibleTabs` / `TabVisibilityContext`
+
+MainLayout 与 CommandPalette 的可选列表都从这里拿，见 [[tabs]] 09-03 条。
 
 ## 2026-08-06 — BookmarkStrip 退役
 

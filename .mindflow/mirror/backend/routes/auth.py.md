@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -711,3 +711,5 @@ fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.

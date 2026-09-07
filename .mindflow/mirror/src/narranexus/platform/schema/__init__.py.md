@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/schema/__init__.py
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -24,7 +24,7 @@ ingress 分级熔断的行模型与会话键构造函数进公共导出面。`se
 
 [[entity_schema]] 新增的「这次写会不会改变什么」判断进公共导出面——`agents` 行的
 两个写入方([[auth.py]] 的 `PUT /api/auth/agents`、[[_awareness_writes]] 的
-`update_agent_profile`)都从 `narranexus.platform.schema` 引,等价规则只有一份。
+`update_agent_profile`)都从 `xyz_agent_context.schema` 引,等价规则只有一份。
 它们此前各写一份且**答案相反**(一个比较 strip 过的值、一个比较原样值),所以
 这次上提不是整理,是修 bug。纯转发。
 
@@ -49,18 +49,18 @@ ingress 分级熔断的行模型与会话键构造函数进公共导出面。`se
 
 [[job_schema]] 新增的 job_update 可变字段集合进公共导出面——两个 backend 路由
 body（前端 `JobUpdateBody` 加 agent_id、seam `JobUpdateSeamBody` 加
-`extra="forbid"`）都从 `narranexus.platform.schema` 顶层引，字段清单只声明一份。纯转发。
+`extra="forbid"`）都从 `xyz_agent_context.schema` 顶层引，字段清单只声明一份。纯转发。
 
 ## 2026-08-04 — 导出 `is_agent_description_unset` / `LEGACY_AGENT_DESCRIPTION_PLACEHOLDER`
 
 [[entity_schema]] 新增的"描述算不算没设置"判断进公共导出面——三个消费面
 （[[message_bus_module]] 渲染、[[basic_info_module]] 自述、[[agent_discovery_sync]]
-名录写入）都从 `narranexus.platform.schema` 引，判据只有一份。纯转发。
+名录写入）都从 `xyz_agent_context.schema` 引，判据只有一份。纯转发。
 
 ## 2026-08-03 — 导出 `BUS_ERRAND_TURN_SOURCE`
 
 [[hook_schema]] 新增的 bus 差事延续 turn-source 章常量进公共导出面——
-trigger、context_runtime、测试都从 `narranexus.platform.schema` 引。纯转发。
+trigger、context_runtime、测试都从 `xyz_agent_context.schema` 引。纯转发。
 
 ## 2026-07-29 — 移除 `AgentCliSession` 导出
 
@@ -110,7 +110,7 @@ re-export。纯转发。
 
 集中 re-export 全仓所有 Pydantic 数据模型（Module / Instance / Context /
 RuntimeMessage / Job / Inbox / Hook / Attachment / Decision / Entity / API / Skill /
-A2A / Artifact 等），让别处统一 `from narranexus.platform.schema import X`，无需记住每个
+A2A / Artifact 等），让别处统一 `from xyz_agent_context.schema import X`，无需记住每个
 模型住在哪个子文件。新增模型 = 在对应 `from .xxx import (...)` 块里加一行，并补进
 `__all__`。这是 schema 层的"单一入口"约定。
 
@@ -151,3 +151,10 @@ register。本文件里改到的是该 handler 注册的 `user_reply_tool_names`
 但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
 `render_origin_declaration` 取 label 的同一条记录。规范解释见
 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-03 — 再导出 `BoundChannel`
+
+从 [[api_schema.py]] 再导出 `BoundChannel`（`AgentInfo.bound_channels` 的元素模型），
+消费方是 `backend/routes/auth.py` 的目录投影。纯转发，字段语义见 api_schema 的 mirror。
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

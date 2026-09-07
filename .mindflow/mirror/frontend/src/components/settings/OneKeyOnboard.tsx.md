@@ -3,6 +3,7 @@ code_file: frontend/src/components/settings/OneKeyOnboard.tsx
 last_verified: 2026-08-28
 stub: false
 ---
+
 ## 2026-08-28 — 默认选中 NetMind,列表 NetMind 置顶(Owner 走查决定)
 
 `providerType` 初始值 anthropic → netmind,`ONE_KEY_PROVIDERS` 顺序
@@ -88,7 +89,7 @@ onComplete navigates to chat.
 
 ## Upstream / downstream
 
-- **Rendered by**: `pages/SetupPage.tsx` as the primary surface
+- **Rendered by**: `components/welcome/StepModel.tsx` (step 1 of the first-run flow, with `hideHeader` + `bare`)
   (ProviderSettings lives behind the page's "Advanced setup"
   disclosure).
 - **Calls**: `api.onboard(key, providerType?)` — providerType is only
@@ -119,3 +120,21 @@ call shape, success → onComplete, error surfacing, disabled state.
 替换？"；确认则以 `replace=true` 重发 onboard，后端原子切换两个槽位到新 key。用户 ~30s
 完成换 key，无需理解 provider 概念。本组件仍全英文字面量（未接 i18n），确认文案沿用英文
 以匹配周边风格。
+
+## 2026-08-27 — shared with the first-run flow, and renamed rows
+
+- `hideHeader` + `bare` let [[StepModel]] embed this card inside
+  [[WelcomeStepFrame]] without a second heading or a card-inside-a-card
+  (design_system §2.5). Settings passes neither and looks unchanged.
+- The two official-key rows are named after **what they switch the agent to**,
+  not after the vendor: `Claude Code SDK` / `Codex SDK` (Owner decision). An
+  anthropic-protocol key runs `claude_code`, a pure OpenAI key runs `codex_cli`
+  (see `providers/user_service.py`) — "Anthropic (official)" told the user
+  nothing about that consequence. i18n keys renamed to match
+  (`claudeCodeSdk*` / `codexSdk*`).
+- The provider picker is a list of **radio rows carrying each vendor's real
+  mark** rather than a `<select>` (Owner-approved first-run design). Every
+  option's one-line consequence is visible at the same time, which a dropdown
+  hides — and it's the same list Settings shows, so the two can't drift.
+  Marks follow design_system §5.1: real ones where they exist, a neutral
+  lettermark for the two aggregators, `--nm-ink` refill for OpenAI's black.

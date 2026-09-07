@@ -1,13 +1,19 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
-## 2026-09-03（批 2d.3）— `factory*` 方法
+## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
 
-`/api/plugin-factory` 的 list/install/action(enable|disable|uninstall|upgrade|acknowledge-permissions)/rollback/
-leave-safe-mode/bisect/errors/index，全部走 `request<T>`（JSON、会话鉴权头）。
+常量 `MARKETPLACE_SEARCH_TIMEOUT_MS` 在 [[apiTimeouts.ts]]（不放本文件：测试整体 mock
+`@/lib/api`，named 常量会随 mock 消失）。创建工作室每轮拉目录且去重 in-flight，一个不 settle
+的请求会占住浏览器同源连接池；abort 让它变成普通失败。
+
+## 2026-09-03 — 删 `getAgentsModelOverview`
+
+后端端点已删（评审 I6）；每 agent 的有效模型/框架来自 `getAgents()` 的
+`agent_framework` / `model`。
 
 ## 2026-09-03 — `setTeamPatrol` 带 15s 超时
 
@@ -379,7 +385,7 @@ Every panel and store needs to talk to the backend. Without a centralized HTTP c
 
 Imports `getApiBaseUrl` from `stores/runtimeStore` — the single source of truth for base URL across the app. `getApiBaseUrl` is re-exported from `api.ts` as `getBaseUrl` for backward compatibility (some older call sites use `getBaseUrl`).
 
-Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`SetupPage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
+Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`WelcomePage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
 
 ## Design decisions
 
@@ -465,22 +471,11 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 
 `frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。
 
-## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+## 2026-08-27 — onboarding read + landing flag
 
-`factoryBuiltinSetEnabled(id, enabled)` → `POST /api/plugin-factory/builtin/{id}/enable|disable`.
+`getOnboarding()` was added (the GET had no frontend caller for a while) because
+[[App]]'s root redirect needs `landing_completed` to decide whether a user still
+owes the first-run flow. `markOnboardingStep` accepts `'landing_completed'`,
+which [[WelcomePage]] writes on every exit — finish, skip, or nothing-to-do.
 
-## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
-
-`factoryBuiltinInstallDeps(id)` → `POST /api/plugin-factory/builtin/{id}/install-deps`.
-
-## 2026-09-04 · generic channel credentials (batch 4b)
-
-`channelSchema` / `channelCredential` / `channelBind` / `channelTest` / `channelUnbind` / `channelSetActive` — the generic channel API.
-
-## 2026-09-04 · one channel API (batch 4d.3)
-
-The 26 per-channel credential/bind/test/unbind/set-active methods are gone; every channel config uses `channelCredential<D>` / `channelBind<R>` / `channelTest<R>` / `channelUnbind` / `channelSetActive` on `/api/channels/<channel>/…`. The type parameters keep each builtin's precise envelope (the route returns the service's dict verbatim — Lark's `error_detail`/`warnings`, Slack's test data). Channel-specific flows keep their methods: Lark OAuth (`larkAuthLogin/Complete`, `getLarkAuthStatus`), WeChat QR (`startWeChatQrcode`, `pollWeChatQrcode`).
-
-## 2026-09-04 · per-agent capabilities (batch 5c)
-
-`getAgentCapabilities` / `setAgentCapability` / `resetAgentCapability` on `/api/agents/{id}/capabilities`.
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

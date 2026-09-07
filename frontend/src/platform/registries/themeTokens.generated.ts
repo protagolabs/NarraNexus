@@ -64,6 +64,7 @@ export const THEME_TOKENS = [
   '--nm-hairline',
   '--nm-row-active',
   '--nm-row-hover',
+  '--nm-welcome-grid',
   '--nm-raised',
   '--nm-raised-edge',
   '--nm-raised-shadow',

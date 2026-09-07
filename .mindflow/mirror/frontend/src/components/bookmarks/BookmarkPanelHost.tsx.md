@@ -1,14 +1,17 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-06
 stub: false
 ---
 
-## 2026-09-03 — 按 `PANELS` 注册表查表渲染
+## 2026-09-03 — 挂载 `builder` 面板
 
-原来按 tab id 的 `&&` 渲染链与各面板的 lazy import 移到 `platform/builtinPanels.tsx` +
-`platform/builtin.ts`（11 个内置面板各一条 `PANELS.register`）；本文件只 `PANELS.get(tab)` 查表；
-未注册的 tab 渲染空（插件加了条带 tab 又被禁用时不崩）。
+`tab === 'builder'` → lazy 的 [[BuilderConfigPanel.tsx]]。与其他 panel 一样
+lazy，所以不打开就不拉这块 chunk。
+
+**09-03 评审修订**：加了 `studioOpen` 兜底 —— 可选列表虽已隐藏这个 tab，但恢复
+的 `drawerTab`、深链、抽屉开着时切 agent 都可能落到这里；一个没有对话在驾驭的
+studio 面板读起来像坏了。守在唯一的挂载点上，而不是每个入口再判一次。
 
 ## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
 
@@ -48,3 +51,5 @@ mounted Jobs+Inbox / a whole accordion).
 ActivityPanel / AgentProfilePanel (the multi-section first iteration)
 were deleted 2026-06-11 — don't resurrect stacked sections; Owner rule
 is one tab = one content.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

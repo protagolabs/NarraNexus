@@ -37,6 +37,11 @@ export interface ProviderRow {
   base_url?: string;
   /** NetMind account this key belongs to (captured at mint). */
   netmind_account_email?: string;
+  /** True when LOGIN created this card on the user's behalf (free-tier
+   *  wallet, Power-account key) — not a decision the user made. The
+   *  first-run gate discounts these; the backend derives it next to the
+   *  provisioners that write them. */
+  auto_provisioned?: boolean;
 }
 
 /** /claude-status and /codex-status payload. `allowed` is false ONLY

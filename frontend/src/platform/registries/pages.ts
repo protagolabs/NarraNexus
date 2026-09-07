@@ -33,6 +33,8 @@ export interface PageDef {
    */
   guard: PageGuard;
   layout: PageLayout;
+  /** `protected` pages only: skip the first-run welcome gate (the welcome flow itself, /pay). */
+  skipWelcomeGate?: boolean;
 }
 
 export const PAGES = new Registry<PageDef>('ui.pages');

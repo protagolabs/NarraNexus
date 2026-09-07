@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/slot_service.py
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -115,3 +115,5 @@ Gotchas:
   free-tier pool ignores them (fixed one-model config).
 
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.

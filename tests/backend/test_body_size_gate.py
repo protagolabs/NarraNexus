@@ -148,6 +148,7 @@ _NO_BODY_CAP_EXEMPT = frozenset({
     "/api/marketplace/teams/templates",
     "/api/marketplace/teams/templates/{template_id}/install-preflight",
     "/api/migrate/apply",
+    "/api/migrate/hurry",
     "/api/migrate/scan",
     "/api/narramessenger/prewarm",
     "/api/notices/{message_id}/read",

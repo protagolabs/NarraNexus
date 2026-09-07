@@ -202,7 +202,6 @@
         "download": "Télécharger {{name}}",
         "loading": "Chargement…"
       },
-      "drawerCategory": "Salle d'équipe",
       "manage": {
         "title": "Gérer l'équipe",
         "patrol": "Contrôle du responsable",
@@ -284,7 +283,7 @@
       "ops": "ops"
     },
     "header": {
-      "sessionLabel": "session · {{time}}",
+      "viewProfile": "Voir le profil de l'agent",
       "detailMenuTitle": "Détail de l'agent — panneaux",
       "modelFramework": "Modèle & framework",
       "switchAgent": "Changer d'agent",
@@ -302,7 +301,10 @@
       "overBudget": "Budget dépassé : les modules activés déclarent ~{{enabled}} jetons, {{ratio}}× la base intégrée de {{baseline}}.",
       "loadFailed": "Impossible de charger les capacités",
       "saveFailed": "Impossible d'enregistrer le changement"
-    }
+    },
+    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
+    "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
+    "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici."
   },
   "awareness": {
     "common": {
@@ -649,19 +651,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "File",
-      "jobs": "tâches",
-      "totalInQueue": "{{count}} tâches en file"
-    },
-    "jobState": {
-      "running": "en cours",
-      "active": "actif",
-      "pending": "en attente",
-      "blocked": "bloqué",
-      "paused": "en pause",
-      "failed": "échoué"
-    },
     "jobStateLabel": {
       "running": "en cours",
       "active": "actif",
@@ -686,25 +675,6 @@
         "up": "plus lent qu'hier",
         "down": "plus rapide qu'hier",
         "flat": "identique à hier"
-      }
-    },
-    "jobs": {
-      "title": "Tâches ({{count}})",
-      "running": "{{count}} en cours",
-      "step": "étape {{current}}/{{total}}",
-      "next": "prochaine {{time}}",
-      "action": {
-        "retry": "Réessayer",
-        "pause": "Pause",
-        "resume": "Reprendre",
-        "failed": "Échec de {{label}}"
-      },
-      "detail": {
-        "manual": "(manuel)",
-        "nextRun": "Prochaine exécution",
-        "iterations": "Itérations",
-        "trigger": "Déclencheur",
-        "lastError": "Dernière erreur"
       }
     },
     "sessions": {
@@ -760,16 +730,10 @@
       "noAgentsShort": "Aucun agent pour l'instant."
     },
     "agentRow": {
-      "saveTitle": "Enregistrer (Entrée)",
-      "cancelTitle": "Annuler (Échap)",
       "publicBy": "Public · par {{name}}"
     },
     "agentRowMenu": {
       "options": "Options de l'agent",
-      "rename": "Renommer",
-      "edit": "Modifier…",
-      "setPrivate": "Rendre privé",
-      "setPublic": "Rendre public",
       "clearData": "Effacer les données",
       "delete": "Supprimer"
     },
@@ -1111,8 +1075,7 @@
     "drawer": {
       "unpin": "Désépingler le panneau",
       "pin": "Épingler le panneau",
-      "close": "Fermer le panneau",
-      "switchPanel": "Changer de panneau"
+      "close": "Fermer le panneau"
     },
     "coach": {
       "title": "Vos artefacts apparaissent ici",
@@ -1327,7 +1290,23 @@
       "noTeamsLabel": "Pas encore d'équipes",
       "noTeamsHint": "Créez-en une depuis le menu Nouveau de la barre latérale.",
       "manageTeam": "Gérer",
-      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici."
+      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici.",
+      "colLeader": "Chef",
+      "colCreatedBy": "Créé par",
+      "colChannels": "Canaux",
+      "colFramework": "Framework",
+      "colModel": "Modèle",
+      "colLastActive": "Dernière activité",
+      "noLeader": "Aucun chef",
+      "teamProfileNoDescription": "Aucune description d'équipe.",
+      "agentProfileNoDescription": "Aucune description.",
+      "memberRuntimeLabel": "Runtime",
+      "memberModelLabel": "Modèle",
+      "memberOwnerLabel": "Propriétaire",
+      "memberPrivate": "Privé",
+      "memberPublic": "Public",
+      "openProfile": "Ouvrir le profil de {{name}}",
+      "channelOff": "{{name}} · désactivé"
     },
     "createUser": {
       "title": "Créer un utilisateur",
@@ -1342,14 +1321,6 @@
       "enterUserId": "Veuillez saisir un identifiant utilisateur",
       "failed": "Échec de la création de l'utilisateur",
       "connectionFailed": "Échec de la connexion. Veuillez réessayer."
-    },
-    "setup": {
-      "sectionLabel": "Configuration · Fournisseurs LLM",
-      "title": "Configurer les fournisseurs LLM",
-      "subtitle": "Configurez vos clés API pour que NarraNexus puisse se connecter aux modèles de langage.",
-      "skipForNow": "Ignorer pour l'instant",
-      "getStarted": "Commencer",
-      "done": "Terminé"
     },
     "settings": {
       "title": "Paramètres",
@@ -1551,7 +1522,8 @@
       "addedToTeamResultWithFailures": "{{success}} ajoutés, {{failedCount}} en échec ({{failedIds}}).",
       "removedFromTeamTitle": "Retirés de l'équipe",
       "removedFromTeamMessage": "{{count}} agents retirés de l'équipe.",
-      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}}).",
+      "openChat": "Ouvrir le chat"
     },
     "bundleImport": {
       "installTemplate": "Installer le modèle",
@@ -1904,6 +1876,109 @@
     },
     "account": {
       "powerOnlyHint": "Compte, facturation et abonnement sont des fonctionnalités du compte NetMind — connectez-vous avec un compte NetMind pour les voir ici."
+    },
+    "agentProfile": {
+      "breadcrumb": "Agents",
+      "backToChat": "Chat",
+      "overview": "Aperçu",
+      "capabilities": "Capacités",
+      "settings": "Paramètres",
+      "views": "Vues du profil de l'agent",
+      "chat": "Chat",
+      "running": "En cours",
+      "idleStatus": "Inactif",
+      "currentTask": "Tâche en cours",
+      "idle": "Aucune tâche n'est en cours.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} jobs",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} conversations",
+      "overviewCardLabel": "Aperçu de l'agent",
+      "jobsNoun": "jobs",
+      "inboxNoun": "conversations",
+      "jobsRunningFlag": "en cours",
+      "inboxUnreadFlag": "{{count}} nouveaux",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} connectés",
+      "noSkills": "Aucun skill installé",
+      "noMcp": "Aucun serveur MCP",
+      "moreCount": "+{{count}} de plus",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model & Framework",
+      "modelFrameworkHint": "La configuration d'exécution effective utilisée lors de la prochaine exécution de l'agent.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Configurer",
+      "general": "Général",
+      "generalHint": "Gérez la façon dont cet agent est présenté dans l'espace de travail.",
+      "avatar": "Avatar",
+      "avatarHint": "Affiché lors de l'attribution des tâches, dans l'activité et le chat.",
+      "name": "Nom",
+      "description": "Description",
+      "saveGeneral": "Enregistrer les modifications",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré",
+      "saveFailed": "Impossible d'enregistrer les modifications.",
+      "missingAgent": "Aucun agent sélectionné",
+      "notFound": "Agent introuvable",
+      "activity": "Activité",
+      "activityLast24h": "Dernières 24 heures",
+      "activityToday": "Aujourd'hui",
+      "activityAxisStart": "il y a 24 h",
+      "activityAxisNow": "maintenant"
+    },
+    "welcome": {
+      "logout": "Se déconnecter",
+      "continue": "Continuer",
+      "rail": {
+        "model": {
+          "title": "Brancher un modèle",
+          "detail": "Une seule clé suffit — changez-la quand vous voulez."
+        },
+        "import": {
+          "title": "Rapatrier vos agents",
+          "detail_one": "{{count}} trouvé sur cette machine.",
+          "detail_other": "{{count}} trouvés sur cette machine."
+        },
+        "agent": {
+          "title": "Rencontrez {{name}}",
+          "detail": "Votre premier agent, déjà là."
+        }
+      },
+      "model": {
+        "title": "Branchez d'abord un modèle.",
+        "skip": "Passer pour l'instant — vous pourrez ajouter une clé dans les Réglages",
+        "advanced": "Configuration avancée — connexion par abonnement, endpoints personnalisés, modèles par slot",
+        "subscriptionTitle": "Utiliser un abonnement Claude ou ChatGPT",
+        "subscriptionSubtitle": "Pas de clé API — connectez-vous avec l'abonnement que vous avez déjà."
+      },
+      "import": {
+        "title": "Rapatriez les agents que vous avez déjà.",
+        "subtitle": "Tout est lu depuis cette machine — rien n'est envoyé.",
+        "lede": "Chaque agent coché devient un agent NarraNexus, son historique de conversation conservé comme mémoire.",
+        "importAndContinue_one": "Importer {{count}} et continuer",
+        "importAndContinue_other": "Importer {{count}} et continuer",
+        "skip": "Passer cette étape"
+      },
+      "agent": {
+        "title": "Rencontrez {{name}}.",
+        "subtitle": "Votre premier agent, créé pour vous à la connexion. Il retient tout ce que vous vous dites — c'est la différence entre NarraNexus et un chat jetable.",
+        "role": "votre guide · silicium",
+        "capMemory": "Mémoire longue, sous forme de récits",
+        "capCheckin": "Prend des nouvelles chaque jour",
+        "cta": "Commencer avec NarraNexus",
+        "skip": "Aller directement à l'app",
+        "preparingTitle": "Préparation de votre premier agent…",
+        "preparingSubtitle": "Choix de son nom et de sa personnalité. Quelques secondes.",
+        "notReady": "Votre premier agent est encore en cours de création — il apparaîtra bientôt dans la barre latérale.",
+        "fallbackName": "votre agent",
+        "rename": "Renommer"
+      }
     }
   },
   "rail": {
@@ -1942,8 +2017,10 @@
       "skills": "Compétences installées de l'agent. Ajoutez-en depuis le Marketplace, ou installez depuis GitHub / zip.",
       "mcp": "Serveurs d'outils MCP externes que l'agent peut appeler — branchez des capacités tierces.",
       "memory": "La mémoire longue de l'agent, organisée en narratifs — ce qu'il retient d'une conversation à l'autre.",
-      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations."
-    }
+      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations.",
+      "builder": "Décrivez votre besoin ; la conversation remplit ce panneau."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Tâches",
@@ -1967,9 +2044,6 @@
       "cancelled": "Annulée"
     },
     "metrics": {
-      "active": "Actives",
-      "success": "Réussies",
-      "failed": "Échouées",
       "rate": "Taux"
     },
     "view": {
@@ -2078,17 +2152,6 @@
       "waiting": "En attente...",
       "noTimeData": "Aucune donnée temporelle"
     },
-    "distribution": {
-      "title": "Répartition des statuts",
-      "total": "{{count}} au total",
-      "legend": {
-        "completed": "{{count}} terminées",
-        "running": "{{count}} en cours",
-        "active": "{{count}} actives",
-        "paused": "{{count}} en pause",
-        "failed": "{{count}} échouées"
-      }
-    },
     "editSchedule": {
       "title": "Modifier l'heure d'exécution",
       "hint": "Ajustez le moment d'exécution de cette tâche. Les changements s'appliquent à la prochaine exécution.",
@@ -2108,6 +2171,18 @@
       "modeLabel": "Mode de déclenchement",
       "modeInterval": "Intervalle",
       "modeCron": "Expression cron"
+    },
+    "row": {
+      "every": "Toutes les {{interval}}",
+      "daily": "Quotidien {{time}}",
+      "hourly": "Horaire :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Unique {{time}}",
+      "afterDeps": "Bloqué par {{n}}",
+      "next": "prochaine {{time}}",
+      "elapsed": "en cours {{duration}}",
+      "failedAt": "échec {{time}}",
+      "lastRun": "dernière {{time}}"
     }
   },
   "artifacts": {
@@ -2350,5 +2425,59 @@
     "settings": "Ouvrir les paramètres",
     "dismiss": "Compris",
     "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Créer un agent",
+      "title": "Par où voulez-vous commencer ?",
+      "subtitle": "Partez d'une configuration vierge, ou décrivez votre besoin et construisez-le par la conversation.",
+      "blankTitle": "Partir de zéro",
+      "blankBody": "Configurez chaque champ vous-même. Pour les utilisateurs qui savent déjà comment l'agent doit fonctionner.",
+      "aiTitle": "Créer avec l'IA",
+      "aiBody": "Décrivez le résultat souhaité. L'Agent Builder pose les questions clés et rédige au fur et à mesure.",
+      "continue": "Continuer",
+      "recommended": "Recommandé"
+    },
+    "gate": {
+      "title": "Créer un agent",
+      "probing": "Vérification des fournisseurs",
+      "chooseTitle": "Choisir un fournisseur",
+      "chooseHint": "Choisissez un fournisseur existant ou connectez-en un nouveau. Cela détermine le moteur qui exécute l'agent.",
+      "accessApiKey": "Clé API",
+      "accessCli": "Connexion CLI",
+      "emptyLead": "Aucun moteur disponible pour l'instant. Connectez un fournisseur — c'est lui qui exécutera cet agent.",
+      "addLabel": "Ajouter un fournisseur",
+      "addApiKey": "Clé API",
+      "addCli": "Connexion CLI",
+      "back": "Retour",
+      "next": "Suivant",
+      "cliDesktopHint": "La connexion ouvre votre navigateur pour autoriser la CLI Claude.",
+      "cliLogin": "Se connecter avec Claude",
+      "cliLoggingIn": "Connexion…",
+      "cliWebHint": "Non connecté — exécutez `claude auth login` dans votre terminal, puis rouvrez cette fenêtre.",
+      "cliMissingHint": "La CLI Claude n'est pas disponible ici. Installez-la, connectez-vous depuis le terminal, puis rouvrez cette fenêtre."
+    },
+    "panel": {
+      "intro": "La conversation écrit le nom, la description et les instructions directement dans cet agent. Les skills et canaux sont suggérés — c'est vous qui les installez.",
+      "identity": "Identité",
+      "name": "Nom",
+      "namePlaceholder": "ex. Brief financier du matin",
+      "behaviour": "Comportement",
+      "install": "Installer",
+      "installed": "Installé",
+      "saving": "Enregistrement…",
+      "savedHint": "Les modifications sont enregistrées quand vous quittez un champ.",
+      "done": "Terminé",
+      "identityHint": "Donnez à l'agent un nom facile à reconnaître.",
+      "behaviourHint": "Définissez son fonctionnement. C'est le champ awareness sur lequel l'agent tourne réellement.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Ce que fait cet agent, comment il travaille, ce qu'il doit éviter…",
+      "skills": "Skills",
+      "skillsHint": "Les skills de l'espace de travail que cet agent peut utiliser.",
+      "channels": "Canaux",
+      "channelsHint": "Où le joindre. Les identifiants vont directement au backend — jamais dans la conversation.",
+      "suggested": "Issu de la conversation",
+      "optional": "Facultatif"
+    }
   }
 }

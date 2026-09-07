@@ -10,9 +10,10 @@
  * one-to-one conversation; shared files had no UI at all, and the only way to
  * find one was an agent reciting an absolute path into the chat.
  *
- * One panel, two tabs, rather than two entry points: the mental model is "the
- * team's workspace", and splitting artifacts from files would ask the user to
- * know which kind of thing they are looking for before they can look.
+ * One panel, two modes: the mental model is "the team's workspace", so both
+ * modes share the same list/viewer layout and the preview region stays visible
+ * whichever one is active — a chip in the transcript can open an artifact
+ * without yanking the user out of Files.
  *
  * Every row is attributed. In a one-to-one chat "who made this" is never a
  * question; here several agents write into the same space, and an unattributed
@@ -30,7 +31,7 @@ import { activeLocale, formatMessageAge } from '@/lib/utils';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
-  /** Which panel the drawer has open — the drawer's switcher owns this. */
+  /** Which panel the drawer has open — the member-bar toggles own this. */
   tab: 'artifacts' | 'files';
   artifacts: Artifact[];
   files: TeamFile[];
@@ -107,8 +108,8 @@ export function TeamWorkspacePanel({
   };
 
   return (
-    // Pure drawer content: the shared BookmarkDrawer owns the shell (title
-    // switcher, pin, close, width); this fills it.
+    // Pure drawer content: the shared BookmarkDrawer owns the shell (title,
+    // pin, close, width); this fills it.
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0">
       {/* Master list: a picker, not the main event — it yields so the

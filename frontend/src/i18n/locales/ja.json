@@ -202,7 +202,6 @@
         "download": "{{name}} をダウンロード",
         "loading": "読み込み中…"
       },
-      "drawerCategory": "チームルーム",
       "manage": {
         "title": "チーム管理",
         "patrol": "リーダー巡回",
@@ -284,7 +283,7 @@
       "ops": "回の操作"
     },
     "header": {
-      "sessionLabel": "セッション · {{time}}",
+      "viewProfile": "エージェントのプロフィールを表示",
       "detailMenuTitle": "エージェント詳細 — パネル",
       "modelFramework": "モデルとフレームワーク",
       "switchAgent": "エージェントを切り替え",
@@ -302,7 +301,10 @@
       "overBudget": "予算超過：有効なモジュールは約 {{enabled}} トークンを宣言し、組み込み基準 {{baseline}} の {{ratio}} 倍です。",
       "loadFailed": "機能一覧を読み込めません",
       "saveFailed": "変更を保存できません"
-    }
+    },
+    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。",
+    "activityEmpty": "バックグラウンド活動はまだありません",
+    "activityEmptyHint": "エージェントが自ら開始した実行（ジョブ、チャネル、チームメイト）はここに表示されます。"
   },
   "awareness": {
     "common": {
@@ -649,19 +651,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "キュー",
-      "jobs": "ジョブ",
-      "totalInQueue": "キューに {{count}} 件のジョブ"
-    },
-    "jobState": {
-      "running": "実行中",
-      "active": "アクティブ",
-      "pending": "待機中",
-      "blocked": "ブロック",
-      "paused": "一時停止",
-      "failed": "失敗"
-    },
     "jobStateLabel": {
       "running": "実行中",
       "active": "アクティブ",
@@ -686,25 +675,6 @@
         "up": "昨日より遅い",
         "down": "昨日より速い",
         "flat": "昨日と同じ"
-      }
-    },
-    "jobs": {
-      "title": "ジョブ（{{count}}）",
-      "running": "{{count}} 件実行中",
-      "step": "ステップ {{current}}/{{total}}",
-      "next": "次回 {{time}}",
-      "action": {
-        "retry": "再試行",
-        "pause": "一時停止",
-        "resume": "再開",
-        "failed": "{{label}}に失敗"
-      },
-      "detail": {
-        "manual": "（手動）",
-        "nextRun": "次回実行",
-        "iterations": "反復回数",
-        "trigger": "トリガー",
-        "lastError": "最新エラー"
       }
     },
     "sessions": {
@@ -760,16 +730,10 @@
       "noAgentsShort": "エージェントはまだありません。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "キャンセル（Esc）",
       "publicBy": "公開 · {{name}} による"
     },
     "agentRowMenu": {
       "options": "エージェントのオプション",
-      "rename": "名前を変更",
-      "edit": "編集…",
-      "setPrivate": "非公開にする",
-      "setPublic": "公開にする",
       "clearData": "データを消去",
       "delete": "削除"
     },
@@ -1110,8 +1074,7 @@
     "drawer": {
       "unpin": "パネルのピンを外す",
       "pin": "パネルをピン留め",
-      "close": "パネルを閉じる",
-      "switchPanel": "パネルを切り替え"
+      "close": "パネルを閉じる"
     },
     "coach": {
       "title": "アーティファクトはここに表示されます",
@@ -1326,7 +1289,23 @@
       "noTeamsLabel": "チームがまだありません",
       "noTeamsHint": "サイドバーの New メニューから作成できます。",
       "manageTeam": "管理",
-      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。"
+      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。",
+      "colLeader": "リーダー",
+      "colCreatedBy": "作成者",
+      "colChannels": "チャネル",
+      "colFramework": "フレームワーク",
+      "colModel": "モデル",
+      "colLastActive": "最終アクティブ",
+      "noLeader": "リーダーなし",
+      "teamProfileNoDescription": "チームの説明はありません。",
+      "agentProfileNoDescription": "説明はありません。",
+      "memberRuntimeLabel": "ランタイム",
+      "memberModelLabel": "モデル",
+      "memberOwnerLabel": "オーナー",
+      "memberPrivate": "非公開",
+      "memberPublic": "公開",
+      "openProfile": "{{name}} のプロフィールを開く",
+      "channelOff": "{{name}} · オフ"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1341,14 +1320,6 @@
       "enterUserId": "ユーザー ID を入力してください",
       "failed": "ユーザーの作成に失敗しました",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
-    },
-    "setup": {
-      "sectionLabel": "セットアップ · LLM プロバイダーの設定",
-      "title": "LLM プロバイダーの設定",
-      "subtitle": "NarraNexus が言語モデルに接続できるよう、API キーを設定します。",
-      "skipForNow": "今はスキップ",
-      "getStarted": "始める",
-      "done": "完了"
     },
     "settings": {
       "title": "設定",
@@ -1550,7 +1521,8 @@
       "addedToTeamResultWithFailures": "{{success}} 件追加、{{failedCount}} 件失敗（{{failedIds}}）。",
       "removedFromTeamTitle": "チームから削除しました",
       "removedFromTeamMessage": "{{count}} 件のエージェントをチームから削除しました。",
-      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。"
+      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。",
+      "openChat": "チャットを開く"
     },
     "bundleImport": {
       "installTemplate": "テンプレートをインストール",
@@ -1903,6 +1875,109 @@
     },
     "account": {
       "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"
+    },
+    "agentProfile": {
+      "breadcrumb": "エージェント",
+      "backToChat": "チャット",
+      "overview": "概要",
+      "capabilities": "機能",
+      "settings": "設定",
+      "views": "エージェントプロフィールのビュー",
+      "chat": "チャット",
+      "running": "実行中",
+      "idleStatus": "アイドル",
+      "currentTask": "現在のタスク",
+      "idle": "現在実行中のタスクはありません。",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} 件の Job",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} 件の会話",
+      "overviewCardLabel": "エージェント概要",
+      "jobsNoun": "件の Job",
+      "inboxNoun": "件の会話",
+      "jobsRunningFlag": "実行中",
+      "inboxUnreadFlag": "未読 {{count}} 件",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} 件接続済み",
+      "noSkills": "Skill は未インストールです",
+      "noMcp": "MCP サーバーはありません",
+      "moreCount": "他 {{count}} 件",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model と Framework",
+      "modelFrameworkHint": "エージェントの次回実行で使用される実際のランタイム設定です。",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "設定",
+      "general": "一般",
+      "generalHint": "このエージェントがワークスペースでどう表示されるかを管理します。",
+      "avatar": "アバター",
+      "avatarHint": "タスクの割り当て、アクティビティ、チャットに表示されます。",
+      "name": "名前",
+      "description": "説明",
+      "saveGeneral": "変更を保存",
+      "saving": "保存中…",
+      "saved": "保存しました",
+      "saveFailed": "変更を保存できませんでした。",
+      "missingAgent": "エージェントが選択されていません",
+      "notFound": "エージェントが見つかりません",
+      "activity": "アクティビティ",
+      "activityLast24h": "過去 24 時間",
+      "activityToday": "今日",
+      "activityAxisStart": "24 時間前",
+      "activityAxisNow": "現在"
+    },
+    "welcome": {
+      "logout": "ログアウト",
+      "continue": "続ける",
+      "rail": {
+        "model": {
+          "title": "モデルをつなぐ",
+          "detail": "キーは1つで十分 — いつでも差し替えられます。"
+        },
+        "import": {
+          "title": "エージェントを引き継ぐ",
+          "detail_one": "このマシンで {{count}} 件見つかりました。",
+          "detail_other": "このマシンで {{count}} 件見つかりました。"
+        },
+        "agent": {
+          "title": "{{name}} に会う",
+          "detail": "最初のエージェントが待っています。"
+        }
+      },
+      "model": {
+        "title": "まずモデルをつなぎましょう。",
+        "skip": "今はスキップ — キーは後で設定から追加できます",
+        "advanced": "詳細設定 — サブスクリプションでのサインイン、カスタムエンドポイント、スロットごとのモデル",
+        "subscriptionTitle": "Claude または ChatGPT のサブスクリプションを使う",
+        "subscriptionSubtitle": "API キーは不要 — お持ちのサブスクリプションでサインインします。"
+      },
+      "import": {
+        "title": "すでにあるエージェントを引き継ぐ。",
+        "subtitle": "すべてこのマシンから読み取ります — アップロードはしません。",
+        "lede": "チェックしたものは NarraNexus のエージェントになり、会話履歴は記憶として引き継がれます。",
+        "importAndContinue_one": "{{count}} 件をインポートして続ける",
+        "importAndContinue_other": "{{count}} 件をインポートして続ける",
+        "skip": "この手順をスキップ"
+      },
+      "agent": {
+        "title": "{{name}} に会う。",
+        "subtitle": "ログイン時にあなたのために作られた最初のエージェント。二人で話したことをすべて覚えています — それが NarraNexus と使い捨てチャットの違いです。",
+        "role": "あなたのガイド · シリコン",
+        "capMemory": "ストーリーとして残る長期記憶",
+        "capCheckin": "毎日あなたに声をかけます",
+        "cta": "NarraNexus を使い始める",
+        "skip": "そのままアプリへ",
+        "preparingTitle": "最初のエージェントを準備中…",
+        "preparingSubtitle": "名前と性格を選んでいます。数秒お待ちください。",
+        "notReady": "最初のエージェントはまだ作成中です — まもなくサイドバーに表示されます。",
+        "fallbackName": "あなたのエージェント",
+        "rename": "名前を変更"
+      }
     }
   },
   "rail": {
@@ -1941,8 +2016,10 @@
       "skills": "インストール済みのスキル。Marketplace から追加、または GitHub / zip からインストールできます。",
       "mcp": "エージェントが呼び出せる外部 MCP ツールサーバー — サードパーティ機能を接続します。",
       "memory": "ナラティブとして整理されたエージェントの長期記憶 — 会話をまたいで保持される内容です。",
-      "social": "エージェントの知り合い — 人や他のエージェントと協働するうちに連絡先が蓄積されます。"
-    }
+      "social": "エージェントの知り合い — 人や他のエージェントと協働するうちに連絡先が蓄積されます。",
+      "builder": "必要なことを説明すると、会話がこのパネルを埋めます。"
+    },
+    "builder": "ビルダー"
   },
   "jobs": {
     "title": "ジョブ",
@@ -1966,9 +2043,6 @@
       "cancelled": "キャンセル済み"
     },
     "metrics": {
-      "active": "実行中",
-      "success": "成功",
-      "failed": "失敗",
       "rate": "成功率"
     },
     "view": {
@@ -2077,17 +2151,6 @@
       "waiting": "待機中...",
       "noTimeData": "時間データなし"
     },
-    "distribution": {
-      "title": "ステータス分布",
-      "total": "合計 {{count}} 件",
-      "legend": {
-        "completed": "完了 {{count}} 件",
-        "running": "稼働中 {{count}} 件",
-        "active": "実行中 {{count}} 件",
-        "paused": "一時停止 {{count}} 件",
-        "failed": "失敗 {{count}} 件"
-      }
-    },
     "editSchedule": {
       "title": "実行時刻の変更",
       "hint": "このジョブの実行タイミングを調整します。変更は次回実行時に反映されます。",
@@ -2107,6 +2170,18 @@
       "modeLabel": "トリガー方式",
       "modeInterval": "間隔",
       "modeCron": "Cron 式"
+    },
+    "row": {
+      "every": "{{interval}} ごと",
+      "daily": "毎日 {{time}}",
+      "hourly": "毎時 :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "単発 {{time}}",
+      "afterDeps": "{{n}} 件のジョブ待ち",
+      "next": "次回 {{time}}",
+      "elapsed": "経過 {{duration}}",
+      "failedAt": "失敗 {{time}}",
+      "lastRun": "前回 {{time}}"
     }
   },
   "artifacts": {
@@ -2349,5 +2424,59 @@
     "settings": "設定を開く",
     "dismiss": "了解",
     "bodyManaged": "このインストールは、管理者の設定に従い、診断用サービスログ(エラーおよび診断イベント)を NarraNexus 自身のコレクターに送信します。\"full\" レベルで動作するインストールでは、ログ行にメッセージ内容が含まれることがあります。"
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "エージェントを作成",
+      "title": "どこから始めますか？",
+      "subtitle": "空の設定から始めるか、必要なことを説明して対話で作成します。",
+      "blankTitle": "空から始める",
+      "blankBody": "すべての項目を自分で設定します。動作が既に明確なユーザー向けです。",
+      "aiTitle": "AI で作成",
+      "aiBody": "望む成果を説明してください。Agent Builder が要点を尋ね、下書きを作ります。",
+      "continue": "続ける",
+      "recommended": "おすすめ"
+    },
+    "gate": {
+      "title": "エージェントを作成",
+      "probing": "プロバイダーを確認中",
+      "chooseTitle": "プロバイダーを選択",
+      "chooseHint": "既存のプロバイダーを選ぶか、新しく接続します。エージェントを動かすエンジンが決まります。",
+      "accessApiKey": "API キー",
+      "accessCli": "CLI サインイン",
+      "emptyLead": "利用できるエンジンがまだありません。プロバイダーを接続してください — このエージェントを動かす主体になります。",
+      "addLabel": "プロバイダーを追加",
+      "addApiKey": "API キー",
+      "addCli": "CLI サインイン",
+      "back": "戻る",
+      "next": "次へ",
+      "cliDesktopHint": "サインインするとブラウザーが開き、Claude CLI を承認します。",
+      "cliLogin": "Claude でサインイン",
+      "cliLoggingIn": "サインイン中…",
+      "cliWebHint": "未サインイン — ターミナルで `claude auth login` を実行し、このダイアログを開き直してください。",
+      "cliMissingHint": "ここでは Claude CLI を利用できません。インストールしてターミナルでサインインし、開き直してください。"
+    },
+    "panel": {
+      "intro": "会話が名前・説明・指示をこのエージェントに直接書き込みます。スキルとチャネルは提案のみで、導入はあなたが行います。",
+      "identity": "アイデンティティ",
+      "name": "名前",
+      "namePlaceholder": "例：金融モーニングブリーフ",
+      "behaviour": "振る舞い",
+      "install": "導入",
+      "installed": "導入済み",
+      "saving": "保存中…",
+      "savedHint": "入力欄を離れると保存されます。",
+      "done": "完了",
+      "identityHint": "見分けやすい名前を付けます。",
+      "behaviourHint": "働き方を定義します。ここがエージェントが実際に動く awareness です。",
+      "awareness": "認知",
+      "awarenessPlaceholder": "このエージェントが何をし、何に注目し、何を避けるか…",
+      "skills": "スキル",
+      "skillsHint": "このエージェントが使えるワークスペースの skill。",
+      "channels": "チャネル",
+      "channelsHint": "どこで到達できるか。認証情報はバックエンドへ直接送られ、会話には入りません。",
+      "suggested": "会話から",
+      "optional": "任意"
+    }
   }
 }

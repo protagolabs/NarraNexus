@@ -2,7 +2,7 @@
  * @file_name: builtin.test.ts
  * @author: Bin Liang
  * @date: 2026-09-03
- * @description: The shell's builtin registrations reproduce the pre-registry route table, sidebar, panels and settings nav.
+ * @description: The shell's builtin registrations reproduce the route table (golden: the hardcoded table at the registry cut-over plus dev's #382/#383 pages), sidebar, panels and settings nav.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -26,8 +26,14 @@ describe('builtin pages', () => {
     const guard = (id: string) => PAGES.get(id)?.guard;
     expect(guard('login')).toBe('public');
     expect(guard('nm-playground')).toBe('open');
-    expect(guard('setup')).toBe('protected');
+    // dev #383: /setup forwards to /welcome; the welcome flow and /pay skip the first-run gate
+    expect(guard('setup')).toBe('open');
+    expect(guard('welcome')).toBe('protected');
+    expect(PAGES.get('welcome')?.skipWelcomeGate).toBe(true);
     expect(guard('pay')).toBe('protected');
+    expect(PAGES.get('pay')?.skipWelcomeGate).toBe(true);
+    expect(guard('agents-new')).toBe('protected');
+    expect(guard('agent-profile')).toBe('protected');
     expect(PAGES.get('chat')?.element).toBeNull();
     expect(PAGES.get('team-chat')?.element).toBeNull();
   });

@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-06
+stub: false
 ---
 
+---
+
+## 2026-09-03 (修订同日早条) — 两个方向都要剥
+
+早条只讲了用户消息里的指令。现在两个方向都有机器：**用户**消息裹着指令 +
+当前配置信封，**助手**消息尾部有 `<agent_draft>` 配置块。`visibleContent` 按
+`isUser` 分派到 `decodeBuilderTurn` / `stripAgentDraft`，用在气泡、复制、下载
+三处出口。
+
+剥离必须留在**渲染路径**而不是 store：[[useStudioTurn.ts]] 要从已落定消息里
+parse 出原始块。
+
+## 2026-09-03 — 剥掉 Builder 指令块
+
+新增 `visibleContent = stripBuilderInstruction(message.content)`，用在**所有
+展示消息文本的出口**：用户气泡、复制、下载。
+
+为什么必须做：创建工作室 v0 的 Builder 指令藏在**用户消息**里（对话跑在用户
+自己的 agent 上，没有别处可放 —— v0 不擅自写 Awareness）。漏一处，整段 prompt
+就出现在用户自己的气泡里。普通消息原样透传，所以对全部流量安全。
+
+助手侧分支没有改 —— 我们的标记只会出现在用户消息里。
 ## 2026-08-31 — 历史轮次的抽屉：自己把自己卸载了
 
 Owner 报了两个症状：点开「查看推理与工具」后**推理仍是折叠的**，而且**再也
@@ -98,6 +121,27 @@ false，chips 要等下次按历史加载时才出现。这是刻意不动的既
 有工具调用的纯回复，fetch 回来只有 meta，漏掉它会让"是否已加载"对这类轮次一
 直为 false。今天无害（`eventLogCacheRef` 会短路重复请求），但这个标志一旦在
 缓存加上过期策略后就开始说谎。
+
+## 2026-08-26 — assistant 回答改纯文本(答案无气泡),从 feat/chat-ui-v4-dev-merge 分支移植
+
+从 `40d353e1`(feat/chat-ui-v4-dev-merge 分支,未并入 dev 主线)移植「answer 无气泡」这一处
+设计改动到 dev。`isPlainAssistant = !isUser && !message.isError`:仅 user 轮保留纸面气泡 +
+`RingAvatar`(carbon 环);assistant 正常回复变成无卡片、无描边、无头像的纯文本块
+(`block w-full`,只留 `color: var(--nm-ink)`)。**推翻**了 2026-08-06「own/AI 气泡都是纸面
++ 3px 描边」的决定 —— 现在只有 own 气泡还保留 `--nm-paper-warm` 填色 + 右侧 carbon 描边;
+AI 侧的 `--nm-paper` 填色 + 左侧 silicon 描边整套退役。
+
+isError 气泡是唯一仍保留卡片处理的 assistant 情形 —— 红色实心卡片是需要用户主动注意的
+标记态,不是普通回复,所以不下放到纯文本。
+
+连带清理:`agentName` prop 整个删除(assistant 侧不再需要头像,`avatarLabel` 也就只剩
+user 分支),**推翻** 2026-05-20 那条「assistant 头像用 agent 名字前两位」的决定 —— 头像
+本体已经不存在了。`RingAvatar` 渲染也从无条件改为 `{isUser && <RingAvatar .../>}`。
+`ChatPanel` 两处 `<MessageBubble agentName={...} />` 随之删除。
+
+只移植了这一处气泡改动,未连带 `40d353e1` 里的 Messenger 侧栏合并 / AgentOverviewCard /
+Provider 创建向导拆分等其余内容(那些是同一个 commit 里打包的独立功能,未经评估不应该
+一起带过来)。
 
 ## 2026-08-24 — user 气泡三态尾标
 
@@ -327,6 +371,4 @@ The event log cache (`eventLogCacheRef`) is per-component-instance. If the same 
 
 `tool_output` is only present on `EventLogToolCall` (history), not on `AgentToolCall` (real-time WebSocket). The output section only renders for history messages.
 
-## 2026-09-04 · UI slot points (batch 3d.2)
-
-Two plugin surfaces: a registered message renderer that `match`es the message owns the whole bubble (evaluated after the hooks, before the shell's own layout), and `messageActions` (when-filtered for `conversationKind:chat`) join the hover strip next to Copy/Download, receiving `{agentId, message}`.
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

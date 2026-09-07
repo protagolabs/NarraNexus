@@ -64,8 +64,11 @@ describe('ProviderSettings Sign-in tab gate', () => {
     render(<ProviderSettings />);
     await openAddModal();
     expect(screen.queryByText('CLI sign-in')).toBeNull();
-    // The other two methods stay.
-    expect(screen.getByText('API key')).toBeTruthy();
+    // Custom is the only remaining method (the API-key tab retired
+    // 2026-09-03 — first-run already owns that card), and the body must
+    // fall through to it rather than render an empty modal.
+    expect(screen.getByText('Custom')).toBeTruthy();
+    expect(screen.getByText('Protocol')).toBeTruthy();
   });
 
   test('probing (null) keeps the Sign-in tab — a truthiness check would drop it for local users', async () => {

@@ -5,7 +5,7 @@
  * @description: At-a-glance summary of the user's current LLM wiring.
  *
  * The simple face of the Settings → Providers section (mirror of the
- * /setup logic: simple surface first, full ProviderSettings behind the
+ * first-run logic: simple surface first, full ProviderSettings behind the
  * "Advanced configuration" disclosure). Answers, without scrolling:
  * which framework + model the agent runs on, what the helper uses, and
  * which provider keys are registered. Read-only — every edit affordance

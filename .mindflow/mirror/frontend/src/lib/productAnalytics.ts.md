@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/productAnalytics.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -17,3 +17,11 @@ method and `/api/auth/funnel` route no longer form a second ingestion contract.
 Requests use Fetch `keepalive` because `/pay` records checkout-open immediately
 before replacing the page with Stripe; without it navigation can cancel the
 only conversion signal.
+
+## 2026-08-27 — funnel events renamed
+
+`setup_entered / setup_completed / setup_skipped` became
+`welcome_entered / welcome_completed / welcome_skipped` when the `/setup`
+provider page became step 1 of [[WelcomePage]]. Same funnel shape, one screen
+earlier: `welcome_completed` now means the user reached the end of the whole
+first-run flow (or had nothing left to do), not just that they pasted a key.

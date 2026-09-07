@@ -15,6 +15,7 @@ Covers:
 - write-once-true: a False / None in the request never reverts a flag
 - the merge preserves sibling keys in users.metadata
 - unknown user -> success=False
+- landing_completed (the one-time welcome flow) is write-once and independent
 """
 from __future__ import annotations
 
@@ -69,6 +70,7 @@ async def test_get_defaults_all_false(db_client, client):
         "first_agent_created": False,
         "template_applied": False,
         "dismissed": False,
+        "landing_completed": False,
     }
 
 
@@ -136,6 +138,39 @@ async def test_none_leaves_other_flags_intact(db_client, client):
     prog = r.json()["progress"]
     assert prog["first_agent_created"] is True
     assert prog["dismissed"] is True
+
+
+# ───────────── landing flow (WelcomePage) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_landing_completed_is_write_once_and_isolated(db_client, client):
+    """The welcome flow's own flag: once the user has seen the first-run flow
+    (finished OR skipped), nothing may walk them through it again — including a
+    later request that carries False."""
+    await _seed_user(db_client, "u_landing")
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_landing"})
+    assert r.json()["progress"]["landing_completed"] is False
+
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_landing"},
+        json={"landing_completed": True},
+    )
+    prog = r.json()["progress"]
+    assert prog["landing_completed"] is True
+    # It is its own flag — completing the flow does not imply the others.
+    assert prog["first_agent_created"] is False
+    assert prog["dismissed"] is False
+
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_landing"},
+        json={"landing_completed": False, "first_agent_created": True},
+    )
+    prog = r.json()["progress"]
+    assert prog["landing_completed"] is True
+    assert prog["first_agent_created"] is True
 
 
 # ───────────── metadata merge safety ───────────────────────────────────────

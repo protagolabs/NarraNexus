@@ -90,6 +90,17 @@ class ActiveRunInfo(BaseModel):
     current_stage: Optional[str] = None
 
 
+class BoundChannel(BaseModel):
+    """One channel an owned agent is bound to, with whether it is switched on.
+
+    ``active`` is False when the credential row exists but its enable switch
+    is off (``is_active`` / ``enabled`` = 0) — configured, not currently
+    reachable. Tables without a switch always report True.
+    """
+    channel: str
+    active: bool = True
+
+
 class AgentInfo(BaseModel):
     """Response model for agent info"""
     agent_id: str
@@ -99,6 +110,16 @@ class AgentInfo(BaseModel):
     created_at: Optional[str] = None
     is_public: bool = False
     created_by: Optional[str] = None
+    # Effective agent-slot runtime identity, resolved by GET /api/auth/agents
+    # through AgentSlotService.owner_agents_overview — the same overlay the
+    # driver dispatch and the system prompt use. Populated for the caller's OWN
+    # agents only; a public agent owned by someone else reports None for both
+    # (their configuration is not the viewer's business).
+    agent_framework: Optional[str] = None
+    model: Optional[str] = None
+    # Channels bound to this owned agent, each with its on/off state. Public
+    # agents owned by another user always expose an empty list.
+    bound_channels: List[BoundChannel] = Field(default_factory=list)
     bootstrap_active: bool = False
     # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
     # set by scenario provisioners like Arena onboarding). None → the frontend
@@ -251,12 +272,19 @@ class OnboardingProgress(BaseModel):
     card from oscillating. `dismissed` permanently hides the card.
 
     `provider_configured` is intentionally NOT stored here — it is derived
-    live from the user's provider count by the frontend, because that step
-    is gated by SetupPage before the checklist card is ever shown.
+    live from the user's provider count by the frontend, because the welcome
+    flow decides that step from a live probe, not from stored state.
+
+    `landing_completed` marks the one-time first-run flow (WelcomePage) as
+    seen — reached the end OR skipped, both count. Server-side rather than
+    localStorage so a user who logs in from another browser/machine is not
+    walked through it a second time; existing users are backfilled silently
+    (they have agents/providers already, so there is nothing to onboard).
     """
     first_agent_created: bool = False
     template_applied: bool = False
     dismissed: bool = False
+    landing_completed: bool = False
 
 
 class OnboardingResponse(BaseModel):
@@ -276,6 +304,7 @@ class UpdateOnboardingRequest(BaseModel):
     first_agent_created: Optional[bool] = None
     template_applied: Optional[bool] = None
     dismissed: Optional[bool] = None
+    landing_completed: Optional[bool] = None
 
 
 # ===== Awareness Schemas =====

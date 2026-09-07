@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/stores/uiStore.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `openPanel`：不带开关语义的「打开面板」
+
+`requestPanel` 一直是**开关**：MainLayout 的 effect 里 `prev === pendingPanel`
+就把抽屉关掉。这对「用户点了面板入口」是对的，对「调用方需要这个面板最终是打开
+的」是错的 —— 创建工作室用它亮出配置面板时，如果那个面板恰好已经是当前 tab，
+第二次进 studio 会把它**关掉**（现象就是「点了 Create with AI 但什么都没弹」）。
+
+于是拆成两个意图，用 `pendingPanelMode` 表达：
+
+| action | mode | 语义 |
+|---|---|---|
+| `requestPanel` | `'toggle'` | 用户点入口，再点一次收起 |
+| `openPanel` | `'open'` | 必须打开，永不关闭 |
+
+`clearPendingPanel` 会把 mode 一起复位，避免残留意图泄漏到下一次请求。
+测试钉在 `components/bookmarks/__tests__/builderTab.test.tsx`。
 
 ## 2026-08-30 — `interimNarration`：独白提级的显示偏好
 

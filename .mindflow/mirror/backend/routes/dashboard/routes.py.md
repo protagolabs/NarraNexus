@@ -1,9 +1,19 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
+## 2026-08-27 — 只改了两行注释,但契约本身是这次修的重点
+
+本文件里「所有 6 个 live 状态 / 5 个非 running 状态」的说法早就过时了——实际发的是
+九个和八个。注释已改成不带数字的写法,免得下次加状态时又留下一个说谎的数字。
+
+真正的修复在 [[_schema.py]]:这里发的 `cooling` / `paused_no_quota` /
+`blocked_failed` 和 `next_run_at` / `next_run_timezone` 之前根本过不了
+`response_model=DashboardResponse` 的校验(直接 500)。**本文件是"发什么"的真相源,
+_schema.py 必须跟着它走,不是反过来**——加状态时先改这里,再去 _schema.py 放宽
+Literal,否则接口会在下一个 job 进入新状态时炸掉。
 # backend/routes/dashboard/routes.py — Intent
 
 ## 为什么存在
@@ -89,10 +99,4 @@ Dashboard v2.1 的 API 端点集合（`/api/dashboard/*`），为前端 dashboar
 - 任何在本文件里 `SELECT next_run_time ... FROM instance_jobs` 的查询都是错的——它绕开了协议。必须 SELECT β 列并在 response 里暴露 β
 - 排序/筛选的 "时间 cursor" 如果真的要做，内部可以查 α（`next_run_time` UTC），但 response payload 永远只给 β
 
-## 2026-09-04 · plugin-owned router (batch 3c.5)
-
-pause / resume / schedule moved to `dashboard/jobs.py` (builtin.job's router): they delegate to the job module's portable core. The read endpoints and the SQL-only retry stay; `_resolve_viewer` / `_assert_agent_visible` are shared with jobs.py.
-
-## 2026-09-04 · `_derive_kind` reads the registry (batch 4e)
-
-A session whose channel is a registered IM source (or a `<source>_…` id) or a bus channel is MESSAGE_BUS; the `("lark", "slack", …)` prefix tuple is gone.
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

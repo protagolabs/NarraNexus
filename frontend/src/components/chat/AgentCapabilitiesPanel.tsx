@@ -24,7 +24,20 @@ interface Props {
   onClose: () => void;
 }
 
+/** Dialog form (chat surfaces / tests). The profile page embeds `AgentCapabilities` inline. */
 export function AgentCapabilitiesPanel({ agentId, isOpen, onClose }: Props) {
+  const { t } = useTranslation();
+  return (
+    <Dialog isOpen={isOpen} onClose={onClose} title={t('chat.capabilities.title')} size="md">
+      <DialogContent>
+        <AgentCapabilities agentId={agentId} active={isOpen} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The switches themselves; `active` gates the initial load (a closed dialog loads nothing). */
+export function AgentCapabilities({ agentId, active = true }: { agentId: string; active?: boolean }) {
   const { t } = useTranslation();
   const [view, setView] = useState<AgentCapabilitiesView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,8 +59,8 @@ export function AgentCapabilitiesPanel({ agentId, isOpen, onClose }: Props) {
   }, [agentId, t]);
 
   useEffect(() => {
-    if (isOpen) void load();
-  }, [isOpen, load]);
+    if (active) void load();
+  }, [active, load]);
 
   const toggle = async (item: AgentCapabilityItem) => {
     if (item.locked || busy) return;
@@ -65,8 +78,7 @@ export function AgentCapabilitiesPanel({ agentId, isOpen, onClose }: Props) {
   };
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} title={t('chat.capabilities.title')} size="md">
-      <DialogContent>
+    <div data-testid="agent-capabilities">
         <p className="text-[12px] text-[var(--nm-ink50)] mb-3">{t('chat.capabilities.subtitle')}</p>
         {loading && !view ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin" /></div>
@@ -106,7 +118,6 @@ export function AgentCapabilitiesPanel({ agentId, isOpen, onClose }: Props) {
             </p>
           </>
         ) : null}
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

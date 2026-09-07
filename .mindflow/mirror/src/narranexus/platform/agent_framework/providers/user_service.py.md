@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/user_service.py
-last_verified: 2026-08-28
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -446,3 +446,5 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 `add_provider(claude_oauth/codex_oauth)`：只填**空**的 agent/helper 槽（不覆盖已有配置），一次登录即 可用。`set_slot` 移除了"helper 拒绝 OAuth"的守卫（现在 OAuth 经 CliHelperSDK 服务 helper）。
 
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.

@@ -16,7 +16,10 @@
  *     parent. Owns its own frame + user-resizable persisted width; no
  *     backdrop, survives outside clicks.
  *
- * Header: mono uppercase title + Pin/PinOff toggle + X close.
+ * Header: mono uppercase title + Pin/PinOff toggle + X close. The title is
+ * plain text — panel switching belongs to the entries that open the drawer
+ * (the chat header's icons + ⋯ menu, the team bar's toggles), not to a second
+ * hidden registry behind the title.
  *
  * Toggling pin must not remount the panel (2026-07-30)
  * ----------------------------------------------------
@@ -47,52 +50,16 @@
  * parent).
  */
 
-import { type ReactNode, type Ref, useEffect, useCallback, useState } from 'react';
+import { type ReactNode, type Ref, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Pin, PinOff, HelpCircle, ChevronDown, Check } from 'lucide-react';
-import { useDismissOnOutside } from '@/hooks';
+import { X, Pin, PinOff, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-/** One switcher entry: any panel id, its i18n label key, and an icon. */
-export interface DrawerSwitcherTab<T extends string = string> {
-  id: T;
-  labelKey: string;
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
-  /** Optional live count rendered after the label — an entry that never
-   *  advertises its contents is closed exactly when it mattered. */
-  count?: number;
-}
-export interface DrawerSwitcherCategory<T extends string = string> {
-  label: string;
-  labelKey: string;
-  tabs: ReadonlyArray<DrawerSwitcherTab<T>>;
-}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * The switcher props travel together (a discriminated pair): providing a
- * tab without its categories would silently render the WRONG registry in
- * the dropdown — the default-value + assertion shortcut this replaces let
- * exactly that compile. With the switcher, the header title becomes a
- * dropdown listing every panel in `switcherCategories`; a pinned drawer is
- * an independent window and owns its own controls.
- */
-type DrawerSwitcherProps<T extends string> =
-  | {
-      activeTab?: undefined;
-      onSelectTab?: undefined;
-      switcherCategories?: undefined;
-    }
-  | {
-      activeTab: T | null;
-      onSelectTab: (id: T) => void;
-      switcherCategories: ReadonlyArray<DrawerSwitcherCategory<T>>;
-    };
-
-interface BookmarkDrawerBaseProps {
+interface BookmarkDrawerProps {
   open: boolean;
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
@@ -141,13 +108,11 @@ interface BookmarkDrawerBaseProps {
   children: ReactNode;
 }
 
-type BookmarkDrawerProps<T extends string> = BookmarkDrawerBaseProps & DrawerSwitcherProps<T>;
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerProps<T>) {
+export function BookmarkDrawer(props: BookmarkDrawerProps) {
   const {
     open,
     pinned,
@@ -163,8 +128,6 @@ export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerP
     banner,
     children,
   } = props;
-  const activeTab = props.activeTab ?? null;
-  const { onSelectTab, switcherCategories } = props;
   // Keyboard Esc handler — only for slide-over mode (not pinned)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -253,9 +216,6 @@ export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerP
           pinned={pinned}
           onPinnedChange={onPinnedChange}
           onClose={onClose}
-          activeTab={activeTab}
-          onSelectTab={onSelectTab}
-          switcherCategories={switcherCategories}
         />
         {banner}
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
@@ -268,103 +228,36 @@ export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerP
 // Header sub-component
 // ---------------------------------------------------------------------------
 
-interface DrawerHeaderProps<T extends string = string> {
+interface DrawerHeaderProps {
   title: string;
   description?: string;
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
-  activeTab?: T | null;
-  onSelectTab?: (id: T) => void;
-  switcherCategories?: ReadonlyArray<DrawerSwitcherCategory<T>>;
 }
 
 const TITLE_CLASS =
   'text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none truncate';
 
-function DrawerHeader<T extends string = string>({
+function DrawerHeader({
   title,
   description,
   pinned,
   onPinnedChange,
   onClose,
-  activeTab,
-  onSelectTab,
-  switcherCategories,
-}: DrawerHeaderProps<T>) {
+}: DrawerHeaderProps) {
   const { t } = useTranslation();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
       style={{ borderBottom: '1px solid var(--nm-hairline)' }}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        {onSelectTab && switcherCategories ? (
-          /* Title as a panel switcher: the drawer owns what it shows. */
-          <div ref={switcherRef} className="relative min-w-0">
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen((v) => !v)}
-              aria-expanded={switcherOpen}
-              aria-label={t('bookmarks.drawer.switchPanel')}
-              title={t('bookmarks.drawer.switchPanel')}
-              className="flex items-center gap-1 min-w-0 rounded-[var(--radius-xs)] px-1 -mx-1 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
-            >
-              <span className={TITLE_CLASS} style={{ color: 'var(--text-primary)' }}>
-                {title}
-              </span>
-              <ChevronDown
-                className={cn('w-3 h-3 shrink-0 text-[var(--nm-ink50)] transition-transform', switcherOpen && 'rotate-180')}
-                aria-hidden
-              />
-            </button>
-            {switcherOpen && (
-              <div
-                className="absolute left-0 top-full z-50 mt-1.5 w-52 max-h-[60vh] overflow-y-auto rounded-[var(--radius-md)] border py-1 shadow-lg"
-                style={{ background: 'var(--nm-card)', borderColor: 'var(--nm-hairline)' }}
-              >
-                {switcherCategories.map((cat) => (
-                  <div key={cat.label}>
-                    <div className="px-3 pt-2 pb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--nm-ink30)]">
-                      {t(cat.labelKey)}
-                    </div>
-                    {cat.tabs.map(({ id, labelKey, icon: Icon, count }) => {
-                      const active = id === activeTab;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => {
-                            setSwitcherOpen(false);
-                            if (!active) onSelectTab(id);
-                          }}
-                          className={cn(
-                            'w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-left transition-colors',
-                            'hover:bg-[var(--nm-paper-warm)]',
-                            active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
-                          )}
-                        >
-                          <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                          <span className="flex-1 min-w-0 truncate">{t(labelKey)}</span>
-                          {typeof count === 'number' && count > 0 && (
-                            <span className="shrink-0 font-mono text-[10px] text-[var(--nm-ink50)]">{count}</span>
-                          )}
-                          {active && <Check className="w-3 h-3 shrink-0" aria-hidden />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <span className={TITLE_CLASS} style={{ color: 'var(--text-primary)' }}>
-            {title}
-          </span>
-        )}
+        {/* Plain text, not a switcher: which panel the drawer shows is decided
+            by the entry that opened it. */}
+        <span className={TITLE_CLASS} style={{ color: 'var(--text-primary)' }}>
+          {title}
+        </span>
         {/* ? explainer — one sentence on what this panel is for, for users
             who never open the docs. Hover/focus reveals a styled tooltip;
             localized upstream. */}

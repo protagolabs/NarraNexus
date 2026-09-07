@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_identity.py
-last_verified: 2026-07-10
+last_verified: 2026-09-06
 stub: false
 ---
+
+## 2026-09-04 — `FRAMEWORK_DISPLAY_NAMES` 注释改为实话
+
+它是 agent 在 system prompt 里的**自称**，不是 UI 标签；前端标签在
+[[../../../../frontend/src/lib/frameworkBrand.ts]]，文案刻意不同（"Claude Code" vs SDK 名）。
+二轮时我把注释改成「整体不要求一致」，三轮核对后更准的说法是：`codex_cli` / `nexus_power`
+与选择器一字不差，只有 `claude_code` 刻意不同（prompt 侧自称 SDK 名）；注释按此事实写。改这里的值等于改
+prompt，需单独确认。
+
+## 2026-09-03 (评审修订) — 覆盖规则抽成纯函数，供目录投影共用
+
+`slot_rebinds` / `effective_agent_slot` / `framework_of` + `DEFAULT_AGENT_FRAMEWORK`：
+`resolve_agent_model_identity` 自己也改走它们。动机是 PR #383 评审 C1——
+`/api/auth/agents` 手写了第四份解析并写错；现在 [[slot_service.py]] 的
+`owner_agents_overview` 与这里同一份规则。`DEFAULT_AGENT_FRAMEWORK` 也被
+[[user_service.py]] 的 owner 级读取引用——改平台默认只动一处。
 
 # providers/model_identity.py — 解析 agent 真实的 (framework, model) 供 prompt 展示
 
@@ -32,7 +48,7 @@ stub: false
     但 framework 为 NULL"的行会被本 resolver 当胜出、渲染成 Claude，而 dispatch 端
     落到 owner 框架真跑 Codex，重新制造错误身份。收敛成单一实现后此类不一致从根上消除
     （方向也纠正了：`agent_runtime → agent_framework` 本就是合法 import 方向，step_3
-    早已 `from narranexus.platform.agent_framework import ...`）。
+    早已 `from xyz_agent_context.agent_framework import ...`）。
 - **绝不抛异常**：任何缺行/空列/DB 故障都降级到 `(nexus_power, "")`，因为它喂的是
   system-prompt 构建路径，炸了会废掉整轮。降级值仍走同一 display 映射，宁可回退成
   一个"次真实"的默认，也不输出错误品牌。
@@ -41,7 +57,7 @@ stub: false
 
 ## 上下游
 
-- **被谁用**：[[basic_info_module.py]] `gather` 调它，填
+- **被谁用**：[[basic_info_module.py]] `hook_data_gathering` 调它，填
   `ctx_data.agent_info_model_type`（framework 展示名）+ `ctx_data.model_name`
   （真实 model），再由 basic_info 的 [[prompts.py]] 模板 `{...}` 渲染进系统 prompt。
 - **依赖谁**：只用 `db.get_one` 读 `agent_slots` / `agents` / `user_slots`。
@@ -53,3 +69,5 @@ user_slots / 缺 provider_id 不夺权 / **有 provider 但 framework NULL 不�
 回归）/ 缺行→nexus_power+空 model / DB 故障兜底 / 未知名原样。
 `test_resolve_agent_framework_per_agent.py` 走委托后的 `_resolve_agent_framework_name`，
 同样锁 dispatch 端行为——两个测试测的是同一份 overlay 的两个出口。
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

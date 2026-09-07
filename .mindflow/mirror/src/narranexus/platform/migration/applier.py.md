@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/migration/applier.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 ---
 
 ## 2026-08-17 — 默认串在归一之后判
@@ -104,3 +104,5 @@ counts.
 ## 2026-09-04 · chat / awareness by declaration (batch 5b.2)
 
 Chat-history seeding targets the instance whose module provides chat history (and writes under that module class); the awareness instance comes from `ensure_role_instance("awareness")`.
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.

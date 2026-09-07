@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/ComposerModelBadge.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — `reloadKey` prop 删除
+
+那个 prop 存在的唯一理由是「[[ChatPanel]] 里的 AgentLlmConfigPanel 保存后
+让 chip 重读模型」。面板的入口 2026-08-27 收归
+[[../../pages/AgentProfilePage]] 的 Settings tab,ChatPanel 不再挂它,
+也就再没有人 bump 这个 key——留着是个永远为 undefined 的 effect 依赖。
+chip 自己的加载路径(`getAgentLlmConfig` + `getProviders`)没动;从
+Profile 改完模型再回到对话,chip 会在重新挂载时读到新值。
 
 ## 2026-07-28 — free-tier 锁整个拿掉
 

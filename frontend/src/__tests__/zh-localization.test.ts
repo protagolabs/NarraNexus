@@ -11,9 +11,10 @@ import zh from '@/i18n/locales/zh.json';
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 describe('Chinese localization completeness', () => {
-  it('defines Chinese copy for onboarding, setup, greeting, and reasoning controls', () => {
+  it('defines Chinese copy for onboarding, the welcome flow, greeting, and reasoning controls', () => {
     expect(zh.onboarding.guideCoachmark.text).not.toBe(en.onboarding.guideCoachmark.text);
-    expect(zh.pages.setup.welcome).not.toBe(en.pages.setup.welcome);
+    expect(zh.pages.welcome.model.title).not.toBe(en.pages.welcome.model.title);
+    expect(zh.pages.welcome.agent.subtitle).not.toBe(en.pages.welcome.agent.subtitle);
     expect(zh.chat.bootstrapGreeting).not.toBe(en.chat.bootstrapGreeting);
     expect(zh.chat.securityReminder).not.toBe(en.chat.securityReminder);
     expect(zh.chat.execution.selectingNarrative).not.toBe(en.chat.execution.selectingNarrative);
@@ -41,7 +42,11 @@ describe('Chinese localization completeness', () => {
     expect(source('../components/onboarding/GuideAgentCoachmark.tsx')).toContain(
       "t('onboarding.guideCoachmark.text')",
     );
-    expect(source('../pages/SetupPage.tsx')).toContain("t('pages.setup.welcome')");
+    // /setup's provider screen became step 1 of the welcome flow (2026-08-27).
+    expect(source('../pages/WelcomePage.tsx')).toContain("t('pages.welcome.rail.");
+    expect(source('../components/welcome/StepAgent.tsx')).toContain(
+      "t('pages.welcome.agent.title'",
+    );
     expect(settingsPage).toContain("t('pages.settings.title')");
     expect(settingsPage).toContain("t(item.labelKey)");
     expect(settingsPage).not.toContain('>Settings<');

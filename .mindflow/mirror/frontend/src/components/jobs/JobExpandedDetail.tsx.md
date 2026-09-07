@@ -1,7 +1,16 @@
 ---
 code_file: frontend/src/components/jobs/JobExpandedDetail.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27 — description 从折叠行搬到这里（区块 0）
+
+密度重构（见 [[JobsPanel.tsx]]）把 `job.description` 从列表行移了进来，
+渲染在所有区块之前。在行里它被 `line-clamp-1` 截成碎片
+（"Once a day, drop by with a fresh topic. Pause or…"），在抽屉宽度下
+承载的信息量是零；在这里它有空间做一个完整句子。行的第二行改放
+真正会被读的东西——调度规则 + 下次/上次执行，由
+[[jobsPanelModel]]`.describeRow` 产出。
 
 ## 2026-07-30 — 「编辑时间」按钮 + cron 显示死代码修复
 

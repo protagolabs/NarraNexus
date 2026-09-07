@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
+
+## 2026-08-27 — `createAgent` 的返回体补 `bound_channels: []`
+
+纯粹是跟着 `AgentInfo.bound_channels` 变必填走。新建的 agent 本来也没有任何
+渠道绑定,`[]` 就是真值,不是占位符。
 
 # mock/index.ts — 前端 mock API（demo / 离线模式）
 
@@ -26,6 +31,4 @@ ApiClient，让 UI 全链路可渲染。**契约**：方法集必须与 api.ts �
 - 桩返回值多为最小合法形态（如 `{ enabled: false }`），面板测试不要依赖
   mock 层的数据真实性——组件测试自带 vi.mock 的 api 层。
 
-## 2026-09-04 · generic channel stubs (batch 4d.3)
-
-`channelCredential/channelBind/channelUnbind/channelSetActive` stubs replace the Lark-specific ones; the Lark OAuth stubs stay.
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

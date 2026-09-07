@@ -9,6 +9,7 @@
  * and a plugin can add a tab the same way. All heavy panels stay lazy.
  */
 import { lazy } from 'react';
+import { useStudioStore, selectStudioOpen } from '@/stores/studioStore';
 
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import type { PanelProps } from '@/platform/registries';
@@ -31,6 +32,19 @@ const NarrativeList = lazy(() =>
 const ArtifactColumn = lazy(() =>
   import('@/components/artifacts').then((m) => ({ default: m.ArtifactColumn })),
 );
+
+const BuilderConfigPanel = lazy(() =>
+  import('@/components/builder').then((m) => ({ default: m.BuilderConfigPanel })),
+);
+
+/** The creation studio's panel (dev #382): the pickable lists already hide the tab
+ *  while the studio is closed, but a restored drawer tab or a deep link can still
+ *  land here — a studio panel with no conversation driving it reads as broken. */
+export function BuilderTab({ agentId }: PanelProps) {
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
+  if (!studioOpen) return null;
+  return <BuilderConfigPanel agentId={agentId} />;
+}
 
 export function AwarenessTab() {
   return <AwarenessPanel embedded section="awareness" />;

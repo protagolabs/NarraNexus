@@ -1,15 +1,13 @@
 /**
- * Tests for AgentGroupSection (collapse toggle, unread aggregation, nav arrow)
- * and AgentRowMenu (kebab menu entries: rename, delete, public toggle).
+ * Tests for AgentGroupSection (collapse toggle, unread aggregation, and the
+ * display-only agent row — no per-row action menu since 2026-08-27).
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-// We import the file under test (will fail until the file is created).
 import { AgentGroupSection } from '../AgentGroupSection';
-import { AgentRowMenu } from '../AgentRowMenu';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,18 +37,7 @@ describe('AgentGroupSection', () => {
     getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
-    onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    deletingAgentId: null,
-    editingAgentId: null,
-    editingName: '',
-    onEditNameChange: vi.fn(),
-    onSaveEdit: vi.fn(),
-    onCancelEdit: vi.fn(),
-    savingName: false,
+    currentUserId: 'u1',
   };
 
   it('renders the team name in the section header', () => {
@@ -141,134 +128,36 @@ describe('AgentGroupSection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AgentRowMenu (kebab ⋮)
+// Row affordances (2026-08-27 — kebab removed)
 // ---------------------------------------------------------------------------
 
-describe('AgentRowMenu', () => {
-  const defaultProps = {
-    agentId: 'a1',
-    agentName: 'Analyst',
-    isOwner: true,
-    isPublic: false,
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
-    onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    showPublicToggle: true,
-  };
-
-  it('exposes a rename entry', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} />));
-    // Click the kebab trigger to open the menu.
-    const trigger = screen.getByRole('button', { name: /agent options/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/rename/i)).toBeInTheDocument();
-  });
-
-  it('exposes a delete entry', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} />));
-    const trigger = screen.getByRole('button', { name: /agent options/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/delete/i)).toBeInTheDocument();
-  });
-
-  it('calls onStartEdit when rename is clicked', () => {
-    const onStartEdit = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onStartEdit={onStartEdit} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/rename/i));
-    expect(onStartEdit).toHaveBeenCalled();
-  });
-
-  it('calls onEditAgent when the edit entry is clicked', () => {
-    const onEditAgent = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onEditAgent={onEditAgent} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/^edit/i));
-    expect(onEditAgent).toHaveBeenCalled();
-  });
-
-  it('calls onDelete when delete is clicked', () => {
-    const onDelete = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onDelete={onDelete} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/delete/i));
-    expect(onDelete).toHaveBeenCalled();
-  });
-
-  it('calls onClearData when the clear-data entry is clicked', () => {
-    const onClearData = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onClearData={onClearData} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/clear data/i));
-    expect(onClearData).toHaveBeenCalled();
-  });
-
-  it('shows public toggle entry when showPublicToggle=true and isOwner', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} showPublicToggle={true} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.getByText(/public|private/i)).toBeInTheDocument();
-  });
-
-  it('hides public toggle entry when showPublicToggle=false', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} showPublicToggle={false} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.queryByText(/set to public|set to private/i)).not.toBeInTheDocument();
-  });
-
-  it('hides owner-only actions when isOwner=false', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} isOwner={false} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.queryByText(/delete/i)).not.toBeInTheDocument();
-  });
-});
-
-describe('kebab menu stacking (2026-06-11 fix)', () => {
+describe('agent row is display-only', () => {
   const props = {
-    teamId: 't1',
-    teamName: 'Trading Desk',
-    teamColor: '#e56',
-    agents: [
-      { agent_id: 'a1', name: 'Analyst', created_by: 'u1' },
-      { agent_id: 'a2', name: 'Risk Officer', created_by: 'u1' },
-    ],
+    teamId: null,
+    teamName: '',
+    teamColor: null,
+    agents: [{ agent_id: 'a1', name: 'Analyst', created_by: 'u1' }],
     agentId: null,
     collapsed: false,
+    hideHeader: true,
     currentUserId: 'u1',
-    showPublicToggle: false,
     onToggleCollapse: vi.fn(),
     onSelectAgent: vi.fn(),
     getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
-    onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    deletingAgentId: null,
-    editingAgentId: null,
-    editingName: '',
-    onEditNameChange: vi.fn(),
-    onSaveEdit: vi.fn(),
-    onCancelEdit: vi.fn(),
-    savingName: false,
   };
 
-  it('opening the row menu lifts the row above sibling stacking contexts', () => {
+  it('renders no per-row action menu — agent actions live on the profile page', () => {
     render(wrapRouter(<AgentGroupSection {...props} />));
+    expect(screen.queryByLabelText(/agent options/i)).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
 
-    const kebab = screen.getAllByLabelText('Agent options')[0];
-    fireEvent.click(kebab);
-
-    // The row container must carry the z-lift while the menu is open —
-    // without it, the next row's retained-transform stacking context
-    // paints over the panel and Delete becomes unclickable.
-    const row = kebab.closest('div.group');
-    expect(row?.className).toContain('z-30');
-
-    fireEvent.click(kebab);
-    expect(row?.className).not.toContain('z-30');
+  it('still selects the agent when the row is clicked', () => {
+    const onSelectAgent = vi.fn();
+    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} />));
+    fireEvent.click(screen.getByText('Analyst'));
+    expect(onSelectAgent).toHaveBeenCalledWith('a1');
   });
 });

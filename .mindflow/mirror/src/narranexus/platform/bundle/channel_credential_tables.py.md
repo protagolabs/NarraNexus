@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/bundle/channel_credential_tables.py
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -48,3 +48,5 @@ IM 凭据一律以停用态导入。用户必须在新环境手动激活，这�
 ## Gotcha
 
 - 加新 IM 频道时，若要纳入打包，必须同时在这里登记 + 在 `id_field_map.STRUCTURED_ID_FIELDS` 登记 `agent_id` + 确认凭据表有 `active_col`。三处漏一处，凭据要么带不走、要么导入后归属错乱、要么无法激活。
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.

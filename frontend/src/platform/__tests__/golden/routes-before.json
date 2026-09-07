@@ -8,6 +8,9 @@
     "element": null
   },
   {
+    "path": "/welcome"
+  },
+  {
     "path": "/setup",
     "element": null
   },
@@ -62,6 +65,12 @@
   {
     "path": "templates/install",
     "element": null
+  },
+  {
+    "path": "agents/new"
+  },
+  {
+    "path": "agents/:agentId"
   },
   {
     "path": "teams/new",

@@ -1086,6 +1086,11 @@
   ],
   [
     "POST",
+    "/api/migrate/hurry",
+    "hurry_import"
+  ],
+  [
+    "POST",
     "/api/migrate/scan",
     "scan"
   ],

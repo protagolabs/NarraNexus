@@ -37,7 +37,6 @@ import { ResizableDivider } from './ResizableDivider';
 import {
   BookmarkDrawer,
   BookmarkPanelHost,
-  STRIP_CATEGORIES,
   tabLabelKey,
   tabDescKey,
 } from '@/components/bookmarks';
@@ -47,12 +46,14 @@ import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
 import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
+import { useStudioLifecycle } from '@/hooks/useStudioLifecycle';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
+import { NoProviderNotice } from './NoProviderNotice';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
@@ -107,8 +108,17 @@ export function ChatView() {
 
   const isMobile = useIsMobile();
   const pendingPanel = useUIStore((s) => s.pendingPanel);
+  const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+
+  // The creation studio lives exactly as long as its panel is what this
+  // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
+  // not at each way the drawer can close. Which entries OFFER its tab is the
+  // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
+  // the chat header's ⋯ menu and the ⌘K palette; the drawer itself has no
+  // switcher any more, so nothing here filters a tab list.
+  useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -121,7 +131,8 @@ export function ChatView() {
   useEffect(() => {
     if (pendingPanel) {
       setDrawerTab((prev) => {
-        if (prev === (pendingPanel as AtomicTabId)) return null;
+        // 'open' callers must end up open; only a user toggle closes.
+        if (pendingPanelMode === 'toggle' && prev === (pendingPanel as AtomicTabId)) return null;
         try {
           window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
         } catch { /* storage unavailable — onboarding hint just stays */ }
@@ -129,7 +140,7 @@ export function ChatView() {
       });
       clearPendingPanel();
     }
-  }, [pendingPanel, clearPendingPanel]);
+  }, [pendingPanel, pendingPanelMode, clearPendingPanel]);
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);
@@ -222,9 +233,6 @@ export function ChatView() {
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={effectiveDrawerWidth}
-          activeTab={drawerTab}
-          onSelectTab={(id) => setDrawerTab(id)}
-          switcherCategories={STRIP_CATEGORIES}
           banner={
             showDrawerCoach ? (
               <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />
@@ -324,6 +332,12 @@ export function MainLayout() {
     location.pathname !== '/app/chat' &&
     location.pathname !== '/app';
 
+  // Sub-pages that already carry their own way back. The agent profile has a
+  // source-aware breadcrumb (back to Chat or back to Agents, per
+  // location.state.from) top-left AND a Chat + "⋮" action pair top-right; the
+  // generic X would both duplicate the former and sit on top of the latter.
+  const hasOwnCloseControl = location.pathname.startsWith('/app/agents/');
+
   // Preload all data when component mounts or when agentId/userId changes
   useEffect(() => {
     if (agentId && userId) {
@@ -346,6 +360,11 @@ export function MainLayout() {
     // the toolbar. The class carries a plain-vh fallback for engines
     // without dvh (see index.css).
     <div className="h-dvh-safe flex flex-col bg-[var(--bg-deep)] relative overflow-hidden">
+      {/* "You skipped wiring a model" strip — above everything, because it
+          explains why the app can't answer yet. Self-clears once a provider
+          exists; local only. */}
+      <NoProviderNotice />
+
       {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
           nothing on md+ (v4: the sidebar owns the full height there). */}
       <TopBar />
@@ -413,16 +432,19 @@ export function MainLayout() {
         <main className="flex-1 min-w-0 overflow-hidden relative z-10">
           {/* Close button — sub-pages (Dashboard / Settings / System …) open
               over the chat with no obvious way back, so dock an X top-right
-              that returns to the conversation. */}
-          <button
-            type="button"
-            onClick={() => navigate('/app/chat')}
-            title={t('layout.subPage.closeTitle')}
-            aria-label={t('layout.subPage.closeAriaLabel')}
-            className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+              that returns to the conversation. Skipped on pages that bring
+              their own back control (hasOwnCloseControl). */}
+          {!hasOwnCloseControl && (
+            <button
+              type="button"
+              onClick={() => navigate('/app/chat')}
+              title={t('layout.subPage.closeTitle')}
+              aria-label={t('layout.subPage.closeAriaLabel')}
+              className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* v2.2 G1: inner Suspense so lazy sub-pages (DashboardPage etc.)
               don't trigger the App-level full-screen spinner that hides the
               Sidebar. The skeleton mirrors the dashboard grid shape. */}

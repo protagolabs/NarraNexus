@@ -16,7 +16,7 @@ import { Route } from 'react-router-dom';
 import type { PageDef, RegistryEntry } from './registries';
 
 export interface GuardWrappers {
-  ProtectedRoute: ComponentType<{ children: ReactNode }>;
+  ProtectedRoute: ComponentType<{ children: ReactNode; skipWelcomeGate?: boolean }>;
   PublicRoute: ComponentType<{ children: ReactNode }>;
 }
 
@@ -33,7 +33,9 @@ function pageElement(def: PageDef): ReactNode {
 
 function guarded(def: PageDef, wrappers: GuardWrappers): ReactNode {
   const inner = pageElement(def);
-  if (def.guard === 'protected') return <wrappers.ProtectedRoute>{inner}</wrappers.ProtectedRoute>;
+  if (def.guard === 'protected') {
+    return <wrappers.ProtectedRoute skipWelcomeGate={def.skipWelcomeGate}>{inner}</wrappers.ProtectedRoute>;
+  }
   if (def.guard === 'public') return <wrappers.PublicRoute>{inner}</wrappers.PublicRoute>;
   return inner;
 }

@@ -382,16 +382,26 @@ describe('TeamChatPanel · drawer defaults and switching', () => {
     expect(screen.queryByTestId('roster-row-a1')).toBeNull();
   });
 
-  test('the drawer switches panels: members → artifacts via the title dropdown', async () => {
+  test('the drawer switches panels: members → artifacts via the member-bar toggle', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
-    // Open the title switcher and pick Artifacts.
-    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
-    fireEvent.click(screen.getByRole('button', { name: /chat.team.workspace.tabArtifacts/ }));
+    // The drawer title is plain text — every panel is opened by its own
+    // toggle in the member bar, so that is the only switching path.
+    fireEvent.click(screen.getByTestId('artifacts-toggle'));
     // The members rows are gone; the artifacts panel's empty state shows.
     expect(screen.queryByTestId('roster-row-a1')).toBeNull();
     expect(screen.getByText('chat.team.workspace.artifactsHint')).toBeTruthy();
     // And back to members via the top-bar toggle.
     fireEvent.click(screen.getAllByLabelText('chat.team.roster.title')[0]);
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
+  });
+
+  test('shared files have their own entry — the only way into that panel', async () => {
+    // Regression guard: files used to be reachable ONLY through the retired
+    // title dropdown, so dropping the dropdown without this toggle would
+    // orphan the panel entirely.
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    fireEvent.click(screen.getByTestId('files-toggle'));
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+    expect(screen.getByText('chat.team.workspace.filesHint')).toBeTruthy();
   });
 });

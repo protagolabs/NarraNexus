@@ -4,6 +4,53 @@ last_verified: 2026-09-04
 stub: false
 ---
 
+## 2026-09-04 — `handleSubmit` 一次只跑一个
+
+`submittingRef` 门：`await encodeOutgoing`（读 awareness）在 composer 清空与 `startStreaming`
+之前，`isLoading` 那时还是 false，第二个 Enter 会把整条路径再跑一遍、同一句话发两遍。这条在
+dev 上因 `getAwareness` 已存在，不是 studio 引入，但同一处修最省。测试
+`chatPanelSubmitGuard.test.tsx`。早条里 `builderPrompt.ts` 的 wikilink 降为反引号（该文件
+同 PR 内创建又删除，仓库里从未存在）。
+
+## 2026-09-03 (评审修订) — 落定沿按 agent 记 + 已应用消息去重
+
+`wasStreamingRef` 原是跨 agent 共用的一个布尔，而 `isStreaming` / `messages` 是从
+`activeAgentId` 派生的扁平字段。可复现丢数据路径：B 已落定并应用 → 用户在面板里
+手改 name / awareness 落库 → 切到 A 发消息（A streaming）→ **A 还在跑时**切回 B：
+扁平 `isStreaming` true → false，被判成「B 落定」，`applyFromReply` 重跑 B 的旧草稿，
+两个 PUT 把用户手改**全部覆盖回旧值**，无备份无提示。多 agent 后台并跑是核心场景，
+这直接否证了整个协议的立论「面板手改是权威」。
+
+现在两道闸：`wasStreamingByAgentRef` 按 agent 记沿；`appliedReplyIdsRef` 以
+`agentId:message.id` 记「已应用」，命中即 return。去重键不能用内容 —— 模型被允许
+在后一轮重述同一份草稿。测试 `chatPanelStudioSettle.test.tsx` 复现上述四步。
+这条修完 [[../../lib/builderProtocol.ts]] 的空串保护**仍然必需**：本条只防重放，
+不防新草稿本身是空的。
+
+## 2026-09-03 (修订 09-03 早条) — studio 改为每轮包裹 + 落定即应用
+
+早先那条写的是「包裹**第一条**消息」，随结构化面板一起作废。现在：
+
+- 提交路径 `outgoing = await encodeOutgoing(content)` —— studio 打开期间**每轮**
+  都带 Builder 指令 + 当前配置。位置仍在 steer 分支之后（mid-run 追问不是一个
+  回合）。返回原文即降级，studio 出问题不能吞掉用户的消息。
+- 新增一个 effect 监听**流式落定沿**（true → false），把最后一条 assistant
+  消息交给 `applyFromReply`。刻意不监听消息列表：草稿块只有回合结束才完整，
+  流式中途应用会把半序列化的 JSON 写进 agent 的指令。
+
+两个调用都来自 [[useStudioTurn.ts]]，本文件不含 studio 逻辑。
+
+## 2026-09-03 — 创建工作室 v0：首条消息包裹 Builder 指令
+
+提交路径新增 `outgoing`：agent 被 [[builderSession.ts]] 标记过时，用
+`builderPrompt.ts`（同 PR 内创建又删除，仓库里从未存在）的 `buildBuilderFirstMessage` 包裹用户那句话，
+`addUserMessage` 与 `run` 都发包裹后的内容。
+
+**位置刻意放在 steer 分支之后** —— 一次 mid-run 追问绝不能烧掉这个标记。
+标记是 consume-once 的，所以后续回合发的是纯文本。
+
+指令为什么不能在进入聊天页时就发：它的作用是框住用户**自己**那句需求，而那
+句话在用户敲之前并不存在。渲染侧由 [[MessageBubble.tsx]] 剥掉。
 ## 2026-08-31（四）— 「正在处理…」删除
 
 直播块尾部那个 `Loader2 + chat.execution.acting` 的行内指示器删掉，i18n key
@@ -77,6 +124,101 @@ turn 已经无框了，它还坐在输入框上方，同一屏两种语域。
   （取舍写进 `design_system.md` §2.6）。
 
 `RingAvatar` 随 agent 侧头像一起从本文件退出。
+
+## 2026-08-27 (3) — Activity Log 是只读页:整块 composer footer 按 tab 摘掉
+
+**症状**:点进 Activity Log,下方还挂着 chat 输入框 —— 它是一个**独立的功能
+页**(看 agent 自己发起的 run:job / channel / 队友),没有「回信」这条通道,
+输入框在那儿就是个假承诺。
+
+**改法**:`{!isActivityTab && ( … )}` 包住 `border-t` 那整块 footer,而**不是**
+只藏 textarea。跟着一起消失的都是「对话专属」的东西,少摘一样就是不一致:
+
+- `<Composer>` + 发送/Stop 键(steerable 时那颗 steer 键)
+- attach(+)/`<AudioRecorder>`/隐私提示/`ComposerFastToggle`/`ComposerModelBadge`
+- `transcriptionNotice`、pendingAttachments 预览行
+- **`<ProcessPanel>`**(原本挂在 composer 上方,**没**带 tab 维度)—— 它描述的
+  是 owner↔agent 这一轮的流程;而直播回复块本来就已经 `chatTab ===
+  'conversation'` 门控过了,两者现在口径一致。
+
+**顺带修的真 bug(铁律 #8 扫边)**:`handleDragOver` / `handleDrop` 挂在 **Card
+根**(用户会往整个面板拖文件),footer 藏了它们照样收 —— 会在 Activity Log 上
+静默上传并塞进 `pendingAttachments`,而**唯一能显示 chip 的预览行已经不渲染
+了**:文件进了后端、界面一点痕迹没有。两个 handler 都加 `|| isActivityTab`
+提前 return(`handleDragOver` 要在 `preventDefault` **之前** bail,否则浏览器
+以为这里能放)。`handlePaste` 只挂在 textarea 上,textarea 不存在即失效,不用改。
+
+**`isActivityTab` 的声明位置上移**到 `chatTab` state 旁边(不再和下面的零态
+块放一起)—— 附件入口 handler(~L755)比零态块(~L910)早,拿不到原来的定义。
+
+**草稿不会丢**:`<Composer>` 卸载时把文本 flush 进 per-agent 草稿 store,重挂
+时恢复(见 [[Composer.tsx]]),所以「打了一半 → 切去 Activity Log → 切回来」
+文本还在。
+
+`bootstrapGreetingPending` 仍然**刻意不带 tab 维度**(见下面同日条):虽然现在
+已经不可能从 Activity Log 发出第一条消息,但那是**渲染**条件收窄的结果,写入
+条件不该跟着 UI 门控走。
+
+测试:`chatPanelActivityTabComposer.test.tsx` —— 对话 tab 有 textbox/发送键/
+attach 键、切 Activity Log 三者全无、再切回来又有;拖文件在对话 tab 会调
+`uploadAttachment`(基线,证明 drop 真的到了 handler),在 Activity Log 上不调。
+
+## 2026-08-27 (2) — 头部瘦身的连带清理:sessionLabel / AgentLlmConfigPanel
+
+[[ChatHeader]] 的身份块改成 Profile 入口后,本文件三处状态成了死代码,
+一并删掉(留着就是下一个人照抄的样板):
+
+- `sessionLabel` 的 `useMemo`(以及 `formatChatTimestamp` import)——
+  头部不再画那条 mono 侧标。
+- `agentCfgOpen` / `modelReloadKey` 两个 state 与页面底部挂的
+  `<AgentLlmConfigPanel>`——「Model & framework」面板现在**只从
+  [[../../pages/AgentProfilePage]] 的 Settings tab 打开**,本页不再是
+  它的宿主。
+- `<ComposerModelBadge reloadKey>` 随之退化为 `<ComposerModelBadge>`:
+  没有宿主面板在旁边保存,就没有需要 bump 的重读信号
+  (见 [[ComposerModelBadge]] 同日条)。
+
+composer 上的 model chip 仍是快速切模型的入口,不受影响。
+
+## 2026-08-27 — 零态按 tab 分家（修「Activity Log 空时点了没反应」）
+
+**症状**:agent 的 activity 流为空时,点 Activity Log 那颗按钮像是死键 ——
+画面和「对话」tab 一模一样,用户到不了那个(本来就该空的)Activity Log。
+
+**根因**:零态判定用的是 `historyLoaded && historyMessages.length === 0 &&
+messages.length === 0`,**不带 tab 维度**,而它挂的两个界面
+([[OnboardingJourney]] 的「<Agent> is ready」卡、bootstrap 问候气泡)都是
+**对话专属**的。于是:
+
+* 新 agent(两条流都空)→ 切到 Activity Log 照样画同一张 onboarding 卡 =
+  按钮「点了没反应」;
+* 有对话、activity 空 → `messages`(session 里的**对话**消息)非空,把零态
+  整个压掉,Activity Log 变成一片没有任何说明的空白。
+
+**修法**:零态改成按 tab 算,且键在 `visibleTimeline`(这个 tab **真正渲染
+的行**),而不是「原始流 + session」这对量:
+`tabIsEmpty = historyLoaded && visibleTimeline.length === 0`;
+`showBootstrapGreeting` / `showEmptyState` 前面加 `!isActivityTab`;新增
+`showActivityEmptyState` → `chat.activityEmpty` / `chat.activityEmptyHint`
+的 [[bracket|BracketEmptyState]](10 个 locale 全补)。
+
+`bootstrapGreetingPending`(`isBootstrap && loadedByStream.chat &&
+historyByStream.chat.length === 0 && messages.length === 0`)**刻意不带
+tab 维度**并单独留一个名字:`handleSubmit` 首次发送时靠它把问候语折进
+session,而用户完全可能停在 Activity Log tab 上发出第一条消息 —— 渲染条件
+可以按 tab 收窄,这条写入条件不能。
+
+顺带(铁律 #8 扫边):同一块 JSX 里「无 agent」的空态硬编码英文
+`label="Select an agent"`,而 `chat.selectAgent` / `chat.selectAgentHint`
+十个 locale 早就备好了 —— 改回走 i18n。
+
+## 2026-08-26 — 两处 `<MessageBubble agentName={...} />` 删除
+
+[[MessageBubble.tsx]] 移植 `40d353e1` 的「answer 无气泡」改动后 assistant 侧不再渲染头像，
+`agentName` prop 整个从 `MessageBubbleProps` 消失。ChatPanel 里 bootstrap 问候气泡和
+timeline 里真实消息气泡两处 `agentName={currentAgent?.name || agentId}` 随之删除
+（`agentId` 仍保留 — event-log 拉取还要用）。**推翻**下面 2026-08-20 那条「bootstrap 气泡补
+agentName 修 AI 头像」的前提：头像本体已经不存在了，这条修复记录仅作历史存档。
 
 ## 2026-08-24 — 运行中发送=折进本轮(steer)
 

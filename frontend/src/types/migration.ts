@@ -113,5 +113,8 @@ export interface MigrationApplyResult {
   mcp_stdio_skipped: string[];
   narratives_created: string[];
   memory_turns_retained: number;
+  /** Sessions summarized WITHOUT the LLM because the user asked this import to
+   *  hurry (pressed stop while it was running). Surfaced, never silent. */
+  summaries_degraded: number;
   warnings: string[];
 }
