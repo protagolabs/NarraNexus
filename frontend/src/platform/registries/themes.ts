@@ -37,21 +37,20 @@ export function validateThemeTokens(tokens: Record<string, string>): string[] {
   return problems;
 }
 
-class ThemeRegistry extends Registry<ThemeDef> {
-  override register(id: string, value: ThemeDef, options = {}) {
+export const THEMES = new Registry<ThemeDef>('ui.themes', {
+  validate: (value) => {
     const problems = validateThemeTokens(value.tokens);
-    if (problems.length) throw new Error(`ui.themes: "${id}": ${problems.join('; ')}`);
-    return super.register(id, value, options);
-  }
-}
-
-export const THEMES = new ThemeRegistry('ui.themes');
+    if (problems.length) throw new Error(`ui.themes: ${problems.join('; ')}`);
+  },
+});
 
 let applied: string[] = [];
 
 export function applyTheme(id: string, root: HTMLElement = document.documentElement): void {
-  const theme = THEMES.get(id);
-  if (!theme) throw new Error(`ui.themes: "${id}" is not registered`);
+  // A theme id reaching here MUST already be registered — `getOrThrow` (architecture E3(b))
+  // reports the missing entry as an error instead of this call site hand-rolling the same
+  // `get()` + `if (!x) throw` every "id must exist" lookup used to duplicate.
+  const theme = THEMES.getOrThrow(id);
   clearTheme(root);
   for (const [key, value] of Object.entries(theme.tokens)) {
     root.style.setProperty(key, value);

@@ -52,3 +52,61 @@ hardening is in `host.ts`'s `http.request`).
 `Object.values(REGISTRIES)` from `registries/index.ts` instead of a hand-maintained array — four
 copies of the 16-registry list used to exist across `host.ts` and `loader.ts`; adding a 17th
 registry now only means adding one line to `REGISTRIES` itself.
+
+## 2026-09-07 — plugin pages confined to the `x/` namespace + collision reporting (M-2)
+
+`page.path` used to go into `PAGES` completely unchecked — only `page.id` was deduped
+(`if (!PAGES.has(id))`, silently), so two plugins declaring `path: 'reports'` produced two
+identical `<Route>`s (react-router v6 keeps the first, the second is dead code with no signal),
+and a plugin's static path like `agents/mine` could outrank the builtin dynamic route
+`agents/:agentId` under v6's specificity ranking (static beats dynamic) for any agent literally
+named "mine". Fixed with three checks, each `reportUiError` + `continue` (never silently
+dropped) instead of the old label-free skip:
+1. `page.path` must start with `"x/"` — plugin pages live in a namespace builtin routes never
+   use, which structurally rules out the static-outranks-dynamic case above.
+2. `page.id` collision from a DIFFERENT owner is now reported, not silently ignored — the first
+   registrant still wins, but the second registrant's owner learns why its page never appeared
+   instead of a silent no-op. The SAME owner re-declaring its own already-registered id is a
+   deliberate carve-out (added for M-9): `loadPlugins()` can legitimately run twice for the same
+   plugin (once unauthenticated with `[]` rows, again after login re-fetches the real list) — that
+   re-run must stay a silent idempotent no-op, not spam a fake "collision" against itself.
+3. `page.path` collision across two DIFFERENT ids is now detected by scanning
+   `PAGES.list()` for an existing entry with the same `path` — this is the case `id`-dedup alone
+   cannot catch.
+
+Interpretive note: the reviewed finding also floated a stricter form (`x/` + the plugin id's last
+dot-segment or the full id). That stricter form was NOT implemented — it would reject the
+`tests/plugins/hello_world` fixture's own `path: "x/hello"` for plugin id `acme.hello_world`
+(last segment `hello_world` ≠ `hello`), which the finding cited as evidence the "x/" convention
+already exists. The looser "$x/$ prefix only" rule is the one actually satisfied by that
+fixture and is what ships here.
+
+## 2026-09-07 — `loadPlugins()` never disables the "builtin.ui" row
+
+The backend's `GET /api/plugin-factory` `builtins` list carries a manifest-only `builtin.ui` row
+(always `enabled: true, protected: true`) representing the shell's own default owner id —
+`"builtin.ui"` is what every shell registration gets as `owner` when no explicit owner is passed
+(`registry.ts`'s `Registry.register`). This loop now unconditionally skips `b.id === 'builtin.ui'`
+before the `!enabled && !protected` check: disabling it would call `disableOwner('builtin.ui')`
+(blacklisting the shell's own default owner forever) and `removeOwner('builtin.ui')` on every
+shell registry (wiping every builtin page/panel/sidebar/command currently registered under it) —
+bricking the whole shell UI. The factory is expected to always report this row as
+enabled+protected (which the pre-existing `!enabled && !protected` guard would also have caught),
+but this specific id gets an unconditional carve-out rather than trusting that invariant to hold.
+
+## 2026-09-07 — SRI required for copy-installed plugins (architecture E3(a))
+
+`activatePlugin` previously skipped SRI verification entirely whenever `row.frontend.integrity`
+was absent (`fetchVerified`'s `if (integrity) {...}` guard is unchanged — this is a NEW check
+BEFORE it). `FactoryPluginRow` gained `mode?: 'copy' | 'link'` (mirrors the installer's own
+`Mode = Literal["copy", "link"]`, exposed as `"mode": rec.mode` by the backend's plugin listing).
+`activatePlugin` now throws `"${id}: missing integrity — ..."` when `row.mode === 'copy'` and
+`integrity` is absent — a "copy" install (a downloaded tarball/repo written into the plugin
+store) has no other guarantee the bytes that get imported and run with full plugin privileges are
+the bytes an admin approved. A "link" install (points at a local dev checkout under active edit)
+and any row with no `mode` at all (older backend payloads not yet sending it) are exempt — this
+check only fires on POSITIVE evidence of a copy install, it does not fail-closed on absence of
+the field. The thrown error is not reported here directly: `activatePlugin` is invoked through
+`registerActivation`'s callback, and `activation.ts`'s existing catch already calls
+`reportUiError` for any throw from that callback — adding a second `reportUiError` call here
+would double-report.

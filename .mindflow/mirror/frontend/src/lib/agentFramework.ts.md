@@ -1,8 +1,87 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-08-28
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — CORRECTION: `protocol` is a 3-valued enum (`'anthropic' | 'openai' | 'any'`); the id-based NexusPower gate is gone (B6, supersedes the entry below)
+
+The entry directly below this one shipped an `isNexusPowerFramework(framework)` id-based bypass
+for the protocol gate, reasoning that the live list's `protocol` field could only ever be a
+single concrete protocol and so could never express "accepts either". That premise was wrong:
+the backend's `FrameworkMeta.protocol` (what actually lands in `LiveFrameworkEntry.protocol`) is
+a **three-valued enum** — `'anthropic' | 'openai' | 'any'` — and NexusPower is sent as `'any'`.
+
+`providerBacksFramework` now has **no framework-id branch at all**: `fw.protocol !== 'any' &&
+fw.protocol !== prov.protocol` is the entire gate. `'any'` accepts every provider protocol for
+ANY framework the live list marks that way, not just nexus_power by name — proven by a dedicated
+test using a hypothetical `some_future_framework` with `protocol: 'any'`, plus the converse
+(`nexus_power` pinned to a concrete protocol in the live list IS gated like anything else). The
+type is now `LiveFrameworkEntry.protocol?: 'anthropic' | 'openai' | 'any'` (was `string`), and
+`lib/api.ts`'s `getAgentFramework()` return type matches. `isNexusPowerFramework` itself is
+untouched (still exported, still has zero other callers in this codebase per grep — it was never
+consulted by anything else, so removing its use here doesn't orphan a caller elsewhere).
+
+## 2026-09-07 (superseded by the correction above) — `providerBacksFramework` final cut: `frameworks` is now REQUIRED and fails closed; `CLI_FRAMEWORK_BY_OAUTH_SOURCE` and `frameworkAcceptsProtocol` deleted (B6)
+
+Supersedes the same-day entry below (kept struck through in spirit, replaced in full — that
+version was an intermediate cut that still had a hardcoded fallback; the coordinator asked for
+the fallback to be removed entirely in a follow-up instruction the same day).
+
+`providerBacksFramework(prov, framework, frameworks)` — the third parameter is no longer
+optional-with-fallback: it is `LiveFrameworkEntry[] | undefined`, and **no list means the
+function returns `false`**, full stop. There is no hardcoded table left to consult. Both gates
+(protocol, subscription redemption) read exclusively off the live `frameworks[]` array from
+`GET/POST /api/providers/agent-framework` (`protocol` and `oauth_source` per entry). Deleted
+entirely: `CLI_FRAMEWORK_BY_OAUTH_SOURCE` (its only consumer was this function) and
+`frameworkAcceptsProtocol` (its only consumer was this function; its signature — an
+`AgentFramework` object — no longer matched what's available here). `availableFrameworks`
+gained the same third `frameworks` parameter and forwards it unchanged.
+
+New exported type `LiveFrameworkEntry` (`{ name, protocol?, oauth_source? }`) — the narrow shape
+both functions actually read, so a caller doesn't need to import `lib/api.ts`'s wider
+`getAgentFramework()` response type just to type the variable it's forwarding.
+
+**One deliberate carve-out, not a hardcoded fallback**: NexusPower accepts EITHER protocol (see
+`AGENT_FRAMEWORKS`'s `nexus_power` entry — `protocols: ['anthropic', 'openai']`, still present
+and still read by `frameworkBrand.ts` / the two pickers' "frameworksHidden" length check /
+`availableFrameworks`'s own-providers-empty early return — it was never a candidate for removal,
+only `CLI_FRAMEWORK_BY_OAUTH_SOURCE` and the protocol-matching half of the old
+`providerBacksFramework` were). The live list's schema carries one `protocol` string per
+framework and cannot express "accepts both"; narrowing NexusPower to whichever protocol the
+backend happens to report as primary would silently break an openai-only wallet's ability to
+pick it (a real regression, not a hypothetical — this is exactly the scenario the 2026-07-31
+entry below fixed). So the protocol gate is skipped for NexusPower specifically, by id
+(`isNexusPowerFramework`), not by falling back to `AGENT_FRAMEWORKS`. Flagged for the
+coordinator: this assumes the backend's live `protocol` field for `nexus_power`, if present,
+does NOT need to gate anything — if a future requirement needs per-framework MULTI-protocol
+data from the live list, the schema itself needs a `protocols` array, not a workaround here.
+
+Every call site that has the list loaded must now pass it (`ModelDefaultsSettings.tsx` /
+`AgentLlmConfigPanel.tsx` both hold it in a new `liveFrameworks` state, seeded from
+`getAgentFramework()`'s response alongside the existing `frameworkAvailability` map, and kept
+`undefined` — not `[]` — until a response actually lands, so "not loaded yet" and "loaded but
+nothing matches" stay distinguishable).
+
+## 2026-09-07 (superseded same day, see above) — `providerBacksFramework` reads `oauth_source` off the live framework list when given one (B6)
+
+`providerBacksFramework(prov, framework, frameworks?)` gained an optional third parameter: the
+LIVE `frameworks[]` list from `GET/POST /api/providers/agent-framework`, whose entries now
+optionally carry their own `oauth_source` (which CLI subscription credential, if any, that
+framework redeems). When passed, the redeeming framework for `prov.source` is found by scanning
+this live list (`frameworks.find(f => f.oauth_source === prov.source)`) instead of the hardcoded
+`CLI_FRAMEWORK_BY_OAUTH_SOURCE` mirror; the mirror remains the fallback whenever the list is
+absent (older backend, or a caller with none in hand) or has no entry for that oauth_source — the
+3 existing call sites that pass no third argument are unaffected (exact previous behavior).
+
+Scoping note: `AGENT_FRAMEWORKS` and `CLI_FRAMEWORK_BY_OAUTH_SOURCE` were NOT removed — the
+original ask was to "drop the hardcoded framework tables" entirely, but that would require
+threading the live list through `frameworkAcceptsProtocol`'s multi-protocol check too (NexusPower's
+`protocols: ['anthropic', 'openai']`), and I could not confirm the live payload carries anything
+beyond a single primary `protocol` per entry without reading the backend serializer directly
+(out of this file's — and this session's — edit scope). A full removal touching
+`frameworkAcceptsProtocol`, `availableFrameworks`, `frameworkBrand.ts`, and the 3+ call sites that
+still read `AGENT_FRAMEWORKS` directly is a larger, separate refactor.
 
 ## 2026-08-28 — 插件安装可用性合并（`frameworkAvailabilityMap` / `withFrameworkAvailability`）
 

@@ -69,12 +69,22 @@ export class Registry<T> {
   #frozen = false;
   readonly #listeners = new Set<() => void>();
   #cached: RegistryEntry<T>[] | null = null;
+  readonly #validate?: (value: T) => void;
 
-  constructor(kind: string) {
+  /**
+   * `options.validate` (M-11) is the ONE way to build a "validating registry" — a registry that
+   * rejects a malformed value at registration time instead of accepting it and failing later at
+   * render/evaluation time. It replaces two previously-coexisting, functionally-identical
+   * patterns: `themes.ts` subclassed `Registry` and overrode `register`; `slotPoints.ts`'s
+   * `validated()` helper overwrote the instance's own `register` property. Both are now this.
+   */
+  constructor(kind: string, options: { validate?: (value: T) => void } = {}) {
     this.kind = kind;
+    this.#validate = options.validate;
   }
 
   register(id: string, value: T, options: RegisterOptions = {}): () => void {
+    this.#validate?.(value);
     if (this.#frozen) throw new Error(`${this.kind}: registration is closed`);
     const owner = options.owner ?? 'builtin.ui';
     // A disabled builtin/plugin never gets a foothold, no matter when it tries to register.

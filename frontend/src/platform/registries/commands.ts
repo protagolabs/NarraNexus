@@ -20,8 +20,10 @@ export interface CommandDef {
   hint?: string;
   icon?: LucideIcon;
   run: () => void | Promise<void>;
-  /** Hide from the palette when false (evaluated at render). */
-  when?: () => boolean;
+  /** Hide from the palette when false (evaluated at render). Named to match `SidebarItemDef`'s
+   *  `visible` — NOT the `WhenClause` string grammar (`registries/when.ts`), which is a
+   *  different, validated-at-registration mechanism with the same word in its name (M-3). */
+  visible?: () => boolean;
 }
 
 export const COMMANDS = new Registry<CommandDef>('ui.commands');

@@ -17,6 +17,7 @@ import { useConfigStore, useUIStore, useStudioStore, selectStudioOpen, selectStu
 import { RingAvatar } from '@/components/nm';
 import { visibleTabs } from '@/components/bookmarks';
 import { COMMANDS, useRegistryEntries } from '@/platform/registries';
+import { reportUiError } from '@/platform/errorSink';
 import { cn } from '@/lib/utils';
 
 interface CommandPaletteProps {
@@ -87,7 +88,18 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         }))
       : [];
     const pluginCmds: Cmd[] = registryCommands
-      .filter((e) => e.value.when?.() ?? true)
+      .filter((e) => {
+        if (!e.value.visible) return true;
+        // `CommandDef.visible` is an arbitrary function called directly at render (unlike
+        // `WhenClause` strings, which are validated at registration) — a plugin's predicate
+        // throwing must not crash the whole palette (M-3): report it and hide that one command.
+        try {
+          return e.value.visible();
+        } catch (error) {
+          reportUiError(error instanceof Error ? error : new Error(String(error)), { kind: 'render', source: e.owner, context: 'CommandPalette visible()' });
+          return false;
+        }
+      })
       .map((e) => ({
         id: `cmd:${e.id}`,
         label: e.value.labelIsKey ? t(e.value.label) : e.value.label,

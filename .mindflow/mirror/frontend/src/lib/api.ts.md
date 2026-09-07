@@ -13,6 +13,26 @@ still a bodyless POST. This is what lets the disclosure modal's "I understand" p
 `permissions_acknowledged` server-side instead of only clearing client-side state — see
 `components/settings/plugins/PluginFactory.tsx`'s mirror doc.
 
+## 2026-09-07 — `getAgentFramework()`'s `frameworks[]` entries gain `display_name`/`protocol`/`oauth_source` (B6, final cut — `protocol` corrected to the real 3-valued enum)
+
+All three optional on the TYPE (an older backend response, or one predating this field, simply
+omits them), but `protocol`/`oauth_source` are now the ONLY thing
+`lib/agentFramework.ts`'s `providerBacksFramework`/`availableFrameworks` read for their matching
+— that function has no hardcoded fallback left (`CLI_FRAMEWORK_BY_OAUTH_SOURCE` and
+`frameworkAcceptsProtocol` were both deleted), so a caller that doesn't pass this array once
+loaded gets `false` back for everything, not a guess.
+
+`protocol` is typed `'anthropic' | 'openai' | 'any'` — the backend's `FrameworkMeta.protocol`
+enum, not a bare `string`. `'any'` is NexusPower's value (it drives the provider API itself and
+works with either protocol); the consuming code reads this VALUE directly, with no
+framework-id/name branch — see `lib/agentFramework.ts`'s 2026-09-07 correction entry for the
+history (an earlier same-day cut incorrectly assumed `protocol` was always a single concrete
+value and special-cased `isNexusPowerFramework` instead; that branch is gone).
+
+`display_name` backs `lib/frameworkBrand.ts`'s `formatFrameworkFromList` (preferred over the
+static per-id label table, itself untouched and still falls back when `display_name` is absent
+for a given entry).
+
 ## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
 
 常量 `MARKETPLACE_SEARCH_TIMEOUT_MS` 在 [[apiTimeouts.ts]]（不放本文件：测试整体 mock

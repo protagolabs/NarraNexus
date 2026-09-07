@@ -267,7 +267,12 @@ export function ChatHeader({
                 {DETAIL_GROUP_A.map((id) => (
                   <DetailItem key={id} id={id} onOpen={openPanel} />
                 ))}
-                <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+                {/* The divider only makes sense when there is something after it — with no
+                    plugins contributing ui.chatHeaderActions entries, an unconditional divider
+                    left a dangling rule at the bottom of the menu for every user (M-1). */}
+                {headerActions.length > 0 && (
+                  <div data-testid="chat-header-plugin-divider" className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+                )}
                 {/* Plugin actions (ui.chatHeaderActions), gated by `when`. */}
                 {headerActions.map((entry) => {
                   const Icon = entry.value.icon ?? Sparkles;

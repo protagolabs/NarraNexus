@@ -59,6 +59,29 @@ describe('Registry', () => {
   });
 });
 
+describe('Registry constructor `validate` option (M-11)', () => {
+  // Before M-11 there were two different ways to build a "validating registry" — themes.ts
+  // subclassed Registry and overrode `register`, slotPoints.ts's `validated()` helper
+  // overwrote the instance's own `register` property. This unifies both on one mechanism.
+  it('runs validate(value) before accepting a registration; a throw rejects the registration', () => {
+    const validate = vi.fn((value: { ok: boolean }) => {
+      if (!value.ok) throw new Error('invalid value');
+    });
+    const r = new Registry<{ ok: boolean }>('demo', { validate });
+    expect(() => r.register('a', { ok: false })).toThrow(/invalid value/);
+    expect(r.has('a')).toBe(false);
+    r.register('a', { ok: true });
+    expect(r.has('a')).toBe(true);
+    expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it('a registry with no validate option behaves exactly as before', () => {
+    const r = new Registry<number>('demo');
+    r.register('a', 1);
+    expect(r.get('a')).toBe(1);
+  });
+});
+
 describe('Registry.removeOwner', () => {
   it('drops every entry of that owner, keeps the rest, and notifies once', () => {
     const r = new Registry<number>('demo');

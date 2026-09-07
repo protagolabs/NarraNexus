@@ -61,6 +61,10 @@ export interface FactoryPluginRow {
   enabled: boolean;
   loaded: boolean;
   state: string;
+  /** How the installer put the plugin's files on disk: "copy" (a downloaded tarball/repo,
+   *  written into the plugin store) vs "link" (a symlink to a local dev checkout). Backs the
+   *  SRI-required-for-copy-installs check in `activatePlugin` (architecture E3(a)). */
+  mode?: 'copy' | 'link';
   frontend: null | {
     entry: string;
     locales?: string;
@@ -190,9 +194,37 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
       reportUiError(new Error(`ui.pages: "${page.id}" is under /app and must declare guard "protected" (got "${guard}")`), { kind: 'chunk', source: row.id, context: 'registerDeclaredUi' });
       continue;
     }
-    if (!PAGES.has(page.id)) {
-      PAGES.register(page.id, { path: page.path, element: makePageGate(row.id, page.id), guard, layout }, owner);
+    // M-2: plugin pages live under the shared `x/` namespace. This is what keeps a plugin's
+    // page path from ever colliding with — or, worse, silently outranking — a builtin route: a
+    // static plugin path like "agents/mine" would beat the builtin dynamic "agents/:agentId"
+    // under react-router v6's specificity ranking (static beats dynamic) for any agent literally
+    // named "mine". Confining plugins to `x/` makes that collision structurally impossible
+    // instead of order- or data-dependent.
+    if (!page.path.startsWith('x/')) {
+      reportUiError(new Error(`ui.pages: "${page.id}" path "${page.path}" must start with "x/" (plugin pages live under the shared x/ namespace)`), { kind: 'chunk', source: row.id, context: 'registerDeclaredUi' });
+      continue;
     }
+    if (PAGES.has(page.id)) {
+      // A plugin re-declaring ITS OWN already-registered page is a benign, expected no-op —
+      // `loadPlugins()` can legitimately run more than once for the same plugin (e.g. once
+      // unauthenticated with no rows, again after login re-fetches the real list; M-9). Only a
+      // DIFFERENT owner claiming this id is an actual collision worth reporting.
+      if (PAGES.ownerOf(page.id) !== row.id) {
+        reportUiError(new Error(`ui.pages: "${page.id}" is already registered by "${PAGES.ownerOf(page.id)}"`), { kind: 'chunk', source: row.id, context: 'registerDeclaredUi' });
+        continue;
+      }
+      events.push(`onPage:${page.id}`);
+      continue;
+    }
+    // Two DIFFERENT page ids declaring the SAME path is not caught by the `has(id)` check above
+    // — react-router v6 silently takes the first-registered <Route> for a duplicate path and the
+    // second is permanently unreachable dead code with no signal to anyone.
+    const pathOwner = PAGES.list().find((e) => e.value.path === page.path);
+    if (pathOwner) {
+      reportUiError(new Error(`ui.pages: path "${page.path}" is already used by "${pathOwner.id}" (owner "${pathOwner.owner}")`), { kind: 'chunk', source: row.id, context: 'registerDeclaredUi' });
+      continue;
+    }
+    PAGES.register(page.id, { path: page.path, element: makePageGate(row.id, page.id), guard, layout }, owner);
     events.push(`onPage:${page.id}`);
   }
   for (const panel of ui?.panels ?? []) {
@@ -246,6 +278,15 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
 export async function activatePlugin(row: FactoryPluginRow, deps: LoaderDeps = {}): Promise<HostAPI> {
   const importImpl = deps.importImpl ?? defaultImport;
   if (!row.frontend) throw new Error(`${row.id}: no frontend entry`);
+  // architecture E3(a): a "copy" install (a downloaded tarball/repo written into the plugin
+  // store) has no other integrity guarantee — SRI is what pins the exact bytes an admin approved
+  // to the exact bytes that get imported and run with full plugin privileges. A "link" install
+  // points at a local dev checkout under active edit (re-verifying SRI on every edit would defeat
+  // the point of a dev link) and is exempt, as is any row with no `mode` (older backend payloads
+  // that do not yet send it) — this only fires on POSITIVE evidence of a copy install.
+  if (row.mode === 'copy' && !row.frontend.integrity) {
+    throw new Error(`${row.id}: missing integrity — a copy-installed plugin bundle must declare SRI`);
+  }
   const url = assetUrl(row.id, row.frontend.entry);
   const blobUrl = await fetchVerified(url, row.frontend.integrity || undefined, deps);
   attributeChunkUrl(blobUrl, row.id);
@@ -279,7 +320,15 @@ export async function loadPlugins(deps: LoaderDeps = {}): Promise<FactoryPluginR
     const res = await fetchImpl(`${getApiBaseUrl()}/api/plugin-factory`, { headers: getAuthHeaders() });
     if (!res.ok) return [];
     const body = (await res.json()) as { data?: { plugins?: FactoryPluginRow[]; builtins?: FactoryBuiltinRow[] } };
-    for (const b of body.data?.builtins ?? []) if (!b.enabled && !b.protected) disableBuiltinUi(b.id);
+    for (const b of body.data?.builtins ?? []) {
+      // "builtin.ui" is not a toggle-able builtin plugin package — it is the implicit DEFAULT
+      // `owner` every shell registration gets when no explicit owner is passed (registry.ts).
+      // Disabling it would blacklist that default owner forever and wipe every builtin page/
+      // panel/sidebar/command currently registered under it, bricking the whole shell. The
+      // factory always reports this row enabled+protected, but this guard does not trust that.
+      if (b.id === 'builtin.ui') continue;
+      if (!b.enabled && !b.protected) disableBuiltinUi(b.id);
+    }
     rows = (body.data?.plugins ?? []).filter((r) => r.enabled && r.loaded && r.frontend);
   } catch (e) {
     reportUiError(e instanceof Error ? e : new Error(String(e)), { kind: 'chunk', source: 'shell', context: 'loadPlugins' });

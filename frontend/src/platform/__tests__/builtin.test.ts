@@ -2,7 +2,14 @@
  * @file_name: builtin.test.ts
  * @author: Bin Liang
  * @date: 2026-09-03
- * @description: The shell's builtin registrations reproduce the route table (golden: the hardcoded table at the registry cut-over plus dev's #382/#383 pages), sidebar, panels and settings nav.
+ * @description: The shell's builtin registrations reproduce the expected route table, sidebar, panels and settings nav.
+ *
+ * `golden/routes.expected.json` (M-8) is a route-table CHANGE DETECTOR, not a frozen historical
+ * snapshot: it is hand-maintained and gets updated whenever a builtin page path is deliberately
+ * added, removed or reordered. Its value is that an UNINTENDED change to `PAGES` (registration
+ * order shuffled, a path silently renamed, an entry dropped from `builtin.ts`) shows up here as a
+ * diff to review, rather than as a shipped regression only later discovered by users navigating a
+ * dead link.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -24,11 +31,11 @@ import {
   SocialTab,
   WorkspaceTab,
 } from '@/platform/builtinPanels';
-import before from './golden/routes-before.json';
+import expectedRoutes from './golden/routes.expected.json';
 
 describe('builtin pages', () => {
-  it('registers every route the hardcoded table had, in the same order', () => {
-    const wanted = (before as { path: string | null }[])
+  it('the registered page/path table matches golden/routes.expected.json (route-table change detector)', () => {
+    const wanted = (expectedRoutes as { path: string | null }[])
       .map((r) => r.path)
       .filter((p): p is string => !!p && p !== '/app' && p !== '<index>' && p !== '/' && p !== '*');
     const top = PAGES.list().filter((e) => e.value.layout === 'top').map((e) => e.value.path);

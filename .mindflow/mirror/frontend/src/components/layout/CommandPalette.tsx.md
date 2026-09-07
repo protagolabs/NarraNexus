@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/CommandPalette.tsx
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — a throwing plugin `visible()` no longer crashes the palette (M-3)
+
+Plugin-contributed commands from `ui.commands` are filtered through `CommandDef.visible()`
+(renamed from `when` — see `registries/commands.ts`'s mirror doc) directly inside the `useMemo`
+that builds the command list. That predicate is now called inside a `try/catch`: a throw is
+reported via `reportUiError` (source = the command's owning plugin) and the command is treated
+as hidden, instead of the exception propagating out of `useMemo` and crashing the whole ⌘K
+palette for every command, not just the misbehaving plugin's.
 
 ## 2026-09-04 — 面板列表也认「可恢复」
 

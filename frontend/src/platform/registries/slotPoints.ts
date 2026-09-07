@@ -81,13 +81,15 @@ export interface TimelineEventDef {
 }
 
 function validated<T extends SlotEntryBase>(kind: string): Registry<T> {
-  const registry = new Registry<T>(kind);
-  const register = registry.register.bind(registry);
-  registry.register = (id, value, options) => {
-    parseWhen(value.when); // throws on an unknown clause — never "always visible" by accident
-    return register(id, value, options);
-  };
-  return registry;
+  // M-11: `Registry`'s `validate` constructor option is the one way to build a validating
+  // registry — this used to overwrite the instance's own `register` property, one of two
+  // functionally-identical patterns coexisting in this codebase (see `themes.ts`'s mirror doc
+  // for the other, a subclass override, now unified on this same mechanism).
+  return new Registry<T>(kind, {
+    validate: (value) => {
+      parseWhen(value.when); // throws on an unknown clause — never "always visible" by accident
+    },
+  });
 }
 
 export const CONVERSATION_KINDS = new Registry<ConversationKindDef>('ui.conversationKinds');

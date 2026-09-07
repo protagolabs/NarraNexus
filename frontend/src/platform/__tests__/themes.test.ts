@@ -36,7 +36,9 @@ describe('theme registry', () => {
     clearTheme(root);
     expect(root.style.getPropertyValue('--nm-ink')).toBe('');
     expect(root.dataset.pluginTheme).toBeUndefined();
-    expect(() => applyTheme('nope', root)).toThrow(/not registered/);
+    // Architecture E3(b): `applyTheme` uses `THEMES.getOrThrow(id)` now instead of hand-rolling
+    // the same "id must exist" throw `Registry.get` + a manual `if (!x) throw` used to duplicate.
+    expect(() => applyTheme('nope', root)).toThrow(/unknown entry "nope"/);
     // The registry is module-level and shared across every test in this file (and, without
     // vitest's module isolation, potentially other suites too) — leaving 'acme.dark' registered
     // would make a second run of this same test (or any other suite reusing that id) throw

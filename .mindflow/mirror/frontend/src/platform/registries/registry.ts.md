@@ -37,3 +37,12 @@ typing and carry no such restriction; the app's own `tsc -p tsconfig.app.json` b
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `removeOwner(owner)` drops a whole owner's row and notifies once; the loader uses it to make a disabled builtin's pages/sidebar/panels/commands disappear at boot.
+
+## 2026-09-07 — `validate` constructor option unifies the two "validating registry" patterns (M-11)
+
+Two functionally-identical but differently-implemented "validating registry" patterns coexisted:
+`themes.ts` subclassed `Registry` and overrode `register`; `slotPoints.ts`'s `validated()` helper
+overwrote the instance's OWN `register` property. `Registry`'s constructor now takes an optional
+`{ validate?: (value: T) => void }`; `register()` calls it (if present) before the frozen/owner/
+duplicate checks — a throw rejects the registration. Both call sites now use this one mechanism;
+neither subclasses `Registry` nor monkey-patches an instance method anymore.

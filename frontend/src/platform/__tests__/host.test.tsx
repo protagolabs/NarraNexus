@@ -121,10 +121,11 @@ describe('HostAPI', () => {
   // git history for the `it.fails` this test used to be while the Python side caught up).
   it('HOST_API_VERSION matches API_VERSIONS["ui"] in the Python contracts module', async () => {
     const { readFile } = await import('node:fs/promises');
-    const { fileURLToPath } = await import('node:url');
-    const contractsPath = fileURLToPath(
-      new URL('../../../../packages/narranexus-contracts/src/narranexus/contracts/__init__.py', import.meta.url),
-    );
+    const { resolve } = await import('node:path');
+    // `process.cwd()` (not `import.meta.url`) — vitest's jsdom environment does not guarantee
+    // `import.meta.url` is a resolvable `file://` URL, but the test runner's cwd is reliably
+    // `frontend/` (this repo's vitest root), two levels above the sibling `packages/` directory.
+    const contractsPath = resolve(process.cwd(), '../packages/narranexus-contracts/src/narranexus/contracts/__init__.py');
     const source = await readFile(contractsPath, 'utf8');
     const match = /"ui":\s*(\d+)/.exec(source);
     expect(match).not.toBeNull();

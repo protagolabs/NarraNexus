@@ -1428,13 +1428,25 @@ class ApiClient {
    * is treated as available — that "unknown ⇒ available" default lives in
    * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
    * modelled as optional here.
+   *
+   * `display_name` / `protocol` / `oauth_source` (B6, 2026-09-07 final cut) come straight off
+   * the framework registry's own metadata — `display_name` is the label
+   * `lib/frameworkBrand.ts`'s `formatFrameworkFromList` prefers over the static picker table;
+   * `protocol`/`oauth_source` are the ONLY source `lib/agentFramework.ts`'s
+   * `providerBacksFramework` reads for its matching — that function has no hardcoded table left
+   * to fall back to, so a caller MUST pass this array once loaded, or it fails closed. `protocol`
+   * is the backend's `FrameworkMeta.protocol` three-valued enum: a specific protocol, or `'any'`
+   * for a framework (NexusPower) that drives the provider API itself and works with either — a
+   * caller must NOT branch on framework id/name to special-case this, only on the `'any'` value.
+   * All three fields are still optional on the type — an older backend, or a request made before
+   * this list has ever loaded, has none of them.
    */
   async getAgentFramework(): Promise<{
     success: boolean;
     data: {
       framework: string;
       supported: string[];
-      frameworks?: Array<{ name: string; available: boolean }>;
+      frameworks?: Array<{ name: string; available: boolean; display_name?: string; protocol?: 'anthropic' | 'openai' | 'any'; oauth_source?: string | null }>;
       probe: { ok: boolean; detail: string };
     };
   }> {
