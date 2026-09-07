@@ -81,6 +81,21 @@ def _isolate_plugin_home(tmp_path_factory):
         os.environ["NARRANEXUS_PLUGIN_HOME"] = previous
 
 
+# Registration happens only at boot. The test process gets the builtins loaded
+# into the process registries ONCE, at collection time (some modules resolve a
+# registry entry at import), for the backend role and NOT frozen, so a test can
+# still register a fake. Private ``Registries()`` call ``load_builtins`` themselves.
+def _load_builtins_for_tests() -> None:
+    from narranexus.kernel.plugins.builtins import load_builtins
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    if not KERNEL_REGISTRIES.frozen and not KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework").names():
+        load_builtins(KERNEL_REGISTRIES, "backend")
+
+
+_load_builtins_for_tests()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_shared_db(tmp_path_factory):
     """Point the shared-client factory at a throwaway SQLite file.

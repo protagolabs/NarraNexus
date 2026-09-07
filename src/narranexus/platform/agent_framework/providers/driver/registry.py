@@ -21,57 +21,37 @@ owner/metadata bookkeeping and ``freeze()`` for the loader.
 """
 from __future__ import annotations
 
-from typing import Optional, Type
-
-from loguru import logger
+from typing import Any, Optional, Type
 
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution, Registry
 
-DRIVER_REGISTRY: Registry[Type] = KERNEL_REGISTRIES.registry_for("model.providers")
+DRIVERS_SLOT = "model.providers"
 
 
-def register(driver_cls, *, owner: str = "builtin.providers"):
-    """Class decorator that registers a Driver under its
-    :py:meth:`driver_type` key.
+def driver_registry(registries: Any = None) -> Registry[Type]:
+    """The registry for slot ``model.providers``, resolved at call time; populated by the host boot from the provider plugins' manifests."""
+    return (registries or KERNEL_REGISTRIES).registry_for(DRIVERS_SLOT)
 
-    Idempotent: re-registering the same class is a no-op; registering
-    a different class under the same key replaces it (we log a warning
-    so test fixtures don't silently leak).
+
+def register(driver_cls):
+    """Class decorator: attaches the driver's ``Contribution`` (keyed by
+    :py:meth:`driver_type`) so a manifest can name it (``<module>:CONTRIBUTION``).
+
+    Registration is NOT an import-time side effect any more: the host boot
+    registers what the manifests name. A test that wants a fake driver calls
+    ``register_driver(cls, owner=...)`` explicitly.
     """
     key = driver_cls.driver_type()
-    existing = DRIVER_REGISTRY.try_get(key)
-    if existing is driver_cls:
-        return driver_cls
-    if existing is not None:
-        logger.warning(
-            f"[provider_driver] Overwriting registration for driver_type={key!r}: "
-            f"{existing.__module__}.{existing.__name__} -> "
-            f"{driver_cls.__module__}.{driver_cls.__name__}"
-        )
-    # The contribution is attached to the class so the builtin manifest can
-    # name it (``<module>:CONTRIBUTION``) and the loader registers the same
-    # object — an idempotent no-op after this import-time registration.
-    contribution: Contribution[Type] = Contribution(key, lambda: driver_cls)
-    driver_cls.contribution = contribution
-    DRIVER_REGISTRY.register_contribution(contribution, owner=owner, replace=True)
+    driver_cls.contribution = Contribution(key, lambda: driver_cls)
     return driver_cls
 
 
-def ensure_builtin_drivers() -> None:
-    """Register the drivers the builtin manifests name, once, on first lookup.
-
-    builtin.providers lives under plugins/ (batch 6b): the platform never
-    imports the drivers package by name — the kernel resolves the manifest's
-    contributions. Lazy (not at import) so importing the plugin package first
-    cannot recurse into a half-initialised module; the objects registered are
-    the same ones ``@register`` attaches at import.
-    """
-    if DRIVER_REGISTRY.names():
-        return
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    register_builtin_provides("model.providers")
+def register_driver(driver_cls, *, owner: str, registries: Any = None, replace: bool = False):
+    """Explicit registration (tests, an embedding host): the same object the manifest would name."""
+    contribution = getattr(driver_cls, "contribution", None) or Contribution(driver_cls.driver_type(), lambda: driver_cls)
+    driver_cls.contribution = contribution
+    return driver_registry(registries).register_contribution(contribution, owner=owner, replace=replace)
 
 
 def get_driver_class(driver_type: str) -> Optional[Type]:
@@ -80,8 +60,7 @@ def get_driver_class(driver_type: str) -> Optional[Type]:
     Returns ``None`` for unknown keys — the resolver treats that as a
     fatal config error (raises ``LLMConfigNotConfigured``).
     """
-    ensure_builtin_drivers()
-    return DRIVER_REGISTRY.try_get(driver_type)
+    return driver_registry().try_get(driver_type)
 
 
-__all__ = ["DRIVER_REGISTRY", "ensure_builtin_drivers", "register", "get_driver_class"]
+__all__ = ["DRIVERS_SLOT", "driver_registry", "get_driver_class", "register", "register_driver"]

@@ -115,6 +115,12 @@ _STEER_RUNS: dict[str, _InboundSteer] = {}
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    # The plugin platform boots FIRST: every seam the turn uses (frameworks,
+    # providers, helper clients, memory kinds, prompt sections, stage
+    # strategies) is populated by the manifests, not by lazy self-registration.
+    from narranexus.platform.module_system.plugins_boot import boot_executor_plugins
+
+    boot_executor_plugins()
     # Prime warm-runner pools for the frameworks in EXECUTOR_PREWARM_FRAMEWORKS
     # (default: nexus_power) BEFORE serving, so the process's first turn on those
     # frameworks draws a pre-imported runner instead of paying the cold

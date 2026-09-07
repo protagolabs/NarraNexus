@@ -246,6 +246,8 @@ def build_kernel_slot_tree() -> SlotTree:
              doc="Per-plugin settings schemas (NXP_<ID>_* env > stored row > default)."),
         Slot("backend.hooks", many, "narranexus.kernel.plugins.hooks:HookImplSpec", KERNEL_OWNER,
              doc="Hook implementations for declared host hooks (pluggy semantics)."),
+        Slot("backend.services", many, "narranexus.kernel.plugins.services:ServiceRef", KERNEL_OWNER,
+             doc="Services a plugin exposes on the service locator: a tuple of (ServiceRef, implementation) pairs, released with the owner."),
         Slot("ingress", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Ingress domain root (channels, triggers)."),
         Slot("ingress.channels", many, "narranexus.contracts.channel:ChannelDescriptor", KERNEL_OWNER,

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/turn/stages/__init__.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -14,3 +14,7 @@ loader 再注册是幂等 no-op（与 frameworks/providers 同一模式）。`en
 Batch 6b.2b: only the slot declarations remain here (`OWNER`, `STAGE_CONTRACT`, `slot_path`, `declare_stage_slots`, `ensure_registered`); the default strategies are the `builtin.turn` plugin package.
 
 Batch 6 fix: the stage slots are kernel-declared; `declare_stage_slots` only fills gaps of a hand-built tree.
+
+## 2026-09-07 — declare_stage_slots only
+
+ensure_registered (lazy builtin strategies) is gone.

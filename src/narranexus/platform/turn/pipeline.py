@@ -79,12 +79,6 @@ def resolve_profile(
 def _profile(profile_id: str, regs: Registries) -> PipelineProfile:
     if PROFILES_SLOT in regs.slots:
         registry = regs.registry_for(PROFILES_SLOT)
-        if not registry.names():
-            # The builtin profiles are the builtin.turn plugin (plugins/, batch 6b);
-            # the kernel registers the manifest's contributions on first use.
-            from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-            register_builtin_provides(PROFILES_SLOT, regs)
         if profile_id in registry:
             return registry.get(profile_id)
     raise UnknownEntry(f"turn profile {profile_id!r} is not registered (turn.profiles)")
@@ -94,13 +88,13 @@ class TurnPipeline:
     """Runs one turn; ``registries`` defaults to the process registries."""
 
     def __init__(self, registries: Registries | None = None) -> None:
-        from narranexus.platform.turn.stages import ensure_registered, slot_path
-
-        from narranexus.platform.turn import ensure_pipeline_registered
+        from narranexus.platform.turn.stages import declare_stage_slots, slot_path
 
         self.registries = registries or KERNEL_REGISTRIES
-        ensure_registered(self.registries)
-        ensure_pipeline_registered(self.registries)
+        # Slots only (a hand-built tree in a test gets the seven stage slots);
+        # the strategies and profiles come from the host boot (builtin.turn's
+        # manifest), never from a lazy registration here.
+        declare_stage_slots(self.registries)
         self._slot_path = slot_path
 
     def strategy_for(self, stage: Stage, profile: PipelineProfile) -> Any:

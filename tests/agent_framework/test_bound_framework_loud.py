@@ -26,7 +26,6 @@ def test_binding_to_a_missing_framework_is_loud(monkeypatch):
 
 
 def test_binding_to_a_registered_framework_resolves_its_name(monkeypatch):
-    drv.ensure_builtin_frameworks()
     resolved = ResolvedBindings(one={"turn.pipeline.act.framework": Bound("builtin.frameworks.nexus_power", Layer.ENV, origin="env")})
     monkeypatch.setattr(KERNEL_REGISTRIES, "_bindings", resolved, raising=False)
     assert drv.bound_default_framework() == "nexus_power"

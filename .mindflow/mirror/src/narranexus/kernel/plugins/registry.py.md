@@ -41,3 +41,7 @@ Re-registering an existing name by the *same owner* is a no-op (first registrati
 ## 2026-09-07 — same-owner re-registration with a different factory is logged at info
 
 A module re-import legitimately produces a fresh factory for the same name; the first registration stands, and the event is visible (info) rather than debug-only.
+
+## 2026-09-07 — UnknownEntry says when nothing is registered
+
+The message names the likely cause — the process never booted the plugin platform — when the registry is empty, so a consumer in an unbooted process reads a diagnosis instead of an empty list.

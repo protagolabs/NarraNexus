@@ -16,6 +16,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `agent.capabilities.tools` | tool | 0 | `narranexus.contracts.tool:ToolProvider` | `"agent.capabilities.tools": ["pkg.module:SYMBOL"]` |
 | `backend.hooks` | hook | 0 | `narranexus.kernel.plugins.hooks:HookImplSpec` | `"backend.hooks": ["pkg.module:SYMBOL"]` |
 | `backend.routes` | route | 0 | `narranexus.contracts.route:RouterSpec` | `"backend.routes": ["pkg.module:SYMBOL"]` |
+| `backend.services` | services | 0 | `narranexus.kernel.plugins.services:ServiceRef` | `"backend.services": ["pkg.module:SYMBOL"]` |
 | `backend.settings` | settings | 0 | `narranexus.contracts.settings:SettingsSchema` | `"backend.settings": ["pkg.module:SYMBOL"]` |
 | `backend.tables` | table | 0 | `narranexus.contracts.table:TableSpec` | `"backend.tables": ["pkg.module:SYMBOL"]` |
 | `backend.workers` | worker | 0 | `narranexus.contracts.worker:WorkerSpec` | `"backend.workers": ["pkg.module:SYMBOL"]` |

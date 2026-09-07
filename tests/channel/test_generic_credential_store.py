@@ -18,7 +18,7 @@ from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.channel import credential_codec
 from narranexus.platform.channel.credential_legacy import LEGACY_BY_TABLE, copy_legacy_tables
 from narranexus.platform.channel.credential_store import TABLE, CredentialConflict, GenericCredentialStore, UnknownChannel, missing_required, split_values
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 
 PLUGIN = ChannelDescriptor(
     name="acme_chat",
@@ -50,7 +50,7 @@ def _key_dir(tmp_path: Path):
 @pytest.fixture
 def regs() -> Registries:
     r = Registries()
-    register_all(r)
+    load_builtins(r, "backend")
     reg = r.registry_for("ingress.channels")
     reg.register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
     return r

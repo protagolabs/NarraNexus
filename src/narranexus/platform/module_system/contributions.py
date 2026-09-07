@@ -187,43 +187,6 @@ SERVICE_SPECS: tuple[tuple[str, str], ...] = (
 )
 
 
-def register_all(registries: Any = None) -> None:
-    """Import-time registration into the process registries (idempotent; the manifests name the same objects)."""
-    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-
-    regs = registries or KERNEL_REGISTRIES
-    registry = regs.registry_for(MODULES_SLOT)
-    for spec in MODULE_SPECS:
-        if spec.class_name not in registry:
-            registry.register_contribution(CONTRIBUTIONS[spec.class_name], owner=spec.plugin_id)
-    triggers = regs.registry_for(TRIGGERS_SLOT)
-    for plugin_id, spec in TRIGGER_SPECS:
-        if spec.name not in triggers:
-            triggers.register_contribution(TRIGGER_CONTRIBUTIONS[spec.name], owner=plugin_id)
-    channels = regs.registry_for(CHANNELS_SLOT)
-    for plugin_id, ref in CHANNEL_SPECS:
-        for contribution in _resolve_symbol(ref):
-            if contribution.name not in channels:
-                channels.register_contribution(contribution, owner=plugin_id)
-            descriptor = contribution.factory()
-            if descriptor.has_inbound:
-                from narranexus.platform.schema.hook_schema import WorkingSource
-
-                WorkingSource.register(descriptor.name)
-    data_access = regs.registry_for(DATA_ACCESS_SLOT)
-    for plugin_id, ref in DATA_ACCESS_SPECS:
-        for contribution in _resolve_symbol(ref):
-            if contribution.name not in data_access:
-                data_access.register_contribution(contribution, owner=plugin_id)
-    for plugin_id, ref in HOOK_SPECS:
-        for impl in _resolve_symbol(ref):
-            regs.hooks.add(impl.hook, impl.fn, owner=plugin_id, tryfirst=impl.tryfirst, trylast=impl.trylast, wrapper=impl.wrapper)
-    for plugin_id, ref in SERVICE_SPECS:
-        for service_ref, impl in _resolve_symbol(ref):
-            if regs.services.try_require(service_ref) is None:
-                regs.services.expose(service_ref, impl, owner=plugin_id)
-
-
 # Per-plugin tuples the builtin manifests name (``narranexus.platform.module_system.contributions:PLUGIN_<ID>``).
 PLUGIN_AWARENESS = contributions_for("builtin.awareness")
 PLUGIN_BASIC_INFO = contributions_for("builtin.basic_info")

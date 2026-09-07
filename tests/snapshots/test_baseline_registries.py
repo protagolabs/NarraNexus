@@ -19,18 +19,18 @@ from tests.snapshots._subprocess import run_probe
 
 _PROBE = """
 import json
+from narranexus.kernel.plugins.builtins import load_builtins
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+load_builtins(KERNEL_REGISTRIES, "backend")  # registration happens only at boot: the probe boots like a host
 from narranexus.platform.agent_framework import available_agent_loop_frameworks
-from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY, ensure_builtin_drivers
+from narranexus.platform.agent_framework.providers.driver.registry import driver_registry
 from narranexus.platform.memory.spec import all_kinds, passive_kinds
-from narranexus.platform.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY, ensure_builtin_clients
-# The builtin plugins register lazily on first lookup; the snapshot asks for them the same way the runtime does.
-ensure_builtin_drivers()
-ensure_builtin_clients()
+from narranexus.platform.agent_framework.llm.helper_sdk import llm_client_registry
 print(json.dumps({
     "agent_loop_frameworks": available_agent_loop_frameworks(),
-    "llm_clients": list(LLM_CLIENT_REGISTRY.names()),
-    "provider_drivers": list(DRIVER_REGISTRY.names()),
-    "provider_driver_owners": sorted(set(e.owner for e in DRIVER_REGISTRY.entries())),
+    "llm_clients": list(llm_client_registry().names()),
+    "provider_drivers": list(driver_registry().names()),
+    "provider_driver_owners": sorted(set(e.owner for e in driver_registry().entries())),
     "memory_kinds": sorted(all_kinds()),
     "memory_passive_kinds": sorted(passive_kinds()),
 }))

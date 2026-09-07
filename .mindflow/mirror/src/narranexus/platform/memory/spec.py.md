@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/memory/spec.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -34,3 +34,7 @@ policy. No vectors — recall is BM25 + grep + structured filters.
 ## 2026-09-04 · lazy builtin kinds (batch 6b.2)
 
 `ensure_builtin_kinds()` registers the manifest-named kinds on the first `get_spec` / `all_kinds` / `passive_kinds` — lazy so importing the plugin package first cannot recurse into a half-initialised module; the plugin's import-time `register_spec` registers the same objects, so either order yields one registry.
+
+## 2026-09-07 — declare_spec vs register_spec; memory_kind_registry() at call time
+
+declare_spec(spec) makes a kind a Contribution a manifest can name without touching a registry (what builtin.memory_kinds does at import); register_spec(spec, owner=) is the explicit registration for tests / hosts. ensure_builtin_kinds is gone.

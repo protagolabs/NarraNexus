@@ -11,3 +11,7 @@ stub: false
 ## 2026-09-07 — toml_template comments every line
 
 The dead ternary (both branches '# ') is one assignment with the rule stated: the template documents, the user uncomments what to change.
+
+## 2026-09-07 — no 'builtin' domain
+
+The NexusPower seats live under turn.pipeline.act.framework.nexus_power.*, so the catalog's orphan 'Framework-owned sub-slots' domain is gone.

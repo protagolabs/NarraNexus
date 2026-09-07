@@ -14,14 +14,15 @@ import pytest
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system import run_worker_supervisor as sup
 from narranexus.platform.module_system.channel_trigger_map import REGISTERED_TRIGGER_CLASS_NAMES, TriggerMapView
-from narranexus.platform.module_system.contributions import TRIGGERS_SLOT, channel_trigger_specs, register_all
+from narranexus.platform.module_system.contributions import TRIGGERS_SLOT, channel_trigger_specs
+from narranexus.kernel.plugins.builtins import load_builtins
 
 ALL_CHANNELS = {"discord", "lark", "narramessenger", "slack", "telegram", "wechat"}
 
 
 def _regs() -> Registries:
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     return regs
 
 

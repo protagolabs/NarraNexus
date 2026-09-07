@@ -17,7 +17,7 @@ from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 
 OWNED = {
     "builtin.teams": {"teams", "marketplace_teams"},
@@ -43,7 +43,7 @@ def _boot(tmp_path: Path, monkeypatch, disable: str | None = None) -> Registries
     if disable:
         store.update(lambda reg: reg.builtin_overrides.__setitem__(disable, {"enabled": False}))
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=store)
     return regs
 

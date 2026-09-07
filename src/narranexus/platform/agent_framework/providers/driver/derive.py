@@ -34,7 +34,7 @@ def derive_driver_type(
     protocol: Optional[str],
 ) -> Optional[str]:
     """Map a legacy (source, auth_type, protocol) triple to a driver_type
-    string usable as the ``DRIVER_REGISTRY`` key.
+    string usable as the ``driver_registry()`` key.
 
     Returns ``None`` for unrecognised combinations — the backfill loop
     logs a warning and skips the row rather than guessing.

@@ -92,3 +92,7 @@ stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 
 ## 2026-09-04 · no module packages under module_system (batch 6b)
 
 The 17 builtin module packages moved to `plugins/builtin.*` (`narranexus_plugins.<pkg>`); what remains here is the module SYSTEM: base class, registry, loader, hooks, seam, runner, capability service.
+
+## 2026-09-07 — no import-time registration
+
+The builtin module table is no longer registered when the package imports; the host boot registers the manifests' contributions and module_registry is the live view.

@@ -18,11 +18,11 @@ from tests.snapshots._subprocess import run_probe
 _PROBE = """
 import json
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.run_worker_supervisor import ALL_WORKERS, build_specs
 
 regs = Registries()
-register_all(regs)
+load_builtins(regs, "backend")
 print(json.dumps({"order": list(ALL_WORKERS), "specs": sorted(s.name for s in build_specs(registries=regs))}))
 """
 

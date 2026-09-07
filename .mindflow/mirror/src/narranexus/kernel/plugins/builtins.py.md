@@ -107,3 +107,7 @@ The lazy builtin registration registered with replace=True, which could silently
 ## 2026-09-07 — lazy registration honours the distribution; providers declares its dependency
 
 register_builtin_provides filters BUILTIN_MANIFEST_DATA by the process distribution's picks (NARRANEXUS_DIST, cached per path): an excluded builtin — an excluded AUTH provider in particular — no longer resurrects through the lazy ensure_* path. builtin.providers now declares dependencies on builtin.llm_clients (it imports its api), so dist doctor sees the coupling.
+
+## 2026-09-07 — load_builtins() replaces the lazy register_builtin_provides
+
+Registration happens only at boot. load_builtins(registries, role, distribution=) registers every builtin's contributions for a role into a Registries — what hosts.boot does in stage 1, available to private registries (tests, an embedding host) without discovery, marker or write-back. register_builtin_provides (the per-slot lazy path seven platform seams called, which ignored the distribution and could overwrite a user plugin's entry) is gone.

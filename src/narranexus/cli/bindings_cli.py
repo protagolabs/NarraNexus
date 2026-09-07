@@ -23,10 +23,7 @@ def booted_registries(*, host_version: str | None = None) -> Any:
     from narranexus.kernel.plugins.distribution import resolve_from_env
     from narranexus.kernel.plugins.registries import Registries
     from narranexus.platform.bindings_runtime import resolve_runtime_bindings
-    from narranexus.platform.module_system.contributions import register_all
-
     regs = Registries()
-    register_all(regs)
     hv = host_version or _hv()
     res = resolve_from_env(host_version=hv)
     # inspect=True: exactly a backend boot minus every write-back — no boot

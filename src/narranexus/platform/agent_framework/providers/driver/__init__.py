@@ -33,7 +33,7 @@ from narranexus.platform.agent_framework.providers.driver.base import (
     ProviderCard,
 )
 from narranexus.platform.agent_framework.providers.driver.registry import (
-    DRIVER_REGISTRY,
+    driver_registry,
     get_driver_class,
     register,
 )
@@ -57,7 +57,7 @@ from narranexus.platform.agent_framework.providers.driver.resolver import (
 )
 
 # The driver implementations are the builtin.providers plugin (plugins/, batch
-# 6b): ``registry.ensure_builtin_drivers`` registers them on first lookup through
+# 6b): the host boot registers them from the builtin.providers manifest through
 # the kernel — the platform never imports the drivers package by name.
 
 
@@ -65,7 +65,7 @@ __all__ = [
     "Driver",
     "DriverHealth",
     "ProviderCard",
-    "DRIVER_REGISTRY",
+    "driver_registry",
     "get_driver_class",
     "register",
     "derive_driver_type",

@@ -24,7 +24,7 @@ from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME, registry_path
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.channel import credential_codec
 from narranexus.platform.module_system.channel_trigger_map import TriggerMapView
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.data_access.channel_store import _ChannelSpecs
 from narranexus.platform.schema.hook_schema import WorkingSource
 
@@ -46,7 +46,7 @@ def home(tmp_path: Path, monkeypatch):
 def test_a_channel_plugin_installs_binds_receives_and_replies(home: Path, db_client, monkeypatch):
     assert cli(["plugin", "link", str(PLUGIN)]) == 0
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("workers", registries=regs, cloud=False, host_version="1.19.0", store=RegistryStore(path=registry_path()))
     assert PID in report.user_plugin_ids and not report.isolated
     # the platform's channel views know the plugin channel

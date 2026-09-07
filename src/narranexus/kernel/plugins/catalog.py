@@ -22,7 +22,6 @@ DOMAINS: dict[str, tuple[str, int]] = {
     "backend": ("Backend host (routes, workers, hooks, tables, settings)", 6),
     "content": ("Content (skills, bundles)", 7),
     "ui": ("Frontend (shell, themes)", 8),
-    "builtin": ("Framework-owned sub-slots", 9),
 }
 
 

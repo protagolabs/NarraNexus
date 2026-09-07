@@ -15,8 +15,6 @@ extracted builtin (channels, modules, ui, ...) — one entry here per plugin.
 """
 from __future__ import annotations
 
-import functools
-from pathlib import Path
 
 from functools import lru_cache
 from typing import Any
@@ -39,20 +37,20 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "hosts": ["backend", "mcp", "workers"],
         "provides": {
             "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
-            "builtin.frameworks.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
-            "builtin.frameworks.nexus_power.compaction": f"{_NP}:COMPACTION_DEFAULT",
-            "builtin.frameworks.nexus_power.projector": f"{_NP}:PROJECTOR_DEFAULT",
-            "builtin.frameworks.nexus_power.expression": f"{_NP}:EXPRESSION_DEFAULT",
-            "builtin.frameworks.nexus_power.policy": [f"{_NP}:POLICY_LAYERS"],
+            "turn.pipeline.act.framework.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
+            "turn.pipeline.act.framework.nexus_power.compaction": f"{_NP}:COMPACTION_DEFAULT",
+            "turn.pipeline.act.framework.nexus_power.projector": f"{_NP}:PROJECTOR_DEFAULT",
+            "turn.pipeline.act.framework.nexus_power.expression": f"{_NP}:EXPRESSION_DEFAULT",
+            "turn.pipeline.act.framework.nexus_power.policy": [f"{_NP}:POLICY_LAYERS"],
         },
         # The loop's five strategy seats (spec §484): other plugins provide
-        # implementations, configuration binds them (NX_BIND__builtin__frameworks__nexus_power__stop=...).
+        # implementations, configuration binds them (NX_BIND__turn__pipeline__act__framework__nexus_power__stop=...).
         "declares": {
-            "builtin.frameworks.nexus_power.stop": {"arity": "one", "contract": f"{_NP_PROTO}:StopPolicy", "default": "no_more_actions", "doc": "When the loop ends a turn."},
-            "builtin.frameworks.nexus_power.compaction": {"arity": "one", "contract": f"{_NP_PROTO}:CompactionPolicy", "default": "tool_result_pruner", "doc": "How the ledger is compacted."},
-            "builtin.frameworks.nexus_power.projector": {"arity": "one", "contract": f"{_NP_PROTO}:ContextProjector", "default": "passthrough", "doc": "How the ledger becomes provider messages."},
-            "builtin.frameworks.nexus_power.expression": {"arity": "one", "contract": f"{_NP_PROTO}:ExpressionPolicy", "default": "contract", "doc": "Which tools count as the agent speaking."},
-            "builtin.frameworks.nexus_power.policy": {"arity": "many", "contract": f"{_NP_PROTO}:PolicyLayer", "doc": "Tool-call policy layers, checked in order."},
+            "turn.pipeline.act.framework.nexus_power.stop": {"arity": "one", "contract": f"{_NP_PROTO}:StopPolicy", "default": "no_more_actions", "doc": "When the loop ends a turn."},
+            "turn.pipeline.act.framework.nexus_power.compaction": {"arity": "one", "contract": f"{_NP_PROTO}:CompactionPolicy", "default": "tool_result_pruner", "doc": "How the ledger is compacted."},
+            "turn.pipeline.act.framework.nexus_power.projector": {"arity": "one", "contract": f"{_NP_PROTO}:ContextProjector", "default": "passthrough", "doc": "How the ledger becomes provider messages."},
+            "turn.pipeline.act.framework.nexus_power.expression": {"arity": "one", "contract": f"{_NP_PROTO}:ExpressionPolicy", "default": "contract", "doc": "Which tools count as the agent speaking."},
+            "turn.pipeline.act.framework.nexus_power.policy": {"arity": "many", "contract": f"{_NP_PROTO}:PolicyLayer", "doc": "Tool-call policy layers, checked in order."},
         },
         "quality": "gold",
     },
@@ -211,7 +209,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module JobModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "data_access": 0, "route": 0, "hook": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_JOB"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["narranexus_plugins.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"], "backend.hooks": ["narranexus_plugins.job_module.plugin_hooks:HOOKS"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_JOB"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["narranexus_plugins.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"], "backend.hooks": ["narranexus_plugins.job_module.plugin_hooks:HOOKS"], "backend.services": ["narranexus_plugins.job_module.services:SERVICES"]},
         "quality": "gold",
     },
     {
@@ -221,7 +219,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module SkillModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SKILLS"], "backend.routes": ["backend.routes.skills:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SKILLS"], "backend.routes": ["backend.routes.skills:ROUTES"], "backend.services": ["narranexus_plugins.skill_module.services:SERVICES"]},
         "quality": "gold",
     },
     {
@@ -371,67 +369,21 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
 )
 
 
-@functools.lru_cache(maxsize=4)
-def _selected_ids_for(dist_path: str) -> frozenset[str] | None:
-    from narranexus.kernel.plugins.distribution import load_distribution, resolve_distribution
-
-    spec, base = load_distribution(Path(dist_path))
-    res = resolve_distribution(spec, base)
-    if not res.ok:
-        return None  # the host boot reports the problems loudly; do not second-guess here
-    return frozenset(p.id for p in res.picks)
-
-
-def _distribution_selected_ids() -> frozenset[str] | None:
-    """The plugin ids the process's distribution selected (``NARRANEXUS_DIST``), or None without a distribution."""
-    from narranexus.kernel.plugins.distribution import find_distribution
-
-    path = find_distribution()
-    return None if path is None else _selected_ids_for(str(path))
-
-
-def register_builtin_provides(slot: str, registries: Any = None) -> int:
-    """Register every builtin manifest's contributions for ``slot`` into the
-    registries (the process-wide ones by default) — what a host boot does for
-    all slots, available to a platform package that needs one slot populated
-    at import (memory kinds, provider drivers) WITHOUT naming any plugin:
-    the manifests name the code, the loader resolves it. Idempotent (the
-    contribution objects are the same ones the modules register at import).
-    Returns the number of contributions registered.
+def load_builtins(registries: Any, role: str = "backend", *, distribution: Any = None) -> Any:
+    """Register every builtin's contributions for ``role`` into ``registries`` — the
+    one way a process (or a test) gets the builtins WITHOUT the host boot's
+    discovery, marker and write-back. What ``hosts.boot`` does in stage 1;
+    private registries in tests use it directly. Honours a distribution's
+    picks when one is given. Does not freeze.
     """
-    from narranexus.kernel.plugins.loader import _as_contributions, resolve_symbol
+    from narranexus.kernel.plugins.loader import load
 
-    regs = registries
-    if regs is None:
-        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+    manifests = list(builtin_manifests())
+    if distribution is not None:
+        selected = {m.id for m in distribution.manifests}
+        manifests = [m for m in manifests if m.id in selected]
+    return load(registries, manifests, role=role)  # type: ignore[arg-type]
 
-        regs = KERNEL_REGISTRIES
-    if regs.frozen and not regs.registry_for(slot).names():
-        # A frozen process (a host after boot) can only use what its boot loaded:
-        # the manifest providing this slot must list the host's role. Say so
-        # instead of failing deep inside a turn with RegistryFrozen.
-        raise RuntimeError(
-            f"{slot}: no contribution loaded at boot and the registries are frozen — "
-            "the builtin manifest providing this slot must list this process's host role"
-        )
-    count = 0
-    selected = _distribution_selected_ids()
-    for data in BUILTIN_MANIFEST_DATA:
-        if selected is not None and data["id"] not in selected:
-            continue  # a builtin the distribution excludes must not resurrect through the lazy path
-        refs = data.get("provides", {}).get(slot)
-        if not refs:
-            continue
-        registry = regs.registry_for(slot)
-        for spec in ([refs] if isinstance(refs, str) else refs):
-            for contribution in _as_contributions(resolve_symbol(spec), spec):
-                # replace=False: the same contribution object (or the same owner)
-                # is a no-op, which is all "idempotent" needs. replace=True let a
-                # lazy builtin registration silently overwrite a user plugin's
-                # same-named entry depending on which import ran first.
-                registry.register_contribution(contribution, owner=data["id"])
-                count += 1
-    return count
 
 
 def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:

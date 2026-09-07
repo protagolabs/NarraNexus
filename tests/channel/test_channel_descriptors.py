@@ -16,7 +16,8 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system.channel_trigger_map import TriggerMapView
-from narranexus.platform.module_system.contributions import CHANNELS_SLOT, channel_trigger_specs, register_all
+from narranexus.platform.module_system.contributions import CHANNELS_SLOT, channel_trigger_specs
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.data_access.channel_store import _ChannelSpecs
 from narranexus.platform.schema.hook_schema import WorkingSource
 
@@ -25,7 +26,7 @@ IM = {"lark", "slack", "telegram", "wechat", "narramessenger", "discord"}
 
 def _regs() -> Registries:
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     return regs
 
 

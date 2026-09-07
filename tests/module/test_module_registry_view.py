@@ -14,7 +14,8 @@ from narranexus.kernel.plugins.builtins import builtin_manifests
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system import module_registry
 from narranexus.platform.module_system.registry import ModuleRegistry
-from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS, register_all
+from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS
+from narranexus.kernel.plugins.builtins import load_builtins
 
 
 def test_module_map_lists_every_builtin_module_and_meta():
@@ -41,7 +42,7 @@ def test_every_module_has_a_builtin_manifest_and_view_drops_removed_owner():
     for spec in MODULE_SPECS:
         assert spec.plugin_id in ids, spec.plugin_id
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     view = ModuleRegistry(regs)
     assert "DiscordModule" in view
     regs.remove_owner("builtin.channels.discord")

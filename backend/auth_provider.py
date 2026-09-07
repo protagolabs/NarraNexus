@@ -34,21 +34,11 @@ def bound_provider_id() -> str:
     return CLOUD_PROVIDER if _is_cloud_mode() else LOCAL_PROVIDER
 
 
-def _ensure_builtin_providers() -> None:
-    registry = KERNEL_REGISTRIES.registry_for(AUTH_SLOT)
-    if registry.names():
-        return
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    register_builtin_provides(AUTH_SLOT)
-
-
 def auth_provider() -> AuthProvider:
     """The provider instance for the bound plugin (built once per plugin id from its registry contribution)."""
     pid = bound_provider_id()
     if pid in _CACHE:
         return _CACHE[pid]
-    _ensure_builtin_providers()
     registry = KERNEL_REGISTRIES.registry_for(AUTH_SLOT)
     entry = next((e for e in registry.entries() if e.owner == pid), None)
     if entry is None:

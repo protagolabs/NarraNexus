@@ -56,3 +56,7 @@ Batch 6c: `discover()` rejects a registry.json plugin whose manifest is `distrib
 ## 2026-09-07 — an isolated plugin leaves no partial registrations
 
 load() withdraws a non-builtin plugin's contributions and hooks (registries.remove_owner) when a later symbol fails to resolve — before this the routes/triggers/tools registered before the failure kept being served while the report said 'isolated'.
+
+## 2026-09-07 — backend.services installer
+
+SERVICES_SLOT entries are exposed on Registries.services under the manifest id (released with the owner), the same shape as the hooks special case.

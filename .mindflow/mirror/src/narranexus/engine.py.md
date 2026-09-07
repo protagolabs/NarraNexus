@@ -11,3 +11,7 @@ stub: false
 ## 2026-09-07 — mark_healthy is the embedder's statement
 
 Engine.load() no longer calls report.mark_healthy() right after boot ('booted' is not 'proven healthy', and the LKG snapshot now moves on health); the embedding host calls engine.mark_healthy() after its own probe or first successful turn.
+
+## 2026-09-07 — Engine.load boots, nothing else registers
+
+The register_all call before boot is gone; boot() is the only registration.

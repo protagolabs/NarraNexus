@@ -62,3 +62,7 @@ The `agent.capabilities.modules` meta no longer mentions `mcp_port`; module serv
 Batch 6 fix: all seven `turn.pipeline.<stage>` slots are kernel-declared (StageStrategy, many) so every host role loads the builtin.turn strategies at boot instead of discovering the slots at a platform import.
 
 2026-09-07: the prompt domain — `prompt` (root, default builtin.prompts), `prompt.sections` (many, PromptSectionProvider), `prompt.assembler` (one, PromptAssembler, default builtin.prompts).
+
+## 2026-09-07 — backend.services slot
+
+Services a plugin exposes on the locator are a manifest contribution (tuple of (ServiceRef, impl)); they used to be exposed by an import-time side effect of the platform's builtin table.

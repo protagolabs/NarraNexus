@@ -1,7 +1,7 @@
 """Driver implementations.
 
 Importing this package triggers ``@register`` decorators on each
-concrete driver module, populating ``DRIVER_REGISTRY``. The resolver
+concrete driver module, populating ``driver_registry()``. The resolver
 imports the parent ``provider_driver`` package which in turn imports
 this — so by the time any HTTP request comes in, the registry is full.
 

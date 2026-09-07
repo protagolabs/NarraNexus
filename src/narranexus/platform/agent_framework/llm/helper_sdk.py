@@ -15,7 +15,7 @@ Why a registry keyed on protocol (not a scattered if/elif): the SAME
 protocol that BUILT the config (in the single-point Provider Driver
 resolver) is the one that PICKS the SDK here, so an anthropic provider
 can never end up on the OpenAI SDK — that mismatch is unrepresentable.
-Mirrors the in-repo DRIVER_REGISTRY / loop.driver registries.
+Mirrors the in-repo driver_registry() / loop.driver registries.
 
 Call sites never import a concrete SDK class; this keeps the helper
 swappable per iron rule #9 (no hard binding to one LLM/protocol) and
@@ -39,20 +39,12 @@ from narranexus.kernel.plugins.registry import Registry
 # on the helper config. The three builtin clients are named by the
 # ``builtin.llm_clients`` manifest; import-time and manifest-driven
 # registration register the same objects.
-LLM_CLIENT_REGISTRY: Registry[Any] = KERNEL_REGISTRIES.registry_for("model.clients")
+CLIENTS_SLOT = "model.clients"
 
 
-
-def ensure_builtin_clients() -> None:
-    """Register the helper clients the builtin manifests name, once, on first
-    lookup. They are the ``builtin.llm_clients`` plugin under plugins/ (batch
-    6b); the kernel resolves the manifest's contributions — this module never
-    imports a client implementation."""
-    if LLM_CLIENT_REGISTRY.names():
-        return
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    register_builtin_provides("model.clients")
+def llm_client_registry(registries: Any = None) -> Registry[Any]:
+    """The registry for slot ``model.clients``, resolved at call time; populated by the host boot from the builtin.llm_clients manifest."""
+    return (registries or KERNEL_REGISTRIES).registry_for(CLIENTS_SLOT)
 
 _DEFAULT_HELPER_PROTOCOL = "openai"
 
@@ -81,14 +73,14 @@ def _resolved_helper_protocol() -> str:
 def get_helper_sdk():
     """Return the helper-LLM SDK instance for the current asyncio task."""
     protocol = _resolved_helper_protocol()
-    ensure_builtin_clients()
+    registry = llm_client_registry()
     try:
-        return LLM_CLIENT_REGISTRY.get(protocol)
+        return registry.get(protocol)
     except UnknownEntry:  # defensive: an unregistered protocol is a wiring bug
         raise ValueError(
             f"No helper SDK registered for protocol {protocol!r}. "
-            f"Known: {sorted(LLM_CLIENT_REGISTRY.names())}."
+            f"Known: {sorted(registry.names())}."
         ) from None
 
 
-__all__ = ["LLM_CLIENT_REGISTRY", "ensure_builtin_clients", "get_helper_sdk"]
+__all__ = ["CLIENTS_SLOT", "get_helper_sdk", "llm_client_registry"]

@@ -53,6 +53,7 @@ SLOT_KINDS: dict[str, str] = {
     "ingress.channels": "channel",
     "backend.settings": "settings",
     "backend.hooks": "hook",
+    "backend.services": "services",
     "ui.themes": "theme",
     "content.bundles": "bundle",
     "content.skills": "skill",

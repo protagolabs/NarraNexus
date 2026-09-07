@@ -36,6 +36,7 @@ from narranexus.kernel.plugins.hooks import HookImplSpec
 from narranexus.kernel.plugins.registry import Contribution
 
 HOOKS_SLOT = "backend.hooks"
+SERVICES_SLOT = "backend.services"
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,19 @@ def _as_hook_impls(value: Any, spec: str) -> list[HookImplSpec]:
         if all(isinstance(i, HookImplSpec) for i in items):
             return items
     raise PluginError(f"{spec}: expected a HookImplSpec or an iterable of them (use @hookimpl), got {type(value).__name__}")
+
+
+def _expose_services(registries: Registries, manifest: Manifest, spec: str) -> int:
+    """``backend.services`` entries are ``(ServiceRef, implementation)`` pairs exposed on the
+    service locator under the manifest's id (released with the owner; a second exposer of the
+    same ref conflicts — the locator's own rule)."""
+    count = 0
+    pairs = resolve_symbol(spec)
+    for ref, impl in pairs:
+        if registries.services.try_require(ref) is None:
+            registries.services.expose(ref, impl, owner=manifest.id)
+        count += 1
+    return count
 
 
 def _register_hooks(registries: Registries, manifest: Manifest, spec: str) -> int:
@@ -315,6 +329,11 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
                     for spec in specs:
                         entries += _register_hooks(registries, manifest, spec)
                     continue
+                if path == SERVICES_SLOT:
+                    registries.slots.get(path)
+                    for spec in specs:
+                        entries += _expose_services(registries, manifest, spec)
+                    continue
                 registry = registries.registry_for(path)
                 for spec in specs:
                     contributions = _as_contributions(resolve_symbol(spec), spec)
@@ -352,4 +371,4 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     return report
 
 
-__all__ = ["Discovery", "HOOKS_SLOT", "LoadPlan", "PluginLoad", "LoadReport", "discover", "load", "load_order", "plan_load", "resolve_symbol"]
+__all__ = ["Discovery", "HOOKS_SLOT", "SERVICES_SLOT", "LoadPlan", "PluginLoad", "LoadReport", "discover", "load", "load_order", "plan_load", "resolve_symbol"]

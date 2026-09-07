@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/sdk/index.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — VitePresetResult dropped from the re-export list (C-3)
+
+`@narranexus/sdk`'s `vitePreset()` returns a real Vite plugin now; `VitePresetResult` no longer
+exists there, so this shim stopped re-exporting it too.
 
 ## 2026-09-03（批 2e）— `@narranexus/sdk`（暂在 app 工程内）
 

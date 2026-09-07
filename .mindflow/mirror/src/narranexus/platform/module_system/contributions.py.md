@@ -54,3 +54,7 @@ The registry view is the only module table; usages renamed.
 ## 2026-09-07 — module_class_for()
 
 One resolver for 'the module class a plugin contributes' (BY_PLUGIN); the seventeen api.py facades delegate to it instead of carrying an identical inline copy that raised StopIteration for a disabled plugin.
+
+## 2026-09-07 — register_all removed
+
+The tables remain as the symbols the manifests name (until they move into the plugin packages); nothing registers them outside the loader.

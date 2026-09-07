@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/platform/registries/registry.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — I-2 disabled-owner blacklist + getOrThrow + #private fields (not `private`)
+
+`register()` now rejects (returns a no-op disposer) writes from any owner in the module-level
+`disabledOwners` set (`disableOwner`/`enableOwner`/`isOwnerDisabled`), so a builtin disabled at
+boot stays gone even if its contribution point (e.g. `ui.channels`) registers lazily, well after
+the disable call ran — a one-shot `removeOwner` sweep at disable time cannot see a registration
+that has not happened yet. Added `getOrThrow(id)` (mirrors the kernel's `Registry.get`
+`UnknownEntry` raise) for call sites where a missing entry is a programming error, and
+`ownerOf(id)`.
+
+All instance fields (`entries`, `frozen`, `listeners`, `cached`) and the `notify` method were
+converted from TypeScript `private` to ECMAScript `#`-private. Reason: once `REGISTRIES` (16
+`Registry<T>` instances, see `registries/index.ts`) is exported as a value and `@narranexus/sdk`'s
+declaration build (`packages/sdk/tsconfig.build.json`, `declaration: true`) transitively reaches
+it (via `HostAPI.registries`, typed off `typeof REGISTRIES`, re-exported from `packages/sdk/src/types.ts`),
+TypeScript has to print `Registry<T>`'s structural type into the emitted `.d.ts` — and a
+`private`/`protected` member cannot be re-declared outside its own module, so `tsc -p
+tsconfig.build.json --noEmit` failed with TS4094 ("... of exported anonymous class type may not
+be private or protected") on every private field. `#`-private fields are invisible to structural
+typing and carry no such restriction; the app's own `tsc -p tsconfig.app.json` build (no
+`declaration`) was never affected by this — only the SDK package's own type-emit build was.
 
 ## 2026-09-03 — 前端注册表的唯一形状（对应内核 `Registry[T]`）
 

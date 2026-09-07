@@ -16,7 +16,7 @@ from narranexus.hosts.boot import boot
 from narranexus.kernel.plugins.distribution import resolve_distribution
 from narranexus.kernel.plugins.loader import discover
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 
 from .conftest import make_plugin, register
 
@@ -53,7 +53,7 @@ def _owners(regs: Registries, slot: str) -> set[str]:
 
 def test_distribution_drops_the_builtins_it_leaves_out(plugin_home: Path):
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("backend", registries=regs, cloud=False, host_version=HOST, distribution=_dist(plugin_home))
     assert report.distribution == "acme.app" and "builtin.teams" in report.excluded_builtins
     assert "builtin.teams" not in _owners(regs, "backend.routes") and "builtin.chat" in _owners(regs, "backend.routes")
@@ -68,7 +68,7 @@ def test_bundled_plugin_boots_in_stage_one_and_user_plugins_are_gated(plugin_hom
     res = _dist(plugin_home / "dist", plugins={**CORE, "acme.crm": {"path": "./acme.crm"}},
                 runtime={"deployment": "cloud", "userPlugins": False})
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("backend", registries=regs, cloud=False, host_version=HOST, store=store, distribution=res)
     loaded = {pl.plugin_id for pl in report.builtins.loaded}
     assert "acme.crm" in loaded and report.users is None and report.user_plugin_ids == ()
@@ -78,7 +78,7 @@ def test_bundled_plugin_boots_in_stage_one_and_user_plugins_are_gated(plugin_hom
 def test_a_broken_distribution_refuses_to_boot(plugin_home: Path):
     res = _dist(plugin_home, engine=">=9")
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     with pytest.raises(DistributionError, match="engine"):
         boot("backend", registries=regs, cloud=False, host_version=HOST, distribution=res)
 

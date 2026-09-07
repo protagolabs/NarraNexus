@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.memory_kinds/src/narranexus_plugins/memory_kinds/specs.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -21,3 +21,7 @@ Part of the unified memory system (`refactor/agent-memory`). The unified design 
 (author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
+
+## 2026-09-07 — kinds are declared, not registered, at import
+
+declare_spec(...) per kind; the manifest names CONTRIBUTIONS and the host boot registers them.

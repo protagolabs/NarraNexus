@@ -17,10 +17,10 @@ from narranexus.platform.module_system import run_worker_supervisor as sup
 def _registries(*specs):
     # Builtin triggers (the "jobs" worker) are registry contributions too, so a
     # realistic process registry carries them before any plugin worker.
-    from narranexus.platform.module_system.contributions import register_all
+    from narranexus.kernel.plugins.builtins import load_builtins
 
     registries = Registries()
-    register_all(registries)
+    load_builtins(registries, "backend")
     reg = registries.registry_for("backend.workers")
     for owner, name, spec in specs:
         reg.register_contribution(Contribution(name, (lambda s=spec: s)), owner=owner)

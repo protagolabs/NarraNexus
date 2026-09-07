@@ -46,12 +46,14 @@ def test_iron_rules_injected_first_in_system_prompt():
     from types import SimpleNamespace
 
     from narranexus.contracts.prompt import PromptContext
-    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+    from narranexus.kernel.plugins.builtins import load_builtins, slot_tree_with_builtins
     from narranexus.kernel.plugins.registries import Registries
     from narranexus.platform.context_runtime.prompts import SECURITY_IRON_RULES
     from narranexus.platform.prompt_slots import sections_for
 
-    providers = sections_for(Registries(slot_tree_with_builtins()))
+    regs = Registries(slot_tree_with_builtins())
+    load_builtins(regs, "backend")
+    providers = sections_for(regs)
     assert providers[0].id == "security", "the security section must be the first builtin section"
     assert providers[0].order < min(p.order for p in providers[1:])
 

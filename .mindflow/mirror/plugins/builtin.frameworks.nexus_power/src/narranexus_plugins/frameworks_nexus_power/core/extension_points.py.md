@@ -20,3 +20,7 @@ A provider is `Callable[[SeatContext], impl]`; `SeatContext` carries the turn op
 ## 2026-09-07 — seat providers register through the registry's conflict rule
 
 ensure_registered always calls register_contribution: same object / same owner is a no-op, a different owner under the same name is RegistryConflict — 'skip if the name exists' let whoever registered first become workspace_confinement.
+
+## 2026-09-07 — seats under the framework slot; bindings through the kernel
+
+NAMESPACE is turn.pipeline.act.framework.nexus_power (OWNER stays the plugin id): the seats are descendants of the framework slot, so the slot tree's nesting rule and every binding layer apply. resolve_one / resolve_many use kernel.plugins.bound (bound_entry / bound_entries) — the private env-only binding parser, bound_provider(s) and the per-turn ensure_registered are gone; registration happens once at boot.

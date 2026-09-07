@@ -142,3 +142,7 @@ Batch 6b.2b: `ensure_builtin_frameworks()` registers the three builtin framework
 ## 2026-09-07 — bound_default_framework is loud on a misbinding
 
 The hand-rolled owner/name match with a bare 'return DEFAULT' fallback ran the turn on nexus_power when the bound framework was missing while the settings page said otherwise — the substitution FrameworkNotInstalledError exists to refuse. Now: an UNBOUND slot (layer DEFAULT) still means the code default; a bound-but-unregistered provider raises FrameworkNotInstalledError through kernel.plugins.bound.bound_entry (the one owner/name/owner:name matcher). Docstring precedence list updated; available_agent_loop_frameworks' docstring restored above the lazy call.
+
+## 2026-09-07 — framework_registry() resolved at call time; no lazy population
+
+FRAMEWORK_REGISTRY (a module constant bound to the process registries at import) became framework_registry(registries=None): private registries in tests are visible, and the registry is populated by the host boot from the framework plugins' manifests — ensure_builtin_frameworks and its 'registry non-empty' done-flag are gone.

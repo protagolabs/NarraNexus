@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/platform/registries/themes.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — url() block made case/whitespace-insensitive (M-4)
+
+The `url(` substring check was case-sensitive and required an immediately-adjacent paren.
+`URL(...)` / `Url (...)` parse identically to `url(...)` in CSS, and a protocol-relative resource
+(`//host/path`, no colon) already stays inside `SAFE_VALUE`'s allowed character set — so
+`URL(//evil.example/pixel.png)` walked straight through both checks, letting a plugin theme token
+fire a same-request tracking-pixel/exfil load. Replaced with `HAS_URL_FUNCTION = /url\s*\(/i`.
+
+`themes.test.ts`'s "applies and clears" test registered `acme.dark` in the module-level `THEMES`
+registry and never disposed it (M-12) — a re-run of the same test, or another suite reusing that
+id without vitest's per-file module isolation, would throw `RegistryConflictError` instead of
+exercising the intended behavior. The test now captures and calls the disposer returned by
+`register()` and asserts `THEMES.has('acme.dark')` is false afterward.
 
 ## 2026-09-03（批 2d）— 主题注册表
 

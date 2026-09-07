@@ -19,6 +19,9 @@ from tests.snapshots._subprocess import run_probe
 
 _PROBE = """
 import json
+from narranexus.kernel.plugins.builtins import load_builtins
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+load_builtins(KERNEL_REGISTRIES, "backend")  # registration happens only at boot: the probe boots like a host
 from narranexus.platform.module_system.channel_trigger_map import (
     CHANNEL_TRIGGER_MAP,
     REGISTERED_TRIGGER_CLASS_NAMES,

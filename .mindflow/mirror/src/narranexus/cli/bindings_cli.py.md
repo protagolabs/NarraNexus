@@ -11,3 +11,7 @@ stub: false
 ## 2026-09-07 — read-only boot; re-validation against the booted tree
 
 booted_registries() boots with inspect=True (no marker, no writes). bind() re-resolves the written file against regs.slots (the booted tree, user-declared slots included) non-strictly — the builtin-only tree it used to rebuild rejected every user-plugin slot and, once one such binding existed in narranexus.toml, every later bind. Candidate validation goes through referenced_plugins.
+
+## 2026-09-07 — booted_registries relies on boot alone
+
+register_all is gone.

@@ -39,7 +39,7 @@ from .api_config import CodexConfig, codex_config
 from .loop.driver import (
     AgentLoopDriver,
     DEFAULT_AGENT_LOOP_FRAMEWORK,
-    FRAMEWORK_REGISTRY,
+    framework_registry,
     FrameworkNotInstalledError,
     available_agent_loop_frameworks,
     get_agent_loop_driver,

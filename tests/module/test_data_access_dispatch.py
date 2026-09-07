@@ -16,7 +16,8 @@ from fastapi.testclient import TestClient
 from narranexus.contracts.data_access import DataAccessSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.module_system.contributions import DATA_ACCESS_SLOT, register_all
+from narranexus.platform.module_system.contributions import DATA_ACCESS_SLOT
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.data_access import store as st
 
 PLATFORM_METHODS = {"remember", "grep_memory", "memory_retain"}  # memory engine is platform, not a builtin
@@ -24,7 +25,7 @@ PLATFORM_METHODS = {"remember", "grep_memory", "memory_retain"}  # memory engine
 
 def _regs() -> Registries:
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     return regs
 
 
@@ -136,7 +137,7 @@ def test_twin_routes_are_backend_routes_contributions_of_their_plugin(plugin_id:
     monkeypatch.setenv(ENV_PLUGIN_HOME, str(home))
     store = RegistryStore(path=home / "registry.json", lkg=home / "lkg.json")
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=store)
     names = {e.name for e in regs.registry_for("backend.routes").entries() if e.owner == plugin_id}
     assert names == TWINS[plugin_id]
@@ -154,7 +155,7 @@ def test_disabling_builtin_job_removes_its_twin_routes_and_provider(tmp_path, mo
     store = RegistryStore(path=home / "registry.json", lkg=home / "lkg.json")
     store.update(lambda reg: reg.builtin_overrides.__setitem__("builtin.job", {"enabled": False}))
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=store)
     assert "job_create" not in regs.registry_for(DATA_ACCESS_SLOT).names()
     assert "view_narrative" in regs.registry_for(DATA_ACCESS_SLOT).names()

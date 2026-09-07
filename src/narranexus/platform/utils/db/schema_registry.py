@@ -1055,7 +1055,7 @@ _register(
             Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             # --- Provider Unification (2026-05-13) ---
             #
-            # driver_type    : key into agent_framework.providers.driver.DRIVER_REGISTRY.
+            # driver_type    : key into agent_framework.providers.driver.driver_registry().
             #                  null on existing rows; backfilled at startup via
             #                  derive_driver_type(source, auth_type, protocol).
             # owner_user_id  : null = system-shared card (cloud only); otherwise

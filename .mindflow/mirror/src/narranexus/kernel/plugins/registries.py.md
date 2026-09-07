@@ -57,3 +57,7 @@ Batch 6c: `SLOT_KINDS["kernel.auth"] = "auth"`.
 ## 2026-09-07 — registry_for is thread-safe
 
 Lazy registry creation is serialised with an RLock (two threads asking first used to be able to create two registries for one slot).
+
+## 2026-09-07 — backend.services kind
+
+SLOT_KINDS maps backend.services to the 'services' contract kind.

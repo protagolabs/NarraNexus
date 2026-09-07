@@ -15,7 +15,7 @@ from narranexus.platform.agent_framework.providers.driver.base import ProviderCa
 from narranexus_plugins.providers.codex_oauth import (
     CodexOAuthDriver,
 )
-from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY, get_driver_class
+from narranexus.platform.agent_framework.providers.driver.registry import driver_registry, get_driver_class
 
 
 def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> ProviderCard:
@@ -34,7 +34,7 @@ def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> Provide
 
 
 def test_driver_registered_under_codex_oauth_key():
-    assert "codex_oauth" in DRIVER_REGISTRY
+    assert "codex_oauth" in driver_registry()
     assert get_driver_class("codex_oauth") is CodexOAuthDriver
 
 

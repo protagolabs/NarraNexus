@@ -57,13 +57,13 @@ def test_freeze_propagates_and_applies_to_later_registries():
 
 
 def test_legacy_registries_are_the_kernel_ones():
-    from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY
-    from narranexus.platform.agent_framework.providers.driver.registry import DRIVER_REGISTRY
-    from narranexus.platform.memory.spec import MEMORY_KIND_REGISTRY
+    from narranexus.platform.agent_framework.loop.driver import framework_registry
+    from narranexus.platform.agent_framework.providers.driver.registry import driver_registry
+    from narranexus.platform.memory.spec import memory_kind_registry
 
-    assert FRAMEWORK_REGISTRY is KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
-    assert DRIVER_REGISTRY is KERNEL_REGISTRIES.registry_for("model.providers")
-    assert MEMORY_KIND_REGISTRY is KERNEL_REGISTRIES.registry_for("agent.capabilities.memory_kinds")
+    assert framework_registry() is KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
+    assert driver_registry() is KERNEL_REGISTRIES.registry_for("model.providers")
+    assert memory_kind_registry() is KERNEL_REGISTRIES.registry_for("agent.capabilities.memory_kinds")
 
 
 # ------------------------------------------------------------------ builtins

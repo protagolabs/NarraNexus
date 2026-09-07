@@ -17,7 +17,8 @@ from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system._module_impl.loader import ModuleLoader
 from narranexus.platform.module_system.registry import ModuleRegistry
-from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS, register_all
+from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS
+from narranexus.kernel.plugins.builtins import load_builtins
 
 DISABLEABLE = [s for s in MODULE_SPECS if s.plugin_id != "builtin.nexus_plugins_module"]
 
@@ -29,7 +30,7 @@ def _boot_with_override(tmp_path: Path, monkeypatch, plugin_id: str, enabled: bo
     store = RegistryStore(path=home / "registry.json", lkg=home / "lkg.json")
     store.update(lambda reg: reg.builtin_overrides.__setitem__(plugin_id, {"enabled": enabled}))
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=store)
     report.mark_healthy()
     return regs, report

@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import List
 
 from narranexus.platform.memory.record import MemoryRecord
-from narranexus.platform.memory.spec import MemoryKindSpec, RecallWeights, contribution_for, register_spec
+from narranexus.platform.memory.spec import MemoryKindSpec, RecallWeights, contribution_for, declare_spec
 from narranexus.platform.utils.timezone import utc_now
 
 # ── shared policy helpers ────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ WORLD, first person for EXPERIENCE. Do NOT infer or compute across facts."""
 
 # ── registrations ────────────────────────────────────────────────────────────
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="event",
     default_scope="narrative",
     recall=RecallWeights(recency=0.7, proof=0.0, salience=0.3),
@@ -92,14 +92,14 @@ register_spec(MemoryKindSpec(
 # memory_chat table is kept (migration still references it) but no longer
 # registered as a searchable kind.
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="bus",
     default_scope="agent",
     recall=RecallWeights(recency=0.8, proof=0.0, salience=0.2),
     render=lambda rs: _bullets("Messages from other agents:", rs),
 ))
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="narrative",
     passive=True,
     default_scope="agent",
@@ -109,7 +109,7 @@ register_spec(MemoryKindSpec(
     render=lambda rs: _bullets("Related threads:", rs),
 ))
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="entity",
     passive=True,
     default_scope="agent",
@@ -123,7 +123,7 @@ register_spec(MemoryKindSpec(
     render=lambda rs: _bullets("People you know:", rs),
 ))
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="job",
     default_scope="narrative",
     dedup_key=lambda r: (r.attributes or {}).get("job_id", ""),
@@ -131,7 +131,7 @@ register_spec(MemoryKindSpec(
     render=lambda rs: _bullets("Active tasks:", rs),
 ))
 
-register_spec(MemoryKindSpec(
+declare_spec(MemoryKindSpec(
     kind="observation",
     passive=True,
     default_scope="agent",

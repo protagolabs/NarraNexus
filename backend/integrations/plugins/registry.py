@@ -16,7 +16,7 @@ and the invariant "installer pin == locked version" is guarded by
 from __future__ import annotations
 
 from narranexus.contracts.framework import FrameworkMeta
-from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_REGISTRY, ensure_builtin_frameworks
+from narranexus.platform.agent_framework.loop.driver import framework_registry
 
 from .spec import PluginSpec
 
@@ -37,10 +37,9 @@ def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
 
 def build_plugin_specs() -> dict[str, PluginSpec]:
     """Installable plugins = registered frameworks that declare an install recipe."""
-    ensure_builtin_frameworks()  # the builtin frameworks register lazily from their manifests
 
     specs: dict[str, PluginSpec] = {}
-    for entry in FRAMEWORK_REGISTRY.entries():
+    for entry in framework_registry().entries():
         meta = entry.meta.get("framework")
         if isinstance(meta, FrameworkMeta) and meta.install is not None:
             specs[entry.name] = _spec_from_meta(meta)

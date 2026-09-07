@@ -25,6 +25,10 @@ _SRC = _REPO / "src"
 
 # Runs inside the blocked subprocess.
 _CHILD = r"""
+from narranexus.kernel.plugins.builtins import load_builtins
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+load_builtins(KERNEL_REGISTRIES, "backend")  # what every host boot does; registration is never lazy
+
 import sys, importlib.abc
 
 class _Block(importlib.abc.MetaPathFinder):

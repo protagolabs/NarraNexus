@@ -155,8 +155,9 @@ class Registry(Generic[T]):
         try:
             entry = self._entries[key]
         except KeyError:
+            hint = "" if self._entries else " (nothing is registered here: has this process booted the plugin platform? hosts.boot / kernel.plugins.builtins.load_builtins)"
             raise UnknownEntry(
-                f"{self.kind}: unknown entry {key!r}. Registered: {list(self._entries) or '[]'}"
+                f"{self.kind}: unknown entry {key!r}. Registered: {list(self._entries) or '[]'}{hint}"
             ) from None
         return entry.factory()
 

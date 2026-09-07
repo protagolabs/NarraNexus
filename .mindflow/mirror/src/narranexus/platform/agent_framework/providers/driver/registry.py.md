@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/registry.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -41,3 +41,7 @@ above instead of half-working.
 ## 2026-09-04 · lazy builtin drivers (batch 6b.2)
 
 `ensure_builtin_drivers()` registers the manifest-named drivers on the first `get_driver_class`; the driver implementations are the `builtin.providers` plugin (`narranexus_plugins.providers`).
+
+## 2026-09-07 — @register attaches, register_driver registers; driver_registry() at call time
+
+The class decorator only attaches the driver's Contribution (the symbol the manifest names) — no import-time registry write; register_driver(cls, owner=) is the explicit path for tests / an embedding host. ensure_builtin_drivers is gone: the host boot populates model.providers from builtin.providers' manifest.

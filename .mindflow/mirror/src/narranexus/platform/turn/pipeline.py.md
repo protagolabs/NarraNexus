@@ -25,3 +25,7 @@ run() calls services.bind_event(event_id) exactly once, as soon as any stage has
 ## 2026-09-07 — dead except removed
 
 UnknownEntry subclasses KeyError, so the try/raise/except KeyError in resolve_profile always took the second branch; collapsed to one raise.
+
+## 2026-09-07 — TurnPipeline declares slots only; profiles come from the boot
+
+__init__ declares the seven stage slots for a hand-built tree and nothing else; resolve_profile no longer populates turn.profiles on first use.

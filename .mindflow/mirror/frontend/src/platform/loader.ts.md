@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -24,3 +24,31 @@ ArrayBuffer，测试用 node:crypto）比对，再由 Blob URL `import()`（动�
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `disableBuiltinUi` also sweeps `ui.channels`.
+
+## 2026-09-07 — command-gate identity, disabledOwners blacklist, illegal-page rejection at registration, assetUrl traversal guard, table-driven SHELL_REGISTRIES (I-1, I-2, C-2, I-5, architecture E3)
+
+The command gate used to detect "has the plugin replaced its own gate yet" by comparing
+`real.value.label !== cmd.label` — a plugin that kept the manifest's declared label on its real
+command (a very ordinary thing to do) made the gate never hand off, permanently re-running
+`fireActivation` on every invocation instead of the real `run()`. Fixed to the same object-identity
+check `actionGate.ts` already used: `e.value !== gate`.
+
+`disableBuiltinUi(pluginId)` now also calls `disableOwner(pluginId)` (registry.ts) so a builtin
+disabled at boot cannot register again later even via a lazily-loaded contribution point (e.g.
+`ui.channels`, `ui.settingsSections`) that runs well after the disable sweep — a one-shot
+`removeOwner` at disable time cannot see a registration that has not happened yet.
+
+`registerDeclaredUi` now REJECTS (at registration time, `continue`s past the entry, calls
+`reportUiError`) an `/app`-layout page manifest that does not declare `guard: 'protected'`,
+instead of letting it reach `PAGES` and only failing later in `pageRoutes.tsx`'s render-time
+check. `pageRoutes.tsx`'s own check remains as defense in depth for entries that reach `PAGES`
+another way.
+
+`assetUrl` now rejects any manifest asset entry containing a `..` path segment or characters
+outside `SAFE_ASSET_ENTRY = /^[A-Za-z0-9._/-]+$/` (I-5's second half — the URL-origin/prefix
+hardening is in `host.ts`'s `http.request`).
+
+`SHELL_REGISTRIES` (the array `disableBuiltinUi` iterates to sweep every registry) is now
+`Object.values(REGISTRIES)` from `registries/index.ts` instead of a hand-maintained array — four
+copies of the 16-registry list used to exist across `host.ts` and `loader.ts`; adding a 17th
+registry now only means adding one line to `REGISTRIES` itself.

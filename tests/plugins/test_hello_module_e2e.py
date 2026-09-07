@@ -18,7 +18,7 @@ from narranexus.kernel.plugins.importer import import_plugin_module, plugin_find
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME, registry_path
 from narranexus.kernel.plugins.registries import Registries
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.registry import ModuleRegistry
 
 PLUGIN = Path(__file__).resolve().parent / "hello_module"
@@ -37,7 +37,7 @@ def home(tmp_path: Path, monkeypatch):
 def test_a_module_plugin_installs_and_takes_part_in_a_turn(home: Path, db_client, monkeypatch):
     assert cli(["plugin", "link", str(PLUGIN)]) == 0
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=RegistryStore(path=registry_path()))
     assert PID in report.user_plugin_ids and not report.isolated
     monkeypatch.setattr("narranexus.kernel.plugins.registries.KERNEL_REGISTRIES", regs)
@@ -90,5 +90,5 @@ def test_a_module_plugin_installs_and_takes_part_in_a_turn(home: Path, db_client
 
     # 6. disabling the plugin removes the module from every view
     regs2 = Registries()
-    register_all(regs2)
+    load_builtins(regs2, "backend")
     assert "AcmeNotesModule" not in ModuleRegistry(regs2)

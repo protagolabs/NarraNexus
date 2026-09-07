@@ -78,10 +78,16 @@ DriverFactory = Callable[..., AgentLoopDriver]
 
 DEFAULT_AGENT_LOOP_FRAMEWORK = "nexus_power"
 
-# The kernel registry for slot ``turn.pipeline.act.framework`` (plugin platform, batch 0).
-# Keys are case-insensitive; entries are lazy factories so registering a
-# framework never imports its SDK.
-FRAMEWORK_REGISTRY: Registry[DriverFactory] = KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
+FRAMEWORK_SLOT = "turn.pipeline.act.framework"
+
+
+def framework_registry(registries: Any = None) -> Registry[DriverFactory]:
+    """The registry for slot ``turn.pipeline.act.framework`` — resolved at CALL time (a
+    module-level constant bound to the process registries made private
+    registries in tests invisible to this module). Keys are case-insensitive;
+    entries are lazy factories so registering a framework never imports its SDK.
+    Populated by the host boot from the framework plugins' manifests."""
+    return (registries or KERNEL_REGISTRIES).registry_for(FRAMEWORK_SLOT)
 
 
 def register_agent_loop_driver(
@@ -96,31 +102,18 @@ def register_agent_loop_driver(
     again, which is how a test cleans up.
     """
     key = name.strip().lower()
-    if key in FRAMEWORK_REGISTRY:
+    if key in framework_registry():
         logger.debug(f"Overriding agent-loop driver '{key}'")
-    return FRAMEWORK_REGISTRY.register(key, lambda: factory, owner=owner, replace=True)
-
-
-def ensure_builtin_frameworks() -> None:
-    """Register the frameworks the builtin manifests name, once, on first lookup.
-    They are plugins under plugins/ (batch 6b); the kernel resolves the
-    manifests' contributions — this module never imports a framework package."""
-    if FRAMEWORK_REGISTRY.names():
-        return
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    register_builtin_provides("turn.pipeline.act.framework")
+    return framework_registry().register(key, lambda: factory, owner=owner, replace=True)
 
 
 def available_agent_loop_frameworks() -> list[str]:
     """Names of all registered frameworks (sorted, for stable logging)."""
-    ensure_builtin_frameworks()
-    return sorted(FRAMEWORK_REGISTRY.names())
+    return sorted(framework_registry().names())
 
 
 def resolve_framework_name(framework: str | None = None) -> str:
     """Apply the selection precedence and return the resolved name."""
-    ensure_builtin_frameworks()
     return (
         framework
         or os.getenv("AGENT_LOOP_FRAMEWORK")
@@ -137,7 +130,7 @@ def bound_default_framework() -> str:
     if bound_layer(KERNEL_REGISTRIES, "turn.pipeline.act.framework") == "DEFAULT":
         return DEFAULT_AGENT_LOOP_FRAMEWORK  # an UNBOUND slot legitimately means the code default
     try:
-        return bound_entry(KERNEL_REGISTRIES, "turn.pipeline.act.framework").name
+        return bound_entry(KERNEL_REGISTRIES, FRAMEWORK_SLOT).name
     except UnknownEntry as exc:
         # A misbinding must be loud, never a silent fallback: running the turn
         # on nexus_power while the settings page says "Claude Code" is the
@@ -175,7 +168,6 @@ def get_agent_loop_driver(
             loud rather than silently fall back, so a typo in config is
             caught immediately instead of masquerading as "claude".
     """
-    ensure_builtin_frameworks()
     name = resolve_framework_name(framework)
 
     # Executor seam (binding rule #7/#9/#20): route the loop to a remote
@@ -194,7 +186,7 @@ def get_agent_loop_driver(
         )
 
     try:
-        factory = FRAMEWORK_REGISTRY.get(name)
+        factory = framework_registry().get(name)
     except UnknownEntry:
         raise ValueError(
             f"Unknown agent-loop framework '{name}'. "

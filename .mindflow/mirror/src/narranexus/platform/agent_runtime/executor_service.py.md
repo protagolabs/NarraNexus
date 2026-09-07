@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 ---
 
 ## 2026-09-03（批 2a.5）— `/agent-loop` 透传 `deferred_tools` 给 driver（所有 driver 都收 `**kwargs`）
@@ -221,3 +221,7 @@ control-plane/data-plane split (binding rule #20).
 - `POST /watch/ensure` {agent_id,user_id,file} → 在容器内 `ensure_watch`(detached spawn officecli watch),**返回容器为该文件分配到的端口** `{ok,port}`。容器自己拥有端口分配(每文件一个专属端口),后端不再猜端口(改自 2026-07-13:原来是后端 hash 出 port 传进来,多文档并发会串台)。由后端 `/office-watch/open` 云端分支调用,拿到 port 后铸 token。
 - `GET /watch/{port}/{path}` → 反代到容器内 `127.0.0.1:{port}` 的 watch 服务(SSE 流式,X-Accel-Buffering: no)。由后端公共代理转发到这里。两者都无鉴权(内网信任,同 /agent-loop),但仍做端口 allowlist 防御纵深。
 - `GET /watch/version?agent_id&user_id&file` → 容器内 stat office 文件返回 `{mtime,size}`,给前端 mtime 兜底轮询用(云端工作区在容器里,后端 stat 不到)。由后端 `/office-watch/version` 云端分支调用。
+
+## 2026-09-07 — the executor boots the plugin platform
+
+_lifespan calls boot_executor_plugins() first.

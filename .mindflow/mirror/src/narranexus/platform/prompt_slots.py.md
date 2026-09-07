@@ -7,3 +7,7 @@ stub: false
 # platform/prompt_slots.py — the prompt slot seam
 
 `ensure_registered` (lazy manifest registration of builtin.prompts), `sections_for(registries)` (bound order when bound, else declared `order`), `assembler_for(registries)` (the bound `prompt.assembler`). ContextRuntime builds the system prompt only through these.
+
+## 2026-09-07 — no ensure_registered
+
+sections_for / assembler_for read the booted registries through kernel.plugins.bound; an empty slot answers empty, never a lazily re-registered builtin.

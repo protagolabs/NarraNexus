@@ -51,8 +51,6 @@ class Engine:
         from narranexus.hosts.boot import boot
         from narranexus.kernel.deployment import is_cloud_mode
         from narranexus.kernel.plugins.compat import host_version as _host_version
-        from narranexus.platform.module_system.contributions import register_all
-
         res: DistributionResolution | None
         if dist is None or isinstance(dist, DistributionResolution):
             res = dist
@@ -63,8 +61,6 @@ class Engine:
         regs = registries or KERNEL_REGISTRIES
         if regs.frozen:
             raise RuntimeError("Engine.load: these registries are already booted (one Engine per registries)")
-        if not regs.paths() or not any(regs.registry_for(p).entries() for p in regs.paths()):
-            register_all(regs)
         report = boot(
             "backend",
             registries=regs,

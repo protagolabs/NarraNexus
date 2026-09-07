@@ -17,3 +17,7 @@ store、服务定位器、事件总线），不注册插件表（backend 拥有�
 Batch 6c: the mcp/workers boots pass `resolve_from_env()` so `NARRANEXUS_DIST` shapes every role the same way as the backend.
 
 2026-09-07: the mcp/workers boots resolve the runtime bindings too (no snapshot), so bound consumers work in every role.
+
+## 2026-09-07 — boot_executor_plugins
+
+The per-user executor boots the workers role before serving: it runs turns and needs the same contribution set; before this it never booted and every seam self-registered lazily.

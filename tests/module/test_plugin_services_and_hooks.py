@@ -15,7 +15,7 @@ import pytest
 from narranexus.contracts.job import JobRunOutcome
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.service_refs import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.utils import plugin_services
 from narranexus.platform.utils.host_hooks import call_host_hook
 
@@ -24,7 +24,8 @@ CHANNEL_OWNERS = {f"builtin.channels.{c}" for c in ("telegram", "discord", "slac
 
 def _regs() -> Registries:
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
+    load_builtins(regs, "backend")
     return regs
 
 

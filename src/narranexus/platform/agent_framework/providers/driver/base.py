@@ -192,7 +192,7 @@ class Driver(Protocol):
     @classmethod
     def driver_type(cls) -> str:
         """Returns the key under which this driver registers in
-        :data:`DRIVER_REGISTRY`. Must match the value written into
+        :data:`driver_registry()`. Must match the value written into
         ``user_providers.driver_type``.
         """
         ...

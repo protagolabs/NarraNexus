@@ -35,7 +35,7 @@ def _ctx(**over):
 
 
 def test_manifest_and_contract_shapes():
-    from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA
+    from narranexus.kernel.plugins.builtins import load_builtins, BUILTIN_MANIFEST_DATA
 
     on_disk = json.loads((ROOT / "narranexus-plugin.json").read_text())
     assert on_disk == next(d for d in BUILTIN_MANIFEST_DATA if d["id"] == "builtin.prompts")
@@ -88,7 +88,10 @@ def test_platform_seam_orders_by_declared_order_then_by_binding():
     from narranexus.kernel.plugins.registries import Registries
     from narranexus.platform.prompt_slots import assembler_for, sections_for
 
+    from narranexus.kernel.plugins.builtins import load_builtins
+
     regs = Registries(slot_tree_with_builtins())
+    load_builtins(regs, "backend")
     assert [p.id for p in sections_for(regs)] == ["security", "temporal", "narrative", "modules", "bootstrap"]
     assert isinstance(assembler_for(regs), DefaultPromptAssembler)
     regs.set_bindings(resolve(slot_tree_with_builtins(), [BindingSource(Layer.USER_CONFIG, {"prompt.sections": ["modules", "narrative"]}, origin="t")]))

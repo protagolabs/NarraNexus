@@ -14,6 +14,7 @@ import pytest
 from narranexus.contracts import UnknownEntry
 from narranexus.contracts.agent.pipeline import PipelineProfile
 from narranexus.contracts.agent.stages import CommitContext, Stage
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn.stages import slot_path
@@ -136,6 +137,7 @@ async def test_scenario_1_swap_the_recall_strategy_through_a_plugin_profile(db_c
     from narranexus.platform.turn import TurnPipeline
 
     regs = Registries()
+    load_builtins(regs, "backend")
     TurnPipeline(regs)
     regs.registry_for(slot_path(Stage.RECALL)).register_contribution(Contribution("graph", GraphRecall), owner="acme.graph_recall")
     regs.registry_for("turn.profiles").register_contribution(
@@ -158,6 +160,7 @@ async def test_scenario_4_audit_hook_observes_every_commit(db_client):
     from narranexus.platform.turn import TurnPipeline
 
     regs = Registries()
+    load_builtins(regs, "backend")
     TurnPipeline(regs)
     regs.hooks.add("onDidCommit", audit, owner="acme.audit")
     await _run(db_client, registries=regs)
@@ -180,6 +183,7 @@ def test_scenario_2_context_providers_are_selected_by_the_profile_filter():
             return "Today: standup 10:00"
 
     regs = Registries()
+    load_builtins(regs, "backend")
     regs.registry_for(PROVIDERS_SLOT).register_contribution(Contribution("calendar", Calendar), owner="acme.calendar")
     regs.registry_for(PROVIDERS_SLOT).register_contribution(Contribution("broken", lambda: (_ for _ in ()).throw(RuntimeError("x"))), owner="acme.b")
     assert [p.name for p in context_providers(PipelineProfile(id="default"), regs)] == ["calendar"]

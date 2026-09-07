@@ -48,10 +48,19 @@ def boot_worker_plugins() -> BootReport:
     return _boot("workers")
 
 
+def boot_executor_plugins() -> BootReport:
+    """The per-user executor runs agent turns (frameworks, providers, clients,
+    memory kinds, prompt sections, turn strategies, modules) — the same
+    contribution set the workers process needs, so it boots the ``workers``
+    role. Before this the executor never booted and relied on lazy
+    self-registration inside every platform seam."""
+    return _boot("workers")
+
+
 def boot_channel_plugins() -> BootReport:
     """The standalone channels supervisor (cloud ``--only channels`` layout) hosts
     the same trigger set the workers process does, so it boots the ``workers`` role."""
     return _boot("workers")
 
 
-__all__ = ["boot_channel_plugins", "boot_mcp_plugins", "boot_worker_plugins"]
+__all__ = ["boot_channel_plugins", "boot_executor_plugins", "boot_mcp_plugins", "boot_worker_plugins"]

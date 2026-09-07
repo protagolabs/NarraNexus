@@ -14,7 +14,7 @@ from narranexus.contracts.route import RouterSpec
 from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 
 
 def _manifest(pid: str, provides: dict):
@@ -27,7 +27,7 @@ def _manifest(pid: str, provides: dict):
 
 def test_lazy_router_builds_from_the_plugins_contributions_on_first_request():
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     r1, r2 = APIRouter(), APIRouter()
 
     @r1.get("/hello")
@@ -58,7 +58,7 @@ def test_lazy_router_builds_from_the_plugins_contributions_on_first_request():
 
 def test_plugin_without_loaded_routes_answers_503_and_builtins_are_ignored():
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     app = FastAPI()
     mounted = mount_user_plugin_routes(app, regs, manifests=[
         _manifest("acme.ghost", {"backend.routes": ["nxplugins.acme_ghost:ROUTES"]}),
@@ -86,7 +86,7 @@ def test_lazy_router_is_wired_behind_the_real_auth_middleware():
     from backend.auth import auth_middleware
 
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     r1 = APIRouter()
 
     @r1.get("/hello")

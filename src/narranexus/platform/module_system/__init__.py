@@ -57,17 +57,13 @@ from ._mcp_identity import (
 # =============================================================================
 
 # Module mapping table.
-from narranexus.platform.module_system.contributions import register_all as _register_module_contributions
 from narranexus.platform.module_system.registry import ModuleRegistry, module_registry
 
-# All builtin modules register themselves into the kernel registry
-# (agent.capabilities.modules); the manifests in narranexus.kernel.plugins.builtins
-# name the same Contribution objects. ``module_registry`` is the live VIEW of
-# that registry (plugin platform batch 5d: there is no module_registry table and the
-# package re-exports no module class — import a module from its own package):
-# a builtin disabled through registry.json's builtin_overrides disappears from
-# it, and from every derived view, at boot.
-_register_module_contributions()
+# The builtin modules are registered by the host boot from their manifests
+# (agent.capabilities.modules); ``module_registry`` is the live VIEW of that
+# registry: a builtin disabled through registry.json's builtin_overrides
+# disappears from it, and from every derived view, at boot. Nothing here
+# registers at import.
 
 
 def module_config(module_class: str) -> "Optional[ModuleConfig]":

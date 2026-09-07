@@ -17,6 +17,8 @@ from narranexus.platform.memory.record import (
 from narranexus.platform.memory.spec import (
     MemoryKindSpec,
     RecallWeights,
+    declare_spec,
+    memory_kind_registry,
     register_spec,
     get_spec,
     all_kinds,
@@ -30,8 +32,8 @@ from narranexus.platform.memory.coordinator import (
 )
 
 # The memory kinds themselves are the builtin.memory_kinds plugin (plugins/,
-# batch 6b): ``spec.ensure_builtin_kinds`` registers them on first lookup through
-# the kernel — the platform never imports the plugin by name.
+# batch 6b): the host boot registers them from the builtin.memory_kinds manifest;
+# nothing registers at import.
 
 __all__ = [
     "MemoryRecord",
@@ -44,7 +46,8 @@ __all__ = [
     "MemoryKindSpec",
     "RecallWeights",
     "register_spec",
-    "ensure_builtin_kinds",
+    "declare_spec",
+    "memory_kind_registry",
     "get_spec",
     "all_kinds",
     "passive_kinds",

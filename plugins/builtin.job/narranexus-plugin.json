@@ -32,6 +32,9 @@
     ],
     "backend.hooks": [
       "narranexus_plugins.job_module.plugin_hooks:HOOKS"
+    ],
+    "backend.services": [
+      "narranexus_plugins.job_module.services:SERVICES"
     ]
   },
   "quality": "gold"

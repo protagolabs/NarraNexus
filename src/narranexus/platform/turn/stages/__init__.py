@@ -38,18 +38,4 @@ def declare_stage_slots(registries: Registries = KERNEL_REGISTRIES) -> None:
             )
 
 
-def ensure_registered(registries: Registries = KERNEL_REGISTRIES) -> None:
-    """Declare the stage slots and make sure the builtin default strategies are
-    registered (idempotent). The defaults are the ``builtin.turn`` plugin under
-    plugins/ (batch 6b): the kernel resolves the manifest's contributions for
-    every stage slot that is still empty — the platform never imports the plugin."""
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    declare_stage_slots(registries)
-    for stage in Stage:
-        path = slot_path(stage)
-        if not registries.registry_for(path).names():
-            register_builtin_provides(path, registries)
-
-
-__all__ = ["OWNER", "STAGE_CONTRACT", "declare_stage_slots", "ensure_registered", "slot_path"]
+__all__ = ["OWNER", "STAGE_CONTRACT", "declare_stage_slots", "slot_path"]

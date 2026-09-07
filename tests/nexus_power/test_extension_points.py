@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from narranexus.contracts._base import UnknownEntry
+from narranexus.kernel.plugins.bound import bound_entries, bound_provider
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus_plugins.frameworks_nexus_power.core import extension_points as ep
@@ -19,14 +20,29 @@ from narranexus_plugins.frameworks_nexus_power.core import extension_points as e
 ALL = (ep.STOP, ep.COMPACTION, ep.PROJECTOR, ep.EXPRESSION, ep.POLICY)
 
 
+def _booted() -> Registries:
+    """Private registries with every builtin loaded (what a host boot does), unfrozen."""
+    from narranexus.kernel.plugins.builtins import load_builtins
+
+    regs = Registries()
+    load_builtins(regs, "workers")
+    return regs
+
+
+def _bind(regs: Registries, monkeypatch, env_name: str, value: str) -> None:
+    """Set one NX_BIND__ env binding and re-resolve the registries' bindings the way the host does at boot."""
+    from narranexus.platform.bindings_runtime import resolve_runtime_bindings
+
+    monkeypatch.setenv(env_name, value)
+    resolve_runtime_bindings(None, registries=regs, snapshot=False)
+
+
 def _ctx() -> ep.SeatContext:
     return ep.SeatContext(options=SimpleNamespace(expressive_tools=("reply",)), workspace="/tmp", base_messages=[], tail=lambda: "")
 
 
-def test_ensure_registered_declares_the_five_seats_with_defaults():
-    regs = Registries()
-    ep.ensure_registered(regs)
-    ep.ensure_registered(regs)  # idempotent
+def test_boot_declares_the_five_seats_with_defaults():
+    regs = _booted()
     for path in ALL:
         assert path in regs.slots
     assert regs.slots.get(ep.STOP).default == "no_more_actions" and regs.slots.get(ep.POLICY).arity == "many"
@@ -44,7 +60,7 @@ def test_defaults_build_the_loops_own_classes():
         WorkspaceConfinementLayer,
     )
 
-    regs = Registries()
+    regs = _booted()
     ctx = _ctx()
     assert isinstance(ep.resolve_one(ep.STOP, ctx, regs), NoMoreActionsStop)
     assert isinstance(ep.resolve_one(ep.COMPACTION, ctx, regs), ToolResultPruner)
@@ -61,29 +77,28 @@ def test_a_plugin_provider_plus_binding_replaces_a_seat(monkeypatch):
         async def should_stop(self, step_calls, ledger):
             return True
 
-    regs = Registries()
-    ep.ensure_registered(regs)
+    regs = _booted()
     regs.registry_for(ep.STOP).register_contribution(Contribution("always", lambda: (lambda ctx: AlwaysStop())), owner="acme.stops")
     assert isinstance(ep.resolve_one(ep.STOP, _ctx(), regs), NoMoreActionsStop)  # providing alone does not rebind
-    monkeypatch.setenv("NX_BIND__builtin__frameworks__nexus_power__stop", "always")
+    _bind(regs, monkeypatch, "NX_BIND__turn__pipeline__act__framework__nexus_power__stop", "always")
     assert isinstance(ep.resolve_one(ep.STOP, _ctx(), regs), AlwaysStop)
-    assert ep.bound_provider(ep.STOP, regs) == "always"
+    assert bound_provider(regs, ep.STOP) == "always"
 
 
 def test_many_seat_binding_selects_and_orders(monkeypatch):
-    regs = Registries()
-    ep.ensure_registered(regs)
+    regs = _booted()
     regs.registry_for(ep.POLICY).register_contribution(Contribution("audit", lambda: (lambda ctx: "AUDIT")), owner="acme.audit")
-    assert ep.bound_providers(ep.POLICY, regs)[-1] == "audit"  # appended in registration order
-    monkeypatch.setenv("NX_BIND__builtin__frameworks__nexus_power__policy", "audit,disallowed_tools")
-    assert ep.bound_providers(ep.POLICY, regs) == ("audit", "disallowed_tools")
+    assert [e.name for e in bound_entries(regs, ep.POLICY)][-1] == "audit"  # appended in registration order
+    _bind(regs, monkeypatch, "NX_BIND__turn__pipeline__act__framework__nexus_power__policy", "audit,disallowed_tools")
+    assert [e.name for e in bound_entries(regs, ep.POLICY)] == ["audit", "disallowed_tools"]
     assert ep.resolve_many(ep.POLICY, _ctx(), regs)[0] == "AUDIT"
 
 
 def test_unknown_binding_fails_loud(monkeypatch):
-    monkeypatch.setenv("NX_BIND__builtin__frameworks__nexus_power__compaction", "nope")
+    regs = _booted()
+    _bind(regs, monkeypatch, "NX_BIND__turn__pipeline__act__framework__nexus_power__compaction", "nope")
     with pytest.raises(UnknownEntry):
-        ep.resolve_one(ep.COMPACTION, _ctx(), Registries())
+        ep.resolve_one(ep.COMPACTION, _ctx(), regs)
 
 
 def test_manifest_and_slot_tree_agree():
@@ -105,7 +120,7 @@ def test_booting_the_backend_role_loads_the_seat_providers(tmp_path, monkeypatch
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv(ENV_PLUGIN_HOME, str(home))
-    regs = Registries()
+    regs = _booted()
     boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=RegistryStore(path=home / "registry.json", lkg=home / "lkg.json"))
     assert regs.registry_for(ep.STOP).names() == ("no_more_actions",)
     assert regs.registry_for(ep.POLICY).names() == ("disallowed_tools", "workspace_confinement", "shell_confinement")

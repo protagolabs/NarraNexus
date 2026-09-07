@@ -20,7 +20,7 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.module_system.contributions import register_all
+from narranexus.kernel.plugins.builtins import load_builtins
 
 TEAMS = "builtin.teams"
 
@@ -33,7 +33,7 @@ def _boot(tmp_path: Path, monkeypatch, *, disable: str | None):
     if disable:
         store.update(lambda reg: reg.builtin_overrides.__setitem__(disable, {"enabled": False}))
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     report = boot("backend", registries=regs, cloud=False, host_version="1.19.0", store=store)
     report.mark_healthy()
     return regs, report, store
@@ -159,7 +159,7 @@ def test_register_builtins_for_import_respects_overrides(tmp_path: Path, monkeyp
         lambda reg: reg.builtin_overrides.__setitem__(TEAMS, {"enabled": False})
     )
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     assert register_builtins_for_import(regs) == (TEAMS,)
     assert TEAMS not in _owners(regs, "backend.routes")
     assert "builtin.nexus_plugins_module" in _owners(regs, "agent.capabilities.modules")
@@ -176,5 +176,5 @@ def test_protected_builtin_cannot_be_disabled_through_import_path(tmp_path: Path
         lambda reg: reg.builtin_overrides.__setitem__(protected_id, {"enabled": False})
     )
     regs = Registries()
-    register_all(regs)
+    load_builtins(regs, "backend")
     assert register_builtins_for_import(regs) == ()

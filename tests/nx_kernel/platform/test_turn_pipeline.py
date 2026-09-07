@@ -15,6 +15,7 @@ import pytest
 from narranexus.contracts import UnknownEntry
 from narranexus.contracts.agent.pipeline import PipelineProfile
 from narranexus.contracts.agent.stages import STAGES, IngressContext, Stage
+from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.turn import TurnPipeline, resolve_profile
@@ -64,6 +65,7 @@ def _fake_strategy(stage: Stage, log: list, name: str = "default", *, abort: boo
 
 def _registries_with(log: list, extra: dict[Stage, list[str]] | None = None, abort_at: Stage | None = None) -> Registries:
     regs = Registries()
+    load_builtins(regs, "backend")
     TurnPipeline(regs)  # declares the stage slots + default strategies
     for stage in STAGES:
         reg = regs.registry_for(slot_path(stage))
@@ -119,6 +121,7 @@ def test_hooks_fire_with_frozen_views_and_never_fail_the_turn():
 
 def test_resolve_profile_table():
     regs = Registries()
+    load_builtins(regs, "backend")
     tp = SimpleNamespace(name="chat_fast", narrative_strategy="bm25_top1")
     voice = SimpleNamespace(name="voice_fast", narrative_strategy="bm25_top1")
     assert resolve_profile(fast_mode=False, silent=True, turn_profile=None, working_source="chat", registries=regs).id == "silent"
@@ -137,6 +140,7 @@ def test_builtin_turn_manifest_loads_into_fresh_registries():
     from narranexus.kernel.plugins.loader import load
 
     regs = Registries()
+    load_builtins(regs, "backend")
     report = load(regs, [m for m in builtin_manifests() if m.id == "builtin.turn"], role="backend")
     assert not report.errors
     assert regs.registry_for("turn.pipeline.recall").names() == ("default", "narrative_fast", "ephemeral")

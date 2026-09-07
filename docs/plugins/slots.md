@@ -112,6 +112,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `backend` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Backend service domain root. |
 | `backend.hooks` | many | `narranexus.kernel.plugins.hooks:HookImplSpec` | — | `builtin.kernel` | — | Hook implementations for declared host hooks (pluggy semantics). |
 | `backend.routes` | many | `narranexus.contracts.route:RouterSpec` | — | `builtin.kernel` | — | HTTP routers mounted by the backend host (plugins under /api/x/<id>). |
+| `backend.services` | many | `narranexus.kernel.plugins.services:ServiceRef` | — | `builtin.kernel` | — | Services a plugin exposes on the service locator: a tuple of (ServiceRef, implementation) pairs, released with the owner. |
 | `backend.settings` | many | `narranexus.contracts.settings:SettingsSchema` | — | `builtin.kernel` | — | Per-plugin settings schemas (NXP_<ID>_* env > stored row > default). |
 | `backend.tables` | many | `narranexus.contracts.table:TableSpec` | — | `builtin.kernel` | — | Database tables (pure data; created by auto_migrate even when the plugin is inactive). |
 | `backend.workers` | many | `narranexus.contracts.worker:WorkerSpec` | — | `builtin.kernel` | — | Supervised background workers (workers process or backend lifespan). |
@@ -135,7 +136,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 
 | Plugin | Version | Hosts | Provides | Quality |
 |---|---|---|---|---|
-| `builtin.frameworks.nexus_power` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework`, `builtin.frameworks.nexus_power.stop`, `builtin.frameworks.nexus_power.compaction`, `builtin.frameworks.nexus_power.projector`, `builtin.frameworks.nexus_power.expression`, `builtin.frameworks.nexus_power.policy` | gold |
+| `builtin.frameworks.nexus_power` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework`, `turn.pipeline.act.framework.nexus_power.stop`, `turn.pipeline.act.framework.nexus_power.compaction`, `turn.pipeline.act.framework.nexus_power.projector`, `turn.pipeline.act.framework.nexus_power.expression`, `turn.pipeline.act.framework.nexus_power.policy` | gold |
 | `builtin.frameworks.claude_code` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework` | gold |
 | `builtin.frameworks.codex_cli` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework` | gold |
 | `builtin.providers` | 1.0.0 | backend, mcp, workers | `model.providers` | gold |
@@ -148,8 +149,8 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `builtin.basic_info` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
 | `builtin.chat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `agent.capabilities.data_access`, `backend.routes` | gold |
 | `builtin.social_network` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
-| `builtin.job` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `agent.capabilities.data_access`, `backend.routes`, `backend.hooks` | gold |
-| `builtin.skills` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes` | gold |
+| `builtin.job` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `agent.capabilities.data_access`, `backend.routes`, `backend.hooks`, `backend.services` | gold |
+| `builtin.skills` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes`, `backend.services` | gold |
 | `builtin.message_bus` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.common_tools` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.general_memory` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |

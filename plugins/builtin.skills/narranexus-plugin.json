@@ -18,6 +18,9 @@
     ],
     "backend.routes": [
       "backend.routes.skills:ROUTES"
+    ],
+    "backend.services": [
+      "narranexus_plugins.skill_module.services:SERVICES"
     ]
   },
   "quality": "gold"

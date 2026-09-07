@@ -14,14 +14,12 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 
 
 def test_registry_identity_and_builtin_order():
-    from narranexus.platform.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY, ensure_builtin_clients
+    from narranexus.platform.agent_framework.llm.helper_sdk import llm_client_registry
     from narranexus_plugins.llm_clients.contributions import CONTRIBUTIONS
-
-    ensure_builtin_clients()
-    assert LLM_CLIENT_REGISTRY is KERNEL_REGISTRIES.registry_for("model.clients")
-    assert LLM_CLIENT_REGISTRY.names() == ("anthropic", "openai", "cli")
+    assert llm_client_registry() is KERNEL_REGISTRIES.registry_for("model.clients")
+    assert llm_client_registry().names() == ("anthropic", "openai", "cli")
     assert [c.name for c in CONTRIBUTIONS] == ["anthropic", "openai", "cli"]
-    assert {LLM_CLIENT_REGISTRY.owner_of(n) for n in LLM_CLIENT_REGISTRY.names()} == {"builtin.llm_clients"}
+    assert {llm_client_registry().owner_of(n) for n in llm_client_registry().names()} == {"builtin.llm_clients"}
 
 
 def test_builtin_manifest_reproduces_the_registry_in_a_fresh_registries():

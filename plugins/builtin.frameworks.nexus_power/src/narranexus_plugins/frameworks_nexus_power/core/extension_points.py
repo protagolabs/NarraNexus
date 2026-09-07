@@ -7,34 +7,37 @@
 The pipeline has three vertical grains (spec §484): platform stages → the
 act-stage framework (a Port) → the seams inside a framework. This module is
 the third grain for NexusPower: five of its protocols are declared as slots
-under the plugin's namespace (``builtin.frameworks.nexus_power.<seat>``),
-the loop's default implementations are the default providers, and any plugin
-may provide another implementation (``provides: {"builtin.frameworks.nexus_power.stop": [...]}``)
-or bind one through configuration (``NX_BIND__builtin__frameworks__nexus_power__stop=<provider>``).
+UNDER the framework slot it fills (``turn.pipeline.act.framework.nexus_power.<seat>``),
+so the slot tree's nesting rule applies — bind ``turn.pipeline.act.framework``
+to another framework and these seats are that framework's business, not
+orphans in a ``builtin.`` domain. The loop's default implementations are the
+default providers; any plugin may provide another implementation
+(``provides: {"turn.pipeline.act.framework.nexus_power.stop": [...]}``) or bind
+one through any of the six binding layers (distribution, narranexus.toml,
+``NX_BIND__turn__pipeline__act__framework__nexus_power__stop=<provider>``).
 
 A provider is ``Callable[[SeatContext], impl]``: it receives what the
 assembly knows about the turn and returns the seat implementation.
-``resolve_one`` / ``resolve_many`` apply the binding (env > slot default) and
-build the seat; unknown providers fail loud (a bound name that nobody
-provides is a configuration error, never a silent fallback).
+``resolve_one`` / ``resolve_many`` read the kernel's resolved bindings
+(``kernel.plugins.bound``, the same seam every other slot consumer uses) and
+build the seat; unknown providers fail loud (a bound name that nobody provides
+is a configuration error, never a silent fallback).
 
-Registration happens twice on purpose: the builtin manifest names these
-contributions for booted hosts, and ``ensure_registered`` registers them in
-any process that runs the loop without a plugin boot (the executor
-subprocess runner), so the defaults are always there. Third-party seat
-providers reach the loop when the plugin is loaded in the process running
-it (a booted host).
+Registration happens once: the host boot (every process that runs the loop
+boots, the executor included) registers what the manifest names. Third-party
+seat providers reach the loop when their plugin is loaded in that process.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.kernel.plugins.slots import Slot
 
-NAMESPACE = "builtin.frameworks.nexus_power"
+OWNER = "builtin.frameworks.nexus_power"
+# the framework slot this plugin fills; its seats hang beneath it
+NAMESPACE = "turn.pipeline.act.framework.nexus_power"
 STOP = f"{NAMESPACE}.stop"
 COMPACTION = f"{NAMESPACE}.compaction"
 PROJECTOR = f"{NAMESPACE}.projector"
@@ -135,7 +138,7 @@ PROVIDERS: dict[str, tuple[Contribution[Any], ...]] = {
 
 def slots() -> tuple[Slot, ...]:
     return tuple(
-        Slot(path=path, arity=arity, contract=contract, owner=NAMESPACE, default=default, doc=doc)  # type: ignore[arg-type]
+        Slot(path=path, arity=arity, contract=contract, owner=OWNER, default=default, doc=doc)  # type: ignore[arg-type]
         for path, arity, contract, default, doc in DECLARED_SLOTS
     )
 
@@ -148,67 +151,18 @@ def _registries(registries: Any):
     return KERNEL_REGISTRIES
 
 
-def ensure_registered(registries: Any = None) -> None:
-    """Declare the seats and register the default providers (idempotent; a booted host already has them from the manifest)."""
-    regs = _registries(registries)
-    for slot in slots():
-        if slot.path not in regs.slots:
-            regs.slots.declare(slot, create_namespaces=True)
-    for path, contributions in PROVIDERS.items():
-        registry = regs.registry_for(path)
-        for contribution in contributions:
-            # Always through the registry: the same object / same owner is a
-            # no-op, a DIFFERENT owner under the same name is RegistryConflict.
-            # "skip if the name exists" let whoever registered first become
-            # 'workspace_confinement'.
-            registry.register_contribution(contribution, owner=NAMESPACE)
-
-
-def _env_binding(path: str) -> Optional[str | list[str]]:
-    from narranexus.kernel.plugins.bindings import parse_env
-
-    return parse_env(os.environ).entries.get(path)
-
-
-def bound_provider(path: str, registries: Any = None) -> str:
-    """The provider name bound to a one-arity seat: ``NX_BIND__…`` env over the slot default."""
-    regs = _registries(registries)
-    ensure_registered(regs)
-    value = _env_binding(path)
-    if isinstance(value, list):
-        raise ValueError(f"{path}: one-arity seat bound with a list {value!r}")
-    if value:
-        return value
-    default = regs.slots.get(path).default
-    if default is None:
-        raise ValueError(f"{path}: no binding and no default provider")
-    return default
-
-
-def bound_providers(path: str, registries: Any = None) -> tuple[str, ...]:
-    """The provider names for a many-arity seat: the env list, else every registered provider in order."""
-    regs = _registries(registries)
-    ensure_registered(regs)
-    value = _env_binding(path)
-    if isinstance(value, str):
-        value = [v.strip() for v in value.split(",") if v.strip()]
-    if value:
-        return tuple(value)
-    return regs.registry_for(path).names()
-
-
 def resolve_one(path: str, ctx: SeatContext, registries: Any = None) -> Any:
-    """Build the bound implementation of a one-arity seat (unknown provider → UnknownEntry, fail loud)."""
-    regs = _registries(registries)
-    name = bound_provider(path, regs)
-    return regs.registry_for(path).get(name)(ctx)
+    """Build the bound implementation of a one-arity seat through the kernel's resolved bindings (unknown provider → UnknownEntry, fail loud)."""
+    from narranexus.kernel.plugins.bound import bound_entry
+
+    return bound_entry(_registries(registries), path).factory()(ctx)
 
 
 def resolve_many(path: str, ctx: SeatContext, registries: Any = None) -> tuple[Any, ...]:
-    """Build every bound implementation of a many-arity seat, in binding order."""
-    regs = _registries(registries)
-    registry = regs.registry_for(path)
-    return tuple(registry.get(name)(ctx) for name in bound_providers(path, regs))
+    """Build every bound implementation of a many-arity seat, in binding order (registration order when unbound)."""
+    from narranexus.kernel.plugins.bound import bound_entries
+
+    return tuple(entry.factory()(ctx) for entry in bound_entries(_registries(registries), path))
 
 
 __all__ = [
@@ -220,6 +174,7 @@ __all__ = [
     "EXPRESSION_DEFAULT",
     "EXPRESSION_POLICIES",
     "NAMESPACE",
+    "OWNER",
     "POLICY",
     "POLICY_LAYERS",
     "PROJECTOR",
@@ -230,9 +185,6 @@ __all__ = [
     "STOP_DEFAULT",
     "STOP_POLICIES",
     "SeatContext",
-    "bound_provider",
-    "bound_providers",
-    "ensure_registered",
     "resolve_many",
     "resolve_one",
     "slots",

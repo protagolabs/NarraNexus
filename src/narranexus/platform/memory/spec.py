@@ -16,7 +16,7 @@ A Spec is pure data + a few small pure callables — never the algorithm itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution, Registry
@@ -79,55 +79,45 @@ class MemoryKindSpec:
 # Kernel registry for slot ``agent.capabilities.memory_kinds`` (plugin platform,
 # batch 0). Specs are registered eagerly (the factory returns the spec itself);
 # ``replace=True`` keeps re-import idempotent.
-MEMORY_KIND_REGISTRY: Registry[MemoryKindSpec] = KERNEL_REGISTRIES.registry_for(
-    "agent.capabilities.memory_kinds"
-)
+MEMORY_KINDS_SLOT = "agent.capabilities.memory_kinds"
 _CONTRIBUTIONS: Dict[str, Contribution[MemoryKindSpec]] = {}
 
 
-def register_spec(spec: MemoryKindSpec, *, owner: str = "builtin.memory_kinds") -> MemoryKindSpec:
-    """Register (or replace) a kind's spec. Idempotent — re-import safe."""
+def memory_kind_registry(registries: Any = None) -> Registry[MemoryKindSpec]:
+    """The registry for slot ``agent.capabilities.memory_kinds``, resolved at call time; populated by the host boot from the builtin.memory_kinds manifest."""
+    return (registries or KERNEL_REGISTRIES).registry_for(MEMORY_KINDS_SLOT)
+
+
+def declare_spec(spec: MemoryKindSpec) -> Contribution[MemoryKindSpec]:
+    """Make a kind's spec a Contribution a manifest can name (no registry write: the host boot registers what the manifests name)."""
     contribution: Contribution[MemoryKindSpec] = Contribution(spec.kind, lambda: spec)
     _CONTRIBUTIONS[spec.kind] = contribution
-    MEMORY_KIND_REGISTRY.register_contribution(contribution, owner=owner, replace=True)
+    return contribution
+
+
+def register_spec(spec: MemoryKindSpec, *, owner: str, registries: Any = None, replace: bool = False) -> MemoryKindSpec:
+    """Explicit registration (tests, an embedding host)."""
+    contribution = _CONTRIBUTIONS.get(spec.kind) or declare_spec(spec)
+    memory_kind_registry(registries).register_contribution(contribution, owner=owner, replace=replace)
     return spec
 
 
 def contribution_for(kind: str) -> Contribution[MemoryKindSpec]:
-    """The plugin-platform contribution behind a registered kind (for builtin manifests)."""
+    """The plugin-platform contribution behind a declared kind (for builtin manifests)."""
     return _CONTRIBUTIONS[kind]
 
 
 def get_spec(kind: str) -> MemoryKindSpec:
-    ensure_builtin_kinds()
-    spec = MEMORY_KIND_REGISTRY.try_get(kind)
+    spec = memory_kind_registry().try_get(kind)
     if spec is None:
         raise KeyError(f"No MemoryKindSpec registered for kind={kind!r}")
     return spec
 
 
-def ensure_builtin_kinds() -> None:
-    """Register the memory kinds the builtin manifests name, once, on first use.
-
-    builtin.memory_kinds lives under plugins/ (batch 6b): the platform never
-    imports it by name — the kernel resolves the manifest's contributions. Lazy
-    (not at import) so importing the plugin package first cannot recurse into a
-    half-initialised module; the objects registered are the same ones the
-    plugin registers at import, so either order ends in the same registry.
-    """
-    if MEMORY_KIND_REGISTRY.names():
-        return
-    from narranexus.kernel.plugins.builtins import register_builtin_provides
-
-    register_builtin_provides("agent.capabilities.memory_kinds")
-
-
 def all_kinds() -> List[str]:
-    ensure_builtin_kinds()
-    return list(MEMORY_KIND_REGISTRY.names())
+    return list(memory_kind_registry().names())
 
 
 def passive_kinds() -> List[str]:
     """Kinds eligible for the passive per-turn injection (distilled knowledge)."""
-    ensure_builtin_kinds()
-    return [e.name for e in MEMORY_KIND_REGISTRY.entries() if e.factory().passive]
+    return [e.name for e in memory_kind_registry().entries() if e.factory().passive]
