@@ -29,7 +29,10 @@ def home(tmp_path: Path, monkeypatch):
 
 
 def test_every_template_kind_exists():
-    assert KINDS == ["bundle", "hook", "mcp_server", "routes", "settings", "skill", "table", "theme", "tool", "ui_page", "ui_panel", "worker"]
+    assert KINDS == [
+        "bundle", "channel", "context_provider", "hook", "mcp_server", "pipeline_profile", "routes", "settings",
+        "skill", "stage_strategy", "table", "theme", "tool", "ui_page", "ui_panel", "worker",
+    ]
 
 
 @pytest.mark.parametrize("kind", KINDS)

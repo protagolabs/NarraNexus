@@ -93,7 +93,7 @@
       "nxplugins.acme_hello_world:WORKERS"
     ],
     "backend.hooks": [
-      "nxplugins.acme_hello_world:HOOKIMPLS"
+      "nxplugins.acme_hello_world:HOOKS"
     ],
     "backend.settings": [
       "nxplugins.acme_hello_world:SETTINGS"

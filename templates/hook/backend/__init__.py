@@ -9,7 +9,7 @@ async def after_turn(run_id, agent_id):
     SEEN.append(f"{agent_id}:{run_id}")
 
 
-HOOKIMPLS = (after_turn,)
+HOOKS = (after_turn,)
 
 
 def activate(ctx):

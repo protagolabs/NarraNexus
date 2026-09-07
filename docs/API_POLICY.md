@@ -67,7 +67,7 @@ breaking change to a slot's contract ships as a new slot, never as an edit.
 Security fixes may shorten or skip the deprecation window; the release notes must say so
 explicitly.
 
-## 6. Route prefixes: builtin vs third-party
+## 7. Route prefixes: builtin vs third-party
 
 A builtin plugin's routers keep the absolute prefixes the product always had
 (`/api/agents/...`, `/api/jobs`, `/api/skills`, `/api/teams`, ...): the frontend and
@@ -76,3 +76,30 @@ plugin's routers are confined to `/api/x/<plugin id>` (the host refuses anything
 else). This is the one deliberate difference between the two; both are declared
 the same way (`backend.routes` in the manifest, a `RouterSpec` in the plugin's
 own package). Nothing under `backend/routes/` belongs to a plugin any more.
+
+## 8. Naming conventions for contribution symbols
+
+A manifest's `provides` names module-level symbols; the vocabulary is fixed so a
+reader can tell from the name what a symbol holds and a template composes
+without renaming:
+
+- A **many-arity** slot is filled by an UPPER_SNAKE plural noun holding a tuple
+  of `Contribution`: `ROUTES`, `TABLES`, `WORKERS`, `SETTINGS`, `TOOLS`,
+  `MCP_SERVERS`, `BUNDLES`, `SKILLS`, `RECALL_STRATEGIES` (per stage:
+  `<STAGE>_STRATEGIES`), `PROFILES`, `CONTEXT_PROVIDERS`, `TRIGGERS`, `MODULES`,
+  `CHANNEL` (one descriptor per channel plugin). Builtin plugins use
+  `CONTRIBUTIONS` when the plugin is the slot's whole builtin set (e.g. the
+  prompt sections).
+- A **one-arity** slot is filled by a single `Contribution` named `CONTRIBUTION`
+  (a framework driver, the prompt assembler, the pipeline).
+- `backend.hooks` names `HOOKS`: a tuple of `@hookimpl(name)` functions.
+- A framework plugin's static facts live in `META` (a `FrameworkMeta`) and are
+  carried as `Contribution.meta["framework"]`.
+- The registered **name** of a contribution is what other plugins refer to (a
+  profile names a strategy, a binding names `plugin:name`): lower_snake, unique
+  within the slot, prefixed with the plugin package name for third-party
+  contributions (`acme_weather_recall`) so two plugins never collide.
+
+Renaming a symbol a manifest names is a breaking change for that plugin only
+(the manifest is edited with it); renaming a contribution **name** is a breaking
+change for everyone who binds or references it and follows §4.

@@ -56,7 +56,7 @@ class HookImpl:
 
 @dataclass(frozen=True)
 class HookImplSpec:
-    """What a plugin declares in its manifest-referenced ``HOOKIMPLS``: the hook name, the function, the flags.
+    """What a plugin declares in its manifest-referenced ``HOOKS``: the hook name, the function, the flags.
 
     Owner and accepted parameters are NOT here — the loader stamps the owner
     from the manifest (a plugin cannot implement a hook on another's behalf)

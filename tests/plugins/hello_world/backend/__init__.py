@@ -79,7 +79,7 @@ async def after_turn(run_id, agent_id):
     HOOK_CALLS.append(f"{agent_id}:{run_id}")
 
 
-HOOKIMPLS = (after_turn,)
+HOOKS = (after_turn,)
 SETTINGS = (Contribution("schema", lambda: SettingsSchema({"greeting": SettingField("string", default="hi"), "token": SettingField("string", secret=True)})),)
 
 

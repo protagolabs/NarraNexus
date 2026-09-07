@@ -44,7 +44,7 @@ def fake_module(monkeypatch):
     def on_start(run_id):
         calls.append(("start", run_id))
 
-    mod.HOOKIMPLS = (after_turn, on_start)
+    mod.HOOKS = (after_turn, on_start)
     mod.BAD_HOOKS = (hookimpl("onDidNeverExist")(lambda: None),)
     mod.calls = calls
     monkeypatch.setitem(sys.modules, MOD, mod)
@@ -79,7 +79,7 @@ def test_routes_and_tables_land_in_their_registries_under_the_plugin_owner(fake_
 
 def test_hook_impls_register_under_manifest_id_and_fire(fake_module):
     registries = Registries()  # host events are declared by the kernel
-    manifest = _manifest(registries, {"backend.hooks": [f"{MOD}:HOOKIMPLS"]})
+    manifest = _manifest(registries, {"backend.hooks": [f"{MOD}:HOOKS"]})
     report = load(registries, [manifest], role="backend")
     assert not report.errors
     assert report.loaded[0].entries == 2
