@@ -81,7 +81,7 @@ from narranexus.platform.utils import is_valid_timezone
 from narranexus.platform.agent_runtime.background_run import run_is_live
 from narranexus.platform.settings import settings as app_settings
 from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
-from narranexus.platform.bundle.channel_credential_tables import channel_binding_tables
+from narranexus.platform.channel.binding_tables import bound_channels_query, channel_binding_sources
 
 from pydantic import BaseModel
 from narranexus.platform.repository.user_settings_repository import UserSettingsRepository
@@ -827,14 +827,14 @@ async def get_agents(request: Request):
                 logger.error(f"[/api/auth/agents] llm summary enrichment failed: {e}")
 
         # Channel presence for the directory table: one UNION query across the
-        # channel-table registry (bundle/channel_credential_tables — the same
-        # list export/import and preflight use, so a new IM channel is one
-        # entry there), not one query per agent. Each branch carries the
-        # table's on/off column so the UI can tell "configured" from "live".
+        # binding sources (channel/binding_tables — one parameterised view of
+        # channel_credentials per registered IM channel, so a new channel needs
+        # no edit here), not one query per agent. Each branch carries the
+        # source's on/off column so the UI can tell "configured" from "live".
         # Only owned agents participate: exposing a public agent's
         # integrations would leak private account metadata to viewers.
-        binding_tables = channel_binding_tables()
-        channel_order = [channel for channel, _table, _active in binding_tables]
+        binding_sources = channel_binding_sources()
+        channel_order = [src.channel for src in binding_sources]
         bound_channels_by_agent: dict[str, list[BoundChannel]] = {
             aid: [] for aid in agent_ids
         }
@@ -842,20 +842,9 @@ async def get_agents(request: Request):
             row["agent_id"] for row in rows if row.get("created_by") == user_id
         ]
         if owned_agent_ids:
-            owned_placeholders = ",".join(["%s"] * len(owned_agent_ids))
-            union_parts = [
-                f"SELECT '{channel}' AS channel_name, agent_id, "
-                f"{active_col if active_col else '1'} AS active "
-                f"FROM {table} WHERE agent_id IN ({owned_placeholders})"
-                for channel, table, active_col in binding_tables
-            ]
+            query, params = bound_channels_query(binding_sources, owned_agent_ids)
             try:
-                # Every UNION branch carries the same IN(...) list, so the
-                # parameter tuple is the id list repeated once per branch.
-                channel_rows = await db_client.execute(
-                    " UNION ALL ".join(union_parts),
-                    tuple(owned_agent_ids) * len(binding_tables),
-                )
+                channel_rows = await db_client.execute(query, params)
                 # channel → active; a channel with any live row counts as live.
                 channel_state: dict[str, dict[str, bool]] = {
                     aid: {} for aid in owned_agent_ids

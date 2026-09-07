@@ -324,3 +324,7 @@ dict,放 callable 是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,所
 ## 2026-09-07 — cost scope entered unconditionally again; event binding delegated to the pipeline
 
 The pipeline extraction had moved cost_event_scope inside the yield loop, so every helper-LLM call between Ingress creating the Event and the first yielded message (all of Recall and Compose) — and 100% of a zero-yield turn (silent ingest, callback run) — was booked to the ambient id, i.e. the PARENT event of a nested callback run. Restored the original invariant: cost_event_scope(None) is entered before the pipeline runs (a run with no Event must reset the ambient id, never inherit it; bind_event stays conditional because inheriting run_id in logs is wanted), and TurnServices.bind_event is a callback the pipeline invokes the moment ctx.event exists, entering bind_event + cost_event_scope(event_id) on the same ExitStack so they unwind together on every exit path.
+
+## 2026-09-07 — step bodies and the two turn helpers moved to agent_runtime.steps
+
+The nine step imports kept only so 'ar.step_*' resolved for the turn plugin are gone, together with _turn_timing_line / _stream_step3_with_interrupt_drain / INTERRUPT_DRAIN_BUDGET_S (now public in steps.py). agent_runtime.py imports only RunContext; the stage strategies call the steps through the public surface.

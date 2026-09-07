@@ -48,10 +48,10 @@ class AgentLoopAct:
     stage = Stage.ACT
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from narranexus.platform.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import steps as ar
 
         ctx, s = inputs.ctx, inputs.services
-        async for msg in ar._stream_step3_with_interrupt_drain(ar.step_3_execute_path(ctx, s.db_client, s.response_processor), ctx.cancellation):
+        async for msg in ar.stream_with_interrupt_drain(ar.step_3_execute_path(ctx, s.db_client, s.response_processor), ctx.cancellation):
             yield msg
         if ctx.cancellation.is_cancelled:
             _mark_interrupted(ctx)

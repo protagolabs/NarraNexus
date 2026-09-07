@@ -715,3 +715,7 @@ The registry view is the only module table; usages renamed.
 Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
 
 Fix 2026-09-07 (fresh-install journey): `_mark_first_agent_created()` flips the onboarding step when an agent is created through the API (best-effort, idempotent), so the welcome flow does not depend on the frontend posting it.
+
+## 2026-09-07 — agents directory channel UNION is fully parameterised
+
+The bound_channels enrichment builds its UNION through channel.binding_tables.bound_channels_query: channel names and agent ids are parameters, derived tables use index aliases. Behaviour (one query, owned agents only, degrade to [] on failure) unchanged.

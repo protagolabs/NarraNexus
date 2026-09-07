@@ -19,8 +19,8 @@ class DefaultCommit:
     stage = Stage.COMMIT
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from narranexus.platform.agent_runtime import agent_runtime as ar
-        from narranexus.platform.agent_runtime._agent_runtime_steps.step_5_execute_hooks import build_after_execution_params
+        from narranexus.platform.agent_runtime import steps as ar
+        from narranexus.platform.agent_runtime.steps import build_after_execution_params
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_4_persist_results(
@@ -34,7 +34,7 @@ class DefaultCommit:
         t = s.timings
         now = time.monotonic()
         logger.info(
-            ar._turn_timing_line(
+            ar.turn_timing_line(
                 agent_id=ctx.agent_id,
                 event_id=str(ctx.event.id) if ctx.event else "-",
                 source=str(ctx.working_source),

@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/channel.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -17,3 +17,7 @@ A channel was six scattered facts (trigger map row, module_registry entry, data-
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+## 2026-09-07 — channel name is ASCII [a-z0-9_]
+
+__post_init__ validates with a regex: str.isalnum() is Unicode-aware, so a name like 'café' passed a check whose message promised [a-z0-9_] and then became an invalid SQL alias / URL segment.

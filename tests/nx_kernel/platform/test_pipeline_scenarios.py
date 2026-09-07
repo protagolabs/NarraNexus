@@ -35,7 +35,7 @@ def patch_get_db(monkeypatch, db_client):
 @pytest.fixture(autouse=True)
 def stub_preparation_steps(monkeypatch):
     """Steps 1/1.5/2/2.5 call helper LLMs; the default Recall is stubbed here (the swapped one is real)."""
-    from narranexus.platform.agent_runtime import agent_runtime as ar
+    from narranexus.platform.agent_runtime import steps as ar
 
     async def _fake_step_1(ctx, narrative_service, session_service):
         ctx.narrative_list = []

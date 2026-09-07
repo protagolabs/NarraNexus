@@ -66,7 +66,7 @@ def stub_preparation_steps(monkeypatch):
     routing behaviour. Step 0 and Step 4 are left alone on purpose — the Event
     row the hooks operate on has to be real.
     """
-    from narranexus.platform.agent_runtime import agent_runtime as ar
+    from narranexus.platform.agent_runtime import steps as ar
 
     async def _fake_step_1(ctx, narrative_service, session_service):
         ctx.narrative_list = []

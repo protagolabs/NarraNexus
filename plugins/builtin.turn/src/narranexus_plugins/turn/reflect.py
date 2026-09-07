@@ -24,7 +24,7 @@ class BackgroundReflect:
     stage = Stage.REFLECT
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from narranexus.platform.agent_runtime import agent_runtime as ar
+        from narranexus.platform.agent_runtime import steps as ar
         from narranexus.platform.schema import ProgressMessage, ProgressStatus
         from narranexus.platform.utils.background_tasks import spawn as _spawn_bg
         from narranexus.platform.utils.cost_tracker import clear_cost_context

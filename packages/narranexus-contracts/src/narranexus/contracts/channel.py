@@ -23,6 +23,7 @@ Contract version: ``API_VERSIONS["channel"]``.
 from __future__ import annotations
 
 import importlib
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, Optional
 
@@ -70,6 +71,9 @@ class ChannelUi:
     order: int = 100
 
 
+_CHANNEL_NAME_RE = re.compile(r"[a-z0-9_]+")
+
+
 @dataclass(frozen=True)
 class ChannelDescriptor:
     name: str  # channel key ("lark"); also the WorkingSource value for inbound turns
@@ -94,7 +98,10 @@ class ChannelDescriptor:
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.name or not self.name.replace("_", "").isalnum() or self.name != self.name.lower():
+        # ASCII only: str.isalnum() is Unicode-aware, so 'café' used to pass a
+        # validator whose message promised [a-z0-9_]. The name becomes a table
+        # key, a WorkingSource enum member and a URL segment; keep it plain.
+        if not self.name or not _CHANNEL_NAME_RE.fullmatch(self.name):
             raise ValueError(f"channel name must be lowercase [a-z0-9_], got {self.name!r}")
         for ref in (self.trigger_ref, self.module_ref, self.credential_manager_ref):
             if ref and ref.count(":") != 1:

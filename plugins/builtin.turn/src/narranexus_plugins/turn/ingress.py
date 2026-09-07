@@ -23,9 +23,10 @@ class DefaultIngress:
     stage = Stage.INGRESS
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        # Steps are looked up on the agent_runtime module (not imported here) so
-        # the existing test seams that monkeypatch ``agent_runtime.step_*`` keep working.
-        from narranexus.platform.agent_runtime import agent_runtime as ar
+        # Steps are looked up on the public ``agent_runtime.steps`` surface (not
+        # bound at import) so the test seams that monkeypatch ``steps.step_*``
+        # keep working.
+        from narranexus.platform.agent_runtime import steps as ar
 
         ctx, s = inputs.ctx, inputs.services
         async for msg in ar.step_0_initialize(ctx, s.db_client, s.event_service, s.session_service):

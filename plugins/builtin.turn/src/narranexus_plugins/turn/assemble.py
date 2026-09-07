@@ -45,7 +45,7 @@ class LayeredPromptAssemble:
     stage = Stage.ASSEMBLE
 
     async def run(self, inputs: StageInputs) -> AsyncIterator[Any]:
-        from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import step_3_assemble_context
+        from narranexus.platform.agent_runtime.steps import step_3_assemble_context
         from narranexus.platform.schema.decision_schema import ExecutionPath
 
         ctx, s = inputs.ctx, inputs.services

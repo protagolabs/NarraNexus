@@ -108,9 +108,11 @@ async def test_enrichment_failure_degrades_instead_of_failing_the_route(client, 
     await _agent(db_client, "a1", "owner1")
 
     # A registry entry naming a table that does not exist breaks the UNION.
+    from narranexus.platform.channel.binding_tables import BindingSource
+
     monkeypatch.setattr(
-        auth_mod, "channel_binding_tables",
-        lambda: [("ghost", "no_such_table", None)],
+        auth_mod, "channel_binding_sources",
+        lambda: [BindingSource("ghost", "no_such_table", (), None)],
     )
 
     class _Boom:
