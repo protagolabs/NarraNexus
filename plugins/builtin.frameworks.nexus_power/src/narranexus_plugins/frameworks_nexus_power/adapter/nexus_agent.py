@@ -54,6 +54,50 @@ from narranexus.platform.utils.logging import timed
 
 _STREAM_LIMIT_BYTES = 32 * 1024 * 1024  # image-bearing lines reach 100s of KB
 _CANCEL_POLL_S = 0.2
+_STDERR_TAIL_BYTES = 4096
+
+
+def start_stderr_drain(process: asyncio.subprocess.Process) -> "asyncio.Task[bytes]":
+    """Read the runner's stderr continuously from the moment it is spawned.
+
+    stderr is a pipe with a ~64 KB kernel buffer. The runner logs to it
+    (module registrations at import, loguru, litellm's own logging), and a
+    chatty environment — local dev with litellm debug on — fills that buffer
+    mid-turn; the child then blocks on its next stderr write while the parent
+    sits in ``stdout.readline()`` waiting for the child's next event: a silent
+    deadlock (found 2026-09-06: the guide agent's first turn never finished).
+    Draining in the background keeps the pipe empty; only the tail is kept
+    and reported when the turn fails."""
+    stream = process.stderr
+    tail = bytearray()
+
+    async def _drain() -> bytes:
+        if stream is None:
+            return b""
+        while True:
+            chunk = await stream.read(65536)
+            if not chunk:
+                return bytes(tail)
+            tail.extend(chunk)
+            if len(tail) > _STDERR_TAIL_BYTES:
+                del tail[: len(tail) - _STDERR_TAIL_BYTES]
+
+    task = asyncio.create_task(_drain(), name=f"nexus-runner-stderr-{process.pid}")
+    setattr(process, "_nx_stderr_tail", task)
+    return task
+
+
+async def stderr_tail(process: asyncio.subprocess.Process) -> str:
+    """The last bytes the runner wrote to stderr (after it exited)."""
+    task = getattr(process, "_nx_stderr_tail", None)
+    if task is None:
+        if process.stderr is None:
+            return ""
+        return (await process.stderr.read())[-_STDERR_TAIL_BYTES:].decode("utf-8", errors="replace")
+    try:
+        return (await task).decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001 — a failed drain must not mask the turn's own error
+        return f"<stderr drain failed: {exc}>"
 
 
 class _WarmRunnerPool:
@@ -98,7 +142,7 @@ class _WarmRunnerPool:
         # setdefault runs. The child's environment is the only point that is
         # unambiguously earlier than every import it will do.
         env.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-        return await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
             "narranexus_plugins.frameworks_nexus_power.core.runner",
@@ -109,6 +153,9 @@ class _WarmRunnerPool:
             start_new_session=True,
             env=env,
         )
+        # From the first byte: an idle pooled runner already logs at import.
+        start_stderr_drain(process)
+        return process
 
     async def acquire(self) -> asyncio.subprocess.Process:
         process: asyncio.subprocess.Process | None = None
@@ -451,12 +498,10 @@ class NexusAgent:
                 if event is not None:
                     yield event
             await process.wait()
-            if process.returncode not in (0, None) and process.stderr:
-                stderr_tail = (await process.stderr.read())[-2000:].decode(
-                    "utf-8", errors="replace"
-                )
-                if stderr_tail.strip():
-                    logger.warning(f"[nexus_power] runner stderr tail: {stderr_tail}")
+            if process.returncode not in (0, None):
+                tail = await stderr_tail(process)
+                if tail.strip():
+                    logger.warning(f"[nexus_power] runner stderr tail: {tail}")
         finally:
             if steer_pump is not None:
                 steer_pump.cancel()

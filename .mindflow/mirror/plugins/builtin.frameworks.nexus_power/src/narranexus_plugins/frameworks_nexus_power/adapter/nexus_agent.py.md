@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/adapter/nexus_agent.py
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -111,3 +111,5 @@ queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因�
 (见 [[steer_channel.py]])然后 `continue`,**不**yield 给上层。两条路径都经 `serve_turn`(in-process 也调 serve_turn),
 所以拦截点对称。这把「消费证据」在 driver 层(bus 进程、有 DB)交回 producer,绕过 AgentRuntime 的 step 机构——
 5 层里最短的正确回路。
+
+Fix 2026-09-06 (found on a fresh install): `start_stderr_drain(process)` reads the runner's stderr continuously from spawn (bounded 4 KB tail via `stderr_tail`), because reading it only after exit let a chatty child fill the 64 KB pipe and deadlock the turn (child blocked on stderr write, parent waiting on stdout).
