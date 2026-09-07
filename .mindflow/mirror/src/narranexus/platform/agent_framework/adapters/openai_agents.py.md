@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/adapters/openai_agents.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 空 slot 的旧行为如实记录
+
+旧代码 `is_default = (model == "default")` 对空串为假，两条分支都 `return openai_config.model`，即把**空模型 id**
+发给上游（400）。现在空串与 `"default"` 哨兵同义——这是模型解析合一时唯一一处有意的可观察行为变化，docstring
+已写明；`tests/nx_kernel/contracts/test_resolve_model.py` 钉住新行为。
 
 ## 2026-09-03（批 1）— 模型解析合一
 

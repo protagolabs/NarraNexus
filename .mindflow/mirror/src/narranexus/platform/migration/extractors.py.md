@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/migration/extractors.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07 — openclaw MCP 配置文件名从 `OPENCLAW_ALIASES` 派生
+
+与 detector 同源；`clawdis.json` 也读。
 
 ## Why it exists
 

@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `API_VERSIONS` 的两类 key
+
+注释写明：有注册表的 kind（`framework/provider/llm_client/memory/tool/...`，对应 `Registry.api_version`）与没有
+注册表的契约模块版本（`agent/agent_events/services/ui/events`）共用一张表；`STABILITY` 覆盖两类。
+
 ## 2026-09-07 — `web` / `channel_authoring` 两个 alpha 条目（批 6c）
 
 它们**不是** manifest/slot kind，而是「插件作者会 import 的表面」：

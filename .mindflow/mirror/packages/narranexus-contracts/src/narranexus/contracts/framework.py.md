@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `InstallComponent` docstring 例子改中性串
+
+原例子写死了当时的 pin（`claude-agent-sdk==0.1.43`），pin 一 bump 契约文档就失真；现在用 `pkg==1.2.3` 形式，
+并指明真 pin 只在各框架插件的 `FrameworkInstall` 一处。
+
 ## 2026-09-03（批 1）— `FrameworkInstall` / `InstallComponent`（D7 吸收）
 
 框架的安装配方（pip/npm 组件与钉死版本、探测包名、展示哪个组件的版本、体积提示）成为契约数据

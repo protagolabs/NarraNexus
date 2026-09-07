@@ -95,9 +95,10 @@ class AgentLoopDriver(Protocol):
 class InstallComponent:
     """One pip wheel or npm package, version pinned inside ``requirement``.
 
-    ``requirement`` is passed to the package manager verbatim
-    (``"claude-agent-sdk==0.1.43"``, ``"@anthropic-ai/claude-code@2.1.220"``);
-    installers never re-derive a version.
+    ``requirement`` is passed to the package manager verbatim (an exact pip
+    pin such as ``"pkg==1.2.3"``, or an npm spec such as ``"@scope/pkg@1.2.3"``);
+    installers never re-derive a version. The live pins are typed exactly once,
+    in each framework plugin's ``FrameworkInstall``.
     """
 
     kind: Literal["pip", "npm"]

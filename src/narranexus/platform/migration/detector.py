@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from narranexus.platform.schema.migration_schema import (
+    OPENCLAW_ALIASES,
     Confidence,
     Framework,
     FrameworkDetection,
@@ -43,9 +44,10 @@ _SIGNALS: dict[Framework, dict] = {
         "weak": ["MEMORY.md", "USER.md", "AGENTS.md", "skills"],
     },
     "openclaw": {
-        # legacy dir names Hermes also recognises
-        "home_dirs": [".openclaw", ".clawdbot", ".moltbot"],
-        "strong": ["openclaw.json", "clawdbot.json", "moltbot.json", "SOUL.md"],
+        # every name the project has had (schema.OPENCLAW_ALIASES): a home dir
+        # and a config file per name, so an install from any era is detected
+        "home_dirs": [f".{name}" for name in OPENCLAW_ALIASES],
+        "strong": [f"{name}.json" for name in OPENCLAW_ALIASES] + ["SOUL.md"],
         "weak": ["MEMORY.md", "USER.md", "skills"],
     },
     "codex": {

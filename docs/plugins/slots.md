@@ -67,7 +67,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 |---|---|---|---|---|---|---|
 | `turn` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | Turn pipeline (stages, profiles, agent-loop framework) |
 | `turn.pipeline` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | The whole turn runtime; its provider declares the stage slots. |
-| `turn.pipeline.act` | many | `narranexus.contracts.agent.pipeline:ActStrategy` | — | `builtin.turn` | — | Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. |
+| `turn.pipeline.act` | many | `narranexus.contracts.agent.pipeline:ActStrategy` | — | `builtin.turn` | — | Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. ActStrategy is StageStrategy under a path-readable name; every stage slot shares that one contract. |
 | `turn.pipeline.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.turn` | — | Agent-loop framework used by the Act stage (framework plugins provide; names are case-insensitive). |
 | `turn.pipeline.act.framework.nexus_power` | one | `narranexus.contracts:Namespace` | `builtin.frameworks.nexus_power` | `builtin.frameworks.nexus_power` | — | Namespace owned by builtin.frameworks.nexus_power. |
 | `turn.pipeline.act.framework.nexus_power.compaction` | one | `narranexus_plugins.frameworks_nexus_power.core.contracts.protocols:CompactionPolicy` | `tool_result_pruner` | `builtin.frameworks.nexus_power` | — | How the ledger is compacted. |
@@ -90,14 +90,14 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `model` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Models (providers, clients, resolver) |
 | `model.clients` | many | `narranexus.contracts.llm_client:LlmClient` | — | `builtin.kernel` | — | Helper-LLM protocol clients (atomic call axis). |
 | `model.providers` | many | `narranexus.contracts.provider:ProviderDriver` | — | `builtin.kernel` | — | LLM provider drivers (credential/endpoint axis). |
-| `model.resolver` | one | `narranexus.contracts.llm_client:ModelResolver` | `builtin.providers` | `builtin.kernel` | — | Model-name resolution (the three legacy _resolve_model paths, unified in batch 1). |
+| `model.resolver` | one | `narranexus.contracts.llm_client:ModelResolver` | `builtin.providers` | `builtin.kernel` | — | Model-name resolution. Declared only: the helper clients call the pure rule contracts.llm_client.resolve_helper_model directly; no runtime consults this slot yet, so binding it today is a no-op. |
 
 ### Agent capabilities (modules, tools, memory kinds, MCP, data access)
 
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
 | `agent` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Agent capabilities (modules, tools, memory kinds, MCP, data access) |
-| `agent.capabilities` | one | `narranexus.contracts.agent.agent_spec:CapabilitySet` | `builtin.kernel` | `builtin.kernel` | — | Capability namespace; children are the four capability tiers. |
+| `agent.capabilities` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Capability namespace; children are the contribution slots of the five capability tiers (modules, context providers, tools, MCP servers, memory kinds, data access). |
 | `agent.capabilities.context_providers` | many | `narranexus.contracts.agent.capability:ContextProvider` | — | `builtin.kernel` | — | Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section. |
 | `agent.capabilities.data_access` | many | `narranexus.contracts.data_access:DataAccessSpec` | — | `builtin.kernel` | — | AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps). |
 | `agent.capabilities.mcp_servers` | many | `narranexus.contracts.mcp_server:McpServerSpec` | — | `builtin.kernel` | — | Site-level MCP servers merged into every agent's tool surface. |

@@ -84,13 +84,9 @@ class AnthropicHelperSDK:
             default=AnthropicHelperConfig.model,
             honour_requested=False,
         )
-        slot_model = anthropic_helper_config.model
-        if (
-            slot_model
-            and slot_model != DEFAULT_MODEL_SENTINEL
-            and requested_model
-            and requested_model != resolved
-        ):
+        # Log whenever a call-site preference was not honoured (this client
+        # never honours one); no second copy of the resolution rule here.
+        if requested_model and requested_model != resolved:
             logger.debug(
                 f"[AnthropicHelper] ignoring per-call model "
                 f"{requested_model!r} (OpenAI-flavored); using slot "

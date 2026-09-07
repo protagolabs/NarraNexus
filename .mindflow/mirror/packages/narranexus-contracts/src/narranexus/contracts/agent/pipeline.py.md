@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— `ActStrategy` 别名的定论
+
+所有 `turn.pipeline.<stage>` 位共享同一个 `StageStrategy` 契约，阶段由 `stage` 字段表达、绑定时校验，不编码进类型；
+`ActStrategy` 是给 Act 位一个路径可读名字的别名，**不是**子类型，其它阶段位直接指 `StageStrategy`（builtin.turn 的
+manifest 已如此）。写进代码注释。
+
 ## 2026-09-03 — `PipelineProfile`：把 fast/voice/job/silent 散开关收成一等对象
 
 一个 profile = 每阶段策略名 + `Budgets` + `CapabilityFilter` + 叙事持久化模式；`TurnOverride`

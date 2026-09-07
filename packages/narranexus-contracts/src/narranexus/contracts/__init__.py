@@ -30,6 +30,11 @@ from narranexus.contracts._base import (
     UnknownEntry,
 )
 
+# Two kinds of key share this table: registry kinds (the ``Registry.api_version``
+# of a slot that has a registry — ``framework`` / ``provider`` / ``llm_client`` /
+# ``memory`` / ``tool`` / ...) and contract modules without a registry
+# (``agent`` / ``agent_events`` / ``services`` / ``ui`` / ``events``), whose
+# version only tags the shapes they define. ``STABILITY`` covers both.
 API_VERSIONS: dict[str, int] = {
     "framework": 0,
     "agent_events": 0,

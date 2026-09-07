@@ -20,7 +20,7 @@ def test_builtin_frameworks_carry_framework_meta():
     assert metas["codex_cli"].install.probe_package == "openai_codex"
 
 
-def metas_install_component():
+def _claude_install_component():
     from narranexus.platform.agent_framework.loop.driver import framework_registry
     entry = next(e for e in framework_registry().entries() if e.name == "claude_code")
     return entry.meta["framework"].install.components[0]
@@ -34,5 +34,5 @@ def test_backend_installer_table_is_derived_from_the_registry():
     assert set(specs) == {"claude_code", "codex_cli"}
     assert specs["claude_code"].components[1].requirement.startswith("@anthropic-ai/claude-code@")
     # The component objects are the contract's own (no backend copy).
-    assert specs["claude_code"].components[0] is metas_install_component()
+    assert specs["claude_code"].components[0] is _claude_install_component()
     assert set(PluginService()._specs) == set(specs)

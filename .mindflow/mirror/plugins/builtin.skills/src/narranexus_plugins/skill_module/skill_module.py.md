@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— 别名词表只有一份：`schema.migration_schema.OPENCLAW_ALIASES`
+
+此前注释声称「与 migration detector 认的四个名字一致」是假的：detector 只认三个（无 `clawdis`）。现在
+`SKILL_METADATA_KEYS` 就是 `OPENCLAW_ALIASES`，detector/extractors 从它派生。测试钉住字面元组
+`("openclaw","clawdbot","clawdis","moltbot")`（不再拿常量自己参数化自己）以及三处派生关系。
+
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 
 本文件曾 import `narranexus.platform` 的下划线私有模块。批 6c 在拥有它的包上开出了

@@ -69,7 +69,7 @@
       "arity": "many",
       "contract": "narranexus.contracts.agent.pipeline:ActStrategy",
       "kind": "stage_strategy",
-      "doc": "Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it."
+      "doc": "Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. ActStrategy is StageStrategy under a path-readable name; every stage slot shares that one contract."
     },
     "turn.pipeline.act.framework": {
       "arity": "one",

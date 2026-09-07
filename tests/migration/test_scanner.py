@@ -81,11 +81,11 @@ def _mk_codex(home: Path):
     return d
 
 
-def _mk_openclaw(home: Path):
-    d = home / ".openclaw"
+def _mk_openclaw(home: Path, name: str = "openclaw"):
+    d = home / f".{name}"
     (d / "workspace").mkdir(parents=True)
     (d / "skills" / "s").mkdir(parents=True)
-    (d / "openclaw.json").write_text("{}", encoding="utf-8")
+    (d / f"{name}.json").write_text("{}", encoding="utf-8")
     (d / "workspace" / "SOUL.md").write_text("I am OpenClaw.", encoding="utf-8")
     (d / "workspace" / "MEMORY.md").write_text("- lives in Beijing", encoding="utf-8")
     return d
@@ -99,6 +99,15 @@ def test_detect_all(home):
     _mk_openclaw(home)
     found = {d.framework for d in detector.detect_all(home)}
     assert {"claude_code", "codex", "openclaw"} <= found
+
+
+@pytest.mark.parametrize("name", ["clawdbot", "clawdis", "moltbot"])
+def test_detect_every_openclaw_era_install(home, name):
+    # The project renamed three times; a home dir + config from any era is the same framework.
+    _mk_openclaw(home, name)
+    hits = [d for d in detector.detect_all(home) if d.framework == "openclaw"]
+    assert hits and hits[0].confidence == "high"
+    assert hits[0].path.endswith(f".{name}")
 
 
 def test_detect_enumerates_claude_projects(home):

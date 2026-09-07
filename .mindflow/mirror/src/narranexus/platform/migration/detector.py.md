@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/migration/detector.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— openclaw 信号从 `schema.OPENCLAW_ALIASES` 派生
+
+`home_dirs` = 每个别名一个 `~/.<name>`，`strong` = 每个别名一个 `<name>.json` + `SOUL.md`。此前三个名字手抄、
+漏了 `clawdis`（Clawdis 时代的安装扫不到）。`tests/migration/test_scanner.py` 对 clawdbot/clawdis/moltbot 三个
+时代的 home 逐个验 high 置信。
 
 ## Why it exists
 

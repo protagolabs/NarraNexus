@@ -8,7 +8,10 @@ The five tiers are not five mechanisms — they are the same ``Capability``
 contract with more or fewer cells of the capability × stage matrix filled
 (``TIER_STAGES`` is the table):
 
-    TOOL              Act only (``tools``)
+    TOOL              Act only (``tools``; a plugin's ``ToolProvider.list_tools`` —
+                      the MCP server behind a tool is declared through
+                      ``agent.capabilities.mcp_servers``, not through a tool
+                      participant's Assemble cell)
     CONTEXT_PROVIDER  Assemble only (instructions / turn context / data)
     SKILL             Assemble (its entry in the skills table) + Act (scripts)
     MEMORY_KIND       Recall (``recall``) + Commit + Reflect
@@ -136,9 +139,10 @@ STAGE_METHODS: Mapping[Stage, tuple[str, ...]] = {
     Stage.REFLECT: ("after_turn",),
 }
 
-# The stages each tier may fill. Compose is the platform's own stage (no
-# participant method); a capability whose participations exceed its tier is
-# mis-tiered and the runtime rejects it.
+# The stages each tier may fill — a stage-level upper bound that documents the
+# model; no validator enforces it yet (``participations()`` implementations
+# derive from it, nothing checks a capability against it). Compose is the
+# platform's own stage (no participant method).
 TIER_STAGES: Mapping[CapabilityTier, frozenset[Stage]] = {
     CapabilityTier.TOOL: frozenset({Stage.ACT}),
     CapabilityTier.CONTEXT_PROVIDER: frozenset({Stage.ASSEMBLE}),

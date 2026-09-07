@@ -382,7 +382,14 @@ MCPs: {mcp_tools}
 
     @property
     def meta(self) -> CapabilityMeta:
-        """``CapabilityMeta`` derived from the module's own ``ModuleConfig``."""
+        """``CapabilityMeta`` derived from the module's own ``ModuleConfig``.
+
+        Static description only. ``ModuleConfig.enabled`` is per-agent state
+        and stays on ``self.config`` (the value ``CapabilitySet.is_enabled``
+        takes as its default); it is deliberately NOT folded into
+        ``requires``, which names runtime requirements, so the runtime has one
+        source of truth for "is this capability on for this agent".
+        """
         config = self.config
         return CapabilityMeta(
             name=config.name,
@@ -395,7 +402,6 @@ MCPs: {mcp_tools}
             provides_chat_history=type(self).provides_chat_history(),
             context_cost_hint=config.context_cost_hint,
             instance_prefix=config.effective_instance_prefix(),
-            requires={"enabled": config.enabled},
         )
 
     def participations(self) -> "dict[Stage, Any]":

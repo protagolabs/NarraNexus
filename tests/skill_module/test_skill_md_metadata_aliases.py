@@ -28,6 +28,17 @@ Use `curl` with `$WEATHER_KEY`.
 """
 
 
+def test_the_alias_vocabulary_is_pinned_and_shared_with_the_migration_scanner():
+    # Literal, not derived: dropping an alias must fail here, not silently shrink the parametrization below.
+    assert SKILL_METADATA_KEYS == ("openclaw", "clawdbot", "clawdis", "moltbot")
+    from narranexus.platform.migration.detector import _SIGNALS
+    from narranexus.platform.schema.migration_schema import OPENCLAW_ALIASES
+
+    assert SKILL_METADATA_KEYS is OPENCLAW_ALIASES
+    assert _SIGNALS["openclaw"]["home_dirs"] == [f".{n}" for n in OPENCLAW_ALIASES]
+    assert set(f"{n}.json" for n in OPENCLAW_ALIASES) <= set(_SIGNALS["openclaw"]["strong"])
+
+
 @pytest.mark.parametrize("key", SKILL_METADATA_KEYS)
 def test_every_alias_yields_the_same_requirements(tmp_path, key):
     skill_dir = tmp_path / "weather"

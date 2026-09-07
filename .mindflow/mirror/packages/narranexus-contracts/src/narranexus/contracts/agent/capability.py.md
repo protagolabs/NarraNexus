@@ -1,8 +1,15 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/agent/capability.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— tier 表的口径
+
+批 1 复审指出 TOOL 档 `{ACT}` 与「工具面只能经 Assemble 的 `contribute_tools` 产出」矛盾。本分支的模型已经不同：
+工具插件走 `contracts.tool.ToolProvider.list_tools`（Act），MCP server 经 `agent.capabilities.mcp_servers` 位声明，
+所以 TOOL = Act-only 在这里是自洽的，表保持不变，docstring 把这条依据写明。另外去掉了「runtime rejects it」——
+今天没有任何校验器按 `TIER_STAGES` 拒绝能力（`participations()` 只从它派生），表是阶段级上界的文档。
 
 ## 2026-09-04（批 3b）— `ContextProvider` 加 `@runtime_checkable`（Assemble 用 isinstance 筛提供者）
 

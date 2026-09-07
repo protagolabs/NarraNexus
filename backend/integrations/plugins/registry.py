@@ -15,6 +15,8 @@ and the invariant "installer pin == locked version" is guarded by
 """
 from __future__ import annotations
 
+from typing import Any
+
 from narranexus.contracts.framework import FrameworkMeta
 from narranexus.platform.agent_framework.loop.driver import framework_registry
 
@@ -36,11 +38,15 @@ def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
     )
 
 
-def build_plugin_specs() -> dict[str, PluginSpec]:
-    """Installable plugins = registered frameworks that declare an install recipe."""
+def build_plugin_specs(registries: Any = None) -> dict[str, PluginSpec]:
+    """Installable plugins = registered frameworks that declare an install recipe.
 
+    Derived from the framework registry at call time (``registries`` defaults
+    to the process registries, as ``framework_registry`` does), so a framework
+    registered after an earlier build shows up in the next one.
+    """
     specs: dict[str, PluginSpec] = {}
-    for entry in framework_registry().entries():
+    for entry in framework_registry(registries).entries():
         meta = entry.meta.get("framework")
         if isinstance(meta, FrameworkMeta) and meta.install is not None:
             specs[entry.name] = _spec_from_meta(meta)

@@ -40,6 +40,7 @@ from narranexus.platform.schema import (
     MCPServerConfig,
     ContextData,
 )
+from narranexus.platform.schema.migration_schema import OPENCLAW_ALIASES
 from narranexus.platform.schema.skill_schema import SkillInfo
 from narranexus.platform.utils.plugin_contributions import plugin_skills
 from narranexus.platform.utils import DatabaseClient
@@ -322,12 +323,12 @@ async def platform_env_available(db, user_id: Optional[str]) -> set:
 
 
 # The OpenClaw / ClawHub skill format declares runtime requirements under
-# ``metadata.openclaw`` and accepts the older ``clawdbot`` and ``clawdis``
-# spellings as aliases, plus ``moltbot`` (the migration detector knows the same
-# four names). First present key wins,
-# newest name first, so a skill published under any of the three names gates
-# its env/bins the same way regardless of which name it was published under.
-SKILL_METADATA_KEYS: tuple[str, ...] = ("openclaw", "clawdbot", "clawdis", "moltbot")
+# ``metadata.<name>`` where <name> is any of the project's names; the vocabulary
+# is ``schema.migration_schema.OPENCLAW_ALIASES`` (shared with the migration
+# scanner, so both sides recognise the same installs). First present key wins,
+# current name first, so a skill published under any of the names gates its
+# env/bins the same way.
+SKILL_METADATA_KEYS: tuple[str, ...] = OPENCLAW_ALIASES
 
 
 def _skill_runtime_requires(metadata_field: dict) -> dict:

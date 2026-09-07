@@ -28,11 +28,11 @@ dict）是为了让 `_installers/` 和 `service.py` 都对着同一套强类型�
 
 ## 上下游关系
 
-- **被谁用**：`registry.py` 用它构造 `PLUGIN_SPECS`；`_installers/*.py` 的
+- **被谁用**：`registry.py` 的 `_spec_from_meta` 把每个带安装配方的框架 `FrameworkMeta` 变成一条 `PluginSpec`；`_installers/*.py` 的
   `install/detect/uninstall` 签名都接收 `InstallComponent`；`service.py`
   遍历 `PluginSpec.components` 派发给对应 installer。
-- **依赖谁**：只依赖标准库 `dataclasses`/`typing`，不 import 包内任何其他
-  模块——它是这个包的地基,不能反过来依赖上层。
+- **依赖谁**：`narranexus.contracts.framework.InstallComponent`（re-export）与标准库 `dataclasses`/`typing`；
+  它是这个包里最底层的文件，不 import 包内其它模块。
 
 ## 设计决策
 

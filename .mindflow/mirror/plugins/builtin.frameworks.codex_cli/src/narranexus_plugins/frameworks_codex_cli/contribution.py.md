@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — pin 的设计理由
+
+`openai-codex==0.1.0b3` 是手抄的精确 pin（pyproject 是范围约束，安装器要具体版本），`test_pip_pins_match_uv_lock`
+拿 uv.lock 对账；升级下限时必须同步改这里，否则插件商店继续装旧版。
+
 # builtin.frameworks.codex_cli — contribution.py
 
 The `agent.frameworks` contribution of the Codex CLI framework: `CONTRIBUTION` = name `codex_cli`, lazy factory building `CodexSDKv2` after `plugin_paths.activate_pyenv()`, and the install spec (npm `@openai/codex` CLI pin + exact pip pin of the Codex SDK). Registered by the kernel from the builtin manifest (batch 6b.2b).

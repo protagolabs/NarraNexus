@@ -56,13 +56,13 @@
 # "model.clients" = ["builtin.llm_clients:anthropic", "builtin.llm_clients:openai", "builtin.llm_clients:cli"]
 # model.providers: LLM provider drivers (credential/endpoint axis).  candidates: builtin.providers
 # "model.providers" = ["builtin.providers:custom_anthropic", "builtin.providers:custom_openai", "builtin.providers:netmind", "builtin.providers:netmind_free", "builtin.providers:yunwu", "builtin.providers:openrouter", "builtin.providers:claude_oauth", "builtin.providers:codex_oauth"]
-# model.resolver: Model-name resolution (the three legacy _resolve_model paths, unified in batch 1).  candidates: (nothing registered)
+# model.resolver: Model-name resolution. Declared only: the helper clients call the pure rule contracts.llm_client.resolve_helper_model directly; no runtime consults this slot yet, so binding it today is a no-op.  candidates: (nothing registered)
 # "model.resolver" = "builtin.providers"
 
 # ── Agent capabilities (modules, tools, memory kinds, MCP, data access)
 # agent: Agent capability domain root.  candidates: (nothing registered)
 # "agent" = "builtin.kernel"
-# agent.capabilities: Capability namespace; children are the four capability tiers.  candidates: (nothing registered)
+# agent.capabilities: Capability namespace; children are the contribution slots of the five capability tiers (modules, context providers, tools, MCP servers, memory kinds, data access).  candidates: (nothing registered)
 # "agent.capabilities" = "builtin.kernel"
 # agent.capabilities.context_providers: Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section.  candidates: (nothing registered)
 # "agent.capabilities.context_providers" = []

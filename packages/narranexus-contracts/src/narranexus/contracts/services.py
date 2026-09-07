@@ -33,18 +33,39 @@ T = TypeVar("T")
 
 @runtime_checkable
 class DatabaseBackend(Protocol):
-    """Slot ``kernel.db``: the dialect-specific database driver."""
+    """Slot ``kernel.db``: the dialect-specific database driver.
 
-    dialect: str
+    Traced from ``narranexus.platform.utils.db.db_backend.DatabaseBackend`` (the
+    ABC the sqlite / sqlite_proxy / mysql backends implement) — same name on
+    purpose: it IS that service, seen through the slot. Only the driver
+    subset is the contract (``execute`` / ``execute_write`` / ``probe`` /
+    ``placeholder`` / ``dialect``); the CRUD helpers are the
+    AsyncDatabaseClient's business. ``probe`` returns ``None`` and raises on
+    failure, exactly as the ABC does.
+    ``tests/nx_kernel/contracts/test_services_shapes.py`` pins signature
+    parity with the ABC so the two cannot drift silently.
+    """
 
-    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any: ...
+    @property
+    def dialect(self) -> str: ...
 
-    async def probe(self) -> bool: ...
+    @property
+    def placeholder(self) -> str: ...
+
+    async def execute(self, query: str, params: Optional[tuple] = None) -> list[dict[str, Any]]: ...
+
+    async def execute_write(self, query: str, params: Optional[tuple] = None) -> int: ...
+
+    async def probe(self) -> None: ...
 
 
 @runtime_checkable
 class SecretStore(Protocol):
-    """Slot ``kernel.secrets``: secrets encrypted at rest, keyed by owner + name."""
+    """Slot ``kernel.secrets``: secrets encrypted at rest, keyed by owner + name.
+
+    Shaped after the marketplace ``SecretBox`` (a value encrypted / decrypted
+    at rest); the owner + name addressing is the slot's own.
+    """
 
     def get(self, owner: str, name: str) -> str | None: ...
 
@@ -55,14 +76,18 @@ class SecretStore(Protocol):
 
 @runtime_checkable
 class AuthProvider(Protocol):
-    """Slot ``kernel.auth`` (distribution-only): resolves a request to an identity or ``None``."""
+    """Slot ``kernel.auth`` (distribution-only): resolves a request to an identity or ``None``.
 
-    def authenticate(self, request: Any) -> Awaitable[Mapping[str, Any] | None]: ...
+    The request → identity step of the backend auth middleware: a mapping of
+    claims, or ``None`` for an anonymous request.
+    """
+
+    async def authenticate(self, request: Any) -> Mapping[str, Any] | None: ...
 
 
 @runtime_checkable
 class EventSink(Protocol):
-    """Slot ``kernel.events``: where host events are emitted."""
+    """Slot ``kernel.events``: where host events are emitted (``narranexus.kernel.events.EventBus.emit``)."""
 
     async def emit(self, name: str, payload: Mapping[str, Any]) -> Any: ...
 

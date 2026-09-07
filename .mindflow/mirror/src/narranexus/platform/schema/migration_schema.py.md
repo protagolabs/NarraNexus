@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/schema/migration_schema.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— `OPENCLAW_ALIASES`
+
+OpenClaw 生态的全部曾用名（openclaw / clawdbot / clawdis / moltbot）唯一定义处，供 builtin.skills 的 skill_module
+（`metadata.<name>`）与 `platform/migration`（home 目录、配置文件名）共用；放在 schema 是因为插件与平台互不可
+反向 import，schema 是它们共同的下游。顺序即查找优先级（现名在前）。
 
 ## Why it exists
 

@@ -4,6 +4,15 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— 形状按真实实现抄，并写明来源
+
+`DatabaseBackend` 与 `platform/utils/db/db_backend.DatabaseBackend`（三个后端的 ABC）同名不同形是复审的
+Important：`execute` 关键字名（`sql` vs `query`）、默认值、`probe` 返回类型（`bool` vs `None`）都对不上。现在契约照抄
+ABC 的 `execute/execute_write/probe/placeholder/dialect` 子集（同名是有意的——它就是那个服务经由 slot 的视图），
+`tests/nx_kernel/contracts/test_services_shapes.py` 用 `inspect.signature` 钉住参数名与默认值一致、`SQLiteBackend`
+结构化满足契约。`SecretStore`/`AuthProvider`/`EventSink` 的形状来源写进 docstring；`AuthProvider.authenticate`
+改为 `async def` 与同文件其它 Protocol 一致。`ServiceRef` 部分不动。
+
 ## 2026-09-07 — 三条 ServiceRef 从内核搬来，`ServiceRef` 本身也搬来了（批 6c，A2-3）
 
 `skills.workspaces` / `jobs.instances` / `jobs.run_once` 原来住在

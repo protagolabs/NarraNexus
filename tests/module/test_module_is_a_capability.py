@@ -42,6 +42,8 @@ def test_module_satisfies_the_capability_contract():
     assert isinstance(m, Capability)
     assert m.meta.name == "_Mod" and m.meta.tier is CapabilityTier.MODULE and m.meta.priority == 7
     assert m.meta.instance_prefix == "probe" and m.meta.context_cost_hint == 120 and m.meta.always_load
+    # per-agent state is not part of the static description
+    assert dict(m.meta.requires) == {} and m.config.enabled is True
     stages = m.participations()
     assert set(stages) == set(TIER_STAGES[CapabilityTier.MODULE]) - {Stage.RECALL, Stage.ACT}
     for stage, participant in stages.items():

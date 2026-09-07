@@ -48,8 +48,12 @@ class TurnPipeline(Protocol):
     def run(self, ingress: Any, profile: "PipelineProfile") -> AsyncIterator[Any]: ...
 
 
-# The Act stage's strategy (slot ``turn.pipeline.act``) has the shape every
-# other stage strategy has; the name exists so the slot tree can point at it.
+# Decision (batch 1 review): every stage slot (``turn.pipeline.<stage>``) shares
+# the ONE ``StageStrategy`` contract; the stage a strategy serves is its
+# ``stage`` field, checked when the slot is bound, not encoded in the type.
+# ``ActStrategy`` is an alias — not a subtype — that gives the Act slot a
+# path-readable contract name. No further per-stage aliases: the other stage
+# slots point at ``StageStrategy`` directly.
 ActStrategy = StageStrategy
 
 

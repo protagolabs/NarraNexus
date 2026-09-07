@@ -36,6 +36,7 @@ from loguru import logger
 
 from narranexus.platform.schema.migration_schema import (
     AWARENESS_IMPORT_CHAR_LIMIT,
+    OPENCLAW_ALIASES,
     Framework,
     MigrationAgent,
     MigrationCustom,
@@ -387,7 +388,7 @@ def _extract_soul_based(base: Path, fw: Framework):
                                       source_file=user_file))
     skills = _skills_from_dir(base / "skills", fw)
     mcp: List[MigrationMcpServer] = []
-    for cfg_name in ("openclaw.json", "clawdbot.json", "moltbot.json"):
+    for cfg_name in (f"{name}.json" for name in OPENCLAW_ALIASES):
         cfg = _load_json(base / cfg_name)
         mcp += _mcp_from_dict(cfg.get("mcpServers") or cfg.get("mcp_servers") or {})
     custom = MigrationCustom(credential_keys=_env_keys(base))

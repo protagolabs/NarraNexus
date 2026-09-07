@@ -4,6 +4,16 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— 两条种子位更正
+
+- `agent.capabilities`：契约从值对象 `agent_spec:CapabilitySet` 改回 `namespace_slot`（它是分组位，与兄弟域根一致），
+  doc 由「four capability tiers」改为「五个能力档的贡献位（modules / context providers / tools / MCP servers /
+  memory kinds / data access）」。
+- `model.resolver`：doc 老实写「只声明；helper 客户端直接调纯函数 `resolve_helper_model`，今天没有运行时消费这个位，
+  绑定它是 no-op」。默认提供者字符串保留待接线时一并处理。
+`turn.pipeline.act` 位由 builtin.turn 的 manifest 声明，其 doc 同步说明 `ActStrategy` 只是 `StageStrategy` 的可读别名。
+`docs/plugins/slots.md` 由生成器重生成，`narranexus.toml.example` 两行手工同步。
+
 ## 2026-09-07 — 新增 `ingress.message_sources` 种子位（无 kind）
 
 给「不是渠道的消息来源」一个位：消息总线（`builtin.message_bus`）、Job 时钟

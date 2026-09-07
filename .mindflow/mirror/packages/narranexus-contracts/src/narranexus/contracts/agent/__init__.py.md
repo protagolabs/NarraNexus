@@ -1,8 +1,15 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/agent/__init__.py
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 门面补齐三张表；三个 `events` 的分工
+
+`STAGE_METHODS` / `TIER_STAGES` / `BUILTIN_PROFILE_IDS` 进门面 `__all__`（此前只导出 `STAGE_HOOKS`，消费方要记
+哪张表在门面、哪张要下钻）。包 docstring 写明三个同名模块的分工：`contracts.agent.events` = 阶段 hook 名；
+`contracts.agent_events` = agent loop 的线协议事件字典；`contracts.events` = 宿主事件总线名。不改文件名：
+`agent_events` 已进 `API_VERSIONS` key、golden 文件名与全部 importer。
 
 ## 2026-09-03 — Agent 纵横模型的契约包（spec §7，D23）
 

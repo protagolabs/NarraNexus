@@ -283,6 +283,11 @@ class OpenAIAgentsSDK:
         system preset (``OpenAIConfig.model``) applies. The old "official vs
         custom endpoint" distinction never changed the answer and is gone. The
         return value is always a concrete model identifier.
+
+        One deliberate behaviour change from the pre-contract code: an EMPTY
+        slot model used to fall through ``return openai_config.model`` and
+        send ``model=""`` upstream (a 400). It is now treated like the
+        ``"default"`` sentinel, as the other two helper clients always did.
         """
         from narranexus.platform.agent_framework.api_config import OpenAIConfig
 

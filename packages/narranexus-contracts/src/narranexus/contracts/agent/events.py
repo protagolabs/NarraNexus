@@ -4,6 +4,11 @@
 @date: 2026-09-03
 @description: The fourteen stage hooks: ``onWill<Stage>`` / ``onDid<Stage>`` for each of the seven stages.
 
+This is the HOOK vocabulary of the turn pipeline (declared on every process's
+``HookRegistry`` by ``Registries.__init__``). The agent loop's streamed event
+dicts live in ``narranexus.contracts.agent_events``; the host event bus names
+in ``narranexus.contracts.events``.
+
 Declared as ``HookSpec``-shaped tuples (name, params) so the kernel's hook
 registry can declare them without this leaf package importing the kernel.
 ``onWill*`` receives the stage's inputs and may return a replacement (first

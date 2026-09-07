@@ -1,7 +1,13 @@
 ---
 code_file: src/narranexus/platform/module_system/base.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— `meta` 不再夹带 `enabled`
+
+`CapabilityMeta` 是静态描述；`ModuleConfig.enabled` 是每 agent 状态，之前塞进 `meta.requires["enabled"]` 会与
+`CapabilitySet.is_enabled` 形成两个真源（`requires` 的语义是运行时依赖）。现在 `requires` 留空，`enabled` 只在
+`self.config` 上；`tests/module/test_module_is_a_capability.py` 钉住 `requires == {}`。全仓无消费方读过那个键。
 
 ## 2026-08-04 (review 修正) — working_source_matches 公共谓词
 
