@@ -105,4 +105,19 @@ describe('ChatClient', () => {
     await h3.done;
     expect(seen.slice(1)).toEqual([{ type: 'cancelled' }, { type: 'error', message: 'connection closed' }]);
   });
+
+  it('a socket close mid-answer (no complete/error/cancelled frame) reports `interrupted`, not `complete` — I-7', async () => {
+    // The backend does not cancel the run on WS disconnect; a partial answer that streamed
+    // in before the drop must never be reported as `complete`, or the caller renders a
+    // truncated reply as if it were the finished answer.
+    const client = new ChatClient({ agentId: 'a1', userId: 'u1', baseUrl: 'http://x', webSocket: FakeSocket as unknown as typeof WebSocket });
+    const seen: unknown[] = [];
+    const handle = client.send('question', (e) => seen.push(e));
+    await Promise.resolve();
+    const sock = FakeSocket.instances.at(-1)!;
+    sock.emit({ type: 'agent_response', delta: 'partial answer' });
+    sock.onclose?.(); // network drop: no complete/error/cancelled frame ever arrives
+    expect(await handle.done).toBe('partial answer');
+    expect(seen).toEqual([{ type: 'delta', text: 'partial answer' }, { type: 'interrupted', text: 'partial answer' }]);
+  });
 });

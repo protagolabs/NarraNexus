@@ -38,6 +38,7 @@ import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useNarrationTier } from '@/hooks/useNarrationTier';
 import { TIMELINE_EVENTS, useRegistryEntries } from '@/platform/registries';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface TurnTimelineProps {
   events: TurnEvent[];
@@ -343,7 +344,11 @@ export function TurnTimeline({
             const plugin = pluginEvents.find((p) => p.id === (event as { type: string }).type);
             if (!plugin) return null;
             const Custom = plugin.value.component;
-            return <Custom key={event.id} event={event as unknown as { id: string; type: string }} isStreaming={isStreaming} />;
+            return (
+              <PluginBoundary key={event.id} owner={plugin.owner}>
+                <Custom event={event as unknown as { id: string; type: string }} isStreaming={isStreaming} />
+              </PluginBoundary>
+            );
           }
         }
       })}

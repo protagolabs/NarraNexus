@@ -1418,6 +1418,7 @@
           "permissionsFilesystem": "الملفات",
           "permissionsSubprocess": "تشغيل عمليات فرعية",
           "permissionsEnv": "متغيرات البيئة",
+          "permissionsFrontend": "يشغّل تعليمات برمجية داخل واجهة التطبيق، مع إمكانية الوصول إلى جلستك",
           "permissionsAck": "فهمت، فعّلها",
           "permissionsKeepDisabled": "إبقاؤها معطّلة",
           "empty": "لا توجد إضافات مستخدم مثبتة.",

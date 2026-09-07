@@ -31,12 +31,29 @@ export type TurnEvent =
   | { type: 'delta'; text: string }
   | { type: 'complete'; text: string }
   | { type: 'error'; message: string; code?: string }
-  | { type: 'cancelled' };
+  | { type: 'cancelled' }
+  /**
+   * The socket closed without a `complete`/`error`/`cancelled` frame while
+   * text had already streamed in (network drop, proxy/idle timeout, tab
+   * suspend). The backend does NOT cancel the run on WS disconnect — the
+   * agent keeps running and writes its full answer to the turn record —
+   * so `text` here is a partial view, not the final answer. Distinguishing
+   * this from `complete` matters: showing a truncated reply as "done" is
+   * exactly the "content looks lost" failure this event exists to avoid.
+   */
+  | { type: 'interrupted'; text: string };
 
 export interface TurnHandle {
-  /** Ask the backend to stop the run (the socket answers with `cancelled`). */
+  /**
+   * Ask the backend to stop the run. The socket does NOT answer with a
+   * `cancelled` frame on `/ws/agent/run` — the backend acknowledges a stop
+   * request with `{"type":"stopping"}` (not currently surfaced as a
+   * `TurnEvent`); a `cancelled` frame has never been observed on this
+   * endpoint. `done` will settle via `interrupted` or `error` once the
+   * socket closes, not via a `cancelled` event.
+   */
   stop(): void;
-  /** Resolves when the turn ended (complete, error or cancelled). */
+  /** Resolves when the turn ended (complete, error, cancelled, or interrupted). */
   done: Promise<string>;
 }
 
@@ -148,7 +165,11 @@ export class ChatClient {
       }
     };
     socket.onerror = () => finish({ type: 'error', message: 'connection failed' });
-    socket.onclose = () => finish(buffer ? { type: 'complete', text: buffer } : { type: 'error', message: 'connection closed' });
+    // Only a `complete` frame means the turn actually finished; once one arrives `settled`
+    // is already true and this handler is a no-op (see `finish`'s guard). Reaching here with
+    // text already buffered means the connection dropped mid-answer — report `interrupted`,
+    // not `complete`, so the caller can distinguish "done" from "cut off".
+    socket.onclose = () => finish(buffer ? { type: 'interrupted', text: buffer } : { type: 'error', message: 'connection closed' });
     return {
       stop: () => {
         try {

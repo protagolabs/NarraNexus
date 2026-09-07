@@ -59,8 +59,8 @@ describe('ChatWidget', () => {
     expect(input.disabled).toBe(false);
   });
 
-  it('shows a transport error and drops the empty bubble', async () => {
-    render(<ChatWidget agentId="a1" userId="u1" baseUrl="http://x" fetch={fetchOk} webSocket={FakeSocket as unknown as typeof WebSocket} />);
+  it('shows a transport error and drops the empty bubble (no orphan assistant bubble left behind)', async () => {
+    const { container } = render(<ChatWidget agentId="a1" userId="u1" baseUrl="http://x" fetch={fetchOk} webSocket={FakeSocket as unknown as typeof WebSocket} />);
     await screen.findByText('earlier');
     fireEvent.change(screen.getByLabelText('message'), { target: { value: 'q' } });
     fireEvent.click(screen.getByText('Send'));
@@ -72,7 +72,50 @@ describe('ChatWidget', () => {
       await Promise.resolve();
     });
     expect(screen.getByText('quota exceeded')).toBeInTheDocument();
-    expect(screen.getAllByText(/./).filter((el) => el.className.includes('nx-chat__msg--assistant'))).toHaveLength(1);
+    // `getAllByText(/./)` only matches elements WITH text — the exact bug this pins is an
+    // empty (no text) orphan assistant `<div>`, which that query would never see. There is
+    // exactly one assistant bubble in the DOM (history's "reply"); the placeholder this
+    // turn added must have been removed, not left behind empty.
+    const assistantBubbles = container.querySelectorAll('.nx-chat__msg--assistant');
+    expect(assistantBubbles).toHaveLength(1);
+    expect(assistantBubbles[0]).toHaveTextContent('reply');
+    expect(container.querySelectorAll('.nx-chat__msg--user')).toHaveLength(2); // history's + this turn's
+  });
+
+  it('drops the empty bubble on cancellation with no accumulated text', async () => {
+    const { container } = render(<ChatWidget agentId="a1" userId="u1" baseUrl="http://x" fetch={fetchOk} webSocket={FakeSocket as unknown as typeof WebSocket} />);
+    await screen.findByText('earlier');
+    fireEvent.change(screen.getByLabelText('message'), { target: { value: 'q' } });
+    fireEvent.click(screen.getByText('Send'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      FakeSocket.last!.emit({ type: 'cancelled' });
+      await Promise.resolve();
+    });
+    // Only history's "reply" bubble remains; this turn's empty placeholder was removed.
+    const assistantBubbles = container.querySelectorAll('.nx-chat__msg--assistant');
+    expect(assistantBubbles).toHaveLength(1);
+    expect(assistantBubbles[0]).toHaveTextContent('reply');
+  });
+
+  it('shows the interrupted notice, keeps the partial text, and re-enables the composer (I-7)', async () => {
+    render(<ChatWidget agentId="a1" userId="u1" baseUrl="http://x" fetch={fetchOk} webSocket={FakeSocket as unknown as typeof WebSocket} />);
+    await screen.findByText('earlier');
+    fireEvent.change(screen.getByLabelText('message'), { target: { value: 'q' } });
+    fireEvent.click(screen.getByText('Send'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => FakeSocket.last!.emit({ type: 'agent_response', delta: 'partial' }));
+    await act(async () => {
+      FakeSocket.last!.onclose?.(); // dropped connection, no complete/error/cancelled frame
+      await Promise.resolve();
+    });
+    expect(screen.getByText('partial')).toBeInTheDocument(); // the partial reply is NOT discarded
+    expect(screen.getByText(/Connection interrupted/)).toBeInTheDocument();
+    expect(screen.getByText('Send')).toBeInTheDocument(); // composer unblocked, not stuck on "Stop"
   });
 
   it('reports a failed history load', async () => {

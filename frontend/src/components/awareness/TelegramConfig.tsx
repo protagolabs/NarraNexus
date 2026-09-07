@@ -34,7 +34,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { TelegramBindResponse, TelegramCredentialData, TelegramTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();

@@ -31,7 +31,7 @@ import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
 import {
-  STRIP_CATEGORIES,
+  allTabs,
   ArtifactsGlyph,
   deriveTabStatus,
   markTabOpened,
@@ -52,20 +52,19 @@ import { useWhenContext } from '@/platform/whenContext';
  *  pair are dropped here — they now live on the agent's Profile page and
  *  don't need a second door.
  *
- *  Hardcoded ids, NOT derived from STRIP_CATEGORIES (which is the unfiltered
- *  registry — `ALL_TAB_DEFS` below only looks defs up by id). The creation
- *  studio's `builder` tab is not in this list either: it is rendered as a
- *  CONDITIONAL first item via `builderOffered`, i.e. `visibleTabs(ctx)` — the
- *  ONE place the `conditional` rule is applied, shared with the ⌘K palette. A permanent entry would
- *  offer a panel the conversation does not drive; but once the drawer's tab
- *  switcher retired, this menu is the desktop's only way back into a studio
- *  the user collapsed — without it, "collapse" would silently mean "end". */
+ *  Hardcoded ids, NOT derived from `allTabs()` (which is the unfiltered,
+ *  registry-derived list — `tabDef` below only looks defs up by id). The
+ *  creation studio's `builder` tab is not in this list either: it is
+ *  rendered as a CONDITIONAL first item via `builderOffered`, i.e.
+ *  `visibleTabs(ctx)` — the ONE place the `conditional` rule is applied,
+ *  shared with the ⌘K palette. A permanent entry would offer a panel the
+ *  conversation does not drive; but once the drawer's tab switcher retired,
+ *  this menu is the desktop's only way back into a studio the user
+ *  collapsed — without it, "collapse" would silently mean "end". */
 const DETAIL_GROUP_A: AtomicTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
-const ALL_TAB_DEFS = STRIP_CATEGORIES.flatMap((c) => c.tabs);
-
 function tabDef(id: AtomicTabId) {
-  return ALL_TAB_DEFS.find((t) => t.id === id)!;
+  return allTabs().find((t) => t.id === id)!;
 }
 
 export interface ChatHeaderProps {

@@ -40,7 +40,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { WeChatCredentialData } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();

@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:packages": "npm run build --workspaces --if-present"
+    "build:packages": "npm run build --workspaces --if-present",
+    "sync:versions": "node scripts/sync_workspace_versions.mjs"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.22.1",

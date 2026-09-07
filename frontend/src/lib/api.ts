@@ -1491,8 +1491,16 @@ class ApiClient {
     });
   }
 
-  async factoryAction(id: string, action: 'enable' | 'disable' | 'uninstall' | 'upgrade' | 'acknowledge-permissions'): Promise<ApiResponse> {
-    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+  async factoryAction(
+    id: string,
+    action: 'enable' | 'disable' | 'uninstall' | 'upgrade' | 'acknowledge-permissions',
+    opts: { permissionsAcknowledged?: boolean } = {},
+  ): Promise<ApiResponse> {
+    // Only the acknowledge action carries a body: it is the one write that must record
+    // `permissions_acknowledged = true` server-side, the durable flag the disclosure modal
+    // uses to decide whether it must reopen after a reload.
+    const body = action === 'acknowledge-permissions' ? JSON.stringify({ permissions_acknowledged: opts.permissionsAcknowledged ?? true }) : undefined;
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST', ...(body !== undefined ? { body } : {}) });
   }
 
   async factoryBuiltinSetEnabled(id: string, enabled: boolean): Promise<ApiResponse & { data?: { id: string; enabled: boolean; also_disabled: string[]; restart_required: boolean } }> {

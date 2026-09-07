@@ -11,9 +11,26 @@
  */
 import { createElement, lazy } from 'react';
 import { Navigate } from 'react-router-dom';
-import { BookOpen, LayoutDashboard, Server, Sliders, Store, Upload } from 'lucide-react';
+import {
+  BookOpen,
+  FolderOpen,
+  Home,
+  Inbox,
+  ListTodo,
+  LayoutDashboard,
+  Network,
+  Puzzle,
+  Radio,
+  Server,
+  Sliders,
+  Sparkles,
+  Store,
+  Upload,
+  Wand2,
+} from 'lucide-react';
 
 import { CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR } from '@/platform/registries';
+import { ArtifactsGlyph } from '@/components/bookmarks/tabs';
 import {
   ArtifactsTab,
   AwarenessTab,
@@ -122,19 +139,25 @@ SIDEBAR.register('system', {
 }, OWNER);
 
 // --------------------------------------------------------------- panels
+// Each panel's `strip` field is the single source `bookmarks/tabs.ts` derives
+// the drawer strip from (label/icon/category/order/conditional) — replaces
+// the formerly-separate `STRIP_CATEGORIES` literal array (see I-3 in the
+// 2026-09 plugin-platform review: a plugin registering a panel here also
+// gets its strip entry, instead of the strip being a second table only the
+// shell could edit).
 // Creation studio panel (dev #382): conditional — renders only while the studio is open on this agent.
-PANELS.register('builder', { component: BuilderTab }, OWNER);
-PANELS.register('awareness', { component: AwarenessTab }, OWNER);
-PANELS.register('workspace', { component: WorkspaceTab }, OWNER);
-PANELS.register('channels', { component: ChannelsTab }, OWNER);
-PANELS.register('smarthome', { component: SmartHomeTab }, OWNER);
-PANELS.register('social', { component: SocialTab }, OWNER);
-PANELS.register('jobs', { component: JobsTab }, OWNER);
-PANELS.register('inbox', { component: InboxTab }, OWNER);
-PANELS.register('artifacts', { component: ArtifactsTab }, OWNER);
-PANELS.register('skills', { component: SkillsTab }, OWNER);
-PANELS.register('mcp', { component: McpTab }, OWNER);
-PANELS.register('memory', { component: MemoryTab }, OWNER);
+PANELS.register('builder', { component: BuilderTab, strip: { label: 'Builder', labelKey: 'rail.builder', icon: Wand2, category: 'config', order: 10, conditional: 'studio' } }, OWNER);
+PANELS.register('awareness', { component: AwarenessTab, strip: { label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles, category: 'config', order: 20 } }, OWNER);
+PANELS.register('workspace', { component: WorkspaceTab, strip: { label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen, category: 'config', order: 30 } }, OWNER);
+PANELS.register('channels', { component: ChannelsTab, strip: { label: 'Channels', labelKey: 'rail.channels', icon: Radio, category: 'config', order: 40 } }, OWNER);
+PANELS.register('smarthome', { component: SmartHomeTab, strip: { label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home, category: 'config', order: 50 } }, OWNER);
+PANELS.register('jobs', { component: JobsTab, strip: { label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo, category: 'activity', order: 10 } }, OWNER);
+PANELS.register('inbox', { component: InboxTab, strip: { label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox, category: 'activity', order: 20 } }, OWNER);
+PANELS.register('artifacts', { component: ArtifactsTab, strip: { label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph, category: 'activity', order: 30 } }, OWNER);
+PANELS.register('memory', { component: MemoryTab, strip: { label: 'Memory', labelKey: 'rail.memory', icon: BookOpen, category: 'narra', order: 10 } }, OWNER);
+PANELS.register('social', { component: SocialTab, strip: { label: 'Social Network', labelKey: 'rail.social', icon: Network, stripLabel: 'Network', stripLabelKey: 'rail.socialShort', category: 'nexus', order: 10 } }, OWNER);
+PANELS.register('skills', { component: SkillsTab, strip: { label: 'Skills', labelKey: 'rail.skills', icon: Puzzle, category: 'skills', order: 10 } }, OWNER);
+PANELS.register('mcp', { component: McpTab, strip: { label: 'MCP Servers', labelKey: 'rail.mcp', icon: Server, stripLabel: 'MCP', stripLabelKey: 'rail.mcpShort', category: 'skills', order: 20 } }, OWNER);
 
 // Settings sections are registered by `pages/settings/registerBuiltinSections.ts`
 // from inside the settings chunk (the panes stay lazy with the page).

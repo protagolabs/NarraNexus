@@ -32,7 +32,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { DiscordBindResponse, DiscordCredentialData, DiscordTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();

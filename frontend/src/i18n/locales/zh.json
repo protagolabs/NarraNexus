@@ -1865,6 +1865,7 @@
           "permissionsFilesystem": "文件",
           "permissionsSubprocess": "运行子进程",
           "permissionsEnv": "环境变量",
+          "permissionsFrontend": "在应用界面内运行代码，可以访问你的会话",
           "permissionsAck": "我了解，启用它",
           "permissionsKeepDisabled": "保持停用",
           "empty": "尚未安装用户插件。",

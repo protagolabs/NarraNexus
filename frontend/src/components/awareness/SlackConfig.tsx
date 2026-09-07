@@ -31,7 +31,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { SlackBindResponse, SlackCredentialData, SlackTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 // Slack App Manifest — paste-and-go YAML for "Create app from manifest".
 //

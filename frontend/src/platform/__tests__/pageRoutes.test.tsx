@@ -7,9 +7,10 @@
 import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { pageRouteElements } from '@/platform/pageRoutes';
+import { onUiError, resetErrorSink } from '@/platform/errorSink';
 import { Registry, useRegistryEntries, type PageDef } from '@/platform/registries';
 
 const Protected = ({ children }: { children: ReactNode }) => <div data-testid="protected">{children}</div>;
@@ -27,6 +28,8 @@ function Host({ pages }: { pages: Registry<PageDef> }) {
 }
 
 describe('pageRouteElements', () => {
+  afterEach(() => resetErrorSink());
+
   it('renders a registered top-level page inside its guard wrapper', () => {
     const pages = new Registry<PageDef>('ui.pages');
     pages.register('hello', { path: '/hello', element: () => <p>hello page</p>, guard: 'public', layout: 'top' });
@@ -58,10 +61,21 @@ describe('pageRouteElements', () => {
     expect(screen.getByText('late page')).toBeInTheDocument();
   });
 
-  it('rejects an /app page that claims to be public', () => {
+  it('drops (never throws for) an /app page that claims to be public, and reports it', () => {
     const pages = new Registry<PageDef>('ui.pages');
     pages.register('leak', { path: 'leak', element: null, guard: 'public', layout: 'app' });
-    expect(() => pageRouteElements(pages.list(), wrappers)).toThrow(/must declare guard "protected"/);
+    pages.register('ok', { path: 'ok', element: null, guard: 'protected', layout: 'app' }, { owner: 'builtin.ui' });
+    const seen = vi.fn();
+    onUiError(seen);
+    let result: ReturnType<typeof pageRouteElements> | undefined;
+    expect(() => {
+      result = pageRouteElements(pages.list(), wrappers);
+    }).not.toThrow();
+    // the illegal entry never reaches the route table…
+    expect(result!.app.map((r) => r.key)).toEqual(['ok']);
+    // …and its owner is reported, not silently dropped.
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen.mock.calls[0][0].error.message).toMatch(/must declare guard "protected"/);
   });
 
   it('a `null` element renders an empty app route (placeholder for layout-owned views)', () => {

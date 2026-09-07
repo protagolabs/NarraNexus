@@ -1414,6 +1414,7 @@
           "permissionsFilesystem": "Файлы",
           "permissionsSubprocess": "Запускает подпроцессы",
           "permissionsEnv": "Переменные окружения",
+          "permissionsFrontend": "Выполняет код внутри интерфейса приложения с доступом к вашей сессии",
           "permissionsAck": "Понимаю, включить",
           "permissionsKeepDisabled": "Оставить отключённым",
           "empty": "Пользовательские плагины не установлены.",

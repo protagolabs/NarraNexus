@@ -7,7 +7,7 @@
  * at runtime the loader serves this module for the same specifier.
  */
 export { definePlugin, HOST_EXTERNALS, hostShimModule, vitePreset } from '@narranexus/sdk';
-export type { PluginDefinition, VitePresetOptions, VitePresetResult } from '@narranexus/sdk';
+export type { PluginDefinition, VitePresetOptions } from '@narranexus/sdk';
 export type * from '@narranexus/sdk';
 export { GenericChannelConfig } from '@/components/awareness/GenericChannelConfig';
 export { makeGenericChannelConfig } from '@/components/awareness/genericChannelFactory';

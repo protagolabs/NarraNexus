@@ -9,5 +9,5 @@
 export { definePlugin } from './definePlugin';
 export type { PluginDefinition } from './definePlugin';
 export { HOST_EXTERNALS, hostShimModule, vitePreset } from './vitePreset';
-export type { VitePresetOptions, VitePresetResult } from './vitePreset';
+export type { VitePresetOptions } from './vitePreset';
 export type * from './types';

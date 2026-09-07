@@ -40,6 +40,7 @@ import { RunStatChips } from './RunStatChips';
 import { hasRunStats } from '@/lib/runStats';
 import { MESSAGE_ACTIONS, MESSAGE_RENDERERS, rendererFor, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
 import { useWhenContext } from '@/platform/whenContext';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -274,12 +275,13 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const whenCtx = useWhenContext({ conversationKind: 'chat', agentId: agentId ?? null });
   const messageActions = visibleSlotEntries(useRegistryEntries(MESSAGE_ACTIONS), whenCtx);
   const renderer = rendererFor(rendererEntries, message);
-  if (renderer) {
-    const Renderer = renderer.component;
-    return <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />;
-  }
 
-  return (
+  // The shell's own bubble, as a lazily-invoked function rather than a JSX
+  // value: it is the PluginBoundary fallback below, and building this whole
+  // tree on every render just to discard it when a plugin renderer is
+  // healthy would be wasted work (and, before a plugin's first successful
+  // render, indistinguishable from "always render both").
+  const renderShellBubble = () => (
     <div
       className={cn(
         'group flex gap-3',
@@ -774,6 +776,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         </div>
       </div>
     </div>
+  );
+
+  if (!renderer) return renderShellBubble();
+  const Renderer = renderer.component;
+  const rendererOwner = rendererEntries.find((e) => e.value === renderer)?.owner ?? 'shell';
+  return (
+    <PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>
+      <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />
+    </PluginBoundary>
   );
 }
 

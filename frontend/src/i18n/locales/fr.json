@@ -1410,6 +1410,7 @@
           "permissionsFilesystem": "Fichiers",
           "permissionsSubprocess": "Lance des sous-processus",
           "permissionsEnv": "Variables d’environnement",
+          "permissionsFrontend": "Exécute du code dans l’interface de l’application, avec accès à votre session",
           "permissionsAck": "Je comprends, l’activer",
           "permissionsKeepDisabled": "Laisser désactivé",
           "empty": "Aucun plugin utilisateur installé.",

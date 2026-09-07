@@ -5,9 +5,11 @@
  * @description: The builtin settings sections — one component per left-nav item.
  *
  * Extracted from SettingsPage so each pane is a registrable unit
- * (`platform/builtin.ts` registers them into SETTINGS_SECTIONS with a lazy
- * import); SettingsPage itself no longer knows which panes exist. Every
- * section receives `navigate(sectionId)` for cross-links.
+ * (`pages/settings/registerBuiltinSections.ts` registers them into
+ * SETTINGS_SECTIONS with a lazy import — `platform/builtin.ts` explicitly
+ * does not, so this chunk stays lazy with the Settings page); SettingsPage
+ * itself no longer knows which panes exist. Every section receives
+ * `navigate(sectionId)` for cross-links.
  */
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';

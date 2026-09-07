@@ -13,6 +13,16 @@
  * frontend error sink. Every mutation ends with a "restart required" note —
  * plugins load at boot, and the page never pretends otherwise. Hidden in
  * cloud mode (plugins are baked into the image there).
+ *
+ * The disclosure covers two attack surfaces, not one: backend permissions
+ * (network/filesystem/subprocess/env, from the install response) AND a
+ * `frontend` bundle — a plugin with no declared backend permissions but a
+ * frontend bundle still runs same-origin code with the user's session
+ * (reads localStorage's token, calls any API). The pending-ack queue is
+ * persisted to localStorage (`PENDING_ACK_STORAGE_KEY`) AND reconciled on
+ * every `load()` from the server's `permissions_acknowledged` field, so
+ * closing Settings mid-decision does not silently drop the disclosure —
+ * it reopens on the next visit either way.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,6 +33,40 @@ import { Button, PaperCard, StatusBadge, TextInput } from '@/components/nm';
 import type { FactoryBuiltin, FactoryListResponse, FactoryPlugin, FactoryProposal } from '@/types';
 
 type Data = NonNullable<FactoryListResponse['data']>;
+
+interface PendingAck {
+  id: string;
+  display_name: string;
+  permissions: FactoryPlugin['permissions'];
+  /** The manifest declares a `frontend` bundle: same-origin code with the user's session,
+   *  a risk the four backend permission flags do not capture at all. */
+  hasFrontend: boolean;
+}
+
+const PENDING_ACK_STORAGE_KEY = 'narranexus.pluginFactory.pendingAckIds';
+
+function readPendingAckIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(PENDING_ACK_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingAckIds(ids: string[]): void {
+  try {
+    window.localStorage.setItem(PENDING_ACK_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    /* localStorage unavailable (private mode, quota) — the server's permissions_acknowledged
+     * field still reconciles the queue on next load(), so this is a degradation, not a loss. */
+  }
+}
+
+function declaresBackendPerms(perms: FactoryPlugin['permissions'] | undefined): boolean {
+  return Boolean(perms?.network?.length || perms?.filesystem?.length || perms?.subprocess || perms?.env?.length);
+}
 
 const STATE_TONE: Record<string, 'success' | 'warning' | 'error' | 'info' | 'neutral'> = {
   active: 'success',
@@ -47,15 +91,47 @@ export function PluginFactory() {
   const [notice, setNotice] = useState('');
   const [errorText, setErrorText] = useState('');
   const [openErrors, setOpenErrors] = useState<Record<string, { at: number; kind: string; message: string }[] | undefined>>({});
-  const [pendingAck, setPendingAck] = useState<FactoryPlugin | null>(null);
+  // Queue, not a single value: `permissions_acknowledged` reconciliation on load() can surface
+  // more than one plugin awaiting a decision (e.g. two installs in a row, only one acked).
+  const [pendingAckQueue, setPendingAckQueue] = useState<PendingAck[]>(() => {
+    // Seed from localStorage synchronously so the modal is present on the very first render
+    // after a remount — it does not wait for load() to round-trip before reopening.
+    return readPendingAckIds().map((id) => ({ id, display_name: id, permissions: {}, hasFrontend: false }));
+  });
   const [proposals, setProposals] = useState<FactoryProposal[]>([]);
+  const pendingAck = pendingAckQueue[0] ?? null;
 
-  const load = useCallback(async () => {
+  const addPendingAck = useCallback((entry: PendingAck) => {
+    setPendingAckQueue((q) => {
+      if (q.some((e) => e.id === entry.id)) return q.map((e) => (e.id === entry.id ? entry : e));
+      const next = [...q, entry];
+      writePendingAckIds(next.map((e) => e.id));
+      return next;
+    });
+  }, []);
+
+  const clearPendingAck = useCallback((id: string) => {
+    setPendingAckQueue((q) => {
+      const next = q.filter((e) => e.id !== id);
+      writePendingAckIds(next.map((e) => e.id));
+      return next;
+    });
+  }, []);
+
+  const load = useCallback(async (): Promise<Data | null> => {
     try {
       const res = await api.factoryList();
       if (res.success && res.data) {
         setData(res.data);
         setLoadError('');
+        // Reconcile against server truth: any ENABLED plugin the server has not recorded an
+        // acknowledgement for, and that declares backend permissions or a frontend bundle,
+        // must be (re)queued — this is what makes the disclosure "unavoidable" across a
+        // remount even if localStorage was cleared or never seeded.
+        for (const p of res.data.plugins) {
+          const needsAck = p.enabled && !p.permissions_acknowledged && (declaresBackendPerms(p.permissions) || Boolean(p.frontend));
+          if (needsAck) addPendingAck({ id: p.id, display_name: p.display_name, permissions: p.permissions, hasFrontend: Boolean(p.frontend) });
+        }
       } else {
         setLoadError(res.error || t('pages.settings.plugins.factory.loadFailed'));
       }
@@ -64,10 +140,12 @@ export function PluginFactory() {
         const props = await api.factoryProposals().catch(() => null);
         setProposals(props?.data?.proposals ?? []);
       }
+      return res.data ?? null;
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : t('pages.settings.plugins.factory.loadFailed'));
+      return null;
     }
-  }, [t]);
+  }, [t, addPendingAck]);
 
   useEffect(() => {
     void load();
@@ -87,25 +165,28 @@ export function PluginFactory() {
     }
   };
 
-  const install = () =>
-    run(
-      'install',
-      async () => {
-        const res = await api.factoryInstall(source.trim());
-        if (!res.success || !res.data) throw new Error(res.error || t('pages.settings.plugins.factory.loadFailed'));
-        setSource('');
-        const perms = res.data.permissions ?? {};
-        const declares = Boolean(perms.network?.length || perms.filesystem?.length || perms.subprocess || perms.env?.length);
-        if (declares) {
-          setPendingAck({
-            id: res.data.id,
-            display_name: res.data.id,
-            permissions: perms,
-          } as FactoryPlugin);
-        }
-      },
-      t('pages.settings.plugins.factory.restartRequired'),
-    );
+  const install = async () => {
+    setBusy('install');
+    setErrorText('');
+    try {
+      const res = await api.factoryInstall(source.trim());
+      if (!res.success || !res.data) throw new Error(res.error || t('pages.settings.plugins.factory.loadFailed'));
+      const installedId = res.data.id;
+      setSource('');
+      const perms = res.data.permissions ?? {};
+      // The install response has no `frontend` field (only the list endpoint does); load()
+      // below both refreshes the list AND — via its own reconciliation pass — will pick up
+      // and queue this plugin if the freshly-fetched row shows a frontend bundle, even if the
+      // permissions-only check here misses it.
+      if (declaresBackendPerms(perms)) addPendingAck({ id: installedId, display_name: installedId, permissions: perms, hasFrontend: false });
+      await load();
+      setNotice(t('pages.settings.plugins.factory.restartRequired'));
+    } catch (e) {
+      setErrorText(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const toggleErrors = async (id: string) => {
     if (openErrors[id]) {
@@ -235,12 +316,22 @@ export function PluginFactory() {
             {pendingAck.permissions.filesystem?.length ? <li>{t(`${fp}.permissionsFilesystem`)}: {pendingAck.permissions.filesystem.join(', ')}</li> : null}
             {pendingAck.permissions.subprocess ? <li>{t(`${fp}.permissionsSubprocess`)}</li> : null}
             {pendingAck.permissions.env?.length ? <li>{t(`${fp}.permissionsEnv`)}: {pendingAck.permissions.env.join(', ')}</li> : null}
+            {/* Backend permissions are opt-in declarations; a frontend bundle is same-origin
+                code that ALWAYS runs with the user's session, whether or not any of the four
+                flags above are set — this line is unconditional whenever `frontend` is present. */}
+            {pendingAck.hasFrontend ? <li>{t(`${fp}.permissionsFrontend`)}</li> : null}
           </ul>
           <div className="flex items-center gap-2">
-            <Button size="sm" disabled={busy !== null} onClick={() => void run('ack', () => api.factoryAction(pendingAck.id, 'acknowledge-permissions')).then(() => setPendingAck(null))}>
+            <Button
+              size="sm"
+              disabled={busy !== null}
+              onClick={() =>
+                void run('ack', () => api.factoryAction(pendingAck.id, 'acknowledge-permissions', { permissionsAcknowledged: true })).then(() => clearPendingAck(pendingAck.id))
+              }
+            >
               {t(`${fp}.permissionsAck`)}
             </Button>
-            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run('ack', () => api.factoryAction(pendingAck.id, 'disable')).then(() => setPendingAck(null))}>
+            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run('ack', () => api.factoryAction(pendingAck.id, 'disable')).then(() => clearPendingAck(pendingAck.id))}>
               {t(`${fp}.permissionsKeepDisabled`)}
             </Button>
           </div>

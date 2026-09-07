@@ -5,8 +5,9 @@
  *   Level 2 (expanded):   ▼ IM Channels                            [list of channel cards]
  *   Level 3 (one open):   ▼ IM Channels                            [card with config inline]
  *
- * Adding a future channel (e.g. Telegram) is just one entry in
- * IM_CHANNELS — no other change required here.
+ * Adding a future channel is one registration in the `ui.channels` registry
+ * (see `registerBuiltinChannels.ts` for the builtin pattern, or a channel
+ * plugin's own `activate(host)`) — no change required here.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -25,9 +26,6 @@ import { useConfigStore } from '@/stores';
  */
 import { CHANNELS, sortedChannels, useRegistryEntries, type ChannelStatus } from '@/platform/registries';
 import './registerBuiltinChannels';
-
-// The config components import their props type from here (unchanged import path).
-export type { ChannelConfigProps } from '@/platform/registries';
 
 export function IMChannelsSection() {
   // Rows come from the ui.channels registry: builtins register in

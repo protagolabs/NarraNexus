@@ -21,12 +21,18 @@ export interface ThemeDef {
 
 const KNOWN = new Set<string>(THEME_TOKENS);
 const SAFE_VALUE = /^[\w\s#%.,()/+\-"']*$/;
+// `url(` is checked case-insensitively with optional whitespace before the paren: CSS parses
+// `URL(...)` / `Url (...)` identically to `url(...)`, and a protocol-relative resource
+// (`//host/path`, no colon) stays entirely inside SAFE_VALUE's allowed character set — so a
+// case- or whitespace-sensitive check on its own was a same-request tracking-pixel/exfil hole a
+// plugin theme's token value could walk straight through (M-4).
+const HAS_URL_FUNCTION = /url\s*\(/i;
 
 export function validateThemeTokens(tokens: Record<string, string>): string[] {
   const problems: string[] = [];
   for (const [key, value] of Object.entries(tokens)) {
     if (!KNOWN.has(key)) problems.push(`unknown token ${key}`);
-    else if (!SAFE_VALUE.test(value) || value.includes('url(')) problems.push(`unsafe value for ${key}`);
+    else if (!SAFE_VALUE.test(value) || HAS_URL_FUNCTION.test(value)) problems.push(`unsafe value for ${key}`);
   }
   return problems;
 }

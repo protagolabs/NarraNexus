@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { MessageBubble } from '../MessageBubble';
 import { MESSAGE_ACTIONS, MESSAGE_RENDERERS } from '@/platform/registries';
+import { onUiError, resetErrorSink } from '@/platform/errorSink';
 import type { ChatMessage } from '@/types';
 
 function msg(p: Partial<ChatMessage>): ChatMessage {
@@ -17,7 +18,10 @@ function msg(p: Partial<ChatMessage>): ChatMessage {
 }
 
 const disposers: (() => void)[] = [];
-afterEach(() => disposers.splice(0).forEach((d) => d()));
+afterEach(() => {
+  disposers.splice(0).forEach((d) => d());
+  resetErrorSink();
+});
 
 describe('message renderers and actions', () => {
   it('a matching renderer replaces the shell bubble; others render normally', () => {
@@ -26,6 +30,17 @@ describe('message renderers and actions', () => {
     expect(screen.getByTestId('card')).toHaveTextContent('CARD card:42');
     render(<MemoryRouter><MessageBubble message={msg({ id: 'm2', content: 'plain reply' })} agentId="a1" /></MemoryRouter>);
     expect(screen.getByText('plain reply')).toBeInTheDocument();
+  });
+
+  it('a throwing renderer falls back to the shell bubble instead of taking the surface down (I-6)', () => {
+    disposers.push(MESSAGE_RENDERERS.register('acme.broken', { match: (m) => (m as ChatMessage).content.startsWith('broken:'), component: () => { throw new Error('boom'); } }, { owner: 'acme.broken_plugin' }));
+    const seen: unknown[] = [];
+    onUiError((r) => seen.push(r));
+    render(<MemoryRouter><MessageBubble message={msg({ content: 'broken:1' })} agentId="a1" /></MemoryRouter>);
+    // the shell's own bubble rendered — the crash never reached React's nearest
+    // ancestor boundary (which would have blanked the whole conversation, not just this row).
+    expect(screen.getByText('broken:1')).toBeInTheDocument();
+    expect(seen).toEqual([expect.objectContaining({ source: 'acme.broken_plugin' })]);
   });
 
   it('message actions appear in the hover strip and receive the message', () => {

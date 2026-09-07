@@ -1409,6 +1409,7 @@
           "permissionsFilesystem": "ファイル",
           "permissionsSubprocess": "サブプロセスを実行",
           "permissionsEnv": "環境変数",
+          "permissionsFrontend": "アプリUI内でコードを実行し、あなたのセッションにアクセスできます",
           "permissionsAck": "理解した、有効化する",
           "permissionsKeepDisabled": "無効のままにする",
           "empty": "ユーザープラグインはインストールされていません。",

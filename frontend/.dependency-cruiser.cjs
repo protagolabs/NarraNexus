@@ -1,19 +1,31 @@
 /**
- * Dependency-direction gate for the plugin platform (batch 0).
+ * Dependency-direction gate for the plugin platform.
  *
- * Rules are scoped to the future plugin host (src/plugins, src/contracts)
- * so they pass today and start biting the moment those directories appear.
- * Circular imports are reported as warnings until the existing cycles are
- * paid down; the rule exists so new cycles show up in review.
+ * 2026-09-07 (M-7): the original two rules below named a plugin host that never landed at the
+ * paths this file expected — `src/plugins/` and `src/contracts/` were never created; the actual
+ * plugin host (host.ts, loader.ts, gates.tsx, the activation/error-sink/i18n/page-route plumbing)
+ * landed under `src/platform/` instead. Both rules matched zero files (`from: { path:
+ * '^src/plugins/' }` / `'^src/contracts/'`) and had been silently inert since batch 0 — green by
+ * vacuous truth, not by enforcement. Replaced with rules against the paths that actually exist.
  */
 module.exports = {
   forbidden: [
     {
-      name: 'plugins-only-import-contracts',
-      comment: 'src/plugins/** may import only itself, src/contracts/** and the registry entry point',
+      name: 'platform-host-is-app-agnostic',
+      comment:
+        'The host/loader kernel (host.ts, loader.ts, gates.tsx, activation.ts, actionGate.ts, ' +
+        'PluginBoundary.tsx, SlotOutlet.tsx, pageRoutes.tsx, PluginStatus.tsx, errorSink.ts, ' +
+        'i18n.ts, bootPlugins.ts) must not import app UI (src/components/**, src/pages/**) — a ' +
+        'plugin host that reaches into the app it hosts cannot be reused across distributions. ' +
+        'It may depend on itself, src/stores/** and src/lib/** (session/base-URL/platform ' +
+        'utilities, not UI). src/platform/builtin.ts and builtinPanels.tsx are NOT covered here: ' +
+        'they are the shell\'s own wiring that deliberately registers app components into the ' +
+        'host\'s registries, the one place that direction is expected to invert.',
       severity: 'error',
-      from: { path: '^src/plugins/' },
-      to: { pathNot: '^(src/plugins/|src/contracts/|src/platform/registries/index\\.ts$|node_modules/)' },
+      from: {
+        path: '^src/platform/(host|loader|gates|activation|actionGate|PluginBoundary|SlotOutlet|pageRoutes|PluginStatus|errorSink|i18n|bootPlugins|whenContext)\\.tsx?$',
+      },
+      to: { path: '^src/(components|pages)/' },
     },
     {
       name: 'registries-are-pure',
@@ -21,13 +33,6 @@ module.exports = {
       severity: 'error',
       from: { path: '^src/platform/registries/' },
       to: { path: '^src/', pathNot: '^src/platform/registries/' },
-    },
-    {
-      name: 'contracts-are-a-leaf',
-      comment: 'src/contracts/** must not import application code',
-      severity: 'error',
-      from: { path: '^src/contracts/' },
-      to: { path: '^src/', pathNot: '^src/contracts/' },
     },
     {
       name: 'no-circular',

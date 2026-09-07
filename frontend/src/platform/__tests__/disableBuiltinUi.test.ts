@@ -4,11 +4,12 @@
  * @date: 2026-09-04
  * @description: A builtin reported disabled by the factory drops its whole UI row (teams pages) at boot; protected and enabled builtins keep theirs.
  */
+import { Bot } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '@/platform/builtin';
 import { disableBuiltinUi, loadPlugins } from '@/platform/loader';
-import { PAGES, SIDEBAR } from '@/platform/registries';
+import { CHANNELS, PAGES, SIDEBAR } from '@/platform/registries';
 
 vi.mock('@/stores/runtimeStore', () => ({ getApiBaseUrl: () => 'http://api' }));
 vi.mock('@/lib/authHeaders', () => ({ getAuthHeaders: () => ({}) }));
@@ -41,5 +42,15 @@ describe('disableBuiltinUi', () => {
     expect(PAGES.ids().length).toBe(before - TEAM_PAGES.length);
     expect(SIDEBAR.ids()).toContain('settings');
     expect(disableBuiltinUi('builtin.teams')).toEqual([]); // idempotent
+  });
+
+  it('blacklists the owner so a registration that has not happened YET is rejected too', () => {
+    // This is the lazy-registration case `registerBuiltinChannels.ts` hits in production:
+    // the channel row is only registered the first time its chunk mounts, which can be well
+    // after `disableBuiltinUi` ran at boot. A one-shot `removeOwner` sweep at disable time
+    // cannot purge a registration that has not happened yet.
+    disableBuiltinUi('builtin.channels.ghost');
+    CHANNELS.register('ghost', { label: 'Ghost', icon: Bot, component: () => null, fetchStatus: async () => 'unbound' }, { owner: 'builtin.channels.ghost' });
+    expect(CHANNELS.has('ghost')).toBe(false);
   });
 });

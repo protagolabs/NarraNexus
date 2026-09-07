@@ -29,7 +29,7 @@ import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { NarramessengerBindResponse, NarramessengerCredentialData } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { agentId } = useConfigStore();

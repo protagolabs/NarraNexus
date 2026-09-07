@@ -3,27 +3,13 @@
  * @author: Bin Liang
  * @date: 2026-09-04
  * @description: Mounts a component slot point: every visible entry, in order, each isolated so one plugin's render error never takes the surface down.
+ *
+ * The isolation itself lives in `PluginBoundary.tsx` (extracted 2026-09-07
+ * so `MessageBubble` / `TurnTimeline`'s content registries can share it —
+ * see that file for why it exists as its own module).
  */
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-
-import { reportUiError } from './errorSink';
+import { PluginBoundary } from './PluginBoundary';
 import { useRegistryEntries, visibleSlotEntries, type Registry, type SlotComponentDef, type SlotComponentProps, type WhenContext } from './registries';
-
-class SlotBoundary extends Component<{ owner: string; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    reportUiError(error, { kind: 'render', source: this.props.owner, context: info.componentStack ?? 'slot' });
-  }
-
-  render() {
-    return this.state.failed ? null : this.props.children;
-  }
-}
 
 export interface SlotOutletProps extends SlotComponentProps {
   registry: Registry<SlotComponentDef>;
@@ -39,9 +25,9 @@ export function SlotOutlet({ registry, ctx, className, as, ...props }: SlotOutle
   const children = entries.map((e) => {
     const C = e.value.component;
     return (
-      <SlotBoundary key={e.id} owner={e.owner}>
+      <PluginBoundary key={e.id} owner={e.owner}>
         <C {...props} />
-      </SlotBoundary>
+      </PluginBoundary>
     );
   });
   if (!as) return <>{children}</>;

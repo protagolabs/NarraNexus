@@ -1865,6 +1865,7 @@
           "permissionsFilesystem": "Files",
           "permissionsSubprocess": "Runs subprocesses",
           "permissionsEnv": "Environment variables",
+          "permissionsFrontend": "Runs code inside the app UI, with access to your session",
           "permissionsAck": "I understand, enable it",
           "permissionsKeepDisabled": "Keep disabled",
           "empty": "No user plugins installed.",

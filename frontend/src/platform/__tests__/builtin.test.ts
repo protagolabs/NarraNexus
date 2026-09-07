@@ -9,7 +9,21 @@ import { describe, expect, it } from 'vitest';
 import '@/platform/builtin';
 import '@/pages/settings/registerBuiltinSections';
 import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems } from '@/platform/registries';
-import { BUILTIN_TAB_IDS } from '@/components/bookmarks/tabs';
+import { builtinTabIds } from '@/components/bookmarks/tabs';
+import {
+  ArtifactsTab,
+  AwarenessTab,
+  BuilderTab,
+  ChannelsTab,
+  InboxTab,
+  JobsTab,
+  McpTab,
+  MemoryTab,
+  SkillsTab,
+  SmartHomeTab,
+  SocialTab,
+  WorkspaceTab,
+} from '@/platform/builtinPanels';
 import before from './golden/routes-before.json';
 
 describe('builtin pages', () => {
@@ -59,7 +73,24 @@ describe('builtin sidebar', () => {
 
 describe('builtin panels', () => {
   it('every builtin rail tab has a panel component', () => {
-    for (const id of BUILTIN_TAB_IDS) expect(PANELS.get(id)?.component, id).toBeTruthy();
+    for (const id of builtinTabIds()) expect(PANELS.get(id)?.component, id).toBeTruthy();
+  });
+
+  it('each rail tab maps to its OWN builtin panel component, not a mismatched one', () => {
+    // A specific identity check, not just truthy: two rail tabs pointed at the
+    // same (or a swapped) panel component would pass the "truthy" check above.
+    expect(PANELS.get('builder')?.component).toBe(BuilderTab);
+    expect(PANELS.get('awareness')?.component).toBe(AwarenessTab);
+    expect(PANELS.get('workspace')?.component).toBe(WorkspaceTab);
+    expect(PANELS.get('channels')?.component).toBe(ChannelsTab);
+    expect(PANELS.get('smarthome')?.component).toBe(SmartHomeTab);
+    expect(PANELS.get('social')?.component).toBe(SocialTab);
+    expect(PANELS.get('jobs')?.component).toBe(JobsTab);
+    expect(PANELS.get('inbox')?.component).toBe(InboxTab);
+    expect(PANELS.get('artifacts')?.component).toBe(ArtifactsTab);
+    expect(PANELS.get('skills')?.component).toBe(SkillsTab);
+    expect(PANELS.get('mcp')?.component).toBe(McpTab);
+    expect(PANELS.get('memory')?.component).toBe(MemoryTab);
   });
 });
 

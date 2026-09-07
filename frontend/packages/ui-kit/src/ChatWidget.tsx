@@ -28,6 +28,7 @@ const STYLE = `
 .nx-chat__msg--user{align-self:flex-end;background:var(--nx-user-bg,#2563eb);color:var(--nx-user-fg,#fff)}
 .nx-chat__msg--assistant{align-self:flex-start;background:var(--nx-assistant-bg,#f3f4f6)}
 .nx-chat__msg--error{align-self:center;color:var(--nx-error,#b91c1c);font-size:12px}
+.nx-chat__msg--interrupted{align-self:center;color:var(--nx-error,#b91c1c);font-size:12px}
 .nx-chat__form{display:flex;gap:8px;padding:8px;border-top:1px solid var(--nx-border,#e5e7eb)}
 .nx-chat__input{flex:1;padding:8px 10px;border:1px solid var(--nx-border,#e5e7eb);border-radius:8px;font:inherit;background:transparent;color:inherit}
 .nx-chat__btn{padding:8px 14px;border:0;border-radius:8px;background:var(--nx-user-bg,#2563eb);color:#fff;font:inherit;cursor:pointer}
@@ -45,6 +46,7 @@ export function ChatWidget(props: ChatWidgetProps) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interrupted, setInterrupted] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +72,7 @@ export function ChatWidget(props: ChatWidgetProps) {
     if (!text || busy) return;
     setDraft('');
     setError(null);
+    setInterrupted(false);
     setBusy(true);
     const now = Date.now();
     const assistantId = `local:${now}:assistant`;
@@ -86,6 +89,12 @@ export function ChatWidget(props: ChatWidgetProps) {
         patch(acc);
       } else if (ev.type === 'complete') {
         patch(ev.text || acc);
+      } else if (ev.type === 'interrupted') {
+        // The connection dropped mid-answer; the backend keeps running and will finish
+        // writing the full answer server-side, but this socket never sees it. Show what
+        // streamed in AND flag it as incomplete — never present a cut-off answer as done.
+        patch(ev.text || acc);
+        setInterrupted(true);
       } else if (ev.type === 'error') {
         setError(ev.message);
         if (!acc) setMessages((m) => m.filter((x) => x.id !== assistantId));
@@ -110,6 +119,9 @@ export function ChatWidget(props: ChatWidgetProps) {
           </div>
         ))}
         {error && <div className="nx-chat__msg nx-chat__msg--error">{error}</div>}
+        {interrupted && (
+          <div className="nx-chat__msg nx-chat__msg--interrupted">Connection interrupted — the reply above may be incomplete.</div>
+        )}
       </div>
       <form
         className="nx-chat__form"

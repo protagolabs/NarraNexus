@@ -11,7 +11,19 @@
  * the manifest's `integrity` (sha256 SRI) when present, imports it as an
  * ESM module from a blob URL, and calls `plugin.activate(host)`. The blob
  * URL is recorded for error attribution. Nothing here throws to the
- * caller: a broken plugin costs one error report, never the shell.
+ * caller: a broken plugin costs one error report, never the shell — an
+ * illegal declaration (an `/app` page claiming a non-`protected` guard) is
+ * rejected and reported at registration time rather than reaching the
+ * registry and blowing up `pageRouteElements` at render time.
+ *
+ * `disableBuiltinUi` does two things, not one: it purges every entry a
+ * disabled owner already has (`removeOwner` on every registry in
+ * `REGISTRIES`), and it blacklists the owner (`disableOwner`) so a
+ * registration that has not happened yet — a lazily-loaded settings
+ * section, a channel row registered the first time its chunk mounts —
+ * can never land either. Without the blacklist half, a builtin disabled
+ * at boot (before its lazy chunk ever imported) would reappear the moment
+ * a user opened that surface.
  */
 
 import { isTauri } from '@/lib/tauri';
@@ -24,7 +36,6 @@ import { makePageGate, makePanelGate, makeRendererGate, makeSlotGate, makeTimeli
 import { createHostApi, exposeHostGlobals, type HostAPI } from './host';
 import {
   AGENT_CARD_BADGES,
-  CHANNELS,
   CHAT_HEADER_ACTIONS,
   COMMANDS,
   COMPOSER_EXTENSIONS,
@@ -33,12 +44,12 @@ import {
   MESSAGE_RENDERERS,
   PAGES,
   PANELS,
-  SETTINGS_SECTIONS,
-  SIDEBAR,
+  REGISTRIES,
   SIDEBAR_SECTIONS,
-  THEMES,
   TIMELINE_EVENTS,
   TOP_BAR_ITEMS,
+  disableOwner,
+  type CommandDef,
   type Registry,
   type SlotActionDef,
   type SlotComponentDef,
@@ -79,10 +90,14 @@ export interface FactoryBuiltinRow {
 
 /**
  * Remove every shell registration owned by a disabled builtin plugin (its pages,
- * sidebar rows, panels, commands…). `platform/builtin.ts` tags feature-level
- * builtins with their plugin id as owner, so the whole UI row goes with one call.
+ * sidebar rows, panels, commands…) and blacklist the owner so a registration
+ * that has not happened yet (a lazily-registered channel row, a settings
+ * section pulled in only when its chunk loads) can never land either.
+ * `platform/builtin.ts` tags feature-level builtins with their plugin id as
+ * owner, so the whole UI row goes with one call.
  */
 export function disableBuiltinUi(pluginId: string): string[] {
+  disableOwner(pluginId);
   const removed: string[] = [];
   for (const reg of SHELL_REGISTRIES) removed.push(...reg.removeOwner(pluginId).map((id) => `${reg.kind}:${id}`));
   return removed;
@@ -101,8 +116,9 @@ const ACTION_SLOTS: Record<string, Registry<SlotActionDef>> = {
   messageActions: MESSAGE_ACTIONS,
 };
 
-/** Every shell registry a disabled builtin's UI row is removed from (`disableBuiltinUi`). */
-const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES, MESSAGE_RENDERERS, TIMELINE_EVENTS, CONVERSATION_KINDS, CHANNELS, ...Object.values(COMPONENT_SLOTS), ...Object.values(ACTION_SLOTS)] as const;
+/** Every shell registry a disabled builtin's UI row is removed from (`disableBuiltinUi`) —
+ *  every entry of `REGISTRIES` (the one 16-name table; see `registries/index.ts`). */
+const SHELL_REGISTRIES = Object.values(REGISTRIES);
 
 export interface PluginModule {
   plugin?: { activate(host: HostAPI): void | Promise<void>; deactivate?(host: HostAPI): void | Promise<void> };
@@ -119,8 +135,18 @@ export interface LoaderDeps {
 
 const hosts = new Map<string, HostAPI>();
 
+const SAFE_ASSET_ENTRY = /^[A-Za-z0-9._/-]+$/;
+
+/** `entry` comes from the manifest (or, worse, from `frontend.entry` on a factory row a
+ *  compromised backend could tamper with); it must resolve to a path strictly inside the
+ *  plugin's own asset tree. A `..` segment (even URL-encoded — browsers normalise `%2e%2e`
+ *  before the request leaves) would otherwise let it climb out of `/assets/<pluginId>/…` on
+ *  the web route, or out of the Tauri `plugin://` scheme's asset root on desktop. */
 export function assetUrl(pluginId: string, entry: string): string {
   const clean = entry.replace(/^\/+/, '').replace(/^frontend\/dist\//, '');
+  if (!SAFE_ASSET_ENTRY.test(clean) || clean.split('/').includes('..')) {
+    throw new Error(`assetUrl: unsafe entry "${entry}"`);
+  }
   if (isTauri()) return `plugin://${pluginId}/${clean}`;
   return `${getApiBaseUrl()}/api/plugin-factory/${encodeURIComponent(pluginId)}/assets/${clean}`;
 }
@@ -155,8 +181,17 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
   const ui = row.frontend?.ui;
   const owner = { owner: row.id };
   for (const page of ui?.pages ?? []) {
+    const guard = page.guard ?? 'protected';
+    const layout = page.layout ?? 'app';
+    // `pageRouteElements` also drops this shape (defense in depth for anything reaching
+    // PAGES another way), but rejecting it here means the illegal row never enters the
+    // registry at all — no render-time surprise, and `PAGES.list()` stays a trustworthy view.
+    if (layout === 'app' && guard !== 'protected') {
+      reportUiError(new Error(`ui.pages: "${page.id}" is under /app and must declare guard "protected" (got "${guard}")`), { kind: 'chunk', source: row.id, context: 'registerDeclaredUi' });
+      continue;
+    }
     if (!PAGES.has(page.id)) {
-      PAGES.register(page.id, { path: page.path, element: makePageGate(row.id, page.id), guard: page.guard ?? 'protected', layout: page.layout ?? 'app' }, owner);
+      PAGES.register(page.id, { path: page.path, element: makePageGate(row.id, page.id), guard, layout }, owner);
     }
     events.push(`onPage:${page.id}`);
   }
@@ -187,20 +222,21 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
   }
   for (const cmd of ui?.commands ?? []) {
     if (!COMMANDS.has(cmd.id)) {
-      COMMANDS.register(
-        cmd.id,
-        {
-          label: cmd.label,
-          hint: cmd.hint,
-          run: async () => {
-            await fireActivation(`onCommand:${cmd.id}`);
-            const real = COMMANDS.list().find((e) => e.id === cmd.id && e.owner === row.id);
-            // the plugin replaced the gate with its own command during activate()
-            if (real && real.value.run !== undefined && real.value.label !== cmd.label) await real.value.run();
-          },
+      // The gate object's own identity is the judge of "has the plugin replaced me yet?" —
+      // comparing `label` (the previous approach) is wrong the moment a plugin registers its
+      // real command with the same label it declared in the manifest (the natural thing to
+      // do), which silently turns the click into a no-op. See `actionGate.ts` for the same
+      // pattern on slot actions.
+      const gate: CommandDef = {
+        label: cmd.label,
+        hint: cmd.hint,
+        run: async () => {
+          await fireActivation(`onCommand:${cmd.id}`);
+          const real = COMMANDS.list().find((e) => e.id === cmd.id && e.owner === row.id && e.value !== gate);
+          if (real) await real.value.run();
         },
-        owner,
-      );
+      };
+      COMMANDS.register(cmd.id, gate, owner);
     }
     events.push(`onCommand:${cmd.id}`);
   }
