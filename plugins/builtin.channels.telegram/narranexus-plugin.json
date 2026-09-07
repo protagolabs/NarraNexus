@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_TELEGRAM"
+      "narranexus_plugins.telegram_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_TELEGRAM"
+      "narranexus_plugins.telegram_module.contribution:TRIGGERS"
     ],
     "backend.hooks": [
       "narranexus_plugins.telegram_module.plugin_hooks:HOOKS"

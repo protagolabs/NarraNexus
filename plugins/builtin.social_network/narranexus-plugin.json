@@ -15,7 +15,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_SOCIAL_NETWORK"
+      "narranexus_plugins.social_network_module.contribution:MODULES"
     ],
     "agent.capabilities.data_access": [
       "narranexus_plugins.social_network_module.data_access:DATA_ACCESS"

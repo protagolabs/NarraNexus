@@ -358,7 +358,6 @@ source_modules = [
     "narranexus.platform.module_system.base",
     "narranexus.platform.module_system.capability_service",
     "narranexus.platform.module_system.channel_trigger_map",
-    "narranexus.platform.module_system.contributions",
     "narranexus.platform.module_system.data_access",
     "narranexus.platform.module_system.hook_manager",
     "narranexus.platform.module_system.identity",

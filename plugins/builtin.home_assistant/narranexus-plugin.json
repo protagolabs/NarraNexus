@@ -15,7 +15,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_HOME_ASSISTANT"
+      "narranexus_plugins.home_assistant_module.contribution:MODULES"
     ],
     "backend.routes": [
       "backend.routes.home_assistant:ROUTES"

@@ -38,7 +38,7 @@ def test_resolve_imports_lazily_and_class_name_is_static():
     with pytest.raises(ModuleNotFoundError):
         TriggerSpec("nope", "nx.does_not_exist:Thing").resolve()
     with pytest.raises(AttributeError):
-        TriggerSpec("nope", "narranexus.platform.module_system.contributions:Nope").resolve()
+        TriggerSpec("nope", "narranexus.platform.module_system.slots:Nope").resolve()
 
 
 def test_trigger_protocol_only_needs_stop():

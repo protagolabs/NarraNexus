@@ -17,10 +17,25 @@ from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system._module_impl.loader import ModuleLoader
 from narranexus.platform.module_system.registry import ModuleRegistry
-from narranexus.platform.module_system.contributions import MODULES_SLOT, MODULE_SPECS
+from narranexus.platform.module_system.slots import MODULES_SLOT
 from narranexus.kernel.plugins.builtins import load_builtins
 
-DISABLEABLE = [s for s in MODULE_SPECS if s.plugin_id != "builtin.nexus_plugins_module"]
+from narranexus.platform.module_system import module_registry as _live
+
+
+class _Spec:
+    def __init__(self, class_name: str, plugin_id: str) -> None:
+        self.class_name, self.plugin_id = class_name, plugin_id
+
+    def load_class(self) -> type:
+        return _live[self.class_name]
+
+    @property
+    def channel(self) -> bool:
+        return bool(_live.meta(self.class_name).get("channel"))
+
+
+DISABLEABLE = [_Spec(name, _live.owner_of(name)) for name in sorted(_live) if _live.owner_of(name) != "builtin.nexus_plugins_module"]
 
 
 def _boot_with_override(tmp_path: Path, monkeypatch, plugin_id: str, enabled: bool):
@@ -42,7 +57,7 @@ def test_disable_builtin_degrades_cleanly(spec, tmp_path: Path, monkeypatch):
     assert report.disabled_builtins == (spec.plugin_id,)
     view = ModuleRegistry(regs)
     assert spec.class_name not in view
-    others = {s.class_name for s in MODULE_SPECS if s.plugin_id != spec.plugin_id}
+    others = {s.class_name for s in DISABLEABLE if s.plugin_id != spec.plugin_id}
     assert others <= set(view)  # every other module still loads
     if spec.load_class().get_config().always_load:
         assert spec.class_name not in ModuleLoader.always_load_modules(dict(view))

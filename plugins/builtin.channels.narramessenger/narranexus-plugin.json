@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"
+      "narranexus_plugins.narramessenger_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"
+      "narranexus_plugins.narramessenger_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
       "backend.routes.channels.narramessenger:ROUTES"

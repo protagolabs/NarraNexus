@@ -31,7 +31,7 @@ optional dependency is missing (e.g. ``matrix-nio`` for the NarraMessenger
 Matrix adapter) is logged and skipped — the supervisor comes up with the
 channels that DID load — instead of one ImportError taking down ALL channels.
 
-``REGISTERED_TRIGGER_CLASS_NAMES`` is the registration INTENT (independent of
+``registered_trigger_class_names()`` is the registration INTENT (independent of
 which optional deps happen to be installed in this env); the guard test
 (``tests/channel/test_trigger_startup_alignment.py``) checks it against the
 ``ChannelTriggerBase`` subclasses discovered on disk, so a channel shipped
@@ -49,10 +49,21 @@ from typing import Any, Iterator
 from loguru import logger
 
 from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
-from narranexus.platform.module_system.contributions import TRIGGERS_SLOT, channel_trigger_specs
+from narranexus.platform.module_system.slots import TRIGGERS_SLOT
 
-# Class names of every registered channel trigger — the registration INTENT.
-REGISTERED_TRIGGER_CLASS_NAMES: frozenset[str] = frozenset(spec.class_name for spec in channel_trigger_specs())
+
+def registered_trigger_class_names(registries: Any = None) -> frozenset[str]:
+    """Class names of every channel trigger registered in this process (``host="channels"`` entries of
+    ``ingress.triggers``, read from the contribution meta without importing the class) — the registration
+    INTENT, independent of which trigger modules imported cleanly."""
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    regs = registries or KERNEL_REGISTRIES
+    out = set()
+    for entry in regs.registry_for(TRIGGERS_SLOT).entries():
+        if entry.meta.get("host", "channels") == "channels" and entry.meta.get("class_ref"):
+            out.add(str(entry.meta["class_ref"]).rsplit(":", 1)[1])
+    return frozenset(out)
 
 
 class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
@@ -155,4 +166,4 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
 # name -> class. Only the channels that are registered AND imported successfully in this env.
 CHANNEL_TRIGGER_MAP: Mapping[str, type[ChannelTriggerBase]] = TriggerMapView()
 
-__all__ = ["CHANNEL_TRIGGER_MAP", "REGISTERED_TRIGGER_CLASS_NAMES", "TriggerMapView"]
+__all__ = ["CHANNEL_TRIGGER_MAP", "TriggerMapView", "registered_trigger_class_names"]

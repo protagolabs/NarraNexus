@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 class ModuleRegistry(Mapping[str, type]):
     def __init__(self, registries: Any = None) -> None:
-        from narranexus.platform.module_system.contributions import MODULES_SLOT
+        from narranexus.platform.module_system.slots import MODULES_SLOT
 
         self._slot = MODULES_SLOT
         self._registries = registries
@@ -81,3 +81,20 @@ class ModuleRegistry(Mapping[str, type]):
 module_registry = ModuleRegistry()
 
 __all__ = ["ModuleRegistry", "module_registry"]
+
+
+def module_class_for(plugin_id: str, registries: Any = None) -> type:
+    """The module class a plugin contributes (its ``api.module_class()`` facade delegates here): the
+    ``agent.capabilities.modules`` entry whose owner is ``plugin_id``. KeyError names the plugin when
+    it contributes no module in this process (not booted, disabled, or not a module plugin)."""
+    view = ModuleRegistry(registries)
+    for entry in view._registry().entries():
+        if entry.owner == plugin_id:
+            return entry.factory()
+    raise KeyError(f"{plugin_id} contributes no module (agent.capabilities.modules) in this process")
+
+
+def core_module_names(registries: Any = None) -> list[str]:
+    """Module names that are NOT channel modules (channel modules are ChannelModuleBase subclasses; the meta says so)."""
+    view = ModuleRegistry(registries)
+    return sorted(e.name for e in view._registry().entries() if not e.meta.get("channel"))

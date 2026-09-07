@@ -66,3 +66,7 @@ The view is a `MutableMapping` only for an explicit override layer (`monkeypatch
 ## 2026-09-07 — cache keyed on registry state; unavailable warnings de-duplicated
 
 _build() reuses the resolved dict while the registry's name tuple is unchanged (override/hidden layers are applied on top each time so monkeypatch.setitem/delitem still work); an unavailable trigger is warned about once per (name, error) instead of on every membership test.
+
+## 2026-09-07 — registered_trigger_class_names() from the registry
+
+The registration intent (class names of every host='channels' trigger) is read from the ingress.triggers entries' meta — no import-time constant computed from a platform table before any boot.

@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHAT"
+      "narranexus_plugins.chat_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHAT"
+      "narranexus_plugins.chat_module.contribution:TRIGGERS"
     ],
     "backend.hooks": [
       "narranexus_plugins.chat_module.plugin_hooks:HOOKS"

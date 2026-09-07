@@ -16,7 +16,7 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system.channel_trigger_map import TriggerMapView
-from narranexus.platform.module_system.contributions import CHANNELS_SLOT, channel_trigger_specs
+from narranexus.platform.module_system.slots import CHANNELS_SLOT
 from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.data_access.channel_store import _ChannelSpecs
 from narranexus.platform.schema.hook_schema import WorkingSource
@@ -41,7 +41,7 @@ def test_descriptors_agree_with_triggers_working_sources_and_the_seam_table():
     inbound = {n for n, d in desc.items() if d.has_inbound}
     assert inbound == IM
     # the trigger map and the descriptor name the same classes
-    trigger_classes = {s.name: s.class_ref for s in channel_trigger_specs()}
+    trigger_classes = {e.name: e.meta["class_ref"] for e in regs.registry_for("ingress.triggers").entries() if e.meta.get("host") == "channels"}
     for name in IM:
         assert desc[name].trigger_ref == trigger_classes[name]
         assert desc[name].resolve(desc[name].trigger_ref).channel_name == name

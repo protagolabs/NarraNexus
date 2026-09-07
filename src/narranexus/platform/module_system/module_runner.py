@@ -79,7 +79,6 @@ from loguru import logger
 # Module (same package)
 from narranexus.platform.module_system import XYZBaseModule, module_registry
 from narranexus.platform.module_system.base import mcp_mount_path, mcp_port
-from narranexus.platform.module_system.contributions import MODULE_SPECS
 
 # Utils
 from narranexus.platform.utils import DatabaseClient, get_db_client, get_db_client_sync
@@ -106,12 +105,11 @@ def _no_signal_capture():
 # Default Configuration
 # =============================================================================
 
-# Core MCP-bearing modules (NOT channels). Channel modules (Lark, Slack,
-# Telegram, a plugin channel) are discovered as ChannelModuleBase subclasses of
-# module_registry, so adding an IM channel needs zero edits here. No module owns a
-# port (plugin platform batch 5a): the host serves every module server on ONE
-# port (``module/base.py`` ``mcp_port()``), each mounted at ``/mcp/<server_name>``.
-CORE_MCP_MODULES = [spec.class_name for spec in MODULE_SPECS if not spec.channel]
+# No module owns a port (plugin platform batch 5a): the host serves every
+# module server on ONE port (``module/base.py`` ``mcp_port()``), each mounted at
+# ``/mcp/<server_name>``. Core vs channel modules are told apart by the
+# contribution meta the plugin declared (``channel``), read from the registry
+# at call time — the platform holds no module table.
 
 
 def discover_channel_modules(module_map: dict) -> list[str]:

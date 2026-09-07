@@ -10,14 +10,14 @@ registers.
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.contributions import module_class_for
+from narranexus.platform.module_system.registry import module_class_for
 
 PLUGIN_ID = "builtin.channels.lark"
 PACKAGE = "narranexus_plugins.lark_module"
 
 
 def module_class() -> type:
-    """The plugin's module class (resolved through the platform's one module-spec table)."""
+    """The plugin's module class (the agent.capabilities.modules entry this plugin registered at boot)."""
     return module_class_for(PLUGIN_ID)
 
 

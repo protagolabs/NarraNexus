@@ -12,7 +12,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_NEXUS_PLUGINS_MODULE"
+      "narranexus_plugins.nexus_plugins_module.contribution:MODULES"
     ]
   },
   "protected": true,

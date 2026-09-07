@@ -14,7 +14,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_SKILLS"
+      "narranexus_plugins.skill_module.contribution:MODULES"
     ],
     "backend.routes": [
       "backend.routes.skills:ROUTES"

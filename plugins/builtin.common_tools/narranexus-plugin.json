@@ -13,7 +13,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_COMMON_TOOLS"
+      "narranexus_plugins.common_tools_module.contribution:MODULES"
     ]
   },
   "quality": "gold"

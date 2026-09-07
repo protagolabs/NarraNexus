@@ -13,7 +13,7 @@ import pytest
 from narranexus.kernel.plugins.builtins import builtin_manifests
 from narranexus.platform.module_system import module_registry
 from narranexus.platform.module_system._module_impl.loader import ModuleLoader
-from narranexus.platform.module_system.module_runner import CORE_MCP_MODULES
+from narranexus.platform.module_system.registry import core_module_names
 from narranexus_plugins.nexus_plugins_module import NexusPluginsModule
 from narranexus.platform.schema.context_schema import ContextData
 
@@ -27,7 +27,7 @@ TOOLS = {
 
 def test_registration():
     assert module_registry["NexusPluginsModule"] is NexusPluginsModule
-    assert "NexusPluginsModule" in CORE_MCP_MODULES
+    assert "NexusPluginsModule" in core_module_names()
     assert "NexusPluginsModule" in ModuleLoader.always_load_modules(module_registry)
     m = next(m for m in builtin_manifests() if m.id == "builtin.nexus_plugins_module")
     assert m.protected and m.hosts == ("backend", "mcp")

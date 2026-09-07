@@ -152,3 +152,7 @@ The CLI block became `main(argv=None) -> int` so the one-release `xyz_agent_cont
 ## 2026-09-07 — all_mcp_modules derives from module_registry at call time
 
 The MCP host used to mount CORE_MCP_MODULES (the platform's builtin table) plus ChannelModuleBase subclasses, computed at import — a plugin-contributed module with tools was never served and its tool calls 404'd silently. all_mcp_modules() now lists every module the registry knows when called (plugin modules included; the runner already skips a module whose mcp_server() is None, now at info level); the import-time DEFAULT_MCP_MODULES constant is gone.
+
+## 2026-09-07 — no CORE_MCP_MODULES table
+
+Core vs channel modules are told apart by the contribution meta the plugin declared, read from the registry at call time.

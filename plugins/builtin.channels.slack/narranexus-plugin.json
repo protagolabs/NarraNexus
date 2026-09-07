@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_SLACK"
+      "narranexus_plugins.slack_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_SLACK"
+      "narranexus_plugins.slack_module.contribution:TRIGGERS"
     ],
     "backend.hooks": [
       "narranexus_plugins.slack_module.plugin_hooks:HOOKS"

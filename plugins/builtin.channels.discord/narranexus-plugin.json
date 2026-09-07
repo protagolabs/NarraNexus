@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_DISCORD"
+      "narranexus_plugins.discord_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_DISCORD"
+      "narranexus_plugins.discord_module.contribution:TRIGGERS"
     ],
     "backend.hooks": [
       "narranexus_plugins.discord_module.plugin_hooks:HOOKS"

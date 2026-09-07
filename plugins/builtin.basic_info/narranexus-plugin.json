@@ -15,7 +15,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_BASIC_INFO"
+      "narranexus_plugins.basic_info_module.contribution:MODULES"
     ],
     "agent.capabilities.data_access": [
       "narranexus_plugins.basic_info_module.data_access:DATA_ACCESS"

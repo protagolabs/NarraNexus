@@ -24,11 +24,11 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 load_builtins(KERNEL_REGISTRIES, "backend")  # registration happens only at boot: the probe boots like a host
 from narranexus.platform.module_system.channel_trigger_map import (
     CHANNEL_TRIGGER_MAP,
-    REGISTERED_TRIGGER_CLASS_NAMES,
+    registered_trigger_class_names,
 )
 
 print(json.dumps({
-    "registered_class_names": sorted(REGISTERED_TRIGGER_CLASS_NAMES),
+    "registered_class_names": sorted(registered_trigger_class_names()),
     "loaded_channels": sorted(CHANNEL_TRIGGER_MAP),
 }))
 """

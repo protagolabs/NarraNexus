@@ -12,7 +12,7 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.platform.module_system.base import XYZBaseModule
 from narranexus.platform.module_system.capability_service import CapabilityService
-from narranexus.platform.module_system.contributions import MODULES_SLOT
+from narranexus.platform.module_system.slots import MODULES_SLOT
 from narranexus.platform.schema.module_schema import ModuleConfig
 
 

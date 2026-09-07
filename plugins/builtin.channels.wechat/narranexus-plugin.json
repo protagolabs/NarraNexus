@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_WECHAT"
+      "narranexus_plugins.wechat_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_WECHAT"
+      "narranexus_plugins.wechat_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
       "backend.routes.channels.wechat:ROUTES"

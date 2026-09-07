@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from narranexus.contracts.data_access import DataAccessSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.module_system.contributions import DATA_ACCESS_SLOT
+from narranexus.platform.module_system.slots import DATA_ACCESS_SLOT
 from narranexus.kernel.plugins.builtins import load_builtins
 from narranexus.platform.module_system.data_access import store as st
 

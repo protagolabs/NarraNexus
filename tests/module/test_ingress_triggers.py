@@ -13,8 +13,8 @@ import pytest
 
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.platform.module_system import run_worker_supervisor as sup
-from narranexus.platform.module_system.channel_trigger_map import REGISTERED_TRIGGER_CLASS_NAMES, TriggerMapView
-from narranexus.platform.module_system.contributions import TRIGGERS_SLOT, channel_trigger_specs
+from narranexus.platform.module_system.channel_trigger_map import registered_trigger_class_names, TriggerMapView
+from narranexus.platform.module_system.slots import TRIGGERS_SLOT
 from narranexus.kernel.plugins.builtins import load_builtins
 
 ALL_CHANNELS = {"discord", "lark", "narramessenger", "slack", "telegram", "wechat"}
@@ -31,7 +31,7 @@ def test_channel_map_is_a_live_view_over_the_registry():
     view = TriggerMapView(regs)
     assert set(view) == ALL_CHANNELS
     assert {cls.channel_name for cls in view.values()} == ALL_CHANNELS
-    assert REGISTERED_TRIGGER_CLASS_NAMES == {s.class_name for s in channel_trigger_specs()}
+    assert registered_trigger_class_names(regs) == {"LarkTrigger", "SlackTrigger", "TelegramTrigger", "DiscordTrigger", "WeChatTrigger", "MatrixTrigger"}
     regs.remove_owner("builtin.channels.lark")
     assert "lark" not in view and set(view) == ALL_CHANNELS - {"lark"}
 

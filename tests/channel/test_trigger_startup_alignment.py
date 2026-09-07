@@ -83,17 +83,17 @@ def test_every_channel_trigger_is_registered_in_map():
     """A ChannelTriggerBase subclass that isn't registered would never be
     launched by the supervisor — the modern form of the old silent-drop outage.
 
-    Checks the registration INTENT (REGISTERED_TRIGGER_CLASS_NAMES), NOT the
+    Checks the registration INTENT (registered_trigger_class_names()), NOT the
     runtime CHANNEL_TRIGGER_MAP: the map defensively drops channels whose
     optional dependency is missing in this env (e.g. matrix-nio), and a missing
     dep must not read as "forgot to register."
     """
     from narranexus.platform.module_system.channel_trigger_map import (
-        REGISTERED_TRIGGER_CLASS_NAMES,
+        registered_trigger_class_names,
     )
 
     on_disk = discover_channel_trigger_classes()
-    missing = on_disk - set(REGISTERED_TRIGGER_CLASS_NAMES)
+    missing = on_disk - set(registered_trigger_class_names())
     assert not missing, (
         "ChannelTriggerBase subclasses not registered in _TRIGGER_SPECS "
         "(the supervisor will never start them):\n" + "\n".join(sorted(missing))

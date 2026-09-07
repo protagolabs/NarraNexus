@@ -13,7 +13,7 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_MESSAGE_BUS"
+      "narranexus_plugins.message_bus_module.contribution:MODULES"
     ]
   },
   "quality": "gold"

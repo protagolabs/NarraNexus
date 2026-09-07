@@ -17,10 +17,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_JOB"
+      "narranexus_plugins.job_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_JOB"
+      "narranexus_plugins.job_module.contribution:TRIGGERS"
     ],
     "agent.capabilities.data_access": [
       "narranexus_plugins.job_module.data_access:DATA_ACCESS"

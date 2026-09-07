@@ -153,10 +153,10 @@ def test_the_guard_sees_every_registered_channel():
     dependency is missing is skipped silently). If that happens in CI, the
     guard below would quietly stop checking that channel."""
     from narranexus.platform.module_system.channel_trigger_map import (
-        REGISTERED_TRIGGER_CLASS_NAMES,
+        registered_trigger_class_names,
     )
 
-    assert len(CHANNEL_TRIGGER_MAP) == len(REGISTERED_TRIGGER_CLASS_NAMES), (
+    assert len(CHANNEL_TRIGGER_MAP) == len(registered_trigger_class_names()), (
         "a channel failed to import — the fill guard is running blind on it"
     )
 

@@ -28,10 +28,10 @@
   },
   "provides": {
     "agent.capabilities.modules": [
-      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_LARK"
+      "narranexus_plugins.lark_module.contribution:MODULES"
     ],
     "ingress.triggers": [
-      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_LARK"
+      "narranexus_plugins.lark_module.contribution:TRIGGERS"
     ],
     "backend.routes": [
       "backend.routes.channels.lark:ROUTES"

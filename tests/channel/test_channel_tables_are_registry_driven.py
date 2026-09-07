@@ -34,7 +34,7 @@ def plugin_channel():
     dispose = KERNEL_REGISTRIES.registry_for("ingress.channels").register_contribution(Contribution("acme_chat", lambda: PLUGIN), owner="acme.chat")
     # the plugin's module declares its agent-level instance (batch 5b)
     from tests.plugins.hello_channel.backend import HelloChannelModule
-    from narranexus.platform.module_system.contributions import MODULES_SLOT
+    from narranexus.platform.module_system.slots import MODULES_SLOT
     from narranexus.platform.schema.module_schema import ModuleAgentInstance, ModuleConfig
 
     class AcmeChatModule(HelloChannelModule):

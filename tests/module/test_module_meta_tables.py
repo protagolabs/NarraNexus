@@ -14,7 +14,7 @@ from narranexus.platform.module_system._module_impl.loader import ModuleLoader
 from narranexus.platform.module_system._module_impl.metadata import get_all_modules_metadata, get_module_metadata, get_task_modules
 from narranexus.platform.module_system._module_impl.selector import ModuleSelector
 from narranexus.platform.module_system.base import XYZBaseModule
-from narranexus.platform.module_system.contributions import MODULES_SLOT
+from narranexus.platform.module_system.slots import MODULES_SLOT
 from narranexus.platform.schema.module_schema import ModuleConfig, ModuleDecisionMeta, ModuleDisplay
 
 
