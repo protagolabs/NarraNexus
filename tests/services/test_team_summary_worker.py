@@ -528,7 +528,7 @@ async def test_a_pass_reports_what_it_did(db_client):
     w = _worker(db_client)
 
     await w.run_once()
-    assert w.last_pass == {"rooms": 1, "summarised": 1, "failed": 0}
+    assert w.last_pass == {"rooms": 1, "summarised": 1, "failed": 0, "backoff": 0}
 
 
 @pytest.mark.asyncio
@@ -674,3 +674,226 @@ async def test_the_bearer_rule_is_the_rooms_own_default_responder(db_client):
     )
 
 
+# ── a failing team backs off instead of retrying every poll ─────────────────
+#
+# 2026-09-07 prod: two teams whose owner's NetMind balance was empty were
+# retried on EVERY 60s pass for three days straight — ~1,000 error lines an
+# hour of the same 400, drowning the backend log. "Keep the previous summary"
+# was the right policy for the summary; retrying at full poll rate was not the
+# right policy for the call. A failed team now waits an exponentially growing,
+# capped interval before it is tried again; success clears the wait.
+
+
+def _clock(start=0.0):
+    state = {"now": start}
+
+    def now():
+        return state["now"]
+
+    def advance(seconds):
+        state["now"] += seconds
+
+    return now, advance
+
+
+@pytest.mark.asyncio
+async def test_a_failed_team_is_not_retried_on_the_next_pass(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    now, _advance = _clock()
+    w = _worker(db_client, summary=RuntimeError("balance not enough"))
+    w._clock = now
+
+    await w.run_once()
+    await w.run_once()
+
+    assert len(w.calls) == 1
+    assert w.last_pass == {"rooms": 1, "summarised": 0, "failed": 0, "backoff": 1}
+
+
+@pytest.mark.asyncio
+async def test_the_backoff_grows_exponentially_and_is_capped(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    now, advance = _clock()
+    w = _worker(db_client, summary=RuntimeError("balance not enough"))
+    w._clock = now
+    base, cap = TeamSummaryWorker.BACKOFF_BASE, TeamSummaryWorker.BACKOFF_MAX
+
+    await w.run_once()  # failure 1 → wait base
+    advance(base - 1)
+    await w.run_once()
+    assert len(w.calls) == 1
+    advance(1)
+    await w.run_once()  # failure 2 → wait 2*base
+    assert len(w.calls) == 2
+    advance(2 * base - 1)
+    await w.run_once()
+    assert len(w.calls) == 2
+    advance(1)
+    await w.run_once()  # failure 3
+    assert len(w.calls) == 3
+
+    # Keep failing until the wait would exceed the cap; it must not.
+    for _ in range(20):
+        advance(cap)
+        await w.run_once()
+    advance(cap - 1)
+    await w.run_once()
+    n = len(w.calls)
+    advance(1)
+    await w.run_once()
+    assert len(w.calls) == n + 1
+
+
+@pytest.mark.asyncio
+async def test_a_success_clears_the_backoff(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    now, advance = _clock()
+    w = TeamSummaryWorker(db_client)
+    w._clock = now
+    outcomes = [RuntimeError("hiccup"), "recovered", RuntimeError("again"), "recovered again"]
+    calls = []
+
+    async def scripted(*, team_id, transcript, bearer=""):
+        calls.append(team_id)
+        out = outcomes[len(calls) - 1]
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    w._summarise = scripted
+
+    await w.run_once()  # fails → backoff base
+    advance(TeamSummaryWorker.BACKOFF_BASE)
+    await w.run_once()  # succeeds → backoff cleared
+    assert len(calls) == 2
+    assert w.last_pass["backoff"] == 0
+
+    # New messages after the summary; the next failure starts over at BASE,
+    # not at the doubled interval left over from before the success.
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD):
+        await db_client.insert(
+            "bus_messages",
+            {
+                "message_id": f"late{i}",
+                "channel_id": CHANNEL,
+                "from_agent": "agent_a",
+                "content": "more work",
+                "msg_type": "text",
+                "created_at": _ts(100 + i),
+            },
+        )
+    await w.run_once()  # fails again
+    assert len(calls) == 3
+    advance(TeamSummaryWorker.BACKOFF_BASE - 1)
+    await w.run_once()
+    assert len(calls) == 3
+    advance(1)
+    await w.run_once()
+    assert len(calls) == 4
+    assert w.last_pass["backoff"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_backed_off_team_does_not_shield_the_others(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    await db_client.insert("teams", {"team_id": "team_2", "owner_user_id": OWNER, "name": "T2"})
+    await db_client.insert("team_members", {"team_id": "team_2", "agent_id": "agent_b"})
+    await db_client.insert(
+        "bus_channels",
+        {"channel_id": "ch_team_2", "channel_type": "group", "created_by": "team_team_2", "name": "T2"},
+    )
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD):
+        await db_client.insert(
+            "bus_messages",
+            {
+                "message_id": f"t2m{i}",
+                "channel_id": "ch_team_2",
+                "from_agent": "agent_a",
+                "content": "other room",
+                "msg_type": "text",
+                "created_at": _ts(i),
+            },
+        )
+    now, _advance = _clock()
+    w = TeamSummaryWorker(db_client)
+    w._clock = now
+    seen = []
+
+    async def flaky(*, team_id, transcript, bearer=""):
+        seen.append(team_id)
+        if team_id == TEAM:
+            raise RuntimeError("cursed")
+        return "team 2 is fine"
+
+    w._summarise = flaky
+    await w.run_once()
+    # team_2 got summarised; add more messages so it is due again.
+    for i in range(TeamSummaryWorker.MESSAGE_THRESHOLD):
+        await db_client.insert(
+            "bus_messages",
+            {
+                "message_id": f"t2late{i}",
+                "channel_id": "ch_team_2",
+                "from_agent": "agent_a",
+                "content": "even more",
+                "msg_type": "text",
+                "created_at": _ts(100 + i),
+            },
+        )
+    await w.run_once()
+
+    # `_team_rooms` has no ORDER BY, so only the counts are asserted.
+    assert seen.count(TEAM) == 1
+    assert seen.count("team_2") == 2
+    assert w.last_pass == {"rooms": 2, "summarised": 1, "failed": 0, "backoff": 1}
+
+
+@pytest.mark.asyncio
+async def test_a_quiet_room_is_never_backed_off(db_client):
+    """Backoff is for failures only. A room with nothing new is skipped by the
+    threshold, and must be tried the moment it becomes busy."""
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD - 1)
+    now, _advance = _clock()
+    w = _worker(db_client)
+    w._clock = now
+
+    await w.run_once()
+    assert w.calls == []
+    await db_client.insert(
+        "bus_messages",
+        {
+            "message_id": "last",
+            "channel_id": CHANNEL,
+            "from_agent": "agent_a",
+            "content": "done",
+            "msg_type": "text",
+            "created_at": _ts(99),
+        },
+    )
+    await w.run_once()
+    assert len(w.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_endless_failure_streak_never_overflows(db_client):
+    """`_note_failure` runs inside the pass's except block; an OverflowError
+    there would escape and abort every later team in the pass."""
+    w = TeamSummaryWorker(db_client)
+    w._clock = lambda: 0.0
+    for _ in range(2000):
+        wait = w._note_failure(TEAM)
+    assert wait == TeamSummaryWorker.BACKOFF_MAX
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_teams_backoff_entry_is_dropped(db_client):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    now, _advance = _clock()
+    w = _worker(db_client, summary=RuntimeError("cursed"))
+    w._clock = now
+    await w.run_once()
+    assert TEAM in w._backoff
+
+    await db_client.delete("bus_channels", {"channel_id": CHANNEL})
+    await w.run_once()
+    assert TEAM not in w._backoff

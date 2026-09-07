@@ -40,12 +40,23 @@ user entries, deliberately. A user's rule is never silently shortened, because
 they would go on believing the whole rule is in force. Nobody depends on the
 exact wording of a generated paragraph, and refusing an over-long one outright
 would leave the team with no progress view at all.
+
+**Why a failed team backs off.** The poll is 60 s and "keep the previous
+summary" says nothing about how soon to try again. Retrying at full poll rate
+turned one owner's empty balance into ~1,000 identical error lines an hour for
+three days (2026-09-07 prod): the call cannot succeed until something outside
+this process changes, and asking every minute only buries the log. A team that
+failed waits an exponentially growing, capped interval (5 min → 6 h) before it
+is tried again; a pass that does not fail clears the wait. Kept in memory on
+purpose — a restart is a fine reason to try once more, and there is nothing
+about the streak worth a column.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
@@ -130,14 +141,26 @@ class TeamSummaryWorker:
     MESSAGE_THRESHOLD = 15
     # How much scrollback the summariser is shown.
     TRANSCRIPT_LIMIT = 60
+    # After a failure, how long before the team is tried again: BASE doubled
+    # per consecutive failure, never more than MAX.
+    BACKOFF_BASE = 300.0
+    BACKOFF_MAX = 6 * 3600.0
+    # Doublings needed to reach MAX from BASE (2^7 * 5 min > 6 h); the streak
+    # counter is clamped here so the exponent stays bounded.
+    _BACKOFF_CAP_STEPS = 8
 
     def __init__(self, db_client: Any, *, poll_interval: float = POLL_INTERVAL):
         self._db = db_client
         self.poll_interval = poll_interval
         self.running = False
         self._task: Optional[asyncio.Task] = None
-        # Last pass's outcome, for health probes and tests.
-        self.last_pass: Dict[str, int] = {"rooms": 0, "summarised": 0, "failed": 0}
+        # Last pass's outcome, for health probes and tests. `backoff` is the
+        # number of teams skipped because they are waiting out a failure.
+        self.last_pass: Dict[str, int] = {"rooms": 0, "summarised": 0, "failed": 0, "backoff": 0}
+        # team_id → (earliest next attempt, consecutive failures). Monotonic
+        # seconds; tests swap the clock.
+        self._backoff: Dict[str, tuple[float, int]] = {}
+        self._clock: Callable[[], float] = time.monotonic
 
     # ── lifecycle (mirrors services/memory_consolidation_worker.py) ─────────
 
@@ -177,25 +200,66 @@ class TeamSummaryWorker:
         """
         summarised = 0
         failed = 0
+        backoff = 0
         rooms = await self._team_rooms()
         for room in rooms:
+            team_id = room["team_id"]
+            if self._in_backoff(team_id):
+                backoff += 1
+                continue
             try:
-                if await self._summarise_team(room["team_id"], room["channel_id"]):
+                if await self._summarise_team(team_id, room["channel_id"]):
                     summarised += 1
             except Exception as e:  # noqa: BLE001 — isolate the bad team
                 failed += 1
-                logger.warning(f"[team.summary] team {room['team_id']} failed, keeping its previous summary: {e}")
+                wait = self._note_failure(team_id)
+                logger.warning(
+                    f"[team.summary] team {team_id} failed, keeping its previous "
+                    f"summary; next attempt in {wait:.0f}s: {e}"
+                )
+            else:
+                self._backoff.pop(team_id, None)
+        self._forget_vanished_teams(rooms)
         # An L2 heartbeat, not decoration. With only per-failure warnings, "every
         # room is quiet" and "every room is failing" are the same observation:
         # silence. This distinguishes them, and it is the signal that would have
         # exposed the two production-only faults review had to find by reading —
         # the worker returned 0 forever while looking perfectly healthy.
-        self.last_pass = {"rooms": len(rooms), "summarised": summarised, "failed": failed}
+        self.last_pass = {
+            "rooms": len(rooms), "summarised": summarised, "failed": failed, "backoff": backoff,
+        }
         if failed or summarised:
             logger.info(
-                f"[team.summary] pass: rooms={len(rooms)} summarised={summarised} failed={failed}"
+                f"[team.summary] pass: rooms={len(rooms)} summarised={summarised} "
+                f"failed={failed} backoff={backoff}"
             )
         return summarised
+
+    # ── failure backoff ─────────────────────────────────────────────────────
+
+    def _in_backoff(self, team_id: str) -> bool:
+        entry = self._backoff.get(team_id)
+        return entry is not None and self._clock() < entry[0]
+
+    def _note_failure(self, team_id: str) -> float:
+        """Record one more consecutive failure; return the wait it earned.
+
+        The streak stops counting once the wait is capped: the exponent would
+        otherwise grow without bound and overflow a float after ~2^10
+        failures — and this runs inside `run_once`'s except block, where an
+        OverflowError escapes and kills every later team in the pass.
+        """
+        failures = min(self._backoff.get(team_id, (0.0, 0))[1] + 1, self._BACKOFF_CAP_STEPS)
+        wait = min(self.BACKOFF_BASE * (2 ** (failures - 1)), self.BACKOFF_MAX)
+        self._backoff[team_id] = (self._clock() + wait, failures)
+        return wait
+
+    def _forget_vanished_teams(self, rooms: List[Dict[str, str]]) -> None:
+        """A deleted team's room is gone from `_team_rooms`, so nothing would
+        ever clear its entry; drop entries for teams no longer listed."""
+        live = {room["team_id"] for room in rooms}
+        for team_id in [t for t in self._backoff if t not in live]:
+            del self._backoff[team_id]
 
     async def _team_rooms(self) -> List[Dict[str, str]]:
         """Every team room channel, paired with the team it belongs to.

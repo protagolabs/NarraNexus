@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.teams/src/narranexus_plugins/teams/summary_worker.py
-last_verified: 2026-09-04
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -137,3 +137,22 @@ helper SDK 会丢弃整条成本记录，总结等于**烧了 owner 的 token �
 Started/stopped through the `WORKERS` contribution (`WorkerSpec(host="backend")`) of `builtin.teams`, not by `backend/main.py` directly. `_BackendHandle` adapts the start()/stop() pair to the run-until-stopped handle shape the backend worker host expects, so the worker itself stays untouched.
 
 Batch 6b.3: moved from `platform/services/team_summary_worker.py` into the builtin.teams package.
+
+## 2026-09-07 (prod 事故) — 失败的团队按指数退避，不再每分钟重打
+
+prod 上两个 team 的 owner 自带 NetMind key 余额为零，worker 对它们**每 60 秒各重试一次**，
+连续三天每小时约 1,000 行同一个 400，把 backend 日志淹了。「失败保留旧总结」是对**产出**的
+正确策略，但对**调用**没说任何话：在进程之外的东西（充值、换 key）改变之前这个调用不可能成功，
+每分钟问一次只是在埋日志。
+
+现在每个 team 失败后进入退避：等待 `BACKOFF_BASE`（5 分钟）按连续失败次数翻倍，封顶
+`BACKOFF_MAX`（6 小时）；一次不抛异常的 pass（总结成功、房间安静、无成员跳过）即清零。
+退避只由失败触发——安静房间被阈值挡住不算失败，变忙的瞬间就会被尝试，有测试钉住。
+
+**只放内存，不加列。** 重启就是再试一次的好理由，而失败连击本身没有任何值得持久化的信息。
+`_clock` 是测试可替换的接缝（默认 `time.monotonic`，与 `_summarise` 同一做法），测试用假时钟推进而不是 sleep。
+失败连击计数在到达封顶后不再增长（指数有界；它在 `except` 块里算，溢出会冲出 `run_once` 拖死同一 pass 的其他 team），已删除的团队条目在每个 pass 末尾清掉。
+与 [[memory_consolidation_worker]] 的分野：那边把持续失败的 scope 置 `failed` 直到重新变 dirty（边沿触发），这边是定时等待——总结没有「变脏」这个边沿可等，只有时间。
+
+`last_pass` 多一个 `backoff` 计数（被跳过的等待中团队数），同样进 `/health` 的 `team_summary`
+块——否则「所有房间都在退避」和「所有房间都安静」在 L2 上又是同一种沉默。
