@@ -59,6 +59,8 @@ export function setErrorPoster(fn: Poster | null): void {
   poster = fn;
 }
 
+let dispatching = false;
+
 export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorReport {
   const report: UiErrorReport = {
     source: opts.source ?? sourceFor(error),
@@ -69,12 +71,20 @@ export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorRe
   };
   recent.push(report);
   if (recent.length > RECENT_LIMIT) recent.shift();
-  for (const l of listeners) {
-    try {
-      l(report);
-    } catch {
-      // a broken listener must not mask the original error
+  // A listener (or the poster's failure path) that itself reports must not
+  // recurse: while dispatching, nested reports are recorded but not fanned out.
+  if (dispatching) return report;
+  dispatching = true;
+  try {
+    for (const l of listeners) {
+      try {
+        l(report);
+      } catch {
+        // a broken listener must not mask the original error
+      }
     }
+  } finally {
+    dispatching = false;
   }
   if (poster && report.source !== 'shell') {
     // Throttled per plugin: a render loop must not become a request loop.
@@ -98,11 +108,17 @@ export function onUiError(listener: Listener): () => void {
   };
 }
 
+/** A snapshot of the last reports (newest last); the sink's own buffer is not exposed. */
 export function recentUiErrors(): readonly UiErrorReport[] {
-  return recent;
+  return [...recent];
 }
 
-/** Test hook: clear attribution and history. */
+/**
+ * Clear attribution, history, subscribers and the poster. Only tests call it
+ * (the sink is a module singleton shared by every test file through
+ * `test-setup.ts`); it stays exported from here rather than a test-only
+ * module so the reset and the state it resets cannot drift apart.
+ */
 export function resetErrorSink(): void {
   listeners.clear();
   recent.length = 0;

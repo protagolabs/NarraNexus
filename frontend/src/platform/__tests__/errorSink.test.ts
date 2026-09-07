@@ -24,6 +24,25 @@ describe('error sink', () => {
     expect(recentUiErrors()).toHaveLength(2);
   });
 
+  it('a listener that reports from inside a report does not recurse', () => {
+    let calls = 0;
+    onUiError(() => {
+      calls += 1;
+      if (calls < 5) reportUiError(new Error('nested'));
+    });
+    reportUiError(new Error('outer'));
+    expect(calls).toBe(1);
+    expect(recentUiErrors().map((r) => r.error.message)).toEqual(['outer', 'nested']);
+  });
+
+  it('recentUiErrors returns a snapshot, not the live buffer', () => {
+    reportUiError(new Error('one'));
+    const snapshot = recentUiErrors();
+    reportUiError(new Error('two'));
+    expect(snapshot).toHaveLength(1);
+    expect(recentUiErrors()).toHaveLength(2);
+  });
+
   it('a throwing listener does not mask the report', () => {
     onUiError(() => {
       throw new Error('listener broke');

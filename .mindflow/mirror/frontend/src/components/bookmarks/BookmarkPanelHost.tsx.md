@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 文案修正
+
+头注释原写「未注册 id 渲染空态」，实际是 `null`（什么都不画）；`void useRegistryEntries(PANELS)` 标明只为订阅重渲染。
 
 ## 2026-09-03 — 挂载 `builder` 面板
 

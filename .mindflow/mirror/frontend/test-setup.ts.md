@@ -1,8 +1,14 @@
 ---
 code_file: frontend/test-setup.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 全局导入 `platform/builtin` 的含义
+
+注册表是模块单例：每个前端测试文件都带着内置注册。测试里再注册一个与内置同 id 的条目会抛
+`RegistryConflictError`（除非 `replace`），errorSink 也是同一个单例——用过 `onUiError/reportUiError` 的测试要在
+`afterEach` 里 `resetErrorSink()`。vitest 按文件隔离模块，跨文件不串。
 # test-setup.ts — 让 jsdom 足够像浏览器，测试才能测真东西
 
 ## 2026-09-03（插件平台批 1）— 同步 import `src/platform/builtin`

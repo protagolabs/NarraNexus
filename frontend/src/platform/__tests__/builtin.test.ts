@@ -17,6 +17,7 @@ import '@/platform/builtin';
 import '@/pages/settings/registerBuiltinSections';
 import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems } from '@/platform/registries';
 import { builtinTabIds } from '@/components/bookmarks/tabs';
+import { BUILTIN_TAB_IDS } from '@/components/bookmarks/builtinTabIds';
 import {
   ArtifactsTab,
   AwarenessTab,
@@ -81,6 +82,10 @@ describe('builtin sidebar', () => {
 describe('builtin panels', () => {
   it('every builtin rail tab has a panel component', () => {
     for (const id of builtinTabIds()) expect(PANELS.get(id)?.component, id).toBeTruthy();
+  });
+
+  it('the registry-derived builtin strip tabs are exactly the shell-authored BUILTIN_TAB_IDS', () => {
+    expect([...builtinTabIds()].sort()).toEqual([...BUILTIN_TAB_IDS].sort());
   });
 
   it('each rail tab maps to its OWN builtin panel component, not a mismatched one', () => {

@@ -6,8 +6,8 @@
  *
  * The host knows no panel by name: builtin panels are registered by
  * `platform/builtin.ts`, plugins add theirs. An id without a registered
- * panel renders an empty state rather than crashing (a plugin may have
- * added a strip tab and then been disabled).
+ * panel renders nothing (an empty drawer body) rather than crashing — a
+ * plugin may have added a strip tab and then been disabled.
  */
 import { Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -38,7 +38,8 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
   useEffect(() => {
     markTabOpened(agentId, tab);
   }, [agentId, tab]);
-  useRegistryEntries(PANELS);
+  // Subscribed for re-render only: a panel registered after mount shows up.
+  void useRegistryEntries(PANELS);
   const Panel = PANELS.get(tab)?.component;
 
   return (

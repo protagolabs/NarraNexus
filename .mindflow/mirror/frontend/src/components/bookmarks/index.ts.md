@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 再导出 `BUILTIN_TAB_IDS` / `BuiltinTabId`
+
+供壳内置侧标窄类型。
 
 ## 2026-09-04 — 不再导出 `visibleCategories`（见 [[tabs]] 同日条）
 

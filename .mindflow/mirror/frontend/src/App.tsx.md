@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— `<Routes>` 抽成导出的 `AppRoutes`
+
+路由骨架（注册表页面 + 受保护的 `/app` 布局与 index 重定向 + 根重定向 + 兜底）抽成 `export function AppRoutes()`，
+`App` 只在横幅/错误边界/Suspense 里渲染它。目的：`src/__tests__/appRoutes.test.tsx` 能在不挂载横幅与 store 副作用
+的前提下证明「壳渲染的就是 `PAGES`」——删掉 `{pageRoutes.top}` 或 `{pageRoutes.app}` 该测试即红（此前没有任何测试
+碰 `App.tsx`）。
 
 ## 2026-09-03 — 创建工作室入口路由
 

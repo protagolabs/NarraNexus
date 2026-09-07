@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— 共用 lazy 的 BundleImport；面板注册走 `builtinPanel(id: BuiltinTabId, …)`
+
+`bundle/import` 与 `templates/install` 此前各自 `lazy()` 一次成了两个组件类型、导航间 remount；现在共用一个常量。
+12 条 `PANELS.register` 改经 `builtinPanel`，id 参数类型是 `components/bookmarks/builtinTabIds.ts` 的 `BuiltinTabId`：
+壳自己写的 id 拼错即编译错误，插件 id 仍是开放的 `string`（条带由注册表派生）。
+
 ## 2026-09-03 — 壳自己的贡献（页面、侧栏、面板）
 
 「内置即插件」（D4）：壳通过与插件相同的注册表贡献自己的页面/侧栏行/面板，集中在一个文件、按 UI 顺序。

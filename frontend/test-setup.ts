@@ -15,7 +15,7 @@
 import '@testing-library/jest-dom/vitest';
 // Initialize i18next so components using `useTranslation()` resolve real
 // strings (English fallback) instead of returning raw keys in tests.
-import './src/i18n'
+import './src/i18n';
 // The shell's registries are populated by main.tsx in the app; tests that
 // render the shell need the same builtin registrations.
 import './src/platform/builtin';

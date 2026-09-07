@@ -38,6 +38,7 @@ import {
   tabDescKey,
   visibleTabs,
   type AtomicTabId,
+  type BuiltinTabId,
 } from '@/components/bookmarks';
 import { useUIStore, useArtifactStore, useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
@@ -61,7 +62,7 @@ import { useWhenContext } from '@/platform/whenContext';
  *  conversation does not drive; but once the drawer's tab switcher retired,
  *  this menu is the desktop's only way back into a studio the user
  *  collapsed — without it, "collapse" would silently mean "end". */
-const DETAIL_GROUP_A: AtomicTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
+const DETAIL_GROUP_A: BuiltinTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 function tabDef(id: AtomicTabId) {
   return allTabs().find((t) => t.id === id)!;

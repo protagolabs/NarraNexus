@@ -465,10 +465,6 @@ function App() {
     return unsub;
   }, []);
 
-  // Pages come from the registry; a plugin registering after first render
-  // re-renders the route table.
-  const pageRoutes = pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute });
-
   return (
     <>
       <MockBanner />
@@ -538,26 +534,41 @@ function App() {
       )}
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>
-      <Routes>
-        {pageRoutes.top}
-
-        {/* Protected app routes: MainLayout is the shell; its children come
-            from the page registry in registration order (builtin first). */}
-        <Route
-          path="/app"
-          element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
-        >
-          <Route index element={<Navigate to="chat" replace />} />
-          {pageRoutes.app}
-        </Route>
-
-        {/* Root redirect + catch-all */}
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
-    </ChunkErrorBoundary>
+        <AppRoutes />
+      </Suspense>
+      </ChunkErrorBoundary>
     </>
+  );
+}
+
+/**
+ * The route table: registry pages around the fixed skeleton (the protected
+ * /app layout with its index redirect, the root redirect, the catch-all).
+ * Exported so `src/__tests__/appRoutes.test.tsx` can prove the registry is
+ * what the shell renders, without mounting the banners and store effects
+ * above. Pages come from the registry; a plugin registering after first
+ * render re-renders the table.
+ */
+export function AppRoutes() {
+  const pageRoutes = pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute });
+  return (
+    <Routes>
+      {pageRoutes.top}
+
+      {/* Protected app routes: MainLayout is the shell; its children come
+          from the page registry in registration order (builtin first). */}
+      <Route
+        path="/app"
+        element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
+      >
+        <Route index element={<Navigate to="chat" replace />} />
+        {pageRoutes.app}
+      </Route>
+
+      {/* Root redirect + catch-all */}
+      <Route path="/" element={<RootRedirect />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 

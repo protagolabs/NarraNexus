@@ -29,8 +29,9 @@ import {
   Wand2,
 } from 'lucide-react';
 
-import { CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR } from '@/platform/registries';
+import { CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR, type PanelDef } from '@/platform/registries';
 import { ArtifactsGlyph } from '@/components/bookmarks/tabs';
+import type { BuiltinTabId } from '@/components/bookmarks/builtinTabIds';
 import {
   ArtifactsTab,
   AwarenessTab,
@@ -82,10 +83,13 @@ PAGES.register('settings', { path: 'settings', element: lazy(() => import('@/pag
 // this route only forwards old links there with the query preserved.
 PAGES.register('account', { path: 'account', element: lazy(() => import('@/pages/AccountPage')), guard: 'protected', layout: 'app' }, OWNER);
 PAGES.register('bundle-export', { path: 'bundle/export', element: lazy(() => import('@/pages/BundleExportPage')), guard: 'protected', layout: 'app' }, OWNER);
-PAGES.register('bundle-import', { path: 'bundle/import', element: lazy(() => import('@/pages/BundleImportPage')), guard: 'protected', layout: 'app' }, OWNER);
+// One lazy component for both import routes (as the old JSX table had it):
+// two `lazy()` calls would be two component types and remount on navigation.
+const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
+PAGES.register('bundle-import', { path: 'bundle/import', element: BundleImportPage, guard: 'protected', layout: 'app' }, OWNER);
 // Deep-link entry from the narra.nexus templates marketplace: same component
 // as bundle/import; the URL query (?url=&sha256=) triggers auto-fetch-then-preflight.
-PAGES.register('templates-install', { path: 'templates/install', element: lazy(() => import('@/pages/BundleImportPage')), guard: 'protected', layout: 'app' }, OWNER);
+PAGES.register('templates-install', { path: 'templates/install', element: BundleImportPage, guard: 'protected', layout: 'app' }, OWNER);
 // Static segment ranks above :teamId in v6 route ranking, but it also reads clearer listed first.
 // Creation studio entry + the agent profile page (dev #382/#383). `agents/new` is a
 // static segment and must be registered before `agents/:agentId`.
@@ -139,6 +143,9 @@ SIDEBAR.register('system', {
 }, OWNER);
 
 // --------------------------------------------------------------- panels
+// The shell's own panels carry the shell's own tab ids (`BUILTIN_TAB_IDS`): a
+// typo here is a compile error rather than a silently empty drawer.
+const builtinPanel = (id: BuiltinTabId, def: PanelDef) => PANELS.register(id, def, OWNER);
 // Each panel's `strip` field is the single source `bookmarks/tabs.ts` derives
 // the drawer strip from (label/icon/category/order/conditional) — replaces
 // the formerly-separate `STRIP_CATEGORIES` literal array (see I-3 in the
@@ -146,18 +153,18 @@ SIDEBAR.register('system', {
 // gets its strip entry, instead of the strip being a second table only the
 // shell could edit).
 // Creation studio panel (dev #382): conditional — renders only while the studio is open on this agent.
-PANELS.register('builder', { component: BuilderTab, strip: { label: 'Builder', labelKey: 'rail.builder', icon: Wand2, category: 'config', order: 10, conditional: 'studio' } }, OWNER);
-PANELS.register('awareness', { component: AwarenessTab, strip: { label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles, category: 'config', order: 20 } }, OWNER);
-PANELS.register('workspace', { component: WorkspaceTab, strip: { label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen, category: 'config', order: 30 } }, OWNER);
-PANELS.register('channels', { component: ChannelsTab, strip: { label: 'Channels', labelKey: 'rail.channels', icon: Radio, category: 'config', order: 40 } }, OWNER);
-PANELS.register('smarthome', { component: SmartHomeTab, strip: { label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home, category: 'config', order: 50 } }, OWNER);
-PANELS.register('jobs', { component: JobsTab, strip: { label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo, category: 'activity', order: 10 } }, OWNER);
-PANELS.register('inbox', { component: InboxTab, strip: { label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox, category: 'activity', order: 20 } }, OWNER);
-PANELS.register('artifacts', { component: ArtifactsTab, strip: { label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph, category: 'activity', order: 30 } }, OWNER);
-PANELS.register('memory', { component: MemoryTab, strip: { label: 'Memory', labelKey: 'rail.memory', icon: BookOpen, category: 'narra', order: 10 } }, OWNER);
-PANELS.register('social', { component: SocialTab, strip: { label: 'Social Network', labelKey: 'rail.social', icon: Network, stripLabel: 'Network', stripLabelKey: 'rail.socialShort', category: 'nexus', order: 10 } }, OWNER);
-PANELS.register('skills', { component: SkillsTab, strip: { label: 'Skills', labelKey: 'rail.skills', icon: Puzzle, category: 'skills', order: 10 } }, OWNER);
-PANELS.register('mcp', { component: McpTab, strip: { label: 'MCP Servers', labelKey: 'rail.mcp', icon: Server, stripLabel: 'MCP', stripLabelKey: 'rail.mcpShort', category: 'skills', order: 20 } }, OWNER);
+builtinPanel('builder', { component: BuilderTab, strip: { label: 'Builder', labelKey: 'rail.builder', icon: Wand2, category: 'config', order: 10, conditional: 'studio' } });
+builtinPanel('awareness', { component: AwarenessTab, strip: { label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles, category: 'config', order: 20 } });
+builtinPanel('workspace', { component: WorkspaceTab, strip: { label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen, category: 'config', order: 30 } });
+builtinPanel('channels', { component: ChannelsTab, strip: { label: 'Channels', labelKey: 'rail.channels', icon: Radio, category: 'config', order: 40 } });
+builtinPanel('smarthome', { component: SmartHomeTab, strip: { label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home, category: 'config', order: 50 } });
+builtinPanel('jobs', { component: JobsTab, strip: { label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo, category: 'activity', order: 10 } });
+builtinPanel('inbox', { component: InboxTab, strip: { label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox, category: 'activity', order: 20 } });
+builtinPanel('artifacts', { component: ArtifactsTab, strip: { label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph, category: 'activity', order: 30 } });
+builtinPanel('memory', { component: MemoryTab, strip: { label: 'Memory', labelKey: 'rail.memory', icon: BookOpen, category: 'narra', order: 10 } });
+builtinPanel('social', { component: SocialTab, strip: { label: 'Social Network', labelKey: 'rail.social', icon: Network, stripLabel: 'Network', stripLabelKey: 'rail.socialShort', category: 'nexus', order: 10 } });
+builtinPanel('skills', { component: SkillsTab, strip: { label: 'Skills', labelKey: 'rail.skills', icon: Puzzle, category: 'skills', order: 10 } });
+builtinPanel('mcp', { component: McpTab, strip: { label: 'MCP Servers', labelKey: 'rail.mcp', icon: Server, stripLabel: 'MCP', stripLabelKey: 'rail.mcpShort', category: 'skills', order: 20 } });
 
 // Settings sections are registered by `pages/settings/registerBuiltinSections.ts`
 // from inside the settings chunk (the panes stay lazy with the page).

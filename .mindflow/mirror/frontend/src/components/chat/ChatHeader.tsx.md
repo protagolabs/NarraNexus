@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— `DETAIL_GROUP_A: BuiltinTabId[]`
+
+壳自己写的菜单分组用窄类型，拼错即编译错误；`openPanel/DetailItem` 仍接受 `AtomicTabId`（插件 tab 也能从这里打开）。
+
 ## 2026-09-07 — the plugin-actions divider is conditional (M-1)
 
 The divider between `DETAIL_GROUP_A`'s fixed panel entries and the plugin-contributed

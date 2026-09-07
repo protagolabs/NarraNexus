@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/platform/errorSink.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— 重入保护、快照返回、`resetErrorSink` 的定位
+
+监听器（或 poster 的失败路径）自己再 `reportUiError` 不会递归：派发中的嵌套上报只记入 `recent` 不再扇出。
+`recentUiErrors()` 返回拷贝而不是活缓冲区。`resetErrorSink` 保留在本模块（重置与它重置的状态不能分家），
+文档写明只供测试——`test-setup.ts` 让每个测试文件都共享这个单例，用后必须重置。
 
 ## 2026-09-03（批 2d）— 已知归因 + 后端上报
 
