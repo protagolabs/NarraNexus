@@ -36,6 +36,10 @@ ENTRYPOINTS = {
     "src/narranexus/platform/module_system/run_worker_supervisor.py": ("run", "boot_worker_plugins"),
     "src/narranexus/platform/module_system/run_channel_triggers.py": ("main", "boot_channel_plugins"),
     "backend/main.py": ("lifespan", "boot_backend_plugins"),
+    # The NexusPower turn runner is its own process (spawned per user by the
+    # adapter): it resolves the framework's seats from the registries and so
+    # must boot like every other host — found by the 2026-09-08 local e2e pass.
+    "plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/runner.py": ("main", "boot_executor_plugins"),
 }
 
 
@@ -69,7 +73,7 @@ def test_the_entrypoint_table_covers_every_boot_function_the_platform_offers():
     offered = {name for name in plugins_boot.__all__ if name.startswith("boot_")}
     covered = {boot for _, boot in ENTRYPOINTS.values()}
     assert offered <= covered, sorted(offered - covered)
-    assert len(ENTRYPOINTS) == 5
+    assert len(ENTRYPOINTS) == 6
 
 
 def test_booting_the_agent_side_does_not_declare_the_host_healthy(monkeypatch):

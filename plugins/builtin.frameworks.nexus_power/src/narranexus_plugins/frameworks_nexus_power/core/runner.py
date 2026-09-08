@@ -207,6 +207,15 @@ def main() -> None:
     )
 
     async def _run() -> int:
+        # This process runs the turn: the framework's own seats
+        # (turn.pipeline.act.framework.nexus_power.*), providers, clients and
+        # modules all come from the plugin boot. Without it the registries hold
+        # only the kernel seed tree and the first seat lookup in assembly fails
+        # with "unknown slot …nexus_power.expression". Same role as the executor
+        # service (workers): the contribution set a turn needs.
+        from narranexus.platform.module_system.plugins_boot import boot_executor_plugins
+
+        boot_executor_plugins()
         if os.getenv("NEXUS_POWER_PREWARM") == "1":
             _prewarm()
         # The request line read is UNCHANGED (blocking, load-bearing): every

@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/runner.py
-last_verified: 2026-08-22
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（本地 E2E 实测）— runner 进程也要 boot 插件平台
+
+runner 是 adapter 按用户 spawn 的独立进程，`assembly.resolve_one(EXPRESSION)` 从本进程注册表取框架自己的座位；此前从不 boot，
+注册表只有内核种子树，真机第一次带工具的回合就死在 `unknown slot …nexus_power.expression`（单测都用注入的注册表所以没抓到）。
+现在 `main()` 起手 `boot_executor_plugins()`（与 executor_service 同角色 workers），`test_host_entrypoints_boot` 把本文件列进
+必 boot 的宿主入口表。
 
 ## 2026-08-21 — serve_turn 转发 steering inlet
 
