@@ -213,6 +213,43 @@ async def test_run_mcp_servers_async_serves_one_host_on_the_caller_loop(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_run_mcp_servers_async_boots_plugins_before_resolving_modules(monkeypatch, fake_uvicorn):
+    """The module table is registry-derived and the registry is filled by the mcp
+    boot: a runner that resolves modules first sees an empty table and exits with
+    "No modules to run" (the whole MCP host dead). The boot must come first."""
+    runner = ModuleRunner()
+    fake = _FakeMCPServer()
+    module_cls = _module_class(fake, "booted_module")
+    _stub_db(monkeypatch)
+    monkeypatch.setenv("MCP_PORT", "19913")
+    booted = {"done": False}
+
+    def _boot():
+        booted["done"] = True
+
+    def _resolve(_modules):
+        # What the real registry-derived resolution does: nothing before boot.
+        return [module_cls] if booted["done"] else []
+
+    monkeypatch.setattr("narranexus.platform.module_system.plugins_boot.boot_mcp_plugins", _boot)
+    monkeypatch.setattr(runner, "_resolve_modules", _resolve)
+
+    async def _stopper():
+        await asyncio.sleep(0.1)
+        fake_uvicorn.release.set()
+
+    stopper_task = asyncio.create_task(_stopper())
+    try:
+        await asyncio.wait_for(runner.run_mcp_servers_async(agent_id="test_agent", user_id="test_user"), timeout=5.0)
+    finally:
+        await stopper_task
+
+    assert booted["done"]
+    assert len(fake_uvicorn.instances) == 1, "the host must start: modules resolve only after boot"
+    assert set(_mounts(fake_uvicorn.instances[0].config.app)) == {"/mcp/booted_module"}
+
+
+@pytest.mark.asyncio
 async def test_async_runner_is_credfree_when_seam_is_httpstore(monkeypatch, fake_uvicorn):
     """When NARRANEXUS_BACKEND_URL is set (seam=HttpStore, the creds-stripped
     cloud shape), run_mcp_servers_async must NOT open a DB pool or run

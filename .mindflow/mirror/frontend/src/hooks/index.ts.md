@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 导出 `usePluginTheme`
+
+插件主题应用钩子（见 `usePluginTheme.ts.md`）。
 
 ## 2026-09-04 — 再导出 `useStudioLifecycle`
 

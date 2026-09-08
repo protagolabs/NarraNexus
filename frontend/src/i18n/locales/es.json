@@ -1378,7 +1378,9 @@
         "label": "Personalización",
         "hint": "Tema, idioma y cómo se muestran las notas de progreso del agente.",
         "narrationTitle": "Narración de progreso",
-        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable."
+        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable.",
+        "pluginThemesTitle": "Temas de plugins",
+        "pluginThemesNone": "Apariencia predeterminada"
       },
       "plugins": {
         "factory": {

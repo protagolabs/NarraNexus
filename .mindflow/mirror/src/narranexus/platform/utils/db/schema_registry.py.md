@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（本地 E2E 实测）— `register_table(spec, owner)` 的 owner 改为可位置传参
+
+`hosts.boot` 按 `TableRegistrar = Callable[[Any, str], None]` 位置调用 `register_table(spec, owner)`，而这里把 `owner`
+写成了 keyword-only：真实后端里任何带表的用户插件在 boot 时被隔离（`register_table() takes 1 positional argument but 2 were
+given`），单测因为一律传 lambda 没抓到。现在两侧契约一致；`tests/plugins/test_hello_world_e2e.py` 新增「用真实注册器 boot」的
+回归测试。
 
 ## 2026-09-03（批 2a.5）— `skill_catalog.kind` 列（additive，默认 'marketplace'）
 

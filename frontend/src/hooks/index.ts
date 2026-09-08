@@ -3,6 +3,7 @@
  */
 
 export { useTheme } from './useTheme';
+export { usePluginTheme } from './usePluginTheme';
 export { useAgentWebSocket } from './useWebSocket';
 export { useTimezoneSync } from './useTimezoneSync';
 export { useAutoRefresh } from './useAutoRefresh';

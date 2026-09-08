@@ -73,3 +73,16 @@ def test_plugin_settings_table_is_dual_dialect_with_unique_key():
     assert idx["idx_plugin_settings_plugin_key"].unique and idx["idx_plugin_settings_plugin_key"].columns == ["plugin_id", "key"]
     mysql = "\n".join(sr.generate_mysql_ddl(t))
     assert "CURRENT_TIMESTAMP(6)" in mysql and "MEDIUMTEXT" in mysql
+
+
+def test_register_table_accepts_the_owner_positionally_like_the_boot_calls_it(clean_registry):
+    """`hosts.boot` calls the TableRegistrar as ``register_table(spec, owner)`` (the
+    ``TableRegistrar`` alias is ``Callable[[Any, str], None]``). A keyword-only ``owner``
+    made every user plugin with a table fail to boot in the real backend with
+    "register_table() takes 1 positional argument but 2 were given"."""
+    import inspect
+
+    owner_param = inspect.signature(sr.register_table).parameters["owner"]
+    assert owner_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    table = sr.register_table(_spec(), "acme.weather")
+    assert sr.TABLE_OWNERS[table.name] == "acme.weather"

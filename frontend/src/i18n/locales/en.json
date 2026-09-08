@@ -1821,7 +1821,9 @@
         "label": "Personalization",
         "hint": "Theme, language, and how the agent's progress notes are shown.",
         "narrationTitle": "Progress narration",
-        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer."
+        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer.",
+        "pluginThemesTitle": "Plugin themes",
+        "pluginThemesNone": "Shell default"
       },
       "plugins": {
         "label": "Plugins",

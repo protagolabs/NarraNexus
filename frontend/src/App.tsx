@@ -3,10 +3,10 @@
  * Route-level code splitting: LoginPage and MainLayout use React.lazy for on-demand loading
  */
 
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useSyncExternalStore, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
-import { useTheme, useTimezoneSync } from '@/hooks';
+import { usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
@@ -24,6 +24,7 @@ import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { PAGES, useRegistryEntries } from '@/platform/registries';
 import { pageRouteElements } from '@/platform/pageRoutes';
+import { pluginsBootSettled, subscribePluginsBoot } from '@/platform/loader';
 import { owesWelcomeFlow } from '@/lib/onboardingGate';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
@@ -223,6 +224,7 @@ function RootRedirect() {
 
 function App() {
   const { effectiveTheme } = useTheme();
+  usePluginTheme();
   useTimezoneSync();
   const navigate = useNavigate();
 
@@ -549,6 +551,13 @@ function App() {
  * above. Pages come from the registry; a plugin registering after first
  * render re-renders the table.
  */
+/** Exported for `appRoutes.test.tsx`: the hold is what keeps a plugin deep link alive across a reload. */
+export function PluginPagePending() {
+  const settled = useSyncExternalStore(subscribePluginsBoot, pluginsBootSettled, pluginsBootSettled);
+  if (!settled) return <PageFallback />;
+  return <Navigate to="/app/chat" replace />;
+}
+
 export function AppRoutes() {
   const pageRoutes = pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute });
   return (
@@ -563,6 +572,11 @@ export function AppRoutes() {
       >
         <Route index element={<Navigate to="chat" replace />} />
         {pageRoutes.app}
+        {/* Plugin pages live under x/. On a hard reload the factory has not
+            answered yet when this table first renders, so an x/ URL that no
+            registered page matches waits for the plugin boot to settle instead
+            of being sent to chat; a registered x/<page> always ranks above x/*. */}
+        <Route path="x/*" element={<PluginPagePending />} />
       </Route>
 
       {/* Root redirect + catch-all */}

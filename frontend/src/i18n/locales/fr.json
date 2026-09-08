@@ -1378,7 +1378,9 @@
         "label": "Personnalisation",
         "hint": "Thème, langue et affichage des notes de progression de l'agent.",
         "narrationTitle": "Narration de progression",
-        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet."
+        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet.",
+        "pluginThemesTitle": "Thèmes de plugins",
+        "pluginThemesNone": "Apparence par défaut"
       },
       "plugins": {
         "factory": {

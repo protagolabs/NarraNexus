@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（本地 E2E 实测）— `pluginsBootSettled()` / `subscribePluginsBoot()`
+
+硬刷新落在插件页 `/app/x/<page>` 时，路由表先于工场应答渲染，`x/hello` 尚未注册就被 `*` 兜底送回 chat——每个插件页
+深链接刷新即丢。`loadPlugins()` 现在在开始/结束时翻一个「本轮 boot 已结束」信号（`useSyncExternalStore` 友好），
+`App.tsx` 的 `x/*` 保持路由据此决定是等还是走。
 
 ## 2026-09-07 — `registerDeclaredUi` 覆盖 `artifactKinds`
 

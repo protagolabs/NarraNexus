@@ -319,7 +319,39 @@ export function activeHosts(): string[] {
 }
 
 /** Boot-time entry: register metadata for every loaded plugin, then fire onStartup. */
+/**
+ * Whether the latest `loadPlugins()` pass has finished (declared UI registered, `onStartup`
+ * fired). A hard reload on a plugin page (`/app/x/<page>`) renders the route table before the
+ * factory answers; `App.tsx` holds an unmatched `x/*` URL on a fallback until this settles instead
+ * of redirecting to chat, otherwise every deep link into a plugin page was lost on refresh.
+ */
+let bootSettled = false;
+const bootListeners = new Set<() => void>();
+function setBootSettled(value: boolean): void {
+  if (bootSettled === value) return;
+  bootSettled = value;
+  for (const l of bootListeners) l();
+}
+export function pluginsBootSettled(): boolean {
+  return bootSettled;
+}
+export function subscribePluginsBoot(listener: () => void): () => void {
+  bootListeners.add(listener);
+  return () => {
+    bootListeners.delete(listener);
+  };
+}
+
 export async function loadPlugins(deps: LoaderDeps = {}): Promise<FactoryPluginRow[]> {
+  setBootSettled(false);
+  try {
+    return await loadPluginsInner(deps);
+  } finally {
+    setBootSettled(true);
+  }
+}
+
+async function loadPluginsInner(deps: LoaderDeps): Promise<FactoryPluginRow[]> {
   exposeHostGlobals();
   const fetchImpl = deps.fetchImpl ?? fetch;
   let rows: FactoryPluginRow[] = [];

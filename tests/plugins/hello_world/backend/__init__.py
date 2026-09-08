@@ -59,12 +59,18 @@ TABLES = (
 
 
 class _Handle:
+    """Runs until stopped, like a real worker: a handle whose ``run`` returns at once
+    makes the workers supervisor restart it in a loop when the plugin is linked
+    into a real host."""
+
     def __init__(self) -> None:
         self.stopped = False
-        self.run = asyncio.sleep(0)
+        self._stop = asyncio.Event()
+        self.run = self._stop.wait()
 
     def stop(self) -> None:
         self.stopped = True
+        self._stop.set()
 
 
 async def _worker_factory(ctx):

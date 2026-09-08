@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 挂载 `usePluginTheme()`
+
+与 `useTheme` 并列：持久化的插件主题在其插件激活注册后自动生效。
+
+## 2026-09-08（本地 E2E 实测）— `/app/x/*` 的插件页保持路由
+
+`/app` 布局下新增 `x/*` → `PluginPagePending`：插件 boot 未结束时渲染 `PageFallback`，结束后仍无匹配才 `Navigate` 到 chat。
+已注册的 `x/<page>` 静态段永远比 `x/*` 优先，所以已加载的插件页不受影响；`appRoutes.test.tsx` 钉住「x/* 走布局保留
+?next=」与「hold 等 boot 结束才离开」。
 
 ## 2026-09-07（批 1 三轮复审移植）— `<Routes>` 抽成导出的 `AppRoutes`
 

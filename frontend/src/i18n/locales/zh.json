@@ -1821,7 +1821,9 @@
         "label": "个性化",
         "hint": "主题、语言，以及 agent 的进度短讯如何显示。",
         "narrationTitle": "进度短讯",
-        "narrationHint": "把 agent 在步骤之间写的说明直接显示在对话里、清晰可读，而不是把整轮过程收进一个折叠区。"
+        "narrationHint": "把 agent 在步骤之间写的说明直接显示在对话里、清晰可读，而不是把整轮过程收进一个折叠区。",
+        "pluginThemesTitle": "插件主题",
+        "pluginThemesNone": "默认外观"
       },
       "plugins": {
         "label": "插件",

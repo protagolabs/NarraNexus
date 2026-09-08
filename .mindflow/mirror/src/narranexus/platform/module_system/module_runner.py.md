@@ -3,6 +3,13 @@ code_file: src/narranexus/platform/module_system/module_runner.py
 last_verified: 2026-09-07
 ---
 
+## 2026-09-08（本地 E2E 实测）— mcp 角色先 boot 再解析模块
+
+`run_mcp_servers_async` 此前先 `_resolve_modules` 再 `boot_mcp_plugins()`；批 6 起模块表由注册表在 boot 时派生，
+于是 `module_runner mcp` 在 run.sh / Tauri / compose 下一律「No modules to run」退出，整个 MCP 宿主没起来
+（单测里 boot 被 monkeypatch 成 no-op、模块列表直接注入，所以没抓到）。现在 boot 先行；新测试让「boot 前解析为空、
+boot 后有模块」并断言宿主真的起来。
+
 ## 2026-09-04（批 3c.1）— 端口表从贡献表派生
 
 `CORE_MCP_MODULES`/`CORE_MODULE_PORTS` 由 `MODULE_SPECS` 计算（名字保留：port preflight 测试与调用方 import 它们）；

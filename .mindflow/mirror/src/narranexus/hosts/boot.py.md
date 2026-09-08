@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/hosts/boot.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（本地 E2E 实测）— 崩溃后的一次干净 boot 要能走出 `crashed`
+
+状态机只允许从异常态回到 `registered`，而 boot 末尾对干净加载的插件直接 `→ validated`，`RegistryError` 被 debug 吞掉：
+一个曾经崩过、现在加载正常的插件在工场里永远显示 crashed + 旧错误。现在检测到 `crashed`/`slow` 先回 `registered` 再往前走。
 
 ## 2026-09-04（批 3c.1）— 禁用的内置：在冻结前 `registries.remove_owner`
 

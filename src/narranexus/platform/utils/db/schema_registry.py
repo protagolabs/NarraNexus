@@ -85,7 +85,7 @@ def _register(table: TableDef) -> None:
     TABLE_OWNERS.setdefault(table.name, KERNEL_TABLE_OWNER)
 
 
-def register_table(spec: "TableSpec", *, owner: str) -> TableDef:
+def register_table(spec: "TableSpec", owner: str) -> TableDef:
     """Register a plugin's ``TableSpec`` (contract data) as a ``TableDef``.
 
     Enforces the ``ext_<owner>_`` prefix for non-builtin owners, refuses to

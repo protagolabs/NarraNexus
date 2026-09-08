@@ -141,6 +141,30 @@ def test_refused_table_counts_as_a_crash(plugin_home: Path):
     assert store.read().plugins["acme.tables"].crash_count == 1
 
 
+def test_a_clean_boot_after_a_crash_leaves_the_crashed_state(plugin_home: Path):
+    """After a crash the record is "crashed"; the next boot that loads the plugin
+    cleanly must advance it (→ registered → validated → enabled) and drop the stale
+    error — otherwise the factory shows "crashed" forever for a working plugin."""
+    body = (
+        "from narranexus.contracts.table import ColumnSpec, TableSpec\n"
+        "from narranexus.kernel.plugins.registry import Contribution\n"
+        "TABLES = Contribution('items', lambda: TableSpec('ext_acme_again__items', (ColumnSpec('id', 'TEXT', 'VARCHAR(64)', primary_key=True),)))\n"
+    )
+    make_plugin(plugin_home, "acme.again", body=body, extra={"provides": {"backend.tables": ["nxplugins.acme_again:TABLES"]}, "api": {"table": 0}})
+    store = register(plugin_home, "acme.again", plugin_home / "acme.again")
+
+    def refuse(spec, owner):
+        raise ValueError("migration refused this table")
+
+    boot("backend", registries=Registries(), cloud=False, host_version="1.19.0", store=store, register_table=refuse)
+    assert store.read().plugins["acme.again"].state == "crashed"
+
+    report = boot("backend", registries=Registries(), cloud=False, host_version="1.19.0", store=store, register_table=lambda spec, owner: None)
+    assert "acme.again" not in report.isolated
+    record = store.read().plugins["acme.again"]
+    assert record.state == "enabled" and record.last_error is None
+
+
 def test_last_known_good_moves_only_when_the_host_is_healthy(plugin_home: Path):
     make_plugin(plugin_home, "acme.ok")
     store = register(plugin_home, "acme.ok", plugin_home / "acme.ok")

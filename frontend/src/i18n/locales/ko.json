@@ -1377,7 +1377,9 @@
         "label": "개인화",
         "hint": "테마, 언어, 그리고 에이전트의 진행 메모 표시 방식.",
         "narrationTitle": "진행 내레이션",
-        "narrationHint": "에이전트가 단계 사이에 남기는 메모를 대화 안에 또렷하게 표시하고, 전체 실행을 하나의 접힘 영역에 넣지 않습니다."
+        "narrationHint": "에이전트가 단계 사이에 남기는 메모를 대화 안에 또렷하게 표시하고, 전체 실행을 하나의 접힘 영역에 넣지 않습니다.",
+        "pluginThemesTitle": "플러그인 테마",
+        "pluginThemesNone": "기본 외관"
       },
       "plugins": {
         "factory": {

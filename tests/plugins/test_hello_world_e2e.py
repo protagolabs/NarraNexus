@@ -98,6 +98,24 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     assert [s.name for s in build_specs(registries=workers)][-1] == f"{PID}:greeter"
 
 
+def test_backend_boot_with_the_real_table_registrar_does_not_isolate_the_plugin(home: Path, capsys):
+    """The backend host passes ``schema_registry.register_table`` as the registrar; the
+    fixture plugin's table must register through it (not only through a test lambda),
+    or a real install of any plugin with a table is isolated at boot."""
+    from narranexus.platform.utils.db import schema_registry as sr
+
+    assert cli(["plugin", "link", str(HELLO)]) == 0
+    saved_tables, saved_owners = dict(sr.TABLES), dict(sr.TABLE_OWNERS)
+    try:
+        _backend, report = _boot("backend", register_table=sr.register_table)
+        assert PID not in report.rejected, report.rejected
+        assert PID not in report.isolated, report.isolated
+        assert sr.TABLE_OWNERS["ext_acme_hello_world__greetings"] == PID
+    finally:
+        sr.TABLES.clear(); sr.TABLES.update(saved_tables)
+        sr.TABLE_OWNERS.clear(); sr.TABLE_OWNERS.update(saved_owners)
+
+
 def test_disabling_removes_every_contribution(home: Path, capsys):
     assert cli(["plugin", "link", str(HELLO)]) == 0
     assert cli(["plugin", "disable", PID]) == 0

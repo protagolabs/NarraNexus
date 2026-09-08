@@ -11,11 +11,12 @@
  */
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { Suspense, useEffect } from 'react';
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { AppRoutes } from '@/App';
+import { AppRoutes, PluginPagePending } from '@/App';
 import { PAGES } from '@/platform/registries';
+import { loadPlugins } from '@/platform/loader';
 
 function LocationProbe() {
   const loc = useLocation();
@@ -105,5 +106,35 @@ describe('AppRoutes', () => {
     mount('/app/nope');
     await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('/app/nope'), { timeout: 5000 });
     expect(screen.getByTestId('location')).not.toHaveTextContent('next=');
+  });
+
+  it('an unregistered /app/x/* URL matches the layout (deep link kept), unlike any other unregistered /app child', async () => {
+    // Logged out, so the proof is the same as for a registered page: the layout's
+    // ProtectedRoute bounces to /login and KEEPS the deep link as ?next=. Before the
+    // x/* hold existed this fell to the catch-all and the plugin URL was lost.
+    mount('/app/x/acme');
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/login?next=%2Fapp%2Fx%2Facme'), { timeout: 5000 });
+  });
+
+  it('the plugin-page hold waits for the plugin boot to settle, then leaves for chat', async () => {
+    let release: () => void = () => {};
+    const pending = new Promise<Response>((resolve) => { release = () => resolve(new Response('{}', { status: 401 })); });
+    const boot = loadPlugins({ fetchImpl: () => pending });
+    render(
+      <MemoryRouter initialEntries={['/app/x/acme']}>
+        <Routes>
+          <Route path="/app/x/*" element={<PluginPagePending />} />
+          <Route path="/app/chat" element={<p>chat page</p>} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+    // Boot in flight: still on the plugin URL, no chat page.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/x/acme');
+    expect(screen.queryByText('chat page')).toBeNull();
+    await act(async () => { release(); await boot; });
+    // Boot settled and nothing registered at x/acme: now (and only now) leave.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/chat'), { timeout: 5000 });
   });
 });

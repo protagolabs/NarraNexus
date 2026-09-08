@@ -286,6 +286,15 @@ class ModuleRunner:
                 modules=["AwarenessModule", "JobModule"]
             ))
         """
+        # Plugin platform boot for the mcp role FIRST: the module table is
+        # derived from the registry the boot fills (builtin and user plugin
+        # modules alike), so resolving modules before booting resolves nothing.
+        # Registers declarative contributions (tools / mcp servers / skills);
+        # user plugin code is not activated in this process.
+        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins, mark_host_healthy
+
+        boot_mcp_plugins()
+
         module_classes = self._resolve_modules(modules)
 
         if not module_classes:
@@ -312,13 +321,6 @@ class ModuleRunner:
 
             await auto_migrate(db._backend)
             logger.info("Schema auto-migration complete")
-
-        # Plugin platform boot for the mcp role: registers declarative
-        # contributions (tools / mcp servers / skills) so the module servers
-        # below see them; user plugin code is not activated in this process.
-        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins, mark_host_healthy
-
-        boot_mcp_plugins()
 
         logger.info("Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")

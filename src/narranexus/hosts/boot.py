@@ -305,6 +305,12 @@ def boot(
         for manifest in lifecycle:
             if manifest.id not in report.isolated:
                 try:
+                    record = store.read().plugins.get(manifest.id)
+                    if record is not None and record.state in ("crashed", "slow"):
+                        # A clean boot after a recorded crash/slow boot: leave the
+                        # exceptional state (which only permits → registered) so
+                        # the plugin does not stay "crashed" forever in the factory.
+                        store.transition(manifest.id, "registered")
                     store.transition(manifest.id, "validated")
                     store.transition(manifest.id, "enabled")
                 except RegistryError as exc:

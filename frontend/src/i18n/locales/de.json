@@ -1378,7 +1378,9 @@
         "label": "Personalisierung",
         "hint": "Design, Sprache und wie die Fortschrittsnotizen des Agenten angezeigt werden.",
         "narrationTitle": "Fortschritts-Kommentar",
-        "narrationHint": "Zeigt die Zwischennotizen des Agenten direkt und gut lesbar im Verlauf, statt den ganzen Durchlauf hinter einer Klappe zu verstecken."
+        "narrationHint": "Zeigt die Zwischennotizen des Agenten direkt und gut lesbar im Verlauf, statt den ganzen Durchlauf hinter einer Klappe zu verstecken.",
+        "pluginThemesTitle": "Plugin-Themes",
+        "pluginThemesNone": "Standard-Oberfläche"
       },
       "plugins": {
         "factory": {
