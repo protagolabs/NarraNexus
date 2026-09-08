@@ -32,7 +32,7 @@ def test_the_alias_vocabulary_is_pinned_and_shared_with_the_migration_scanner():
     # Literal, not derived: dropping an alias must fail here, not silently shrink the parametrization below.
     assert SKILL_METADATA_KEYS == ("openclaw", "clawdbot", "clawdis", "moltbot")
     from narranexus.platform.migration.detector import _SIGNALS
-    from narranexus.platform.schema.migration_schema import OPENCLAW_ALIASES
+    from narranexus.contracts.openclaw import OPENCLAW_ALIASES
 
     assert SKILL_METADATA_KEYS is OPENCLAW_ALIASES
     assert _SIGNALS["openclaw"]["home_dirs"] == [f".{n}" for n in OPENCLAW_ALIASES]

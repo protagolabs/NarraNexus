@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `build_plugin_specs(registries: Registries | None)`
+
+参数类型从 `Any` 改为 `TYPE_CHECKING` 下的 `Registries`。
+
 # registry.py — 可安装框架插件的派生表
 
 ## 2026-09-07（批 1 三轮复审移植）— `registries` 参数；mirror 正文重写

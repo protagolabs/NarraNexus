@@ -15,5 +15,4 @@ export { BookmarkPanelHost } from './BookmarkPanelHost';
 
 export { stripCategories, allTabs, builtinTabIds, visibleTabs, ArtifactsGlyph, tabLabel, tabLabelKey, tabDescKey, deriveTabStatus, markTabOpened } from './tabs';
 export type { AtomicTabId, AtomicTabDef, StripCategory, TabStatus, TabVisibilityContext } from './tabs';
-export { BUILTIN_TAB_IDS } from './builtinTabIds';
 export type { BuiltinTabId } from './builtinTabIds';

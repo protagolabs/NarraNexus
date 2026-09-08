@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（四轮）— `agent.capabilities` doc 再更正
+
+上一版写「五个能力档的贡献位」却列了六项（含非能力档的 mcp_servers/data_access、漏 skill）；改为「六个子位是贡献位（…）」，
+不再把子位数与能力档数混为一谈。`ui` 位注释十六→十七。
+
 ## 2026-09-07（批 1 三轮复审移植）— 两条种子位更正
 
 - `agent.capabilities`：契约从值对象 `agent_spec:CapabilitySet` 改回 `namespace_slot`（它是分组位，与兄弟域根一致），

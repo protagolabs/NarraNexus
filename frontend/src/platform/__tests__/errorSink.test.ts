@@ -24,15 +24,27 @@ describe('error sink', () => {
     expect(recentUiErrors()).toHaveLength(2);
   });
 
-  it('a listener that reports from inside a report does not recurse', () => {
+  it('a report raised from inside a report is delivered after it, not recursively and not dropped', () => {
+    const seen: string[] = [];
+    onUiError((r) => {
+      seen.push(r.error.message);
+      if (seen.length < 3) reportUiError(new Error(`nested-${seen.length}`));
+    });
+    reportUiError(new Error('outer'));
+    // Delivered in order, each one after the previous finished (no re-entrant stack).
+    expect(seen).toEqual(['outer', 'nested-1', 'nested-2']);
+    expect(recentUiErrors().map((r) => r.error.message)).toEqual(['outer', 'nested-1', 'nested-2']);
+  });
+
+  it('a listener that reports on every report is cut off at the bound instead of looping forever', () => {
     let calls = 0;
     onUiError(() => {
       calls += 1;
-      if (calls < 5) reportUiError(new Error('nested'));
+      reportUiError(new Error('again'));
     });
     reportUiError(new Error('outer'));
-    expect(calls).toBe(1);
-    expect(recentUiErrors().map((r) => r.error.message)).toEqual(['outer', 'nested']);
+    expect(calls).toBeGreaterThan(1);
+    expect(calls).toBeLessThanOrEqual(51); // the outer report + at most RECENT_LIMIT drained ones
   });
 
   it('recentUiErrors returns a snapshot, not the live buffer', () => {

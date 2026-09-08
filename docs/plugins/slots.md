@@ -97,7 +97,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | Path | Arity | Contract | Default | Owner | Flags | Notes |
 |---|---|---|---|---|---|---|
 | `agent` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Agent capabilities (modules, tools, memory kinds, MCP, data access) |
-| `agent.capabilities` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Capability namespace; children are the contribution slots of the five capability tiers (modules, context providers, tools, MCP servers, memory kinds, data access). |
+| `agent.capabilities` | one | `narranexus.contracts:Namespace` | `builtin.kernel` | `builtin.kernel` | — | Capability namespace; its six children are the contribution slots (modules, context providers, tools, MCP servers, memory kinds, data access). |
 | `agent.capabilities.context_providers` | many | `narranexus.contracts.agent.capability:ContextProvider` | — | `builtin.kernel` | — | Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section. |
 | `agent.capabilities.data_access` | many | `narranexus.contracts.data_access:DataAccessSpec` | — | `builtin.kernel` | — | AgentDataStore method bodies (DirectStore dispatches by name; the store keeps parity rejects/clamps). |
 | `agent.capabilities.mcp_servers` | many | `narranexus.contracts.mcp_server:McpServerSpec` | — | `builtin.kernel` | — | Site-level MCP servers merged into every agent's tool surface. |
@@ -140,6 +140,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 |---|---|---|---|---|---|---|
 | `ui` | one | `narranexus.contracts.ui:Shell` | `builtin.ui` | `builtin.kernel` | distribution-only | Frontend (shell, themes, pages, panels, commands, slot points) |
 | `ui.agent_card_badges` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Badges on agent cards. |
+| `ui.artifact_kinds` | many | `narranexus.contracts.ui:ArtifactKind` | — | `builtin.ui` | — | Artifact kinds: renderer / edit surface / preview per artifact `kind`; a plugin adds kinds the shell does not know (never overrides a builtin one). |
 | `ui.channels` | many | `narranexus.contracts.ui:ChannelConfig` | — | `builtin.ui` | — | Channel configuration cards on the agent Channels tab. |
 | `ui.chat_header_actions` | many | `narranexus.contracts.ui:SlotAction` | — | `builtin.ui` | — | Actions in the chat header. |
 | `ui.commands` | many | `narranexus.contracts.ui:Command` | — | `builtin.ui` | — | Command-palette commands (lazy gate onCommand:<id>). |

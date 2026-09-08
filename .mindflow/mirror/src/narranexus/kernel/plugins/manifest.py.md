@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `frontend.ui.artifactKinds`
+
+`UiArtifactKind(id, label, downloadExt)`；`UiContributions.artifact_kinds`。前端 loader 据此注册门描述符，
+激活事件 `onArtifactKind:<id>`。
+
 ## 2026-09-03（批 2d）— `frontend.ui` 声明式 UI 贡献 + `backend.activate` 的启动回落
 
 `UiContributions(pages/panels/commands/themes)`：前端在 import 插件代码之前就按它登记 gate；对应事件

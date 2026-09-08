@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/platform/gates.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `makeArtifactKindGate`
+
+声明式 artifact kind 的门：一个只读、无预览的 `KindDescriptor`，其 renderer 在首次打开该 kind 的 artifact 时
+触发 `onArtifactKind:<id>`，插件以 `replace` 注册真描述符后交接；激活前渲染插件状态而不是壳的「不支持的类型」
+——这个 kind 是被支持的，只是还没加载。
 
 ## 2026-09-03（批 2d）— 页面/面板 gate
 

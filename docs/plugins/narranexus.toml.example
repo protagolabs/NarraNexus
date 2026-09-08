@@ -62,7 +62,7 @@
 # ── Agent capabilities (modules, tools, memory kinds, MCP, data access)
 # agent: Agent capability domain root.  candidates: (nothing registered)
 # "agent" = "builtin.kernel"
-# agent.capabilities: Capability namespace; children are the contribution slots of the five capability tiers (modules, context providers, tools, MCP servers, memory kinds, data access).  candidates: (nothing registered)
+# agent.capabilities: Capability namespace; its six children are the contribution slots (modules, context providers, tools, MCP servers, memory kinds, data access).  candidates: (nothing registered)
 # "agent.capabilities" = "builtin.kernel"
 # agent.capabilities.context_providers: Assemble-only capabilities: a stable instruction section and/or a volatile turn-context section.  candidates: (nothing registered)
 # "agent.capabilities.context_providers" = []

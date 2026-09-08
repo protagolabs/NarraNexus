@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/platform/activation.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 头注释列全七类激活事件
+
+补 `onRenderer` / `onTimelineEvent` / `onSlot` / `onArtifactKind`。
 
 ## 2026-09-03（批 2d）— 前端激活事件
 

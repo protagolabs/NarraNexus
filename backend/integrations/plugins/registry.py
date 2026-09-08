@@ -15,12 +15,15 @@ and the invariant "installer pin == locked version" is guarded by
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from narranexus.contracts.framework import FrameworkMeta
 from narranexus.platform.agent_framework.loop.driver import framework_registry
 
 from .spec import PluginSpec
+
+if TYPE_CHECKING:
+    from narranexus.kernel.plugins.registries import Registries
 
 
 def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
@@ -38,7 +41,7 @@ def _spec_from_meta(meta: FrameworkMeta) -> PluginSpec:
     )
 
 
-def build_plugin_specs(registries: Any = None) -> dict[str, PluginSpec]:
+def build_plugin_specs(registries: "Registries | None" = None) -> dict[str, PluginSpec]:
     """Installable plugins = registered frameworks that declare an install recipe.
 
     Derived from the framework registry at call time (``registries`` defaults

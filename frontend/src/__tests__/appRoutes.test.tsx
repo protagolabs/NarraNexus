@@ -10,8 +10,8 @@
  * of the protected /app layout.
  */
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { Suspense } from 'react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { Suspense, useEffect } from 'react';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '@/App';
@@ -22,6 +22,19 @@ function LocationProbe() {
   return <output data-testid="location">{loc.pathname + loc.search}</output>;
 }
 
+/** Navigates on demand from inside the router (so a test can move without remounting). */
+let go: ((to: string) => void) | null = null;
+function NavigateHandle() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    go = navigate;
+    return () => {
+      go = null;
+    };
+  }, [navigate]);
+  return null;
+}
+
 function mount(at: string) {
   return render(
     <MemoryRouter initialEntries={[at]}>
@@ -29,6 +42,7 @@ function mount(at: string) {
         <AppRoutes />
       </Suspense>
       <LocationProbe />
+      <NavigateHandle />
     </MemoryRouter>,
   );
 }
@@ -44,7 +58,7 @@ describe('AppRoutes', () => {
     expect(await screen.findByText('NM Design System Playground')).toBeInTheDocument();
   });
 
-  it('a top-level page registered after mount is routable without remounting', async () => {
+  it('a top-level page registered after mount is routable on the next entry', async () => {
     mount('/late');
     // Nothing registered at /late: the catch-all sends the visitor to `/`.
     expect(screen.getByTestId('location')).not.toHaveTextContent('/late');
@@ -56,6 +70,23 @@ describe('AppRoutes', () => {
     // Re-enter the path now that it exists.
     mount('/late');
     expect(await screen.findByText('late page')).toBeInTheDocument();
+  });
+
+  it('a page registered after mount is reachable by navigating the SAME mounted tree (the PAGES subscription)', async () => {
+    mount('/nm-playground');
+    expect(await screen.findByText('NM Design System Playground')).toBeInTheDocument();
+    act(() => {
+      disposers.push(
+        PAGES.register('late-nav', { path: '/late-nav', element: () => <p>late nav page</p>, guard: 'open', layout: 'top' }, { owner: 'acme.plugin' }),
+      );
+    });
+    // No second render(): navigate inside the mounted router. Without the
+    // subscription AppRoutes would still hold the old table and the catch-all
+    // would bounce this navigation to `/`.
+    act(() => {
+      go!('/late-nav');
+    });
+    expect(await screen.findByText('late nav page')).toBeInTheDocument();
   });
 
   it('a page registered under /app is a child of the protected layout', async () => {

@@ -2,7 +2,7 @@
   "id": "builtin.ui",
   "version": "1.0.0",
   "displayName": "Frontend Shell",
-  "description": "The frontend shell: declares the sixteen frontend registries (ui.*) that plugin bundles and the shell's own builtin.ts fill. Manifest-only on the Python side — the contributions live in TypeScript.",
+  "description": "The frontend shell: declares the seventeen frontend registries (ui.*) that plugin bundles and the shell's own builtin.ts fill. Manifest-only on the Python side — the contributions live in TypeScript.",
   "hosts": [
     "backend"
   ],
@@ -66,6 +66,12 @@
       "contract": "narranexus.contracts.ui:TimelineEvent",
       "kind": "ui",
       "doc": "Run-timeline event renderers keyed by event type."
+    },
+    "ui.artifact_kinds": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ArtifactKind",
+      "kind": "ui",
+      "doc": "Artifact kinds: renderer / edit surface / preview per artifact `kind`; a plugin adds kinds the shell does not know (never overrides a builtin one)."
     },
     "ui.conversation_kinds": {
       "arity": "many",

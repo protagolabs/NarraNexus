@@ -60,6 +60,11 @@ export function setErrorPoster(fn: Poster | null): void {
 }
 
 let dispatching = false;
+// Reports raised while a report is being dispatched (a listener or the poster's
+// failure path reporting something else). They are delivered after the current
+// dispatch, in order, bounded so a listener that reports on every report still
+// terminates.
+const pending: UiErrorReport[] = [];
 
 export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorReport {
   const report: UiErrorReport = {
@@ -71,20 +76,36 @@ export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorRe
   };
   recent.push(report);
   if (recent.length > RECENT_LIMIT) recent.shift();
+  const context = opts.context;
   // A listener (or the poster's failure path) that itself reports must not
-  // recurse: while dispatching, nested reports are recorded but not fanned out.
-  if (dispatching) return report;
+  // recurse: while dispatching, nested reports are queued and delivered after
+  // the current one — to the subscribers AND to the poster — not dropped.
+  if (dispatching) {
+    pending.push(report);
+    return report;
+  }
   dispatching = true;
   try {
-    for (const l of listeners) {
-      try {
-        l(report);
-      } catch {
-        // a broken listener must not mask the original error
-      }
+    deliver(report, context);
+    let drained = 0;
+    while (pending.length && drained < RECENT_LIMIT) {
+      deliver(pending.shift()!, undefined);
+      drained += 1;
     }
+    pending.length = 0; // beyond the bound: a report loop, cut here (the entries are still in `recent`)
   } finally {
     dispatching = false;
+  }
+  return report;
+}
+
+function deliver(report: UiErrorReport, context: string | undefined): void {
+  for (const l of listeners) {
+    try {
+      l(report);
+    } catch {
+      // a broken listener must not mask the original error
+    }
   }
   if (poster && report.source !== 'shell') {
     // Throttled per plugin: a render loop must not become a request loop.
@@ -93,12 +114,11 @@ export function reportUiError(error: Error, opts: ReportOptions = {}): UiErrorRe
       postedAt.set(report.source, report.at);
       void poster(report.source, {
         kind: report.kind,
-        message: `${opts.context ? opts.context + ': ' : ''}${error.message}`,
-        stack: error.stack ?? '',
+        message: `${context ? context + ': ' : ''}${report.error.message}`,
+        stack: report.error.stack ?? '',
       }).catch(() => undefined);
     }
   }
-  return report;
 }
 
 export function onUiError(listener: Listener): () => void {
@@ -123,6 +143,7 @@ export function resetErrorSink(): void {
   listeners.clear();
   recent.length = 0;
   pluginUrls.clear();
+  pending.length = 0;
   poster = null;
   postedAt.clear();
 }

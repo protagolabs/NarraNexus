@@ -107,6 +107,15 @@ class UiTimelineEvent(_Strict):
     type: str
 
 
+class UiArtifactKind(_Strict):
+    """An artifact kind declared up front: a gate descriptor renders (and fires ``onArtifactKind:<id>``)
+    until the plugin registers the real descriptor under the same id."""
+
+    id: str
+    label: str = ""
+    download_ext: str = Field(default="", alias="downloadExt")
+
+
 UiSlotPoint = Literal["chatHeaderActions", "composerExtensions", "messageActions", "sidebarSections", "agentCardBadges", "topBarItems"]
 _WHEN_RE = re.compile(r"^!?(conversationKind|agentHas|setting):[A-Za-z0-9_.:-]+$")
 
@@ -137,7 +146,8 @@ class UiContributions(_Strict):
     A page/panel/command listed here appears in the shell (route table,
     drawer strip, command palette) as a lazy gate; the plugin's bundle is
     imported and ``activate(host)`` runs the first time one of them is
-    opened (``onPage:<id>`` / ``onPanel:<id>`` / ``onCommand:<id>``).
+    opened (``onPage:<id>`` / ``onPanel:<id>`` / ``onCommand:<id>`` /
+    ``onArtifactKind:<id>``).
     """
 
     pages: tuple[UiPage, ...] = ()
@@ -147,6 +157,7 @@ class UiContributions(_Strict):
     conversation_kinds: tuple[UiConversationKind, ...] = Field(default=(), alias="conversationKinds")
     message_renderers: tuple[UiMessageRenderer, ...] = Field(default=(), alias="messageRenderers")
     timeline_events: tuple[UiTimelineEvent, ...] = Field(default=(), alias="timelineEvents")
+    artifact_kinds: tuple[UiArtifactKind, ...] = Field(default=(), alias="artifactKinds")
     slots: tuple[UiSlot, ...] = ()
 
 

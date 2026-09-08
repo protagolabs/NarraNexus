@@ -6,8 +6,9 @@
  *
  * Mirrors the kernel's activator: `onStartup` fires after the loader
  * registered every plugin's declarative metadata; `onPage:<id>`,
- * `onPanel:<id>`, `onCommand:<id>` fire from the lazy gates the loader put
- * in the registries. Activation is once per plugin per page load; a
+ * `onPanel:<id>`, `onCommand:<id>`, `onRenderer:<id>`, `onTimelineEvent:<id>`,
+ * `onSlot:<id>`, `onArtifactKind:<id>` fire from the lazy gates the loader
+ * put in the registries. Activation is once per plugin per page load; a
  * failure is reported to the error sink and remembered so the gate shows
  * the error instead of retrying in a loop.
  */

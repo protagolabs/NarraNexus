@@ -38,6 +38,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `turn.pipeline.reflect` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.reflect": ["pkg.module:SYMBOL"]` |
 | `turn.profiles` | pipeline_profile | 0 | `narranexus.contracts.agent.pipeline:PipelineProfile` | `"turn.profiles": ["pkg.module:SYMBOL"]` |
 | `ui.agent_card_badges` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.agent_card_badges": ["pkg.module:SYMBOL"]` |
+| `ui.artifact_kinds` | ui | 1 | `narranexus.contracts.ui:ArtifactKind` | `"ui.artifact_kinds": ["pkg.module:SYMBOL"]` |
 | `ui.channels` | ui | 1 | `narranexus.contracts.ui:ChannelConfig` | `"ui.channels": ["pkg.module:SYMBOL"]` |
 | `ui.chat_header_actions` | ui | 1 | `narranexus.contracts.ui:SlotAction` | `"ui.chat_header_actions": ["pkg.module:SYMBOL"]` |
 | `ui.commands` | ui | 1 | `narranexus.contracts.ui:Command` | `"ui.commands": ["pkg.module:SYMBOL"]` |

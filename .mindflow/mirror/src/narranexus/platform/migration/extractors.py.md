@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — 别名词表改从 `narranexus.contracts.openclaw` 取
+
+派生逻辑不变。
+
 ## 2026-09-07 — openclaw MCP 配置文件名从 `OPENCLAW_ALIASES` 派生
 
 与 detector 同源；`clawdis.json` 也读。

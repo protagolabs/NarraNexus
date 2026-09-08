@@ -23,13 +23,6 @@ SCHEMA_VERSION = "1.0"
 Framework = Literal["claude_code", "hermes", "openclaw", "codex", "custom"]
 Confidence = Literal["high", "medium", "low"]
 
-# The OpenClaw ecosystem's names (the project was Clawdbot, then Clawdis, then
-# Moltbot, now OpenClaw). The ONE vocabulary behind ``metadata.<name>`` in a
-# SKILL.md, the ``~/.<name>`` home dirs and the ``<name>.json`` config files the
-# migration scanner probes: the skill module and migration/* derive from this
-# tuple, so a rename is one edit. Order = lookup precedence (current name first).
-OPENCLAW_ALIASES: tuple[str, ...] = ("openclaw", "clawdbot", "clawdis", "moltbot")
-
 # Awareness is injected wholesale every turn, so the combined imported
 # instructions (global + project + local CLAUDE.md) are truncated to this cap.
 AWARENESS_IMPORT_CHAR_LIMIT = 24_000

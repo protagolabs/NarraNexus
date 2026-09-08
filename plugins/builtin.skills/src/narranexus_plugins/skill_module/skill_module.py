@@ -40,7 +40,7 @@ from narranexus.platform.schema import (
     MCPServerConfig,
     ContextData,
 )
-from narranexus.platform.schema.migration_schema import OPENCLAW_ALIASES
+from narranexus.contracts.openclaw import OPENCLAW_ALIASES
 from narranexus.platform.schema.skill_schema import SkillInfo
 from narranexus.platform.utils.plugin_contributions import plugin_skills
 from narranexus.platform.utils import DatabaseClient
@@ -324,7 +324,7 @@ async def platform_env_available(db, user_id: Optional[str]) -> set:
 
 # The OpenClaw / ClawHub skill format declares runtime requirements under
 # ``metadata.<name>`` where <name> is any of the project's names; the vocabulary
-# is ``schema.migration_schema.OPENCLAW_ALIASES`` (shared with the migration
+# is ``narranexus.contracts.openclaw.OPENCLAW_ALIASES`` (shared with the migration
 # scanner, so both sides recognise the same installs). First present key wins,
 # current name first, so a skill published under any of the names gates its
 # env/bins the same way.

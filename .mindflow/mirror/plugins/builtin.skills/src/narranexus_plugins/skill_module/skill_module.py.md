@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `SKILL_METADATA_KEYS` 改从 `narranexus.contracts.openclaw` 取
+
+不再依赖迁移子系统的 schema（复审 M7）。
+
 ## 2026-09-07（批 1 三轮复审移植）— 别名词表只有一份：`schema.migration_schema.OPENCLAW_ALIASES`
 
 此前注释声称「与 migration detector 认的四个名字一致」是假的：detector 只认三个（无 `clawdis`）。现在

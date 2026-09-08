@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — depcruise 例外的口径更正
+
+`src/types/**` 不是「无运行时代码」（`artifact.ts` 导出函数）；例外只放行 type-only 引用，并加了一条
+`registries-take-only-types-from-src-types` 规则把值 import 挡住。
+
 # artifactKinds.ts — artifact kind 注册表
 
 ## 2026-09-07（批 1 三轮复审移植）— 新建：第 17 个注册表

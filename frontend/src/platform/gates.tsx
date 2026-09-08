@@ -2,14 +2,17 @@
  * @file_name: gates.tsx
  * @author: Bin Liang
  * @date: 2026-09-03
- * @description: Lazy gates the loader registers for a plugin's declared pages/panels: they fire the activation event, then render what the plugin registered.
+ * @description: Lazy gates the loader registers for a plugin's declared pages/panels/renderers/artifact kinds: they fire the activation event, then render what the plugin registered.
  */
 import { useEffect, useSyncExternalStore, type ComponentType } from 'react';
+
+import type { Artifact } from '@/types/artifact';
 
 import { activationState, fireActivation, subscribeActivation } from './activation';
 import { PluginStatus as Status } from './PluginStatus';
 import {
   AGENT_CARD_BADGES,
+  ARTIFACT_KINDS,
   COMPOSER_EXTENSIONS,
   MESSAGE_RENDERERS,
   PAGES,
@@ -17,6 +20,7 @@ import {
   SIDEBAR_SECTIONS,
   TIMELINE_EVENTS,
   TOP_BAR_ITEMS,
+  type KindDescriptor,
   type MessageRendererDef,
   type MessageRendererProps,
   type PanelProps,
@@ -136,4 +140,36 @@ export function makeTimelineGate(pluginId: string, eventId: string, type: string
   };
   Gate.displayName = `PluginTimelineGate(${type})`;
   return Gate;
+}
+
+/**
+ * An artifact-kind gate: the declarative descriptor (read-only, no preview) whose
+ * renderer activates the plugin the first time an artifact of that kind is opened
+ * and hands over to the real descriptor once the plugin registered it under the
+ * same id. Until then the artifact view shows the plugin's status rather than
+ * the shell's "unsupported kind" copy — the kind IS supported, just not loaded.
+ */
+export function makeArtifactKindGate(pluginId: string, kind: string, shape: { label?: string; downloadExt?: string }): KindDescriptor {
+  const Gate = (props: { artifact: Artifact }) => {
+    const { state, error } = useActivation(pluginId);
+    useEffect(() => {
+      void fireActivation(`onArtifactKind:${kind}`);
+    }, []);
+    const entry = ARTIFACT_KINDS.list().find((e) => e.id === kind && e.owner === pluginId && e.value.renderer !== Gate);
+    if (state === 'active' && entry) {
+      const Real = entry.value.renderer;
+      return <Real {...props} />;
+    }
+    return <Status pluginId={pluginId} state={state} error={error} />;
+  };
+  Gate.displayName = `PluginArtifactKindGate(${kind})`;
+  return {
+    renderer: Gate,
+    editSurface: 'none',
+    saveMode: null,
+    selectionToAI: false,
+    preview: 'none',
+    label: shape.label || undefined,
+    downloadExt: shape.downloadExt || undefined,
+  };
 }

@@ -34,9 +34,9 @@ from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from narranexus.contracts.openclaw import OPENCLAW_ALIASES
 from narranexus.platform.schema.migration_schema import (
     AWARENESS_IMPORT_CHAR_LIMIT,
-    OPENCLAW_ALIASES,
     Framework,
     MigrationAgent,
     MigrationCustom,

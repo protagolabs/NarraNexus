@@ -7,7 +7,7 @@
 The real frontend contribution registries live in TypeScript
 (``frontend/src/platform/registries``). The Python side names the shell so a
 distribution can bind its own (``Shell`` is the data the backend needs to
-serve it) and mirrors the ENTRY SHAPES of the sixteen frontend registries so
+serve it) and mirrors the ENTRY SHAPES of the seventeen frontend registries so
 the ``ui.*`` slots ``builtin.ui`` declares carry a contract a manifest can be
 checked against and the docs can render. The TypeScript ``*Def`` interfaces
 are the truth; these records hold the declarative subset a manifest's
@@ -119,6 +119,18 @@ class ConversationKind:
 
 
 @dataclass(frozen=True)
+class ArtifactKind:
+    """An artifact kind (``ui.artifact_kinds``): the declarative subset — the ``kind`` string the
+    backend ships, a label for admin lists and the download extension. The renderer, the edit
+    surface and the save mode live in the bundle (``host.registries.artifactKinds``); until the
+    plugin activates, the shell renders a gate that fires ``onArtifactKind:<id>``."""
+
+    id: str
+    label: str = ""
+    download_ext: str = ""
+
+
+@dataclass(frozen=True)
 class SlotComponent:
     """A component mounted at a slot point (composer extensions, sidebar sections, agent card badges, top bar items)."""
 
@@ -138,6 +150,7 @@ class SlotAction:
 
 
 __all__ = [
+    "ArtifactKind",
     "ChannelConfig",
     "Command",
     "ConversationKind",

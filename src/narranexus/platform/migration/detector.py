@@ -20,8 +20,8 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
+from narranexus.contracts.openclaw import OPENCLAW_ALIASES
 from narranexus.platform.schema.migration_schema import (
-    OPENCLAW_ALIASES,
     Confidence,
     Framework,
     FrameworkDetection,

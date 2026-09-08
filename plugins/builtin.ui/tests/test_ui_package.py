@@ -2,7 +2,7 @@
 @file_name: test_ui_package.py
 @author: Bin Liang
 @date: 2026-09-07
-@description: Package contract of `builtin.ui`: the manifest declares exactly one ui.* slot per frontend registry (the sixteen names in frontend/src/platform/registries/index.ts), every declared contract resolves to a narranexus.contracts.ui symbol, and the slots reach the tree owned by builtin.ui.
+@description: Package contract of `builtin.ui`: the manifest declares exactly one ui.* slot per frontend registry (the seventeen names in frontend/src/platform/registries/index.ts), every declared contract resolves to a narranexus.contracts.ui symbol, and the slots reach the tree owned by builtin.ui.
 """
 from __future__ import annotations
 

@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — `registerDeclaredUi` 覆盖 `artifactKinds`
+
+manifest 的 `frontend.ui.artifactKinds` → `ARTIFACT_KINDS` 里的门描述符（owner 为插件）+ 激活事件
+`onArtifactKind:<id>`；与 renderers/timeline events 同一模式。此前第 17 个注册表只在 `REGISTRIES` 里存在，
+插件只能在 `activate(host)` 里命令式注册，用户打开该 kind 的 artifact 时没有任何事件能唤醒插件。
+
 ## 2026-09-07 — `SHELL_REGISTRIES` 自动含 `artifactKinds`
 
 禁用内置 UI 行 / 卸载插件时，artifact kind 条目与其它注册表一起按 owner 清除。注释里的表名数 16→17。

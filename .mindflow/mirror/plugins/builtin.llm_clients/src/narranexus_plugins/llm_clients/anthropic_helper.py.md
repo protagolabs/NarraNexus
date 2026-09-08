@@ -4,6 +4,10 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — 删掉已无用的 `DEFAULT_MODEL_SENTINEL` import
+
+ruff 全仓忽略 F401，人工清掉。
+
 ## 2026-09-07（批 1 三轮复审移植）— 日志条件不再重抄解析规则
 
 `_resolve_model` 里判「slot 是否胜出」曾把 `resolve_helper_model` 的规则又抄了一遍只为决定打不打 debug 日志；

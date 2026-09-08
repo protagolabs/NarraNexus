@@ -32,10 +32,11 @@ import { getAuthHeaders } from '@/lib/authHeaders';
 import { fireActivation, registerActivation } from './activation';
 import { attributeChunkUrl, reportUiError } from './errorSink';
 import { makeActionGate } from './actionGate';
-import { makePageGate, makePanelGate, makeRendererGate, makeSlotGate, makeTimelineGate } from './gates';
+import { makeArtifactKindGate, makePageGate, makePanelGate, makeRendererGate, makeSlotGate, makeTimelineGate } from './gates';
 import { createHostApi, exposeHostGlobals, type HostAPI } from './host';
 import {
   AGENT_CARD_BADGES,
+  ARTIFACT_KINDS,
   CHAT_HEADER_ACTIONS,
   COMMANDS,
   COMPOSER_EXTENSIONS,
@@ -79,6 +80,8 @@ export interface FactoryPluginRow {
       /** A gate renders until the plugin registers the real renderer under the same id. */
       messageRenderers?: { id: string; role?: 'user' | 'assistant'; contentPrefix?: string }[];
       timelineEvents?: { id: string; type: string }[];
+      /** Artifact kinds the plugin renders; a gate descriptor holds the id until the plugin registers the real one. */
+      artifactKinds?: { id: string; label?: string; downloadExt?: string }[];
       /** Slot-point entries declared up front (component slots mount a silent gate; action slots a labelled one). */
       slots?: { id: string; point: SlotPoint; label?: string; when?: string[]; order?: number }[];
     };
@@ -241,6 +244,10 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
   for (const te of ui?.timelineEvents ?? []) {
     if (!TIMELINE_EVENTS.has(te.type)) TIMELINE_EVENTS.register(te.type, { component: makeTimelineGate(row.id, te.id, te.type) }, owner);
     events.push(`onTimelineEvent:${te.id}`);
+  }
+  for (const kind of ui?.artifactKinds ?? []) {
+    if (!ARTIFACT_KINDS.has(kind.id)) ARTIFACT_KINDS.register(kind.id, makeArtifactKindGate(row.id, kind.id, { label: kind.label, downloadExt: kind.downloadExt }), owner);
+    events.push(`onArtifactKind:${kind.id}`);
   }
   for (const slot of ui?.slots ?? []) {
     const component = COMPONENT_SLOTS[slot.point];

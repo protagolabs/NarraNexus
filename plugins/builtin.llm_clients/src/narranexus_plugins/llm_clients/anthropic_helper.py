@@ -23,7 +23,7 @@ from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
 
-from narranexus.contracts.llm_client import DEFAULT_MODEL_SENTINEL, resolve_helper_model
+from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 from anthropic import AsyncAnthropic
 

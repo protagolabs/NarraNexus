@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（四轮复审）— 第 17 个记录 `ArtifactKind`
+
+前端加了 `artifactKinds` 注册表却没有 Python 侧的镜像（复审 Critical：builtin.ui 的两条包契约测试变红、插件没有声明式路径）。
+`ArtifactKind(id, label, download_ext)` 是 manifest `frontend.ui.artifactKinds` 能表达的声明式子集；渲染器/编辑面/保存模式只在 bundle 里。
+docstring「十六个」改「十七个」。
+
 ## 2026-09-03（批 2a）— `Theme`
 
 `ui.themes` 位的契约：只列出要覆盖的设计 token（前端按 `@theme` 已声明集合校验），`dark` 标记配色族。

@@ -31,10 +31,18 @@ module.exports = {
       name: 'registries-are-pure',
       comment:
         'src/platform/registries/** holds types and registries only — it imports nothing else from src/ ' +
-        'except src/types/** (pure wire types, no runtime code), which a registry value type may reference.',
+        'except src/types/** by type-only reference (a registry value type names a wire type); a VALUE ' +
+        'import from src/types is still forbidden.',
       severity: 'error',
       from: { path: '^src/platform/registries/' },
       to: { path: '^src/', pathNot: '^src/(platform/registries|types)/' },
+    },
+    {
+      name: 'registries-take-only-types-from-src-types',
+      comment: 'the src/types exception above is for type-only imports; runtime code (src/types/artifact.ts exports a function) must not reach the registries',
+      severity: 'error',
+      from: { path: '^src/platform/registries/' },
+      to: { path: '^src/types/', dependencyTypesNot: ['type-only'] },
     },
     {
       name: 'no-circular',

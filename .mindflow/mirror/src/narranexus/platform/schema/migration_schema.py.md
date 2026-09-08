@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — `OPENCLAW_ALIASES` 移至 `narranexus.contracts.openclaw`
+
+本文件不再定义它；detector/extractors 改从 contracts 取。
+
 ## 2026-09-07（批 1 三轮复审移植）— `OPENCLAW_ALIASES`
 
 OpenClaw 生态的全部曾用名（openclaw / clawdbot / clawdis / moltbot）唯一定义处，供 builtin.skills 的 skill_module

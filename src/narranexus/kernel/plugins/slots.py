@@ -247,7 +247,7 @@ def build_kernel_slot_tree() -> SlotTree:
         Slot("agent", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Agent capabilities (modules, tools, memory kinds, MCP, data access)"),
         namespace_slot("agent.capabilities", owner=KERNEL_OWNER,
-                       doc="Capability namespace; children are the contribution slots of the five capability tiers (modules, context providers, tools, MCP servers, memory kinds, data access)."),
+                       doc="Capability namespace; its six children are the contribution slots (modules, context providers, tools, MCP servers, memory kinds, data access)."),
         Slot("agent.capabilities.memory_kinds", many, "narranexus.contracts.memory:MemoryKindContract", KERNEL_OWNER,
              kind="memory", doc="Memory kinds (recall / commit / reflect participants)."),
         Slot("agent.capabilities.data_access", many, "narranexus.contracts.data_access:DataAccessSpec", KERNEL_OWNER,
@@ -297,7 +297,7 @@ def build_kernel_slot_tree() -> SlotTree:
         Slot("content.skills", many, "narranexus.contracts.skill:SkillSpec", KERNEL_OWNER,
              kind="skill", doc="Skill directories (SKILL.md) scanned into every agent's skill catalog."),
         # The frontend shell; builtin.ui (the root's provider) declares ui.* — the
-        # sixteen frontend registries (themes, pages, panels, commands, slot points...).
+        # seventeen frontend registries (themes, pages, panels, artifact kinds, commands, slot points...).
         Slot("ui", one, "narranexus.contracts.ui:Shell", KERNEL_OWNER, default="builtin.ui",
              distribution_only=True, kind="ui", doc="Frontend (shell, themes, pages, panels, commands, slot points)"),
     ]

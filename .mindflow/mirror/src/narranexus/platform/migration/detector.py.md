@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-09-07
 ---
 
+## 2026-09-07 — 别名词表改从 `narranexus.contracts.openclaw` 取
+
+派生逻辑不变。
+
 ## 2026-09-07（批 1 三轮复审移植）— openclaw 信号从 `schema.OPENCLAW_ALIASES` 派生
 
 `home_dirs` = 每个别名一个 `~/.<name>`，`strong` = 每个别名一个 `<name>.json` + `SOUL.md`。此前三个名字手抄、
