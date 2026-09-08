@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/module_system/plugins_boot.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — `boot_turn_plugins()`：按回合活的进程走只读 boot
+
+本地 NexusPower runner 每回合一个进程、跑完即退，永远到不了 `mark_host_healthy`。它此前用 `boot_executor_plugins()`
+（workers 角色、可写 boot）——每回合留下一个 `.booting-workers` 标记，第三次对话 supervisor 读到「3 consecutive boots
+of workers never reached health」整机进安全模式（本地插件工场 E2E 实锤；上一轮会话的安全模式也是它）。
+`_boot(role, inspect=...)` 透传 `boot(inspect=True)`：同一套贡献、不写标记、不写 registry（与 CLI 三次运行进安全模式
+是同一个教训）。长命的 executor_service 仍用可写的 `boot_executor_plugins()`（它会报健康）。
 
 ## 2026-09-03（批 2b.5）— mcp / workers 进程的插件启动
 

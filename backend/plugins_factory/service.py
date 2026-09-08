@@ -27,7 +27,7 @@ from narranexus.kernel.plugins.bisect import Bisect
 from narranexus.kernel.plugins.install import Installer, InstallResult
 from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.install.installer import InstallError
-from narranexus.kernel.plugins.lifecycle import RegistryError, RegistryStore
+from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryError, RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest, derive_activation_events, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
 from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
@@ -50,6 +50,10 @@ class UiError:
     kind: str
     message: str
     stack: str = ""
+
+
+# Every host role that keeps a boot-crash marker next to registry.json.
+_BOOT_ROLES: tuple[str, ...] = ("backend", "mcp", "workers")
 
 
 @dataclass
@@ -269,6 +273,11 @@ class FactoryService:
     def leave_safe_mode(self) -> dict[str, Any]:
         self._guard_mutation()
         reg = self.store.set_safe_mode(False)
+        # The user is saying "try again": the consecutive-failure counters
+        # start from zero as well. Otherwise a counter left at two re-enters
+        # safe mode on the very next boot before any plugin had a chance.
+        for role in _BOOT_ROLES:
+            BootMarker(role, path=self.store.path.parent / f".booting-{role}").exit()
         return {"safe_mode": reg.safe_mode}
 
     def upgrade(self, plugin_id: str) -> InstallResult:

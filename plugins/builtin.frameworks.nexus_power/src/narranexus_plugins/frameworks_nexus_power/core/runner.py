@@ -211,12 +211,14 @@ def main() -> None:
         # (turn.pipeline.act.framework.nexus_power.*), providers, clients and
         # modules all come from the plugin boot. Without it the registries hold
         # only the kernel seed tree and the first seat lookup in assembly fails
-        # with "unknown slot …nexus_power.expression". Same role as the executor
-        # service (workers): the contribution set a turn needs.
-        from narranexus.platform.module_system.plugins_boot import boot_executor_plugins
+        # with "unknown slot …nexus_power.expression". Same contribution set as
+        # the executor service (workers), but the read-only form: this process
+        # lives one turn and never serves, so it must not own the workers boot
+        # marker (three turns used to flip the app into SAFE MODE).
+        from narranexus.platform.module_system.plugins_boot import boot_turn_plugins
 
         try:
-            boot_executor_plugins()
+            boot_turn_plugins()
         except Exception as exc:  # noqa: BLE001 - surfaced on the wire like every other failure
             # A corrupt registry.json or an unresolvable binding must reach the
             # driver as a turn error, not as a raw traceback on stderr.

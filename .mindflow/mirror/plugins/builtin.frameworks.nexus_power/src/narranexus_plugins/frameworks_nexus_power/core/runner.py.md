@@ -4,6 +4,10 @@ last_verified: 2026-09-08
 stub: false
 ---
 
+## 2026-09-08 — 改用 `boot_turn_plugins()`（只读 boot）
+
+原因见 [[plugins_boot]] 同日条目：本进程活一回合，不能持有 workers 启动标记。`test_host_entrypoints_boot` 入口表同步改。
+
 ## 2026-09-08（复审）— boot 失败也走 wire 协议
 
 `boot_executor_plugins()` 抛错（registry.json 损坏、绑定解析失败）时写 `{"exit": {"ok": false, "error": …}}` 再以 3 退出，

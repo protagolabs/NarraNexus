@@ -1,8 +1,13 @@
 ---
 code_file: backend/plugins_factory/service.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 退出安全模式同时清零三角色启动计数器
+
+`leave_safe_mode` 只翻 registry 标志时，`.booting-<role>` 里残留的计数（如 2）会让下一次启动立刻再次进安全模式，
+插件根本没机会加载。「退出」= 用户说「再试一次」，所以三个角色的 `BootMarker` 一并 `exit()`。
 
 ## 2026-09-04（批 3b）— manifest 校验改用 `slot_tree_with_builtins()`（含内置声明的位）
 

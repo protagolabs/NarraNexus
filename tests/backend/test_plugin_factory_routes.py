@@ -197,3 +197,15 @@ def test_builtin_install_deps_retry(client, monkeypatch):
     manifests = {m.id: m for m in builtin_manifests()}
     assert builtin_deps.is_on_demand(manifests["builtin.channels.lark"]) is True
     assert builtin_deps.is_on_demand(manifests["builtin.teams"]) is False
+
+
+def test_leaving_safe_mode_resets_the_boot_crash_counters(client):
+    """A counter left at two would re-enter safe mode on the very next boot,
+    before any plugin had a chance — "leave" means "try again from zero"."""
+    c, svc, home = client
+    svc.store.set_safe_mode(True, reason="3 consecutive boots of workers never reached health")
+    (home / ".booting-workers").write_text("2")
+    (home / ".booting-mcp").write_text("1")
+    assert c.post("/api/plugin-factory/safe-mode/leave", headers=H).json()["data"]["safe_mode"] is False
+    assert not (home / ".booting-workers").exists()
+    assert not (home / ".booting-mcp").exists()

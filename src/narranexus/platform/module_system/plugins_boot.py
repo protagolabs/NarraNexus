@@ -30,7 +30,7 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 _REPORTS: dict[str, BootReport] = {}
 
 
-def _boot(role: Role) -> BootReport:
+def _boot(role: Role, *, inspect: bool = False) -> BootReport:
     if role in _REPORTS:
         return _REPORTS[role]
     if KERNEL_REGISTRIES.frozen:
@@ -38,7 +38,7 @@ def _boot(role: Role) -> BootReport:
         return _REPORTS.setdefault(role, BootReport(role=role))
     report = boot(
         role, registries=KERNEL_REGISTRIES, cloud=is_cloud_mode(), host_version=host_version(),
-        distribution=resolve_from_env(host_version=host_version()),
+        distribution=resolve_from_env(host_version=host_version()), inspect=inspect,
     )
     from narranexus.platform.bindings_runtime import resolve_runtime_bindings
 
@@ -75,6 +75,19 @@ def boot_executor_plugins() -> BootReport:
     role. Before this the executor never booted and relied on lazy
     self-registration inside every platform seam."""
     return _boot("workers")
+
+
+def boot_turn_plugins() -> BootReport:
+    """Boot for a process that lives ONE turn (the local NexusPower runner).
+
+    Same contribution set as the executor (``workers`` role) but read-only:
+    no boot marker and no registry writes. The marker is a crash-loop counter
+    for long-lived hosts — a process that exits by design never reaches
+    ``mark_host_healthy``, so every turn it ran counted as a failed workers
+    boot and the third conversation put the whole app into SAFE MODE
+    (2026-09-08 local plugin-factory e2e; the CLI had the same bug earlier).
+    """
+    return _boot("workers", inspect=True)
 
 
 def boot_channel_plugins() -> BootReport:

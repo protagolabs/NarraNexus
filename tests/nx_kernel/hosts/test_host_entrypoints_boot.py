@@ -39,7 +39,8 @@ ENTRYPOINTS = {
     # The NexusPower turn runner is its own process (spawned per user by the
     # adapter): it resolves the framework's seats from the registries and so
     # must boot like every other host — found by the 2026-09-08 local e2e pass.
-    "plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/runner.py": ("main", "boot_executor_plugins"),
+    # It lives one turn, so it takes the read-only boot (no boot marker).
+    "plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/runner.py": ("main", "boot_turn_plugins"),
 }
 
 
@@ -130,3 +131,52 @@ def test_the_executor_boots_before_serving_and_marks_healthy_only_at_the_end(mon
 
     asyncio.run(_startup())
     assert calls == ["boot", "healthy:workers", "serving"]
+
+
+def test_the_per_turn_runner_boot_never_touches_the_boot_marker(monkeypatch, tmp_path):
+    """The local NexusPower runner is one process per turn and exits by design,
+    so it can never ``mark_host_healthy``. Booting it like a long-lived host
+    left a workers marker behind on every turn: the third conversation read
+    "3 consecutive boots of workers never reached health" and the app went
+    into SAFE MODE (2026-09-08 local e2e). The per-turn boot is the read-only
+    (``inspect``) form — no marker, no registry writes."""
+    from narranexus.hosts.boot import BootReport
+    from narranexus.kernel.plugins.registries import Registries
+    from narranexus.platform import bindings_runtime
+
+    seen: dict[str, object] = {}
+
+    def _boot(role, **kw):
+        seen["role"] = role
+        seen["inspect"] = kw.get("inspect")
+        return BootReport(role=role)
+
+    monkeypatch.setattr(plugins_boot, "_REPORTS", {})
+    monkeypatch.setattr(plugins_boot, "KERNEL_REGISTRIES", Registries())
+    monkeypatch.setattr(plugins_boot, "boot", _boot)
+    monkeypatch.setattr(bindings_runtime, "resolve_runtime_bindings", lambda *a, **k: None)
+
+    plugins_boot.boot_turn_plugins()
+    assert seen == {"role": "workers", "inspect": True}
+
+    # The long-lived executor keeps the writable boot (it does reach health).
+    monkeypatch.setattr(plugins_boot, "_REPORTS", {})
+    plugins_boot.boot_executor_plugins()
+    assert seen == {"role": "workers", "inspect": False}
+
+
+def test_a_real_per_turn_boot_leaves_no_marker_behind(monkeypatch, tmp_path):
+    """End to end on the real ``boot``: an inspect boot must not create
+    ``.booting-workers`` — that file is what counts failed boots."""
+    from narranexus.hosts import boot as boot_mod
+    from narranexus.kernel.plugins.loader import Discovery
+    from narranexus.kernel.plugins.paths import boot_marker_path
+    from narranexus.kernel.plugins.registries import Registries
+
+    monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "plugins"))
+    monkeypatch.setattr(boot_mod, "discover", lambda **kw: Discovery(manifests=[]))
+    boot_mod.boot("workers", registries=Registries(), cloud=False, host_version="1.0.0", inspect=True)
+    assert not boot_marker_path("workers").exists()
+    boot_mod.boot("workers", registries=Registries(), cloud=False, host_version="1.0.0")
+    assert boot_marker_path("workers").read_text() == "0"
+
