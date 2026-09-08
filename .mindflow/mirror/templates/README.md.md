@@ -1,8 +1,12 @@
 ---
 code_file: templates/README.md
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 贡献 id 在槽内全局唯一，模板一律以插件名命名
+
+六个模板（tool/routes/worker/bundle/settings/table）此前发通用 id（tools/api/sync/team/schema/items），第二个同类插件必撞 `RegistryConflict` 被隔离——Agent 写的第一个工具插件就撞了 hello_world 示例。现在全部 `__PLUGIN_PKG__` 前缀，README 写明规则，`test_every_template_contribution_id_is_plugin_scoped` + 双插件共存 boot 测试守着；hello_world 示例同改。
 
 ## 2026-09-03（批 2e）— 模板目录说明
 

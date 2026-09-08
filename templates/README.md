@@ -35,3 +35,13 @@ for `HOOKS`). A ONE-arity slot is filled by a single `Contribution` named
 seat name prefixes it (`STOP_CONTRIBUTION`). Builtin plugins keep the same
 vocabulary in their `contribution.py`, and every module filling the same
 many-arity slot spells it the same way. `docs/API_POLICY.md` §8.
+
+**Contribution ids are global within a slot.** The registry keys every
+many-arity slot by the contribution's id across ALL plugins, and a second
+registration of the same id is a `RegistryConflict` that isolates the later
+plugin at boot. So an id is never a generic noun (`tools`, `api`, `sync`,
+`team`, `schema`, `items`): the templates name every contribution after the
+plugin (`__PLUGIN_PKG__`, `__PLUGIN_PKG___sync`, …), and a plugin with several
+contributions in one slot suffixes them (`acme_crm_api`, `acme_crm_webhook`).
+Found the hard way: the first agent-written tool plugin collided with the
+hello-world sample on `tools` and was isolated (2026-09-08).

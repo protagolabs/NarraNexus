@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -144,3 +145,51 @@ def test_scaffold_merges_backend_activations_and_refuses_frontend_collisions(tmp
         assert f"def _activate_{kind}(" in init and f"_activate_{kind}(ctx)" in init
     with pytest.raises(ValueError, match="both generate"):
         scaffold("acme.ui", ["ui_page", "ui_panel"], tmp_path / "acme.ui", display_name="UI")
+
+
+_CONTRIBUTION_ID = re.compile(r'Contribution\(\s*"([^"]+)"')
+
+
+def test_every_template_contribution_id_is_plugin_scoped():
+    """Contribution ids are global within a slot, so a template that ships a
+    generic id ("tools", "api", "sync", "team", "schema", "items") makes every
+    second plugin scaffolded from it collide with the first and get isolated
+    at boot — the first agent-written tool plugin hit exactly that against the
+    hello-world sample (2026-09-08). Every id a template hands out carries the
+    plugin placeholder."""
+    offenders: list[str] = []
+    for kind in KINDS:
+        init = TEMPLATES_DIR / kind / "backend" / "__init__.py"
+        if not init.is_file():
+            continue
+        for cid in _CONTRIBUTION_ID.findall(init.read_text()):
+            if "__PLUGIN_PKG__" not in cid and "__PLUGIN_ID__" not in cid:
+                offenders.append(f"{kind}: {cid!r}")
+    assert offenders == [], offenders
+
+
+def test_two_scaffolded_tool_plugins_boot_side_by_side(tmp_path: Path, home: Path):
+    """The end-to-end form of the rule above on the real boot: two plugins
+    from the tool template load together, neither is isolated, and both
+    tool providers are visible."""
+    from narranexus.hosts.boot import boot
+    from narranexus.kernel.plugins.lifecycle import PluginRecord, RegistryStore
+    from narranexus.kernel.plugins.paths import registry_path
+    from narranexus.kernel.plugins.registries import Registries
+
+    ids = ("acme.alpha", "acme.beta")
+    store = RegistryStore(path=registry_path())
+    for pid in ids:
+        dest = tmp_path / pid
+        scaffold(pid, ["tool"], dest, display_name=pid)
+        store.register(pid, PluginRecord(path=str(dest), installed_version="0.1.0"))
+    try:
+        registries = Registries()
+        report = boot("backend", registries=registries, cloud=False, host_version="1.19.0", store=store)
+        assert report.isolated == {}, report.isolated
+        names = {e.name for e in registries.registry_for("agent.capabilities.tools").entries() if e.owner in ids}
+        assert names == {"acme_alpha", "acme_beta"}
+    finally:
+        for pid in ids:
+            uninstall_synthetic_package(pid)
+            plugin_finder().unregister_deps(pid)

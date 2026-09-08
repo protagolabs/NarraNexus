@@ -59,12 +59,12 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
     tables = []
     backend, report = _boot("backend", register_table=lambda spec, owner: tables.append((spec.name, owner)))
     assert report.user_plugin_ids == (PID,) and report.isolated == {}
-    assert _user_names(backend, "backend.routes") == ("api", "webhook")
+    assert _user_names(backend, "backend.routes") == ("hello_world_api", "hello_world_webhook")
     assert tables == [("ext_acme_hello_world__greetings", PID)]
-    assert backend.registry_for("backend.settings").get("schema").fields["token"].secret is True
-    assert [t.name for t in backend.registry_for("agent.capabilities.tools").get("tools").list_tools()] == ["hello_wave", "hello_now"]
+    assert backend.registry_for("backend.settings").get("hello_world_settings").fields["token"].secret is True
+    assert [t.name for t in backend.registry_for("agent.capabilities.tools").get("hello_world").list_tools()] == ["hello_wave", "hello_now"]
     assert backend.registry_for("agent.capabilities.mcp_servers").get("hello_world").url == "https://example.com/mcp"
-    assert backend.registry_for("content.bundles").get("team").path.is_file()
+    assert backend.registry_for("content.bundles").get("hello_world_team").path.is_file()
     assert backend.registry_for("content.skills").get("hello_skill").manifest_path.is_file()
     assert backend.hooks.caller("onDidPersistTurn").owners() == (PID,)
     assert "hello_graph" in backend.registry_for("turn.pipeline.recall").names()
@@ -91,11 +91,11 @@ def test_cli_link_then_every_role_sees_its_contributions(home: Path, capsys):
 
     # the mcp role registers the same declarative contributions (consumers pick what applies)
     mcp, _ = _boot("mcp")
-    assert mcp.registry_for("agent.capabilities.tools").names() == ("tools",)
+    assert mcp.registry_for("agent.capabilities.tools").names() == ("hello_world",)
     workers, _ = _boot("workers")
     from narranexus.platform.module_system.run_worker_supervisor import build_specs
 
-    assert [s.name for s in build_specs(registries=workers)][-1] == f"{PID}:greeter"
+    assert [s.name for s in build_specs(registries=workers)][-1] == f"{PID}:hello_world_greeter"
 
 
 def test_backend_boot_with_the_real_table_registrar_does_not_isolate_the_plugin(home: Path, capsys):

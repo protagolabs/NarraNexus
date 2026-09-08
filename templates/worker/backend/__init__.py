@@ -21,8 +21,9 @@ async def _factory(ctx):
     return _Handle()
 
 
-# Supervised as "__PLUGIN_ID__:sync" by the workers process.
-WORKERS = (Contribution("sync", lambda: WorkerSpec("sync", _factory, host="workers")),)
+# Supervised as "__PLUGIN_ID__:__PLUGIN_PKG___sync" by the workers process. Contribution ids are
+# global within a slot (two plugins named "sync" cannot coexist): name yours after the plugin.
+WORKERS = (Contribution("__PLUGIN_PKG___sync", lambda: WorkerSpec("__PLUGIN_PKG___sync", _factory, host="workers")),)
 
 
 def activate(ctx):

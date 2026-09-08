@@ -12,7 +12,8 @@ def _spec() -> BundleSpec:
     return BundleSpec("__PLUGIN_ID__.team", path, hashlib.sha256(path.read_bytes()).hexdigest(), "__DISPLAY_NAME__ team", "A team template")
 
 
-BUNDLES = (Contribution("team", _spec),)
+# Contribution ids are global within a slot (two plugins named "team" cannot coexist): name yours after the plugin.
+BUNDLES = (Contribution("__PLUGIN_PKG___team", _spec),)
 
 
 def activate(ctx):

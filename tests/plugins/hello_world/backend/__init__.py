@@ -44,8 +44,8 @@ async def ping():
 
 
 ROUTES = (
-    Contribution("api", lambda: RouterSpec(router, plugin_route_prefix("acme.hello_world"))),
-    Contribution("webhook", lambda: RouterSpec(webhook, plugin_route_prefix("acme.hello_world") + "/webhook", auth="none")),
+    Contribution("hello_world_api", lambda: RouterSpec(router, plugin_route_prefix("acme.hello_world"))),
+    Contribution("hello_world_webhook", lambda: RouterSpec(webhook, plugin_route_prefix("acme.hello_world") + "/webhook", auth="none")),
 )
 TABLES = (
     Contribution(
@@ -77,7 +77,7 @@ async def _worker_factory(ctx):
     return _Handle()
 
 
-WORKERS = (Contribution("greeter", lambda: WorkerSpec("greeter", _worker_factory, host="workers")),)
+WORKERS = (Contribution("hello_world_greeter", lambda: WorkerSpec("hello_world_greeter", _worker_factory, host="workers")),)
 
 
 @hookimpl("onDidPersistTurn")
@@ -86,7 +86,7 @@ async def after_turn(run_id, agent_id):
 
 
 HOOKS = (after_turn,)
-SETTINGS = (Contribution("schema", lambda: SettingsSchema({"greeting": SettingField("string", default="hi"), "token": SettingField("string", secret=True)})),)
+SETTINGS = (Contribution("hello_world_settings", lambda: SettingsSchema({"greeting": SettingField("string", default="hi"), "token": SettingField("string", secret=True)})),)
 
 
 class _Tools:
@@ -94,7 +94,7 @@ class _Tools:
         return (ToolSpec("hello_wave", "Wave hello", server="hello_world"), ToolSpec("hello_now", "Always visible", server="hello_world", always_visible=True))
 
 
-TOOLS = (Contribution("tools", _Tools),)
+TOOLS = (Contribution("hello_world", _Tools),)
 MCP_SERVERS = (Contribution("hello_world", lambda: McpServerSpec("hello_world", "streamable_http", url="https://example.com/mcp")),)
 
 
@@ -103,7 +103,7 @@ def _bundle() -> BundleSpec:
     return BundleSpec("acme.hello_world.team", path, hashlib.sha256(path.read_bytes()).hexdigest(), "Hello team", "demo")
 
 
-BUNDLES = (Contribution("team", _bundle),)
+BUNDLES = (Contribution("hello_world_team", _bundle),)
 SKILLS = (Contribution("hello_skill", lambda: SkillSpec(_ROOT / "skills" / "hello_skill")),)
 
 

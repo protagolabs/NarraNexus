@@ -1,9 +1,10 @@
 from narranexus.sdk import Contribution, SettingField, SettingsSchema
 
 # Values resolve NXP___PLUGIN_PKG____<KEY> env > stored row > default; secrets are encrypted at rest.
+# Contribution ids are global within a slot (two plugins named "schema" cannot coexist): name yours after the plugin.
 SETTINGS = (
     Contribution(
-        "schema",
+        "__PLUGIN_PKG___settings",
         lambda: SettingsSchema(
             {
                 "api_key": SettingField("string", secret=True, description="Service API key"),

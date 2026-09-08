@@ -1,9 +1,10 @@
 from narranexus.sdk import ColumnSpec, Contribution, IndexSpec, TableSpec
 
 # Table names of a user plugin must start with __TABLE_PREFIX__ (the kernel enforces it).
+# Contribution ids are global within a slot (two plugins named "items" cannot coexist): name yours after the plugin.
 TABLES = (
     Contribution(
-        "items",
+        "__PLUGIN_PKG___items",
         lambda: TableSpec(
             "__TABLE_PREFIX__items",
             (
