@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/session/turn_ledger.py
-last_verified: 2026-07-30
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 步内 CoT 折进 assistant 消息的 `reasoning_content`
+
+`thinking_delta` 此前只发 ui 轨、不进账本状态；折叠出的 assistant 消息没有 CoT。DeepSeek 思考模式要求
+同一轮工具循环里产生 tool_calls 的那段 CoT **原样回传**，否则下一次请求 400「reasoning_content must be
+passed back」——NetMind OpenAI 端点 + DeepSeek-V4-Pro 实测每个多步工具回合都死在第 2 步（2026-09-08，本地
+插件工场 E2E 抓到）。现在按步累积 `_step_thinking`，`_fold_step_message` 有则写 `reasoning_content`（无则不写键），
+`discard_step` 一并丢弃。账本只负责**保留**；发不发给 provider 由投影按 `ProviderProfile.thinking_replay` 决定
+（见 [[projector]]、[[profiles]]），所以这里对所有 provider 行为一致。
 
 ## 2026-07-30 — tool_use_start 发「名字先行」ui 事件
 

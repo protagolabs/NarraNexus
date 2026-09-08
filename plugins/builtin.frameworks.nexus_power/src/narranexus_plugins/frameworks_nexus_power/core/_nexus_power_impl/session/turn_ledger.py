@@ -76,6 +76,14 @@ class TurnLedger:
         # step_done so role alternation holds).
         self._step_text: list[str] = []
         self._step_calls: list[ToolCall] = []
+        # Provider chain-of-thought streamed this step. Folded into the
+        # assistant message as ``reasoning_content`` because DeepSeek's
+        # thinking mode rejects the next request of a tool round unless
+        # the CoT that produced the tool calls comes back verbatim
+        # (400 "reasoning_content ... must be passed back"). Whether a
+        # provider actually receives it is the projector's call
+        # (``ProviderProfile.thinking_replay``); the ledger keeps it.
+        self._step_thinking: list[str] = []
 
     # ------------------------------------------------------------------
     # Write side (loop only)
@@ -90,6 +98,7 @@ class TurnLedger:
             return [self._emit("ui", TYPE_TEXT_DELTA, {"text": text, "monologue": True})]
         if kind == "thinking_delta":
             text = str(ev.payload.get("text", ""))
+            self._step_thinking.append(text)
             return [
                 self._emit("ui", TYPE_THINKING_DELTA, {"text": text, "monologue": True})
             ]
@@ -229,6 +238,7 @@ class TurnLedger:
             self._open.pop(call.id, None)
         self._step_calls = []
         self._step_text = []
+        self._step_thinking = []
 
     def synthesize_interrupted_results(self, reason: str) -> list[LoopEvent]:
         """Close every open call with a synthetic result so pairing holds
@@ -351,6 +361,9 @@ class TurnLedger:
         message: ProviderMessage = {"role": "assistant"}
         text = "".join(self._step_text)
         message["content"] = text if text else None
+        thinking = "".join(self._step_thinking)
+        if thinking:
+            message["reasoning_content"] = thinking
         if self._step_calls:
             import json
 
@@ -368,6 +381,7 @@ class TurnLedger:
         self._turn_messages.append(message)
         self._step_text = []
         self._step_calls = []
+        self._step_thinking = []
 
     def _emit(
         self,

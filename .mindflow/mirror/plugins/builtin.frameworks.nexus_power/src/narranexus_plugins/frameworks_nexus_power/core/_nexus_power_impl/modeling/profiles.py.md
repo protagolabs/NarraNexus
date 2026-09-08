@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/profiles.py
-last_verified: 2026-07-31
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — deepseek 行 `thinking_replay="keep"`
+
+实测依据见 [[turn_ledger]] 同日条目。按模型族命中是刻意的：`_dialect_profile` 逐行先查 provider 再查 model，
+deepseek 行排在 openai 行前面，所以「openai 协议端点上跑 DeepSeek」（NetMind 就是这样）也命中本行——正是出事的形态。
+anthropic 协议端点仍取 anthropic 行（strip）：那条路径 CoT 以 thinking block 形式存在，NetMind 桥接侧的 502 属网关问题，
+Power 团队 2026-09-08 称已修。
 
 ## 2026-07-31 — 方言按协议查,输出上限按模型查(两者的键不同,混用即 bug)
 

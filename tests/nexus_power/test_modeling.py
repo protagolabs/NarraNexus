@@ -47,6 +47,11 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.model import Model
 def test_profile_resolution():
     assert resolve_profile("claude-sonnet-4", "anthropic").name == "anthropic"
     assert resolve_profile("deepseek-chat", None).name == "deepseek"
+    # DeepSeek over a generic openai-protocol endpoint still gets its own
+    # row — that is where the thinking replay requirement bit (2026-09-08).
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai").thinking_replay == "keep"
+    assert resolve_profile("gpt-4.1", "openai").thinking_replay == "strip"
+    assert resolve_profile("claude-sonnet-4", "anthropic").thinking_replay == "strip"
     assert resolve_profile("claude-opus-x", None).name == "anthropic"
     assert resolve_profile("totally-unknown", None).name == "default"
 
@@ -606,3 +611,34 @@ async def test_a_cut_inside_a_literal_or_escape_is_still_truncation(arguments):
     be answered with the escaping red herring."""
     tool_use = await _tool_use_for(arguments, finish="tool_calls")
     assert tool_use.payload["args_truncated"] is True
+
+
+def test_projector_replays_reasoning_only_for_keep_profiles():
+    """The ledger always folds the CoT in; the profile decides whether the
+    provider sees it. "strip" providers may reject the unknown key,
+    "keep" providers (DeepSeek thinking mode) reject its absence."""
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
+        PassthroughProjector,
+    )
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ProviderProfile
+
+    ledger = TurnLedger("t1")
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "plan"}))
+    ledger.record_model_event(
+        ModelEvent(kind="tool_use", payload={"call_id": "c1", "tool_name": "bash", "args": {}})
+    )
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "tool_calls"}))
+    ledger.record_tool_result("c1", ToolResult(call_id="c1", ok=True, content="ok"))
+    base = [{"role": "user", "content": "hi"}]
+    projector = PassthroughProjector(base)
+
+    kept = projector.project(ledger, ProviderProfile(name="deepseek", thinking_replay="keep"))
+    assert kept[1]["reasoning_content"] == "plan"
+    assert kept[1]["tool_calls"][0]["id"] == "c1"
+
+    stripped = projector.project(ledger, ProviderProfile(name="openai", thinking_replay="strip"))
+    assert "reasoning_content" not in stripped[1]
+    assert stripped[1]["tool_calls"][0]["id"] == "c1"
+    assert stripped[2] == {"role": "tool", "tool_call_id": "c1", "content": "ok"}
+    # Stripping is a projection, never a mutation of the ledger.
+    assert ledger.provider_messages()[0]["reasoning_content"] == "plan"

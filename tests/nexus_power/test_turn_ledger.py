@@ -249,3 +249,35 @@ def test_discard_step_undoes_a_half_streamed_step():
     assert len(assistant) == 1
     assert assistant[0]["content"] == "thought"  # not "half a thought"
     assert len(assistant[0]["tool_calls"]) == 1
+
+
+def test_thinking_folds_into_the_assistant_message_and_discard_drops_it():
+    """DeepSeek's thinking mode 400s the next request of a tool round
+    unless the CoT behind the tool calls is passed back as
+    ``reasoning_content`` (2026-09-08, NetMind OpenAI endpoint). The
+    ledger keeps it on the folded assistant message; whether it is sent
+    is the projector's decision."""
+    ledger = TurnLedger("t1")
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "count "}))
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "words"}))
+    ledger.record_model_event(
+        ModelEvent(kind="tool_use", payload={"call_id": "c1", "tool_name": "bash", "args": {"command": "wc"}})
+    )
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "tool_calls"}))
+    assistant = ledger.provider_messages()[0]
+    assert assistant["role"] == "assistant"
+    assert assistant["reasoning_content"] == "count words"
+    assert assistant["tool_calls"][0]["id"] == "c1"
+
+    # A step without CoT carries no key at all (never an empty string).
+    ledger.record_tool_result("c1", ToolResult(call_id="c1", ok=True, content="3"))
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "three"}))
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "stop"}))
+    assert "reasoning_content" not in ledger.provider_messages()[-1]
+
+    # discard_step forgets the half-streamed CoT with the rest of the step.
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "stale"}))
+    ledger.discard_step()
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "fresh"}))
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "stop"}))
+    assert "reasoning_content" not in ledger.provider_messages()[-1]

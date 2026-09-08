@@ -52,7 +52,14 @@ _PROFILES: tuple[ProviderProfile, ...] = (
     ProviderProfile(
         name="deepseek",
         cache_style="prefix_auto",
-        thinking_replay="strip",
+        # Thinking mode: the CoT behind a tool call must come back on the
+        # very next request of the same round, or the API answers 400
+        # "The `reasoning_content` in the thinking mode must be passed
+        # back" (measured 2026-09-08 on NetMind's OpenAI endpoint with
+        # DeepSeek-V4-Pro; every multi-step tool turn died at step 2).
+        # Model-keyed on purpose: the row also matches DeepSeek served
+        # over a generic openai-protocol endpoint, which is where it bit.
+        thinking_replay="keep",
         context_window=128_000,
     ),
     ProviderProfile(

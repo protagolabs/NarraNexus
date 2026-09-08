@@ -10,6 +10,13 @@ turn's ledger-projected messages. Compaction is present from v1 but as
 a separate concern: the ``CompactionPolicy`` appends replacement
 entries, the LEDGER substitutes them in its projection, and this class
 just concatenates — upgrading compaction never touches projection.
+
+The one dialect decision taken here: ``profile.thinking_replay``. The
+ledger folds the provider's chain-of-thought into each assistant message
+as ``reasoning_content``; a "strip" profile never sends it (providers
+that do not know the key may reject it), a "keep" profile replays it
+(DeepSeek's thinking mode refuses the next request of a tool round
+without it).
 """
 
 from __future__ import annotations
@@ -50,6 +57,13 @@ class PassthroughProjector:
             if callable(provider_messages)
             else []
         )
+        if profile.thinking_replay == "strip":
+            turn_messages = [
+                {k: v for k, v in m.items() if k != "reasoning_content"}
+                if "reasoning_content" in m
+                else m
+                for m in turn_messages
+            ]
         projected = [*self._base, *turn_messages]
         tail = self._tail_provider() if self._tail_provider else ""
         if tail:
