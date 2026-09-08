@@ -54,6 +54,9 @@ ALLOWED = {
     ("backend/integrations/arena/arena_provisioning_service.py", "add_agent"),
     ("backend/integrations/arena/arena_provisioning_service.py", "update_agent"),
     ("src/narranexus/platform/bootstrap/profiles.py", "update_agent"),
+    # Metadata only: re-renders the stored first-run greeting after a rename
+    # (bootstrap_greeting); the name itself was written by agent_profile.
+    ("src/narranexus/platform/bootstrap/greeting_seed.py", "update_agent"),
     ("backend/onboarding/provisioning.py", "update_agent"),
     ("backend/routes/manyfold/agents.py", 'insert("agents"'),
     ("src/narranexus/platform/bundle/importer.py", '_ins("agents"'),
