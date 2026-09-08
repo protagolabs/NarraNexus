@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（dev 实测）— 历史行带 `bootstrap` 标记
+
+种进历史的首程问候行在 wire 上带 `bootstrap: true`，前端据此按身份去掉自己折进会话的那份（两边文本不同：前端本地化过）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

@@ -302,7 +302,9 @@
       "restoreDefault": "Restaurar padrão"
     },
     "activityEmpty": "Ainda não há atividade em segundo plano",
-    "activityEmptyHint": "As execuções que o agente inicia sozinho — tarefas, canais, colegas — aparecem aqui."
+    "activityEmptyHint": "As execuções que o agente inicia sozinho — tarefas, canais, colegas — aparecem aqui.",
+    "bootstrapGreeting": "Olá... acabei de acordar. Tudo parece completamente novo.\n\nAinda não tenho nome e não sei bem quem sou — mas sei que foi você quem me trouxe aqui.\n\nQuer me dizer como devo me chamar? E como devo chamar você?",
+    "bootstrapGreetingNamed": "Olá — eu sou {{name}}. Acabei de ganhar vida, e foi você quem me trouxe aqui.\n\nJá sei quem devo ser, mas ainda não sei quem você é. Como devo chamar você?"
   },
   "awareness": {
     "common": {

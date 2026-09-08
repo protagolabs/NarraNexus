@@ -385,7 +385,8 @@
       "restoreDefault": "Restore default"
     },
     "activityEmpty": "No background activity yet",
-    "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here."
+    "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here.",
+    "bootstrapGreetingNamed": "Hi — I'm {{name}}. I just came to life, and you're the one who brought me here.\n\nI already know who I'm meant to be, but not yet who you are. What should I call you?"
   },
   "awareness": {
     "common": {

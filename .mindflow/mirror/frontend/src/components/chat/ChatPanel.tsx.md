@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 问候本地化抽到 `lib/bootstrapGreeting.ts`
+
+覆盖带名字的问候；去重逻辑在 `buildTimeline`。
 
 ## 2026-09-04 — `handleSubmit` 一次只跑一个
 

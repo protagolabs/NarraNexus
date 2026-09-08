@@ -245,6 +245,7 @@ export interface SimpleChatMessage {
   working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
+  bootstrap?: boolean;      // The seeded first-run greeting row (dedups the client's folded copy)
   attachments?: import('./messages').Attachment[];  // User uploads attached to this message
 }
 

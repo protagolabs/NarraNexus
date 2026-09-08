@@ -27,6 +27,7 @@ import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn, generateId } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { localizeBootstrapGreeting as localizeBootstrapGreetingWith } from '@/lib/bootstrapGreeting';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { streamForTab } from '@/lib/chatStreams';
 import { chatDayInfo } from '@/lib/chatDays';
@@ -275,15 +276,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
-  const localizedBootstrapGreeting = t('chat.bootstrapGreeting');
-  const defaultBootstrapGreetingEn = t('chat.bootstrapGreeting', { lng: 'en' });
-  // The backend persists the generic bootstrap greeting in English. Translate
-  // that exact system default both before and after persistence, while keeping
-  // scenario-authored per-agent greetings verbatim.
-  const localizeBootstrapGreeting = (content?: string) =>
-    !content || content === defaultBootstrapGreetingEn
-      ? localizedBootstrapGreeting
-      : content;
+  // The backend persists its system greetings (generic and named) in English;
+  // lib/bootstrapGreeting translates exactly those, before and after
+  // persistence, and leaves scenario-authored greetings verbatim.
+  const localizeBootstrapGreeting = (content?: string) => localizeBootstrapGreetingWith(content, t);
   const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
 
   const [fastMode, setFastMode] = useFastMode(agentId);

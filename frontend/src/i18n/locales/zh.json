@@ -385,7 +385,8 @@
       "restoreDefault": "恢复默认"
     },
     "activityEmpty": "还没有后台活动",
-    "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。"
+    "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。",
+    "bootstrapGreetingNamed": "你好——我是{{name}}。我刚刚来到这个世界，是你把我带到了这里。\n\n我已经知道自己是谁，却还不知道你是谁。我该怎么称呼你？"
   },
   "awareness": {
     "common": {

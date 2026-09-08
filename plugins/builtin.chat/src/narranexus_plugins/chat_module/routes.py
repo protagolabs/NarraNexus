@@ -718,6 +718,11 @@ async def get_simple_chat_history(
                             "working_source": working_source,
                             "message_type": message_type,
                             "event_id": meta_data.get("event_id"),
+                            # The seeded first-run greeting: the client folds the
+                            # same greeting into its session on the first send and
+                            # must recognise this row as that greeting (the two
+                            # texts differ once the client localises its copy).
+                            "bootstrap": bool(meta_data.get("bootstrap")),
                             "attachments": msg.get("attachments"),
                             "_sort_key": timestamp or ""
                         })

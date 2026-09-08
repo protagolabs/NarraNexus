@@ -108,11 +108,20 @@ function toSessionItem(msg: ChatMessage): TimelineItem {
  * @param historyMessages rows from getSimpleChatHistory (oldest → newest)
  * @param sessionMessages chatStore session messages (oldest → newest)
  */
+/** The session id ChatPanel gives the first-run greeting it folds into the
+ *  session on the user's first send. The backend seeds the same greeting into
+ *  history during that turn, so once history carries a `bootstrap` row the
+ *  folded copy must go — by identity, not by text: the client localises its
+ *  copy while the persisted row keeps the backend's text, so the content
+ *  heuristic below never matched and the greeting showed twice until a reload. */
+export const BOOTSTRAP_GREETING_SESSION_ID = 'bootstrap-greeting';
+
 export function buildUnifiedTimeline(
   historyMessages: SimpleChatMessage[],
   sessionMessages: ChatMessage[],
 ): TimelineItem[] {
   const items: TimelineItem[] = [];
+  const historyHasBootstrapGreeting = historyMessages.some((m) => m.bootstrap === true);
 
   // ── 1. History messages (from DB) ──────────────────────────────────
   for (let i = 0; i < historyMessages.length; i++) {
@@ -168,6 +177,7 @@ export function buildUnifiedTimeline(
 
   // ── 3. Session messages — dedup against history, then add ──────────
   for (const msg of sessionMessages) {
+    if (msg.id === BOOTSTRAP_GREETING_SESSION_ID && historyHasBootstrapGreeting) continue;
     // Primary path: exact (role, event_id) identity.
     if (msg.event_id) {
       if (historyEventRoleKeys.has(`${msg.role}:${msg.event_id}`)) {
