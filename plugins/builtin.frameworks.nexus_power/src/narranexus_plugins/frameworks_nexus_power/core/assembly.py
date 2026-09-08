@@ -169,6 +169,23 @@ def _steer_channels(steerable: bool, wait_state: WaitRequest) -> tuple[Any, ...]
     return (WaitChannel(wait_state),)
 
 
+def mcp_spec_from_config(cfg: dict[str, Any]) -> McpServerSpec:
+    """The turn's ``mcp_servers`` entry → channel spec.
+
+    Both shapes the platform emits: ``{url, headers?}`` for module / URL
+    servers and ``{command, args, env}`` for a plugin's stdio server. The
+    second was silently read as an empty URL before, so every template stdio
+    server "connected" to nothing and its tools never existed for the agent.
+    """
+    if cfg.get("command"):
+        return McpServerSpec(
+            command=str(cfg["command"]),
+            args=tuple(str(a) for a in cfg.get("args") or ()),
+            env={str(k): str(v) for k, v in (cfg.get("env") or {}).items()},
+        )
+    return McpServerSpec(url=str(cfg.get("url", "")), headers=dict(cfg.get("headers") or {}))
+
+
 async def run_turn_events(
     request: TurnRequest,
     cancel: CancellationSignal,
@@ -269,10 +286,7 @@ async def run_turn_events(
         extra=dict(opts.llm_extra),
     )
 
-    mcp = McpToolChannel(
-        {name: McpServerSpec(url=str(spec.get("url", "")), headers=dict(spec.get("headers") or {}))
-         for name, spec in opts.mcp_servers.items()}
-    )
+    mcp = McpToolChannel({name: mcp_spec_from_config(spec) for name, spec in opts.mcp_servers.items()})
     # The expression contract is built BEFORE the expander: expansion may
     # grant delivery tools mid-turn (add_tools), and only the per-step
     # tail reminder reads the growing list — the stable prefix freezes
@@ -287,10 +301,7 @@ async def run_turn_events(
             key=e.key,
             card=e.card,
             instructions=e.instructions,
-            mcp_servers={
-                n: McpServerSpec(url=str(s.get("url", "")), headers=dict(s.get("headers") or {}))
-                for n, s in e.mcp_servers.items()
-            },
+            mcp_servers={n: mcp_spec_from_config(s) for n, s in e.mcp_servers.items()},
             skill_dirs=e.skill_dirs,
             extra_env=dict(e.extra_env),
             expressive_tools=e.expressive_tools,

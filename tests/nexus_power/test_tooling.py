@@ -8,6 +8,8 @@ dispatcher routing + marker short-circuit + allow/deny filters,
 capability expansion.
 """
 
+import sys
+
 import pytest
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.model import McpServerSpec
@@ -855,3 +857,45 @@ def test_a_team_artifacts_home_is_readable_by_a_teammate(engine, workspace, tmp_
         pctx,
     )
     assert not denied.allowed
+
+
+def test_mcp_channel_runs_a_stdio_server_with_the_host_interpreter(tmp_path):
+    """The tool template's default transport, end to end: the channel spawns
+    the server as a child process, lists its tools under the mcp__ namespace
+    and calls one. Before this the channel spoke SSE only and read a stdio
+    config as an empty URL, so a plugin's tools silently never existed."""
+    import asyncio
+
+    from narranexus_plugins.frameworks_nexus_power.core.assembly import mcp_spec_from_config
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.mcp_channel import (
+        McpToolChannel,
+        stdio_command,
+    )
+
+    server = tmp_path / "srv.py"
+    server.write_text(
+        "from fastmcp import FastMCP\n"
+        "mcp = FastMCP('calc')\n"
+        "@mcp.tool()\n"
+        "def add(a: int, b: int) -> int:\n"
+        "    return a + b\n"
+        "mcp.run()\n"
+    )
+    spec = mcp_spec_from_config({"command": "python", "args": [str(server)], "env": {"NX_TEST_MARK": "1"}})
+    assert spec.is_stdio and spec.args == (str(server),) and spec.env == {"NX_TEST_MARK": "1"}
+    assert stdio_command("python") == sys.executable and stdio_command("uvx") == "uvx"
+    url_spec = mcp_spec_from_config({"url": "http://x/sse", "headers": {"A": "1"}})
+    assert not url_spec.is_stdio and url_spec.url == "http://x/sse" and url_spec.headers == {"A": "1"}
+
+    async def _run():
+        channel = McpToolChannel({"calc": spec})
+        try:
+            await channel.connect()
+            names = [t.name for t in channel.list_tools()]
+            assert names == ["mcp__calc__add"], names
+            result = await channel.call("mcp__calc__add", {"a": 1, "b": 2}, ToolContext(agent_id="a", workspace=str(tmp_path)))
+            assert result.ok and result.content.strip() == "3", result
+        finally:
+            await channel.aclose()
+
+    asyncio.run(_run())

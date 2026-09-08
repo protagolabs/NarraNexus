@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/tooling/mcp_channel.py
-last_verified: 2026-07-31
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — stdio 传输
+
+`_connect_one` 按 `spec.is_stdio` 分流：stdio 走 `mcp.client.stdio.stdio_client`（子进程 env = 运行器环境 ⊕ spec.env，
+spec.env 来自 [[plugin_contributions]] 的引导变量），否则维持 SSE。`stdio_command()` 把 "python"/"python3" 解析成
+`sys.executable`——插件要 import `narranexus.sdk` 与 fastmcp，只有宿主解释器有它们；PATH 上的裸 python 是用户 shell 的。
+每回合起一个子进程是本地版可接受的成本（fastmcp 冷启 <1s）；云端没有用户插件，不走这条路。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)(配套:注册确定性)
 

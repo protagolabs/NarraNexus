@@ -9,9 +9,9 @@ so it is minimal-set core, not an extension.
 Contract points:
   - tool names keep the ``mcp__{server}__{tool}`` namespace (three
     legacy consumers substring-match it);
-  - per-server SSE sessions with per-agent headers, connected
-    concurrently; one failing server degrades to absent tools (logged),
-    never a turn abort;
+  - per-server sessions — SSE with per-agent headers, or a stdio child
+    process for a plugin's local server — connected concurrently; one
+    failing server degrades to absent tools (logged), never a turn abort;
   - ``add_servers`` is the dynamic-expansion endpoint: append-only tool
     inventory (cache discipline), generation counter bumps so the
     dispatcher's cache invalidates, name collisions resolve
@@ -23,6 +23,8 @@ Contract points:
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -38,6 +40,15 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
 
 _CONNECT_TIMEOUT_S = 15
 _CALL_TIMEOUT_S = 300
+
+# A stdio spec that says "python" means the host's interpreter: the plugin
+# imports narranexus.sdk and its deps from the environment that runs us, and
+# a bare "python" on PATH is whatever the user's shell has.
+_HOST_INTERPRETER_ALIASES = frozenset({"python", "python3"})
+
+
+def stdio_command(command: str) -> str:
+    return sys.executable if command in _HOST_INTERPRETER_ALIASES else command
 
 
 def mcp_tool_name(server: str, tool: str) -> str:
@@ -86,12 +97,23 @@ class McpToolChannel:
         """Connect one server and return ``(session, listed_tools)`` —
         no shared-state writes here (the caller registers in order)."""
         from mcp import ClientSession
-        from mcp.client.sse import sse_client
 
+        if spec.is_stdio:
+            from mcp.client.stdio import StdioServerParameters, stdio_client
+
+            transport = stdio_client(
+                StdioServerParameters(
+                    command=stdio_command(spec.command),
+                    args=list(spec.args),
+                    env={**os.environ, **spec.env},
+                )
+            )
+        else:
+            from mcp.client.sse import sse_client
+
+            transport = sse_client(spec.url, headers=spec.headers or None)
         read, write = await asyncio.wait_for(
-            self._stack.enter_async_context(
-                sse_client(spec.url, headers=spec.headers or None)
-            ),
+            self._stack.enter_async_context(transport),
             timeout=_CONNECT_TIMEOUT_S,
         )
         session = await self._stack.enter_async_context(ClientSession(read, write))

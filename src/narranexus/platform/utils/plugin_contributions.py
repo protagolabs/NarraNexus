@@ -58,17 +58,22 @@ def plugin_mcp_servers(registries: Any = None) -> dict[str, dict[str, Any]]:
     """Site-level MCP servers as ``{name: config}`` in the shape the turn's ``mcp_servers`` uses.
 
     URL transports become ``{"url", "headers"}`` (the module servers' shape);
-    stdio servers carry ``command/args/env``. Names are the spec's own; a
+    stdio servers carry ``command/args/env``, where ``env`` also holds what a
+    child interpreter needs to import ``nxplugins.<id>`` (see
+    ``kernel.plugins.subprocess_env``) — without it every template stdio
+    server died with "No module named nxplugins". Names are the spec's own; a
     later duplicate name loses (first declared wins) so the surface stays
     deterministic.
     """
+    from narranexus.kernel.plugins.subprocess_env import subprocess_env
+
     out: dict[str, dict[str, Any]] = {}
     for owner, _, spec in _built(MCP_SERVERS_SLOT, McpServerSpec, registries):
         if spec.name in out:
             logger.warning(f"[plugins] {owner}: mcp server {spec.name!r} already provided; ignored")
             continue
         if spec.transport == "stdio":
-            out[spec.name] = {"command": spec.command, "args": list(spec.args), "env": dict(spec.env)}
+            out[spec.name] = {"command": spec.command, "args": list(spec.args), "env": subprocess_env(spec.env)}
         else:
             cfg: dict[str, Any] = {"url": spec.url}
             if spec.headers:

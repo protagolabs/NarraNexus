@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/assembly.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — `mcp_spec_from_config`：两处 dict→spec 收成一个
+
+回合 `mcp_servers` 与 expandable 的 `mcp_servers` 此前各自 `McpServerSpec(url=...)`，stdio 配置被读成空 url。现在同一个
+转换函数按 `command` 有无分流；测试 `test_mcp_channel_runs_a_stdio_server_with_the_host_interpreter` 覆盖两形态。
 
 ## 2026-09-03（批 2a.5）— dispatcher 接 `deferred_tools`
 

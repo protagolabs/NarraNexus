@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/utils/plugin_contributions.py
-last_verified: 2026-09-03
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — stdio 配置的 `env` 带子进程引导
+
+`plugin_mcp_servers()` 的 stdio 分支 `env` 改为 `subprocess_env(spec.env)`（见 [[subprocess_env]]）：没有它，模板 stdio
+server 在任何框架下都起不来。url 分支不变。
 
 ## 2026-09-03（批 2a.5）— Agent 面向四个 kind 的注册表读侧
 

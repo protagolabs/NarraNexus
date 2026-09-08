@@ -85,10 +85,19 @@ class ModelParams:
 
 @dataclass(frozen=True)
 class McpServerSpec:
-    """One MCP server endpoint: ``{url, headers?}`` (per-agent headers)."""
+    """One MCP server: an SSE endpoint (``url`` + per-agent ``headers``) or a
+    stdio child process (``command`` + ``args`` + ``env``, merged over the
+    runner's environment). Exactly one of ``url``/``command`` is set."""
 
-    url: str
+    url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
+    command: str = ""
+    args: tuple[str, ...] = ()
+    env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def is_stdio(self) -> bool:
+        return bool(self.command)
 
 
 @dataclass(frozen=True)

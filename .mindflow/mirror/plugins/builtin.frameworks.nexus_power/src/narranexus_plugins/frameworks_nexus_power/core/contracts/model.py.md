@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/contracts/model.py
-last_verified: 2026-07-31
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — `McpServerSpec` 长出 stdio 形态
+
+`url` 改为可空，新增 `command/args/env` 与 `is_stdio`。此前只有 url，装配把 `{command,args,env}` 读成空 url，插件的
+stdio server「连上了空」、工具静默不存在。两种形态互斥，由 [[assembly]] 的 `mcp_spec_from_config` 生成。
 
 ## 2026-07-31 — 两个窗口字段不是冗余,且「未实测=相等」必须由构造保证
 

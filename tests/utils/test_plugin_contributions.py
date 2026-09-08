@@ -34,10 +34,17 @@ def test_mcp_servers_shape_first_wins_and_broken_entries_are_skipped():
         ("acme.d", "boom", lambda: (_ for _ in ()).throw(RuntimeError("no"))),
         ("acme.e", "wrong", lambda: object()),
     )
-    assert pc.plugin_mcp_servers(registries) == {
-        "weather": {"url": "https://w/mcp", "headers": {"A": "1"}},
-        "local": {"command": "uvx", "args": ["x"], "env": {}},
-    }
+    out = pc.plugin_mcp_servers(registries)
+    assert out["weather"] == {"url": "https://w/mcp", "headers": {"A": "1"}}
+    assert out["local"]["command"] == "uvx" and out["local"]["args"] == ["x"]
+    # A stdio child must be able to import nxplugins.<id>: the config carries
+    # the bootstrap PYTHONPATH and the plugin home (kernel.plugins.subprocess_env).
+    from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME, plugin_home
+    from narranexus.kernel.plugins.subprocess_env import bootstrap_dir
+
+    assert out["local"]["env"]["PYTHONPATH"] == str(bootstrap_dir())
+    assert out["local"]["env"][ENV_PLUGIN_HOME] == str(plugin_home())
+    assert set(out) == {"weather", "local"}
 
 
 def test_tools_follow_provider_order_and_dedupe_names():
