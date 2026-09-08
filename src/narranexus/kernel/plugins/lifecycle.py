@@ -260,6 +260,19 @@ class RegistryStore:
 
         self.update(_mutate)
 
+    def clear_crashes(self, plugin_id: str) -> PluginRecord:
+        """A clean boot after a crash: the crash budget (spec §9.5 "the second one
+        disables") counts consecutive crashes, so a recovered plugin starts again at
+        zero and the auto-disable warning goes with it."""
+        def _mutate(reg: RegistryFile) -> None:
+            rec = reg.plugins.get(plugin_id)
+            if rec is None:
+                raise RegistryError(f"unknown plugin {plugin_id!r}")
+            rec.crash_count = 0
+            rec.last_error = None
+            rec.warnings = [w for w in rec.warnings if not w.startswith("auto-disabled after ")]
+        return self.update(_mutate).plugins[plugin_id]
+
     def set_enabled(self, plugin_id: str, enabled: bool) -> PluginRecord:
         def _mutate(reg: RegistryFile) -> None:
             rec = reg.plugins.get(plugin_id)

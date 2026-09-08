@@ -573,7 +573,6 @@ class ModuleRunner:
             api_host: A2A API host (default: "0.0.0.0")
             api_port: A2A API port (default: 8000)
         """
-        module_classes = self._resolve_modules(modules)
         user = user_id or agent_id
 
         processes = []
@@ -591,14 +590,14 @@ class ModuleRunner:
         logger.info(f"   A2A API Server started (PID: {api_process.pid})")
 
         # The MCP host runs on THIS process's loop (one port, every module mounted).
-        logger.info(f"Starting the MCP host for {len(module_classes)} module servers on port {mcp_port()}...")
+        logger.info(f"Starting the MCP host on port {mcp_port()} (modules resolved after the plugin boot)...")
         logger.info("A2A API Endpoints:")
         logger.info(f"   GET  http://{api_host}:{api_port}/.well-known/agent.json")
         logger.info(f"   POST http://{api_host}:{api_port}/")
         logger.info(f"   GET  http://{api_host}:{api_port}/docs")
         logger.info("Press Ctrl+C to stop all services")
         try:
-            asyncio.run(self.run_mcp_servers_async(agent_id=agent_id, user_id=user_id, modules=module_classes))
+            asyncio.run(self.run_mcp_servers_async(agent_id=agent_id, user_id=user_id, modules=modules))
         except KeyboardInterrupt:
             logger.warning("Stopping all services...")
         finally:
@@ -647,6 +646,14 @@ def main(argv: "list[str] | None" = None) -> int:
 
     args = list(sys.argv[1:] if argv is None else argv)
     setup_logging("mcp")
+
+    # Every command below reads the module roster (serve it, list it, print
+    # it), and the roster is registry-derived: boot the plugin platform for the
+    # mcp role once, up front. Idempotent, so run_mcp_servers_async() booting
+    # again for programmatic callers is a no-op.
+    from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins
+
+    boot_mcp_plugins()
 
     runner = ModuleRunner()
 

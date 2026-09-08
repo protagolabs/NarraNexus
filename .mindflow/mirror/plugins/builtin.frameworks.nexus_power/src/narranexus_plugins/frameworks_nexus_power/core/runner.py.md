@@ -4,6 +4,11 @@ last_verified: 2026-09-08
 stub: false
 ---
 
+## 2026-09-08（复审）— boot 失败也走 wire 协议
+
+`boot_executor_plugins()` 抛错（registry.json 损坏、绑定解析失败）时写 `{"exit": {"ok": false, "error": …}}` 再以 3 退出，
+driver 收到的是可读的回合错误而不是 stderr 里的原始 traceback。
+
 ## 2026-09-08（本地 E2E 实测）— runner 进程也要 boot 插件平台
 
 runner 是 adapter 按用户 spawn 的独立进程，`assembly.resolve_one(EXPRESSION)` 从本进程注册表取框架自己的座位；此前从不 boot，

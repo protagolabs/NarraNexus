@@ -4,6 +4,11 @@ last_verified: 2026-09-08
 stub: false
 ---
 
+## 2026-09-08（复审）— 并发 pass 计数 + 工场请求超时
+
+预挂载 pass 与登录翻转 pass 可能重叠：用 in-flight 计数，归零才 settle，否则先结束的 pass 会让插件页深链接在另一 pass 还在
+注册时被送走。`GET /api/plugin-factory` 加 `AbortSignal.timeout(15s)`，后端挂死时 hold 有上界。
+
 ## 2026-09-08（本地 E2E 实测）— `pluginsBootSettled()` / `subscribePluginsBoot()`
 
 硬刷新落在插件页 `/app/x/<page>` 时，路由表先于工场应答渲染，`x/hello` 尚未注册就被 `*` 兜底送回 chat——每个插件页

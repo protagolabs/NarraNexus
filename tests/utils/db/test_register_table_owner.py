@@ -80,9 +80,5 @@ def test_register_table_accepts_the_owner_positionally_like_the_boot_calls_it(cl
     ``TableRegistrar`` alias is ``Callable[[Any, str], None]``). A keyword-only ``owner``
     made every user plugin with a table fail to boot in the real backend with
     "register_table() takes 1 positional argument but 2 were given"."""
-    import inspect
-
-    owner_param = inspect.signature(sr.register_table).parameters["owner"]
-    assert owner_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     table = sr.register_table(_spec(), "acme.weather")
     assert sr.TABLE_OWNERS[table.name] == "acme.weather"

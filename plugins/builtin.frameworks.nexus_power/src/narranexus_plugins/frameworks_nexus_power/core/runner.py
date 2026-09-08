@@ -215,7 +215,14 @@ def main() -> None:
         # service (workers): the contribution set a turn needs.
         from narranexus.platform.module_system.plugins_boot import boot_executor_plugins
 
-        boot_executor_plugins()
+        try:
+            boot_executor_plugins()
+        except Exception as exc:  # noqa: BLE001 - surfaced on the wire like every other failure
+            # A corrupt registry.json or an unresolvable binding must reach the
+            # driver as a turn error, not as a raw traceback on stderr.
+            sys.stdout.write(json.dumps({"exit": {"ok": False, "error": f"plugin boot failed: {exc}"}}) + "\n")
+            sys.stdout.flush()
+            return 3
         if os.getenv("NEXUS_POWER_PREWARM") == "1":
             _prewarm()
         # The request line read is UNCHANGED (blocking, load-bearing): every

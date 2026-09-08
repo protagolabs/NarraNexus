@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { AppRoutes, PluginPagePending } from '@/App';
 import { PAGES } from '@/platform/registries';
-import { loadPlugins } from '@/platform/loader';
+import { loadPlugins, pluginsBootSettled } from '@/platform/loader';
 
 function LocationProbe() {
   const loc = useLocation();
@@ -136,5 +136,18 @@ describe('AppRoutes', () => {
     await act(async () => { release(); await boot; });
     // Boot settled and nothing registered at x/acme: now (and only now) leave.
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/app/chat'), { timeout: 5000 });
+  });
+
+  it('two overlapping loadPlugins passes settle only when the last one finishes', async () => {
+    const release: Array<() => void> = [];
+    const pendingFetch = () => new Promise<Response>((resolve) => { release.push(() => resolve(new Response('{}', { status: 401 }))); });
+    const a = loadPlugins({ fetchImpl: pendingFetch });
+    const b = loadPlugins({ fetchImpl: pendingFetch });
+    expect(pluginsBootSettled()).toBe(false);
+    await act(async () => { release[0](); await a; });
+    // Pass B is still registering: a deep-link hold must not leave yet.
+    expect(pluginsBootSettled()).toBe(false);
+    await act(async () => { release[1](); await b; });
+    expect(pluginsBootSettled()).toBe(true);
   });
 });

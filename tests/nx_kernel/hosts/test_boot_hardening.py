@@ -163,6 +163,9 @@ def test_a_clean_boot_after_a_crash_leaves_the_crashed_state(plugin_home: Path):
     assert "acme.again" not in report.isolated
     record = store.read().plugins["acme.again"]
     assert record.state == "enabled" and record.last_error is None
+    # The crash budget counts consecutive crashes: a recovered plugin starts again at zero,
+    # otherwise one unrelated crash months later trips the two-strikes auto-disable.
+    assert record.crash_count == 0
 
 
 def test_last_known_good_moves_only_when_the_host_is_healthy(plugin_home: Path):

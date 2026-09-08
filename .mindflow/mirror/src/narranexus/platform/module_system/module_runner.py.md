@@ -1,7 +1,12 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 ---
+
+## 2026-09-08（复审）— boot 提到 `main()` 顶部
+
+`module` / `list` / usage 同样读注册表派生的模块表，只在 `run_mcp_servers_async` 里 boot 不够；`main()` 起手 boot 一次
+（幂等，程序化调用者再 boot 是 no-op），`run_module` 不再自行解析模块而是把 `modules` 原样传下去。
 
 ## 2026-09-08（本地 E2E 实测）— mcp 角色先 boot 再解析模块
 

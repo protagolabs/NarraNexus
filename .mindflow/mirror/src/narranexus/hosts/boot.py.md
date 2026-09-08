@@ -4,6 +4,11 @@ last_verified: 2026-09-08
 stub: false
 ---
 
+## 2026-09-08（复审）— 恢复时清崩溃预算；注册表每次 boot 只读一次
+
+crashed/slow 走回 registered 后调用 `store.clear_crashes`，否则数月后一次无关崩溃就触发两次阈值自动禁用。`store.read()`
+提到循环外（注册表损坏时视为无记录，不影响只装内置的降级路径）。
+
 ## 2026-09-08（本地 E2E 实测）— 崩溃后的一次干净 boot 要能走出 `crashed`
 
 状态机只允许从异常态回到 `registered`，而 boot 末尾对干净加载的插件直接 `→ validated`，`RegistryError` 被 debug 吞掉：

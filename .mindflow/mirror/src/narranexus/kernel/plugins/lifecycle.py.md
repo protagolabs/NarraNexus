@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/kernel/plugins/lifecycle.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — `clear_crashes()`
+
+崩溃预算按「连续崩溃」计（第二次即禁用）：干净 boot 恢复后计数清零、`last_error` 清空、auto-disabled 警告移除；由
+`hosts.boot` 在 crashed/slow → registered 的恢复步调用。
 
 ## 2026-09-03（批 2b.1）— `registry.json` 的唯一写入者 + LKG + 状态机 + 启动标记
 

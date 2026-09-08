@@ -318,20 +318,23 @@ export function activeHosts(): string[] {
   return [...hosts.keys()];
 }
 
-/** Boot-time entry: register metadata for every loaded plugin, then fire onStartup. */
 /**
- * Whether the latest `loadPlugins()` pass has finished (declared UI registered, `onStartup`
+ * Whether every `loadPlugins()` pass in flight has finished (declared UI registered, `onStartup`
  * fired). A hard reload on a plugin page (`/app/x/<page>`) renders the route table before the
  * factory answers; `App.tsx` holds an unmatched `x/*` URL on a fallback until this settles instead
  * of redirecting to chat, otherwise every deep link into a plugin page was lost on refresh.
  */
 let bootSettled = false;
+/** Passes in flight: the pre-mount pass and the login-flip pass can overlap; settle only at zero. */
+let bootInFlight = 0;
 const bootListeners = new Set<() => void>();
 function setBootSettled(value: boolean): void {
   if (bootSettled === value) return;
   bootSettled = value;
   for (const l of bootListeners) l();
 }
+/** The factory answer is awaited with a bound so a hung backend cannot hold a plugin deep link forever. */
+export const FACTORY_FETCH_TIMEOUT_MS = 15_000;
 export function pluginsBootSettled(): boolean {
   return bootSettled;
 }
@@ -342,12 +345,15 @@ export function subscribePluginsBoot(listener: () => void): () => void {
   };
 }
 
+/** Boot-time entry: register metadata for every loaded plugin, then fire onStartup. */
 export async function loadPlugins(deps: LoaderDeps = {}): Promise<FactoryPluginRow[]> {
+  bootInFlight += 1;
   setBootSettled(false);
   try {
     return await loadPluginsInner(deps);
   } finally {
-    setBootSettled(true);
+    bootInFlight -= 1;
+    if (bootInFlight === 0) setBootSettled(true);
   }
 }
 
@@ -356,7 +362,7 @@ async function loadPluginsInner(deps: LoaderDeps): Promise<FactoryPluginRow[]> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   let rows: FactoryPluginRow[] = [];
   try {
-    const res = await fetchImpl(`${getApiBaseUrl()}/api/plugin-factory`, { headers: getAuthHeaders() });
+    const res = await fetchImpl(`${getApiBaseUrl()}/api/plugin-factory`, { headers: getAuthHeaders(), signal: AbortSignal.timeout(FACTORY_FETCH_TIMEOUT_MS) });
     if (!res.ok) return [];
     const body = (await res.json()) as { data?: { plugins?: FactoryPluginRow[]; builtins?: FactoryBuiltinRow[] } };
     for (const b of body.data?.builtins ?? []) {

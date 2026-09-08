@@ -302,15 +302,21 @@ def boot(
                 store.transition(pid, "slow", error=err)
             except RegistryError:
                 pass
+        try:
+            records = store.read().plugins  # one parse per boot, not one per plugin
+        except RegistryError:
+            records = {}
         for manifest in lifecycle:
             if manifest.id not in report.isolated:
                 try:
-                    record = store.read().plugins.get(manifest.id)
+                    record = records.get(manifest.id)
                     if record is not None and record.state in ("crashed", "slow"):
                         # A clean boot after a recorded crash/slow boot: leave the
                         # exceptional state (which only permits → registered) so
-                        # the plugin does not stay "crashed" forever in the factory.
+                        # the plugin does not stay "crashed" forever in the factory,
+                        # and the crash budget counts consecutive crashes — reset it.
                         store.transition(manifest.id, "registered")
+                        store.clear_crashes(manifest.id)
                     store.transition(manifest.id, "validated")
                     store.transition(manifest.id, "enabled")
                 except RegistryError as exc:
