@@ -44,8 +44,17 @@ class BindingSource:
 
 
 def channel_binding_sources() -> list[BindingSource]:
-    """Descriptor order (= display order) for the IM channels, then the binding-only tables."""
+    """One source per channel, in display order: the IM channels (``ui.order``, then
+    registration order), then the binding-only tables. A channel that has its own
+    binding table (``home_assistant`` is a registered descriptor AND a binding-only
+    table) is listed once, from the table — its rows are not in ``channel_credentials``."""
     from narranexus.platform.channel.credential_store import all_descriptors
+
+    own_table = {spec["channel"] for spec in BINDING_ONLY_TABLES.values()}
+    descriptors = sorted(
+        (d for d in all_descriptors() if d.name not in own_table),
+        key=lambda d: (d.ui.order if d.ui is not None else 1_000),
+    )
 
     out = [
         BindingSource(
@@ -54,9 +63,11 @@ def channel_binding_sources() -> list[BindingSource]:
             params=(d.name,),
             active_col="enabled",
         )
-        for i, d in enumerate(all_descriptors())
+        for i, d in enumerate(descriptors)
     ]
     out.extend(BindingSource(spec["channel"], table, (), spec["active_col"]) for table, spec in BINDING_ONLY_TABLES.items())
+    channels = [s.channel for s in out]
+    assert len(channels) == len(set(channels)), f"duplicate channel in binding sources: {channels}"
     return out
 
 
@@ -66,6 +77,8 @@ def bound_channels_query(sources: list[BindingSource], agent_ids: list[str]) -> 
     Each branch: ``SELECT %s AS channel_name, agent_id, <active> AS active FROM
     <source> WHERE agent_id IN (…)``; the channel name is a bound parameter too.
     """
+    if not agent_ids:
+        raise ValueError("bound_channels_query: agent_ids must be non-empty (an empty IN () is invalid SQL)")
     placeholders = ",".join(["%s"] * len(agent_ids))
     parts: list[str] = []
     params: list = []

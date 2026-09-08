@@ -355,7 +355,6 @@
       "detailMenuTitle": "Agent 详情 — 面板入口",
       "modelFramework": "模型与框架",
       "switchAgent": "切换 agent",
-      "capabilities": "能力",
       "viewProfile": "查看 Agent 资料"
     },
     "composerPrivacyHint": "请勿分享敏感个人信息。",
@@ -374,7 +373,6 @@
       }
     },
     "capabilities": {
-      "title": "能力开关",
       "subtitle": "决定哪些模块参与此 agent 的回合。内置模块默认开启；插件安装的模块默认关闭，直到你手动开启。更改在下一次运行生效。",
       "builtin": "内置",
       "plugin": "插件",
@@ -383,7 +381,8 @@
       "budget": "已开启模块声明约 {{enabled}} 个提示词 token（为内置基线 {{baseline}} 的 {{ratio}} 倍）。",
       "overBudget": "超出预算：已开启模块声明约 {{enabled}} 个提示词 token，为内置基线 {{baseline}} 的 {{ratio}} 倍。",
       "loadFailed": "无法加载能力列表",
-      "saveFailed": "无法保存更改"
+      "saveFailed": "无法保存更改",
+      "restoreDefault": "恢复默认"
     },
     "activityEmpty": "还没有后台活动",
     "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。"
@@ -2396,7 +2395,8 @@
       "activityLast24h": "过去 24 小时",
       "activityToday": "今日",
       "activityAxisStart": "24 小时前",
-      "activityAxisNow": "现在"
+      "activityAxisNow": "现在",
+      "capabilitySwitches": "能力开关"
     },
     "welcome": {
       "logout": "退出登录",

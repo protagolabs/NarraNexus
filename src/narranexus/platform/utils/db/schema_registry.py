@@ -1129,14 +1129,6 @@ _register(
     )
 )
 
-# 25b. agent_slots (per-agent slot OVERRIDES; falls back to user_slots)
-# Mirrors user_slots column-for-column but keyed by agent_id instead of
-# user_id. A row here overrides the owner's user_slots row for that slot on
-# runs of THIS agent only; absence = inherit the user-level default. Both
-# 'agent' and 'helper_llm' slots may be overridden (helper follows its agent).
-# The identical column vocabulary is deliberate: resolve_user_runtime_llm_configs
-# overlays an agent_slots row onto by_slot_name and consumes it with the exact
-# same card-lookup / self-heal / driver-dispatch code — no special-casing.
 _register(
     TableDef(
         name="agent_capabilities",
@@ -1156,6 +1148,14 @@ _register(
     )
 )
 
+# 25b. agent_slots (per-agent slot OVERRIDES; falls back to user_slots)
+# Mirrors user_slots column-for-column but keyed by agent_id instead of
+# user_id. A row here overrides the owner's user_slots row for that slot on
+# runs of THIS agent only; absence = inherit the user-level default. Both
+# 'agent' and 'helper_llm' slots may be overridden (helper follows its agent).
+# The identical column vocabulary is deliberate: resolve_user_runtime_llm_configs
+# overlays an agent_slots row onto by_slot_name and consumes it with the exact
+# same card-lookup / self-heal / driver-dispatch code — no special-casing.
 _register(
     TableDef(
         name="agent_slots",

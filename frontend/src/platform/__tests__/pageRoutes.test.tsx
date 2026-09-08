@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { pageRouteElements } from '@/platform/pageRoutes';
+import { pageRouteElements, resetPageRouteReports } from '@/platform/pageRoutes';
 import { onUiError, resetErrorSink } from '@/platform/errorSink';
 import { Registry, useRegistryEntries, type PageDef } from '@/platform/registries';
 
@@ -28,7 +28,10 @@ function Host({ pages }: { pages: Registry<PageDef> }) {
 }
 
 describe('pageRouteElements', () => {
-  afterEach(() => resetErrorSink());
+  afterEach(() => {
+    resetErrorSink();
+    resetPageRouteReports();
+  });
 
   it('renders a registered top-level page inside its guard wrapper', () => {
     const pages = new Registry<PageDef>('ui.pages');
@@ -76,6 +79,24 @@ describe('pageRouteElements', () => {
     // …and its owner is reported, not silently dropped.
     expect(seen).toHaveBeenCalledTimes(1);
     expect(seen.mock.calls[0][0].error.message).toMatch(/must declare guard "protected"/);
+    // The table is rebuilt on every render: the same bad entry is reported once, not per render.
+    pageRouteElements(pages.list(), wrappers);
+    pageRouteElements(pages.list(), wrappers);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a page with an unknown guard instead of rendering it unguarded (fail closed)', () => {
+    const pages = new Registry<PageDef>('ui.pages');
+    pages.register('typo', { path: '/typo', element: () => <p>typo page</p>, guard: 'protectd' as never, layout: 'top' }, { owner: 'acme.plugin' });
+    const seen = vi.fn();
+    onUiError(seen);
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = pageRouteElements(pages.list(), wrappers);
+    quiet.mockRestore();
+    expect(result.top).toEqual([]);
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen.mock.calls[0][0].source).toBe('acme.plugin');
+    expect(seen.mock.calls[0][0].error.message).toMatch(/unknown guard "protectd"/);
   });
 
   it('a `null` element renders an empty app route (placeholder for layout-owned views)', () => {

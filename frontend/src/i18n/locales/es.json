@@ -286,12 +286,10 @@
       "viewProfile": "Ver perfil del agente",
       "detailMenuTitle": "Detalle del agente — paneles",
       "modelFramework": "Modelo y framework",
-      "switchAgent": "Cambiar de agente",
-      "capabilities": "Capacidades"
+      "switchAgent": "Cambiar de agente"
     },
     "composerPrivacyHint": "Evita compartir información personal sensible.",
     "capabilities": {
-      "title": "Capacidades",
       "subtitle": "Qué módulos participan en los turnos de este agente. Los módulos integrados están activados por defecto; los instalados por plugins permanecen desactivados hasta que los actives. Los cambios se aplican en la próxima ejecución.",
       "builtin": "integrado",
       "plugin": "plugin",
@@ -300,9 +298,9 @@
       "budget": "Los módulos activados declaran ~{{enabled}} tokens ({{ratio}}× la base integrada de {{baseline}}).",
       "overBudget": "Presupuesto excedido: los módulos activados declaran ~{{enabled}} tokens, {{ratio}}× la base integrada de {{baseline}}.",
       "loadFailed": "No se pudieron cargar las capacidades",
-      "saveFailed": "No se pudo guardar el cambio"
+      "saveFailed": "No se pudo guardar el cambio",
+      "restoreDefault": "Restaurar predeterminado"
     },
-    "composerPrivacyHint": "Evita compartir información personal sensible.",
     "activityEmpty": "Todavía no hay actividad en segundo plano",
     "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí."
   },
@@ -1931,7 +1929,8 @@
       "activityLast24h": "Últimas 24 horas",
       "activityToday": "Hoy",
       "activityAxisStart": "hace 24 h",
-      "activityAxisNow": "ahora"
+      "activityAxisNow": "ahora",
+      "capabilitySwitches": "Interruptores de capacidades"
     },
     "welcome": {
       "logout": "Cerrar sesión",

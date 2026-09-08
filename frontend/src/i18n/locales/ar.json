@@ -290,12 +290,10 @@
       "viewProfile": "عرض ملف الوكيل",
       "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
       "modelFramework": "النموذج وإطار العمل",
-      "switchAgent": "تبديل الوكيل",
-      "capabilities": "القدرات"
+      "switchAgent": "تبديل الوكيل"
     },
     "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة.",
     "capabilities": {
-      "title": "القدرات",
       "subtitle": "أي الوحدات تشارك في أدوار هذا الوكيل. الوحدات المدمجة مفعّلة افتراضيًا؛ الوحدات التي تثبّتها الإضافات تبقى معطّلة حتى تفعّلها. تسري التغييرات في التشغيل التالي.",
       "builtin": "مدمج",
       "plugin": "إضافة",
@@ -304,9 +302,9 @@
       "budget": "تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا ({{ratio}}× من الأساس المدمج {{baseline}}).",
       "overBudget": "تجاوز الميزانية: تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا، أي {{ratio}}× من الأساس المدمج {{baseline}}.",
       "loadFailed": "تعذّر تحميل القدرات",
-      "saveFailed": "تعذّر حفظ التغيير"
+      "saveFailed": "تعذّر حفظ التغيير",
+      "restoreDefault": "استعادة الافتراضي"
     },
-    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة.",
     "activityEmpty": "لا يوجد نشاط في الخلفية بعد",
     "activityEmptyHint": "عمليات التشغيل التي يبدأها الوكيل بنفسه — المهام والقنوات وزملاء الفريق — تظهر هنا."
   },
@@ -1939,7 +1937,8 @@
       "activityLast24h": "آخر 24 ساعة",
       "activityToday": "اليوم",
       "activityAxisStart": "قبل 24 ساعة",
-      "activityAxisNow": "الآن"
+      "activityAxisNow": "الآن",
+      "capabilitySwitches": "مفاتيح القدرات"
     },
     "welcome": {
       "logout": "تسجيل الخروج",

@@ -80,7 +80,7 @@ class ChannelUi:
     order: int = 100
 
 
-_CHANNEL_NAME_RE = re.compile(r"[a-z0-9_]+")
+_CHANNEL_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_]*")
 
 
 _REF_RE_HINT = "'pkg.mod:Symbol'"

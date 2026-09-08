@@ -286,12 +286,10 @@
       "viewProfile": "エージェントのプロフィールを表示",
       "detailMenuTitle": "エージェント詳細 — パネル",
       "modelFramework": "モデルとフレームワーク",
-      "switchAgent": "エージェントを切り替え",
-      "capabilities": "機能"
+      "switchAgent": "エージェントを切り替え"
     },
     "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。",
     "capabilities": {
-      "title": "機能の切り替え",
       "subtitle": "このエージェントのターンに参加するモジュールを選びます。組み込みモジュールは既定でオン、プラグインが追加したモジュールは手動でオンにするまでオフです。変更は次回の実行から反映されます。",
       "builtin": "組み込み",
       "plugin": "プラグイン",
@@ -300,9 +298,9 @@
       "budget": "有効なモジュールは約 {{enabled}} トークンを宣言しています（組み込み基準 {{baseline}} の {{ratio}} 倍）。",
       "overBudget": "予算超過：有効なモジュールは約 {{enabled}} トークンを宣言し、組み込み基準 {{baseline}} の {{ratio}} 倍です。",
       "loadFailed": "機能一覧を読み込めません",
-      "saveFailed": "変更を保存できません"
+      "saveFailed": "変更を保存できません",
+      "restoreDefault": "既定に戻す"
     },
-    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。",
     "activityEmpty": "バックグラウンド活動はまだありません",
     "activityEmptyHint": "エージェントが自ら開始した実行（ジョブ、チャネル、チームメイト）はここに表示されます。"
   },
@@ -1930,7 +1928,8 @@
       "activityLast24h": "過去 24 時間",
       "activityToday": "今日",
       "activityAxisStart": "24 時間前",
-      "activityAxisNow": "現在"
+      "activityAxisNow": "現在",
+      "capabilitySwitches": "機能の切り替え"
     },
     "welcome": {
       "logout": "ログアウト",

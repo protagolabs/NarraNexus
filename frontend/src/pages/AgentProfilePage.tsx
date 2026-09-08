@@ -33,7 +33,7 @@ import { BookmarkPanelHost } from '@/components/bookmarks/BookmarkPanelHost';
 import { JobsPanel } from '@/components/jobs/JobsPanel';
 import { AgentInboxPanel } from '@/components/inbox/AgentInboxPanel';
 import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
-import { AgentCapabilities } from '@/components/chat/AgentCapabilitiesPanel';
+import { AgentCapabilities } from '@/components/chat/AgentCapabilities';
 import { ClearAgentDataDialog } from '@/components/layout/ClearAgentDataDialog';
 import { AgentTeamAvatars } from '@/components/agents/AgentTeamAvatars';
 import { AgentOverviewCard } from '@/components/agents/AgentOverviewCard';
@@ -53,7 +53,7 @@ import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { OwnedAgentStatus, UpdateAgentResponse } from '@/types';
-import type { AtomicTabId } from '@/components/bookmarks';
+import type { BuiltinTabId } from '@/components/bookmarks';
 
 type ProfileTab = 'overview' | 'capabilities' | 'settings';
 type CapabilityId = 'network' | 'memory' | 'skills' | 'mcp' | 'channels';
@@ -83,7 +83,8 @@ const CAPABILITIES: Array<{
   { id: 'channels', labelKey: 'pages.agentProfile.channels', icon: Radio },
 ];
 
-const CAPABILITY_TO_PANEL: Partial<Record<CapabilityId, AtomicTabId>> = {
+// Shell-authored literal table: builtin tab ids only, so a typo is a compile error.
+const CAPABILITY_TO_PANEL: Partial<Record<CapabilityId, BuiltinTabId>> = {
   network: 'social',
   memory: 'memory',
   skills: 'skills',
@@ -486,7 +487,7 @@ export function AgentProfilePage() {
               <SettingsNavItem
                 active={settingsSection === 'capabilities'}
                 icon={Puzzle}
-                label={t('pages.agentProfile.capabilities')}
+                label={t('pages.agentProfile.capabilitySwitches')}
                 onClick={() => setSettingsSection('capabilities')}
               />
               <SettingsNavItem

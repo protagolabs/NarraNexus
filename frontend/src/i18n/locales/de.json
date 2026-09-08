@@ -286,12 +286,10 @@
       "viewProfile": "Agent-Profil ansehen",
       "detailMenuTitle": "Agent-Details — Panels",
       "modelFramework": "Modell & Framework",
-      "switchAgent": "Agent wechseln",
-      "capabilities": "Fähigkeiten"
+      "switchAgent": "Agent wechseln"
     },
     "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten.",
     "capabilities": {
-      "title": "Fähigkeiten",
       "subtitle": "Welche Module an den Runden dieses Agenten teilnehmen. Eingebaute Module sind standardmäßig an; von Plugins installierte Module bleiben aus, bis du sie einschaltest. Änderungen gelten ab dem nächsten Lauf.",
       "builtin": "eingebaut",
       "plugin": "Plugin",
@@ -300,9 +298,9 @@
       "budget": "Aktive Module deklarieren ~{{enabled}} Prompt-Tokens ({{ratio}}× der eingebauten Basis von {{baseline}}).",
       "overBudget": "Über Budget: aktive Module deklarieren ~{{enabled}} Prompt-Tokens, {{ratio}}× der eingebauten Basis von {{baseline}}.",
       "loadFailed": "Fähigkeiten konnten nicht geladen werden",
-      "saveFailed": "Änderung konnte nicht gespeichert werden"
+      "saveFailed": "Änderung konnte nicht gespeichert werden",
+      "restoreDefault": "Standard wiederherstellen"
     },
-    "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten.",
     "activityEmpty": "Noch keine Hintergrundaktivität",
     "activityEmptyHint": "Läufe, die der Agent selbst gestartet hat – Jobs, Kanäle, Teamkollegen – erscheinen hier."
   },
@@ -1931,7 +1929,8 @@
       "activityLast24h": "Letzte 24 Stunden",
       "activityToday": "Heute",
       "activityAxisStart": "vor 24 Std.",
-      "activityAxisNow": "jetzt"
+      "activityAxisNow": "jetzt",
+      "capabilitySwitches": "Fähigkeiten ein/aus"
     },
     "welcome": {
       "logout": "Abmelden",

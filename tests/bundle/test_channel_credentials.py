@@ -92,7 +92,7 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
 
 
 async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1,
-                          app_id: str | None = None):
+                          app_id: str | None = None, workspace_path: str = ""):
     from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredential, LarkCredentialManager, _encode_secret,
     )
@@ -100,7 +100,7 @@ async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int =
     await LarkCredentialManager(db).save_credential(LarkCredential(
         agent_id=agent_id, app_id=app_id or f"cli_{agent_id}", app_secret_ref="ref_xxx",
         app_secret_encoded=_encode_secret("secret"), brand="lark", profile_name=profile_name,
-        auth_status="bot_ready", is_active=bool(is_active),
+        auth_status="bot_ready", is_active=bool(is_active), workspace_path=workspace_path,
     ))
 
 
@@ -344,6 +344,39 @@ async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspa
     rows = await _rows(db_client, "lark")
     assert [r.agent_id for r in rows] == [other]
     assert summary.get("channel_credentials_skipped_conflict", 0) == 1
+
+
+async def test_export_scrubs_the_owner_user_id_and_import_rewrites_it(db_client, tmp_workspace_root, tmp_path):
+    """The exporter's NarraNexus user id must not travel in a shareable bundle
+    (lark's workspace_path is `<user_id>/<agent_id>`); it is replaced by the
+    `<original_owner>` placeholder on export and re-attributed to the RECIPIENT
+    on import, so the imported binding never points at the previous owner's
+    per-user workspace."""
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+
+    aid, uid, recipient = "agent_aaaa0009cccc", "test_user", "recipient_user"
+    await _seed_agent(db_client, aid, "Creddy9", uid)
+    await _seed_lark_cred(db_client, aid, "prof_scrub", workspace_path=f"{uid}/{aid}")
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(agent_ids=[aid], include_channel_credentials=True), bundle)
+    raw = _read_member(bundle, f"agents/{aid}/channel_credentials.json")
+    (row,) = json.loads(raw)["channel_credentials"]
+    assert row["workspace_path"] == f"<original_owner>/{aid}"
+    assert uid not in raw, "the exporter's user id leaked into the credential file"
+    # the IM-side identity and the agent id (remapped on import) are untouched by the scrub
+    assert row["app_id"] == f"cli_{aid}" and row["agent_id"] == aid
+
+    # A different install: the exporting binding is not here, so the same
+    # app_id is not a clash (same-install imports skip it fail-closed).
+    await db_client.delete("channel_credentials", {"agent_id": aid})
+    pre = await preflight(bundle, recipient)
+    await confirm(pre["preflight_token"], recipient)
+    imported = [r for r in await _rows(db_client, "lark") if r.agent_id != aid]
+    assert len(imported) == 1
+    new_aid = imported[0].agent_id
+    assert imported[0].public["workspace_path"] == f"{recipient}/{new_aid}"
 
 
 async def test_legacy_per_table_bundle_still_imports(db_client, tmp_workspace_root, tmp_path):

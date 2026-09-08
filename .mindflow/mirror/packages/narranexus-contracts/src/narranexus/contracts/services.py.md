@@ -4,6 +4,12 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 四轮复审移植）— `SecretStore` 来源改口；返回标注也钉住
+
+docstring 此前称 `SecretStore` 「按 marketplace `SecretBox` 抄」，但 `SecretBox` 是加解密 codec 不是按 owner+name
+存取的 store——现在老实写「仓内今天没有同形实现，等第一个提供者落地再对照」。`test_services_shapes.py` 对 ABC 与
+三个方言后端逐个比对参数名/默认值/**返回标注**（前缀规则：实现可多带有默认值的参数）。
+
 ## 2026-09-07（批 1 三轮复审移植）— 形状按真实实现抄，并写明来源
 
 `DatabaseBackend` 与 `platform/utils/db/db_backend.DatabaseBackend`（三个后端的 ABC）同名不同形是复审的

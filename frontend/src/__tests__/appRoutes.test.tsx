@@ -97,12 +97,13 @@ describe('AppRoutes', () => {
     // Logged out: the layout's ProtectedRoute bounces to /login and keeps the
     // deep link as ?next=. An unregistered /app child would not match the
     // layout at all and fall to the catch-all (no ?next=).
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/login?next=%2Fapp%2Fprobe'));
+    // ProtectedRoute settles the app mode in an effect; under a full-suite load the default 1 s budget is not enough.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/login?next=%2Fapp%2Fprobe'), { timeout: 5000 });
   });
 
   it('an unregistered /app child falls through to the catch-all (no deep link kept)', async () => {
     mount('/app/nope');
-    await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('/app/nope'));
+    await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('/app/nope'), { timeout: 5000 });
     expect(screen.getByTestId('location')).not.toHaveTextContent('next=');
   });
 });

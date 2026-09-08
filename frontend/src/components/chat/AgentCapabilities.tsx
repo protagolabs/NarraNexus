@@ -1,5 +1,5 @@
 /**
- * @file_name: AgentCapabilitiesPanel.tsx
+ * @file_name: AgentCapabilities.tsx
  * @author: Bin Liang
  * @date: 2026-09-04
  * @description: Per-agent capability switches (plugin platform batch 5c) — which registered modules take part in this agent's turns.
@@ -8,33 +8,20 @@
  * budget), base modules are locked on. Every toggle writes immediately
  * (/api/agents/{id}/capabilities/{module}); a change applies on the agent's
  * next run. The budget line compares the enabled set's declared prompt cost
- * with the builtin baseline and turns amber past 2×.
+ * with the builtin baseline and turns amber past 2×. A row the owner switched
+ * explicitly offers "restore default" (DELETE /capabilities/{module}), which
+ * puts the module back under the default rule.
+ *
+ * Embedded by the agent profile page (settings → capability switches); there
+ * is no dialog form — dev #383 made the profile page the one home of an
+ * agent's capabilities and settings.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Lock } from 'lucide-react';
+import { Loader2, Lock, RotateCcw } from 'lucide-react';
 
-import { Dialog, DialogContent } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { AgentCapabilitiesView, AgentCapabilityItem } from '@/types';
-
-interface Props {
-  agentId: string;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-/** Dialog form (chat surfaces / tests). The profile page embeds `AgentCapabilities` inline. */
-export function AgentCapabilitiesPanel({ agentId, isOpen, onClose }: Props) {
-  const { t } = useTranslation();
-  return (
-    <Dialog isOpen={isOpen} onClose={onClose} title={t('chat.capabilities.title')} size="md">
-      <DialogContent>
-        <AgentCapabilities agentId={agentId} active={isOpen} />
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /** The switches themselves; `active` gates the initial load (a closed dialog loads nothing). */
 export function AgentCapabilities({ agentId, active = true }: { agentId: string; active?: boolean }) {
@@ -61,6 +48,21 @@ export function AgentCapabilities({ agentId, active = true }: { agentId: string;
   useEffect(() => {
     if (active) void load();
   }, [active, load]);
+
+  const restore = async (item: AgentCapabilityItem) => {
+    if (!item.explicit || busy) return;
+    setBusy(item.module_class);
+    setError('');
+    try {
+      const res = await api.resetAgentCapability(agentId, item.module_class);
+      if (!res.success) setError(t('chat.capabilities.saveFailed'));
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t('chat.capabilities.saveFailed'));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const toggle = async (item: AgentCapabilityItem) => {
     if (item.locked || busy) return;
@@ -99,6 +101,19 @@ export function AgentCapabilities({ agentId, active = true }: { agentId: string;
                     <p className="text-[11px] text-[var(--nm-ink50)] truncate">{item.description}</p>
                     {item.context_cost_hint ? <p className="text-[10px] text-[var(--nm-ink50)]">{t('chat.capabilities.tokens', { count: item.context_cost_hint })}</p> : null}
                   </div>
+                  {item.explicit && !item.locked ? (
+                    <button
+                      type="button"
+                      aria-label={t('chat.capabilities.restoreDefault')}
+                      title={t('chat.capabilities.restoreDefault')}
+                      data-testid={`capability-restore-${item.module_class}`}
+                      disabled={busy === item.module_class}
+                      onClick={() => void restore(item)}
+                      className="rounded p-1 text-[var(--nm-ink50)] hover:text-[var(--nm-ink)] disabled:opacity-50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     role="switch"

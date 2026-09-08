@@ -4,7 +4,7 @@
  * There are two names for one destination — `reply_owner` when the owner is
  * the one who spoke and is waiting, `notify_owner` when the owner is not part
  * of what is happening and is being interrupted. The agent's desk carries
- * exactly one per turn (see ChatModule.get_expressive_tools on the backend),
+ * exactly one per turn (see ChatModule.contribute_tools on the backend),
  * so the frontend can never assume which one a given turn produced.
  *
  * Anything that answers "did the owner receive something" must accept BOTH.

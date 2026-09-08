@@ -4,6 +4,11 @@ last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 四轮复审移植）— `StageParticipant.tools` 改 `async`
+
+与其它格子一致：参与方可能要先问后端服务（MCP server 配置）才知道自己的工具。本分支没有实现者（`LegacyModuleAdapter`
+已在批 5 删除），契约先改，Act 阶段调用方一律 `await`。
+
 ## 2026-09-07（批 1 三轮复审移植）— tier 表的口径
 
 批 1 复审指出 TOOL 档 `{ACT}` 与「工具面只能经 Assemble 的 `contribute_tools` 产出」矛盾。本分支的模型已经不同：

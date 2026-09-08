@@ -63,8 +63,10 @@ class DatabaseBackend(Protocol):
 class SecretStore(Protocol):
     """Slot ``kernel.secrets``: secrets encrypted at rest, keyed by owner + name.
 
-    Shaped after the marketplace ``SecretBox`` (a value encrypted / decrypted
-    at rest); the owner + name addressing is the slot's own.
+    No in-repo implementation has this shape today: the marketplace
+    ``SecretBox`` is an encrypt/decrypt codec, not a store. The
+    get/put/delete-by-owner-and-name surface is the slot's own definition,
+    to be traced against the first provider that lands.
     """
 
     def get(self, owner: str, name: str) -> str | None: ...

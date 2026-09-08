@@ -355,7 +355,6 @@
       "detailMenuTitle": "Agent detail — panels",
       "modelFramework": "Model & framework",
       "switchAgent": "Switch agent",
-      "capabilities": "Capabilities",
       "viewProfile": "View agent profile"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information.",
@@ -374,7 +373,6 @@
       }
     },
     "capabilities": {
-      "title": "Capabilities",
       "subtitle": "Which modules take part in this agent's turns. Builtin modules are on by default; modules installed by plugins stay off until you turn them on. Changes apply on the next run.",
       "builtin": "builtin",
       "plugin": "plugin",
@@ -383,7 +381,8 @@
       "budget": "Enabled modules declare ~{{enabled}} prompt tokens ({{ratio}}× the builtin baseline of {{baseline}}).",
       "overBudget": "Over budget: enabled modules declare ~{{enabled}} prompt tokens, {{ratio}}× the builtin baseline of {{baseline}}.",
       "loadFailed": "Could not load capabilities",
-      "saveFailed": "Could not save the change"
+      "saveFailed": "Could not save the change",
+      "restoreDefault": "Restore default"
     },
     "activityEmpty": "No background activity yet",
     "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here."
@@ -2396,7 +2395,8 @@
       "activityLast24h": "Past 24 hours",
       "activityToday": "Today",
       "activityAxisStart": "24h ago",
-      "activityAxisNow": "now"
+      "activityAxisNow": "now",
+      "capabilitySwitches": "Capability switches"
     },
     "welcome": {
       "logout": "Log out",

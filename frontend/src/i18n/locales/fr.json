@@ -286,12 +286,10 @@
       "viewProfile": "Voir le profil de l'agent",
       "detailMenuTitle": "Détail de l'agent — panneaux",
       "modelFramework": "Modèle & framework",
-      "switchAgent": "Changer d'agent",
-      "capabilities": "Capacités"
+      "switchAgent": "Changer d'agent"
     },
     "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
     "capabilities": {
-      "title": "Capacités",
       "subtitle": "Quels modules participent aux tours de cet agent. Les modules intégrés sont activés par défaut ; ceux installés par des plugins restent désactivés jusqu'à ce que vous les activiez. Les changements s'appliquent à la prochaine exécution.",
       "builtin": "intégré",
       "plugin": "plugin",
@@ -300,9 +298,9 @@
       "budget": "Les modules activés déclarent ~{{enabled}} jetons ({{ratio}}× la base intégrée de {{baseline}}).",
       "overBudget": "Budget dépassé : les modules activés déclarent ~{{enabled}} jetons, {{ratio}}× la base intégrée de {{baseline}}.",
       "loadFailed": "Impossible de charger les capacités",
-      "saveFailed": "Impossible d'enregistrer le changement"
+      "saveFailed": "Impossible d'enregistrer le changement",
+      "restoreDefault": "Rétablir la valeur par défaut"
     },
-    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
     "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
     "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici."
   },
@@ -1931,7 +1929,8 @@
       "activityLast24h": "Dernières 24 heures",
       "activityToday": "Aujourd'hui",
       "activityAxisStart": "il y a 24 h",
-      "activityAxisNow": "maintenant"
+      "activityAxisNow": "maintenant",
+      "capabilitySwitches": "Interrupteurs de capacités"
     },
     "welcome": {
       "logout": "Se déconnecter",

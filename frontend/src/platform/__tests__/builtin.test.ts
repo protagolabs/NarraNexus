@@ -5,17 +5,21 @@
  * @description: The shell's builtin registrations reproduce the expected route table, sidebar, panels and settings nav.
  *
  * `golden/routes.expected.json` (M-8) is a route-table CHANGE DETECTOR, not a frozen historical
- * snapshot: it is hand-maintained and gets updated whenever a builtin page path is deliberately
- * added, removed or reordered. Its value is that an UNINTENDED change to `PAGES` (registration
- * order shuffled, a path silently renamed, an entry dropped from `builtin.ts`) shows up here as a
- * diff to review, rather than as a shipped regression only later discovered by users navigating a
- * dead link.
+ * snapshot: one row per registered page — path order, layout, guard, welcome-gate skip, whether
+ * the element is a lazy page / an inline component / a layout-owned `null`, and for lazy pages
+ * WHICH page module it loads (`module`, read off the lazy loader — see `rowFor`). It is
+ * hand-maintained and gets updated whenever a builtin page is deliberately added, removed,
+ * reordered or re-pointed. Its value is that an UNINTENDED change to `PAGES` (registration order
+ * shuffled, a path silently renamed, a route wired to the wrong page, an entry dropped from
+ * `builtin.ts`) shows up here as a diff to review, rather than as a shipped regression only later
+ * discovered by users navigating a dead link. Not in the golden, still hardcoded in `AppRoutes`:
+ * the `/app` layout route itself, its `index` redirect, `/` and `*`.
  */
 import { describe, expect, it } from 'vitest';
 
 import '@/platform/builtin';
 import '@/pages/settings/registerBuiltinSections';
-import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems } from '@/platform/registries';
+import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems, type PageDef } from '@/platform/registries';
 import { builtinTabIds } from '@/components/bookmarks/tabs';
 import { BUILTIN_TAB_IDS } from '@/components/bookmarks/builtinTabIds';
 import {
@@ -32,16 +36,51 @@ import {
   SocialTab,
   WorkspaceTab,
 } from '@/platform/builtinPanels';
-import expectedRoutes from './golden/routes.expected.json';
+import expected from './golden/routes.expected.json';
+
+interface RouteRow {
+  path: string;
+  layout: 'top' | 'app';
+  guard: string;
+  element: 'lazy' | 'component' | null;
+  skipWelcomeGate?: boolean;
+  /** The page module a lazy element loads (`pages/<Name>`), so a route wired to the wrong page fails here. */
+  module?: string;
+}
+
+/**
+ * The module a `React.lazy` element will import. Before its first render the
+ * lazy payload still holds the loader thunk, whose source text names the
+ * import (`() => import("/src/pages/DashboardPage.tsx")` after Vite's
+ * transform). Reading React's `_payload` is test-only introspection; if a
+ * React upgrade changes it this test fails loudly, it cannot go silently green.
+ */
+function lazyModuleOf(el: unknown): string | undefined {
+  const payload = (el as { _payload?: { _status?: number; _result?: unknown } })._payload;
+  if (!payload || payload._status !== -1) return undefined;
+  const match = /\/src\/(pages\/[A-Za-z0-9_]+)/.exec(String(payload._result));
+  return match?.[1];
+}
+
+function rowFor(def: PageDef): RouteRow {
+  const el = def.element;
+  const element: RouteRow['element'] =
+    el === null ? null : typeof el === 'object' && '$$typeof' in el ? 'lazy' : 'component';
+  const row: RouteRow = { path: def.path, layout: def.layout, guard: def.guard, element };
+  if (def.skipWelcomeGate) row.skipWelcomeGate = true;
+  if (element === 'lazy') row.module = lazyModuleOf(el);
+  return row;
+}
 
 describe('builtin pages', () => {
-  it('the registered page/path table matches golden/routes.expected.json (route-table change detector)', () => {
-    const wanted = (expectedRoutes as { path: string | null }[])
-      .map((r) => r.path)
-      .filter((p): p is string => !!p && p !== '/app' && p !== '<index>' && p !== '/' && p !== '*');
-    const top = PAGES.list().filter((e) => e.value.layout === 'top').map((e) => e.value.path);
-    const app = PAGES.list().filter((e) => e.value.layout === 'app').map((e) => e.value.path);
-    expect([...top, ...app]).toEqual(wanted);
+  it('the registered route table matches golden/routes.expected.json (order, guard, layout, gate, element kind, page module)', () => {
+    const top = PAGES.list().filter((e) => e.value.layout === 'top').map((e) => rowFor(e.value));
+    const app = PAGES.list().filter((e) => e.value.layout === 'app').map((e) => rowFor(e.value));
+    expect([...top, ...app]).toEqual(expected as RouteRow[]);
+  });
+
+  it('the two import routes share ONE lazy component (no remount when navigating between them)', () => {
+    expect(PAGES.get('templates-install')!.element).toBe(PAGES.get('bundle-import')!.element);
   });
 
   it('guards match the old wrappers', () => {

@@ -375,7 +375,7 @@ class WebSocketManager {
         // BEFORE any replay frames render. Backend hands us
         // ``input_content`` (from events.env_context.input) and
         // ``input_timestamp`` (events.created_at). The timestamp is
-        // the same value ChatModule.hook_after_event_execution
+        // the same value ChatModule.after_turn
         // eventually writes into agent_messages.user_ts, so once the
         // turn completes and history reloads, ChatPanel's existing
         // role:content + 60s timestamp-proximity dedup collapses
