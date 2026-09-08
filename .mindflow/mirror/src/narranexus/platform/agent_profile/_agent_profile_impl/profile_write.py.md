@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 改名后刷新首程问候
+
+`renamed_from` 分支记完身份更正后调用 `refresh_bootstrap_greeting_after_rename`，占位名时渲染的「我还没有名字」问候随之换成带名字的版本。
 
 ## 2026-08-19 (八改) — 签名即白名单；两个信号都成三态
 

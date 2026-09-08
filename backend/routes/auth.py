@@ -991,7 +991,9 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # so an `or` on the raw value lets whitespace through as the name and
         # the default never fires — the row then renders a blank sidebar title
         # (worse than the agent_id fallback, which at least identifies it).
-        agent_name = normalize_agent_text(request.agent_name) or "New Agent"
+        from narranexus.platform.bootstrap.template import PLACEHOLDER_AGENT_NAME
+
+        agent_name = normalize_agent_text(request.agent_name) or PLACEHOLDER_AGENT_NAME
         # No placeholder: an agent with nothing said about it yet has an EMPTY
         # description. The old filler ("A new agent ready for configuration")
         # was snapshotted into the bus registry and reported to peers as fact,

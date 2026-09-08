@@ -1309,7 +1309,8 @@
       "claudeCodeSdk": "Claude Code SDK",
       "codexSdk": "Codex SDK",
       "claudeCodeSdkDesc": "Anthropic API key (sk-ant-…). Agent and helper both run on the Claude Code SDK.",
-      "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5)."
+      "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5).",
+      "tabOneKey": "API key"
     }
   },
   "system": {

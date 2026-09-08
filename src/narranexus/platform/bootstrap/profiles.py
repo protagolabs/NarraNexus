@@ -37,6 +37,7 @@ from loguru import logger
 
 from narranexus.platform.schema.artifact_schema import ArtifactKind
 from narranexus.platform.bootstrap.template import (
+    render_bootstrap_greeting,
     BOOTSTRAP_GREETING,
     BOOTSTRAP_MD_TEMPLATE,
 )
@@ -111,7 +112,7 @@ class DefaultBootstrapProfile(BootstrapProfile):
     auto_delete_after_events = DEFAULT_AUTO_DELETE_AFTER_EVENTS
 
     def greeting(self, ctx: BootstrapContext) -> str:
-        return BOOTSTRAP_GREETING
+        return render_bootstrap_greeting(ctx.agent_name)
 
     def bootstrap_md(self, ctx: BootstrapContext) -> Optional[str]:
         return BOOTSTRAP_MD_TEMPLATE

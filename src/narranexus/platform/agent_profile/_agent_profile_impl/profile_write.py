@@ -429,6 +429,12 @@ async def apply_agent_profile_change(
         note_recorded = await _record_identity(
             db, agent_id, renamed_from, updates["agent_name"]
         )
+        # A blank row's first-run greeting was rendered for the placeholder
+        # name; now that the agent is named it must not open with "I don't
+        # have a name yet" (the creation studio names every agent this way).
+        from narranexus.platform.bootstrap.greeting_seed import refresh_bootstrap_greeting_after_rename
+
+        await refresh_bootstrap_greeting_after_rename(db, agent_id, updates["agent_name"])
         if note_recorded is False:
             # One greppable line for the state that IS the incident: the column
             # moved, the memory did not. Without it the two halves live in

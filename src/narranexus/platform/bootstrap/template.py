@@ -16,6 +16,26 @@ BOOTSTRAP_GREETING = (
     "And what should I call you?"
 )
 
+# The name a blank "+ New agent" row carries until the user (or the creation
+# studio) names it. The greeting above is written for exactly that state; an
+# agent that already has a real name must not open with "I don't have a name".
+PLACEHOLDER_AGENT_NAME = "New Agent"
+
+BOOTSTRAP_GREETING_NAMED = (
+    "Hi — I'm {name}. I just came to life, and you're the one who brought me here.\n\n"
+    "I already know who I'm meant to be, but not yet who you are. "
+    "What should I call you?"
+)
+
+
+def render_bootstrap_greeting(agent_name: str | None) -> str:
+    """The first-run greeting for this agent: the "who am I" opener while the
+    row still holds the placeholder name, the named opener once it has one."""
+    name = (agent_name or "").strip()
+    if not name or name == PLACEHOLDER_AGENT_NAME:
+        return BOOTSTRAP_GREETING
+    return BOOTSTRAP_GREETING_NAMED.format(name=name)
+
 BOOTSTRAP_MD_TEMPLATE = """\
 # Bootstrap — Hello, World
 

@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bootstrap/greeting_seed.py
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（dev 实测）— `refresh_bootstrap_greeting_after_rename`
+
+改名后若元数据里的问候正是本档「无名版」渲染结果，就用新名字重渲染并写回 `agent_metadata`；用户/场景自定义的问候不动。
+由 `apply_agent_profile_change` 在改名成功后 best-effort 调用（工作室起名走的就是这条事务）。
 
 ## 2026-08-21 — 本模块只剩外层便宜过滤;per-agent 幂等归写入方(深圳复测 B2)
 

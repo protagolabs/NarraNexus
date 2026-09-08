@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bootstrap/template.py
-last_verified: 2026-04-10
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（dev 实测）— 有名字的 agent 不再用「我还没有名字」开场
+
+新增 `PLACEHOLDER_AGENT_NAME`（空白建 agent 的占位名 "New Agent"）、`BOOTSTRAP_GREETING_NAMED` 与 `render_bootstrap_greeting(name)`：
+占位名/无名 → 原「刚醒来、还没名字」开场；真实名字 → 带名字的开场。创建工作室先建空白行再起名，此前第一回合种进去的仍是无名版。
 
 # template.py — Agent 首次启动的问候语和引导文档内容
 

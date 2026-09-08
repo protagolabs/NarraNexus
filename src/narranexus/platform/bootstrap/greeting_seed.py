@@ -69,3 +69,43 @@ async def resolve_bootstrap_greeting_to_seed(
     except Exception as e:  # noqa: BLE001 — best-effort; hook prepend is the fallback
         logger.warning(f"[bootstrap] greeting resolve failed for {agent_id}: {e}")
         return None
+
+
+async def refresh_bootstrap_greeting_after_rename(db: "AsyncDatabaseClient", agent_id: str, new_name: str) -> bool:
+    """Re-render the stored first-run greeting once the agent has a real name.
+
+    The creation studio (and a plain rename) names an agent that was provisioned
+    as a blank row, so its `bootstrap_greeting` was rendered for the placeholder
+    name — "I don't have a name yet". Left alone, that text is what
+    `seed_bootstrap_greeting` puts in front of the user on the first turn of an
+    agent that already introduced itself by name in its own description. Only
+    the profile's OWN nameless rendering is replaced (a greeting the user or a
+    scenario customised is never touched); once the chat instance holds the
+    seeded copy this is a no-op for the visible conversation. Best-effort:
+    returns True when the metadata was rewritten.
+    """
+    try:
+        from narranexus.platform.bootstrap.profiles import BootstrapContext, get_profile
+        from narranexus.platform.bootstrap.template import PLACEHOLDER_AGENT_NAME
+
+        repo = AgentRepository(db)
+        agent = await repo.get_agent(agent_id)
+        meta = dict((agent.agent_metadata if agent else None) or {})
+        current = meta.get("bootstrap_greeting")
+        if not agent or not current:
+            return False
+        profile = get_profile(meta.get("bootstrap_profile"))
+        base = BootstrapContext(agent_id=agent_id, user_id=str(getattr(agent, "created_by", "") or ""))
+        nameless = profile.greeting(BootstrapContext(**{**base.__dict__, "agent_name": PLACEHOLDER_AGENT_NAME}))
+        if current != nameless:
+            return False
+        renamed = profile.greeting(BootstrapContext(**{**base.__dict__, "agent_name": new_name}))
+        if not renamed or renamed == current:
+            return False
+        meta["bootstrap_greeting"] = renamed
+        await repo.update_agent(agent_id, {"agent_metadata": meta})
+        logger.info(f"[bootstrap] greeting re-rendered for the named agent {agent_id}")
+        return True
+    except Exception as e:  # noqa: BLE001 — best-effort; the rename itself has landed
+        logger.warning(f"[bootstrap] greeting refresh after rename failed for {agent_id}: {e}")
+        return False

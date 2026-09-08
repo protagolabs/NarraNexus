@@ -1309,7 +1309,8 @@
       "claudeCodeSdk": "Claude Code SDK",
       "codexSdk": "Codex SDK",
       "claudeCodeSdkDesc": "Anthropic API key（sk-ant-…）。Agent 与 Helper 都跑在 Claude Code SDK 上。",
-      "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。"
+      "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。",
+      "tabOneKey": "API 密钥"
     }
   },
   "system": {

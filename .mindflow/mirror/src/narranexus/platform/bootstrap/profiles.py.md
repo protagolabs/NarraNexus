@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/bootstrap/profiles.py
-last_verified: 2026-07-21
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 默认档的问候按名字渲染
+
+`DefaultBootstrapProfile.greeting` 改为 `render_bootstrap_greeting(ctx.agent_name)`；其它档不变。
 
 # profiles.py — bootstrap as a pluggable profile (not one hard-coded set)
 

@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 空白建 agent 的占位名用 `PLACEHOLDER_AGENT_NAME`
+
+与 bootstrap 模板共用同一个常量，问候渲染据此判断「还没起名」。
 
 ## 2026-09-07 — 删除 agent：多一遍与发行版无关的 legacy 凭据清扫（14a）
 
