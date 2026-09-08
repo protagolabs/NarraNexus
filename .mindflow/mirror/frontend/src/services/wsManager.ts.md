@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 注释同步
+
+注释里的 ChatModule 方法名改为能力契约词汇（`after_turn`），无行为变化。
 
 ## 2026-08-30 — `translateReconnectFrame` 带上独白档位（缺口已补）
 

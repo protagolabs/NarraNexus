@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/ownerTools.ts
-last_verified: 2026-08-17
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 注释同步
+
+注释里的 ChatModule 方法名改为能力契约词汇（`contribute_tools`），无行为变化。
 
 ## 存在的理由
 
