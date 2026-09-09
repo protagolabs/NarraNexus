@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — the four global banners speak the user's language (GitHub #107/#108)
+
+Session-expired, session-expiring-soon, the circuit-breaker banner
+(3 message variants + Resume/Resuming + the dismiss aria-label), and the
+free-tier-switch banner were all hardcoded English strings — this file
+had never imported `useTranslation` at all. Added the hook + a new
+`appBanners.*` top-level i18n namespace (all 10 locales; sibling
+precedent: `webAnalyticsNotice` / `telemetryNotice`, both flat top-level
+notice namespaces rather than nested under `pages`). `sessionExpiringSoon`
+interpolates `{{time}}` (the pre-formatted `formatExpiryDistance` output)
+rather than concatenating, so word order can vary per language. Not
+folded into `dashboard.banners.*` — that namespace already means the
+per-agent AttentionBanners dismiss control (see that file's mirror);
+reusing it here would have made two unrelated banner systems share one
+i18n namespace name.
 
 ## 2026-09-08 — 挂载 `usePluginTheme()`
 

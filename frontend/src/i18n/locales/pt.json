@@ -700,6 +700,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "há {{hoursAgo}} h · {{count}} eventos"
+    },
+    "banners": {
+      "dismissAria": "Dispensar",
+      "dismissTitle": "Dispensar"
     }
   },
   "layout": {
@@ -1267,7 +1271,14 @@
       "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
       "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
       "useDifferentEmail": "Usar outro e-mail",
-      "connectionFailed": "Falha na conexão. Tente novamente."
+      "connectionFailed": "Falha na conexão. Tente novamente.",
+      "resetPasswordDone": "Senha atualizada",
+      "resetPasswordDoneBody": "Agora você pode entrar com sua nova senha.",
+      "backToSignIn": "Voltar para o login",
+      "resetPasswordTitle": "Redefinir senha",
+      "sendCode": "Enviar código",
+      "verificationCodeLabel": "Código de verificação",
+      "newPasswordLabel": "Nova senha"
     },
     "modeSelect": {
       "welcome": "Bem-vindo",
@@ -2495,5 +2506,16 @@
       "suggested": "Da conversa",
       "optional": "Opcional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Sua sessão expirou. Faça login novamente. (clique para dispensar)",
+    "sessionExpiringSoon": "Sua sessão expira em {{time}}. Saia e entre novamente para não perder seu trabalho. (clique para dispensar)",
+    "circuitPausedQuota": "Este agente foi pausado após falhas repetidas de cota/saldo. Corrija o provedor e retome.",
+    "circuitPausedAuth": "Este agente foi pausado após falhas repetidas de autenticação. Reautentique ou defina um provedor e retome.",
+    "circuitCooling": "Este agente falhou recentemente e está em um breve resfriamento. Tente novamente em instantes.",
+    "resumeAgent": "Retomar agente",
+    "resuming": "Retomando…",
+    "dismiss": "Dispensar",
+    "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)"
   }
 }

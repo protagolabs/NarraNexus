@@ -700,6 +700,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "il y a {{hoursAgo}} h · {{count}} événements"
+    },
+    "banners": {
+      "dismissAria": "Fermer",
+      "dismissTitle": "Fermer"
     }
   },
   "layout": {
@@ -1267,7 +1271,14 @@
       "forgotResetIntro": "Nous enverrons un code de vérification à l'e-mail de votre compte NetMind.",
       "forgotCodeSentHint": "Si un compte existe pour cet e-mail, nous avons envoyé un code de vérification.",
       "useDifferentEmail": "Utiliser un autre e-mail",
-      "connectionFailed": "Échec de la connexion. Veuillez réessayer."
+      "connectionFailed": "Échec de la connexion. Veuillez réessayer.",
+      "resetPasswordDone": "Mot de passe mis à jour",
+      "resetPasswordDoneBody": "Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.",
+      "backToSignIn": "Retour à la connexion",
+      "resetPasswordTitle": "Réinitialiser le mot de passe",
+      "sendCode": "Envoyer le code",
+      "verificationCodeLabel": "Code de vérification",
+      "newPasswordLabel": "Nouveau mot de passe"
     },
     "modeSelect": {
       "welcome": "Bienvenue",
@@ -2495,5 +2506,16 @@
       "suggested": "Issu de la conversation",
       "optional": "Facultatif"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter. (cliquez pour fermer)",
+    "sessionExpiringSoon": "Votre session expire dans {{time}}. Déconnectez-vous puis reconnectez-vous pour ne pas perdre votre travail. (cliquez pour fermer)",
+    "circuitPausedQuota": "Cet agent est en pause après des échecs répétés de quota/solde. Corrigez son fournisseur, puis reprenez.",
+    "circuitPausedAuth": "Cet agent est en pause après des échecs d'authentification répétés. Réauthentifiez-vous ou définissez un fournisseur, puis reprenez.",
+    "circuitCooling": "Cet agent a échoué récemment et refroidit brièvement. Réessayez sous peu.",
+    "resumeAgent": "Reprendre l'agent",
+    "resuming": "Reprise…",
+    "dismiss": "Fermer",
+    "freeTierSwitched": "Quota gratuit épuisé — basculé sur votre propre fournisseur. Les nouvelles exécutions utiliseront votre propre clé API. (cliquez pour fermer)"
   }
 }

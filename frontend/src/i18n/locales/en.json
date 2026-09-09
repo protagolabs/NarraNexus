@@ -777,6 +777,10 @@
     "sparkline": {
       "unavailable": "{{hours}}h · —",
       "barTitle": "{{hoursAgo}}h ago · {{count}} events"
+    },
+    "banners": {
+      "dismissAria": "Dismiss",
+      "dismissTitle": "Dismiss"
     }
   },
   "layout": {
@@ -1628,7 +1632,14 @@
       "forgotResetIntro": "We'll email a verification code to your NetMind account.",
       "forgotCodeSentHint": "If an account exists for that email, we've sent a verification code.",
       "useDifferentEmail": "Use a different email",
-      "connectionFailed": "Connection failed. Please try again."
+      "connectionFailed": "Connection failed. Please try again.",
+      "resetPasswordDone": "Password updated",
+      "resetPasswordDoneBody": "You can now sign in with your new password.",
+      "backToSignIn": "Back to sign in",
+      "resetPasswordTitle": "Reset password",
+      "sendCode": "Send code",
+      "verificationCodeLabel": "Verification code",
+      "newPasswordLabel": "New password"
     },
     "modeSelect": {
       "welcome": "Welcome",
@@ -3014,5 +3025,16 @@
       "suggested": "From the conversation",
       "optional": "Optional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Your session expired. Please sign in again. (click to dismiss)",
+    "sessionExpiringSoon": "Your session expires in {{time}}. Sign out and back in to avoid losing work. (click to dismiss)",
+    "circuitPausedQuota": "This agent is paused after repeated quota/balance failures. Fix its provider, then resume.",
+    "circuitPausedAuth": "This agent is paused after repeated authentication failures. Re-authenticate or set a provider, then resume.",
+    "circuitCooling": "This agent recently failed and is briefly cooling down. Try again shortly.",
+    "resumeAgent": "Resume agent",
+    "resuming": "Resuming…",
+    "dismiss": "Dismiss",
+    "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)"
   }
 }

@@ -777,6 +777,10 @@
     "sparkline": {
       "unavailable": "{{hours}} 小时 · —",
       "barTitle": "{{hoursAgo}} 小时前 · {{count}} 个事件"
+    },
+    "banners": {
+      "dismissAria": "关闭",
+      "dismissTitle": "关闭"
     }
   },
   "layout": {
@@ -1628,7 +1632,14 @@
       "forgotResetIntro": "我们会向你的 NetMind 账号邮箱发送验证码。",
       "forgotCodeSentHint": "如果该邮箱已注册，我们已发送验证码。",
       "useDifferentEmail": "换个邮箱",
-      "connectionFailed": "连接失败，请重试。"
+      "connectionFailed": "连接失败，请重试。",
+      "resetPasswordDone": "密码已更新",
+      "resetPasswordDoneBody": "现在可以用新密码登录了。",
+      "backToSignIn": "返回登录",
+      "resetPasswordTitle": "重置密码",
+      "sendCode": "发送验证码",
+      "verificationCodeLabel": "验证码",
+      "newPasswordLabel": "新密码"
     },
     "modeSelect": {
       "welcome": "欢迎",
@@ -3014,5 +3025,16 @@
       "suggested": "来自对话",
       "optional": "可选"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "登录已过期，请重新登录。（点击关闭）",
+    "sessionExpiringSoon": "登录将在 {{time}} 后过期。请重新登录以免丢失工作内容。（点击关闭）",
+    "circuitPausedQuota": "该智能体因多次额度/余额失败已暂停，修复其服务商配置后即可恢复。",
+    "circuitPausedAuth": "该智能体因多次身份验证失败已暂停，请重新验证或设置服务商后恢复。",
+    "circuitCooling": "该智能体最近运行失败，正在短暂冷却，请稍后重试。",
+    "resumeAgent": "恢复运行",
+    "resuming": "恢复中…",
+    "dismiss": "关闭",
+    "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
   }
 }

@@ -700,6 +700,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "hace {{hoursAgo}} h · {{count}} eventos"
+    },
+    "banners": {
+      "dismissAria": "Descartar",
+      "dismissTitle": "Descartar"
     }
   },
   "layout": {
@@ -1267,7 +1271,14 @@
       "forgotResetIntro": "Enviaremos un código de verificación al correo de tu cuenta NetMind.",
       "forgotCodeSentHint": "Si existe una cuenta con ese correo, hemos enviado un código de verificación.",
       "useDifferentEmail": "Usar otro correo",
-      "connectionFailed": "Error de conexión. Inténtalo de nuevo."
+      "connectionFailed": "Error de conexión. Inténtalo de nuevo.",
+      "resetPasswordDone": "Contraseña actualizada",
+      "resetPasswordDoneBody": "Ya puedes iniciar sesión con tu nueva contraseña.",
+      "backToSignIn": "Volver a iniciar sesión",
+      "resetPasswordTitle": "Restablecer contraseña",
+      "sendCode": "Enviar código",
+      "verificationCodeLabel": "Código de verificación",
+      "newPasswordLabel": "Nueva contraseña"
     },
     "modeSelect": {
       "welcome": "Bienvenido",
@@ -2495,5 +2506,16 @@
       "suggested": "De la conversación",
       "optional": "Opcional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Tu sesión ha expirado. Vuelve a iniciar sesión. (haz clic para cerrar)",
+    "sessionExpiringSoon": "Tu sesión caduca en {{time}}. Cierra sesión y vuelve a entrar para no perder tu trabajo. (haz clic para cerrar)",
+    "circuitPausedQuota": "Este agente está pausado tras fallos repetidos de cuota/saldo. Corrige su proveedor y luego reanúdalo.",
+    "circuitPausedAuth": "Este agente está pausado tras fallos repetidos de autenticación. Vuelve a autenticarte o configura un proveedor y luego reanúdalo.",
+    "circuitCooling": "Este agente falló recientemente y está en un breve enfriamiento. Vuelve a intentarlo en un momento.",
+    "resumeAgent": "Reanudar agente",
+    "resuming": "Reanudando…",
+    "dismiss": "Descartar",
+    "freeTierSwitched": "Se agotó la cuota gratuita — se cambió a tu propio proveedor. Las nuevas ejecuciones usarán tu propia clave de API. (haz clic para cerrar)"
   }
 }

@@ -700,6 +700,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "vor {{hoursAgo}} h · {{count}} Ereignisse"
+    },
+    "banners": {
+      "dismissAria": "Schließen",
+      "dismissTitle": "Schließen"
     }
   },
   "layout": {
@@ -1267,7 +1271,14 @@
       "forgotResetIntro": "Wir senden einen Bestätigungscode an die E-Mail Ihres NetMind-Kontos.",
       "forgotCodeSentHint": "Falls ein Konto für diese E-Mail existiert, haben wir einen Bestätigungscode gesendet.",
       "useDifferentEmail": "Andere E-Mail verwenden",
-      "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut."
+      "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut.",
+      "resetPasswordDone": "Passwort aktualisiert",
+      "resetPasswordDoneBody": "Du kannst dich jetzt mit deinem neuen Passwort anmelden.",
+      "backToSignIn": "Zurück zur Anmeldung",
+      "resetPasswordTitle": "Passwort zurücksetzen",
+      "sendCode": "Code senden",
+      "verificationCodeLabel": "Bestätigungscode",
+      "newPasswordLabel": "Neues Passwort"
     },
     "modeSelect": {
       "welcome": "Willkommen",
@@ -2495,5 +2506,16 @@
       "suggested": "Aus dem Gespräch",
       "optional": "Optional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an. (zum Schließen klicken)",
+    "sessionExpiringSoon": "Deine Sitzung läuft in {{time}} ab. Melde dich ab und wieder an, um Arbeit nicht zu verlieren. (zum Schließen klicken)",
+    "circuitPausedQuota": "Dieser Agent wurde nach wiederholten Kontingent-/Guthabenfehlern pausiert. Behebe den Anbieter und setze ihn dann fort.",
+    "circuitPausedAuth": "Dieser Agent wurde nach wiederholten Authentifizierungsfehlern pausiert. Authentifiziere dich erneut oder setze einen Anbieter, dann fortsetzen.",
+    "circuitCooling": "Dieser Agent ist kürzlich fehlgeschlagen und kühlt kurz ab. Versuche es gleich erneut.",
+    "resumeAgent": "Agent fortsetzen",
+    "resuming": "Wird fortgesetzt…",
+    "dismiss": "Schließen",
+    "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)"
   }
 }

@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/auth/ForgotPasswordCard.tsx
-last_verified: 2026-08-12
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — the 6 remaining hardcoded strings localized (GitHub #107)
+
+"Password updated" / its body / "Back to sign in" / "Reset password"
+(heading, reused for the submit button) / "Cancel" / "Send code" were
+still literal English — everything else in this file already went
+through `t()`. Added `pages.login.resetPasswordDone(Body)`,
+`backToSignIn`, `resetPasswordTitle`, `sendCode`,
+`verificationCodeLabel`, `newPasswordLabel` (all 10 locales); `Cancel`
+reuses the existing `common.cancel` key and the Email field reuses
+`pages.login.emailLabel` rather than adding synonyms. The two field
+placeholders that duplicated their own label text now reuse the same
+label key instead of carrying a second hardcoded string; the
+`you@example.com` placeholder stays as-is (a format example, not
+language-bearing content — same treatment other email inputs in this
+codebase already get). No behavior change: `ForgotPasswordCard.test.tsx`
+matches on the same English text via `t()`'s English fallback, so it
+would fail here if any of the new keys were missing from en.json.
 
 ## 2026-08-12 — 客户端密码校验 + 换邮箱 + 恒定成功配套（复审三轮）
 
