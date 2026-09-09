@@ -25,7 +25,7 @@ async def test_renaming_a_team_renames_the_room_agents_see(db_client, monkeypatc
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    import backend.routes.teams as teams_mod
+    import narranexus_plugins.teams.routes as teams_mod
 
     async def _db():
         return db_client

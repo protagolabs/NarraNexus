@@ -17,16 +17,16 @@ import socket
 
 import pytest
 
-from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import (
+from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import (
     NOT_CONFIGURED,
     resolve_client,
 )
-from xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_client import (
+from narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client import (
     HAClient,
     HAError,
     validate_base_url,
 )
-from xyz_agent_context.schema.home_assistant_schema import HAConfig
+from narranexus.platform.schema.home_assistant_schema import HAConfig
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,7 @@ def test_validate_base_url_rejects_metadata_host():
 def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
     # In cloud mode the backend shares a network with internal services, so a
     # user-supplied private/loopback host is an SSRF vector — reject it.
-    import xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_client as hc
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
     monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
     for internal in ("http://127.0.0.1:8123", "http://192.168.1.10:8123", "http://10.0.0.5:8000"):
@@ -87,7 +87,7 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
 
 
 def test_validate_base_url_local_allows_lan(monkeypatch):
-    import xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_client as hc
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
     monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
     assert hc.validate_base_url("http://192.168.1.10:8123") == "http://192.168.1.10:8123"
@@ -103,7 +103,7 @@ def test_require_agent_owner_enforced(monkeypatch):
     from fastapi import HTTPException
 
     import backend.routes._ownership as own
-    import backend.routes.home_assistant as r
+    import narranexus_plugins.home_assistant_module.routes as r
 
     class _Req:
         def __init__(self, uid):
@@ -121,32 +121,40 @@ def test_require_agent_owner_enforced(monkeypatch):
 
     monkeypatch.setattr(own.AgentRepository, "resolve_owner", _resolve)
 
+    # A plugin router calls the ``contracts.web.WebHost`` seam; a test that
+    # builds its own app instead of going through ``backend.plugins_host``
+    # must publish the host itself (the seam fails loud, never open).
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
+
+
     async def run():
         owners["agent_x"] = "u1"
         # Owner matches → no raise.
-        await r.assert_owned(_Req("u1"), "agent_x")
+        await r.require_agent_owner(_Req("u1"), "agent_x")
         # Different owner → 403.
         try:
-            await r.assert_owned(_Req("u2"), "agent_x")
+            await r.require_agent_owner(_Req("u2"), "agent_x")
             raise AssertionError("expected 403")
         except HTTPException as e:
             assert e.status_code == 403
         # Agent missing → 404.
         try:
-            await r.assert_owned(_Req("u1"), "ghost")
+            await r.require_agent_owner(_Req("u1"), "ghost")
             raise AssertionError("expected 404")
         except HTTPException as e:
             assert e.status_code == 404
         # Ownership LOOKUP failure → 503 (infrastructure fault, not "not found").
         owners["agent_x"] = None
         try:
-            await r.assert_owned(_Req("u1"), "agent_x")
+            await r.require_agent_owner(_Req("u1"), "agent_x")
             raise AssertionError("expected 503")
         except HTTPException as e:
             assert e.status_code == 503
         owners["agent_x"] = "u1"
         # Local mode (no user_id) → not enforced.
-        await r.assert_owned(_Req(None), "agent_x")
+        await r.require_agent_owner(_Req(None), "agent_x")
 
     asyncio.run(run())
 
@@ -178,7 +186,7 @@ class _StubBindingRepo:
 def test_resolve_client_unconfigured(monkeypatch):
     # With no binding row, resolve_client returns the actionable NOT_CONFIGURED
     # message (never raises) so the tool can relay it to the user.
-    import xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding as b
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.binding as b
 
     monkeypatch.setattr(b, "HomeAssistantBindingRepository", _StubBindingRepo)
 

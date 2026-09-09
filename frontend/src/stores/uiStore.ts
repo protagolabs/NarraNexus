@@ -71,7 +71,19 @@ interface UIState {
    *  it sets this AtomicTabId, ChatView opens the matching drawer and clears it.
    *  Typed as string to keep this store free of component imports. */
   pendingPanel: string | null;
+  /**
+   * How the pending request should resolve.
+   *
+   * 'toggle' — the user clicked a panel entry: re-requesting the panel that
+   *   is already open closes the drawer (the long-standing behaviour).
+   * 'open'   — the caller needs the panel to END UP open, e.g. the creation
+   *   studio revealing its configuration panel. Using 'toggle' there is a
+   *   bug: entering the studio twice would close the panel the second time.
+   */
+  pendingPanelMode: 'toggle' | 'open';
   requestPanel: (tab: string) => void;
+  /** Ensure a panel is open. Never closes it. */
+  openPanel: (tab: string) => void;
   clearPendingPanel: () => void;
 }
 
@@ -108,6 +120,8 @@ export const useUIStore = create<UIState>((set) => ({
   setPaletteOpen: (open) => set({ paletteOpen: open }),
 
   pendingPanel: null,
-  requestPanel: (tab) => set({ pendingPanel: tab }),
-  clearPendingPanel: () => set({ pendingPanel: null }),
+  pendingPanelMode: 'toggle',
+  requestPanel: (tab) => set({ pendingPanel: tab, pendingPanelMode: 'toggle' }),
+  openPanel: (tab) => set({ pendingPanel: tab, pendingPanelMode: 'open' }),
+  clearPendingPanel: () => set({ pendingPanel: null, pendingPanelMode: 'toggle' }),
 }));

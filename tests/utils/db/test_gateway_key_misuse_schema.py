@@ -13,7 +13,7 @@ actioned). Verified here at both the TableDef level and by generating the
 SQLite + MySQL DDL (dual-dialect contract) so a missing type or a bad default is
 caught before startup.
 """
-from xyz_agent_context.utils.db.schema_registry import (
+from narranexus.platform.utils.db.schema_registry import (
     TABLES,
     generate_mysql_ddl,
     generate_sqlite_ddl,

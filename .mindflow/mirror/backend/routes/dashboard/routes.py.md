@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-08-27
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `_resolve_viewer` / `_assert_agent_visible` 转公开（批 6c，G2-I1）
+
+改名为 `resolve_viewer` / `assert_agent_visible`。`builtin.job` 的 dashboard router
+自批 6b 起住在插件包里，却在 import 这两个**下划线私有**函数；
+一个第三方复制不到的私有符号被跨包调用，这个下划线就已经在说谎。
+它们现在是 `contracts.web.WebHost` 表面的一部分，由 [[plugin_sdk_host]] 发布，
+插件走 `narranexus.sdk.web`。本文件内部的 4 处调用同批改名。
 
 ## 2026-08-27 — 只改了两行注释,但契约本身是这次修的重点
 
@@ -98,3 +106,5 @@ Dashboard v2.1 的 API 端点集合（`/api/dashboard/*`），为前端 dashboar
 
 - 任何在本文件里 `SELECT next_run_time ... FROM instance_jobs` 的查询都是错的——它绕开了协议。必须 SELECT β 列并在 response 里暴露 β
 - 排序/筛选的 "时间 cursor" 如果真的要做，内部可以查 α（`next_run_time` UTC），但 response payload 永远只给 β
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

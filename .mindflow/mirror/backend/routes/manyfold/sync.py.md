@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-26
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -165,3 +165,19 @@ automations（镜像闹钟）和 channel 连接接管，事件发生时按需唤
 - message_bus 运行中经 MCP 建的 job 没有 HTTP 请求经过 middleware，
   webhook 不会发——依赖 Manyfold 的 turn 结束 pull / boot pull 兜底，
   这是已知 v1 边界。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`/manyfold/channels` collects rows from every channel builtin through `onWillExportManagedChannels` (provider order pinned by `_PROVIDER_ORDER`); `execute_job_once` runs through builtin.job's `jobs.run_once` service (`RunJobOutcome` now subclasses `contracts.job.JobRunOutcome`; `jobs_unavailable` when the builtin is disabled). The route imports no channel or job module.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`_provider_working_source()` resolves an IM provider to its inbound WorkingSource through `ingress.channels` (credentials-only channels and unknown names → None) instead of the hard-coded six-entry map.
+
+## 2026-09-04 · registry-driven order and config paths (batch 4e)
+
+`_provider_rank` orders the channel payload by the descriptors' `ui.order` (unknown providers last); `_channel_path_prefixes()` = `/api/channels` (where every channel binds since 4d.3 — the old tuple would have missed every bind) + each registered channel's own router, so a plugin channel's writes notify Manyfold too.
+
+## 2026-09-07 — 删除死的 module_system 导入（round-2 P2-C1）
+
+注册只在 boot；未 boot 的进程没有渠道即回退为普通 MANYFOLD turn。

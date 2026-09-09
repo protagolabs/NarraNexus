@@ -23,10 +23,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,

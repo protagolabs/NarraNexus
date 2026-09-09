@@ -30,13 +30,13 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     FileInfo,
     FileListResponse,
     FileUploadResponse,
     FileDeleteResponse,
 )
-from xyz_agent_context.utils.file_safety import (
+from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,
     sanitize_filename,
@@ -48,7 +48,7 @@ router = APIRouter()
 
 def _get_workspace_path(agent_id: str, user_id: str) -> str:
     """Get Agent-User workspace path (current layout, legacy-flat fallback)."""
-    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
     return str(resolve_existing_workspace(agent_id, user_id))
 
 

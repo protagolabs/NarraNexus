@@ -7,7 +7,7 @@ secret redaction used by every background LLM failure path.
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm.failure import (
+from narranexus.platform.agent_framework.llm.failure import (
     is_credential_error,
     redact_secrets,
 )

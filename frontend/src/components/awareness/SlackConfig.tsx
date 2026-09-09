@@ -29,14 +29,14 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } f
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
-import type { SlackCredentialData } from '@/types';
+import type { SlackBindResponse, SlackCredentialData, SlackTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 // Slack App Manifest — paste-and-go YAML for "Create app from manifest".
 //
 // Single source of truth for the BACKEND copy lives in
-// src/xyz_agent_context/module/slack_module/slack_module.py
+// plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_module.py
 // (constant SLACK_APP_MANIFEST_YAML). When Slack adds a scope we need,
 // update BOTH (the diff is grep-able). Hard-coding here avoids one extra
 // network round-trip when the user opens the disclosure.
@@ -128,7 +128,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getSlackCredential(agentId);
+      const res = await api.channelCredential<SlackCredentialData>('slack', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -164,12 +164,11 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindSlackBot(
-        agentId,
-        botToken.trim(),
-        appToken.trim(),
-        ownerEmail.trim(),
-      );
+      const res = await api.channelBind<SlackBindResponse>('slack', agentId, {
+        bot_token: botToken.trim(),
+        app_token: appToken.trim(),
+        owner_email: ownerEmail.trim(),
+      });
       if (res.success) {
         setBotToken('');
         setAppToken('');
@@ -191,7 +190,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setTestLoading(true);
     setError('');
     try {
-      const res = await api.testSlackConnection(agentId);
+      const res = await api.channelTest<SlackTestResponse>('slack', agentId);
       if (!res.success) {
         setError(res.error || t('awareness.slack.errTest'));
       } else {
@@ -224,7 +223,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindSlackBot(agentId);
+      const res = await api.channelUnbind('slack', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -243,7 +242,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setSlackActive(agentId, next);
+    const res = await api.channelSetActive('slack', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();

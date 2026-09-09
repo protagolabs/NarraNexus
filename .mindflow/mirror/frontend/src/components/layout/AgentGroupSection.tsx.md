@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -124,3 +124,5 @@ AgentList so the list file stays orchestration-only.
 Rename commit fires from both mouse (buttons) and keyboard
 (Enter/Escape) — `onSaveEdit`/`onCancelEdit` are typed
 `React.SyntheticEvent`, not MouseEvent. Don't narrow them back.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

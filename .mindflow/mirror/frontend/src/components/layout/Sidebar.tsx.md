@@ -1,9 +1,27 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 stub: false
 ---
 
+## 2026-09-04 (合并 dev #383) — 两边删除取并集
+
+本分支删了 `useCreateAgent`（「+」改为进 [[../../pages/ChooseCreateMethodPage.tsx]]），#383 删了
+`useChatStore` / `usePreloadStore` / `clearPreload`（会话清理收进 `lib/sessionWipe`）。合并后
+两组都不在。
+
+stub: false
+---
+
+## 2026-09-03 — 「+」改为进创建分叉页
+
+CreateMenu 的 `onCreateAgent` 从直接调 `createAgent()` 改为
+`navigate('/app/agents/new')`。一次点击直达是**用户没意识到自己创建了 agent**
+的直接原因（见 [[ChooseCreateMethodPage.tsx]] 的归因），分叉页上的「从空白
+开始」调的还是同一个 `useCreateAgent()`。
+
+连带清掉：本文件不再需要 `useCreateAgent()`，`creatingAgent` 的 `disabled`
+也随之失去意义（导航是瞬时的），一并删除，不留死状态。
 ## 2026-08-20 — Export 行深链进 Dashboard 导出标签
 
 「导出功能融入智能体管理」:侧栏 Export 行不再去独立的 `/app/bundle/export`,
@@ -192,3 +210,5 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
 offers "log out", and a second hand-rolled half-logout is how cloud data bled
 into a later local session before. The sidebar still owns the confirm dialog and
 the `window.location.href` reload — only the wipe itself is shared.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

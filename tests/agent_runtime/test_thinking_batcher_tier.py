@@ -27,7 +27,7 @@ batches are at real transitions. Pinned below.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime._thinking_batcher import _ThinkingBatcher
+from narranexus.platform.agent_runtime._thinking_batcher import _ThinkingBatcher
 
 
 def test_tier_switch_flushes_and_batch_is_pure():

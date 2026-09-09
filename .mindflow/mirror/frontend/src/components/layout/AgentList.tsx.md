@@ -4,6 +4,15 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 零 agent 空态 CTA 改为进创建分叉页
+
+`handleCreateAgent` 从 `await createAgent()` 改为导航到
+[[ChooseCreateMethodPage.tsx]]。这个空态服务的正是首次使用者 —— 分叉页存在的
+理由就是他。
+
+`handleCreateAgentInTeam` **没有**改道：团队内创建已经有明确目的地（团队群聊）
+和明确意图，不需要再问一次「你想从哪里开始」。
+
 ## 2026-09-03 — 团队「清理数据」对话框与状态移出
 
 `clearTeamTarget`/`clearTeamBusy`/`doClearTeamData`/`ClearTeamDataDialog` 及

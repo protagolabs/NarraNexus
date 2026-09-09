@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.module.social_network_module.social_network_module as snm
-from xyz_agent_context.module.social_network_module._entity_updater import (
+import narranexus_plugins.social_network_module.social_network_module as snm
+from narranexus_plugins.social_network_module._entity_updater import (
     ExtractedEntity,
 )
-from xyz_agent_context.module.social_network_module.social_network_module import (
+from narranexus_plugins.social_network_module.social_network_module import (
     SocialNetworkModule,
 )
 
@@ -147,7 +147,7 @@ async def test_the_two_caller_side_operations_are_the_expected_names():
     duplicate-knowledge of writing each string in the source and again here.
 
     ``create_primary_entity`` still has no behaviour test — its call site
-    sits inside ``hook_after_event_execution``'s ``if not entity:`` branch,
+    sits inside ``after_turn``'s ``if not entity:`` branch,
     which needs the whole hook stood up. This pins the spelling and that
     the constant is what the call site uses; the branch itself is not
     exercised.

@@ -34,18 +34,18 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import (
+from narranexus_plugins.chat_module.chat_module import (
     ChatModule,
     _apply_failed_turn_filter,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     ContextData,
     ErrorMessage,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -136,7 +136,7 @@ async def test_fatal_with_recovered_reply_persists_as_normal_turn(chat_module):
         _synthetic_recovered_reply("Found A and B; couldn't fetch C."),
     ])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_recov_instance"
@@ -165,7 +165,7 @@ async def test_recovered_turn_does_not_trigger_failed_turn_annotation(chat_modul
         _fatal_error(),
         _synthetic_recovered_reply("partial findings + suggestion"),
     ])
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_recov_instance"
@@ -200,7 +200,7 @@ async def test_fatal_without_recovered_reply_keeps_failed_user_only_row(
     )
     params = _hook_params(agent_loop_response=[legacy_fatal])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_recov_instance"
@@ -241,7 +241,7 @@ async def test_organic_reply_then_recovered_after_reply_persists_organic(
     )
     params = _hook_params(agent_loop_response=[organic_reply, post_reply_error])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_recov_instance"

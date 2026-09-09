@@ -11,10 +11,10 @@ _detect_narrative_routing_signal returns the LAST such (kind, args) or None.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     _detect_narrative_routing_signal,
 )
-from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
 
 def _tool_pm(tool_name: str, arguments: dict) -> ProgressMessage:

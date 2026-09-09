@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `PluginChannelRow`
+
+`GET /api/plugins/channels` 的一行：宿主 `ingress.channels` 注册表的数据形态，
+供 [[registerBuiltinChannels]] 建 Channels 区的行用。
 
 ## 2026-09-03 — `BoundChannel`；删 `AgentModelOverview`
 
@@ -230,3 +235,5 @@ api.ts.md 的 coachmark 门控段）。
 
 `OnboardingProgress.landing_completed` mirrors the backend field the first-run
 flow writes (see `api_schema.py`).
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

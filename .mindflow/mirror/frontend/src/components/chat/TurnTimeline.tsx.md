@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — a throwing plugin timeline-event component is isolated (I-6)
+
+The plugin-provided timeline-event component is wrapped in `<PluginBoundary key={event.id}
+owner={plugin.owner}>` so one bad event's render crash removes only that event's row, not the
+whole timeline (nor the conversation above it). See `platform/PluginBoundary.tsx`'s mirror doc.
 
 ## 2026-08-31（二）— `defaultOpen` 整条删除：推理永远折叠
 
@@ -241,3 +247,7 @@ the reply content itself is normal.
   timeline" logic lives in `ChatPanel.tsx::timeline useMemo`, not here.
   Without it, the just-completed reply would render twice (once as a
   history bubble and once as a reply block in this component).
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+Event types registered in `timelineEvents` pass the process filter and render through the plugin's component in the same rail (`default` branch); unknown types still render nothing. Subscribed so a late registration is not filtered out.

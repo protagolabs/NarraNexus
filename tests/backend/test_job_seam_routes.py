@@ -15,11 +15,11 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.jobs as jr
-import xyz_agent_context.agent_framework.api_config as japi
-import xyz_agent_context.module.job_module._job_reads as jreads
-import xyz_agent_context.module.job_module._job_writes as jwrites
-import xyz_agent_context.module.job_module.job_service as jsvc
+import narranexus_plugins.job_module.routes_agent as jr
+import narranexus.platform.agent_framework.api_config as japi
+import narranexus_plugins.job_module._job_reads as jreads
+import narranexus_plugins.job_module._job_writes as jwrites
+import narranexus_plugins.job_module.job_service as jsvc
 
 
 class _V:

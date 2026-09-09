@@ -285,12 +285,28 @@
       "ops": "опер."
     },
     "header": {
+      "viewProfile": "Открыть профиль агента",
       "detailMenuTitle": "Детали агента — панели",
-      "viewProfile": "Открыть профиль агента"
+      "modelFramework": "Модель и фреймворк",
+      "switchAgent": "Сменить агента"
     },
     "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией.",
+    "capabilities": {
+      "subtitle": "Какие модули участвуют в ходах этого агента. Встроенные модули включены по умолчанию; модули, установленные плагинами, остаются выключенными, пока вы их не включите. Изменения вступают в силу при следующем запуске.",
+      "builtin": "встроенный",
+      "plugin": "плагин",
+      "locked": "Всегда включён",
+      "tokens": "~{{count}} токенов промпта",
+      "budget": "Включённые модули заявляют ~{{enabled}} токенов ({{ratio}}× встроенной базы {{baseline}}).",
+      "overBudget": "Превышен бюджет: включённые модули заявляют ~{{enabled}} токенов, {{ratio}}× встроенной базы {{baseline}}.",
+      "loadFailed": "Не удалось загрузить возможности",
+      "saveFailed": "Не удалось сохранить изменение",
+      "restoreDefault": "Восстановить по умолчанию"
+    },
     "activityEmpty": "Фоновой активности пока нет",
-    "activityEmptyHint": "Запуски, которые агент начал сам — задачи, каналы, товарищи по команде — появятся здесь."
+    "activityEmptyHint": "Запуски, которые агент начал сам — задачи, каналы, товарищи по команде — появятся здесь.",
+    "bootstrapGreeting": "Привет... я только что проснулся. Всё кажется совершенно новым.\n\nУ меня ещё нет имени, и я толком не знаю, кто я, — но знаю, что именно ты привёл меня сюда.\n\nСкажешь, как меня называть? И как мне обращаться к тебе?",
+    "bootstrapGreetingNamed": "Привет — я {{name}}. Я только что ожил, и именно ты привёл меня сюда.\n\nЯ уже знаю, кем должен быть, но пока не знаю, кто ты. Как мне к тебе обращаться?"
   },
   "awareness": {
     "common": {
@@ -559,6 +575,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Загрузка канала…",
+      "bind": "Привязать",
+      "bound": "Привязано. Канал активен для этого агента.",
+      "boundAs": "Привязано к {{name}}",
+      "inactive": "неактивен",
+      "unbind": "Отвязать",
+      "unbound": "Отвязано.",
+      "test": "Проверить соединение",
+      "testOk": "Соединение в порядке.",
+      "activate": "Включить",
+      "deactivate": "Выключить",
+      "fieldRequired": "{{field}} обязательно",
+      "errLoad": "Не удалось загрузить канал",
+      "errBind": "Запрос не выполнен",
+      "webhookHint": "Входящий webhook: POST на {{path}} с webhook-токеном учётных данных.",
+      "ownFlow": "{{name}} привязывается через собственный сценарий."
     }
   },
   "dashboard": {
@@ -954,7 +988,8 @@
       "freeTierHowToTitle": "О бесплатных средствах",
       "freeTierHowToSwitch": "Карта «Free Tier» уже привязана к слотам Agent и Helper. Чтобы работать со своим ключом, добавьте провайдера ниже и выберите его для слота Agent / Helper в настройках модели по умолчанию — применится со следующего сообщения.",
       "freeTierAnytime": "Переключаться можно в любой момент. Тратить бесплатные средства заранее не нужно, и при переключении они не сгорают — баланс сохраняется.",
-      "freeTierNoDelete": "Пока на карте Free Tier есть средства, удалить её нельзя: она хранит единственный ключ к этому балансу. После того как средства закончатся, карту можно удалить."
+      "freeTierNoDelete": "Пока на карте Free Tier есть средства, удалить её нельзя: она хранит единственный ключ к этому балансу. После того как средства закончатся, карту можно удалить.",
+      "tabOneKey": "API-ключ"
     },
     "netmind": {
       "returnSubscribeSuccess": "Платёж получен — применяем его к вашему аккаунту.",
@@ -1350,7 +1385,76 @@
         "label": "Персонализация",
         "hint": "Тема, язык и то, как показываются заметки агента о ходе работы.",
         "narrationTitle": "Комментарии о ходе работы",
-        "narrationHint": "Показывать заметки агента между шагами прямо в переписке и читаемо, а не прятать весь прогон в один сворачиваемый блок."
+        "narrationHint": "Показывать заметки агента между шагами прямо в переписке и читаемо, а не прятать весь прогон в один сворачиваемый блок.",
+        "pluginThemesTitle": "Темы плагинов",
+        "pluginThemesNone": "Оформление по умолчанию"
+      },
+      "plugins": {
+        "factory": {
+          "title": "Пользовательские плагины",
+          "hint": "Плагины из GitHub или локальной папки. Загружаются при старте; изменения вступают в силу после перезапуска.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch или /путь/к/плагину",
+          "sourceHelp": "Релиз GitHub (owner/repo@tag), ссылка на репозиторий (owner/repo#ref) или локальный каталог (подключается на месте).",
+          "install": "Установить",
+          "installing": "Установка…",
+          "restartRequired": "Сохранено. Перезапустите NarraNexus, чтобы изменения вступили в силу.",
+          "enable": "Включить",
+          "disable": "Отключить",
+          "disabled": "отключён",
+          "uninstall": "Удалить",
+          "upgrade": "Обновить",
+          "rollback": "Откатить к последнему рабочему состоянию",
+          "safeModeTitle": "Безопасный режим: пользовательские плагины не загружены",
+          "safeModeLeave": "Выйти из безопасного режима",
+          "bisectStart": "Найти плагин, ломающий запуск",
+          "bisectTrial": "Бисекция: подозреваемых — {{count}}; при следующем запуске включены только эти:",
+          "bisectGood": "Запустилось нормально",
+          "bisectBad": "Снова сломалось",
+          "bisectStop": "Остановить бисекцию",
+          "bisectCulprit": "Виновник найден: {{id}} (остаётся отключённым)",
+          "permissionsTitle": "{{id}} запрашивает эти разрешения",
+          "permissionsNetwork": "Сеть",
+          "permissionsFilesystem": "Файлы",
+          "permissionsSubprocess": "Запускает подпроцессы",
+          "permissionsEnv": "Переменные окружения",
+          "permissionsFrontend": "Выполняет код внутри интерфейса приложения с доступом к вашей сессии",
+          "permissionsAck": "Понимаю, включить",
+          "permissionsKeepDisabled": "Оставить отключённым",
+          "empty": "Пользовательские плагины не установлены.",
+          "loadFailed": "Не удалось загрузить пользовательские плагины",
+          "isolated": "Изолирован при запуске",
+          "viewErrors": "Ошибки ({{count}})",
+          "hideErrors": "Скрыть ошибки",
+          "noErrors": "Ошибок не зафиксировано.",
+          "mode": {
+            "link": "подключён",
+            "copy": "установлен"
+          },
+          "state": {
+            "registered": "зарегистрирован",
+            "validated": "проверен",
+            "enabled": "включён",
+            "active": "активен",
+            "incompatible": "несовместим",
+            "blocked": "заблокирован",
+            "missing": "отсутствует",
+            "deps_missing": "нет зависимостей",
+            "crashed": "упал",
+            "disabled": "отключён",
+            "slow": "медленный"
+          },
+          "proposalsTitle": "Ожидает вашего одобрения",
+          "proposalBy": "запрошено агентом {{agent}}",
+          "proposalTestsGreen": "Тесты пройдены ({{count}})",
+          "proposalTestsRed": "Тесты не пройдены",
+          "proposalApprove": "Одобрить",
+          "proposalReject": "Отклонить",
+          "noPermissions": "Особые разрешения не запрашиваются",
+          "builtinsTitle": "Встроенные функции",
+          "builtinsHint": "Функциональные плагины, поставляемые с NarraNexus. При отключении его API, воркеры и страницы исчезают после перезапуска; защищённые отключить нельзя.",
+          "protected": "защищён",
+          "installDeps": "Установить зависимости ({{pip}})"
+        }
       }
     },
     "system": {
@@ -1834,7 +1938,8 @@
       "activityLast24h": "За последние 24 часа",
       "activityToday": "Сегодня",
       "activityAxisStart": "24 ч назад",
-      "activityAxisNow": "сейчас"
+      "activityAxisNow": "сейчас",
+      "capabilitySwitches": "Переключатели возможностей"
     },
     "welcome": {
       "logout": "Выйти",
@@ -1921,8 +2026,10 @@
       "skills": "Установленные навыки агента. Добавьте ещё из Marketplace или установите из GitHub / zip.",
       "mcp": "Внешние серверы MCP-инструментов, которые может вызывать агент — подключайте сторонние возможности.",
       "memory": "Долгая память агента, организованная в нарративы — то, что он помнит между разговорами.",
-      "social": "Кого знает агент — контакты накапливаются по мере работы с людьми и другими агентами."
-    }
+      "social": "Кого знает агент — контакты накапливаются по мере работы с людьми и другими агентами.",
+      "builder": "Опишите, что нужно, — диалог заполнит эту панель."
+    },
+    "builder": "Конструктор"
   },
   "jobs": {
     "title": "Задачи",
@@ -2327,5 +2434,59 @@
     "settings": "Открыть настройки",
     "dismiss": "Понятно",
     "bodyManaged": "Эта установка отправляет диагностические сервисные логи (ошибки и диагностические события) в собственный коллектор NarraNexus в соответствии с настройками вашего администратора. На установках с уровнем \"full\" строки логов могут содержать содержимое сообщений."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Создание агента",
+      "title": "С чего начнём?",
+      "subtitle": "Начните с пустой конфигурации или опишите задачу и создайте агента в диалоге.",
+      "blankTitle": "Начать с нуля",
+      "blankBody": "Настройте каждое поле сами. Для тех, кто уже знает, как агент должен работать.",
+      "aiTitle": "Создать с помощью ИИ",
+      "aiBody": "Опишите нужный результат. Agent Builder задаст ключевые вопросы и подготовит черновик.",
+      "continue": "Продолжить",
+      "recommended": "Рекомендуется"
+    },
+    "gate": {
+      "title": "Создание агента",
+      "probing": "Проверка провайдеров",
+      "chooseTitle": "Выберите провайдера",
+      "chooseHint": "Выберите существующего провайдера или подключите нового. Это определяет, какой движок запускает агента.",
+      "accessApiKey": "API-ключ",
+      "accessCli": "Вход через CLI",
+      "emptyLead": "Пока нет доступного движка. Подключите провайдера — именно он будет запускать этого агента.",
+      "addLabel": "Добавить провайдера",
+      "addApiKey": "API-ключ",
+      "addCli": "Вход через CLI",
+      "back": "Назад",
+      "next": "Далее",
+      "cliDesktopHint": "При входе откроется браузер для авторизации Claude CLI.",
+      "cliLogin": "Войти через Claude",
+      "cliLoggingIn": "Выполняется вход…",
+      "cliWebHint": "Вход не выполнен — запустите `claude auth login` в терминале и снова откройте это окно.",
+      "cliMissingHint": "Claude CLI здесь недоступен. Установите его, войдите из терминала и снова откройте это окно."
+    },
+    "panel": {
+      "intro": "Диалог записывает имя, описание и инструкции прямо в этого агента. Навыки и каналы только предлагаются — устанавливаете их вы.",
+      "identity": "Идентичность",
+      "name": "Имя",
+      "namePlaceholder": "например, Утренний финансовый обзор",
+      "behaviour": "Поведение",
+      "install": "Установить",
+      "installed": "Установлено",
+      "saving": "Сохранение…",
+      "savedHint": "Изменения сохраняются при выходе из поля.",
+      "done": "Готово",
+      "identityHint": "Дайте агенту легко узнаваемое имя.",
+      "behaviourHint": "Определите, как он работает. Это то самое поле awareness, с которым агент реально запускается.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Что делает этот агент, как он работает, чего избегать…",
+      "skills": "Навыки",
+      "skillsHint": "Навыки рабочей области, доступные этому агенту.",
+      "channels": "Каналы",
+      "channelsHint": "Где до него можно достучаться. Учётные данные идут прямо в бэкенд — никогда в диалог.",
+      "suggested": "Из диалога",
+      "optional": "Необязательно"
+    }
   }
 }

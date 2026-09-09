@@ -32,7 +32,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 @pytest.fixture
 def archives_root(tmp_path, monkeypatch):
-    from xyz_agent_context.bundle import skill_backup
+    from narranexus.platform.bundle import skill_backup
 
     root = tmp_path / "skill_archives"
     monkeypatch.setattr(skill_backup, "SKILL_ARCHIVES_ROOT", root)
@@ -50,7 +50,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
@@ -59,14 +59,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -98,7 +98,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     d = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     d.mkdir(parents=True, exist_ok=True)
@@ -116,9 +116,9 @@ async def test_corrupt_archive_is_skipped_with_a_warning_not_a_500(
 ):
     """One unreadable archive → that skill is skipped, the export still builds,
     and the warning names the skill so the user can act on it."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_corrupt01", "test_user"
     await _seed_agent(db_client, aid, "CorruptAgent", uid)
@@ -162,9 +162,9 @@ async def test_one_corrupt_archive_does_not_sink_the_healthy_ones(
 ):
     """The reason this matters: before the fix, a single bad row failed the
     WHOLE export, so one user's stale archive blocked everything else too."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_corrupt02", "test_user"
     await _seed_agent(db_client, aid, "MixedAgent", uid)
@@ -213,9 +213,9 @@ async def test_tarball_archive_gets_a_message_that_points_at_the_real_mistake(
     `install_method="zip"` must not tell the user their archive is broken — it
     isn't; the method is wrong. `archive_rows_by_skill` keeps `source_type` so
     the warning can say so."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_tarball01", "test_user"
     await _seed_agent(db_client, aid, "TarballAgent", uid)
@@ -254,10 +254,10 @@ async def test_failure_midway_through_copy_leaves_no_partial_archive(
     cleans up. A half-written `{skill_dir}.zip` would otherwise be picked up by
     the `tgt_zip.exists()` branch for the next entry with that dir name and
     silently push it onto the `__{agent_id}` filename."""
-    from xyz_agent_context.bundle import builder as builder_mod
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle import builder as builder_mod
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_copyfail01", "test_user"
     await _seed_agent(db_client, aid, "CopyFailAgent", uid)
@@ -306,8 +306,8 @@ async def test_full_copy_failure_degrades_like_the_zip_branch(
     skill directory, so one unreadable file, a full disk, or a non-UTF-8
     `.skill_meta.json` reached the route as a 500 naming neither skill nor file.
     """
-    from xyz_agent_context.bundle import builder as builder_mod
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle import builder as builder_mod
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_fullcopyfail", "test_user"
     await _seed_agent(db_client, aid, "FullCopyAgent", uid)
@@ -370,10 +370,10 @@ async def test_import_rejects_an_archive_ref_that_escapes_the_bundle(
     a unit test of the helper stays green if a call site forgets to use it (it
     did, on the first draft of this test).
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
-    from xyz_agent_context.repository import SkillArchiveRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.skill_backup import prepare_archive_target
+    from narranexus.platform.repository import SkillArchiveRepository
 
     aid, uid = "agent_refescape", "test_user"
     await _seed_agent(db_client, aid, "RefAgent", uid)
@@ -458,8 +458,8 @@ async def test_import_rejects_a_traversing_agent_id_in_the_manifest(
     agent skipped: `aid` is also the id_map key, so a filtered list would
     desync id_map from the per-agent writes.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight
 
     aid, uid = "agent_manifestaid", "test_user"
     await _seed_agent(db_client, aid, "ManifestAgent", uid)

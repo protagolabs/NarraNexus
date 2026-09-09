@@ -6,7 +6,7 @@ cloud/local from the canonical deployment mode.
 """
 import importlib
 
-import xyz_agent_context.analytics.surface as surface_mod
+import narranexus.platform.analytics.surface as surface_mod
 
 
 def _fresh(monkeypatch, value):

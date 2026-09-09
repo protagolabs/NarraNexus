@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-08-20
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 注释指向 `ARTIFACT_KINDS` 注册表
+
+`registerArtifactKind` 已退役。
+
+## 2026-09-03 — `ArtifactKind` 放开
+
+`BuiltinArtifactKind` 是壳自带渲染器的种类；`ArtifactKind = BuiltinArtifactKind | (string & {})`，
+因为插件可注册新种类、更新的后端也可能发本构建不认识的种类（`downloadExtFor` 早已防御）。
 
 ## 2026-08-20 — `content_hash?: string | null`
 

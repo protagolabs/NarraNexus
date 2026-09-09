@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-08-28
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — new `liveFrameworks` state feeds `providerBacksFramework`/`availableFrameworks` (B6, same change as ModelDefaultsSettings)
+
+Same fix as `ModelDefaultsSettings.tsx`'s 2026-09-07 entry (see there for the full rationale):
+`lib/agentFramework.ts`'s matching functions now fail closed with no live `frameworks[]` list, so
+`load()`'s already-fetched `fwRes.data.frameworks` is kept in a new `liveFrameworks` state
+(`LiveFrameworkEntry[] | undefined`) instead of only feeding `frameworkAvailabilityMap`, and
+passed as the third argument to both `providerBacksFramework` (`agentProviders`) and
+`availableFrameworks` (`frameworkOptions`).
 
 ## 2026-08-28 — 框架下拉套插件可用性（与 ModelDefaultsSettings 同批）
 

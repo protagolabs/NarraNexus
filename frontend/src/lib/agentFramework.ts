@@ -52,14 +52,23 @@ export interface AgentFramework {
   available?: boolean
 }
 
-/** Whether a provider's protocol can back this framework. */
-export function frameworkAcceptsProtocol(
-  framework: AgentFramework | undefined,
-  protocol: string | undefined,
-): boolean {
-  if (!framework || !protocol) return true
-  const accepted = framework.protocols ?? [framework.protocol]
-  return accepted.includes(protocol)
+/**
+ * One entry of the LIVE `frameworks[]` array from
+ * `GET/POST /api/providers/agent-framework` — the shape `providerBacksFramework`
+ * / `availableFrameworks` read. The actual API response type (`lib/api.ts`
+ * `getAgentFramework`) carries more fields (`available`, `display_name`); this
+ * is declared as its own narrow type here so callers don't need to import
+ * `lib/api.ts` just to type the parameter they're forwarding.
+ */
+export interface LiveFrameworkEntry {
+  name: string
+  /**
+   * The backend's three-valued enum (`FrameworkMeta.protocol`): a specific
+   * protocol, or `'any'` for a framework that drives the provider API itself
+   * and works with either (NexusPower is sent as `'any'`).
+   */
+  protocol?: 'anthropic' | 'openai' | 'any'
+  oauth_source?: string | null
 }
 
 // ---- constants -----------------------------------------------------------
@@ -158,20 +167,6 @@ export function frameworkAllowedInCloud(
 export const SUBSCRIPTION_AUTH_TYPES = ['oauth', 'oauth_token']
 
 /**
- * Subscription card → the ONE framework that can spend it. Mirror of backend
- * ``provider_schema.CLI_FRAMEWORK_BY_OAUTH_SOURCE``.
- *
- * A subscription login is a credential for a specific CLI, not a generic
- * provider key: only the `claude` CLI can redeem a Claude Code Login, only
- * `codex` a Codex CLI Login. NexusPower drives the provider HTTP API and
- * refuses subscription credentials outright, so it appears in no value here.
- */
-export const CLI_FRAMEWORK_BY_OAUTH_SOURCE: Record<string, string> = {
-  claude_oauth: 'claude_code',
-  codex_oauth: 'codex_cli',
-}
-
-/**
  * Can this provider card actually back the AGENT slot under `framework`?
  * Frontend twin of backend ``provider_schema.framework_can_drive_provider``
  * (the gate inside ``validate_slot_binding``) — protocol first, then the
@@ -181,15 +176,34 @@ export const CLI_FRAMEWORK_BY_OAUTH_SOURCE: Record<string, string> = {
  * serves a framework WELL is the provider's characteristic, not something we
  * police (binding rule #15). This only refuses what is technically
  * unredeemable — and would otherwise fail in the middle of a run.
+ *
+ * `frameworks` (B6, 2026-09-07 final cut): the LIVE list from
+ * `GET/POST /api/providers/agent-framework`, each entry now carrying its own
+ * `protocol` and `oauth_source`. This is the ONLY source consulted for both
+ * gates — the old hardcoded mirrors (`AGENT_FRAMEWORKS`-as-protocol-table and
+ * a `CLI_FRAMEWORK_BY_OAUTH_SOURCE` map) are gone. **No list → fails closed**
+ * (`false`): a caller mid-load must not guess from a stale static copy, and
+ * every call site that has the list loaded is expected to pass it.
+ *
+ * `protocol` is the backend's three-valued enum (`FrameworkMeta.protocol`):
+ * `'anthropic'` / `'openai'` gate as expected; `'any'` (NexusPower's value —
+ * it drives the provider API itself and works with either) accepts every
+ * provider protocol. This is read straight off the live value, not branched
+ * on framework id — no `AGENT_FRAMEWORKS`/id-based special case is consulted.
  */
 export function providerBacksFramework(
   prov: Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>,
   framework: string | null | undefined,
+  frameworks: LiveFrameworkEntry[] | undefined,
 ): boolean {
-  const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework)
-  if (!frameworkAcceptsProtocol(fw, prov.protocol)) return false
+  if (!frameworks) return false
+  const fw = frameworks.find((f) => f.name === framework)
+  if (fw?.protocol && fw.protocol !== 'any' && fw.protocol !== prov.protocol) {
+    return false
+  }
   if (!SUBSCRIPTION_AUTH_TYPES.includes(prov.auth_type)) return true
-  return (framework || 'claude_code') === CLI_FRAMEWORK_BY_OAUTH_SOURCE[prov.source]
+  const redeemer = frameworks.find((f) => f.oauth_source === prov.source)?.name
+  return (framework || 'claude_code') === redeemer
 }
 
 /**
@@ -211,15 +225,21 @@ export function providerBacksFramework(
  * (see `frameworkAllowedInCloud`'s call sites), which reads friendlier than a
  * silently shorter list. This function answers a different question — "can any
  * card of mine run it at all".
+ *
+ * `frameworks` (B6, 2026-09-07 final cut): forwarded straight into
+ * `providerBacksFramework` — see that function's doc for the fail-closed
+ * behavior when it is `undefined` (every non-`current` framework is filtered
+ * out, same as "nothing in the wallet can drive it").
  */
 export function availableFrameworks(
   providers: Array<Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>>,
   current: string,
+  frameworks: LiveFrameworkEntry[] | undefined,
 ): AgentFramework[] {
   if (!providers.length) return AGENT_FRAMEWORKS
   return AGENT_FRAMEWORKS.filter(
     (f) =>
-      f.id === current || providers.some((p) => providerBacksFramework(p, f.id)),
+      f.id === current || providers.some((p) => providerBacksFramework(p, f.id, frameworks)),
   )
 }
 

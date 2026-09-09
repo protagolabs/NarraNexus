@@ -2,9 +2,9 @@
 doc_type: reference
 last_verified: 2026-08-01
 scope:
-  - src/xyz_agent_context/module/
-  - src/xyz_agent_context/schema/module_schema.py
-  - src/xyz_agent_context/schema/instance_schema.py
+  - src/narranexus/platform/module_system/
+  - src/narranexus/platform/schema/module_schema.py
+  - src/narranexus/platform/schema/instance_schema.py
 related_playbooks:
   - ../playbooks/add_new_module.md
 ---
@@ -16,10 +16,10 @@ related_playbooks:
 `XYZBaseModule` 是所有模块的基类，定义在 `module/base.py`。每个模块必须实现以下核心接口：
 
 - **`get_config() -> ModuleConfig`** — 返回模块身份信息（名称、优先级、启用状态、描述、模块类型）
-- **`hook_data_gathering(ctx_data: ContextData) -> ContextData`** — 在 LLM 调用前丰富上下文数据
-- **`hook_after_event_execution(params: HookAfterExecutionParams)`** — LLM 执行完毕后的后处理逻辑
+- **`gather(ctx_data: ContextData) -> ContextData`** — 在 LLM 调用前丰富上下文数据
+- **`after_turn(params: HookAfterExecutionParams)`** — LLM 执行完毕后的后处理逻辑
 - **`create_mcp_server()`** — 通过 MCP 协议暴露工具给 Agent 使用
-- **`get_instructions(ctx_data: ContextData)`** — 向 Agent 的 system prompt 注入模块指令
+- **`contribute_instructions(ctx_data: ContextData)`** — 向 Agent 的 system prompt 注入模块指令
 
 系统包含两种模块类型：
 
@@ -32,7 +32,7 @@ related_playbooks:
 
 ```python
 class ModuleConfig(BaseModel):
-    name: str           # 必须与 MODULE_MAP 的 key 及类名匹配
+    name: str           # 必须与 module_registry 的 key 及类名匹配
     priority: int       # 指令排序优先级（0 最高，Awareness=0, Chat=1）
     enabled: bool       # 模块是否激活
     description: str    # 人类可读的模块用途描述
@@ -94,7 +94,7 @@ Module 系统采用三层 Prompt 架构：
 
 **注入流程：**
 
-1. `module.get_instructions(ctx_data)` 用 ContextData 的值填充模板
+1. `module.contribute_instructions(ctx_data)` 用 ContextData 的值填充模板
 2. ContextRuntime 收集所有模块指令，按 `module_class` 去重
 3. 按 priority 排序后拼接，放入 system prompt 的 `## Module Instructions` 区域
 
@@ -108,7 +108,7 @@ Module 系统采用三层 Prompt 架构：
 
 ### Layer 2 — Context Prompts（上下文提示）
 
-在 `hook_data_gathering` 阶段生成，包括：聊天历史（近期消息）、实体摘要（社交网络）、Job 进度报告、RAG 搜索结果。这些内容注入到 `ContextData.extra_data`，格式化为 system prompt 的各个区域。
+在 `gather` 阶段生成，包括：聊天历史（近期消息）、实体摘要（社交网络）、Job 进度报告、RAG 搜索结果。这些内容注入到 `ContextData.extra_data`，格式化为 system prompt 的各个区域。
 
 ### Layer 3 — Decision Prompts（决策提示）
 
@@ -121,7 +121,7 @@ Module 系统采用三层 Prompt 架构：
 **完整 Prompt 流：**
 
 ```
-get_instructions() -> build_module_instructions() -> build_complete_system_prompt()
+contribute_instructions() -> build_module_instructions() -> build_complete_system_prompt()
                                                           |
                                               [Module Instructions header]
                                               [Per-module instruction blocks]
@@ -199,7 +199,7 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 3. 编写 `prompts.py` 定义模块指令（Layer 1）
 4. 编写 `_*_mcp_tools.py` 定义工具（照旧声明 `agent_id` 参数——服务端会把它
    校正为真实调用者，见 §5，无需自己做任何身份处理）
-5. 在 `module/__init__.py` 的 `MODULE_MAP` 中注册
+5. 在 `module/__init__.py` 的 `module_registry` 中注册
 6. 在 `schema_registry.py` 中使用 `_register(TableDef(...))` 添加数据表
 7. 在 `repository/` 创建对应的数据访问类
 8. 在 `schema/` 创建对应的 Pydantic 模型
@@ -208,7 +208,7 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 
 - **ModuleConfig 只有 5 个字段**（name, priority, enabled, description, module_type）。Instance ID 前缀由框架从类名自动推导，不需要在 config 中手动指定。
 - **MCP tools 是无状态的** — 不要在 MCP Server 进程中存储 per-agent 状态。
-- **`hook_data_gathering` 必须返回 `ctx_data`**（不能返回 `None`），否则后续 pipeline 步骤会崩溃。
+- **`gather` 必须返回 `ctx_data`**（不能返回 `None`），否则后续 pipeline 步骤会崩溃。
 - **模块指令按 `module_class` 去重** — 即使存在 3 个 ChatModule Instance，指令也只出现一次。
 - **capability 模块不支持依赖关系** — 只有 task（Job）模块支持 `depends_on`。
 - **MCP Server 是共享进程** — 修改全局状态会影响所有 Agent，必须通过参数隔离。

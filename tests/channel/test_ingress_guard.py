@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.channel.ingress_guard import (
+from narranexus.platform.channel.ingress_guard import (
     IngressGuard,
     _PRUNE_EVERY_ADMITS,
     content_fingerprint,
@@ -258,7 +258,7 @@ async def test_good_behaviour_decays_the_tier_back_to_closed():
 # ─────────────────────────────────────────────────────────────────────
 
 async def test_cooldown_survives_a_fresh_guard(db_client):
-    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+    from narranexus.platform.repository import ChannelIngressBreakerRepository
 
     repo = ChannelIngressBreakerRepository(db_client)
     guard = _guard(repo=repo)
@@ -273,7 +273,7 @@ async def test_cooldown_survives_a_fresh_guard(db_client):
 
 
 async def test_tier_transitions_are_written_through(db_client):
-    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+    from narranexus.platform.repository import ChannelIngressBreakerRepository
 
     repo = ChannelIngressBreakerRepository(db_client)
     guard = _guard(repo=repo)
@@ -443,7 +443,7 @@ async def test_pruning_keeps_a_live_window():
 async def test_a_pruned_session_reloads_its_durable_state(db_client):
     """Dropping a closed session is only lossless because the DB row
     survives and is re-read lazily."""
-    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+    from narranexus.platform.repository import ChannelIngressBreakerRepository
 
     repo = ChannelIngressBreakerRepository(db_client)
     guard = _guard(repo=repo)

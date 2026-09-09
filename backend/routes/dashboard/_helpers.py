@@ -20,7 +20,7 @@ Notes:
     parametrizes to prevent SQLi.
   - fetch_instances v2.2 G3: returns {agent_id: {"active": [...], "stale": [...]}}
     where "stale" = in_progress instances past STALE_THRESHOLD_SECONDS that are NOT
-    in LONGRUN_MODULE_WHITELIST. Stale instances do NOT count as running toward kind
+    declares long_running_instances. Stale instances do NOT count as running toward kind
     derivation; they surface in OwnedAgentStatus.stale_instances for UI zombie badge.
 """
 from __future__ import annotations
@@ -47,11 +47,13 @@ from backend.routes.dashboard._schema import (
 # considered "stale" (zombie). Env-configurable for testing / ops overrides.
 STALE_THRESHOLD_SECONDS: int = int(os.environ.get("STALE_INSTANCE_THRESHOLD_SECONDS", "600"))
 
-# Modules whose in_progress instances are expected to be long-running.
-# They are excluded from the stale bucket regardless of updated_at age.
-LONGRUN_MODULE_WHITELIST: frozenset[str] = frozenset({
-    "SkillModule",
-})
+def _long_running(module_class: str) -> bool:
+    """A module whose in_progress instances are expected to run long declares
+    ``long_running_instances`` (SkillModule); they never enter the stale bucket."""
+    from narranexus.platform.module_system import module_config
+
+    cfg = module_config(module_class)
+    return bool(cfg and cfg.long_running_instances)
 
 
 # -------- action_line helpers ----------------------------------------------
@@ -161,14 +163,21 @@ _KIND_MAP = {
     "callback": "CALLBACK",
     "skill_study": "SKILL_STUDY",
     "message_bus": "MESSAGE_BUS",
-    "lark": "LARK",
 }
 
 
 def classify_kind(working_source: str | None) -> str:
+    """Dashboard kind for a working source: the core table above, else an IM
+    channel's upper-cased source (``lark`` → ``LARK``, a plugin's ``acme_chat`` →
+    ``ACME_CHAT``) — the platform keeps no channel list here."""
     if not working_source:
         return "idle"
-    return _KIND_MAP.get(str(working_source).lower(), "idle")
+    from narranexus.platform.schema.hook_schema import WorkingSource
+
+    key = str(working_source).lower()
+    if key in _KIND_MAP:
+        return _KIND_MAP[key]
+    return key.upper() if WorkingSource.is_channel(key) else "idle"
 
 
 def bucket_count(n: int) -> str:
@@ -243,7 +252,7 @@ async def fetch_last_activity(agent_ids: list[str]) -> dict[str, str | None]:
     """MAX(events.created_at) GROUP BY agent_id for the given ids."""
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     sql = (
@@ -289,7 +298,7 @@ async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     state_placeholders = ",".join("%s" for _ in _LIVE_JOB_STATES)
@@ -334,7 +343,7 @@ async def fetch_recent_events(agent_ids: list[str], limit_per_agent: int = 3) ->
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     out: dict[str, list[dict]] = {aid: [] for aid in agent_ids}
     # Per-agent loop keeps it portable across SQLite/MySQL without window funcs.
@@ -361,7 +370,7 @@ async def fetch_metrics_today(agent_ids: list[str]) -> dict[str, dict]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     # Count ok vs error events today.
@@ -401,7 +410,7 @@ async def fetch_sparkline_24h(agent_id: str, hours: int = 24) -> list[int]:
 
     Served by a separate lazy endpoint to avoid bloating the main poll.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     try:
         rows = await db.execute(
@@ -648,7 +657,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
 
     Stale detection:
       - An in_progress instance is stale if updated_at is older than
-        STALE_THRESHOLD_SECONDS AND the module_class is NOT in LONGRUN_MODULE_WHITELIST.
+        STALE_THRESHOLD_SECONDS AND the module does NOT declare long_running_instances.
       - Whitelisted long-running modules (SkillModule) are always
         placed in "active" regardless of updated_at age.
       - "active" instances count toward running_count / kind derivation.
@@ -660,7 +669,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     sql = (
@@ -684,7 +693,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
             "description": r.get("description"),
         }
         module_class = r["module_class"] or ""
-        if module_class in LONGRUN_MODULE_WHITELIST:
+        if _long_running(module_class):
             out[aid]["active"].append(entry)
             continue
         # Check updated_at age against threshold
@@ -727,7 +736,7 @@ async def fetch_enhanced_signals(agent_ids: list[str]) -> dict[str, dict]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     # errors: final_output matching error markers in last hour
@@ -819,7 +828,7 @@ async def build_run_state_for_agent(
 async def _latest_bus_content_for_channel(channel: str) -> str | None:
     """Fetch the most recent bus_messages.content for a channel (content preview)."""
     try:
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
         db = await get_db_client()
         row = await db.execute(
             "SELECT content FROM bus_messages WHERE channel_id=%s "

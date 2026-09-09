@@ -20,7 +20,7 @@ pattern as the rest of this router.
 ## 2026-07-21 — thinned to an HTTP shell; heal moved to ArtifactService
 
 Artifact business logic left this file for the new
-`xyz_agent_context/artifact/` package ([[artifact_service.py]]):
+`narranexus/platform/artifact/` package ([[artifact_service.py]]):
 
 - The whole heal recovery strategy (`_KIND_EXTENSIONS`, workspace scan,
   three-step sequence) moved to the service ([[heal.py]]); the endpoint now
@@ -36,7 +36,7 @@ Artifact business logic left this file for the new
   `_get_owned_artifact` (still 404 on mismatch — no existence leak).
 
 References to `artifact_runner` in older entries below are historical; the
-code lives in `xyz_agent_context/artifact/_artifact_impl/registration.py` now.
+code lives in `narranexus/platform/artifact/_artifact_impl/registration.py` now.
 
 ## 2026-05-20 — stale "quota" wording removed
 
@@ -133,7 +133,7 @@ Upstream:
   `DELETE` / `POST .../register`.
 
 Downstream:
-- `ArtifactService` (xyz_agent_context/artifact) for register + heal.
+- `ArtifactService` (narranexus/platform/artifact) for register + heal.
 - `ArtifactRepository` for plain CRUD (list / get / pin / title / delete).
 - `_artifact_token.mint` for view-token minting.
 

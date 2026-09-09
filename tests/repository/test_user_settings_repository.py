@@ -5,7 +5,7 @@
 """
 import pytest
 
-from xyz_agent_context.repository.user_settings_repository import (
+from narranexus.platform.repository.user_settings_repository import (
     UserSettingsRepository,
 )
 

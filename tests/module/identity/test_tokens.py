@@ -18,7 +18,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from xyz_agent_context.module.identity.tokens import (
+from narranexus.platform.module_system.identity.tokens import (
     ISSUER_LOCAL,
     IdentityTokenError,
     LocalEphemeralIssuer,

@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.marketplace._skill_marketplace_seed import (
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from narranexus.platform.marketplace._skill_marketplace_seed import (
     _skills_root,
     seed_skill_marketplace,
 )
-from xyz_agent_context.repository.skill_catalog_repository import SkillCatalogRepository
+from narranexus.platform.repository.skill_catalog_repository import SkillCatalogRepository
 
 
 def _fixture_skills(tmp_path: Path) -> Path:
@@ -39,7 +39,7 @@ def _fixture_skills(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def seeded_env(db_client, tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
@@ -49,7 +49,7 @@ def seeded_env(db_client, tmp_path, monkeypatch):
 
     # RegistryService(db) uses get_artifact_store(); point it at a temp store.
     store = LocalArtifactStore(tmp_path / "skill_store")
-    import xyz_agent_context.marketplace._skill_marketplace_impl.registry as reg
+    import narranexus.platform.marketplace._skill_marketplace_impl.registry as reg
 
     monkeypatch.setattr(reg, "get_artifact_store", lambda: store)
     return {"store": store}
@@ -115,7 +115,7 @@ def test_real_repo_guide_skill_is_vendored_and_not_default():
 @pytest.fixture
 def real_seed_env(db_client, tmp_path, monkeypatch):
     """Like seeded_env but pointing at the REAL vendored marketplace_skills/."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
@@ -124,7 +124,7 @@ def real_seed_env(db_client, tmp_path, monkeypatch):
     monkeypatch.delenv("MARKETPLACE_SKILLS_DIR", raising=False)
 
     store = LocalArtifactStore(tmp_path / "skill_store")
-    import xyz_agent_context.marketplace._skill_marketplace_impl.registry as reg
+    import narranexus.platform.marketplace._skill_marketplace_impl.registry as reg
 
     monkeypatch.setattr(reg, "get_artifact_store", lambda: store)
     return {"store": store}

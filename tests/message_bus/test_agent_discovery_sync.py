@@ -6,7 +6,7 @@
 created and configured — not from its first turn (P1 段02, targets 1 & 2).
 
 Before this, ``bus_agent_registry`` had exactly one writer: an inline block in
-``MessageBusModule.hook_data_gathering`` that ran per turn and hardcoded
+``MessageBusModule.gather`` that ran per turn and hardcoded
 ``capabilities=[]``. Two consequences, both confirmed in prod:
 
   * an agent that was created and configured but had not taken a turn yet was
@@ -28,13 +28,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.agent_registry_repository import (
+from narranexus.platform.repository.agent_registry_repository import (
     AgentRegistryRepository,
 )
-from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.message_bus.agent_discovery_sync import sync_agent_discovery
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 OWNER = "user_tc"
 
@@ -144,7 +144,7 @@ async def test_another_agents_skills_never_leak_into_my_capabilities(db):
 async def test_legacy_placeholder_description_is_not_republished(db):
     """The 488-row case: the registry must not repeat "a new agent ready for
     configuration" — that string is what made askers refuse to send."""
-    from xyz_agent_context.schema import LEGACY_AGENT_DESCRIPTION_PLACEHOLDER
+    from narranexus.platform.schema import LEGACY_AGENT_DESCRIPTION_PLACEHOLDER
 
     await _agent(db, "agent_a", name="凑企鹅",
                  description=LEGACY_AGENT_DESCRIPTION_PLACEHOLDER)
@@ -232,7 +232,7 @@ async def test_instance_provisioning_registers_through_the_seam(db):
     something else happened to re-sync it — "discovery waits for the first
     turn", which is the failure this work exists to end.
     """
-    from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+    from narranexus.platform.module_system._module_impl.instance_factory import InstanceFactory
 
     await _agent(db, "agent_imported", name="Imported Agent",
                  description="Imported via Agent Migration")
@@ -254,7 +254,7 @@ def test_the_factory_does_not_write_the_registry_table_itself():
     derivation drift apart again."""
     import inspect
 
-    from xyz_agent_context.module._module_impl import instance_factory
+    from narranexus.platform.module_system._module_impl import instance_factory
 
     source = inspect.getsource(instance_factory)
     # The quoted form is what a DB call uses; prose may still name the table

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from backend.routes.agents.chat_history import _drop_phantom_event_twins
+from narranexus_plugins.chat_module.routes import _drop_phantom_event_twins
 
 
 def _row(

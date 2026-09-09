@@ -26,8 +26,8 @@ DB rows) and needs its own long-lived singleton (see below).
   Settings → Plugins panel is the only HTTP client.
 - **依赖谁**：`backend.integrations.plugins.service.PluginService` (the only
   import from that package — everything else, including `registry.py`'s
-  `PLUGIN_SPECS` and the classified-error shapes, is reached only through the
-  service's public methods). `xyz_agent_context.utils.deployment_mode.is_cloud_mode`
+  `build_plugin_specs()` table and the classified-error shapes, is reached only through the
+  service's public methods). `narranexus.platform.utils.deployment_mode.is_cloud_mode`
   is the same single source of truth `backend/routes/providers.py`'s `_is_cloud()`
   delegates to — this file calls it directly rather than re-deriving cloud
   detection.
@@ -88,7 +88,7 @@ before reaching any handler — there's just no per-user data to scope.
 ## 相关约束
 
 - 架构分层表（API layer = `backend/routes/`）——本文件只 import
-  `backend.integrations.plugins` 和 `xyz_agent_context.utils.deployment_mode`，
+  `backend.integrations.plugins` 和 `narranexus.platform.utils.deployment_mode`，
   不反向被 agent 侧代码 import；`backend/routes/plugins/` 是与
   `backend/routes/admin/` 同级的 grouped route 子包。
 

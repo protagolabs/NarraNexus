@@ -2,59 +2,132 @@
 @file_name: test_message_source_handler.py
 @author: Bin Liang
 @date: 2026-05-11
-@description: Contract tests for MessageSourceHandler + MessageSourceRegistry.
+@description: Contract tests for MessageSourceHandler + the registry-backed MessageSourceView.
 
 Behaviour pinned:
-1. A handler can be registered against a working_source value.
-2. Duplicate registration raises (force protects against accidental re-registration).
-3. Unknown working_source falls back to the default handler.
-4. The default handler covers `chat`/`a2a`/`callback`/`skill_study` triggers
-   without explicit registration.
-5. `format_row_prefix` substitutes meta_data + channel_tag fields into the template.
-6. `is_user_reply_tool` matches tool names by `<pattern> in tool_name` so the
+1. A source enters the view through its plugin's contribution — a
+   ``ChannelDescriptor``'s message-source fields, or an
+   ``ingress.message_sources`` spec — and NEVER through an import side effect.
+2. A source that is not declared falls back to the default handler; a source
+   that IS a registered channel yet declares none warns, because that silent
+   default is what recorded delivered IM replies as NO-REPLY.
+3. The default handler covers `chat`/`a2a`/`callback`/`skill_study` without any
+   declaration — they are the source-less sources.
+4. `format_row_prefix` substitutes meta_data + channel_tag fields into the template.
+5. `is_user_reply_tool` matches tool names by `<pattern> in tool_name` so the
    MCP-prefixed form (`mcp__chat_module__notify_owner`)
    still matches the pattern `notify_owner`.
-7. Registry dump returns a JSON-serializable snapshot for debugging.
+6. A view's dump returns a JSON-serializable snapshot for debugging.
+7. The reply extractor named by a descriptor is resolved LAZILY — building the
+   view must not import the channel's module.
 """
 from __future__ import annotations
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def reset_registry():
-    """Each test gets a clean registry — and the ORIGINAL registrations come
-    back afterwards. Modules register at import time, so a bare clear() left
-    the registry permanently empty for every test that ran later in the same
-    session (broke tests/message_bus/test_bus_channel_inbox_skip.py, which
-    checks the real registrations)."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
-    saved = dict(MessageSourceRegistry._handlers)  # type: ignore[attr-defined]
-    MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
-    yield
-    MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
-    MessageSourceRegistry._handlers.update(saved)  # type: ignore[attr-defined]
+from narranexus.contracts.channel import ChannelDescriptor, MessageSourceSpec
+from narranexus.kernel.plugins.registries import Registries
+from narranexus.kernel.plugins.registry import Contribution
 
 
-def test_register_and_get_returns_handler():
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
+@pytest.fixture
+def view():
+    """A view over a PRIVATE, empty ``Registries`` — the whole point of the
+    change is that a message source is registry state, so a test can build its
+    own registry instead of mutating a process-global dict and restoring it."""
+    from narranexus.platform.channel.message_source_handler import MessageSourceView
+
+    regs = Registries()
+    v = MessageSourceView(regs)
+    v.registries = regs  # type: ignore[attr-defined]  — handed to the test for registration
+    return v
+
+
+def _register_channel(view, descriptor: ChannelDescriptor, owner: str = "test.channel") -> None:
+    view.registries.registry_for("ingress.channels").register_contribution(
+        Contribution(descriptor.name, lambda: descriptor), owner=owner
     )
 
-    h = MessageSourceHandler(
+
+def _register_source(view, spec: MessageSourceSpec, owner: str = "test.source") -> None:
+    view.registries.registry_for("ingress.message_sources").register_contribution(
+        Contribution(spec.name, lambda: spec), owner=owner
+    )
+
+
+def test_channel_descriptor_fields_become_the_handler(view):
+    """A channel declares its message source as descriptor fields; nothing else."""
+    _register_channel(view, ChannelDescriptor(
         name="lark",
-        user_reply_tool_names=("notify_owner", "lark_cli +messages-send"),
+        display_name="Lark",
+        trigger_ref="pkg.mod:Trigger",
+        reply_tools=("notify_owner", "lark_cli +messages-send"),
         row_prefix_template="[Lark · {sender_name}]",
-    )
-    MessageSourceRegistry.register(h)
+        dedicated_trigger=True,
+    ))
+    got = view.get("lark")
+    assert got.name == "lark"
+    assert got.label == "Lark"
+    assert got.user_reply_tool_names == ("notify_owner", "lark_cli +messages-send")
+    assert got.row_prefix_template == "[Lark · {sender_name}]"
+    assert got.dedicated_trigger is True
 
-    got = MessageSourceRegistry.get("lark")
-    assert got is h
+
+def test_non_channel_source_comes_from_the_message_sources_slot(view):
+    """The bus and the job clock are message sources without being channels."""
+    _register_source(view, MessageSourceSpec(
+        name="message_bus",
+        display_label="NarraNexus",
+        reply_tools=("notify_owner", "message_agent"),
+        owner_visible_reply_tools=("notify_owner",),
+        row_prefix_template="[private message from {from_agent}]",
+    ))
+    got = view.get("message_bus")
+    assert got.effective_owner_visible_names == ("notify_owner",)
+    assert got.is_user_reply_tool("mcp__x__message_agent")
+    assert not got.is_owner_visible_reply_tool("mcp__x__message_agent")
+
+
+def test_a_source_disappears_with_its_registration(view):
+    """A channel excluded from a distribution / disabled in registry.json is not
+    in ``ingress.channels``, so it has no handler — the property the old
+    class-level dict could not express (a disabled channel's handler survived
+    because something had imported its module)."""
+    _register_channel(view, ChannelDescriptor(
+        name="lark", display_name="Lark", trigger_ref="pkg.mod:T",
+        reply_tools=("lark_cli",), row_prefix_template="[Lark]",
+    ))
+    assert view.get("lark").name == "lark"
+    view.registries.registry_for("ingress.channels").remove_owner("test.channel")
+    assert view.get("lark") is not None
+    assert view.get("lark").row_prefix_template == "[NarraNexus UI]"
+
+
+def test_registered_channel_without_a_message_source_warns(view, caplog):
+    """The silent case, turned into a signal.
+
+    A channel in the registry that declares no reply tools resolves to the
+    default handler — its IM replies would be judged with ``reply_owner`` /
+    ``notify_owner`` and its rows labelled ``[NarraNexus UI]``. That is exactly
+    the failure the old registry hid, so it must be loud."""
+    _register_channel(view, ChannelDescriptor(name="mute", display_name="Mute", trigger_ref="pkg.mod:T"))
+    with caplog.at_level("WARNING"):
+        assert view.get("mute").name == "default"
+
+
+def test_sourceless_sources_use_the_default_without_warning(view):
+    """chat / a2a / callback / skill_study declare nothing BY DESIGN."""
+    from narranexus.platform.channel.message_source_handler import SOURCELESS_SOURCES
+
+    for source in sorted(SOURCELESS_SOURCES):
+        h = view.get(source)
+        assert h.name == "default"
+        assert "notify_owner" in h.user_reply_tool_names
+        assert source not in view._warned_default  # type: ignore[attr-defined]
 
 
 def test_get_unknown_source_returns_default_handler():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
     default = MessageSourceRegistry.get("definitely_not_registered_xyz")
     # Default handler always recognises notify_owner so
@@ -62,17 +135,23 @@ def test_get_unknown_source_returns_default_handler():
     assert "notify_owner" in default.user_reply_tool_names
 
 
-def test_duplicate_registration_raises():
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
-    )
+def test_the_extractor_ref_is_resolved_lazily(view):
+    """Naming an extractor must not import the module that holds it — otherwise
+    building the view (a read) drags in every channel's SDK, which is the
+    import coupling this design removes."""
+    import sys
 
-    h1 = MessageSourceHandler(name="lark", user_reply_tool_names=("a",))
-    h2 = MessageSourceHandler(name="lark", user_reply_tool_names=("b",))
-    MessageSourceRegistry.register(h1)
-    with pytest.raises(ValueError, match="duplicate"):
-        MessageSourceRegistry.register(h2)
+    module_name = "tests.channel._lazy_extractor_probe"
+    sys.modules.pop(module_name, None)
+    _register_source(view, MessageSourceSpec(
+        name="probe",
+        reply_tools=("probe_send",),
+        reply_extractor_ref=f"{module_name}:extract",
+    ))
+    handler = view.get("probe")           # built…
+    assert module_name not in sys.modules  # …without importing the extractor
+    assert handler.extract_reply_text("probe_send", {"text": "hi"}) == "hi"
+    assert module_name in sys.modules
 
 
 def test_is_user_reply_tool_matches_mcp_prefixed_names():
@@ -80,7 +159,7 @@ def test_is_user_reply_tool_matches_mcp_prefixed_names():
     `mcp__chat_module__notify_owner`. The handler must
     match its registered short name as a substring so we don't have to
     enumerate every MCP-prefixed variant."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -93,7 +172,7 @@ def test_is_user_reply_tool_matches_mcp_prefixed_names():
 
 
 def test_is_user_reply_tool_matches_multiple_patterns():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -110,7 +189,7 @@ def test_is_user_reply_tool_matches_multiple_patterns():
 
 
 def test_format_row_prefix_substitutes_meta_and_channel_tag():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -138,7 +217,7 @@ def test_format_row_prefix_missing_fields_falls_back_gracefully():
     """Template references {sender_name} but channel_tag is missing —
     must not crash; should leave the placeholder empty or substitute a
     safe default."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="lark",
@@ -153,7 +232,7 @@ def test_format_row_prefix_missing_fields_falls_back_gracefully():
 
 
 def test_default_handler_renders_chat_ui_prefix():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
     msg = {
         "role": "user",
@@ -168,7 +247,7 @@ def test_default_handler_renders_chat_ui_prefix():
 def test_extract_reply_text_default_returns_content_arg():
     """Default extractor: tool_name matches user_reply_tool_names AND
     arguments has a `content` field → return that content."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -182,7 +261,7 @@ def test_extract_reply_text_default_returns_content_arg():
 
 
 def test_extract_reply_text_default_returns_none_for_unmatched_tool():
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
@@ -196,7 +275,7 @@ def test_extract_reply_text_custom_fn_overrides_default():
     """A handler with `extract_reply_fn` can implement non-standard
     extraction. This is the Lark path: tool_name = 'lark_cli', the reply
     text sits inside `arguments['command']` as a `--markdown` flag."""
-    from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
+    from narranexus.platform.channel.message_source_handler import MessageSourceHandler
 
     def lark_extract(tool_name, args):
         if "lark_cli" not in tool_name:
@@ -234,7 +313,7 @@ def test_extract_reply_text_strips_citeturn_tokens():
     reply-extraction layer (so users see clean prose, not literal
     cryptic markers). Verified format from incident 2026-06-08:
     tokens are concatenated to sentence ends with no whitespace."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -253,7 +332,7 @@ def test_extract_reply_text_strips_citeturn_tokens():
 def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
     """Several tokens in one reply (with whitespace between them after
     strip) get the leftover spaces tidied up."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -275,7 +354,7 @@ def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
 def test_extract_reply_text_preserves_text_without_tokens():
     """Fast-path: if no ``cite`` substring appears at all, the text is
     returned unchanged (no regex sweep, no whitespace mutation)."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -295,7 +374,7 @@ def test_extract_reply_text_does_not_match_word_cite():
     """The regex requires two alpha+digit cycles after ``cite``, so the
     English word "cite" used in ordinary prose (e.g. "Please cite the
     source") survives intact."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -316,7 +395,7 @@ def test_extract_reply_text_strips_tokens_through_custom_extractor():
     channels with non-standard reply tooling (Lark's --markdown flag,
     Slack/Telegram CLI wrappers, etc.) also get clean text without
     each having to implement the strip themselves."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -336,19 +415,15 @@ def test_extract_reply_text_strips_tokens_through_custom_extractor():
     assert out == "中朝外交：习近平抵达平壤"
 
 
-def test_dump_returns_serializable_snapshot():
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceHandler,
-        MessageSourceRegistry,
-    )
+def test_dump_returns_serializable_snapshot(view):
     import json
 
-    MessageSourceRegistry.register(MessageSourceHandler(
-        name="lark",
-        user_reply_tool_names=("lark_cli +messages-send",),
+    _register_channel(view, ChannelDescriptor(
+        name="lark", display_name="Lark", trigger_ref="pkg.mod:T",
+        reply_tools=("lark_cli +messages-send",),
         row_prefix_template="[Lark · {sender_name}]",
     ))
-    snapshot = MessageSourceRegistry.dump()
+    snapshot = view.dump()
     # Must be JSON-serialisable for debug logging.
     json.dumps(snapshot)
     assert "lark" in snapshot
@@ -361,7 +436,7 @@ def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
     call at all, so lark_cli non-send commands still classify as real
     tool calls downstream). Root cause of the
     2026-07-13 blank-bubble report."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -380,7 +455,7 @@ def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
 def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
     """Literal whitespace content never survives extraction either —
     the falsy check alone let "\\n" through as a truthy 'reply'."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 
@@ -399,7 +474,7 @@ def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
 def test_extract_owner_visible_text_inherits_blank_guard():
     """extract_owner_visible_text delegates to extract_reply_text, so
     the blank guard covers the owner-visible split too."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceHandler,
     )
 

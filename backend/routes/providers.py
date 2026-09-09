@@ -20,30 +20,37 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
-    FRAMEWORK_LOCKED_DETAIL,
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     CloudPolicyViolation,
     framework_allowed_in_cloud,
+    framework_locked_detail,
     netmind_slots_only,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
     OFFICIAL_BASE_URLS,
 )
-from xyz_agent_context.agent_framework.plugin_paths import framework_installed
-from xyz_agent_context.schema.provider_schema import (
-    LLMConfig,
-    SlotName,
+from narranexus.platform.agent_framework.loop.driver import (
+    framework_installed,
+    framework_meta,
+    framework_metas,
+)
+from narranexus.platform.agent_framework.providers.framework_binding import (
     SLOT_REQUIRED_PROTOCOLS,
 )
-from xyz_agent_context.utils.deployment_mode import (
+from narranexus.platform.schema.provider_schema import (
+    LLMConfig,
+    SlotName,
+)
+from narranexus.platform.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )
+from backend.host_events import notify_user_runnability_changed
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
 
 router = APIRouter()
 
@@ -152,7 +159,7 @@ async def _resume_agent_circuit_breakers(uid: str) -> None:
     slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
     fired on these paths. Best-effort — never fails the reconfigure."""
     try:
-        from xyz_agent_context.agent_framework.loop.circuit_breaker import (
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
             reset_for_owner,
         )
         await reset_for_owner(uid)
@@ -199,8 +206,8 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.agent_framework.providers.user_service import UserProviderService
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -215,7 +222,7 @@ async def _get_service():
 # NETMIND_SOURCE — the cost is one extra showing of the welcome flow.
 def _auto_provisioned_sources() -> frozenset[str]:
     from backend.integrations.netmind.netmind_provisioner import NETMIND_SOURCE
-    from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+    from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
 
     return frozenset({NETMIND_SOURCE, FREE_TIER_SOURCE})
 
@@ -254,7 +261,7 @@ async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
     Best-effort — a lookup failure just omits the field. The account is stored
     on ``user_providers`` at key-mint time (netmind_provisioner)."""
     try:
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.utils.db.db_factory import get_db_client
         db = await get_db_client()
         rows = await db.get(
             "user_providers", filters={"user_id": uid, "source": "netmind"}
@@ -366,7 +373,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
 
         # Hot-reload for current process (local mode)
         try:
-            from xyz_agent_context.agent_framework.api_config import (
+            from narranexus.platform.agent_framework.api_config import (
                 get_user_runtime_llm_configs,
                 set_user_config,
             )
@@ -376,11 +383,8 @@ async def add_provider(req: AddProviderRequest, request: Request):
             pass
 
         # Edge-triggered recovery: a newly-added provider (with default slots)
-        # can make the user runnable — revive their PAUSED_NO_QUOTA jobs.
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(uid)
+        # can make the user runnable — builtin.job revives PAUSED_NO_QUOTA jobs.
+        await notify_user_runnability_changed(uid)
         await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "provider_ids": new_ids, "data": _config_to_response(config)}
@@ -426,7 +430,7 @@ async def onboard(req: OnboardRequest, request: Request):
 
     # Hot-reload for current process (mirror add_provider / set_slot)
     try:
-        from xyz_agent_context.agent_framework.api_config import (
+        from narranexus.platform.agent_framework.api_config import (
             get_user_runtime_llm_configs,
             set_user_config,
         )
@@ -436,10 +440,7 @@ async def onboard(req: OnboardRequest, request: Request):
         pass
 
     # Edge-triggered recovery: the user just became runnable.
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(uid)
+    await notify_user_runnability_changed(uid)
     await _resume_agent_circuit_breakers(uid)
 
     return {
@@ -462,7 +463,7 @@ async def use_subscription(request: Request):
     wherever Power login is enabled (cloud OR a local opt-in deployment); further
     gated by ``settings.netmind_use_subscription_enabled``.
     """
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     from backend.integrations.netmind.netmind_key_client import (
         KeyAuthError,
         KeyUpstreamError,
@@ -520,7 +521,7 @@ async def use_subscription(request: Request):
     # Hot-reload + edge-triggered recovery (mirror /onboard) so the new provider
     # is live immediately for this session.
     try:
-        from xyz_agent_context.agent_framework.api_config import (
+        from narranexus.platform.agent_framework.api_config import (
             get_user_runtime_llm_configs,
             set_user_config,
         )
@@ -528,10 +529,7 @@ async def use_subscription(request: Request):
         set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
     except Exception:
         pass
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(uid)
+    await notify_user_runnability_changed(uid)
     await _resume_agent_circuit_breakers(uid)
 
     service = await _get_service()
@@ -621,8 +619,8 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework.providers import model_health, model_sync
-    from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+    from narranexus.platform.agent_framework.providers import model_health, model_sync
+    from narranexus.platform.agent_framework.providers.model_probe_ledger import (
         load_ledger,
         load_ledger_db,
         save_ledger,
@@ -669,7 +667,7 @@ async def sync_default_models(request: Request):
             # catalog: overwrite from the ledger's netmind_free entry (written
             # by the daily pass's gate). Entry absent = the gate has never run
             # here — leave the card alone rather than append ungated defaults.
-            from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+            from narranexus.platform.agent_framework.providers.model_probe_ledger import (
                 passing_models,
             )
 
@@ -759,7 +757,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
 
         # Hot-reload for current process
         try:
-            from xyz_agent_context.agent_framework.api_config import (
+            from narranexus.platform.agent_framework.api_config import (
                 get_user_runtime_llm_configs,
                 set_user_config,
             )
@@ -769,11 +767,8 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
             pass
 
         # Edge-triggered recovery: completing/changing the agent slot can make
-        # the user runnable — revive their PAUSED_NO_QUOTA jobs (non-blocking).
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(uid)
+        # the user runnable — builtin.job revives PAUSED_NO_QUOTA jobs (non-blocking).
+        await notify_user_runnability_changed(uid)
         await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}
@@ -819,7 +814,7 @@ async def slot_override_stats(request: Request):
     """How many of the caller's agents hold a per-agent override, per slot —
     the blast radius shown before a bulk 'apply defaults to all agents'."""
     uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     stats = await AgentSlotService(db).count_owner_overrides(uid)
     return {"success": True, "data": stats}
@@ -831,7 +826,7 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     agents, so they revert to inheriting the owner default on their next run.
     Semantics = clear-to-inherit (not stamp-a-snapshot)."""
     uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     # Validation (fail-closed on a bad slot), dedup, single agent-list fetch
     # and per-slot clear all live in the service — the route just validates
@@ -844,6 +839,17 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     return {"success": True, "data": {"cleared": cleared}}
 
 
+@router.get("/slots/agents-overview")
+async def slot_agents_overview(request: Request):
+    """Effective (agent + helper_llm) model per owned agent, in one call —
+    feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
+    uid = _get_user_id(request)
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    db = await get_db_client()
+    overview = await AgentSlotService(db).owner_agents_overview(uid)
+    return {"success": True, "data": {"agents": overview}}
+
+
 # =============================================================================
 # Agent Framework (coding-agent CLI choice — Claude Code vs Codex CLI)
 # =============================================================================
@@ -854,13 +860,14 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
 # "claude_code" so existing users are unaffected.
 
 
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
-# Single source of truth — keep the route's whitelist in sync with the
-# service layer. Adding a v3 framework name in providers/user_service
-# automatically opens the route here, no double-edit required.
-_SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
+
+# Single source of truth: the frameworks registered in this process. The
+# service layer validates against the same list, so a framework plugin is
+# selectable here the moment it is enabled — no whitelist to keep in sync.
+_supported_agent_frameworks = _UserProviderServiceForFrameworks.supported_agent_frameworks
 
 async def _ensure_codex_installed() -> dict:
     """Verify the codex binary bundled with the ``openai-codex-cli-bin``
@@ -880,7 +887,7 @@ async def _ensure_codex_installed() -> dict:
         ``"install_failed"`` with an actionable reason on failure (consumed
         by the frontend — only ``reason`` text is safe to change here).
     """
-    from xyz_agent_context.agent_framework import plugin_paths  # noqa: PLC0415
+    from narranexus.platform.agent_framework import plugin_paths  # noqa: PLC0415
 
     plugin_paths.activate_pyenv()
     try:
@@ -922,17 +929,19 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
        provider with a real api_key matching the framework's protocol
        (the one-key onboarding path). No CLI login needed; checked
        first when ``user_id`` is given.
-    2. **CLI OAuth** — ``codex login`` / ``claude`` credentials file on
-       the host, probed via a stub ProviderCard + the OAuth driver.
+    2. **CLI OAuth** — the CLI's credentials file on the host, probed via
+       a stub ProviderCard + the OAuth driver named by the framework's
+       ``FrameworkMeta.oauth_source`` (a framework that accepts no
+       subscription credential has no leg 2).
 
     The previous version only checked leg 2, which falsely reported
     "auth missing" for perfectly runnable API-key users.
     """
     # ── Leg 1: API-key provider on the agent slot ─────────────────────
     if user_id:
-        required_proto = "openai" if framework == "codex_cli" else "anthropic"
+        required_protos = framework_meta(framework).agent_protocols
         try:
-            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from narranexus.platform.utils.db.db_factory import get_db_client
             db = await get_db_client()
             slot = await db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": "agent"}
@@ -944,7 +953,7 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
                 if (
                     prov
                     and prov.get("api_key")
-                    and (prov.get("protocol") or "").lower() == required_proto
+                    and (prov.get("protocol") or "").lower() in required_protos
                 ):
                     # oauth_token rows land here too (their token rides
                     # api_key) — that is correct: a stored setup-token means
@@ -969,63 +978,50 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
             )
 
     # ── Leg 2: CLI OAuth credentials on the host ─────────────────────
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
 
-    # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
-    # which codex driver class is registered (v1 or v2 share the
-    # auth file path).
-    if framework == "codex_cli":
-        from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
-            CodexOAuthDriver,
+    # ── Leg 2: the CLI's own login, owned by the framework ───────────────
+    # The subscription source a framework redeems is also the name of the
+    # OAuth driver that probes it (``claude_oauth`` / ``codex_oauth``): a
+    # framework plugin brings both, so nothing here is keyed on a name.
+    meta = framework_meta(framework)
+    source = meta.oauth_source
+    if source is None:
+        return {
+            "ok": False,
+            "detail": (
+                f"{meta.display_name} runs on an API-key provider only: add one and "
+                f"assign it to the agent slot."
+            ),
+        }
+    from narranexus.platform.agent_framework.providers.driver.registry import get_driver_class
+
+    oauth_driver = get_driver_class(source)
+    if oauth_driver is None:
+        raise HTTPException(status_code=503, detail=f"{source} driver is not available (builtin.providers disabled?)")
+    # A fake DB row through from_row, so auth_ref comes from the same
+    # derive.py truth table every real row uses (read-time fallback) — not
+    # a hand-written copy that silently drifts when the sentinel semantics
+    # change. auth_type must be explicit ("oauth"): from_row defaults it to
+    # "api_key", which derives no auth_ref and would report a logged-in host
+    # as missing credentials. No driver_type: the driver is constructed
+    # directly below.
+    stub = ProviderCard.from_row({
+        "provider_id": f"_probe_{framework}",
+        "user_id": "_probe",
+        "name": "probe",
+        "source": source,
+        "protocol": meta.agent_protocols[0],
+        "auth_type": "oauth",
+    })
+    health = await oauth_driver(stub).probe()
+    detail = health.detail
+    if not health.ok:
+        detail += (
+            f" — or add an API-key {meta.agent_protocols[0]} provider and assign "
+            f"it to the agent slot; no CLI login needed then."
         )
-        # A fake DB row through from_row, so auth_ref comes from the same
-        # derive.py truth table every real row uses (read-time fallback) —
-        # not a third hand-written copy that silently drifts when the
-        # sentinel semantics change. auth_type must be explicit ("oauth"):
-        # from_row defaults it to "api_key", which derives no auth_ref and
-        # would report a logged-in host as missing credentials. No
-        # driver_type: the driver is constructed directly below.
-        stub = ProviderCard.from_row({
-            "provider_id": "_probe_codex",
-            "user_id": "_probe",
-            "name": "probe",
-            "source": "codex_oauth",
-            "protocol": "openai",
-            "auth_type": "oauth",
-        })
-        health = await CodexOAuthDriver(stub).probe()
-        detail = health.detail
-        if not health.ok:
-            detail += (
-                " — or add an API-key OpenAI provider (Custom OpenAI) and "
-                "assign it to the agent slot; no codex login needed then."
-            )
-        return {"ok": health.ok, "detail": detail}
-
-    if framework == "claude_code":
-        from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
-            ClaudeOAuthDriver,
-        )
-        # Same shape as the codex stub above: from_row derives auth_ref
-        # from the shared truth table; explicit auth_type="oauth" required.
-        stub = ProviderCard.from_row({
-            "provider_id": "_probe_claude",
-            "user_id": "_probe",
-            "name": "probe",
-            "source": "claude_oauth",
-            "protocol": "anthropic",
-            "auth_type": "oauth",
-        })
-        health = await ClaudeOAuthDriver(stub).probe()
-        detail = health.detail
-        if not health.ok:
-            detail += (
-                " — or add an API-key Anthropic provider and assign it to "
-                "the agent slot; no claude login needed then."
-            )
-        return {"ok": health.ok, "detail": detail}
-
-    return {"ok": False, "detail": f"unknown framework: {framework}"}
+    return {"ok": health.ok, "detail": detail}
 
 
 @router.get("/agent-framework")
@@ -1039,16 +1035,22 @@ async def get_agent_framework(request: Request):
         "success": True,
         "data": {
             "framework": framework,
-            "supported": list(_SUPPORTED_AGENT_FRAMEWORKS),
-            # Richer per-framework status for the plugin-aware Settings
-            # picker: nexus_power is built-in (always available);
-            # claude_code/codex_cli report whether their plugin package is
-            # present (cloud images pre-install these in the base
-            # environment, so framework_installed reports True there too —
-            # see plugin_paths.framework_installed).
+            "supported": _supported_agent_frameworks(),
+            # Per-framework status + the framework's own description for the
+            # plugin-aware Settings picker (display name, the protocol it
+            # drives, the subscription card it redeems). ``available`` is the
+            # registry's install probe: a host-shipped framework is always
+            # available; an on-demand one when its package is present (cloud
+            # images pre-install every SDK, so True there too).
             "frameworks": [
-                {"name": fw, "available": framework_installed(fw)}
-                for fw in _SUPPORTED_AGENT_FRAMEWORKS
+                {
+                    "name": meta.name,
+                    "display_name": meta.display_name,
+                    "protocol": meta.protocol,
+                    "oauth_source": meta.oauth_source,
+                    "available": framework_installed(meta.name),
+                }
+                for meta in framework_metas()
             ],
             "probe": probe,
         },
@@ -1083,24 +1085,21 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     # here as a framework-name comparison; that is what kept NexusPower
     # locked out of cloud after it shipped.
     if not framework_allowed_in_cloud(body.framework, _is_staff(request)):
-        raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
-    if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
+        raise HTTPException(status_code=403, detail=framework_locked_detail())
+    supported = _supported_agent_frameworks()
+    if body.framework not in supported:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Unknown framework {body.framework!r}. "
-                f"Supported: {list(_SUPPORTED_AGENT_FRAMEWORKS)}"
-            ),
+            detail=f"Unknown framework {body.framework!r}. Supported: {supported}",
         )
 
     # Fail-closed: a local/desktop user cannot switch onto a framework whose
     # plugin isn't installed yet — that would otherwise surface as a much
     # later, harder-to-diagnose FrameworkNotInstalledError out of
-    # get_agent_loop_driver the next time they send a message. nexus_power
-    # is exempt (framework_installed always reports True for it); on cloud,
-    # framework_installed also reports True for claude_code/codex_cli
-    # (their SDKs ship in the base image), so this never blocks cloud users.
-    if body.framework != "nexus_power" and not framework_installed(body.framework):
+    # get_agent_loop_driver the next time they send a message. A host-shipped
+    # framework always reports installed; on cloud the on-demand SDKs ship in
+    # the base image, so this never blocks cloud users.
+    if not framework_installed(body.framework):
         raise HTTPException(
             status_code=409,
             detail=f"Framework '{body.framework}' plugin is not installed",

@@ -4,7 +4,7 @@
  * There are two names for one destination — `reply_owner` when the owner is
  * the one who spoke and is waiting, `notify_owner` when the owner is not part
  * of what is happening and is being interrupted. The agent's desk carries
- * exactly one per turn (see ChatModule.get_expressive_tools on the backend),
+ * exactly one per turn (see ChatModule.contribute_tools on the backend),
  * so the frontend can never assume which one a given turn produced.
  *
  * Anything that answers "did the owner receive something" must accept BOTH.
@@ -13,7 +13,7 @@
  * content is there, and the bubble simply never renders.
  *
  * Mirrors `_OWNER_TOOL_RE` in
- * `src/xyz_agent_context/channel/message_source_handler.py` — the two must move
+ * `src/narranexus/platform/channel/message_source_handler.py` — the two must move
  * together. (This comment said `chat_module/chat_module.py` until 2026-08-18; a
  * dangling pointer in the one comment whose whole job is keeping two copies in
  * sync is worse than no pointer, because it is followed.)

@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.utils.timezone import utc_now
 
 
 async def _seed_channel(db, channel_id="ch_1", agents=("agent_a", "agent_b")):
@@ -56,7 +56,7 @@ async def test_a_root_run_labels_itself(db_client):
     Locked because the alternative (leaving it NULL for roots) would make the
     very first run of every tree unstoppable-as-a-tree.
     """
-    from xyz_agent_context.agent_runtime.run_recorder import RunRecorder
+    from narranexus.platform.agent_runtime.run_recorder import RunRecorder
 
     await _seed_run(db_client, "evt_root", root=None, state="completed")
     rec = RunRecorder(db=db_client)
@@ -70,7 +70,7 @@ async def test_a_root_run_labels_itself(db_client):
 
 @pytest.mark.asyncio
 async def test_a_caused_run_inherits_the_tree(db_client):
-    from xyz_agent_context.agent_runtime.run_recorder import RunRecorder
+    from narranexus.platform.agent_runtime.run_recorder import RunRecorder
 
     await _seed_run(db_client, "evt_child", root=None, state="completed")
     rec = RunRecorder(db=db_client, inherited_root_run_id="evt_root")
@@ -86,7 +86,7 @@ async def test_a_caused_run_inherits_the_tree(db_client):
 async def test_the_client_reads_the_tree_off_trigger_extra_data(db_client):
     """The seam between trigger and recorder — a rename on either side would
     silently orphan every caused run, and nothing else would fail."""
-    from xyz_agent_context.agent_runtime.client import _inherited_root_run_id
+    from narranexus.platform.agent_runtime.client import _inherited_root_run_id
 
     assert _inherited_root_run_id({"trigger_extra_data": {"root_run_id": "evt_r"}}) == "evt_r"
     assert _inherited_root_run_id({"trigger_extra_data": {}}) is None

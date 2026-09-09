@@ -8,10 +8,12 @@ dispatcher routing + marker short-circuit + allow/deny filters,
 capability expansion.
 """
 
+import sys
+
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import McpServerSpec
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import McpServerSpec
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     PolicyContext,
     ToolAnnotations,
     ToolCall,
@@ -19,17 +21,17 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
     ToolResult,
     ToolSpec,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.builtin import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.builtin import (
     BuiltinToolset,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.dispatcher import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.dispatcher import (
     ToolDispatcher,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.expansion import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.expansion import (
     CapabilityExpander,
     Expandable,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.policy import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.policy import (
     DisallowedToolsLayer,
     PolicyEngine,
     ShellConfinementLayer,
@@ -215,7 +217,7 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     tiebreak); filter semantics keep the full token list. Expressive
     (reply) tools that pass the filter hold reserved seats, so the
     turn's reply surface can never be crowded out by fillers."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling import (
         dispatcher as dispatcher_mod,
     )
 
@@ -303,7 +305,7 @@ async def test_expressive_seat_replaces_weakest_without_reordering(ctx, engine):
     placement — strong matches keep their rank order, and the missing
     reply tool replaces only the weakest non-expressive seat at the
     tail."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling import (
         dispatcher as dispatcher_mod,
     )
 
@@ -463,7 +465,12 @@ def test_builtin_toolset_order_is_deterministic(ctx):
     groups = frozenset({"files", "shell", "context"})
     a = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
     b = [s.name for s in BuiltinToolset(ctx, enabled_groups=groups).list_tools()]
-    assert a == b and len(a) > 0
+    # Hand-written literal, not a second call to the same code path: if
+    # registration order were ever "fixed" to alphabetical (or any other
+    # derived order), `a == b` alone would stay green while silently
+    # breaking prompt-cache-friendly ordering.
+    assert a == ["read_file", "write_file", "edit_file", "glob", "grep", "ls", "bash"]
+    assert a == b
 
 
 def test_mcp_channel_registers_batches_append_only():
@@ -472,7 +479,7 @@ def test_mcp_channel_registers_batches_append_only():
     earlier one — never interleaves or resorts."""
     from types import SimpleNamespace
 
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.mcp_channel import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.mcp_channel import (
         McpToolChannel,
     )
 
@@ -850,3 +857,45 @@ def test_a_team_artifacts_home_is_readable_by_a_teammate(engine, workspace, tmp_
         pctx,
     )
     assert not denied.allowed
+
+
+def test_mcp_channel_runs_a_stdio_server_with_the_host_interpreter(tmp_path):
+    """The tool template's default transport, end to end: the channel spawns
+    the server as a child process, lists its tools under the mcp__ namespace
+    and calls one. Before this the channel spoke SSE only and read a stdio
+    config as an empty URL, so a plugin's tools silently never existed."""
+    import asyncio
+
+    from narranexus_plugins.frameworks_nexus_power.core.assembly import mcp_spec_from_config
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.mcp_channel import (
+        McpToolChannel,
+        stdio_command,
+    )
+
+    server = tmp_path / "srv.py"
+    server.write_text(
+        "from fastmcp import FastMCP\n"
+        "mcp = FastMCP('calc')\n"
+        "@mcp.tool()\n"
+        "def add(a: int, b: int) -> int:\n"
+        "    return a + b\n"
+        "mcp.run()\n"
+    )
+    spec = mcp_spec_from_config({"command": "python", "args": [str(server)], "env": {"NX_TEST_MARK": "1"}})
+    assert spec.is_stdio and spec.args == (str(server),) and spec.env == {"NX_TEST_MARK": "1"}
+    assert stdio_command("python") == sys.executable and stdio_command("uvx") == "uvx"
+    url_spec = mcp_spec_from_config({"url": "http://x/sse", "headers": {"A": "1"}})
+    assert not url_spec.is_stdio and url_spec.url == "http://x/sse" and url_spec.headers == {"A": "1"}
+
+    async def _run():
+        channel = McpToolChannel({"calc": spec})
+        try:
+            await channel.connect()
+            names = [t.name for t in channel.list_tools()]
+            assert names == ["mcp__calc__add"], names
+            result = await channel.call("mcp__calc__add", {"a": 1, "b": 2}, ToolContext(agent_id="a", workspace=str(tmp_path)))
+            assert result.ok and result.content.strip() == "3", result
+        finally:
+            await channel.aclose()
+
+    asyncio.run(_run())

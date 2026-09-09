@@ -23,12 +23,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework import (
-    ClaudeAgentSDK,
-    CodexSDK,
-    get_agent_loop_driver,
-)
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_framework import get_agent_loop_driver
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _resolve_agent_framework_name,
 )
 
@@ -90,7 +88,7 @@ def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
     """Cutover 2026-06-08: ``codex_cli`` now resolves to ``CodexSDKv2``.
     The v1 ``CodexSDK`` class is still importable (revival fallback)
     but no longer registered."""
-    from xyz_agent_context.agent_framework import CodexSDKv2
+    from narranexus_plugins.frameworks_codex_cli.official_sdk import CodexSDKv2
 
     driver = get_agent_loop_driver(
         framework="codex_cli", working_path=str(tmp_path)
@@ -164,7 +162,11 @@ async def test_dispatch_passes_unknown_framework_through():
     behaviour deliberately chosen over silent fallback."""
     db = _FakeDB(owner_framework="future_framework_X")
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "future_framework_X"
+    # Normalised to the registry's case-insensitive key (the overlay now goes
+    # through the ONE accessor ``resolve_framework_name``), but NOT rewritten to
+    # the default — the unknown name still reaches get_agent_loop_driver, which
+    # raises ValueError so a typo surfaces.
+    assert name == "future_framework_x"
     with pytest.raises(ValueError):
         get_agent_loop_driver(framework=name, working_path="/tmp")
 
@@ -200,7 +202,7 @@ def test_step3_splits_build_context_from_run_agent_phase():
     the tool sub-steps nest under (``3.4.{n}``)."""
     # Canonical home is the leaf schema module (importable by both the emitter
     # and run_recorder without a circular import).
-    from xyz_agent_context.schema import (
+    from narranexus.platform.schema import (
         PHASE_BUILD_CONTEXT_STEP,
         PHASE_BUILD_CONTEXT_TITLE,
         PHASE_RUN_AGENT_STEP,
@@ -227,12 +229,16 @@ def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
     test_origin_declaration_plumbing / test_executor_seam.)"""
     import inspect
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         step_3_agent_loop,
+        step_3_assemble_context,
     )
 
-    # @timed wraps it — unwrap to the real generator before reading source.
-    src = inspect.getsource(inspect.unwrap(step_3_agent_loop))
+    # The build-context phase lives in step_3_assemble_context (the Assemble
+    # stage) and the run-agent phase in step_3_agent_loop (the Act stage) since
+    # the pipeline split; the invariant spans both bodies.
+    # @timed wraps the loop — unwrap to the real generator before reading source.
+    src = inspect.getsource(step_3_assemble_context) + inspect.getsource(inspect.unwrap(step_3_agent_loop))
 
     # The old single-phase title must not be emitted anywhere in the body...
     assert "Execute Agent Loop" not in src

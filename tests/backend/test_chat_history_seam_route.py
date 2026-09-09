@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.chat_history as ch
+import narranexus_plugins.chat_module.routes as ch
 
 OWNER_ID = "user_tc"
 OWNER = {"x-test-user": OWNER_ID}
@@ -29,9 +29,9 @@ def _memory(*msgs):
 
 @pytest.fixture
 async def client(monkeypatch):
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     backend_db = SQLiteBackend(":memory:")
     await backend_db.initialize()

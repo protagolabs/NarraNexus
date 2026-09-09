@@ -31,14 +31,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.context import RunContext
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.context import RunContext
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     step_4_persist_results,
 )
-from xyz_agent_context.narrative import EventService, NarrativeService
-from xyz_agent_context.narrative.models import TriggerType
-from xyz_agent_context.schema import ExecutionPath, PathExecutionResult
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.narrative import EventService, NarrativeService
+from narranexus.platform.narrative.models import TriggerType
+from narranexus.platform.schema import ExecutionPath, PathExecutionResult
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 # Shaped like a real Claude-side step (survey §3: {tool_name, arguments, …}).
 EXECUTION_STEPS = [

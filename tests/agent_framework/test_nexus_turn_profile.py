@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import (
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import (
     NexusAgent,
     claude_config,
 )
-from xyz_agent_context.schema.turn_profile import TurnProfile
+from narranexus.platform.schema.turn_profile import TurnProfile
 
 
 @pytest.fixture()

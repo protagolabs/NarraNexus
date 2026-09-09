@@ -11,8 +11,8 @@ completed + recorder.had_fatal_error) and must still count as a failure.
 
 import pytest
 
-from xyz_agent_context.agent_runtime import background_run as brmod
-from xyz_agent_context.agent_runtime.background_run import (
+from narranexus.platform.agent_runtime import background_run as brmod
+from narranexus.platform.agent_runtime.background_run import (
     STATE_CANCELLED,
     STATE_COMPLETED,
     STATE_FAILED,
@@ -40,7 +40,7 @@ def spy(monkeypatch):
     async def fake_success(agent_id, db=None):
         calls["success"].append(agent_id)
 
-    import xyz_agent_context.agent_framework.loop.circuit_breaker as cb
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb
     monkeypatch.setattr(cb, "record_failure", fake_failure)
     monkeypatch.setattr(cb, "record_success", fake_success)
     return calls
@@ -95,7 +95,7 @@ async def test_breaker_error_never_propagates(monkeypatch):
     async def boom(*a, **k):
         raise RuntimeError("db down")
 
-    import xyz_agent_context.agent_framework.loop.circuit_breaker as cb
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb
     monkeypatch.setattr(cb, "record_failure", boom)
 
     run = _make_run()

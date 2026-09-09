@@ -46,6 +46,7 @@ import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
 import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
+import { useStudioLifecycle } from '@/hooks/useStudioLifecycle';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
@@ -107,8 +108,17 @@ export function ChatView() {
 
   const isMobile = useIsMobile();
   const pendingPanel = useUIStore((s) => s.pendingPanel);
+  const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+
+  // The creation studio lives exactly as long as its panel is what this
+  // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
+  // not at each way the drawer can close. Which entries OFFER its tab is the
+  // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
+  // the chat header's ⋯ menu and the ⌘K palette; the drawer itself has no
+  // switcher any more, so nothing here filters a tab list.
+  useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -121,7 +131,8 @@ export function ChatView() {
   useEffect(() => {
     if (pendingPanel) {
       setDrawerTab((prev) => {
-        if (prev === (pendingPanel as AtomicTabId)) return null;
+        // 'open' callers must end up open; only a user toggle closes.
+        if (pendingPanelMode === 'toggle' && prev === (pendingPanel as AtomicTabId)) return null;
         try {
           window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
         } catch { /* storage unavailable — onboarding hint just stays */ }
@@ -129,7 +140,7 @@ export function ChatView() {
       });
       clearPendingPanel();
     }
-  }, [pendingPanel, clearPendingPanel]);
+  }, [pendingPanel, pendingPanelMode, clearPendingPanel]);
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);

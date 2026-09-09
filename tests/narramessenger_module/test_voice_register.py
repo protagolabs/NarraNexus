@@ -21,17 +21,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.narramessenger_context_builder import (
+from narranexus_plugins.narramessenger_module.narramessenger_context_builder import (
     NarramessengerContextBuilder,
 )
-from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+from narranexus_plugins.narramessenger_module.narramessenger_module import (
     NarramessengerModule,
 )
-from xyz_agent_context.module.narramessenger_module import _narramessenger_mcp_tools
-from xyz_agent_context.schema.parsed_message import (
+from narranexus_plugins.narramessenger_module import _narramessenger_mcp_tools
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,
@@ -132,11 +132,11 @@ async def test_expressive_surface_leads_with_speak_on_voice_turns(monkeypatch):
     voice_ctx = SimpleNamespace(
         working_source="narramessenger", extra_data={"rtc_voice": RTC}
     )
-    tools = await module.get_expressive_tools(voice_ctx)
+    tools = await module.expressive_tools(voice_ctx)
     assert tools[0] == "mcp__narramessenger_module__speak"
     assert "mcp__narramessenger_module__narra_reply" in tools
 
     normal_ctx = SimpleNamespace(working_source="narramessenger", extra_data={})
-    normal = await module.get_expressive_tools(normal_ctx)
+    normal = await module.expressive_tools(normal_ctx)
     assert "mcp__narramessenger_module__speak" not in normal
     assert normal[0] == "mcp__narramessenger_module__narra_reply"

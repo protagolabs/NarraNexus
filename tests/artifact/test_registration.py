@@ -21,15 +21,15 @@ import os
 
 import pytest
 
-from xyz_agent_context.artifact import (
+from narranexus.platform.artifact import (
     ArtifactError,
     ArtifactKindMismatch,
     ArtifactNotFound,
     ArtifactPathEscape,
     ArtifactService,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 # Workspace path of the test agent, RELATIVE to base_working_path — routed
 # through the layout helper so these tests track the real layout (flat vs
@@ -41,7 +41,7 @@ WS_REL = agent_workspace_relpath("agent_x", "user_y")
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     # Create the per-agent workspace and a sample artifact subdirectory with
@@ -363,7 +363,7 @@ async def test_reregister_refreshes_content_hash(env):
 
 @pytest.mark.asyncio
 async def test_hash_failure_never_blocks_registration(env, monkeypatch):
-    import xyz_agent_context.artifact._artifact_impl.registration as reg
+    import narranexus.platform.artifact._artifact_impl.registration as reg
 
     monkeypatch.setattr(reg, "compute_entry_hash", lambda p: None)
     result = await ArtifactService(env["db"]).register(

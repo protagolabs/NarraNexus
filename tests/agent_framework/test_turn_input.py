@@ -16,7 +16,7 @@ import dataclasses
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
+from narranexus.platform.agent_framework.loop.turn_input import TurnInput
 
 
 def _mk(**overrides):
@@ -104,7 +104,7 @@ def test_turn_profile_omitted_when_none():
 
 
 def test_turn_profile_rides_kwargs_when_set():
-    from xyz_agent_context.schema.turn_profile import TurnProfile
+    from narranexus.platform.schema.turn_profile import TurnProfile
 
     profile = TurnProfile.voice_fast()
     kwargs = _mk(turn_profile=profile).driver_kwargs()

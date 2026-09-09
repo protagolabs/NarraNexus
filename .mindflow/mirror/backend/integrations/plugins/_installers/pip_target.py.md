@@ -17,7 +17,7 @@ wheel到隔离目录、怎么从磁盘反查它的版本"的地方。
 - **被谁用**：`service.PluginService.__init__` 实例化一个
   `PipTargetInstaller` 挂在 `self._installers["pip"]`;`registry.py` 里
   两个插件的 pip `InstallComponent` 最终都由它处理。
-- **依赖谁**：`xyz_agent_context.agent_framework.plugin_paths.pyenv_dir`
+- **依赖谁**：`narranexus.platform.agent_framework.plugin_paths.pyenv_dir`
   （落点单一真值,不自己拼路径)、`_installers.base` 的 `PluginInstaller`
   /`InstalledState`/`stream_subprocess`。
 

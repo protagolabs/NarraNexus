@@ -99,13 +99,13 @@ def test_fmt_ms(ms, expected):
 
 _HOP = (
     "2026-08-14 15:01:03.211 | INFO     | -------- -------------- | "
-    "xyz_agent_context.message_bus.message_bus_trigger:_handle_channel_batch:1291 - "
+    "narranexus.platform.message_bus.message_bus_trigger:_handle_channel_batch:1291 - "
     "[bus-timing] agent=agent_a channel=ch_1 team=True batch=2 "
     "queue_wait_s=7.97 oldest_wait_s=8.50 turn_s=23.12 hop_s=31.10"
 )
 _TURN = (
     "2026-08-14 15:01:03.200 | INFO     | run_cbd evt_c9c | "
-    "xyz_agent_context.agent_runtime.agent_runtime:run:869 - "
+    "narranexus.platform.agent_runtime.agent_runtime:run:869 - "
     "[turn-timing] agent=agent_a event=evt_c9c source=WorkingSource.MESSAGE_BUS "
     "pre_s=0.00 setup_s=6.26 loop_s=16.80 persist_s=0.04 total_s=23.11 "
     "interrupted=False"

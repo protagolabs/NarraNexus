@@ -13,15 +13,15 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.repository import steer_inbox_repository as sir
-from xyz_agent_context.repository.steer_inbox_repository import (
+from narranexus.platform.repository import steer_inbox_repository as sir
+from narranexus.platform.repository.steer_inbox_repository import (
     MAX_CONTENT_BYTES,
     SteerInboxFull,
     SteerInboxRepository,
 )
-from xyz_agent_context.schema.steer_schema import SteerInjection
-from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
-from xyz_agent_context.utils.timezone import to_datetime6_literal, utc_now
+from narranexus.platform.schema.steer_schema import SteerInjection
+from narranexus.platform.utils.db.dialect_errors import is_unique_violation
+from narranexus.platform.utils.timezone import to_datetime6_literal, utc_now
 
 
 def _inj(run_id: str, msg_id: str, content: str = "x", source: str = "team") -> SteerInjection:

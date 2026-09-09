@@ -227,8 +227,12 @@ export function AgentList() {
     }
   };
 
-  const handleCreateAgent = async () => {
-    await createAgent();
+  // Zero-agent empty state. Routed through the creation studio's fork, not
+  // straight into a blank agent: this is the first-run user the fork exists
+  // for. Team-scoped creation below stays direct — that flow already has a
+  // destination and a reason.
+  const handleCreateAgent = () => {
+    navigate('/app/agents/new');
   };
 
   // #43: create a new agent already assigned to this team; useCreateAgent

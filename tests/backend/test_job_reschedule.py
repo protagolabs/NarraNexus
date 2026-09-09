@@ -16,8 +16,8 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.module.job_module.job_recovery import reschedule_job
+from narranexus.platform.schema.job_schema import JobStatus
+from narranexus_plugins.job_module.job_recovery import reschedule_job
 
 SCHEDULED_CRON = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 SCHEDULED_INTERVAL = '{"interval_seconds":3600,"timezone":"Asia/Shanghai"}'
@@ -160,11 +160,12 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import backend.routes.dashboard.routes as routes_mod  # noqa: E402
+import narranexus_plugins.job_module.routes_dashboard as jobs_routes_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     original = db_factory_mod.get_db_client
     yield
     db_factory_mod.get_db_client = original
@@ -173,6 +174,7 @@ def _restore_get_db():
 def _build_client(db, viewer_id="u"):
     app = FastAPI()
     app.include_router(routes_mod.router, prefix="/api/dashboard")
+    app.include_router(jobs_routes_mod.router, prefix="/api/dashboard")  # builtin.job's dashboard controls
 
     @app.middleware("http")
     async def _fake_auth(request, call_next):
@@ -182,7 +184,7 @@ def _build_client(db, viewer_id="u"):
     async def _get_db_override():
         return db
 
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     db_factory_mod.get_db_client = _get_db_override
     return TestClient(app)
 

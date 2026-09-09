@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-08-21
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（dev 实测）— 折叠问候按身份去重
+
+`BOOTSTRAP_GREETING_SESSION_ID` 的会话消息在历史含 `bootstrap` 行时直接丢弃；此前靠内容匹配，前端中文副本对不上后端英文原文，回合结束后问候显示两遍、刷新才消失。
 
 ## 2026-08-21 — 不再在 history 循环里丢弃 message_bus 活动行
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from xyz_agent_context.message_bus.team_posting import post_team_reply
+from narranexus.platform.message_bus.team_posting import post_team_reply
 
 
 async def speak_in_room(

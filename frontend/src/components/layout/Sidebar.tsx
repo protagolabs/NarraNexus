@@ -18,17 +18,11 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
   PanelLeft,
-  Sliders,
-  Server,
   Monitor,
   Cloud,
   RotateCcw,
-  LayoutDashboard,
-  Store,
-  Upload,
   User,
   Users,
-  BookOpen,
   ChevronsUpDown,
 } from 'lucide-react';
 import { BetaBadge, ScrollArea, useConfirm } from '@/components/ui';
@@ -36,23 +30,17 @@ import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useCreateAgent, useAgentImported, useDismissOnOutside } from '@/hooks';
+import { useAgentImported, useDismissOnOutside } from '@/hooks';
 import { useConfigStore, useRuntimeStore, useUIStore } from '@/stores';
 import { cn } from '@/lib/utils';
+import { SIDEBAR, SIDEBAR_SECTIONS, sortedSidebarItems, useRegistryEntries } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 import { wipeAllSessionData } from '@/lib/sessionWipe';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
 import { FIND_US_URL } from './TopBar';
-
-// Prefetch the lazy DashboardPage chunk on hover/focus so the click arrives
-// to a warm cache. Static literal -> Vite resolves at build time, no
-// injection risk.
-const prefetchDashboard = () => {
-  // Background prefetch — swallow a failure explicitly (the real navigation
-  // retries, and ChunkErrorBoundary handles the render-blocking case).
-  import('@/pages/DashboardPage').catch(() => {});
-};
 
 // Nav rows are LIST ROWS — same interaction ladder as the agent/team rows
 // below them (design_system.md §2.5): hover = --nm-row-hover, current page =
@@ -78,11 +66,6 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
-  // Active dashboard tab (drives the Manage-Agents vs Export highlight). Parsed,
-  // not `search.includes('tab=export')`, so `?tab=exportfoo`/`?x=tab=export`
-  // can't false-match.
-  const dashboardTab = new URLSearchParams(location.search).get('tab');
-
   const { userId, displayName } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
@@ -90,11 +73,14 @@ export function Sidebar() {
   // user_id (local mode, where it IS the chosen username).
   const userLabel = displayName || userId;
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
-  const { createAgent, creating: creatingAgent } = useCreateAgent();
   const handleImportApplied = useAgentImported();
   // Import-from-other-source is local-only: the scanner reads the user's
   // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
   const isLocalMode = mode === 'local';
+  // Nav rows come from the sidebar registry (builtin rows are registered by
+  // platform/builtin.ts; a plugin registering later re-renders this list).
+  const navItems = sortedSidebarItems(features, useRegistryEntries(SIDEBAR));
+  const whenCtx = useWhenContext({});
 
   // The cloud/local mode switcher is hidden — we don't want users choosing
   // the deployment mode. All the switching logic (handleSwitchMode, mode
@@ -196,78 +182,38 @@ export function Sidebar() {
       <div className="px-2 pb-2 flex flex-col gap-px border-b border-[var(--nm-hairline)]">
         <span data-help-id="sidebar.create-agent">
           <CreateMenu
-            onCreateAgent={() => void createAgent()}
+            // The "+" opens the creation studio's fork rather than creating
+            // straight away: a one-click create is what left users unaware
+            // they had created an agent at all. The blank path there calls
+            // the same useCreateAgent().
+            onCreateAgent={() => navigate('/app/agents/new')}
             onCreateTeam={() => navigate('/app/teams/new')}
             onImportBundle={() => navigate('/app/bundle/import')}
             onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
-            disabled={creatingAgent}
           />
         </span>
-        <button
-          type="button"
-          onClick={() => navigate('/app/dashboard?tab=export')}
-          onMouseEnter={prefetchDashboard}
-          onFocus={prefetchDashboard}
-          title={t('sidebar.exportTitle')}
-          data-help-id="sidebar.export"
-          className={cn(
-            NAV_ROW,
-            location.pathname === '/app/dashboard' && dashboardTab === 'export' && NAV_ROW_ACTIVE,
-          )}
-        >
-          <Upload className="w-4 h-4 shrink-0" />
-          {t('sidebar.export')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/app/dashboard')}
-          onMouseEnter={prefetchDashboard}
-          onFocus={prefetchDashboard}
-          data-help-id="sidebar.manage-agents"
-          className={cn(
-            NAV_ROW,
-            location.pathname === '/app/dashboard' && dashboardTab !== 'export' && NAV_ROW_ACTIVE,
-          )}
-        >
-          <LayoutDashboard className="w-4 h-4 shrink-0" />
-          {t('sidebar.dashboard')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/app/marketplace')}
-          className={cn(NAV_ROW, location.pathname === '/app/marketplace' && NAV_ROW_ACTIVE)}
-        >
-          <Store className="w-4 h-4 shrink-0" />
-          {t('sidebar.marketplace')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/app/you')}
-          className={cn(NAV_ROW, location.pathname === '/app/you' && NAV_ROW_ACTIVE)}
-        >
-          <BookOpen className="w-4 h-4 shrink-0" />
-          {t('sidebar.workspace')}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/app/settings')}
-          title={t('sidebar.settingsTitle')}
-          className={cn(NAV_ROW, location.pathname === '/app/settings' && NAV_ROW_ACTIVE)}
-        >
-          <Sliders className="w-4 h-4 shrink-0" />
-          {t('sidebar.settings')}
-        </button>
-        {features.showSystemPage && (
-          <button
-            type="button"
-            onClick={() => navigate('/app/system')}
-            className={cn(NAV_ROW, location.pathname === '/app/system' && NAV_ROW_ACTIVE)}
-          >
-            <Server className="w-4 h-4 shrink-0" />
-            {t('sidebar.system')}
-          </button>
-        )}
+        {navItems.map(({ id, value }) => {
+          const Icon = value.icon;
+          const active = value.isActive ? value.isActive(location) : location.pathname === value.to;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => navigate(value.to)}
+              onMouseEnter={value.prefetch}
+              onFocus={value.prefetch}
+              title={value.titleKey ? t(value.titleKey) : undefined}
+              data-help-id={value.helpId}
+              className={cn(NAV_ROW, active && NAV_ROW_ACTIVE)}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {t(value.labelKey)}
+            </button>
+          );
+        })}
       </div>
+      {/* Plugin sections under the nav (ui.sidebarSections), gated by `when`. */}
+      <SlotOutlet registry={SIDEBAR_SECTIONS} ctx={whenCtx} agentId={null} as="div" className="px-2 pb-1 space-y-1" />
 
       {/* ── Zone 2b: Chats (teams + agents, owned by AgentList) ─────────── */}
       <ScrollArea className="flex-1">

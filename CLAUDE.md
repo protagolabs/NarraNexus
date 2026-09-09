@@ -408,7 +408,7 @@ All tables are registered in `utils/schema_registry.py`. SQLite and
 MySQL share the same definitions; each column declares both dialects:
 
 ```python
-from xyz_agent_context.utils.schema_registry import _register, TableDef, Column, Index
+from narranexus.platform.utils.schema_registry import _register, TableDef, Column, Index
 
 _register(TableDef(
     name="instance_lark_bindings",
@@ -735,7 +735,7 @@ NarraNexus/
 │       ├── lib/                    # Utility libraries
 │       └── types/                  # TypeScript types
 │
-├── src/xyz_agent_context/          # Core package
+├── src/narranexus/platform/          # Core package
 │   ├── agent_runtime/              # Orchestration layer
 │   ├── agent_framework/            # LLM SDK adapter layer
 │   ├── bootstrap/                  # New-agent provisioning seam + profiles

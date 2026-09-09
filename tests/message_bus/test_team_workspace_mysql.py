@@ -9,7 +9,7 @@ Why this file exists
 The team workspace ships six hand-written statements, all previously exercised
 only against `SQLiteBackend(":memory:")`. Two of them are the interesting ones:
 
-  * `_team_artifact_turns` (backend/routes/teams.py) — `SELECT DISTINCT` over a
+  * `_team_artifact_turns` (plugins/builtin.teams/src/narranexus_plugins/teams/routes.py) — `SELECT DISTINCT` over a
     JOIN with `ORDER BY` on an aliased column. That is the exact shape that
     trips ONLY_FULL_GROUP_BY / error 3065 when the ordering column is not in
     the select list.
@@ -42,11 +42,11 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 
@@ -181,7 +181,7 @@ async def test_agent_context_union_runs_on_mysql(mysql_client):
 async def test_artifact_turns_distinct_join_runs_on_mysql(mysql_client):
     """The 3065-shaped statement: SELECT DISTINCT over a JOIN, ordered by a
     column carried through an alias."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(mysql_client, f"{_PREFIX}_e1", team_id=TEAM)
     await _seed_artifact(mysql_client, f"{_PREFIX}_e2", team_id=TEAM)
@@ -200,7 +200,7 @@ async def test_artifact_turns_distinct_join_runs_on_mysql(mysql_client):
 @pytest.mark.asyncio
 async def test_artifact_turns_skips_null_event_ids_on_mysql(mysql_client):
     """`IS NOT NULL` against a nullable column, verified on the real dialect."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(mysql_client, f"{_PREFIX}_f1", team_id=TEAM)
     await mysql_client.insert("instance_artifact_history", {
@@ -224,7 +224,7 @@ async def _seed_file(db, file_id, *, team_id=TEAM, name="report.md", size=10, di
 
 @pytest.mark.asyncio
 async def test_team_files_listing_runs_on_mysql(mysql_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(mysql_client, f"{_PREFIX}_g1")
     await _seed_file(mysql_client, f"{_PREFIX}_g2", team_id=OTHER_TEAM)
@@ -242,7 +242,7 @@ async def test_dedup_probe_runs_on_mysql(mysql_client):
     drifts from the one that ships, and the previous version of this test ended
     on `assert impl is not None`, which is true by construction.
     """
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+    from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
 
     await _seed_file(mysql_client, f"{_PREFIX}_h1", size=42, digest="hash_a")
     rows = await TeamFileRepository(mysql_client).find_by_name_and_size(
@@ -256,7 +256,7 @@ async def test_team_files_bound_limit_runs_on_mysql(mysql_client):
     """The agent-facing listing caps with a BOUND LIMIT, and it is the only
     team_files statement that does. Until now the bound-LIMIT evidence came
     entirely from the artifact-side queries."""
-    from xyz_agent_context.repository.team_workspace_repository import TeamFileRepository
+    from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
 
     for i in range(3):
         await _seed_file(mysql_client, f"{_PREFIX}_k{i}", name=f"k{i}.md", digest=f"hk{i}")
@@ -299,7 +299,7 @@ async def test_history_bulk_delete_runs_on_mysql(mysql_client):
     also the shape where an off-by-one between list length and parameter tuple
     shows up as a driver error rather than a wrong result.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
 
@@ -330,7 +330,7 @@ async def test_history_bulk_delete_tolerates_an_empty_list(mysql_client):
     raise" alone cannot tell a correct no-op apart from a statement that ran
     and deleted something it should not have.
     """
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
 

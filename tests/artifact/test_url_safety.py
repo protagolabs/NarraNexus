@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.utils.url_safety import (
+from narranexus.platform.utils.url_safety import (
     UnsafeUrlError,
     assert_public_http_url,
     is_obviously_non_public_host,

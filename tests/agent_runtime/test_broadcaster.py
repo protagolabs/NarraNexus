@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_runtime.broadcaster import Broadcaster
+from narranexus.platform.agent_runtime.broadcaster import Broadcaster
 
 
 @pytest.mark.asyncio

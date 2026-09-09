@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import xyz_agent_context.utils.workspace_paths as wp
+import narranexus.platform.utils.workspace_paths as wp
 
 
 def test_flat_layout_matches_legacy(monkeypatch):
@@ -26,7 +26,7 @@ def test_nested_layout_is_user_then_agent(monkeypatch):
 
 def test_default_base_uses_settings(monkeypatch):
     monkeypatch.setattr(wp, "_LAYOUT", "flat")
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     p = wp.agent_workspace_path("a", "u")
     assert str(p) == str(Path(settings.base_working_path) / "a_u")
 

@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.bootstrap import greeting_seed
-from xyz_agent_context.bootstrap.lifecycle import BootstrapStatus
+from narranexus.platform.bootstrap import greeting_seed
+from narranexus.platform.bootstrap.lifecycle import BootstrapStatus
 
 
 def _agent_repo_returning(agent):

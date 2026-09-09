@@ -8,7 +8,7 @@ redacted owner inbox notice.
 
 import pytest
 
-from xyz_agent_context.services import background_llm_alerts as alerts
+from narranexus.platform.services import background_llm_alerts as alerts
 
 
 class _FakeInboxRepo:

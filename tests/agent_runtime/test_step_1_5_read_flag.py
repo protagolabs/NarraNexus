@@ -22,10 +22,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_1_5_init_markdown import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_1_5_init_markdown import (
     step_1_5_init_markdown,
 )
-from xyz_agent_context.agent_runtime._agent_runtime_steps.context import RunContext
+from narranexus.platform.agent_runtime._agent_runtime_steps.context import RunContext
 
 
 def _ctx_with_narrative():

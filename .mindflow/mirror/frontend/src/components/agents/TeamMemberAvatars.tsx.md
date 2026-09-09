@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/agents/TeamMemberAvatars.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — ⚠️ CONFLICTS WITH THE 2026-08-27 OWNER RULING BELOW (B6 — flagged for Owner review, not silently overridden)
+
+The local `formatFramework` this file's own "Gotchas" section documents as a DELIBERATE Owner
+ruling ("keep them independent rather than share... this component follows that same precedent
+instead of introducing a shared util the Owner has already rejected once") was removed. This
+component now imports `lib/frameworkBrand.ts`'s `formatFrameworkFromList`, called with no live
+`frameworks` list (so it lands on the exact same static-then-title-case fallback chain
+`formatFramework` always used — except the two labels that were WRONG, "Codex" and "Nexus Power",
+now read "Codex CLI" and "NexusPower-beta", matching the canonical picker labels everywhere
+else). This was done on an explicit, specific instruction from this session's dispatching
+coordinator ("Replace... formatFramework in TeamMemberAvatars.tsx with... a single shared
+helper"), received AFTER this file's own local copy already existed — I did not re-derive this
+independently. I am flagging the direct conflict with the recorded 2026-08-27 ruling here rather
+than either silently complying or silently reverting: the old ruling predates any live
+backend-provided `display_name` (arguably a materially different concern — sharing the SOURCE OF
+TRUTH for a field the backend now computes, vs. sharing a purely-local static lookup), but
+whether that distinction is enough to supersede the ruling is an Owner call, not mine.
 
 # TeamMemberAvatars.tsx — Agent-list-style member avatars for a Team row
 
@@ -53,14 +71,11 @@ count on hover); only the visible members get the ring-avatar treatment.
 
 ## Gotchas
 
-- **`formatFramework` and the status-cell mapping are local copies**, not
-  imports from [[../../pages/DashboardPage.tsx]] or
-  [[../../pages/AgentProfilePage.tsx]] — those two files already duplicate
-  `formatFramework` between themselves deliberately (Owner ruling: keep them
-  independent rather than share, see the comment next to
-  `agentChatButtonClass` in `AgentProfilePage.tsx`). This component follows
-  that same precedent instead of introducing a shared util the Owner has
-  already rejected once.
+- **The status-cell mapping is a local copy**, not an import from
+  [[../../pages/DashboardPage.tsx]] or [[../../pages/AgentProfilePage.tsx]].
+  (2026-09-07: the framework LABEL is no longer a local copy — see the
+  flagged entry above — but the status-cell logic still is, unaffected by
+  that change.)
 - **No hostname/runtime-host field exists anywhere in `AgentInfo`** — the
   Runtime row shows only the formatted framework label (e.g. "Claude Code"),
   never a machine name. Don't invent one without a backend field to back it.

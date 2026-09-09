@@ -12,18 +12,18 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import user_service as us
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
+from narranexus.platform.agent_framework.providers import user_service as us
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     CLOUD_BINDABLE_SOURCES,
     CloudPolicyViolation,
     ensure_slot_provider_allowed,
 )
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     FREE_TIER_SOURCE,
     free_tier_endpoints,
     is_free_tier_enabled,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     get_default_agent_model,
     get_default_helper_model,
 )
@@ -92,7 +92,7 @@ def test_cloud_policy_lets_the_free_card_drive_a_slot():
 
 def test_cloud_policy_still_rejects_a_byok_card(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.cloud_policy.is_cloud_mode",
+        "narranexus.platform.agent_framework.providers.cloud_policy.is_cloud_mode",
         lambda: True,
     )
     ensure_slot_provider_allowed({"source": FREE_TIER_SOURCE}, False)
@@ -105,7 +105,7 @@ def test_free_tier_is_off_in_local_mode(monkeypatch):
     desktop install must never try to provision one."""
     monkeypatch.setenv("FREE_TIER_ENABLED", "true")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: False
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: False
     )
     assert is_free_tier_enabled() is False
 
@@ -116,7 +116,7 @@ def test_free_tier_is_off_in_local_mode(monkeypatch):
 # dev. These two pin the whole chain: source → driver_type → registered class.
 
 def test_source_derives_a_driver_type():
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_driver_type,
     )
 
@@ -129,11 +129,11 @@ def test_source_derives_a_driver_type():
 
 
 def test_driver_type_resolves_to_a_registered_driver():
-    import xyz_agent_context.agent_framework.providers.driver  # noqa: F401 — registers
-    from xyz_agent_context.agent_framework.providers.driver.drivers.netmind import (
+    import narranexus.platform.agent_framework.providers.driver  # noqa: F401 — registers
+    from narranexus_plugins.providers.netmind import (
         NetMindDriver,
     )
-    from xyz_agent_context.agent_framework.providers.driver.registry import (
+    from narranexus.platform.agent_framework.providers.driver.registry import (
         get_driver_class,
     )
 
@@ -146,11 +146,11 @@ def test_driver_type_resolves_to_a_registered_driver():
 
 def test_every_dual_card_type_has_a_driver():
     """The guard that would have caught this class of miss up front."""
-    import xyz_agent_context.agent_framework.providers.driver  # noqa: F401
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    import narranexus.platform.agent_framework.providers.driver  # noqa: F401
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_driver_type,
     )
-    from xyz_agent_context.agent_framework.providers.driver.registry import (
+    from narranexus.platform.agent_framework.providers.driver.registry import (
         get_driver_class,
     )
 
@@ -165,7 +165,7 @@ def test_build_dual_providers_accepts_per_protocol_model_dict():
     # anthropic sets genuinely differ); each card row must get its own.
     import json
 
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
 

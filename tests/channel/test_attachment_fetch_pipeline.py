@@ -28,20 +28,20 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import im_thread_id
+from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
 )
-from xyz_agent_context.channel.channel_context_builder_base import (
+from narranexus.platform.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.attachment_schema import Attachment, AttachmentCategory
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.attachment_schema import Attachment, AttachmentCategory
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import (
     MessageContentType,
     ParsedMessage,
 )
@@ -185,7 +185,7 @@ async def _wait_for_messages(db_client, thread_id, count, timeout=5.0):
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
     """Redirect ``base_working_path`` so test attachments don't pollute
     ``~/.nexusagent/workspaces``. Returns the tmp root."""
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
 
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
@@ -245,8 +245,8 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -350,8 +350,8 @@ async def test_no_attachments_emits_no_attachments_key(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -383,7 +383,7 @@ async def test_fetch_attachments_raise_degrades_gracefully(
     """If ``fetch_attachments`` raises (broken SDK, network down), the
     base catches it, audits ``EVENT_ATTACHMENT_FETCH_FAILED``, and the
     agent still runs with text-only content. Never-raise contract."""
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_ATTACHMENT_FETCH_FAILED,
     )
 
@@ -420,8 +420,8 @@ async def test_fetch_attachments_raise_degrades_gracefully(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -507,8 +507,8 @@ async def test_caption_less_file_upload_still_processed(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -564,10 +564,10 @@ async def test_empty_content_no_refs_drop_is_audited(db_client):
     AUDITED. The guard used to be a bare ``return`` with zero trace —
     the same audit blind spot class as ``ingress_dropped_unparsed``
     (lessons #3/#5). Live incident 2026-08-06 on the Lark override."""
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_INGRESS_DROPPED_EMPTY,
     )
-    from xyz_agent_context.repository.channel_trigger_audit_repository import (
+    from narranexus.platform.repository.channel_trigger_audit_repository import (
         ChannelTriggerAuditRepository,
     )
 

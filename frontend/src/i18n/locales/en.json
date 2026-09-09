@@ -353,6 +353,8 @@
     },
     "header": {
       "detailMenuTitle": "Agent detail — panels",
+      "modelFramework": "Model & framework",
+      "switchAgent": "Switch agent",
       "viewProfile": "View agent profile"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information.",
@@ -370,8 +372,21 @@
         "unknown": "couldn't be delivered"
       }
     },
+    "capabilities": {
+      "subtitle": "Which modules take part in this agent's turns. Builtin modules are on by default; modules installed by plugins stay off until you turn them on. Changes apply on the next run.",
+      "builtin": "builtin",
+      "plugin": "plugin",
+      "locked": "Always on",
+      "tokens": "~{{count}} prompt tokens",
+      "budget": "Enabled modules declare ~{{enabled}} prompt tokens ({{ratio}}× the builtin baseline of {{baseline}}).",
+      "overBudget": "Over budget: enabled modules declare ~{{enabled}} prompt tokens, {{ratio}}× the builtin baseline of {{baseline}}.",
+      "loadFailed": "Could not load capabilities",
+      "saveFailed": "Could not save the change",
+      "restoreDefault": "Restore default"
+    },
     "activityEmpty": "No background activity yet",
-    "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here."
+    "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here.",
+    "bootstrapGreetingNamed": "Hi — I'm {{name}}. I just came to life, and you're the one who brought me here.\n\nI already know who I'm meant to be, but not yet who you are. What should I call you?"
   },
   "awareness": {
     "common": {
@@ -641,6 +656,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Loading channel…",
+      "bind": "Bind",
+      "bound": "Bound. The channel is active for this agent.",
+      "boundAs": "Bound to {{name}}",
+      "inactive": "inactive",
+      "unbind": "Unbind",
+      "unbound": "Unbound.",
+      "test": "Test connection",
+      "testOk": "Connection OK.",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "fieldRequired": "{{field}} is required",
+      "errLoad": "Failed to load the channel",
+      "errBind": "The request failed",
+      "webhookHint": "Inbound webhook: POST {{path}} with the credential's webhook token.",
+      "ownFlow": "{{name}} binds through its own flow."
     }
   },
   "dashboard": {
@@ -1277,7 +1310,8 @@
       "claudeCodeSdk": "Claude Code SDK",
       "codexSdk": "Codex SDK",
       "claudeCodeSdkDesc": "Anthropic API key (sk-ant-…). Agent and helper both run on the Claude Code SDK.",
-      "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5)."
+      "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5).",
+      "tabOneKey": "API key"
     }
   },
   "system": {
@@ -1789,7 +1823,9 @@
         "label": "Personalization",
         "hint": "Theme, language, and how the agent's progress notes are shown.",
         "narrationTitle": "Progress narration",
-        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer."
+        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer.",
+        "pluginThemesTitle": "Plugin themes",
+        "pluginThemesNone": "Shell default"
       },
       "plugins": {
         "label": "Plugins",
@@ -1804,7 +1840,72 @@
         "loggedIn": "logged in",
         "starting": "Starting…",
         "installFailed": "Install failed",
-        "uninstallFailed": "Uninstall failed"
+        "uninstallFailed": "Uninstall failed",
+        "factory": {
+          "title": "User plugins",
+          "hint": "Plugins from GitHub or a local folder. They load at startup; changes take effect after a restart.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch, or /path/to/plugin",
+          "sourceHelp": "A GitHub Release (owner/repo@tag), a repository ref (owner/repo#ref) or a local directory (linked in place).",
+          "install": "Install",
+          "installing": "Installing…",
+          "restartRequired": "Saved. Restart NarraNexus for the change to take effect.",
+          "enable": "Enable",
+          "disable": "Disable",
+          "disabled": "disabled",
+          "uninstall": "Uninstall",
+          "upgrade": "Upgrade",
+          "rollback": "Roll back to last known good",
+          "safeModeTitle": "Safe mode: user plugins are not loaded",
+          "safeModeLeave": "Leave safe mode",
+          "bisectStart": "Find the plugin that breaks startup",
+          "bisectTrial": "Bisect: {{count}} suspects — these are enabled for the next start:",
+          "bisectGood": "It started fine",
+          "bisectBad": "It broke again",
+          "bisectStop": "Stop bisect",
+          "bisectCulprit": "Culprit found: {{id}} (kept disabled)",
+          "permissionsTitle": "{{id}} asks for these permissions",
+          "permissionsNetwork": "Network",
+          "permissionsFilesystem": "Files",
+          "permissionsSubprocess": "Runs subprocesses",
+          "permissionsEnv": "Environment variables",
+          "permissionsFrontend": "Runs code inside the app UI, with access to your session",
+          "permissionsAck": "I understand, enable it",
+          "permissionsKeepDisabled": "Keep disabled",
+          "empty": "No user plugins installed.",
+          "loadFailed": "Failed to load user plugins",
+          "isolated": "Isolated at startup",
+          "viewErrors": "Errors ({{count}})",
+          "hideErrors": "Hide errors",
+          "noErrors": "No errors recorded.",
+          "mode": {
+            "link": "linked",
+            "copy": "installed"
+          },
+          "state": {
+            "registered": "registered",
+            "validated": "validated",
+            "enabled": "enabled",
+            "active": "active",
+            "incompatible": "incompatible",
+            "blocked": "blocked",
+            "missing": "missing",
+            "deps_missing": "dependencies missing",
+            "crashed": "crashed",
+            "disabled": "disabled",
+            "slow": "slow"
+          },
+          "proposalsTitle": "Waiting for your approval",
+          "proposalBy": "requested by agent {{agent}}",
+          "proposalTestsGreen": "Tests passed ({{count}})",
+          "proposalTestsRed": "Tests did not pass",
+          "proposalApprove": "Approve",
+          "proposalReject": "Reject",
+          "noPermissions": "No special permissions requested",
+          "builtinsTitle": "Built-in features",
+          "builtinsHint": "Feature-level plugins that ship with NarraNexus. Disabling one removes its API, workers and pages after a restart; protected ones cannot be turned off.",
+          "protected": "protected",
+          "installDeps": "Install dependencies ({{pip}})"
+        }
       }
     },
     "system": {
@@ -2298,7 +2399,8 @@
       "activityLast24h": "Past 24 hours",
       "activityToday": "Today",
       "activityAxisStart": "24h ago",
-      "activityAxisNow": "now"
+      "activityAxisNow": "now",
+      "capabilitySwitches": "Capability switches"
     },
     "welcome": {
       "logout": "Log out",
@@ -2385,8 +2487,10 @@
       "skills": "Installed abilities the agent can use. Add more from the Marketplace, or install from GitHub / zip.",
       "mcp": "External MCP tool servers the agent can call — plug in third-party capabilities.",
       "memory": "The agent's long-term memory, organized as narratives — what it carries across conversations.",
-      "social": "Who the agent knows — contacts accumulate as it works with people and other agents."
-    }
+      "social": "Who the agent knows — contacts accumulate as it works with people and other agents.",
+      "builder": "Describe what you need; the conversation fills in this panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Jobs",
@@ -2851,5 +2955,59 @@
     "settings": "Open settings",
     "dismiss": "Got it",
     "bodyManaged": "This install sends diagnostic service logs to NarraNexus's own collector, as configured by your administrator. On installs running the \"full\" level, log lines can include message content."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Create agent",
+      "title": "Where do you want to start?",
+      "subtitle": "Start from a blank configuration, or describe what you need and build it through conversation.",
+      "blankTitle": "Start from blank",
+      "blankBody": "Configure every field yourself. For users who already know how the agent should work.",
+      "aiTitle": "Create with AI",
+      "aiBody": "Describe the outcome you want. The Agent Builder asks the key questions and drafts as you go.",
+      "continue": "Continue",
+      "recommended": "Recommended"
+    },
+    "gate": {
+      "title": "Create agent",
+      "probing": "Checking providers",
+      "chooseTitle": "Choose a provider",
+      "chooseHint": "Pick an existing provider, or connect a new one. This decides which engine runs the agent.",
+      "accessApiKey": "API Key",
+      "accessCli": "CLI sign-in",
+      "emptyLead": "No engine is available yet. Connect a provider to get started — it decides who runs this agent.",
+      "addLabel": "Add a provider",
+      "addApiKey": "API Key",
+      "addCli": "CLI sign-in",
+      "back": "Back",
+      "next": "Next",
+      "cliDesktopHint": "Signing in opens your browser to authorise the Claude CLI.",
+      "cliLogin": "Sign in with Claude",
+      "cliLoggingIn": "Signing in…",
+      "cliWebHint": "Not signed in — run `claude auth login` in your terminal, then reopen this dialog.",
+      "cliMissingHint": "The Claude CLI is not available here. Install it, sign in from your terminal, then reopen this dialog."
+    },
+    "panel": {
+      "intro": "The conversation writes name, description and instructions straight to this agent. Skills and channels are suggested — you install them.",
+      "identity": "Identity",
+      "name": "Name",
+      "namePlaceholder": "e.g. Morning Market Brief",
+      "behaviour": "Behaviour",
+      "install": "Install",
+      "installed": "Installed",
+      "saving": "Saving…",
+      "savedHint": "Changes save when you leave a field.",
+      "done": "Done",
+      "identityHint": "Give the agent a name that is easy to recognise.",
+      "behaviourHint": "Define how it works. This is the awareness field the agent actually runs on.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "What this agent does, how it works, what to avoid…",
+      "skills": "Skills",
+      "skillsHint": "Workspace skills this agent can use.",
+      "channels": "Channels",
+      "channelsHint": "Where it can be reached. Credentials go straight to the backend — never into the conversation.",
+      "suggested": "From the conversation",
+      "optional": "Optional"
+    }
   }
 }

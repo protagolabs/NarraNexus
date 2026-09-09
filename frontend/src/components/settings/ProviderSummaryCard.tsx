@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { Bot, Wrench, KeyRound } from 'lucide-react';
 import { PaperCard } from '@/components/nm';
 import { api } from '@/lib/api';
+import { formatFrameworkFromList } from '@/lib/frameworkBrand';
 import type { ProviderRow } from '@/lib/providersApi';
 
 // All fields come straight off the shared row type — no local shape,
@@ -26,12 +27,6 @@ type ProviderInfo = ProviderRow;
 interface SlotInfo {
   config: { provider_id: string; model: string } | null;
 }
-
-const FRAMEWORK_LABELS: Record<string, string> = {
-  claude_code: 'Claude Code',
-  codex_cli: 'Codex CLI',
-  nexus_power: 'NexusPower-beta',
-};
 
 function SummaryRow({
   icon,
@@ -74,6 +69,7 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
   const [providers, setProviders] = useState<Record<string, ProviderInfo>>({});
   const [slots, setSlots] = useState<Record<string, SlotInfo>>({});
   const [framework, setFramework] = useState<string>('claude_code');
+  const [frameworks, setFrameworks] = useState<Array<{ name: string; display_name?: string }>>();
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -91,6 +87,7 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
         }
         if (fw.success && fw.data?.framework) {
           setFramework(fw.data.framework);
+          setFrameworks(fw.data.frameworks);
         }
       } catch {
         // Backend not ready — render nothing rather than a broken card
@@ -125,7 +122,7 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
           }
           detail={
             agentCfg
-              ? `${FRAMEWORK_LABELS[framework] ?? framework} · ${providerName(agentCfg.provider_id)}`
+              ? `${formatFrameworkFromList(framework, frameworks)} · ${providerName(agentCfg.provider_id)}`
               : undefined
           }
         />

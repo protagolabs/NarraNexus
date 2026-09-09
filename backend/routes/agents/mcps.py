@@ -21,13 +21,13 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
-from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
-from xyz_agent_context.repository import MCPRepository
-from xyz_agent_context.repository.mcp_repository import validate_mcp_sse_connection
-from xyz_agent_context.schema import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.url_safety import is_obviously_non_public_url
+from narranexus.platform.repository import MCPRepository
+from narranexus.platform.repository.mcp_repository import validate_mcp_sse_connection
+from narranexus.platform.schema import (
     MCPUrl,
     MCPInfo,
     MCPListResponse,

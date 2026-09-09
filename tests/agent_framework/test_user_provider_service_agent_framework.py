@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+from narranexus.platform.agent_framework.providers.user_service import UserProviderService
 
 
 class _MemoryDB:

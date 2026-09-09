@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module import _matrix_send as ms
-from xyz_agent_context.module.narramessenger_module._matrix_send import (
+from narranexus_plugins.narramessenger_module import _matrix_send as ms
+from narranexus_plugins.narramessenger_module._matrix_send import (
     MatrixSendError,
     msgtype_for_mime,
     resolve_workspace_file,
@@ -44,9 +44,9 @@ def test_msgtype_for_mime(mime, expected):
 # ── resolve_workspace_file (the security gate) ──────────────────────────
 @pytest.fixture
 def workspace(monkeypatch, tmp_path: Path) -> Path:
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(settings_mod.settings, "base_working_path", str(tmp_path))
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
     root = agent_workspace_path("agent_x", "user_owner")
     root.mkdir(parents=True, exist_ok=True)
     return root

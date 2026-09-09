@@ -18,13 +18,13 @@ import os
 
 import pytest
 
-from xyz_agent_context.artifact import (
+from narranexus.platform.artifact import (
     ArtifactNotFound,
     ArtifactPathEscape,
     ArtifactService,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -33,7 +33,7 @@ WS_REL = agent_workspace_relpath("agent_x", "user_y")
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     workspace = base / WS_REL

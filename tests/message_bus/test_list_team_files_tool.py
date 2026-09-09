@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.team_files import list_team_files
+from narranexus.platform.message_bus.team_files import list_team_files
 
 OWNER = "user_1"
 TEAM = "team_1"
@@ -114,10 +114,10 @@ class _FakeMCP:
 
 @pytest.mark.asyncio
 async def test_mcp_tool_wrapper_resolves_its_own_db(db_client, monkeypatch):
-    from xyz_agent_context.module.message_bus_module import (
+    from narranexus_plugins.message_bus_module import (
         _message_bus_mcp_tools as mod,
     )
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     await _seed(db_client)
 

@@ -47,7 +47,7 @@ def clear_state_cache():
 @pytest.fixture
 def wire_db(monkeypatch, db_client):
     """Point _account_state's lazy get_db_client at the in-memory test DB."""
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
 
     async def _ret():
         return db_client
@@ -106,7 +106,7 @@ async def test_active_user_ws_passes_the_gate(
     async def _skip(_agent_id):
         return True, "cooling"
 
-    import xyz_agent_context.agent_framework.loop.circuit_breaker as cb_mod
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
 
     monkeypatch.setattr(cb_mod, "should_skip", _skip)
 

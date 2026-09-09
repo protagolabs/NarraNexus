@@ -88,6 +88,7 @@ const copy: Record<string, string> = {
   'pages.agentProfile.mcp': 'MCP',
   'pages.agentProfile.channels': 'Channels',
   'pages.agentProfile.modelFramework': 'Model & Framework',
+  'pages.agentProfile.capabilitySwitches': 'Capability switches',
   'pages.agentProfile.configure': 'Configure',
   'pages.agentProfile.name': 'Name',
   'pages.agentProfile.description': 'Description',
@@ -135,6 +136,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: dashboardState.agents }),
     clearHistory: vi.fn().mockResolvedValue({ success: true }),
+    getAgentCapabilities: vi.fn().mockResolvedValue({ success: true, data: { agent_id: 'agent-1', capabilities: [], budget: { baseline_tokens: 0, enabled_tokens: 0, ratio: 0, over_budget: false } } }),
   },
 }));
 vi.mock('@/components/bookmarks/BookmarkPanelHost', () => ({
@@ -202,6 +204,10 @@ describe('AgentProfilePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Awareness' }));
     expect(screen.getByTestId('capability-panel').textContent).toBe('awareness');
+
+    // Settings → capability switches (batch 5c): its own section, not the top Capabilities tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Capability switches' }));
+    expect(screen.getByTestId('agent-capabilities')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Model & Framework' }));
     expect(screen.getByTestId('profile-framework-config').querySelectorAll('svg, img')).toHaveLength(2);

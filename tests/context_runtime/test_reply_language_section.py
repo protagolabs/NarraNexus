@@ -12,10 +12,10 @@ message wins, then the CURRENT message's own language, then the configured
 preference as the undeterminable-language fallback. Byte-stability keeps
 the section in the cacheable prompt region.
 """
-from xyz_agent_context.context_runtime.context_runtime import (
+from narranexus.platform.context_runtime.context_runtime import (
     build_reply_language_section,
 )
-from xyz_agent_context.context_runtime.prompts import USER_MESSAGE_SEPARATOR
+from narranexus.platform.context_runtime.prompts import USER_MESSAGE_SEPARATOR
 
 
 def test_unset_yields_empty():

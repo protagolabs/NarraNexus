@@ -12,18 +12,18 @@ inlet over the channel's queue.
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import NexusAgent
-from xyz_agent_context.agent_framework.api_config import claude_config
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import NexusAgent
+from narranexus.platform.agent_framework.api_config import claude_config
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
     ProviderProfile,
 )
-from xyz_agent_context.agent_runtime.steer_channel import (
+from narranexus.platform.agent_runtime.steer_channel import (
     SteerChannel,
     rendered_injection_payload,
 )
-from xyz_agent_context.schema.steer_schema import SteerInjection
+from narranexus.platform.schema.steer_schema import SteerInjection
 
 
 class _FakeModel:
@@ -61,8 +61,8 @@ async def test_pushed_injection_reaches_the_next_model_request_in_process(monkey
     monkeypatch.setattr(claude_config, "thinking", "")
 
     fake = _FakeModel()
-    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
-    import xyz_agent_context.agent_framework.llm.litellm_client as lc_mod
+    import narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client as mc_mod
+    import narranexus.platform.agent_framework.llm.litellm_client as lc_mod
     monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: fake)
     monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())
 
@@ -115,8 +115,8 @@ async def test_consumed_signal_flows_back_to_on_consumed_in_process(monkeypatch)
     monkeypatch.setattr(claude_config, "thinking", "")
 
     fake = _FakeModel()
-    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
-    import xyz_agent_context.agent_framework.llm.litellm_client as lc_mod
+    import narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client as mc_mod
+    import narranexus.platform.agent_framework.llm.litellm_client as lc_mod
     monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: fake)
     monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())
 

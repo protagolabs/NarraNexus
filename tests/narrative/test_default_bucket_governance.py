@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.narrative.config import config
-from xyz_agent_context.narrative._narrative_impl import prompts
+from narranexus.platform.narrative.config import config
+from narranexus.platform.narrative._narrative_impl import prompts
 
 
 # ===================================================================== #

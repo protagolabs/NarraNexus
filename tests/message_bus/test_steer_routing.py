@@ -23,16 +23,16 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.agent_runtime.run_registry as run_registry
-from xyz_agent_context.agent_runtime.run_registry import RunRegistry, get_run_registry
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus, canonical_ts
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger, _InFlight
-from xyz_agent_context.repository.steer_inbox_repository import (
+import narranexus.platform.agent_runtime.run_registry as run_registry
+from narranexus.platform.agent_runtime.run_registry import RunRegistry, get_run_registry
+from narranexus.platform.agent_runtime.steer_channel import SteerChannel
+from narranexus.platform.message_bus.local_bus import LocalMessageBus, canonical_ts
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger, _InFlight
+from narranexus.platform.repository.steer_inbox_repository import (
     SteerInboxFull,
     SteerInboxRepository,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 ROOM = "ch_steer_route"
 ME = "agent_steer_me"
@@ -176,7 +176,7 @@ async def test_ack_room_seen_extends_read_to_steered_through_but_holds_on_a_gap(
     # cursor to max(trigger, steered_through) when the window has no gap AND no
     # un-steered message slipped in; on an unsteered_gap it falls back to the
     # trigger so a never-rendered message is left unread.
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     bus = await _fresh_bus()
     t = _trigger(bus)
@@ -375,7 +375,7 @@ async def test_ack_room_seen_holds_read_when_a_steer_cycle_is_in_flight():
     # in-flight _route_steer cycle (which may still discover an un-rendered
     # message after its awaits) blocks the read cursor from extrapolating to
     # steered_through. Drop the `steer_cycles_in_flight == 0` guard → red.
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     bus = await _fresh_bus()
     t = _trigger(bus)
@@ -436,7 +436,7 @@ async def test_steer_cleanup_tick_actually_calls_the_repository_gated_daily(monk
     # the wiring (does _maybe_run_steer_cleanup call the repo), not just the repo
     # method. Delete the call in start()'s loop → the table grows forever; this
     # asserts the method itself calls through and is gated to daily.
-    import xyz_agent_context.message_bus.message_bus_trigger as mbt
+    import narranexus.platform.message_bus.message_bus_trigger as mbt
 
     bus = await _fresh_bus()
     t = _trigger(bus)

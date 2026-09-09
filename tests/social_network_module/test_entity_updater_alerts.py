@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.module.social_network_module._entity_updater as eu
+import narranexus_plugins.social_network_module._entity_updater as eu
 
 class _BoomSDK:
     """A helper SDK whose LLM is dead — the 2026-07 expired-key shape."""
@@ -166,7 +166,7 @@ async def test_persona_write_failure_is_audited(captured):
 # ── helpers ───────────────────────────────────────────────────────────
 
 def _entity(persona: str = ""):
-    from xyz_agent_context.repository import SocialNetworkEntity
+    from narranexus.platform.repository import SocialNetworkEntity
 
     return SocialNetworkEntity(
         entity_id="ent_1",

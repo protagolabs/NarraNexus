@@ -19,12 +19,12 @@ import os
 
 import pytest
 
-from xyz_agent_context.narrative.wipe_service import wipe_agent_data
-from xyz_agent_context.narrative.session_service import SessionService
-from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
+from narranexus.platform.narrative.wipe_service import wipe_agent_data
+from narranexus.platform.narrative.session_service import SessionService
+from narranexus.platform.utils.db.schema_registry import MEMORY_KINDS
 
 
-from xyz_agent_context.channel.inbox_recorder import im_thread_id  # noqa: E402
+from narranexus.platform.channel.inbox_recorder import im_thread_id  # noqa: E402
 
 TARGET = "agent_target"
 OTHER = "agent_other"
@@ -43,7 +43,7 @@ async def _seed(db, *, md_base: str, traj_base: str, sessions: SessionService) -
     # --- agents ---
     await db.insert("agents", {"agent_id": TARGET, "agent_name": "T", "created_by": USER})
     # --- IM inbox (the record the panel renders; own tables since 2026-08-17) ---
-    from xyz_agent_context.channel.inbox_recorder import im_thread_id
+    from narranexus.platform.channel.inbox_recorder import im_thread_id
 
     for aid in (TARGET, OTHER):
         tid = im_thread_id("lark", aid, "oc_shared_chat")
@@ -331,8 +331,8 @@ def test_wipe_result_fields_reach_the_api():
     """
     import dataclasses
 
-    from xyz_agent_context.narrative.wipe_service import WipeResult
-    from xyz_agent_context.schema.api_schema import ClearHistoryResponse
+    from narranexus.platform.narrative.wipe_service import WipeResult
+    from narranexus.platform.schema.api_schema import ClearHistoryResponse
 
     counters = {
         f.name for f in dataclasses.fields(WipeResult) if f.name.endswith("_count")
@@ -357,7 +357,7 @@ def test_wipe_result_fields_reach_the_api():
     import ast
     import inspect
 
-    from backend.routes.agents import chat_history
+    from narranexus_plugins.chat_module import routes as chat_history
 
     tree = ast.parse(inspect.getsource(chat_history))
     passed: set[str] = set()

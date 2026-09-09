@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.narrative.models import RoutingAudit
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.narrative.models import RoutingAudit
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
 )
 

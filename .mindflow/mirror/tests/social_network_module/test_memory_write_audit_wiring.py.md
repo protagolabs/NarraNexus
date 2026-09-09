@@ -42,7 +42,7 @@ last_verified: 2026-08-25
 ## 已知缺口
 
 `create_primary_entity` 只有拼写和常量被钉住，**没有行为测试**——它的调用点
-在 `hook_after_event_execution` 的 `if not entity:` 分支里，要跑起来得把整条
+在 `after_turn` 的 `if not entity:` 分支里，要跑起来得把整条
 hook 立起来。这一条是本 PR 里唯一没被行为验证的上报路径。
 
 ## 钉住了什么

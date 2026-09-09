@@ -227,7 +227,7 @@ export type RuntimeMessage =
   | SteerRejectedMessage
   | SteerConsumedMessage;
 
-// Attachment metadata (mirrors backend xyz_agent_context.schema.Attachment)
+// Attachment metadata (mirrors backend narranexus.platform.schema.Attachment)
 export type AttachmentCategory =
   | 'image'
   | 'document'
@@ -259,7 +259,7 @@ export interface Attachment {
 
 // A file attached to a message-bus message (agent-to-agent / team chat).
 // Mirrors the bus-attachment dict from
-// xyz_agent_context.message_bus._bus_attachment_impl. Unlike a chat
+// narranexus.platform.message_bus._bus_attachment_impl. Unlike a chat
 // `Attachment` (resolved per-agent via file_id), a bus attachment lives in
 // the per-user shared area and is fetched by `rel_path` through
 // `GET /api/agent-inbox/attachments/raw?path=<rel_path>`.

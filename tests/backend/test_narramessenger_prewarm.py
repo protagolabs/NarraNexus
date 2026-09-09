@@ -9,7 +9,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-import backend.routes.channels.narramessenger as nm
+import narranexus_plugins.narramessenger_module.routes as nm
 
 
 @pytest.fixture(autouse=True)

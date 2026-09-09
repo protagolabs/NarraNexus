@@ -31,8 +31,8 @@ Sibling of test_agent_field_length.py (the clamp half); fixtures mirror it.
 
 import pytest
 
-from xyz_agent_context.schema import agent_field_matches
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.schema import agent_field_matches
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
@@ -55,14 +55,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -95,8 +95,8 @@ async def _seed_agent(db, agent_id, user_id, name, description=""):
 
 
 async def _export_then_import(db, tmp_workspace_root, agent_id, owner_id, importer_id):
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     ws = tmp_workspace_root / f"{agent_id}_{owner_id}"
     ws.mkdir()
@@ -137,7 +137,7 @@ async def test_an_imported_row_is_still_renameable(db_client, tmp_workspace_root
         db_client, tmp_workspace_root, "agent_ws0002name", "owner", "importer2"
     )
 
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.repository.agent_repository import AgentRepository
 
     stored = await AgentRepository(db_client).get_agent(rows[0]["agent_id"])
     assert agent_field_matches(stored, "agent_name", "小绿"), (
@@ -261,7 +261,7 @@ async def test_a_dedupe_rename_corrects_the_imported_identity_memory(
     justified this file as a creation path with "no previous name to correct" —
     which was not true of it, and a gate is only worth its reasons.
     """
-    from xyz_agent_context.module.awareness_module import IDENTITY_CHANGE_SECTION
+    from narranexus_plugins.awareness_module import IDENTITY_CHANGE_SECTION
 
     await _seed_agent(db_client, "agent_idm0001src", "owner", "小绿")
     await _seed_agent(db_client, "agent_idm0001own", "importer_idm", "小绿")

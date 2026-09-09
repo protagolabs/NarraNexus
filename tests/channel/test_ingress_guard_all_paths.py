@@ -25,9 +25,9 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
-from xyz_agent_context.module.managed_channel_ingress import ManagedChannelIngress
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.module_system.channel_trigger_map import CHANNEL_TRIGGER_MAP
+from narranexus.platform.module_system.managed_channel_ingress import ManagedChannelIngress
 
 # These assertions read source text, so they must not be satisfiable — or
 # defeated — by PROSE. Both happened on the first run: a comment explaining
@@ -146,16 +146,16 @@ LIFECYCLE_METHODS_THAT_CLAIM_A_CALLER = ["forget_agent", "warm_start", "prune_id
 
 @pytest.mark.parametrize("method", LIFECYCLE_METHODS_THAT_CLAIM_A_CALLER)
 def test_guard_lifecycle_hooks_are_actually_called(method):
-    from xyz_agent_context.channel import ingress_guard as guard_mod
+    from narranexus.platform.channel import ingress_guard as guard_mod
 
     guard_src = _code_of_module(guard_mod)
     assert f"def {method}(" in guard_src, f"{method} no longer exists — update this list"
 
     callers = []
     for mod in (
-        "xyz_agent_context.channel.channel_trigger_base",
-        "xyz_agent_context.module.managed_channel_ingress",
-        "xyz_agent_context.channel.ingress_guard",
+        "narranexus.platform.channel.channel_trigger_base",
+        "narranexus.platform.module_system.managed_channel_ingress",
+        "narranexus.platform.channel.ingress_guard",
     ):
         import importlib
 

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.team_rooms import team_room_marker
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.team_rooms import team_room_marker
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 
@@ -32,7 +32,7 @@ def _patch_db(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -159,7 +159,7 @@ async def test_create_team_rejects_an_unknown_agent_without_writing_a_team(db_cl
 async def test_create_team_rejects_over_the_member_cap_without_writing_a_team(db_client, monkeypatch):
     """`members` is a model-supplied string; the cardinality bound is the code's,
     not the model's. Over the cap → rejected before any write."""
-    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         CREATE_TEAM_MAX_MEMBERS,
     )
 

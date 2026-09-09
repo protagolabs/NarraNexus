@@ -35,10 +35,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 from ._team_turn import speak_in_room
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
@@ -123,7 +123,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 
@@ -160,7 +160,7 @@ async def test_a_silent_team_turn_marks_the_room_read_too(db_client):
 @pytest.mark.asyncio
 async def test_a_stopped_team_turn_still_marks_the_room_read(db_client):
     """The owner pressing stop does not un-show what was already shown."""
-    from xyz_agent_context.agent_runtime.cancellation import CancelledByUser
+    from narranexus.platform.agent_runtime.cancellation import CancelledByUser
 
     trigger = _trigger(db_client)
     await _seed_team_room(db_client)
@@ -262,7 +262,7 @@ async def test_a_backlog_deeper_than_the_scrollback_is_not_swallowed(db_client):
     when the rendered window does not reach back to the cursor, it must not move
     at all.
     """
-    from xyz_agent_context.message_bus.message_bus_trigger import TEAM_HISTORY_LIMIT
+    from narranexus.platform.message_bus.message_bus_trigger import TEAM_HISTORY_LIMIT
 
     trigger = _trigger(db_client)
     await _seed_team_room(db_client)
@@ -357,7 +357,7 @@ async def test_the_deliverer_still_parses_mentions_and_stamps_the_run(db_client)
     async def _invoke(**kwargs):
         # Real ordering: Step 0 mints the run id and the runtime reports it
         # long before the reply is delivered at the end of the turn.
-        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+        from narranexus.platform.message_bus.message_bus_trigger import TurnResult
 
         await kwargs["on_event_id"]("evt_turn")
         await speak_in_room(
@@ -429,7 +429,7 @@ async def test_a_failed_team_turn_tells_the_room(db_client):
     await _post(trigger._bus, mentions=[ME])
 
     async def _invoke(**kwargs):
-        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+        from narranexus.platform.message_bus.message_bus_trigger import TurnResult
 
         # What `_invoke_runtime` returns on a fatal run: the notice text, and
         # `fatal` saying it is one rather than the agent's words.
@@ -472,7 +472,7 @@ async def test_a_transient_hiccup_does_not_announce_a_failure(db_client):
     async def _invoke(**kwargs):
         # What `_invoke_runtime` returns after a recoverable hiccup: the real
         # reply, and run_failed=False.
-        from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
+        from narranexus.platform.message_bus.message_bus_trigger import TurnResult
 
         await kwargs["on_event_id"]("evt_turn")
         await speak_in_room(

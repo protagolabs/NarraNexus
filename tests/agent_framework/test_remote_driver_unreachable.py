@@ -17,13 +17,13 @@ import httpx
 import pytest
 from aiohttp.client_reqrep import ConnectionKey
 
-from xyz_agent_context.agent_framework.loop.executor_errors import (
+from narranexus.platform.agent_framework.loop.executor_errors import (
     ExecutorUnreachableError,
 )
-from xyz_agent_context.agent_framework.loop.remote_driver import (
+from narranexus.platform.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
 )
-from xyz_agent_context.agent_framework.loop import broker_client
+from narranexus.platform.agent_framework.loop import broker_client
 
 
 def _connector_error(host: str, port: int) -> aiohttp.ClientConnectorError:

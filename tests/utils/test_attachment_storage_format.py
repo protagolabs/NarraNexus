@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.utils import attachment_storage as at_storage
+from narranexus.platform.utils import attachment_storage as at_storage
 
 
 @pytest.fixture(autouse=True)

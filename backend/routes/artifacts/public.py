@@ -31,9 +31,9 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService, inject_edit_bridge
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.artifact import ArtifactError, ArtifactService, inject_edit_bridge
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 from backend.routes.artifacts._token import TokenError, verify
 

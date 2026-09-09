@@ -33,6 +33,7 @@ import { BookmarkPanelHost } from '@/components/bookmarks/BookmarkPanelHost';
 import { JobsPanel } from '@/components/jobs/JobsPanel';
 import { AgentInboxPanel } from '@/components/inbox/AgentInboxPanel';
 import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
+import { AgentCapabilities } from '@/components/chat/AgentCapabilities';
 import { ClearAgentDataDialog } from '@/components/layout/ClearAgentDataDialog';
 import { AgentTeamAvatars } from '@/components/agents/AgentTeamAvatars';
 import { AgentOverviewCard } from '@/components/agents/AgentOverviewCard';
@@ -52,11 +53,11 @@ import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { OwnedAgentStatus, UpdateAgentResponse } from '@/types';
-import type { AtomicTabId } from '@/components/bookmarks';
+import type { BuiltinTabId } from '@/components/bookmarks';
 
 type ProfileTab = 'overview' | 'capabilities' | 'settings';
 type CapabilityId = 'network' | 'memory' | 'skills' | 'mcp' | 'channels';
-type SettingsSection = 'general' | 'awareness' | 'model';
+type SettingsSection = 'general' | 'awareness' | 'capabilities' | 'model';
 type BrandIcon = ComponentType<{ className?: string }>;
 /** Where the user opened this profile from — decides what the breadcrumb
  *  "back" button returns to. Passed via navigate(path, { state }). */
@@ -82,7 +83,8 @@ const CAPABILITIES: Array<{
   { id: 'channels', labelKey: 'pages.agentProfile.channels', icon: Radio },
 ];
 
-const CAPABILITY_TO_PANEL: Partial<Record<CapabilityId, AtomicTabId>> = {
+// Shell-authored literal table: builtin tab ids only, so a typo is a compile error.
+const CAPABILITY_TO_PANEL: Partial<Record<CapabilityId, BuiltinTabId>> = {
   network: 'social',
   memory: 'memory',
   skills: 'skills',
@@ -483,6 +485,12 @@ export function AgentProfilePage() {
                 onClick={() => setSettingsSection('awareness')}
               />
               <SettingsNavItem
+                active={settingsSection === 'capabilities'}
+                icon={Puzzle}
+                label={t('pages.agentProfile.capabilitySwitches')}
+                onClick={() => setSettingsSection('capabilities')}
+              />
+              <SettingsNavItem
                 active={settingsSection === 'model'}
                 icon={Cpu}
                 label={t('pages.agentProfile.modelFramework')}
@@ -502,6 +510,10 @@ export function AgentProfilePage() {
                 />
               ) : settingsSection === 'awareness' ? (
                 <BookmarkPanelHost tab="awareness" agentId={agentId} />
+              ) : settingsSection === 'capabilities' ? (
+                <div className="p-5">
+                  <AgentCapabilities agentId={agentId} />
+                </div>
               ) : (
                 <div className="p-6">
                   <div className="mb-5 flex items-center justify-between gap-4">

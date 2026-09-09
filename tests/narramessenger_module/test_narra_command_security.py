@@ -9,7 +9,7 @@ defense — so ordinary message content like "S&P 500" must pass.
 """
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narra_command_security import (
+from narranexus_plugins.narramessenger_module._narra_command_security import (
     sanitize_command,
     validate_command,
 )

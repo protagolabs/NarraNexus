@@ -15,21 +15,21 @@ from __future__ import annotations
 import pytest
 
 # Importing the package registers the local claude_code/codex_cli drivers.
-import xyz_agent_context.agent_framework  # noqa: F401
-from xyz_agent_context.agent_framework.loop.driver import (
+import narranexus.platform.agent_framework  # noqa: F401
+from narranexus.platform.agent_framework.loop.driver import (
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,
     OpenAIConfig,
     set_user_config,
     snapshot_user_config,
 )
-from xyz_agent_context.agent_framework.loop.remote_driver import (
+from narranexus.platform.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
 )
-from xyz_agent_context.agent_runtime.executor_protocol import (
+from narranexus.platform.agent_runtime.executor_protocol import (
     apply_provider_configs,
     build_agent_loop_request,
     serialize_provider_configs,
@@ -288,7 +288,7 @@ async def test_remote_driver_raises_when_line_exceeds_max_bytes(monkeypatch):
     ever arrives, buffer grows past ``_MAX_STREAM_BYTES``) must fail
     fast rather than eat memory. We lower the ceiling in this test so
     the assertion doesn't require 50 MB of test data."""
-    from xyz_agent_context.agent_framework.loop import remote_driver as m
+    from narranexus.platform.agent_framework.loop import remote_driver as m
 
     monkeypatch.setattr(m, "_MAX_STREAM_BYTES", 1024)  # 1 KiB test ceiling
     junk = b"x" * 2000  # 2 KiB, no newline
@@ -331,7 +331,7 @@ async def test_step3_hands_the_stale_replace_verdict_to_ensure(monkeypatch):
     import importlib
 
     step3 = importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
 
     captured = {}
@@ -349,11 +349,11 @@ async def test_step3_hands_the_stale_replace_verdict_to_ensure(monkeypatch):
         return True
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.loop.broker_client.ensure_executor",
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
         fake_ensure,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
         safe,
     )
 
@@ -373,7 +373,7 @@ async def test_step3_refuses_replacement_while_a_run_is_live(monkeypatch):
     import importlib
 
     step3 = importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
 
     captured = {}
@@ -387,11 +387,11 @@ async def test_step3_refuses_replacement_while_a_run_is_live(monkeypatch):
         return False
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.loop.broker_client.ensure_executor",
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
         fake_ensure,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
         unsafe,
     )
 
@@ -408,7 +408,7 @@ def test_step_3_keeps_its_timing_decorator():
     import importlib
 
     step3 = importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
     assert hasattr(step3.step_3_agent_loop, "__wrapped__")
     assert not hasattr(step3._ensure_executor_for_run, "__wrapped__")
@@ -422,7 +422,7 @@ async def test_no_broker_skips_the_verdict_entirely(monkeypatch):
     import importlib
 
     step3 = importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
     asked = []
 
@@ -434,15 +434,15 @@ async def test_no_broker_skips_the_verdict_entirely(monkeypatch):
         raise AssertionError("ensure_executor must not be called without a broker")
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.loop.broker_client.broker_url",
+        "narranexus.platform.agent_framework.loop.broker_client.broker_url",
         lambda: None,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
         verdict,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.loop.broker_client.ensure_executor",
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
         fake_ensure,
     )
 

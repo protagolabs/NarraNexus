@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
-from xyz_agent_context.repository import AgentRepository
+from narranexus.platform.repository import AgentRepository
 
 
 class _Db:

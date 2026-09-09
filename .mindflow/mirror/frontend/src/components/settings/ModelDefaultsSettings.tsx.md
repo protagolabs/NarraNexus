@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-08-28
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — new `liveFrameworks` state feeds `providerBacksFramework`/`availableFrameworks` (B6)
+
+`lib/agentFramework.ts`'s `providerBacksFramework`/`availableFrameworks` no longer have any
+hardcoded fallback for protocol/oauth matching — they read exclusively off the live
+`frameworks[]` array from `GET /api/providers/agent-framework` and fail closed (return
+false / only-`current`) with no list. This component already fetched that array (for
+`frameworkAvailability`, the plugin-install gate) but discarded the array itself; it now also
+keeps it in a new `liveFrameworks` state (typed `LiveFrameworkEntry[] | undefined` — `undefined`,
+not `[]`, until `load()`'s response lands, so "not loaded" stays distinct from "loaded but
+empty") and forwards it as the third argument at both call sites (`agentProviders`'s filter,
+`frameworkOptions`'s `availableFrameworks` call).
 
 ## 2026-08-28 — 框架下拉套插件可用性 + 新增 `onManagePlugins`
 

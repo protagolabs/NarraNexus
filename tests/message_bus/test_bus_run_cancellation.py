@@ -23,20 +23,20 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_runtime.run_collector import RunCollection
+from narranexus.platform.agent_runtime.run_collector import RunCollection
 from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.agent_runtime.cancel_watcher import reset_cancel_watcher
-from xyz_agent_context.agent_runtime.cancellation import CancelledByUser
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.agent_runtime.cancel_watcher import reset_cancel_watcher
+from narranexus.platform.agent_runtime.cancellation import CancelledByUser
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ def _patch_db_factory(monkeypatch, db_client):
     async def _async_db():
         return db_client
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _async_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _async_db)
 
 
 async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
@@ -104,7 +104,7 @@ async def test_token_is_registered_under_the_run_id_then_released(db_client, mon
     async def _record(*args, **kwargs):
         # Step 0 mints the id and the trigger forwards it through on_event_id.
         await kwargs["on_event_id"]("evt_run_1")
-        from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+        from narranexus.platform.agent_runtime.cancel_watcher import get_cancel_watcher
 
         watcher = get_cancel_watcher(db_client)
         watched_during_run["ids"] = list(watcher._tokens.keys())
@@ -114,7 +114,7 @@ async def test_token_is_registered_under_the_run_id_then_released(db_client, mon
 
     await _handle(trigger)
 
-    from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+    from narranexus.platform.agent_runtime.cancel_watcher import get_cancel_watcher
 
     assert watched_during_run["ids"] == ["evt_run_1"]
     # Released on exit — a stale entry would keep the poll loop alive forever.
@@ -203,11 +203,11 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        "narranexus.platform.agent_runtime.client.get_agent_runtime_client",
         lambda: client,
     )
 
-    from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+    from narranexus.platform.agent_runtime.cancellation import CancellationToken
 
     token = CancellationToken()
     trigger = MessageBusTrigger.__new__(MessageBusTrigger)
@@ -250,7 +250,7 @@ async def test_invoke_runtime_forwards_the_team_safety_net(monkeypatch):
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        "narranexus.platform.agent_runtime.client.get_agent_runtime_client",
         lambda: client,
     )
 
@@ -293,7 +293,7 @@ async def test_invoke_runtime_works_without_a_deliverer(monkeypatch):
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        "narranexus.platform.agent_runtime.client.get_agent_runtime_client",
         lambda: client,
     )
 

@@ -232,7 +232,7 @@ async def test_coarse_date_only_hit_at_is_dropped_not_stored_as_midnight(db_clie
     is removed, the stored value is that 2020 midnight (far from now); with the
     guard it is the insert-time default (close to now)."""
     from datetime import timedelta
-    from xyz_agent_context.utils.timezone import coerce_utc, utc_now
+    from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
     app = _make_app(db_client, monkeypatch)
 
@@ -359,7 +359,7 @@ async def test_field_length_limits_derive_from_schema(db_client, monkeypatch):
         RUN_ID_MAX_LEN,
         USER_ID_MAX_LEN,
     )
-    from xyz_agent_context.utils.db.schema_registry import varchar_width
+    from narranexus.platform.utils.db.schema_registry import varchar_width
 
     assert USER_ID_MAX_LEN == varchar_width("gateway_key_misuse", "user_id") == 64
     assert RUN_ID_MAX_LEN == varchar_width("gateway_key_misuse", "run_id")

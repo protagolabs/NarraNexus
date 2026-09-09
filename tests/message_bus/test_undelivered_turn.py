@@ -22,18 +22,18 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.delivery_notice import (
+from narranexus.platform.message_bus.delivery_notice import (
     DELIVERY_FAILED_MSG_TYPE,
     UNDELIVERED_MSG_TYPE,
 )
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema.inbox_schema import InboxMessageType
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.schema.inbox_schema import InboxMessageType
 
 ROOM = "ch_undelivered_room"
 DM = "ch_undelivered_dm"
@@ -44,7 +44,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -88,7 +88,7 @@ async def test_a_silent_team_turn_posts_nothing_and_marks_the_roster(db_client, 
     red twice — a `system_undelivered` row appears, and the step log no
     longer ends on `silent`.
     """
-    from xyz_agent_context.message_bus import activity as bus_activity
+    from narranexus.platform.message_bus import activity as bus_activity
 
     _patch_db_factory(monkeypatch, db_client)
     await _seed_agent(db_client)
@@ -458,7 +458,7 @@ def test_delivered_to_anyone_fails_open_when_the_registry_downgrades(monkeypatch
     tool only), so the bus sends stop counting as delivery. That quiet downgrade
     is the same bug as a raise and must fail open to True, or every turn that
     answered its peer correctly gets stamped "no reply"."""
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
         _DEFAULT_HANDLER,
     )
@@ -468,7 +468,7 @@ def test_delivered_to_anyone_fails_open_when_the_registry_downgrades(monkeypatch
 
 
 def test_delivered_to_anyone_fails_open_when_the_registry_raises(monkeypatch):
-    from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
 
     def _boom(_src: str):
         raise RuntimeError("registry exploded")
@@ -485,7 +485,7 @@ async def test_a_patrol_triggered_silence_gets_no_notice(db_client, monkeypatch)
     """A patrol line mentions the members it is chasing; one of them going quiet
     must not read as "the user asked and got nothing". Platform-initiated turns
     have no one waiting on an answer."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     _patch_db_factory(monkeypatch, db_client)
     await _seed_agent(db_client)

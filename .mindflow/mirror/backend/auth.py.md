@@ -1,8 +1,18 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-19
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-03（批 2a.4）— `PLUGIN_EXEMPT_PREFIXES`
+
+插件路由声明 `auth="none"` 时由 `plugins_host` 在启动期填入的豁免前缀集合（运行期可变，所以是 set 而不是
+常量元组）。两处判断（JWT 门与本地模式 X-User-Id 门）都并入 `_is_plugin_exempt`，其余路径仍 fail-closed。
+
+## 2026-09-03 — `_is_cloud_mode()` 转发到 `narranexus.kernel.deployment.is_cloud_mode`
+
+函数与 docstring 里的 DMG 安全理由保留，实现改为一行转发；优先级（显式 env > DATABASE_URL >
+DB_HOST > local）与本文件原实现完全相同，只是不再是第二份副本。
 
 ## 2026-08-19 — AUTH_EXEMPT_PATHS 新增 `/api/admin/warn-user`
 
@@ -25,7 +35,7 @@ resolver，正确——它根本不是用户面请求。
 middleware 在 JWT 验签通过、`request.state.user_id` 已就位之后、provider/quota
 resolver 之前，多加一道**账户状态闸门**：读该用户的 `users.status`，若落在共享的
 `NON_TRANSACTING_USER_STATUSES = {banned, blocked, deleted}`（从
-`xyz_agent_context.schema` 顶层 import，[[entity_schema.py]] 的单一真相源，取代
+`narranexus.platform.schema` 顶层 import，[[entity_schema.py]] 的单一真相源，取代
 原来本文件里那份本地 `_NON_TRANSACTING_STATES` 字面量），立即返回 **403**
 （`ACCOUNT_SUSPENDED` code，见 [[auth_errors]]）。这样一个「仍然有效」的 JWT，
 在其命名的账户被停用后就不能再交易——账户停用机制（[[suspend.py]]）把
@@ -197,7 +207,7 @@ LLM 调用。
 JWT 校验不受影响——安全豁免只加在 JWT 通过之后。
 
 **为什么这样改是安全的**：`resolve_and_set` 的唯一副作用是把 LLM
-provider 配置写进 `xyz_agent_context.agent_framework.api_config` 的
+provider 配置写进 `narranexus.platform.agent_framework.api_config` 的
 ContextVar（`set_user_config` / `set_provider_source`），不写
 `request.state`，所以不存在"跳过它会让下游 GET handler 缺东西"的问题
 ——GET/HEAD handler 从不读这些 ContextVar，因为它们从不触发 agent
@@ -392,3 +402,39 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 客户端 auth 漏斗故障上报：上报者按定义刚登录失败、没有 session。路由自带
 stage 白名单+限流+log-only 防护（见 routes/auth.py mirror）。
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+`_is_channel_webhook_path` — the exact `/api/channels/{channel}/webhook/{agent_id}` shape is auth-exempt (the handler verifies the binding's secret); every other `/api/channels/*` route keeps the normal auth.
+
+Batch 6c.2: identity comes from the bound authProviders plugin (`backend.auth_provider.auth_provider()`). Local branch: the provider names the user (builtin.auth.local reads `X-User-Id`); cloud branch: after the nx service-bearer path the provider decodes the bearer and its `AuthError` code/status are reported verbatim (a `None` identity is `token_invalid`); `get_current_user` uses the same provider. `decode_token`/`create_token` stay here for the NetMind provider and the login route.
+
+## 2026-09-07 — segment-boundary plugin exemptions; plugin quota bypass; provider-first authentication
+
+path_under_prefix() matches a plugin's auth-exempt / quota-bypass prefix on a path-SEGMENT boundary (Starlette routes by segment; string prefixes let /api/x/acme.w exempt /api/x/acme.w2 and /webhook exempt /webhook-admin). PLUGIN_QUOTA_BYPASS_PREFIXES honours RouterSpec.quota_bypass (declared in the contract, previously ignored by everyone). Authentication now asks the bound kernel.auth provider FIRST: a distribution binding a cookie/SSO/header provider is reachable without a bearer (the 'Bearer or 401' gate ran before the seam and made it impossible to exercise); a None identity with no bearer is TOKEN_MISSING (after the anonymous marketplace read), with a bearer TOKEN_INVALID. The nx service bearer keeps its earlier, separate trust path.
+
+
+## 2026-09-07 — 每一个前缀**集合**都走 `path_under_prefix`（改一处扫一类）
+
+`path_under_prefix` 是本文件已有的段边界判定（`path == base or path.startswith(base + "/")`），
+它当初是为了修「`/api/x/acme.w` 豁免了 `/api/x/acme.w2/...`」而引入的。但那一轮只把它接到了
+**插件**那两个集合上；三个静态集合仍然是裸 `startswith`，而它们的条目**都没有尾斜杠**：
+
+- `QUOTA_BYPASS_PREFIXES`（`/api/providers`、`/api/quota`、`/api/admin`、`/api/auth`、
+  `/api/transcription`、`/api/billing`、`/api/analytics`、`/api/notices`）
+- `AUTH_EXEMPT_PREFIXES`（两处调用点：cloud 分支与 local 分支）
+- `MARKETPLACE_PUBLIC_READ_PREFIXES`（GET-only）
+
+也就是说 `/api/quota-admin`、`/api/authz`、`/api/billing-internal` 这类**兄弟路径**会连带
+拿到豁免/旁路。今天对着 250 条 golden 路由验证过 0 命中——是潜伏，不是活 bug——但代价是
+「下一条加进列表的前缀会不会顺手开掉它的兄弟」这件事没有任何机制回答。四处全部改用
+`path_under_prefix`。
+
+未改的三处 `startswith` 是**有意**的，它们不是前缀集合：`_is_manyfold_path` 的
+`/v1/`、`/manyfold/` 和中间件里的 `/api/`、`/ws/` 都自带尾斜杠，本身就是段边界；
+其余命中是 `Bearer ` 与 `mf_` 前缀，与路径无关。
+
+测试：`tests/backend/test_path_under_prefix.py`（helper 本身的参数化单测——精确相等 / 真
+后代 / 同串前缀兄弟 / 带尾斜杠的前缀 / 前缀长于路径，外加一条读源码的守卫，断言这三个集合
+不再和 `startswith` 出现在同一行），以及 `tests/backend/test_auth_middleware_quota.py` 里
+`/api/quota-admin/grant` 仍然 402 的桩路由。

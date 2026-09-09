@@ -32,11 +32,11 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus import wake_signal
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus import wake_signal
 
 from ._team_turn import speak_in_room
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
@@ -69,7 +69,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 
@@ -153,7 +153,7 @@ def test_every_in_process_post_goes_through_the_waking_helper():
     """
     import inspect
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from narranexus.platform.message_bus import message_bus_trigger as mod
 
     import re
 
@@ -253,7 +253,7 @@ async def _room_shows_a_sign_of_life(db, bus, members) -> tuple[bool, dict]:
     question is what the room actually renders, and a private copy of the rule
     here would pass while the UI stayed silent.
     """
-    from backend.routes.teams import _member_activity
+    from narranexus_plugins.teams.routes import _member_activity
 
     rows = await _member_activity(db, bus, CHANNEL, members)
     states = {r["agent_id"]: r["status"] for r in rows}

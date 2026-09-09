@@ -3,10 +3,10 @@
  * Route-level code splitting: LoginPage and MainLayout use React.lazy for on-demand loading
  */
 
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useSyncExternalStore, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
-import { useTheme, useTimezoneSync } from '@/hooks';
+import { usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
@@ -22,6 +22,9 @@ import {
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { PAGES, useRegistryEntries } from '@/platform/registries';
+import { pageRouteElements } from '@/platform/pageRoutes';
+import { pluginsBootSettled, subscribePluginsBoot } from '@/platform/loader';
 import { owesWelcomeFlow } from '@/lib/onboardingGate';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
@@ -30,23 +33,6 @@ import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModa
 import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
-const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const WelcomePage = lazy(() => import('@/pages/WelcomePage'));
-const SystemPage = lazy(() => import('@/pages/SystemPage'));
-const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
-const MarketplacePage = lazy(() => import('@/pages/MarketplacePage'));
-const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
-const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
-const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
-const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
-const AgentProfilePage = lazy(() => import('@/pages/AgentProfilePage'));
-const AccountPage = lazy(() => import('@/pages/AccountPage'));
-const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
-const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
-// NM design system dev gallery — public (no auth) so it can be loaded
-// before login during visual review. Not linked from any nav.
-const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
-const PayPage = lazy(() => import('@/pages/PayPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -238,6 +224,7 @@ function RootRedirect() {
 
 function App() {
   const { effectiveTheme } = useTheme();
+  usePluginTheme();
   useTimezoneSync();
   const navigate = useNavigate();
 
@@ -549,85 +536,53 @@ function App() {
       )}
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>
-      <Routes>
-        <Route
-          path="/login"
-          element={<PublicRoute><LoginPage /></PublicRoute>}
-        />
-
-        {/* NM design system gallery — public dev tool, no auth required */}
-        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
-
-        {/* First-run flow — requires login */}
-        <Route
-          path="/welcome"
-          element={
-            <ProtectedRoute skipWelcomeGate>
-              <WelcomePage />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* /setup was the provider-only first-run page; it is now step 1 of
-            /welcome. Kept as a redirect because docs and old bookmarks point
-            here. */}
-        <Route path="/setup" element={<Navigate to="/welcome" replace />} />
-
-        {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
-            ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
-            the payment intent survives login/signup; PayPage then mints the
-            checkout session and redirects. */}
-        <Route
-          path="/pay"
-          element={
-            <ProtectedRoute skipWelcomeGate>
-              <PayPage />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Protected app routes */}
-        <Route
-          path="/app"
-          element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
-        >
-          <Route index element={<Navigate to="chat" replace />} />
-          <Route path="chat" element={null} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="marketplace" element={<MarketplacePage />} />
-          <Route path="you" element={<YouWorkspace />} />
-          <Route path="system" element={<SystemPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          {/* Legacy alias: the account surface lives inside Settings
-              (?tab=account, left nav intact). This route only forwards old
-              links there with the query preserved. */}
-          <Route path="account" element={<AccountPage />} />
-          <Route path="bundle/export" element={<BundleExportPage />} />
-          <Route path="bundle/import" element={<BundleImportPage />} />
-          {/* Deep-link entry point from narra.nexus templates marketplace.
-              Same component as bundle/import; URL query (?url=&sha256=)
-              triggers the auto-fetch-then-preflight path. */}
-          <Route path="templates/install" element={<BundleImportPage />} />
-          {/* Static segment ranks above :teamId in v6 route ranking, but it
-              also reads clearer listed first. */}
-          <Route path="teams/new" element={<CreateTeamPage />} />
-          {/* Agent profile — the one page that owns an agent's identity,
-              capabilities and settings. Reached from the chat header's
-              avatar/name and from the Dashboard agent table. */}
-          <Route path="agents/:agentId" element={<AgentProfilePage />} />
-          <Route path="teams/:teamId" element={<TeamDetailPage />} />
-          {/* Team group chat — element null; MainLayout renders TeamChatView
-              in the main slot (like /app/chat) so it isn't a sub-page overlay. */}
-          <Route path="teams/:teamId/chat" element={null} />
-        </Route>
-
-        {/* Root redirect + catch-all */}
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
-    </ChunkErrorBoundary>
+        <AppRoutes />
+      </Suspense>
+      </ChunkErrorBoundary>
     </>
+  );
+}
+
+/**
+ * The route table: registry pages around the fixed skeleton (the protected
+ * /app layout with its index redirect, the root redirect, the catch-all).
+ * Exported so `src/__tests__/appRoutes.test.tsx` can prove the registry is
+ * what the shell renders, without mounting the banners and store effects
+ * above. Pages come from the registry; a plugin registering after first
+ * render re-renders the table.
+ */
+/** Exported for `appRoutes.test.tsx`: the hold is what keeps a plugin deep link alive across a reload. */
+export function PluginPagePending() {
+  const settled = useSyncExternalStore(subscribePluginsBoot, pluginsBootSettled, pluginsBootSettled);
+  if (!settled) return <PageFallback />;
+  return <Navigate to="/app/chat" replace />;
+}
+
+export function AppRoutes() {
+  const pageRoutes = pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute });
+  return (
+    <Routes>
+      {pageRoutes.top}
+
+      {/* Protected app routes: MainLayout is the shell; its children come
+          from the page registry in registration order (builtin first). */}
+      <Route
+        path="/app"
+        element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
+      >
+        <Route index element={<Navigate to="chat" replace />} />
+        {pageRoutes.app}
+        {/* Plugin pages live under x/. On a hard reload the factory has not
+            answered yet when this table first renders, so an x/ URL that no
+            registered page matches waits for the plugin boot to settle instead
+            of being sent to chat; a registered x/<page> always ranks above x/*. */}
+        <Route path="x/*" element={<PluginPagePending />} />
+      </Route>
+
+      {/* Root redirect + catch-all */}
+      <Route path="/" element={<RootRedirect />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 

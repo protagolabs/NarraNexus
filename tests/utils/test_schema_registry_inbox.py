@@ -17,7 +17,7 @@ both measured on prod 2026-08-17:
 So the inbox gets its own tables and the agent's unread injection cannot reach
 them — not by a filter, but because the rows are not in the table it reads.
 """
-from xyz_agent_context.utils.db.schema_registry import get_registered_tables
+from narranexus.platform.utils.db.schema_registry import get_registered_tables
 
 
 def _tables():

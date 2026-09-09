@@ -23,9 +23,9 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.schema import AGENT_TEXT_FIELDS, normalize_agent_row_text
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.schema import AGENT_TEXT_FIELDS, normalize_agent_row_text
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 PADDED = "  小绿  "
 CLEAN = "小绿"

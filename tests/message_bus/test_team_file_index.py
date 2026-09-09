@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus._bus_attachment_impl import stage_path_into_team
-from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.message_bus._bus_attachment_impl import stage_path_into_team
+from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
 AGENT = "agent_a"
 USER = "user_1"
@@ -39,7 +39,7 @@ TEAM = "team_1"
 @pytest.fixture
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "ws"
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
     ws = agent_workspace_path(AGENT, USER, base=str(base))
     ws.mkdir(parents=True, exist_ok=True)
@@ -122,7 +122,7 @@ async def test_a_share_hashes_the_source_at_most_once(env, monkeypatch):
     never hashed" — it stops the lookup from hashing rows it is comparing
     against, and it keeps the comparison to a single read of the source.
     """
-    from xyz_agent_context.message_bus import _bus_attachment_impl as impl
+    from narranexus.platform.message_bus import _bus_attachment_impl as impl
 
     calls = {"n": 0}
     real = impl._content_hash
@@ -175,7 +175,7 @@ async def test_a_racing_duplicate_share_still_returns_the_existing_row(env, monk
     return it as the "same content re-shared" case, which is the semantics
     this feature already claims.
     """
-    from xyz_agent_context.message_bus import _bus_attachment_impl as impl
+    from narranexus.platform.message_bus import _bus_attachment_impl as impl
 
     first = await _share(env, "report.md", "v1\n")
 

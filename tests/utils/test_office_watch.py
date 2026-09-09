@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.office_watch import (
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.office_watch import (
     WATCH_PORT_MAX,
     WATCH_PORT_MIN,
     is_watch_port,
@@ -34,7 +34,7 @@ def test_is_watch_port_range():
 
 def _ws(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     ws = agent_workspace_path("a1", "u1")
     ws.mkdir(parents=True, exist_ok=True)
@@ -74,7 +74,7 @@ def test_resolve_watch_file_bad_ext(tmp_path, monkeypatch):
 
 def _fresh_alloc(monkeypatch, listening: set[int]):
     """Reset the allocator table + stub _port_listening from ``listening``."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     monkeypatch.setattr(ow, "_assignments", {})
     monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": p in listening)
@@ -106,7 +106,7 @@ def test_allocate_port_never_reuses_a_live_other_files_port(monkeypatch):
 
 
 def test_allocate_port_exhaustion_then_dead_reclaim(monkeypatch):
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     span = ow.WATCH_PORT_MAX - ow.WATCH_PORT_MIN + 1
     assignments = {f"/ws/f{i}.pptx": ow.WATCH_PORT_MIN + i for i in range(span)}
@@ -131,7 +131,7 @@ def test_reconcile_adopts_live_orphan_instead_of_double_spawning(tmp_path, monke
     listening for the file. ensure_watch must ADOPT it, never spawn a second
     watch (officecli is same-file single-watch; the 2nd would fail to come up
     and the tab would show 'could not open')."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     (ws / "deck.pptx").write_bytes(b"x")
@@ -159,7 +159,7 @@ def test_reconcile_cleans_a_dead_watchs_meta(tmp_path, monkeypatch):
     """A sidecar whose watch died (pid gone) is removed, not adopted — so the
     port frees up for a fresh allocation. Reap is driven ONLY by pid death now
     (port-listening=True here proves that is not what triggers the reap)."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
@@ -177,7 +177,7 @@ def test_reconcile_leaves_a_starting_watchs_meta_alone(tmp_path, monkeypatch):
     """A watch inside its start-up window (pid alive, port not yet listening —
     the meta is written before the bind wait) must NOT be reaped: deleting it
     would strand a healthy watch's record for the next restart."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
@@ -196,7 +196,7 @@ def test_reconcile_refuses_to_adopt_a_port_owned_by_another_file(tmp_path, monke
     already holds in the map must NOT be adopted (that would render the other
     file's document in our tab — the classic wrong-content bug). Fall through
     to normal allocation instead."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
@@ -215,7 +215,7 @@ def test_reconcile_refuses_a_recycled_pid_with_mismatched_cmdline(tmp_path, monk
     """Identity guard: the sidecar's pid is alive but its command line is not
     our watch (the pid number was recycled into a different process after a
     restart) — refuse to adopt even though pid+port look live."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
@@ -242,7 +242,7 @@ def test_reconcile_refuses_to_adopt_without_identity_evidence(tmp_path, monkeypa
     rendering another document. (Historically the check was a Linux-only
     start-time compare, a no-op on desktop — this is that hole, now closed
     by the cmdline evidence.)"""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     abs_file = str((ws / "deck.pptx").resolve())
@@ -263,7 +263,7 @@ def test_reconcile_refuses_to_adopt_without_identity_evidence(tmp_path, monkeypa
 def test_slow_start_kills_the_orphan_and_returns_none(tmp_path, monkeypatch):
     """A watch that never comes up within wait_s is terminated — not left
     listening later on a port the allocator now believes is free."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     (ws / "deck.pptx").write_bytes(b"x")
@@ -290,7 +290,7 @@ def test_identity_recognizes_the_real_spawn_argv(tmp_path, monkeypatch):
     never silently disable adopt (which would regress the restart double-spawn
     bug while every reconcile test stayed green). Capture the ACTUAL argv passed
     to Popen and assert the identity matcher accepts it."""
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     ws = _ws(tmp_path, monkeypatch)
     (ws / "deck.pptx").write_bytes(b"x")
@@ -325,7 +325,7 @@ def test_proc_cmdline_returns_full_argv_including_tail_token():
     import subprocess
     import sys
 
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     sentinel = "ZZ_office_watch_tail_ZZ"
     proc = subprocess.Popen(
@@ -345,7 +345,7 @@ def test_proc_cmdline_ps_branch_keeps_tail(monkeypatch):
     import subprocess
     import sys
 
-    import xyz_agent_context.utils.office_watch as ow
+    import narranexus.platform.utils.office_watch as ow
 
     real_open = open
 

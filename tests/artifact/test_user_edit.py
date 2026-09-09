@@ -22,15 +22,15 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.artifact import ArtifactService
-from xyz_agent_context.artifact._artifact_impl.errors import (
+from narranexus.platform.artifact import ArtifactService
+from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactEditConflict,
     ArtifactKindMismatch,
     ArtifactTooLarge,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -43,7 +43,7 @@ def _sha(text: str) -> str:
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     workspace = base / WS_REL
@@ -190,7 +190,7 @@ async def test_oversize_content_rejected(env):
 
 
 async def test_wrong_agent_id_is_not_found(env):
-    from xyz_agent_context.artifact._artifact_impl.errors import ArtifactNotFound
+    from narranexus.platform.artifact._artifact_impl.errors import ArtifactNotFound
     svc: ArtifactService = env["service"]
     with pytest.raises(ArtifactNotFound):
         await svc.save_user_content(
@@ -220,6 +220,6 @@ def test_editable_kinds_pinned_to_frontend_registry():
     kindRegistry.test.ts. A kind added on one side without the other shows
     as an editor whose saves always 400 — this test and that one must move
     together."""
-    from xyz_agent_context.artifact._artifact_impl.user_edit import EDITABLE_KINDS
+    from narranexus.platform.artifact._artifact_impl.user_edit import EDITABLE_KINDS
 
     assert set(EDITABLE_KINDS) == {"text/markdown", "text/csv", "text/html"}

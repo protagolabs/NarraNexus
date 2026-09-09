@@ -20,14 +20,14 @@ import pytest
 
 from backend.onboarding import provisioning as ob
 from backend.onboarding.personas import PERSONAS
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 
 @pytest.mark.asyncio
 async def test_real_provisioning_persists_the_full_contract(
     db_client, tmp_path, monkeypatch
 ):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setenv(ob.ENV_FLAG, "1")
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "ws"))

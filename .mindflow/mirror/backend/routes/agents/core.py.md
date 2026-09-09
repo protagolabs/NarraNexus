@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/core.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -67,3 +67,11 @@ is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
 ## 新人易踩的坑
 
 新增 agent 资源子域时，需要同时做两件事：创建新的 `agents_xxx.py` 文件，并在本文件里 import 并 `router.include_router()`。只做一步会导致路由要么缺失要么孤立。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+The six data-access twin routers (awareness, social_network, chat_history, narrative, jobs, profile) are no longer included here: they are `backend.routes` contributions of their builtin plugins and are mounted under `/api/agents` by `backend/plugins_host.mount_plugin_routes`, so the HTTP twin disappears together with the capability when the plugin is disabled.
+
+## 2026-09-04 · mounts the capabilities router (batch 5c)
+
+`/api/agents/{id}/capabilities` joins llm-config under the agents prefix.

@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { Lock, Globe } from 'lucide-react';
 import { RingAvatar, StatusDot, type NMStatusKind } from '@/components/nm';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { formatFrameworkFromList } from '@/lib/frameworkBrand';
 import type { AgentInfo, AgentStatus } from '@/types';
 
 interface TeamMemberAvatarsProps {
@@ -133,7 +134,7 @@ export function TeamMemberAvatars({
                   {description}
                 </p>
                 <div className="mt-2.5 space-y-1 border-t border-[var(--nm-hairline)] pt-2">
-                  <MetaRow label={t('pages.dashboard.memberRuntimeLabel')} value={formatFramework(agent?.agent_framework)} />
+                  <MetaRow label={t('pages.dashboard.memberRuntimeLabel')} value={formatFrameworkFromList(agent?.agent_framework, undefined)} />
                   <MetaRow label={t('pages.dashboard.memberModelLabel')} value={agent?.model || '—'} />
                   <MetaRow label={t('pages.dashboard.memberOwnerLabel')} value={ownerLabel} />
                 </div>
@@ -168,18 +169,6 @@ function MetaRow({ label, value }: { label: string; value: string }) {
       <span className="max-w-[140px] truncate text-[var(--nm-ink)]">{value}</span>
     </div>
   );
-}
-
-function formatFramework(framework?: string): string {
-  if (!framework) return '—';
-  if (framework === 'claude_code') return 'Claude Code';
-  if (framework === 'codex_cli') return 'Codex';
-  if (framework === 'nexus_power') return 'Nexus Power';
-  return framework
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 export default TeamMemberAvatars;

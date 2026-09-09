@@ -25,9 +25,9 @@ import os
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 _PREFIX = "mysqlunread"
@@ -263,7 +263,7 @@ async def test_has_unread_before_runs_on_mysql_and_respects_the_legacy_filter(bu
     # A legacy IM channel answers False even asked about directly — the prefix
     # exclusion has to apply in this reader too, or the cursor logic sees rows the
     # context never rendered.
-    from xyz_agent_context.channel.message_source_handler import im_channel_prefixes
+    from narranexus.platform.channel.message_source_handler import im_channel_prefixes
 
     legacy = f"{im_channel_prefixes()[0]}{_PREFIX}_legacy"
     await bus._db.execute_write(

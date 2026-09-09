@@ -14,7 +14,7 @@ import stat
 
 import pytest
 
-from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import (
+from narranexus.platform.marketplace._skill_marketplace_impl.secret_box import (
     SecretBox,
     SecretDecryptError,
 )

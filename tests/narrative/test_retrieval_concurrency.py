@@ -23,7 +23,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.narrative.models import NarrativeType
+from narranexus.platform.narrative.models import NarrativeType
 
 
 class _Recorder:
@@ -67,13 +67,13 @@ def _install(retrieval, rec: _Recorder, *, pool_fails: bool = False,
 
 @pytest.fixture
 def retrieval(monkeypatch, db_client):
-    from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
+    from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
 
     async def _get_db():
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
     return NarrativeRetrieval(agent_id="a1")
 
@@ -187,7 +187,7 @@ async def test_the_judged_path_records_judge_ms(retrieval, monkeypatch):
     an assignment that never fires anywhere is indistinguishable from healthy
     behaviour unless the judged path is asserted too.
     """
-    from xyz_agent_context.narrative.models import NarrativeSelectionResult
+    from narranexus.platform.narrative.models import NarrativeSelectionResult
 
     rec = _Recorder()
     _install(retrieval, rec)
@@ -228,8 +228,8 @@ async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monke
     short-circuits. `_get_participant_narratives` returns [] here, so P0-4
     cannot force the judge either.
     """
-    from xyz_agent_context.narrative.config import config
-    from xyz_agent_context.narrative.models import NarrativeSearchResult
+    from narranexus.platform.narrative.config import config
+    from narranexus.platform.narrative.models import NarrativeSearchResult
 
     rec = _Recorder()
     _install(retrieval, rec)

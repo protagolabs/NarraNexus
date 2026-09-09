@@ -24,7 +24,7 @@ import pytest
 # deploy change) — skip there rather than fail on a host-library gap.
 pytest.importorskip("magic", reason="requires system libmagic")
 
-from xyz_agent_context.utils.mime_sniff import sniff_mime_type  # noqa: E402
+from narranexus.platform.utils.mime_sniff import sniff_mime_type  # noqa: E402
 
 
 def _wav_bytes() -> bytes:

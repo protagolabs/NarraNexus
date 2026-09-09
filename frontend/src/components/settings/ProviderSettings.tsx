@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useConfigStore } from '@/stores'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
+import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard'
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect'
 import { useOauthAllowed } from '@/components/settings/useOauthAllowed'
 import { addProviderCard, authFetch, providerApiUrl, type ProviderRow } from '@/lib/providersApi'
@@ -304,14 +305,15 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   // subprocess on local — don't pay that for a closed modal.
   const oauthAllowed = useOauthAllowed(addModalOpen)
   const [detailProviderId, setDetailProviderId] = useState<string | null>(null)
-  // Two ways to add, not three: the "API key" tab was the same OneKeyOnboard
-  // card first-run already puts in front of every user, so in Settings it was
-  // a duplicate of the path they came through (Owner 2026-09-03). What is left
-  // are the two things one pasted key CANNOT express — a CLI sign-in (OAuth,
-  // no key at all) and a custom endpoint.
-  const [addMethod, setAddMethod] = useState<'oauth' | 'custom'>('oauth')
-  // The default tab CAN disappear now (cloud non-staff lose Sign-in), and the
-  // 'onekey' tab that used to be the safe default is gone. Derive rather than
+  // Three ways to add. The one-key card (NetMind.AI Power / Anthropic /
+  // OpenAI) is the same OneKeyOnboard first-run puts in front of every user;
+  // it was dropped from Settings on 2026-09-03 as a duplicate and put back on
+  // 2026-09-08 (Owner): a cloud user who skipped first-run, or wants to swap
+  // the key later, otherwise finds only "Custom" here — the presets have no
+  // other entry point once the welcome flow is behind them. It is the
+  // default tab and never gated (the backend policy is the real boundary).
+  const [addMethod, setAddMethod] = useState<'onekey' | 'oauth' | 'custom'>('onekey')
+  // The Sign-in tab CAN disappear (cloud non-staff). Derive rather than
   // correct the state in an effect: an unavailable choice falls through to
   // 'custom' for both the tab highlight and the body, so the modal never opens
   // on a tab that renders nothing.
@@ -582,7 +584,7 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
             {/* + Add provider card — opens the add modal on its first tab. */}
             <button
               type="button"
-              onClick={() => { setAddMethod('oauth'); setAddModalOpen(true) }}
+              onClick={() => { setAddMethod('onekey'); setAddModalOpen(true) }}
               className="flex flex-col items-center justify-center gap-1 p-4 rounded-[var(--radius-xl)] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
             >
               <Plus className="w-5 h-5" />
@@ -594,8 +596,8 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
 
       {/* ================================================================= */}
       {/* ② Add a provider — a modal opened from the "+ Add provider" grid card.
-          Two methods: OAuth sign-in (Claude Code / Codex CLI) and a custom
-          endpoint. The one-key preset is first-run's job, not this modal's. */}
+          Three methods: the one-key presets (same card as first-run), OAuth
+          sign-in (Claude Code / Codex CLI) and a custom endpoint. */}
       <Dialog
         isOpen={addModalOpen}
         onClose={() => setAddModalOpen(false)}
@@ -603,9 +605,10 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
         size="2xl"
       >
         <DialogContent>
-          {/* Tabs — two ways to add, switched in place (no wizard menu). */}
+          {/* Tabs — three ways to add, switched in place (no wizard menu). */}
           <div className="flex gap-1 border-b border-[var(--border-subtle)] mb-4">
             {([
+              { id: 'onekey', label: t('settings.provider.tabOneKey') },
               // Dropped for cloud non-staff (oauthAllowed === false) — an
               // entry point to a gated panel reads as "page broke". With the
               // tab gone the default falls through to 'custom' above.
@@ -613,7 +616,7 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
                 ? []
                 : [{ id: 'oauth', label: t('settings.provider.tabSignin') }]),
               { id: 'custom', label: t('settings.provider.tabCustom') },
-            ] as Array<{ id: 'oauth' | 'custom'; label: string }>).map((tb) => (
+            ] as Array<{ id: 'onekey' | 'oauth' | 'custom'; label: string }>).map((tb) => (
               <button
                 key={tb.id}
                 type="button"
@@ -630,6 +633,16 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
             ))}
           </div>
           <div className="space-y-4">
+          {effectiveAddMethod === 'onekey' && (
+            <OneKeyOnboard
+              hideHeader
+              bare
+              onComplete={() => {
+                setAddModalOpen(false)
+                void refreshConfig()
+              }}
+            />
+          )}
           {effectiveAddMethod === 'oauth' && (
             <SubscriptionConnect
               providers={providerList}

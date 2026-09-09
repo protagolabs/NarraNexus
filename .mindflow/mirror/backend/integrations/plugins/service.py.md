@@ -1,10 +1,15 @@
 ---
 code_file: backend/integrations/plugins/service.py
-last_verified: 2026-08-28
+last_verified: 2026-09-07
 stub: false
 ---
 
 # service.py — 插件安装子系统对外的唯一门面
+
+## 2026-09-03（批 1）— 默认插件表在构造时派生
+
+`specs=None` 时调用 `registry.build_plugin_specs()`，不再读 import 期常量：启动后才注册的框架插件对
+之后创建的 service 可见。
 
 ## 为什么存在
 
@@ -17,7 +22,7 @@ Phase 3 的安装/状态路由不应该知道"Claude Code 有两个安装动作�
 
 - **被谁用**：Phase 3 路由（未实现,本次任务范围之外）会实例化一个
   `PluginService` 单例并调用 `list_plugins` / `install` / `uninstall`。
-- **依赖谁**：`registry.PLUGIN_SPECS`（默认插件表)、`_installers.pip_target
+- **依赖谁**：`registry.build_plugin_specs`（默认插件表)、`_installers.pip_target
   .PipTargetInstaller` 和 `_installers.npm_prefix.NpmPrefixInstaller`
   （两个具体策略)、`errors.classify_error`（安装异常翻译)。
 
@@ -70,3 +75,11 @@ uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + b
 ## 2026-08-28 补(auto-review C2 第二轮) — install 终态 _status 挪出事件循环
 
 上轮只在路由层两处 run_in_threadpool,漏了 install() 生成器内部的终态 `_status`(它会 fork `claude --version`),仍在 StreamingResponse body 的事件循环上跑。改成 `await asyncio.to_thread(self._status, spec)`。
+
+## 2026-09-07 — 登录标记来自 PluginSpec.login_marker（B6）
+
+_LOGIN_MARKERS 名字表删除；_logged_in 读 spec.login_marker（源自 FrameworkMeta.login_marker）。
+
+## 2026-09-07 — specs 首次使用时派生（B7）
+
+路由模块在导入期就建单例（锁/busy 集是实例态），而框架注册表的槽由 builtin.turn 在 boot 时声明，导入期还不存在；specs 改为首次访问时从注册表派生，请求一定在 boot 之后。

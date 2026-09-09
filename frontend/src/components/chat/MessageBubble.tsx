@@ -30,6 +30,7 @@ import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
+import { decodeBuilderTurn, stripAgentDraft } from '@/lib/builderProtocol';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -37,6 +38,9 @@ import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
 import { RunStatChips } from './RunStatChips';
 import { hasRunStats } from '@/lib/runStats';
+import { MESSAGE_ACTIONS, MESSAGE_RENDERERS, rendererFor, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -215,15 +219,30 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     setShowDetails((prev) => !prev);
   }, [inlineEvents.length, canLoadEventLog, hasEventLogData, loadEventLog]);
 
+  // Creation studio: both directions carry machinery the reader must never
+  // see. A USER message wraps the builder instruction plus the agent's
+  // current config (the conversation runs on the user's own agent, so there
+  // is nowhere else to put it); an ASSISTANT message ends with the
+  // <agent_draft> config block. Strip the matching one from every surface
+  // that shows message text — bubble, copy, download.
+  //
+  // Ordinary traffic passes through untouched, so this is safe for all
+  // messages, and it must stay on the render path rather than the store:
+  // useStudioTurn parses the raw block out of the settled message.
+  const visibleContent = useMemo(
+    () => (isUser ? decodeBuilderTurn(message.content) : stripAgentDraft(message.content)),
+    [isUser, message.content],
+  );
+
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(visibleContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const ta = document.createElement('textarea');
-      ta.value = message.content;
+      ta.value = visibleContent;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -231,10 +250,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [message.content]);
+  }, [visibleContent]);
 
   const handleDownload = useCallback(() => {
-    const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([visibleContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -243,14 +262,26 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [message.content, message.timestamp]);
+  }, [visibleContent, message.timestamp]);
 
   // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
   // Only the human side renders an avatar now (the agent's turn is a
   // full-width document, see the render below), so this is the user initial.
   const avatarLabel = (userId || 'U').slice(0, 1);
 
-  return (
+  // Plugin surfaces (batch 3d): a registered renderer that recognises this
+  // message owns its whole bubble; message actions join the hover strip.
+  const rendererEntries = useRegistryEntries(MESSAGE_RENDERERS);
+  const whenCtx = useWhenContext({ conversationKind: 'chat', agentId: agentId ?? null });
+  const messageActions = visibleSlotEntries(useRegistryEntries(MESSAGE_ACTIONS), whenCtx);
+  const renderer = rendererFor(rendererEntries, message);
+
+  // The shell's own bubble, as a lazily-invoked function rather than a JSX
+  // value: it is the PluginBoundary fallback below, and building this whole
+  // tree on every render just to discard it when a plugin renderer is
+  // healthy would be wasted work (and, before a plugin's first successful
+  // render, indistinguishable from "always render both").
+  const renderShellBubble = () => (
     <div
       className={cn(
         'group flex gap-3',
@@ -527,7 +558,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
               <>
-                <span className="whitespace-pre-wrap text-sm">{message.content}</span>
+                <span className="whitespace-pre-wrap text-sm">{visibleContent}</span>
                 {message.steerStatus && (
                   // Mid-run follow-up state: queued → merged, or rejected.
                   <span
@@ -565,9 +596,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 })}
               </span>
             ) : message.isError ? (
-              <span className="whitespace-pre-wrap">{message.content}</span>
+              <span className="whitespace-pre-wrap">{visibleContent}</span>
             ) : (
-              <Markdown content={message.content} />
+              <Markdown content={visibleContent} />
             )}
             {isStreaming && (
               <span className="inline-block w-0.5 h-4 ml-0.5 bg-[var(--accent-primary)] animate-pulse rounded-full" />
@@ -709,6 +740,23 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Download className="w-3 h-3" />
                 </button>
               )}
+              {messageActions.map((entry) => {
+                const Icon = entry.value.icon ?? Sparkles;
+                const label = entry.value.labelIsKey ? t(entry.value.label) : entry.value.label;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => void entry.value.run({ agentId: agentId ?? null, message })}
+                    className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                    title={label}
+                    aria-label={label}
+                    data-slot-action={entry.id}
+                  >
+                    <Icon className="w-3 h-3" />
+                  </button>
+                );
+              })}
             </>
           )}
           <span
@@ -728,6 +776,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         </div>
       </div>
     </div>
+  );
+
+  if (!renderer) return renderShellBubble();
+  const Renderer = renderer.component;
+  const rendererOwner = rendererEntries.find((e) => e.value === renderer)?.owner ?? 'shell';
+  return (
+    <PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>
+      <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />
+    </PluginBoundary>
   );
 }
 

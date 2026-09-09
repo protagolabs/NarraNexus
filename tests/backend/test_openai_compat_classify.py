@@ -14,7 +14,7 @@ misleading "upstream LLM error" no-reply fallback.
 from __future__ import annotations
 
 from backend.routes.openai_compat import _classify_event
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.channel.message_source_handler import (
     MessageSourceHandler,
 )
 

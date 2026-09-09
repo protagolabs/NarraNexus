@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.bundle.builder import _export_work_items
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+from narranexus.platform.bundle.builder import _export_work_items
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
 
 @pytest.fixture

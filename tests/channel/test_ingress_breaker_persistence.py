@@ -24,8 +24,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.channel.ingress_guard import IngressGuard, content_fingerprint
-from xyz_agent_context.repository import ChannelIngressBreakerRepository
+from narranexus.platform.channel.ingress_guard import IngressGuard, content_fingerprint
+from narranexus.platform.repository import ChannelIngressBreakerRepository
 
 pytestmark = pytest.mark.asyncio
 
@@ -330,8 +330,8 @@ async def test_session_key_cannot_overflow_its_column():
     multiplication. This test runs it, against the registry, so the claim
     cannot drift from the schema again.
     """
-    from xyz_agent_context.schema.channel_ingress_breaker_schema import session_key
-    from xyz_agent_context.utils.db.schema_registry import varchar_width
+    from narranexus.platform.schema.channel_ingress_breaker_schema import session_key
+    from narranexus.platform.utils.db.schema_registry import varchar_width
 
     worst = session_key("a" * 4000, "b" * 4000, "c" * 4000, "d" * 4000)
     limit = varchar_width("channel_ingress_breaker", "session_key")
@@ -561,7 +561,7 @@ async def _capped_find_open(rows, *, cooling_only=False, now=None):
 async def test_find_open_is_bounded():
     """`tier > 0` and "still cooling" are both decided in Python, so an
     unbounded query here is a full-table read on every process start."""
-    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+    from narranexus.platform.repository.channel_ingress_breaker_repository import (
         _FIND_OPEN_LIMIT,
     )
 
@@ -590,7 +590,7 @@ async def test_the_cap_warns_only_when_a_candidate_could_have_been_cut():
     cut tail is exactly the NULL-cooldown ones, which may well be tier > 0.
     There, any truncation may have lost one.
     """
-    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+    from narranexus.platform.repository.channel_ingress_breaker_repository import (
         _FIND_OPEN_LIMIT,
     )
 

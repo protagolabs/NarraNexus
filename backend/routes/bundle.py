@@ -27,17 +27,17 @@ from fastapi.responses import StreamingResponse, FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-from xyz_agent_context.bundle.importer import preflight, confirm
-from xyz_agent_context.bundle.security import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+from narranexus.platform.bundle.importer import preflight, confirm
+from narranexus.platform.bundle.security import (
     MAX_BUNDLE_BYTES,
     file_sha256,
     validate_skill_archive_bytes,
 )
-from xyz_agent_context.bundle.skill_backup import archive_target, ensure_archive_dir
-from xyz_agent_context.repository import SkillArchiveRepository
-from xyz_agent_context.utils.file_safety import enforce_max_bytes
+from narranexus.platform.bundle.skill_backup import archive_target, ensure_archive_dir
+from narranexus.platform.repository import SkillArchiveRepository
+from narranexus.platform.utils.file_safety import enforce_max_bytes
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 
@@ -162,7 +162,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
         shutil.rmtree(out_dir, ignore_errors=True)
         # B6: surface SensitiveZipDetected as 409 with structured payload
         # so the frontend can show a per-skill confirmation modal.
-        from xyz_agent_context.bundle.builder import SensitiveZipDetected
+        from narranexus.platform.bundle.builder import SensitiveZipDetected
         if isinstance(e, SensitiveZipDetected):
             raise HTTPException(
                 status_code=409,
@@ -295,7 +295,7 @@ def _allowed_fetch_hosts() -> set[str]:
       3. Cloud mode default — narra.nexus only, no loopback (loopback in cloud
          mode would be an SSRF foothold)
     """
-    from xyz_agent_context.settings import settings  # late import — avoid cycle
+    from narranexus.platform.settings import settings  # late import — avoid cycle
     explicit = os.environ.get("BUNDLE_FETCH_ALLOWED_HOSTS", "").strip()
     if explicit:
         raw = explicit
@@ -660,7 +660,7 @@ async def upload_archive(
         raise HTTPException(status_code=400, detail=str(e))
 
     ensure_archive_dir(target).write_bytes(contents)
-    from xyz_agent_context.bundle.security import bytes_sha256
+    from narranexus.platform.bundle.security import bytes_sha256
     sha = bytes_sha256(contents)
     db = await get_db_client()
     await SkillArchiveRepository(db).upsert(

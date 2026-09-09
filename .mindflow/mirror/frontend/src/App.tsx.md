@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 挂载 `usePluginTheme()`
+
+与 `useTheme` 并列：持久化的插件主题在其插件激活注册后自动生效。
+
+## 2026-09-08（本地 E2E 实测）— `/app/x/*` 的插件页保持路由
+
+`/app` 布局下新增 `x/*` → `PluginPagePending`：插件 boot 未结束时渲染 `PageFallback`，结束后仍无匹配才 `Navigate` 到 chat。
+已注册的 `x/<page>` 静态段永远比 `x/*` 优先，所以已加载的插件页不受影响；`appRoutes.test.tsx` 钉住「x/* 走布局保留
+?next=」与「hold 等 boot 结束才离开」。
+
+## 2026-09-07（批 1 三轮复审移植）— `<Routes>` 抽成导出的 `AppRoutes`
+
+路由骨架（注册表页面 + 受保护的 `/app` 布局与 index 重定向 + 根重定向 + 兜底）抽成 `export function AppRoutes()`，
+`App` 只在横幅/错误边界/Suspense 里渲染它。目的：`src/__tests__/appRoutes.test.tsx` 能在不挂载横幅与 store 副作用
+的前提下证明「壳渲染的就是 `PAGES`」——删掉 `{pageRoutes.top}` 或 `{pageRoutes.app}` 该测试即红（此前没有任何测试
+碰 `App.tsx`）。
+
+## 2026-09-03 — 创建工作室入口路由
+
+新增 `agents/new` → [[ChooseCreateMethodPage.tsx]]，与 `teams/new` 同层的
+lazy 路由。这一页**自己不创建任何东西**（创建在下一步），所以路由上没有任何
+守卫或清理需求。
 
 ## 2026-08-27 — 新路由 /app/agents/:agentId(Agent Profile)
 
@@ -10,8 +33,7 @@ stub: false
 放在 `teams/:teamId` **之前**只为可读性——两条路径首段不同,不存在 v6 排序
 冲突。两个入口写进 `state.from`:Chat 头部身份块(`'chat'`)与 Dashboard
 智能体行的身份块(`'dashboard'`),profile 的面包屑据此决定回哪儿。
-**没有**引入 `agents/new`——本分支创建 Agent 仍走弹窗
-([[hooks/useCreateAgent]]),不是整页向导。
+（当时**没有** `agents/new`；#382 合入后创建 Agent 走 [[ChooseCreateMethodPage.tsx]] 的整页分叉，见上条。）
 
 ## 2026-08-19 — /app/account 路由降级为别名
 
@@ -280,3 +302,5 @@ to Stripe; interrupting it with onboarding would lose the checkout).
 `RootRedirect`'s old question — "does this LOCAL user have zero providers?" — is
 gone. Both modes are eligible for the flow; its own step list adapts, and it
 redirects itself out when that list is empty, so no branch here can trap anyone.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

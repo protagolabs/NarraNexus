@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 
-from xyz_agent_context.integrations import manyfold_outbound as mo
+from narranexus.platform.integrations import manyfold_outbound as mo
 
 
 @pytest.fixture(autouse=True)

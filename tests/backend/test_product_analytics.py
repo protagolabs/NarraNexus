@@ -30,12 +30,12 @@ class _FakeDb:
 
 @pytest.mark.asyncio
 async def test_track_persists_indexed_first_party_dimensions(monkeypatch):
-    import xyz_agent_context.analytics as analytics
+    import narranexus.platform.analytics as analytics
 
     db = _FakeDb()
     monkeypatch.setattr(analytics, "_opted_out", AsyncMock(return_value=False))
     monkeypatch.setattr(
-        "xyz_agent_context.utils.get_db_client", AsyncMock(return_value=db)
+        "narranexus.platform.utils.get_db_client", AsyncMock(return_value=db)
     )
 
     await analytics.track(
@@ -125,7 +125,7 @@ async def test_frontend_route_rate_limits_per_authenticated_user(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_track_never_raises_when_persistence_fails(monkeypatch):
-    import xyz_agent_context.analytics as analytics
+    import narranexus.platform.analytics as analytics
 
     monkeypatch.setattr(analytics, "_opted_out", AsyncMock(return_value=False))
     monkeypatch.setattr(
@@ -169,7 +169,7 @@ async def test_websocket_capture_helpers_use_stable_stage_ids(monkeypatch):
 
 
 def test_schema_registers_product_events_and_exact_provider_source():
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     product = TABLES["product_analytics_events"]
     assert {column.name for column in product.columns} >= {
@@ -190,7 +190,7 @@ def test_analytics_route_bypasses_quota_resolver():
 
 
 def test_provider_card_source_is_selected_by_call_type():
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.api_config import (
         get_provider_card_source,
         set_provider_card_sources,
     )
@@ -204,8 +204,8 @@ def test_provider_card_source_is_selected_by_call_type():
 
 
 def test_message_failure_categories_are_normalized():
-    from xyz_agent_context.agent_runtime.background_run import _failure_category
-    from xyz_agent_context.agent_runtime.run_recorder import (
+    from narranexus.platform.agent_runtime.background_run import _failure_category
+    from narranexus.platform.agent_runtime.run_recorder import (
         STATE_CANCELLED,
         STATE_COMPLETED,
     )

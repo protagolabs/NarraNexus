@@ -1,10 +1,14 @@
 ---
 code_file: backend/middleware/body_size.py
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
-
 # body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
+
+## 2026-09-03（批 2e）— `/api/plugin-factory/*` 写路由统一 64 KiB 上限
+
+安装/二分是几个标量字段；错误上报带 message（≤4000）+ stack（≤20000）加 JSON 外壳，64 KiB 足够。一个正则覆盖
+该前缀下所有 POST，新加工场动词不必逐条登记。
 
 ## 2026-08-27 — apply-to-agents 真 cap
 
@@ -34,7 +38,7 @@ FastAPI 在 solve_dependencies **之前**就 `await request.body()` /
 
 MAX_OFFICE_EDIT_BYTES / MAX_OFFICE_ASSET_BYTES / PUT_CONTENT_MARGIN 的
 权威在本文件,routes 反向 import(routes→middleware 合法,反向禁止);
-MAX_ARTIFACT_BYTES 从 xyz_agent_context.artifact 引入。「门还挂着吗」
+MAX_ARTIFACT_BYTES 从 narranexus.platform.artifact 引入。「门还挂着吗」
 不再靠读注释:test_body_size_gate.py 遍历真实路由表验证每条 BODY_CAPS
 命中已注册路由 + 中间件确实挂载 + 顺序在 access_log 内。
 
@@ -58,3 +62,11 @@ env-gated 模板采样,而 `test_every_env_gated_capped_template_has_a_cap`
 反向保证每条声明的模板真有 cap(静态对静态,与 flag 无关)。
 2026-08-20 实核:dev 与 prod 容器均未设 `ENABLE_MANYFOLD_API`,
 该无上界入口不是现网敞口。
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+Generic channel routes: 64 KiB for bind/test/unbind/set-active, 256 KiB for `/api/channels/{channel}/webhook/{agent_id}`.
+
+## 2026-09-04 · capability switch cap (batch 5c)
+
+`PUT /api/agents/{id}/capabilities/{module}` carries `{"enabled": bool}` — capped at the same 4 KiB as apply-to-agents.

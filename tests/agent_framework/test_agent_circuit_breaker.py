@@ -11,8 +11,8 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop import circuit_breaker as cb
-from xyz_agent_context.agent_framework.loop.circuit_breaker import (
+from narranexus.platform.agent_framework.loop import circuit_breaker as cb
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
     AUTH_QUOTA_PAUSE_THRESHOLD,
     classify_agent_error,
     record_failure,
@@ -21,11 +21,11 @@ from xyz_agent_context.agent_framework.loop.circuit_breaker import (
     reset_for_owner,
     should_skip,
 )
-from xyz_agent_context.repository.agent_circuit_breaker_repository import (
+from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from xyz_agent_context.schema import CbStatus, ErrorCategory, PausedReason
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+from narranexus.platform.utils.timezone import utc_now
 
 
 async def _seed_agent(db, agent_id: str, owner: str) -> None:

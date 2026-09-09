@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -98,8 +98,8 @@ def test_a_missing_target_is_a_question_not_a_refusal():
 
 def test_instructions_stay_byte_stable_across_calls():
     """These parts feed the cacheable system prompt — they must not vary per
-    call (prefix caching is byte-wise; see get_turn_context vs
-    get_instructions in module/base.py)."""
+    call (prefix caching is byte-wise; see contribute_turn_context vs
+    contribute_instructions in module/base.py)."""
     assert _bus_instructions() == _bus_instructions()
 
 
@@ -110,7 +110,7 @@ def test_instructions_stay_byte_stable_across_calls():
 
 @pytest.mark.asyncio
 async def test_get_contact_info_description_disclaims_and_redirects():
-    from xyz_agent_context.module.social_network_module.social_network_module import (
+    from narranexus_plugins.social_network_module.social_network_module import (
         SocialNetworkModule,
     )
 

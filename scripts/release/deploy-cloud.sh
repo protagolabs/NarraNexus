@@ -182,7 +182,7 @@ create_service "backend" "Backend API" \
     "${UV_BIN} run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60"
 
 create_service "mcp" "MCP Server" \
-    "${UV_BIN} run python -m xyz_agent_context.module.module_runner mcp"
+    "${UV_BIN} run python -m narranexus.platform.module_system.module_runner mcp"
 
 # Consolidated worker supervisor — ONE process runs the module poller, the job
 # and message-bus triggers, and every IM channel trigger in a single event loop,
@@ -195,7 +195,7 @@ create_service "mcp" "MCP Server" \
 #   ... run_worker_supervisor --only channels --channels lark
 #   ... run_worker_supervisor --only poller,jobs,bus
 create_service "workers" "Workers" \
-    "${UV_BIN} run python -m xyz_agent_context.module.run_worker_supervisor"
+    "${UV_BIN} run python -m narranexus.platform.module_system.run_worker_supervisor"
 
 # Remove units from previous layouts BEFORE daemon-reload. Any machine deployed
 # by an earlier version of this script has enabled `narranexus-{poller,jobs,bus,

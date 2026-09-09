@@ -8,13 +8,13 @@ as agent text — so the backoff wait is visible without being alarming.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_RETRY,
     TYPE_RAW_RESPONSE_EVENT,
 )
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStatus
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
+from narranexus.platform.schema import ErrorMessage, ProgressMessage, ProgressStatus
 
 
 def _retry_event(attempt: int = 2, max_attempts: int = 3, delay: float = 30.0) -> dict:

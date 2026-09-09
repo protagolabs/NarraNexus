@@ -25,8 +25,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.timezone import utc_now
 from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 

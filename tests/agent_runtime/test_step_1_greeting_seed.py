@@ -18,11 +18,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.context import RunContext
-from xyz_agent_context.utils import utc_now
+from narranexus.platform.agent_runtime._agent_runtime_steps.context import RunContext
+from narranexus.platform.utils import utc_now
 
 mod = importlib.import_module(
-    "xyz_agent_context.agent_runtime._agent_runtime_steps.step_1_select_narrative"
+    "narranexus.platform.agent_runtime._agent_runtime_steps.step_1_select_narrative"
 )
 
 
@@ -73,15 +73,15 @@ async def test_seeds_greeting_once_into_head_narrative(monkeypatch):
     )
     # Agent is bootstrapping → a greeting is resolved.
     monkeypatch.setattr(
-        "xyz_agent_context.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed",
+        "narranexus.platform.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed",
         AsyncMock(return_value="Hello there!"),
     )
     seed_spy = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "xyz_agent_context.module.chat_module.seed_bootstrap_greeting", seed_spy
+        "narranexus_plugins.chat_module.seed_bootstrap_greeting", seed_spy
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         AsyncMock(return_value=object()),
     )
 
@@ -129,15 +129,15 @@ async def test_no_seed_when_not_bootstrapping(monkeypatch):
         AsyncMock(side_effect=lambda aid, uid, nid: f"chat_{nid}"),
     )
     monkeypatch.setattr(
-        "xyz_agent_context.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed",
+        "narranexus.platform.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed",
         AsyncMock(return_value=None),  # not a bootstrap agent
     )
     seed_spy = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "xyz_agent_context.module.chat_module.seed_bootstrap_greeting", seed_spy
+        "narranexus_plugins.chat_module.seed_bootstrap_greeting", seed_spy
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         AsyncMock(return_value=object()),
     )
 

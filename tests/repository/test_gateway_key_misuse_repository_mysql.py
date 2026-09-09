@@ -29,12 +29,12 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 
 from backend.routes.admin.gateway_key_misuse import _clip
-from xyz_agent_context.repository.gateway_key_misuse_repository import (
+from narranexus.platform.repository.gateway_key_misuse_repository import (
     GatewayKeyMisuseRepository,
 )
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 from tests.mysql_dialect import mysql_configured, mysql_url, parse_mysql_url, skip_reason
 
 pytestmark = pytest.mark.skipif(

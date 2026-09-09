@@ -13,6 +13,9 @@ import { useTranslation } from 'react-i18next';
 import { Loader2, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
+import { AGENT_CARD_BADGES } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 import { aggregateSectionUnread } from './agentGroupUtils';
 import { cn } from '@/lib/utils';
 
@@ -227,6 +230,7 @@ function AgentRow({
   const { t } = useTranslation();
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
+  const badgeCtx = useWhenContext({ agentId: agent.agent_id });
   // Compact single-line rows: no chat preview (it conflated group-chat content
   // anyway) — just name + time + unread, so more agents fit on screen.
   const { time, unread } = getRowMeta(agent.agent_id);
@@ -298,6 +302,8 @@ function AgentRow({
                 <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
               </span>
             )}
+            {/* Plugin badges (ui.agentCardBadges), gated by `when` (e.g. agentHas:JobModule). */}
+            <SlotOutlet registry={AGENT_CARD_BADGES} ctx={badgeCtx} agentId={agent.agent_id} />
 
             {/* Trailing meta — pushed to the right edge */}
             <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">

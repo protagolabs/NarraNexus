@@ -15,10 +15,10 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.protocols import (
     SteeringInlet,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
     QueueSteeringInlet,
 )
 

@@ -15,7 +15,7 @@ Covers all three layers, because a renderer test that supplies its own
 fetch that decides whether a DM turn can reach a room at all (the same trap
 `test_room_labels_producer.py` was written to close):
   * `_team_address_book` — the PRODUCER, against a real database;
-  * `hook_data_gathering` — the WIRING, membership → producer → extra_data;
+  * `gather` — the WIRING, membership → producer → extra_data;
   * `_volatile_context_parts` — the RENDERER.
 """
 from __future__ import annotations
@@ -24,12 +24,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module import message_bus_module as mbm
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module import message_bus_module as mbm
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MAX_TEAMS_IN_CONTEXT,
     MessageBusModule,
 )
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.schema import ContextData
 
 AGENT, OWNER = "agent_a", "usr_1"
 
@@ -128,7 +128,7 @@ async def test_producer_swallows_a_db_failure_and_returns_empty(db_client):
     assert await _module(db_client)._team_address_book(_Boom(), ["team_a"]) == []
 
 
-# ── the wiring: hook_data_gathering (membership → producer → extra_data) ────
+# ── the wiring: gather (membership → producer → extra_data) ────
 
 
 def _stub_bus():
@@ -154,10 +154,10 @@ def _patch_runtime(monkeypatch, db_client):
 
     monkeypatch.setattr(mbm, "_get_default_bus_async", _bus)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _db
     )
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.agent_discovery_sync.sync_agent_discovery",
+        "narranexus.platform.message_bus.agent_discovery_sync.sync_agent_discovery",
         _noop_sync,
     )
 
@@ -177,7 +177,7 @@ async def test_hook_fills_bus_teams_for_a_team_member(db_client, monkeypatch):
     )
     await db_client.insert("team_members", {"team_id": "team_x", "agent_id": AGENT})
 
-    ctx = await _module(db_client).hook_data_gathering(_ctx())
+    ctx = await _module(db_client).gather(_ctx())
 
     assert ctx.extra_data.get("bus_teams") == [{"team_id": "team_x", "name": "Ops"}]
 
@@ -194,7 +194,7 @@ async def test_hook_leaves_bus_teams_absent_for_a_teamless_agent(
         {"agent_id": AGENT, "created_by": OWNER, "agent_name": "A", "is_public": 0},
     )
 
-    ctx = await _module(db_client).hook_data_gathering(_ctx())
+    ctx = await _module(db_client).gather(_ctx())
 
     assert "bus_teams" not in ctx.extra_data
 

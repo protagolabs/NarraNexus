@@ -11,13 +11,21 @@ them back in with `uv sync ... --extra plugins`; every LOCAL place must NOT
 (that is the whole point of the slim-down).
 
 This test scans every GIT-TRACKED `.sh` / `.yml` / `Dockerfile*` / Makefile for
-`uv sync` command lines and requires each such file to be explicitly classified
-below. A NEW deploy/CI entry point that runs `uv sync` — and forgets to classify
-itself — fails `test_every_uv_sync_file_is_classified` once committed (an
-un-added file is invisible to `git ls-files`, but by CI/review time it is
-committed, so the guard's effective coverage is unchanged) instead of silently
-shipping claude_code / codex_cli dead. Same "mirror a fact + assert
-they agree" shape as test_claude_cli_pin.py.
+lines that INSTALL this project with uv (`uv sync` or `uv pip install`) and
+requires each such file to be explicitly classified below. A NEW deploy/CI entry
+point — and forgets to classify itself — fails
+`test_every_uv_install_file_is_classified` once committed (an un-added file is
+invisible to `git ls-files`, but by CI/review time it is committed, so the
+guard's effective coverage is unchanged) instead of silently shipping
+claude_code / codex_cli dead. Same "mirror a fact + assert they agree" shape as
+test_claude_cli_pin.py.
+
+`uv pip install` counts too, and not only for the extra: uv is the ONLY
+installer that understands `[tool.uv.sources]`, so an install path that reaches
+for plain `pip` cannot resolve the 30 workspace members at all (the desktop DMG
+build shipped exactly that bug). `test_desktop_build_installs_through_uv` pins
+that one down by name because its failure is invisible until a release tag
+exists.
 
 NOTE: the deploy repo's Dockerfile.executor / Dockerfile.python are the OTHER
 half of this lockstep; they live in a separate repo and are guarded on that side.
@@ -32,6 +40,8 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 
+_DESKTOP_BUILD = "scripts/release/build-desktop.sh"
+
 # CLOUD/CI: `uv sync` here runs the agent frameworks → MUST carry --extra plugins.
 _CLOUD_SYNC_FILES = frozenset({
     ".github/workflows/ci.yml",
@@ -42,6 +52,10 @@ _CLOUD_SYNC_FILES = frozenset({
 _LOCAL_SYNC_FILES = frozenset({
     "run.sh",
     "scripts/dev/.dev-local-safe.sh",
+    "scripts/dev/dev-local.sh",
+    # The macOS DMG: installs into the BUNDLED standalone interpreter, and the
+    # bundle must stay light (claude-agent-sdk alone is ~186 MB).
+    _DESKTOP_BUILD,
 })
 
 
@@ -50,8 +64,8 @@ def _is_command_file(rel: str) -> bool:
     return rel.endswith((".sh", ".yml", ".yaml")) or name.startswith("Dockerfile") or name == "Makefile"
 
 
-def _uv_sync_command_lines(path: Path) -> list[str]:
-    """Logical lines that RUN `uv sync` (backslash continuations joined),
+def _command_lines(path: Path, needles: tuple[str, ...]) -> list[str]:
+    """Logical lines that RUN one of ``needles`` (backslash continuations joined),
     excluding comments and echo/printf string lines that merely mention it."""
     text = path.read_text(encoding="utf-8", errors="replace")
     joined = re.sub(r"\\\n", " ", text)  # fold shell / Dockerfile line continuations
@@ -62,9 +76,19 @@ def _uv_sync_command_lines(path: Path) -> list[str]:
             continue
         if stripped.startswith(("echo", "printf", '"', "'", "@echo")):
             continue
-        if "uv sync" in stripped:
+        if any(n in stripped for n in needles):
             out.append(stripped)
     return out
+
+
+def _uv_sync_command_lines(path: Path) -> list[str]:
+    """Only the `uv sync` lines — the ones the `--extra plugins` rule is about."""
+    return _command_lines(path, ("uv sync",))
+
+
+def _uv_install_command_lines(path: Path) -> list[str]:
+    """Every line that installs this project with uv, sync or pip alike."""
+    return _command_lines(path, ("uv sync", "uv pip install"))
 
 
 def _all_files_running_uv_sync() -> dict[str, list[str]]:
@@ -87,19 +111,19 @@ def _all_files_running_uv_sync() -> dict[str, list[str]]:
         path = _REPO / rel
         if not path.is_file():
             continue
-        lines = _uv_sync_command_lines(path)
+        lines = _uv_install_command_lines(path)
         if lines:
             found[rel] = lines
     return found
 
 
-def test_every_uv_sync_file_is_classified():
-    """A repo file that runs `uv sync` MUST be in exactly one of the two lists —
-    this is what makes a NEW forgotten entry point fail here."""
+def test_every_uv_install_file_is_classified():
+    """A repo file that installs this project with uv MUST be in exactly one of
+    the two lists — this is what makes a NEW forgotten entry point fail here."""
     classified = _CLOUD_SYNC_FILES | _LOCAL_SYNC_FILES
     unclassified = sorted(set(_all_files_running_uv_sync()) - classified)
     assert not unclassified, (
-        "these files run `uv sync` but are not classified cloud/local in "
+        "these files install the project with uv but are not classified cloud/local in "
         "test_plugins_extra_lockstep.py — classify them:\n  " + "\n  ".join(unclassified)
     )
 
@@ -117,10 +141,46 @@ def test_cloud_sync_pulls_plugins_extra(rel):
 
 @pytest.mark.parametrize("rel", sorted(_LOCAL_SYNC_FILES))
 def test_local_sync_stays_light(rel):
-    lines = _uv_sync_command_lines(_REPO / rel)
-    assert lines, f"{rel} no longer runs `uv sync` — update this guard (renamed?)"
+    lines = _uv_install_command_lines(_REPO / rel)
+    assert lines, f"{rel} no longer installs with uv — update this guard (renamed?)"
     for line in lines:
         assert "--extra plugins" not in line, (
-            f"{rel}: local `uv sync` pulls `--extra plugins`, defeating the "
+            f"{rel}: local uv install pulls `--extra plugins`, defeating the "
             f"lightweight build:\n    {line}"
         )
+
+
+def test_desktop_build_installs_through_uv():
+    """The DMG's Python install must go through uv and must not go through pip.
+
+    `[tool.uv.sources]` is a uv-only table: plain `pip install <project>` looks
+    the 30 workspace members up on PyPI, where they do not exist, and the
+    release job dies at Step 3 — AFTER the tag is pushed. Nothing else in the
+    repo catches it, because every other install path already uses uv.
+    """
+    path = _REPO / _DESKTOP_BUILD
+    installs = _uv_install_command_lines(path)
+    assert installs, f"{_DESKTOP_BUILD} no longer installs the project — update this guard"
+    assert any("--no-editable" in line for line in installs), (
+        f"{_DESKTOP_BUILD}: the bundled install must stay NON-editable — an editable "
+        f"install bakes the build machine's absolute source path into the .app:\n    "
+        + "\n    ".join(installs)
+    )
+    pip_installs = [
+        line for line in _command_lines(path, ("pip install",))
+        if "uv pip install" not in line
+    ]
+    assert not pip_installs, (
+        f"{_DESKTOP_BUILD}: plain `pip install` cannot resolve the "
+        f"[tool.uv.sources] workspace members — use uv:\n    " + "\n    ".join(pip_installs)
+    )
+
+
+def test_desktop_workflow_installs_uv():
+    """...and the runner that executes it has uv at all (otherwise the fix above
+    fails differently: `uv: command not found`)."""
+    wf = (_REPO / ".github/workflows/build-desktop.yml").read_text(encoding="utf-8")
+    assert "astral-sh/setup-uv" in wf, (
+        "build-desktop.yml runs build-desktop.sh, which now needs uv on PATH; "
+        "add the astral-sh/setup-uv step back"
+    )

@@ -7,7 +7,7 @@
 What these tests defend is not the wording — it is the property that made the
 wording safe to write once: the label and the reply tool come from data the
 platform already computed for other purposes (`MessageSourceRegistry`, and the
-turn's `get_expressive_tools` output). Nothing here re-derives either, so the
+turn's `expressive_tools` output). Nothing here re-derives either, so the
 sentence cannot end up describing a desk the agent does not have.
 
 The prose this replaced said the same thing in each trigger's own words, and
@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
     render_origin_declaration,
@@ -89,11 +88,9 @@ def test_labels_speak_the_agent_s_two_situations(source, expected):
     third concept for nothing) and each channel says its own brand, cased the
     way that brand is actually written.
     """
-    import xyz_agent_context.module.job_module  # noqa: F401
-    import xyz_agent_context.module.lark_module  # noqa: F401
-    import xyz_agent_context.module.narramessenger_module  # noqa: F401
-    import xyz_agent_context.module.wechat_module  # noqa: F401
-
+    # No imports needed: the labels come from what the process BOOTED
+    # (``ingress.channels`` descriptors + ``ingress.message_sources`` specs),
+    # not from whichever plugin modules happen to have been imported.
     assert MessageSourceRegistry.get(source).label == expected
 
 
@@ -110,7 +107,7 @@ def test_the_declaration_and_the_desk_read_the_same_tuple():
     """The anti-drift property, stated as a test.
 
     `render_origin_declaration` is handed the SAME tuple the modules declared
-    and `get_disallowed_tools` enforced — it does not look tools up for itself.
+    and `disallowed_tools` enforced — it does not look tools up for itself.
     So a tool that is not on the desk cannot appear in the sentence, no matter
     what the registry says about the source.
     """

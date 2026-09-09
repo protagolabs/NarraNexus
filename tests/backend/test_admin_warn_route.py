@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from xyz_agent_context.repository.ban_audit_repository import ACTION_WARN
+from narranexus.platform.repository.ban_audit_repository import ACTION_WARN
 
 SECRET = "test-admin-secret-xyz"
 UID = "9f3a1c229f3a1c229f3a1c229f3a1c22"  # a real user_id shape

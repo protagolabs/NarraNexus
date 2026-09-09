@@ -32,11 +32,11 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.artifact import ArtifactService
-from xyz_agent_context.artifact import ArtifactNotFound, ArtifactPathEscape
-from xyz_agent_context.artifact._artifact_impl.registration import workspace_root
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.workspace_paths import team_shared_dir
+from narranexus.platform.artifact import ArtifactService
+from narranexus.platform.artifact import ArtifactNotFound, ArtifactPathEscape
+from narranexus.platform.artifact._artifact_impl.registration import workspace_root
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.utils.workspace_paths import team_shared_dir
 
 AGENT = "agent_a"
 USER = "user_1"
@@ -46,7 +46,7 @@ TEAM = "team_1"
 @pytest.fixture
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
 
     ws = Path(workspace_root(AGENT, USER))
@@ -227,7 +227,7 @@ async def test_scope_renders_without_anyof_null_in_the_real_schema():
     """
     from mcp.server.fastmcp import FastMCP
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         artifact_tool,
     )
 
@@ -255,7 +255,7 @@ async def test_scope_did_not_widen_the_tools_strict_schema_exposure():
     """
     from mcp.server.fastmcp import FastMCP
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         artifact_tool,
     )
 
@@ -559,8 +559,8 @@ async def test_a_team_artifact_registers_from_the_team_folder(env):
 async def test_the_registered_path_is_readable_by_a_teammates_turn(env):
     """The point of the whole rule: what lands in the row must sit under a root
     that turn_accessible_roots grants to ANY member of this team."""
-    from xyz_agent_context.settings import settings as sa
-    from xyz_agent_context.utils.workspace_paths import turn_accessible_roots
+    from narranexus.platform.settings import settings as sa
+    from narranexus.platform.utils.workspace_paths import turn_accessible_roots
 
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",

@@ -283,12 +283,28 @@
       "ops": "ops"
     },
     "header": {
+      "viewProfile": "Ver perfil del agente",
       "detailMenuTitle": "Detalle del agente — paneles",
-      "viewProfile": "Ver perfil del agente"
+      "modelFramework": "Modelo y framework",
+      "switchAgent": "Cambiar de agente"
     },
     "composerPrivacyHint": "Evita compartir información personal sensible.",
+    "capabilities": {
+      "subtitle": "Qué módulos participan en los turnos de este agente. Los módulos integrados están activados por defecto; los instalados por plugins permanecen desactivados hasta que los actives. Los cambios se aplican en la próxima ejecución.",
+      "builtin": "integrado",
+      "plugin": "plugin",
+      "locked": "Siempre activo",
+      "tokens": "~{{count}} tokens de prompt",
+      "budget": "Los módulos activados declaran ~{{enabled}} tokens ({{ratio}}× la base integrada de {{baseline}}).",
+      "overBudget": "Presupuesto excedido: los módulos activados declaran ~{{enabled}} tokens, {{ratio}}× la base integrada de {{baseline}}.",
+      "loadFailed": "No se pudieron cargar las capacidades",
+      "saveFailed": "No se pudo guardar el cambio",
+      "restoreDefault": "Restaurar predeterminado"
+    },
     "activityEmpty": "Todavía no hay actividad en segundo plano",
-    "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí."
+    "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí.",
+    "bootstrapGreeting": "Hola... acabo de despertar. Todo se siente completamente nuevo.\n\nTodavía no tengo nombre y no sé muy bien quién soy, pero sé que tú me trajiste aquí.\n\n¿Quieres decirme cómo debería llamarme? ¿Y cómo debo llamarte a ti?",
+    "bootstrapGreetingNamed": "Hola — soy {{name}}. Acabo de cobrar vida, y tú me trajiste aquí.\n\nYa sé quién debo ser, pero aún no sé quién eres tú. ¿Cómo debo llamarte?"
   },
   "awareness": {
     "common": {
@@ -557,6 +573,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Cargando canal…",
+      "bind": "Vincular",
+      "bound": "Vinculado. El canal está activo para este agente.",
+      "boundAs": "Vinculado a {{name}}",
+      "inactive": "inactivo",
+      "unbind": "Desvincular",
+      "unbound": "Desvinculado.",
+      "test": "Probar conexión",
+      "testOk": "Conexión correcta.",
+      "activate": "Activar",
+      "deactivate": "Desactivar",
+      "fieldRequired": "{{field}} es obligatorio",
+      "errLoad": "No se pudo cargar el canal",
+      "errBind": "La solicitud falló",
+      "webhookHint": "Webhook entrante: POST a {{path}} con el token webhook de la credencial.",
+      "ownFlow": "{{name}} se vincula con su propio flujo."
     }
   },
   "dashboard": {
@@ -950,7 +984,8 @@
       "freeTierHowToTitle": "Sobre tu crédito gratuito",
       "freeTierHowToSwitch": "La tarjeta «Free Tier» ya está conectada a tus ranuras de Agent y Helper. Para usar tu propia clave, añade un proveedor abajo y selecciónalo para la ranura Agent / Helper en Modelos predeterminados: surte efecto en tu siguiente mensaje.",
       "freeTierAnytime": "Puedes cambiar cuando quieras. No hace falta gastar antes el crédito gratuito, y cambiar no lo pierde: el saldo se conserva.",
-      "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla."
+      "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla.",
+      "tabOneKey": "Clave de API"
     },
     "netmind": {
       "returnSubscribeSuccess": "Pago recibido: lo estamos aplicando a tu cuenta.",
@@ -1346,7 +1381,76 @@
         "label": "Personalización",
         "hint": "Tema, idioma y cómo se muestran las notas de progreso del agente.",
         "narrationTitle": "Narración de progreso",
-        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable."
+        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable.",
+        "pluginThemesTitle": "Temas de plugins",
+        "pluginThemesNone": "Apariencia predeterminada"
+      },
+      "plugins": {
+        "factory": {
+          "title": "Plugins de usuario",
+          "hint": "Plugins desde GitHub o una carpeta local. Se cargan al iniciar; los cambios se aplican tras reiniciar.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch o /ruta/al/plugin",
+          "sourceHelp": "Una Release de GitHub (owner/repo@tag), una referencia del repositorio (owner/repo#ref) o un directorio local (enlazado en su sitio).",
+          "install": "Instalar",
+          "installing": "Instalando…",
+          "restartRequired": "Guardado. Reinicia NarraNexus para aplicar el cambio.",
+          "enable": "Activar",
+          "disable": "Desactivar",
+          "disabled": "desactivado",
+          "uninstall": "Desinstalar",
+          "upgrade": "Actualizar",
+          "rollback": "Volver al último estado correcto",
+          "safeModeTitle": "Modo seguro: los plugins de usuario no están cargados",
+          "safeModeLeave": "Salir del modo seguro",
+          "bisectStart": "Encontrar el plugin que rompe el inicio",
+          "bisectTrial": "Bisección: {{count}} sospechosos — estos quedan activos para el próximo inicio:",
+          "bisectGood": "Inició bien",
+          "bisectBad": "Volvió a fallar",
+          "bisectStop": "Detener bisección",
+          "bisectCulprit": "Culpable encontrado: {{id}} (se mantiene desactivado)",
+          "permissionsTitle": "{{id}} solicita estos permisos",
+          "permissionsNetwork": "Red",
+          "permissionsFilesystem": "Archivos",
+          "permissionsSubprocess": "Ejecuta subprocesos",
+          "permissionsEnv": "Variables de entorno",
+          "permissionsFrontend": "Ejecuta código dentro de la interfaz de la app, con acceso a tu sesión",
+          "permissionsAck": "Entiendo, activarlo",
+          "permissionsKeepDisabled": "Mantener desactivado",
+          "empty": "No hay plugins de usuario instalados.",
+          "loadFailed": "No se pudieron cargar los plugins de usuario",
+          "isolated": "Aislado al iniciar",
+          "viewErrors": "Errores ({{count}})",
+          "hideErrors": "Ocultar errores",
+          "noErrors": "Sin errores registrados.",
+          "mode": {
+            "link": "enlazado",
+            "copy": "instalado"
+          },
+          "state": {
+            "registered": "registrado",
+            "validated": "validado",
+            "enabled": "activado",
+            "active": "activo",
+            "incompatible": "incompatible",
+            "blocked": "bloqueado",
+            "missing": "faltante",
+            "deps_missing": "faltan dependencias",
+            "crashed": "falló",
+            "disabled": "desactivado",
+            "slow": "lento"
+          },
+          "proposalsTitle": "Pendiente de tu aprobación",
+          "proposalBy": "solicitado por el agente {{agent}}",
+          "proposalTestsGreen": "Pruebas superadas ({{count}})",
+          "proposalTestsRed": "Las pruebas no pasaron",
+          "proposalApprove": "Aprobar",
+          "proposalReject": "Rechazar",
+          "noPermissions": "No se solicitan permisos especiales",
+          "builtinsTitle": "Funciones integradas",
+          "builtinsHint": "Plugins de funcionalidad incluidos con NarraNexus. Al desactivar uno, su API, workers y páginas desaparecen tras reiniciar; los protegidos no se pueden apagar.",
+          "protected": "protegido",
+          "installDeps": "Instalar dependencias ({{pip}})"
+        }
       }
     },
     "system": {
@@ -1830,7 +1934,8 @@
       "activityLast24h": "Últimas 24 horas",
       "activityToday": "Hoy",
       "activityAxisStart": "hace 24 h",
-      "activityAxisNow": "ahora"
+      "activityAxisNow": "ahora",
+      "capabilitySwitches": "Interruptores de capacidades"
     },
     "welcome": {
       "logout": "Cerrar sesión",
@@ -1917,8 +2022,10 @@
       "skills": "Habilidades instaladas del agente. Añade más desde el Marketplace o instala desde GitHub / zip.",
       "mcp": "Servidores de herramientas MCP externos que el agente puede llamar — conecta capacidades de terceros.",
       "memory": "La memoria a largo plazo del agente, organizada en narrativas — lo que recuerda entre conversaciones.",
-      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes."
-    }
+      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes.",
+      "builder": "Describe lo que necesitas; la conversación rellena este panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Trabajos",
@@ -2323,5 +2430,59 @@
     "settings": "Abrir ajustes",
     "dismiss": "Entendido",
     "bodyManaged": "Esta instalación envía registros de servicio de diagnóstico (errores y eventos de diagnóstico) al colector propio de NarraNexus, según lo configurado por tu administrador. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Crear agente",
+      "title": "¿Por dónde quieres empezar?",
+      "subtitle": "Empieza con una configuración en blanco, o describe lo que necesitas y créalo conversando.",
+      "blankTitle": "Empezar en blanco",
+      "blankBody": "Configura cada campo tú mismo. Para quien ya sabe cómo debe funcionar el agente.",
+      "aiTitle": "Crear con IA",
+      "aiBody": "Describe el resultado que quieres. El Agent Builder hace las preguntas clave y redacta el borrador.",
+      "continue": "Continuar",
+      "recommended": "Recomendado"
+    },
+    "gate": {
+      "title": "Crear agente",
+      "probing": "Comprobando proveedores",
+      "chooseTitle": "Elige un proveedor",
+      "chooseHint": "Elige un proveedor existente o conecta uno nuevo. Esto decide qué motor ejecuta el agente.",
+      "accessApiKey": "Clave API",
+      "accessCli": "Inicio de sesión CLI",
+      "emptyLead": "Todavía no hay ningún motor disponible. Conecta un proveedor: será quien ejecute este agente.",
+      "addLabel": "Añadir proveedor",
+      "addApiKey": "Clave API",
+      "addCli": "Inicio de sesión CLI",
+      "back": "Atrás",
+      "next": "Siguiente",
+      "cliDesktopHint": "Al iniciar sesión se abre el navegador para autorizar la CLI de Claude.",
+      "cliLogin": "Iniciar sesión con Claude",
+      "cliLoggingIn": "Iniciando sesión…",
+      "cliWebHint": "Sin iniciar sesión: ejecuta `claude auth login` en tu terminal y vuelve a abrir este diálogo.",
+      "cliMissingHint": "La CLI de Claude no está disponible aquí. Instálala, inicia sesión desde el terminal y vuelve a abrir este diálogo."
+    },
+    "panel": {
+      "intro": "La conversación escribe el nombre, la descripción y las instrucciones directamente en este agente. Los skills y canales solo se sugieren: los instalas tú.",
+      "identity": "Identidad",
+      "name": "Nombre",
+      "namePlaceholder": "p. ej. Resumen financiero matinal",
+      "behaviour": "Comportamiento",
+      "install": "Instalar",
+      "installed": "Instalado",
+      "saving": "Guardando…",
+      "savedHint": "Los cambios se guardan al salir de un campo.",
+      "done": "Listo",
+      "identityHint": "Dale al agente un nombre fácil de reconocer.",
+      "behaviourHint": "Define cómo trabaja. Este es el campo awareness con el que el agente funciona de verdad.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Qué hace este agente, cómo trabaja, qué debe evitar…",
+      "skills": "Skills",
+      "skillsHint": "Skills del espacio de trabajo que este agente puede usar.",
+      "channels": "Canales",
+      "channelsHint": "Dónde se le puede contactar. Las credenciales van directas al backend, nunca a la conversación.",
+      "suggested": "De la conversación",
+      "optional": "Opcional"
+    }
   }
 }

@@ -7,7 +7,7 @@
               (claude-agent-sdk / openai-codex) are absent, and must fail
               CLOSED when a known-but-uninstalled framework is requested.
 
-Why a subprocess: this test proves ``import xyz_agent_context`` does NOT pull
+Why a subprocess: this test proves ``import narranexus.platform`` does NOT pull
 ``claude_agent_sdk`` at import time. The package is already imported in the
 main test process, so we can only prove "boots without the SDK" in a fresh
 interpreter that blocks the SDK on the meta-path. Revert the lazy-import
@@ -25,6 +25,10 @@ _SRC = _REPO / "src"
 
 # Runs inside the blocked subprocess.
 _CHILD = r"""
+from narranexus.kernel.plugins.builtins import load_builtins
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+load_builtins(KERNEL_REGISTRIES, "backend")  # what every host boot does; registration is never lazy
+
 import sys, importlib.abc
 
 class _Block(importlib.abc.MetaPathFinder):
@@ -37,8 +41,8 @@ class _Block(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, _Block())
 
 # The whole app package must import with the plugins blocked.
-import xyz_agent_context  # noqa: F401
-from xyz_agent_context.agent_framework import (
+import narranexus.platform  # noqa: F401
+from narranexus.platform.agent_framework import (
     available_agent_loop_frameworks,
     get_agent_loop_driver,
     FrameworkNotInstalledError,

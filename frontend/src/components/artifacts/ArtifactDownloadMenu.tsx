@@ -38,7 +38,8 @@ import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { downloadFile } from '@/lib/download';
-import { KIND_REGISTRY, downloadExtFor } from './kindRegistry';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
+import { downloadExtFor } from './kindRegistry';
 
 function safeFilename(title: string, ext: string): string {
   // Strip path-illegal punctuation. Control chars are filtered by codepoint
@@ -63,7 +64,8 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   // In-app notices only: wry does not render window.alert, so a native one is
   // invisible on the DMG (see ui/ConfirmDialog).
   const { notifyPending, notifyDone, notifyError, dialog: noticeDialog } = useNotice();
-  const isChart = Boolean(KIND_REGISTRY[artifact.kind]?.chartImageExport);
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const isChart = Boolean(ARTIFACT_KINDS.get(artifact.kind)?.chartImageExport);
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,

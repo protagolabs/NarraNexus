@@ -17,14 +17,14 @@ and step_4 consumes only that.
 """
 from __future__ import annotations
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     _owner_visible_reply_texts,
     _turn_delivered_user_message,
 )
-from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
-from xyz_agent_context.schema import ProgressMessage
-from xyz_agent_context.schema.runtime_message import ProgressStatus
+from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
+from narranexus.platform.schema import ProgressMessage
+from narranexus.platform.schema.runtime_message import ProgressStatus
 
 
 def _tool_progress(tool_name: str, content: str = "hello") -> ProgressMessage:

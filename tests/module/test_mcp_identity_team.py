@@ -22,7 +22,7 @@ mid-record silently reassigns the meaning of every later position.
 
 from __future__ import annotations
 
-from xyz_agent_context.module._mcp_identity import (
+from narranexus.platform.module_system._mcp_identity import (
     BEARER_FIELDS,
     EVENT_ID_HEADER,
     TEAM_ID_HEADER,

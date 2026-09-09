@@ -45,16 +45,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl import merged_router
-from xyz_agent_context.narrative._narrative_impl.routing_gate import (
+from narranexus.platform.narrative._narrative_impl import merged_router
+from narranexus.platform.narrative._narrative_impl.routing_gate import (
     GateDecision,
     evaluate_bypass,
     shutter_opens,
 )
-from xyz_agent_context.narrative.config import config
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.narrative_service import NarrativeService
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.narrative.config import config
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.narrative_service import NarrativeService
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
 )
 
@@ -85,7 +85,7 @@ def service(db_client, monkeypatch):
     async def _get():
         return db_client
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _get)
 
     # The two tiers merged routing replaces. Either one running is a bug, not a
     # fallback, so both are land mines rather than doubles.
@@ -191,7 +191,7 @@ async def test_with_the_switch_off_the_two_call_path_is_untouched(
 
     class _Detector:
         async def detect(self, **kw):
-            from xyz_agent_context.narrative.models import ContinuityResult
+            from narranexus.platform.narrative.models import ContinuityResult
 
             return ContinuityResult(is_continuous=True, confidence=0.9, reason="stub")
 
@@ -216,7 +216,7 @@ def test_both_switches_on_is_an_untested_world_and_refuses_to_boot():
     combination nothing has ever measured, so it fails at startup rather than
     in a routing decision (`config` raises at import)."""
     probe = subprocess.run(
-        [sys.executable, "-c", "import xyz_agent_context.narrative.config"],
+        [sys.executable, "-c", "import narranexus.platform.narrative.config"],
         capture_output=True, text=True,
         env={
             "PATH": "/usr/bin:/bin",
@@ -675,8 +675,8 @@ async def test_rule6_an_index_into_the_unrendered_participant_tail_is_refused(
     exactly what the prompt shows (prefix slice — the ORDER is the P0-4
     priority), so index 9 with 10 invitations and 8 shown must fail, and the
     cut must surface in merged_truncated."""
-    from xyz_agent_context.narrative._narrative_impl import merged_prep
-    from xyz_agent_context.narrative._narrative_impl.retrieval import ScoredPool
+    from narranexus.platform.narrative._narrative_impl import merged_prep
+    from narranexus.platform.narrative._narrative_impl.retrieval import ScoredPool
 
     anchor, _ = await _seed(service)
     ten = []
@@ -695,7 +695,7 @@ async def test_rule6_an_index_into_the_unrendered_participant_tail_is_refused(
         return prep
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.merged_select."
+        "narranexus.platform.narrative._narrative_impl.merged_select."
         "prepare_merged_routing",
         _prepare_with_ten,
     )
@@ -780,8 +780,8 @@ async def test_a_menu_row_from_beyond_the_snippet_head_still_carries_evidence(
     the evidence (terms alone mislead — the CJK frame-word collision), and a
     bare row also trips the wiring-broken alarm. build_menu_candidates must
     backfill it."""
-    from xyz_agent_context.narrative.models import NarrativeSearchResult
-    from xyz_agent_context.narrative._narrative_impl.landings import (
+    from narranexus.platform.narrative.models import NarrativeSearchResult
+    from narranexus.platform.narrative._narrative_impl.landings import (
         build_menu_candidates,
     )
 
@@ -819,7 +819,7 @@ async def test_an_anchor_that_is_also_a_participant_is_not_on_the_ballot_twice(
     async def _participants(self, *, user_id, agent_id):
         return [anchor, other]
 
-    from xyz_agent_context.narrative._narrative_impl.retrieval import (
+    from narranexus.platform.narrative._narrative_impl.retrieval import (
         NarrativeRetrieval,
     )
     monkeypatch.setattr(
@@ -969,7 +969,7 @@ async def test_a_background_turn_never_moves_the_anchor_on_the_merged_path_eithe
 
 
 async def test_the_new_columns_are_registered_on_both_dialects():
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     columns = {c.name: c for c in TABLES["narrative_routing_audit"].columns}
     for name in (

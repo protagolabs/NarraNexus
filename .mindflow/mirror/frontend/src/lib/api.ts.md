@@ -1,8 +1,50 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
+
+`GET /api/plugins/channels` 把 `ingress.channels` 注册表当数据返回
+（name / display_name / owner / ui.{label,icon,order}）。
+[[registerBuiltinChannels]] 用它建 Channels 区的行，取代原先在 TypeScript 里
+逐字重抄六个 Python `ChannelUi(...)` 的做法。
+
+## 2026-09-07 — `factoryAction`'s acknowledge-permissions carries a body (I-12)
+
+`factoryAction(id, action, opts?)` gained a third `{ permissionsAcknowledged?: boolean }` param —
+only the `'acknowledge-permissions'` action sends a JSON body
+(`{ permissions_acknowledged: opts.permissionsAcknowledged ?? true }`); every other action is
+still a bodyless POST. This is what lets the disclosure modal's "I understand" persist
+`permissions_acknowledged` server-side instead of only clearing client-side state — see
+`components/settings/plugins/PluginFactory.tsx`'s mirror doc.
+
+## 2026-09-07 — `getAgentFramework()`'s `frameworks[]` entries gain `display_name`/`protocol`/`oauth_source` (B6, final cut — `protocol` corrected to the real 3-valued enum)
+
+All three optional on the TYPE (an older backend response, or one predating this field, simply
+omits them), but `protocol`/`oauth_source` are now the ONLY thing
+`lib/agentFramework.ts`'s `providerBacksFramework`/`availableFrameworks` read for their matching
+— that function has no hardcoded fallback left (`CLI_FRAMEWORK_BY_OAUTH_SOURCE` and
+`frameworkAcceptsProtocol` were both deleted), so a caller that doesn't pass this array once
+loaded gets `false` back for everything, not a guess.
+
+`protocol` is typed `'anthropic' | 'openai' | 'any'` — the backend's `FrameworkMeta.protocol`
+enum, not a bare `string`. `'any'` is NexusPower's value (it drives the provider API itself and
+works with either protocol); the consuming code reads this VALUE directly, with no
+framework-id/name branch — see `lib/agentFramework.ts`'s 2026-09-07 correction entry for the
+history (an earlier same-day cut incorrectly assumed `protocol` was always a single concrete
+value and special-cased `isNexusPowerFramework` instead; that branch is gone).
+
+`display_name` backs `lib/frameworkBrand.ts`'s `formatFrameworkFromList` (preferred over the
+static per-id label table, itself untouched and still falls back when `display_name` is absent
+for a given entry).
+
+## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
+
+常量 `MARKETPLACE_SEARCH_TIMEOUT_MS` 在 [[apiTimeouts.ts]]（不放本文件：测试整体 mock
+`@/lib/api`，named 常量会随 mock 消失）。创建工作室每轮拉目录且去重 in-flight，一个不 settle
+的请求会占住浏览器同源连接池；abort 让它变成普通失败。
 
 ## 2026-09-03 — 删 `getAgentsModelOverview`
 
@@ -471,3 +513,5 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 [[App]]'s root redirect needs `landing_completed` to decide whether a user still
 owes the first-run flow. `markOnboardingStep` accepts `'landing_completed'`,
 which [[WelcomePage]] writes on every exit — finish, skip, or nothing-to-do.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

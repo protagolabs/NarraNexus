@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module import _lark_mcp_tools as tools
+from narranexus_plugins.lark_module import _lark_mcp_tools as tools
 
 
 # ───────────────────────── Fixtures ─────────────────────────
@@ -35,27 +35,46 @@ def _make_cred(permission_state: dict | None = None) -> LarkCredential:
 
 
 class _FakeDB:
-    """Minimal DB stub capable of round-tripping permission_state."""
+    """Minimal in-memory db: equality filters over dict rows per table, ``update``
+    returns the affected count (the generic credential store's version CAS relies on it)."""
 
     def __init__(self):
-        self.rows: dict[str, dict] = {}
+        self.tables: dict[str, list[dict]] = {}
+
+    @staticmethod
+    def _match(row, filters):
+        return all(row.get(k) == v for k, v in filters.items())
 
     async def get_one(self, table, filters):
-        return self.rows.get(filters.get("agent_id"))
+        for row in self.tables.get(table, []):
+            if self._match(row, filters):
+                return dict(row)
+        return None
 
     async def get(self, table, filters):
-        return list(self.rows.values())
+        return [dict(r) for r in self.tables.get(table, []) if self._match(r, filters)]
 
     async def insert(self, table, data):
-        self.rows[data["agent_id"]] = dict(data)
+        self.tables.setdefault(table, []).append(dict(data))
 
     async def update(self, table, filters, data):
-        aid = filters.get("agent_id")
-        if aid in self.rows:
-            self.rows[aid].update(data)
+        n = 0
+        for row in self.tables.get(table, []):
+            if self._match(row, filters):
+                row.update(data)
+                n += 1
+        return n
 
     async def delete(self, table, filters):
-        self.rows.pop(filters.get("agent_id"), None)
+        rows = self.tables.get(table, [])
+        keep = [r for r in rows if not self._match(r, filters)]
+        self.tables[table] = keep
+        return len(rows) - len(keep)
+
+    @property
+    def rows(self) -> dict[str, dict]:
+        """agent_id → stored lark credential (the shape the assertions read)."""
+        return {r["agent_id"]: r for r in self.tables.get("channel_credentials", []) if r.get("channel") == "lark"}
 
 
 @pytest.fixture
@@ -66,7 +85,7 @@ def fake_db(monkeypatch):
         return db
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.base.XYZBaseModule.get_mcp_db_client",
+        "narranexus.platform.module_system.base.XYZBaseModule.get_mcp_db_client",
         AsyncMock(return_value=db),
     )
     return db

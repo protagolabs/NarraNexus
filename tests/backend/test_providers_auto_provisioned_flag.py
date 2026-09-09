@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from backend.routes.providers import _config_to_response
-from xyz_agent_context.schema.provider_schema import LLMConfig, ProviderConfig
+from narranexus.platform.schema.provider_schema import LLMConfig, ProviderConfig
 
 
 def _prov(pid: str, source: str) -> ProviderConfig:

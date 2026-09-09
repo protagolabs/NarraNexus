@@ -9,7 +9,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('@/stores', () => ({
+vi.mock('@/stores', async () => ({
+  // Real barrel underneath (the header reads the studio store from it); only
+  // the two UI stores below are stubbed.
+  ...(await vi.importActual<typeof import('@/stores')>('@/stores')),
   useUIStore: (sel: (s: unknown) => unknown) =>
     sel({ sidebarCollapsed: false, setSidebarCollapsed: vi.fn(), requestPanel: vi.fn() }),
   useArtifactStore: (sel: (s: unknown) => unknown) => sel({ artifacts: [] }),

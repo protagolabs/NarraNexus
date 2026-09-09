@@ -23,11 +23,11 @@ from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
-from xyz_agent_context.agent_framework.providers.driver.self_heal import (
+from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+from narranexus.platform.agent_framework.providers.driver.self_heal import (
     self_heal_if_broken,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     effective_card_models,
     get_default_models,
 )

@@ -32,9 +32,9 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } f
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
-import type { TelegramCredentialData } from '@/types';
+import type { TelegramBindResponse, TelegramCredentialData, TelegramTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();
@@ -63,7 +63,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getTelegramCredential(agentId);
+      const res = await api.channelCredential<TelegramCredentialData>('telegram', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -103,11 +103,10 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindTelegramBot(
-        agentId,
-        botToken.trim(),
-        ownerUsername.trim(),
-      );
+      const res = await api.channelBind<TelegramBindResponse>('telegram', agentId, {
+        bot_token: botToken.trim(),
+        owner_username: ownerUsername.trim(),
+      });
       if (res.success) {
         setBotToken('');
         setOwnerUsername('');
@@ -128,7 +127,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setTestLoading(true);
     setError('');
     try {
-      const res = await api.testTelegramConnection(agentId);
+      const res = await api.channelTest<TelegramTestResponse>('telegram', agentId);
       if (!res.success) {
         setError(res.error || t('awareness.telegram.errTest'));
       } else {
@@ -160,7 +159,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindTelegramBot(agentId);
+      const res = await api.channelUnbind('telegram', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -179,7 +178,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setTelegramActive(agentId, next);
+    const res = await api.channelSetActive('telegram', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();

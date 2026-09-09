@@ -23,8 +23,8 @@ from fastapi.testclient import TestClient
 
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.identity.tokens import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus.platform.module_system.identity.tokens import (
     ISSUER_BROKER,
     sign_identity_token,
 )

@@ -42,7 +42,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
 from backend.routes._ownership import assert_owned
-from xyz_agent_context.channel.inbox_recorder import OUTBOUND
+from narranexus.platform.channel.inbox_recorder import OUTBOUND
 
 router = APIRouter()
 
@@ -68,7 +68,7 @@ def _to_iso(value: Any) -> str:
 
 
 async def _get_db():
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     return await get_db_client()
 
 
@@ -296,7 +296,7 @@ async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
     tampered path can only ever reach files the caller already owns.
     """
     from backend.auth import resolve_current_user_id
-    from xyz_agent_context.message_bus.attachments import (
+    from narranexus.platform.message_bus.attachments import (
         resolve_shared_file_for_user,
     )
 

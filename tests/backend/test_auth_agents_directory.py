@@ -22,7 +22,7 @@ OWNER = {"X-User-Id": "owner1"}
 
 @pytest.fixture
 def client(monkeypatch, db_client, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
 
     app = FastAPI()
@@ -87,13 +87,9 @@ async def test_framework_defaults_to_platform_default_without_any_slot_row(clien
 async def test_bound_channels_carry_their_switch_state(client, db_client):
     await _agent(db_client, "a1", "owner1")
     # lark: switched OFF; slack: ON
-    await db_client.insert("lark_credentials", {
-        "agent_id": "a1", "app_id": "cli_1", "app_secret_ref": "ref", "brand": "lark",
-        "profile_name": "p1", "is_active": 0,
-    })
-    await db_client.insert("channel_slack_credentials", {
-        "agent_id": "a1", "bot_token_encoded": "x", "app_token_encoded": "y", "enabled": 1,
-    })
+    # batch 4: every IM channel's binding is one row of the generic channel_credentials table
+    await db_client.insert("channel_credentials", {"channel": "lark", "agent_id": "a1", "enabled": 0, "external_id": "cli_1", "version": 0})
+    await db_client.insert("channel_credentials", {"channel": "slack", "agent_id": "a1", "enabled": 1, "external_id": "bot_1", "version": 0})
     r = client.get("/api/auth/agents", headers=OWNER)
     bound = _by_id(r.json())["a1"]["bound_channels"]
     assert {b["channel"]: b["active"] for b in bound} == {"lark": False, "slack": True}
@@ -101,7 +97,7 @@ async def test_bound_channels_carry_their_switch_state(client, db_client):
     assert [b["channel"] for b in bound] == ["lark", "slack"]
 
     # flipping the switch back on is reflected on the next read
-    await db_client.update("lark_credentials", {"agent_id": "a1"}, {"is_active": 1})
+    await db_client.update("channel_credentials", {"agent_id": "a1", "channel": "lark"}, {"enabled": 1})
     r = client.get("/api/auth/agents", headers=OWNER)
     bound = {b["channel"]: b["active"] for b in _by_id(r.json())["a1"]["bound_channels"]}
     assert bound["lark"] is True
@@ -112,9 +108,11 @@ async def test_enrichment_failure_degrades_instead_of_failing_the_route(client, 
     await _agent(db_client, "a1", "owner1")
 
     # A registry entry naming a table that does not exist breaks the UNION.
+    from narranexus.platform.channel.binding_tables import BindingSource
+
     monkeypatch.setattr(
-        auth_mod, "channel_binding_tables",
-        lambda: [("ghost", "no_such_table", None)],
+        auth_mod, "channel_binding_sources",
+        lambda: [BindingSource("ghost", "no_such_table", (), None)],
     )
 
     class _Boom:

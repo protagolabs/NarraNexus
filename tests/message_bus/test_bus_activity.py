@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.message_bus import _bus_activity as act
+from narranexus.platform.message_bus import _bus_activity as act
 
 
 async def _row(db, agent_id="agent_a", channel_id="ch_1"):

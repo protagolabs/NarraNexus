@@ -6,7 +6,7 @@ workspace dir, so each user's executor logs are isolated + persisted.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.executor_service import _resolve_executor_log_dir
+from narranexus.platform.agent_runtime.executor_service import _resolve_executor_log_dir
 
 
 def test_single_user_subdir_logs_under_user(tmp_path):

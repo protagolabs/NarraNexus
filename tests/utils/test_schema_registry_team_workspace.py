@@ -23,7 +23,7 @@ and ``team_id IS NULL`` keeps the exact pre-existing private semantics.
 
 import pytest
 
-from xyz_agent_context.utils.db.schema_registry import TABLES
+from narranexus.platform.utils.db.schema_registry import TABLES
 
 
 def _cols(table_name: str) -> dict:

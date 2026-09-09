@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.channel_contact_utils import get_room_id
-from xyz_agent_context.channel.inbox_recorder import InboxRecorder, im_thread_id
-from xyz_agent_context.repository.social_network_repository import SocialNetworkRepository
-from xyz_agent_context.schema.parsed_message import ChatType
+from narranexus.platform.channel.channel_contact_utils import get_room_id
+from narranexus.platform.channel.inbox_recorder import InboxRecorder, im_thread_id
+from narranexus.platform.repository.social_network_repository import SocialNetworkRepository
+from narranexus.platform.schema.parsed_message import ChatType
 
 AGENT, COUNTERPART, CHAT = "agent_a", "U_alice", "C_room7"
 INSTANCE = "social_test0001"
@@ -38,7 +38,7 @@ def _direct_store(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 
@@ -130,7 +130,7 @@ async def test_a_later_channel_name_never_overwrites_an_existing_name(db_client)
     """The create-only name must NOT clobber a canonical name set elsewhere (the
     merge branch drops `entity_name_if_new`). Seed a named entity, then record a
     reach turn carrying a different display name — the canonical name survives."""
-    from xyz_agent_context.module.data_access import get_agent_data_store
+    from narranexus.platform.module_system.data_access import get_agent_data_store
 
     await _seed_social_instance(db_client)
     await get_agent_data_store().extract_entity_info(
@@ -152,7 +152,7 @@ async def test_a_reach_turn_fills_an_existing_nameless_entity(db_client):
     entity some other path made nameless (an LLM extraction that only had
     contact_info) gets named by a later 1:1 reach turn — otherwise §3b's
     name-search never finds it."""
-    from xyz_agent_context.module.data_access import get_agent_data_store
+    from narranexus.platform.module_system.data_access import get_agent_data_store
 
     await _seed_social_instance(db_client)
     # A nameless entity created elsewhere (contact_info only, no name).
@@ -176,7 +176,7 @@ async def test_an_in_band_store_failure_is_logged_not_swallowed(db_client, monke
     id, post-P2 auth 401). _record_reach checks the return value and warns. Here:
     no social instance seeded → in-band failure → a warning fires, and the inbox
     row still exists. Removing the `res.get("success") is False` check → red."""
-    import xyz_agent_context.channel.inbox_recorder as ir
+    import narranexus.platform.channel.inbox_recorder as ir
 
     warnings: list = []
 
@@ -218,7 +218,7 @@ async def test_reach_failure_never_breaks_the_inbox_write(db_client, monkeypatch
     # Patched at its source: `_record_reach` does `from ...data_access import
     # get_agent_data_store` at call time, so it re-reads this symbol.
     monkeypatch.setattr(
-        "xyz_agent_context.module.data_access.get_agent_data_store", _boom
+        "narranexus.platform.module_system.data_access.get_agent_data_store", _boom
     )
 
     await _record(db_client)  # must NOT raise

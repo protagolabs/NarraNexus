@@ -3,6 +3,7 @@
  */
 
 export { useTheme } from './useTheme';
+export { usePluginTheme } from './usePluginTheme';
 export { useAgentWebSocket } from './useWebSocket';
 export { useTimezoneSync } from './useTimezoneSync';
 export { useAutoRefresh } from './useAutoRefresh';
@@ -13,3 +14,4 @@ export { useAgentImport, type AgentImportController } from './useAgentImport';
 export { useBookmarkSignals } from './useBookmarkSignals';
 export { useFastMode } from './useFastMode';
 export { useDismissOnOutside } from './useDismissOnOutside';
+export { useStudioLifecycle } from './useStudioLifecycle';

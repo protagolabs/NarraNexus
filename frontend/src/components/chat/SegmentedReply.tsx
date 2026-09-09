@@ -26,6 +26,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Segment } from '@/types';
 import { Markdown } from '@/components/ui';
+import { stripAgentDraft } from '@/lib/builderProtocol';
 import { TurnTimeline } from './TurnTimeline';
 
 export interface SegmentedReplyProps {
@@ -115,10 +116,15 @@ export const SegmentedReply = memo(function SegmentedReply({
                   // Same metrics as the settled markdown body, so the text
                   // does not reflow when the turn lands.
                   <div className="whitespace-pre-wrap text-[0.95rem] leading-[1.75]">
-                    {segment.reply.content}
+                    {/* Creation studio: the <agent_draft> block's OPEN tag
+                        arrives many frames before its close tag, so this
+                        streaming branch is exactly where raw JSON would
+                        scroll past the reader. stripAgentDraft kills the
+                        unterminated form too. */}
+                    {stripAgentDraft(segment.reply.content)}
                   </div>
                 ) : (
-                  <Markdown content={segment.reply.content} />
+                  <Markdown content={stripAgentDraft(segment.reply.content)} />
                 )}
                 {isStreaming && isLast && (
                   <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[var(--accent-primary)] align-text-bottom" />

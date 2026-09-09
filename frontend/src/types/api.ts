@@ -245,6 +245,7 @@ export interface SimpleChatMessage {
   working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
+  bootstrap?: boolean;      // The seeded first-run greeting row (dedups the client's folded copy)
   attachments?: import('./messages').Attachment[];  // User uploads attached to this message
 }
 
@@ -707,8 +708,8 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
-  | 'MATRIX'
-  | 'LARK';
+  // an IM channel session — the channel's working source upper-cased ('LARK', 'MATRIX', a plugin's 'ACME_CHAT')
+  | Uppercase<string>;
 
 export interface MessageBusDetails {
   src_channel?: string | null;
@@ -888,6 +889,10 @@ export interface DashboardResponse extends ApiResponse {
 }
 
 // Lark / Feishu Integration types
+//
+// The credential views below are the generic channel store's public half
+// (`/api/channels/<channel>/credential`): identity fields plus `enabled`;
+// secrets never leave the server.
 export interface LarkCredentialData {
   agent_id: string;
   app_id: string;
@@ -896,12 +901,9 @@ export interface LarkCredentialData {
   owner_open_id: string;
   owner_name: string;
   auth_status: string;
-  is_active: boolean;
+  enabled: boolean;
 }
 
-export interface LarkCredentialResponse extends ApiResponse {
-  data: LarkCredentialData | null;
-}
 
 /**
  * Structured Lark/Feishu bind failure — translator-rendered.
@@ -977,13 +979,8 @@ export interface SlackCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface SlackCredentialResponse extends ApiResponse {
-  data: SlackCredentialData | null;
-}
 
 export interface SlackBindResponse extends ApiResponse {
   data?: {
@@ -1017,13 +1014,8 @@ export interface TelegramCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface TelegramCredentialResponse extends ApiResponse {
-  data: TelegramCredentialData | null;
-}
 
 export interface NarramessengerCredentialData {
   agent_id: string;
@@ -1037,13 +1029,8 @@ export interface NarramessengerCredentialData {
   owner_name: string;
   connection_mode: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface NarramessengerCredentialResponse extends ApiResponse {
-  data: NarramessengerCredentialData | null;
-}
 
 export interface NarramessengerBindResponse extends ApiResponse {
   data?: {
@@ -1078,13 +1065,8 @@ export interface WeChatCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface WeChatCredentialResponse extends ApiResponse {
-  data: WeChatCredentialData | null;
-}
 
 // /qrcode/start → the login QR. `qr_url` is a WeChat URL the user scans;
 // `qrcode` is the opaque handle passed back to /qrcode/poll. `base_url` is
@@ -1124,13 +1106,8 @@ export interface DiscordCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface DiscordCredentialResponse extends ApiResponse {
-  data: DiscordCredentialData | null;
-}
 
 export interface DiscordBindResponse extends ApiResponse {
   data?: {
@@ -1417,6 +1394,184 @@ export interface PluginsListResponse extends ApiResponse {
 
 export interface PluginUninstallResponse extends ApiResponse {
   data?: PluginStatus;
+}
+
+// ---------------------------------------------------------------- plugin factory
+// `/api/plugin-factory` — user plugins (GitHub / local), managed by the kernel
+// registry file. Distinct from the framework installer above.
+
+export type FactoryPluginState =
+  | 'registered' | 'validated' | 'enabled' | 'active'
+  | 'incompatible' | 'blocked' | 'missing' | 'deps_missing' | 'crashed' | 'disabled' | 'slow';
+
+export interface FactoryPlugin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  mode: 'copy' | 'link';
+  path: string;
+  source: { type: 'github' | 'github_repo' | 'local'; repo?: string; tag?: string; ref?: string; commit?: string };
+  enabled: boolean;
+  state: FactoryPluginState;
+  scope: string;
+  last_error: string | null;
+  crash_count: number;
+  warnings: string[];
+  permissions: { network?: string[]; filesystem?: string[]; subprocess?: boolean; env?: string[] };
+  permissions_acknowledged: boolean;
+  installed_by: string;
+  installed_at: string;
+  provides: string[];
+  size: { backend_deps_mb?: number; frontend_kb?: number };
+  loaded: boolean;
+  isolated: string | null;
+  recent_errors: number;
+  frontend: { entry: string; integrity?: string } | null;
+  activation_events: string[];
+  protected: boolean;
+}
+
+export interface FactoryBisect {
+  candidates: string[];
+  trial: string[];
+  cleared: string[];
+}
+
+/** GET /api/channels/{channel}/schema — the generic bind form of a channel (plugin platform batch 4b). */
+/** One row of `GET /api/plugins/channels` — the host's `ingress.channels` registry as data. */
+export interface PluginChannelRow {
+  name: string;
+  display_name?: string;
+  owner: string;
+  ui?: { label?: string; icon?: string; order?: number };
+}
+
+export interface ChannelSchemaField {
+  name: string;
+  kind: 'string' | 'secret' | 'url' | 'bool' | 'int' | 'select';
+  label: string;
+  help: string;
+  required: boolean;
+  options: string[];
+  public: boolean;
+}
+
+export interface ChannelSchema {
+  channel: string;
+  display_name: string;
+  transport: 'socket' | 'poll' | 'webhook' | 'none';
+  has_bind: boolean;
+  has_test: boolean;
+  manager_backed: boolean;
+  /** The stored credential shape (identity fields shown back after bind). */
+  fields: ChannelSchemaField[];
+  /** What a bind call takes — differs from `fields` for builtin channels whose service binds from e.g. a pasted link. */
+  bind_fields: ChannelSchemaField[];
+  external_id_field: string;
+}
+
+/** One registered module as the owner's capability panel sees it (plugin platform batch 5c). */
+export interface AgentCapabilityItem {
+  module_class: string;
+  name: string;
+  icon: string;
+  description: string;
+  owner: string;
+  builtin: boolean;
+  enabled: boolean;
+  default_enabled: boolean;
+  explicit: boolean;
+  locked: boolean;
+  always_load: boolean;
+  context_cost_hint: number | null;
+  priority: number;
+}
+
+export interface AgentCapabilitiesView {
+  agent_id: string;
+  capabilities: AgentCapabilityItem[];
+  budget: { baseline_tokens: number; enabled_tokens: number; ratio: number; over_budget: boolean };
+}
+
+/** The public half of a generic channel credential (identity fields only; secrets never leave the server). */
+export interface ChannelCredentialView {
+  channel: string;
+  agent_id: string;
+  enabled: boolean;
+  external_id: string | null;
+  [field: string]: unknown;
+}
+
+export interface FactoryBuiltin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  enabled: boolean;
+  protected: boolean;
+  hosts: string[];
+  provides: string[];
+  dependencies: Record<string, string>;
+  /** Declares heavy dependencies installed on first boot of a slim build. */
+  on_demand?: boolean;
+  pip?: string[];
+  /** Why the last boot ran without this builtin (its on-demand dependencies are unavailable); null when fine. */
+  deps_missing?: string | null;
+}
+
+export interface FactoryListResponse extends ApiResponse {
+  data?: {
+    plugins: FactoryPlugin[];
+    /** Builtin (feature-level) plugins with their enabled flag from registry.json builtin_overrides. */
+    builtins?: FactoryBuiltin[];
+    safe_mode: boolean;
+    safe_mode_reason: string;
+    bisect: FactoryBisect | null;
+    cloud_managed: boolean;
+    boot: { role: string; loaded: string[]; isolated: Record<string, string>; rejected: Record<string, string>; duration_ms: number } | null;
+  };
+}
+
+export interface FactoryInstallResponse extends ApiResponse {
+  data?: {
+    id: string;
+    version: string;
+    path: string;
+    mode: 'copy' | 'link';
+    warnings: string[];
+    deps_installed: string[];
+    permissions: FactoryPlugin['permissions'];
+    restart_required: boolean;
+  };
+}
+
+export interface FactoryProposal {
+  id: string;
+  plugin_id: string;
+  agent_id: string;
+  user_id: string;
+  action: 'activate' | 'install' | 'upgrade' | 'deactivate';
+  scope: string;
+  summary: string;
+  permissions: FactoryPlugin['permissions'];
+  test_report: { ok?: boolean; passed?: number; report_hash?: string };
+  diff_hash: string;
+  created_at: number;
+  decision: 'pending' | 'approved' | 'rejected' | 'expired';
+  extra: Record<string, unknown>;
+}
+
+export interface FactoryProposalsResponse extends ApiResponse {
+  data?: { proposals: FactoryProposal[] };
+}
+
+export interface FactoryErrorsResponse extends ApiResponse {
+  data?: { errors: { at: number; kind: string; message: string; stack: string }[] };
+}
+
+export interface FactoryIndexResponse extends ApiResponse {
+  data?: { plugins: { id: string; repo: string; author: string; description: string; tags: string[]; kinds: string[] }[] };
 }
 
 /** One line of the `POST /api/plugins/{id}/install` ndjson stream. */

@@ -40,9 +40,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.narrative_service import NarrativeService
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.narrative_service import NarrativeService
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
 )
 
@@ -61,7 +61,7 @@ def service(db_client, monkeypatch):
     async def _get():
         return db_client
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _get)
 
     async def _stub_judge(**kw):
         raise AssertionError("the judge must never run on a continuity turn")
@@ -73,7 +73,7 @@ def service(db_client, monkeypatch):
 def _continuous(svc, monkeypatch, verdict: bool = True):
     class _Detector:
         async def detect(self, **kw):
-            from xyz_agent_context.narrative.models import ContinuityResult
+            from narranexus.platform.narrative.models import ContinuityResult
 
             return ContinuityResult(
                 is_continuous=verdict, confidence=0.93, reason="stub"
@@ -301,7 +301,7 @@ async def test_a_non_continuity_turn_is_not_marked_shadow(
 
 
 async def test_the_shadow_column_is_registered_on_both_dialects() -> None:
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     col = {c.name: c for c in TABLES["narrative_routing_audit"].columns}.get(
         "pool_is_shadow"
@@ -462,7 +462,7 @@ async def test_a_failed_recorder_leaves_no_orphan_snapshot(
         raise RuntimeError("scoring exploded after the pool was recorded")
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.retrieval.evaluate_bypass",
+        "narranexus.platform.narrative._narrative_impl.retrieval.evaluate_bypass",
         _boom,
     )
 
@@ -486,7 +486,7 @@ async def test_the_instrument_has_an_env_switch(service, db_client, monkeypatch)
     with a written rollback path (`NARRATIVE_DEFAULT_BUCKETS_ENABLED`). Without
     one, turning the instrument off means a code change plus re-publishing both
     run modes (binding rule #7)."""
-    from xyz_agent_context.narrative.config import config as narrative_config
+    from narranexus.platform.narrative.config import config as narrative_config
 
     anchor, _ = await _seed(service)
     _continuous(service, monkeypatch)

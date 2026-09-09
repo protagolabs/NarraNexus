@@ -30,7 +30,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
 
 def _trigger() -> MessageBusTrigger:

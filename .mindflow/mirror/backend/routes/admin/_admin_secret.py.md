@@ -28,7 +28,7 @@ stub: false
 - **常量时间比较**：用 `hmac.compare_digest(provided.strip().encode(),
   expected.encode())`，避免用响应时延爆破出 secret。取代旧的 `provided.strip() !=
   expected` 明文比较。
-- **读 settings 单例**：helper `from xyz_agent_context.settings import settings`。
+- **读 settings 单例**：helper `from narranexus.platform.settings import settings`。
   各路由模块也各自再导出一份 `settings`（`# noqa: F401`），只为测试能经
   `mod.settings` 覆盖 `admin_secret_key`——因为 settings 是单例，patch 它的属性对
   本 helper 同样可见。

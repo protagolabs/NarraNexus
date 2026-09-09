@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.channel_prompts import (
+from narranexus.platform.channel.channel_prompts import (
     ROOM_TYPE_DIRECT,
     ROOM_TYPE_GROUP,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.channel_tag import ChannelTag
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.channel_tag import ChannelTag
 
 
 class _FakeBuilder:
@@ -171,17 +171,26 @@ class TestNoTriggerHandRollsTheDict:
     def test_channel_tag_dict_literal_appears_only_in_the_shared_builder(self):
         import pathlib
 
-        root = pathlib.Path(__file__).resolve().parents[2] / "src" / "xyz_agent_context"
+        from tests._paths import iter_engine_py_files
+
+        REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+        scanned = list(iter_engine_py_files())
+        # Batch 6 moved every channel module out of
+        # src/narranexus/platform into plugins/builtin.channels.*/src — a
+        # scan limited to the platform tree alone would look nowhere near
+        # where a future hand-rolled channel would actually be added.
+        assert len(scanned) >= 500, (
+            f"only {len(scanned)} engine files scanned — the engine source "
+            "roots shrank and this guard is scanning far less than the codebase"
+        )
         offenders = []
-        for path in root.rglob("*.py"):
-            if "__pycache__" in str(path):
-                continue
+        for path in scanned:
             text = path.read_text(encoding="utf-8")
             if '"channel_tag": channel_tag.to_dict()' not in text:
                 continue
             if path.name == "channel_trigger_base.py":
                 continue  # the shared builder itself
-            offenders.append(str(path.relative_to(root)))
+            offenders.append(str(path.relative_to(REPO_ROOT)))
         assert offenders == [], (
             "these files build trigger_extra_data by hand instead of calling "
             f"ChannelTriggerBase.build_trigger_extra_data: {offenders}"

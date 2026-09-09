@@ -7,15 +7,15 @@
 
 Named rather than "every surface", because it is not every surface — `job` and five
 of the six IM sources are absent. One IM row is representative on purpose: the six
-channel modules all inherit `owns_working_source` from `ChannelModuleBase`, so
+channel modules all inherit `claims_source` from `ChannelModuleBase`, so
 origin-first ordering resolves identically for them, whereas ChatModule and
 MessageBusModule override it and are the pair the desk bug lived in.
 
 Spec §10 item 2. Two independent mechanisms decide what an agent is told to do
 this turn:
 
-  * the DESK — `get_expressive_tools` names the turn's reply tool, and
-    `get_disallowed_tools` removes the other candidates' schemas;
+  * the DESK — `expressive_tools` names the turn's reply tool, and
+    `disallowed_tools` removes the other candidates' schemas;
   * the DECLARATION — `render_origin_declaration` writes the `[Origin] … reply
     with …` line at the top of the turn.
 
@@ -41,14 +41,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
+from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
 )
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.channel.message_source_handler import (
     render_origin_declaration,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
     BUS_TEAM_ROOM_EXTRA_KEY,
 )
@@ -63,7 +63,7 @@ SURFACES = [
      "mcp__message_bus_module__message_team"),
     ("peer DM", "message_bus", None, "mcp__message_bus_module__message_agent"),
     # One IM surface: the six channel modules share `ChannelModuleBase`'s
-    # `owns_working_source`, so this row covers the inherited path that neither
+    # `claims_source`, so this row covers the inherited path that neither
     # ChatModule nor MessageBusModule exercises.
     ("IM (lark)", "lark", None, "mcp__lark_module__lark_cli"),
     ("patrol", "message_bus",
@@ -77,9 +77,9 @@ def _instances():
     Deliberately fresh: the defect this file exists for was a module answering
     about the PREVIOUS turn, which a loop reusing instances would hide.
     """
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.lark_module.lark_module import LarkModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.lark_module.lark_module import LarkModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -87,7 +87,7 @@ def _instances():
     bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     lark = LarkModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     # A bound channel: an unbound one suppresses every non-setup tool
-    # (`ChannelModuleBase.get_disallowed_tools`), which is a different property
+    # (`ChannelModuleBase.disallowed_tools`), which is a different property
     # with its own test in `tests/channel/test_setup_residency.py`.
     lark._bound_cache = True  # type: ignore[attr-defined]
     return [

@@ -15,8 +15,8 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as sb
+from narranexus_plugins.skill_module.skill_module import SkillModule
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as sb
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def test_configured_env_var_names_excludes_undecryptable(key):
     # The single source of truth for "is this var configured": present + it
     # decrypts. A ciphertext under a lost key is NOT configured → drives
     # env_configured False everywhere (list/detail/MCP/hook/install).
-    from xyz_agent_context.module.skill_module.skill_module import (
+    from narranexus_plugins.skill_module.skill_module import (
         configured_env_var_names,
     )
 
@@ -75,7 +75,7 @@ def test_configured_env_var_names_excludes_empty_ciphertext(key):
     # decrypts to "". A scrubbed-bundle restore + legacy migration can leave
     # this shape; it must read as NOT configured (green-card-with-empty-key is
     # the exact 8/1 shape, just empty instead of ciphertext).
-    from xyz_agent_context.module.skill_module.skill_module import (
+    from narranexus_plugins.skill_module.skill_module import (
         configured_env_var_names,
     )
 
@@ -148,7 +148,7 @@ def test_configured_env_var_names_is_total_on_bad_input(key):
     # A malformed meta (agent-writable file) must NOT crash the panel / drop
     # the whole agent's cred injection — every unreadable value degrades to
     # "not configured" (fail-closed), never propagates an exception (🟡2).
-    from xyz_agent_context.module.skill_module.skill_module import (
+    from narranexus_plugins.skill_module.skill_module import (
         configured_env_var_names,
     )
 
@@ -165,8 +165,8 @@ def test_configured_env_var_names_is_total_on_bad_input(key):
 def test_configured_env_var_names_returns_empty_when_key_unavailable(monkeypatch):
     # An invalid SKILL_SECRETS_KEY makes get_secret_box() fail fast; the helper
     # must degrade to "nothing configured", not 500 the list.
-    import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as sbmod
-    from xyz_agent_context.module.skill_module.skill_module import (
+    import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as sbmod
+    from narranexus_plugins.skill_module.skill_module import (
         configured_env_var_names,
     )
 
@@ -189,14 +189,21 @@ def test_get_all_skill_env_vars_survives_corrupt_meta_value(module, key):
 
 def test_get_all_skill_env_vars_empty_when_box_unavailable(module, key, monkeypatch):
     # 🟡2: a process-level key failure must fail CLOSED (inject nothing), not
-    # raise out of hook_data_gathering and drop the agent's whole contribution.
+    # raise out of gather and drop the agent's whole contribution.
     box = sb.get_secret_box()
     _make_skill(module, "healthy", {"GOOD": box.encrypt("real")})
 
     def _boom():
         raise ValueError("SKILL_SECRETS_KEY is set but is not a valid Fernet key")
 
-    monkeypatch.setattr(sb, "get_secret_box", _boom)
+    # Patch the PUBLIC seam, not the private module: `skill_module` reaches the
+    # secret box through `narranexus.platform.marketplace.get_secret_box`
+    # (batch 6c — a plugin package may not import another package's private
+    # module). Patching `sb.get_secret_box` here left the real box in place and
+    # the fail-closed path untested.
+    import narranexus.platform.marketplace as marketplace
+
+    monkeypatch.setattr(marketplace, "get_secret_box", _boom)
     assert module.get_all_skill_env_vars() == {}
 
 
@@ -204,7 +211,7 @@ def test_env_config_status_keeps_self_stored_platform_var(key):
     # 🟡1 at the source: a platform var that the user SELF-STORED (decryptable)
     # must be counted configured AND left OUT of platform_assumed, so the API
     # layer never downgrades it against the provider table.
-    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+    from narranexus_plugins.skill_module.skill_module import env_config_status
 
     box = sb.get_secret_box()
     env_config = {"NETMIND_API_KEY": box.encrypt("self-entered")}
@@ -216,7 +223,7 @@ def test_env_config_status_keeps_self_stored_platform_var(key):
 def test_env_config_status_flags_platform_only_var_as_assumed(key):
     # A platform var with NO stored value is optimistically configured, but
     # recorded as platform_assumed so the API layer can DB-validate it.
-    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+    from narranexus_plugins.skill_module.skill_module import env_config_status
 
     configured, assumed = env_config_status(["NETMIND_API_KEY"], {})
     assert configured is True
@@ -224,7 +231,7 @@ def test_env_config_status_flags_platform_only_var_as_assumed(key):
 
 
 def test_env_config_status_non_platform_missing_var_is_unconfigured(key):
-    from xyz_agent_context.module.skill_module.skill_module import env_config_status
+    from narranexus_plugins.skill_module.skill_module import env_config_status
 
     configured, assumed = env_config_status(["MY_KEY"], {})
     assert configured is False

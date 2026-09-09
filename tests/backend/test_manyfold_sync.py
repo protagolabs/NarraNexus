@@ -14,12 +14,15 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from narranexus.platform.channel.credential_store import GenericCredentialStore
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
 
 import backend.routes.manyfold.sync as mod
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-from xyz_agent_context.repository.job_repository import JobRepository
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module import run_once as ro
+from narranexus.platform.repository.job_repository import JobRepository
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +56,13 @@ def test_classify_config_path():
     assert mod._classify_config_path("/api/jobs/complex") == "jobs"
     # Provider mutations edge-trigger PAUSED_NO_QUOTA resume → job state.
     assert mod._classify_config_path("/api/providers") == "jobs"
+    # the generic channel router (every channel binds here since batch 4d.3) …
+    assert mod._classify_config_path("/api/channels/acme_chat/bind") == "channels"
+    assert mod._classify_config_path("/api/channels") == "channels"
+    # … and each registered channel's own router (Lark OAuth, WeChat QR), read from the registry
     for p in ("lark", "slack", "telegram", "wechat", "discord", "narramessenger"):
-        assert mod._classify_config_path(f"/api/{p}/bind") == "channels"
+        assert mod._classify_config_path(f"/api/{p}/auth/login") == "channels"
+    assert mod._classify_config_path("/api/larkx/bind") is None
     assert mod._classify_config_path("/api/agents") is None
     assert mod._classify_config_path("/api/jobsx") is None
 
@@ -130,17 +138,8 @@ async def test_jobs_endpoint_excludes_terminal_jobs(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_channels_endpoint_decodes_telegram_binding(db_client, monkeypatch):
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": "agent_1",
-            "bot_token_encoded": base64.b64encode(
-                b"123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            ).decode(),
-            "bot_user_id": "42",
-            "bot_username": "nx_bot",
-            "enabled": 1,
-        },
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")
@@ -163,15 +162,8 @@ async def test_channels_rows_declare_agent_managed_reply(db_client, monkeypatch)
     declaration's control. Flipping a provider is a config change
     (NEXUS_MANAGED_REPLY_PROVIDERS), not a code change.
     """
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": "agent_1",
-            "bot_token_encoded": base64.b64encode(b"123:tok").decode(),
-            "bot_user_id": "42",
-            "bot_username": "nx_bot",
-            "enabled": 1,
-        },
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123:tok", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
     )
     monkeypatch.delenv("NEXUS_MANAGED_REPLY_PROVIDERS", raising=False)
     app = _make_app(db_client, monkeypatch, authed=True)
@@ -195,18 +187,19 @@ async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
     # original test only covered telegram, which is why it slipped — hit
     # live during the 2026-08-03 local managed-IM E2E (fix ported from the
     # feat/manyfold-cloud experiment branch).
-    await db_client.insert(
-        "lark_credentials",
-        {
-            "agent_id": "agent_1",
-            "app_id": "cli_abc123",
-            "app_secret_ref": "appsecret:cli_abc123",
-            "app_secret_encrypted": base64.b64encode(b"the_app_secret").decode(),
-            "brand": "feishu",
-            "profile_name": "agent_agent_1",
-            "auth_status": "user_logged_in",  # bot-active → listed
-            "is_active": 1,
-        },
+    from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+
+    await LarkCredentialManager(db_client).save_credential(  # lark persists in channel_credentials (batch 4d)
+        LarkCredential(
+            agent_id="agent_1",
+            app_id="cli_abc123",
+            app_secret_ref="appsecret:cli_abc123",
+            app_secret_encoded=base64.b64encode(b"the_app_secret").decode(),
+            brand="feishu",
+            profile_name="agent_agent_1",
+            auth_status="user_logged_in",  # bot-active → listed
+            is_active=True,
+        )
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")
@@ -425,6 +418,8 @@ def job_stubs(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(mod, "get_db_client", _fake_db)
+    # The execution body lives in builtin.job's run_once module (jobs.run_once service).
+    monkeypatch.setattr(ro, "get_db_client", _fake_db)
 
     async def _get_job(self, job_id):
         job = state["job"]
@@ -451,8 +446,8 @@ def job_stubs(db_client, monkeypatch):
     monkeypatch.setattr(JobTrigger, "_rearm_cooled_jobs", _rearm)
     monkeypatch.setattr(JobTrigger, "_resume_eligible_no_quota_jobs", _resume)
     # Collapse the drain window so the no-more-due exit is immediate.
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 0)
-    monkeypatch.setattr(mod, "_DRAIN_POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_POLL_INTERVAL_S", 0)
     return state
 
 
@@ -491,16 +486,16 @@ async def test_execute_job_once_skips(job_stubs):
 
 @pytest.mark.asyncio
 async def test_execute_job_once_drains_due_jobs_up_to_cap(job_stubs, monkeypatch):
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 5)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 5)
     job_stubs["job"] = _fake_job()
     job_stubs["due"] = [
-        _fake_job(job_id=f"dep_{i}") for i in range(mod._DRAIN_LIMIT + 2)
+        _fake_job(job_id=f"dep_{i}") for i in range(ro._DRAIN_LIMIT + 2)
     ]
     outcome = await mod.execute_job_once("agent_1", "j1")
     assert outcome.ok is True
-    assert outcome.drained == mod._DRAIN_LIMIT
+    assert outcome.drained == ro._DRAIN_LIMIT
     assert job_stubs["executed"][0] == "j1"
-    assert len(job_stubs["executed"]) == 1 + mod._DRAIN_LIMIT
+    assert len(job_stubs["executed"]) == 1 + ro._DRAIN_LIMIT
 
 
 @pytest.mark.asyncio

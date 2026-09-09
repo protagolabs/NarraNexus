@@ -486,7 +486,7 @@ fn is_required_service(id: &str) -> bool {
 
 /// Resolve the on-disk log directory we share with the Python side.
 /// Mirrors the layout used by setup_logging() in
-/// src/xyz_agent_context/utils/logging/_setup.py — namely
+/// src/narranexus/platform/utils/logging/_setup.py — namely
 /// ``$NEXUS_LOG_DIR/<service>/<service>_YYYYMMDD.log``. When neither
 /// the env var nor a HOME directory is available we fall back to
 /// `<tempdir>/narranexus-logs` so Tauri-only desktop runs still get

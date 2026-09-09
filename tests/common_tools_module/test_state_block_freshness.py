@@ -19,10 +19,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus_plugins.common_tools_module.common_tools_module import CommonToolsModule
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -35,7 +35,7 @@ def _sha(text: str) -> str:
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     (base / WS_REL).mkdir(parents=True)
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
     repo = ArtifactRepository(db_client)
     mod = CommonToolsModule("agent_x", "user_y", db_client)
@@ -78,7 +78,7 @@ async def test_external_change_is_detected_and_marked(env):
 @pytest.mark.asyncio
 async def test_user_edit_marker_from_history(env):
     await _seed(env, "art_used0001", "used.md", "# same\n")
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
     await ArtifactHistoryRepository(env["db"]).append(
@@ -92,7 +92,7 @@ async def test_user_edit_marker_from_history(env):
 @pytest.mark.asyncio
 async def test_re_register_clears_the_marker(env):
     await _seed(env, "art_cleared1", "cleared.md", "# same\n")
-    from xyz_agent_context.repository.team_workspace_repository import (
+    from narranexus.platform.repository.team_workspace_repository import (
         ArtifactHistoryRepository,
     )
     hist = ArtifactHistoryRepository(env["db"])

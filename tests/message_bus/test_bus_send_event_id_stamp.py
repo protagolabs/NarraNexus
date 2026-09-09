@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 
@@ -133,7 +133,7 @@ async def test_message_team_stamps_the_calling_turn(monkeypatch):
         return _DB()
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
     with injected(agent_id_headers(ME, turn_source="message_bus", event_id=TURN)):

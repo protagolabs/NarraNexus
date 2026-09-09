@@ -50,7 +50,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
@@ -59,14 +59,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -100,7 +100,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
     """Create skills/<skill_dir>/ with a NO-frontmatter SKILL.md (like arena),
     a credentials.json (a sensitive file), and a .skill_meta.json with env_config."""
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
@@ -131,9 +131,9 @@ async def test_full_copy_skill_lands_in_skill_dir_with_credentials(db_client, tm
     """The imported agent must get exactly skills/arena/ with credentials.json and
     a preserved env_config — not a stray skills/tmpXXXX/ and a credential-less arena.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     aid, uid = "agent_skill0001", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent", uid)
@@ -194,9 +194,9 @@ def _manifest(bundle: Path) -> dict:
 async def test_dir_fix_holds_without_secrets(db_client, tmp_workspace_root, tmp_path):
     """Track A (correct dir name) is independent of Track B: even with secrets
     scrubbed, the skill still lands in exactly skills/arena/ (no tmp stray)."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     aid, uid = "agent_skill0002", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent2", uid)
@@ -229,7 +229,7 @@ async def test_dir_fix_holds_without_secrets(db_client, tmp_workspace_root, tmp_
 async def test_skill_secrets_scrubbed_on_export_by_default(db_client, tmp_workspace_root, tmp_path):
     """Default export scrubs skill secrets from BOTH the full_copy archive and
     the workspace snapshot; manifest reflects it."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_skill0003", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent3", uid)
@@ -258,7 +258,7 @@ async def test_skill_secrets_scrubbed_on_export_by_default(db_client, tmp_worksp
 
 async def test_skill_secrets_kept_when_opted_in(db_client, tmp_workspace_root, tmp_path):
     """Opting in carries the credential file + marks the manifest."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_skill0004", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent4", uid)
@@ -286,7 +286,7 @@ async def test_skill_secrets_kept_when_opted_in(db_client, tmp_workspace_root, t
 
 def _seed_builtin_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
     """Create a built-in skill dir (`.skill_meta.json` builtin: true) on disk."""
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
@@ -303,7 +303,7 @@ async def test_builtin_skill_forced_to_builtin_method_despite_full_copy_request(
     to the payload-less `builtin` method: the manifest records install_method
     'builtin' with no archive_ref, and the bundle carries no skill archive.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
 
     aid, uid = "agent_builtin01", "test_user"
     await _seed_agent(db_client, aid, "BuiltinAgent", uid)

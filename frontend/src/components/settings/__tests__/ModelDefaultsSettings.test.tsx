@@ -98,6 +98,15 @@ const PROVIDERS = {
   },
 };
 
+// The live `frameworks[]` list (B6, 2026-09-07 final cut) — `providerBacksFramework`
+// now reads `protocol`/`oauth_source` straight off this instead of any hardcoded
+// table, and fails closed with no list at all, so every test needs one.
+const LIVE_FRAMEWORKS = [
+  { name: 'claude_code', available: true, protocol: 'anthropic', oauth_source: 'claude_oauth' },
+  { name: 'codex_cli', available: true, protocol: 'openai', oauth_source: 'codex_oauth' },
+  { name: 'nexus_power', available: true, protocol: 'any', oauth_source: null },
+];
+
 beforeEach(() => {
   mockRole = 'user';
   mockForcedCloud = false;
@@ -107,7 +116,7 @@ beforeEach(() => {
   });
   mockGetAgentFramework.mockReset().mockResolvedValue({
     success: true,
-    data: { framework: 'claude_code', probe: { ok: true, detail: '' } },
+    data: { framework: 'claude_code', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
   });
   mockSetAgentFramework.mockReset().mockResolvedValue({
     success: true,
@@ -284,9 +293,9 @@ test('a plugin-gated framework renders disabled but visible, and picking it pops
       framework: 'claude_code',
       probe: { ok: true, detail: '' },
       frameworks: [
-        { name: 'claude_code', available: true },
-        { name: 'codex_cli', available: false },
-        { name: 'nexus_power', available: true },
+        { name: 'claude_code', available: true, protocol: 'anthropic', oauth_source: 'claude_oauth' },
+        { name: 'codex_cli', available: false, protocol: 'openai', oauth_source: 'codex_oauth' },
+        { name: 'nexus_power', available: true, protocol: 'any', oauth_source: null },
       ],
     },
   });

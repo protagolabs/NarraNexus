@@ -10,8 +10,8 @@ _execute_callback before it constructs an AgentRuntime.
 """
 import pytest
 
-import xyz_agent_context.agent_framework.loop.circuit_breaker as cb
-from xyz_agent_context.services.module_poller import ModulePoller
+import narranexus.platform.agent_framework.loop.circuit_breaker as cb
+from narranexus.platform.services.module_poller import ModulePoller
 
 
 @pytest.mark.asyncio
@@ -24,7 +24,7 @@ async def test_execute_callback_skips_paused_agent(monkeypatch):
     # dormant path; guard it so a regression (gate removed) is a hard failure.
     def _boom(*a, **k):
         raise AssertionError("AgentRuntime must NOT be constructed for a paused agent")
-    monkeypatch.setattr("xyz_agent_context.agent_runtime.AgentRuntime", _boom, raising=False)
+    monkeypatch.setattr("narranexus.platform.agent_runtime.AgentRuntime", _boom, raising=False)
 
     poller = ModulePoller.__new__(ModulePoller)
     # Should return cleanly without constructing a runtime.

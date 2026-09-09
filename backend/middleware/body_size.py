@@ -31,7 +31,7 @@ from typing import List, Tuple
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from xyz_agent_context.artifact import MAX_ARTIFACT_BYTES
+from narranexus.platform.artifact import MAX_ARTIFACT_BYTES
 
 _MB = 1024 * 1024
 
@@ -60,6 +60,16 @@ MAX_CHAT_COMPLETIONS_BYTES = 8 * _MB
 #: after buffering; this is the byte cap that runs in the middleware, before
 #: FastAPI parks the body in memory). 4 KB is two orders of magnitude of slack.
 MAX_APPLY_TO_AGENTS_BYTES = 4 * 1024
+# Plugin factory writes: install/bisect are a few scalar fields; the error
+# report carries a message (≤ 4000 chars) plus a stack (≤ 20000 chars) with
+# JSON framing — 64 KiB covers the largest legitimate body with margin.
+MAX_PLUGIN_FACTORY_BYTES = 64 * 1024
+# Generic channel routes (plugin platform batch 4b): a bind body is a handful
+# of credential fields; 64 KiB leaves room for long tokens and select options.
+MAX_CHANNEL_BIND_BYTES = 64 * 1024
+# Inbound channel webhooks carry a platform's event envelope (a message plus
+# metadata); 256 KiB covers rich events without letting a push flood the inbox.
+MAX_CHANNEL_WEBHOOK_BYTES = 256 * 1024
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
@@ -67,6 +77,27 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
         frozenset({"POST"}),
         re.compile(r"^/api/providers/slots/apply-to-agents$"),
         MAX_APPLY_TO_AGENTS_BYTES,
+    ),
+    (
+        # per-agent capability switch: {"enabled": bool} (plugin platform batch 5c)
+        frozenset({"PUT"}),
+        re.compile(r"^/api/agents/[^/]+/capabilities/[^/]+$"),
+        MAX_APPLY_TO_AGENTS_BYTES,
+    ),
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/plugin-factory(/|$)"),
+        MAX_PLUGIN_FACTORY_BYTES,
+    ),
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/channels/[^/]+/(bind|test|unbind|set-active)$"),
+        MAX_CHANNEL_BIND_BYTES,
+    ),
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/channels/[^/]+/webhook/[^/]+$"),
+        MAX_CHANNEL_WEBHOOK_BYTES,
     ),
     (
         frozenset({"PUT"}),

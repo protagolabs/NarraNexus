@@ -14,8 +14,8 @@ close the #71 gap where the write path bypassed the read-model's ceiling.
 import pytest
 from pydantic import ValidationError
 
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
-from xyz_agent_context.schema.api_schema import CreateAgentRequest, UpdateAgentRequest
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.schema.api_schema import CreateAgentRequest, UpdateAgentRequest
 
 OVER = "x" * (AGENT_TEXT_MAX_LENGTH + 1)
 AT_LIMIT = "y" * AGENT_TEXT_MAX_LENGTH

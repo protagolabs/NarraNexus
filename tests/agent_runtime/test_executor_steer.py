@@ -19,8 +19,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.agent_runtime import executor_service as svc
-from xyz_agent_context.agent_runtime.executor_protocol import (
+from narranexus.platform.agent_runtime import executor_service as svc
+from narranexus.platform.agent_runtime.executor_protocol import (
     build_agent_loop_request,
     build_steer_request,
 )

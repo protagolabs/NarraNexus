@@ -89,5 +89,5 @@ run 活在另一个进程(workers),HTTP 请求进不去。真正的中断由那�
 ## 2026-08-11 (review 收口 3) — 删掉悬空注释
 
 `TEAM_ROOM_OWNER_PREFIX` 改为 import 之后，解释它的那段注释悬在原地，
-而且让读者去看 `backend/routes/teams.py`——**那里同样已经不再定义它**。
+而且让读者去看 `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py`——**那里同样已经不再定义它**。
 这正是同一个 commit 刚在 `message_bus_trigger.py` 清掉的毛病，我在这里复现了一次。

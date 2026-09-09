@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 def _make_trigger() -> LarkTrigger:
@@ -419,7 +419,7 @@ def test_parse_event_reads_group_vs_private_as_a_positive_whitelist():
     the safe direction is "rather not record": ONLY the literal 'p2p' is 1:1.
     A missing field, a future value, or a topic group is GROUP → not recorded.
     """
-    from xyz_agent_context.schema.parsed_message import ChatType
+    from narranexus.platform.schema.parsed_message import ChatType
 
     t = _make_trigger()
     base = dict(message_type="text", content_payload={"text": "hi"})

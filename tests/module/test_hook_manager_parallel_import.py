@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.hook_manager import HookManager
-from xyz_agent_context.schema.context_schema import ContextData
+from narranexus.platform.module_system.hook_manager import HookManager
+from narranexus.platform.schema.context_schema import ContextData
 
 
 class _EchoModule:
@@ -27,7 +27,7 @@ class _EchoModule:
     class config:  # noqa: D106 — mirrors XYZBaseModule.config.name access
         name = "EchoModule"
 
-    async def hook_data_gathering(self, ctx: ContextData) -> ContextData:
+    async def gather(self, ctx: ContextData) -> ContextData:
         return ctx
 
 
@@ -37,7 +37,7 @@ class _BoomModule:
     class config:  # noqa: D106 — mirrors XYZBaseModule.config.name access
         name = "BoomModule"
 
-    async def hook_data_gathering(self, ctx: ContextData) -> ContextData:
+    async def gather(self, ctx: ContextData) -> ContextData:
         raise RuntimeError("gathering blew up")
 
 
@@ -45,7 +45,7 @@ class _BoomModule:
 async def test_parallel_data_gathering_path_is_executable():
     mgr = HookManager(parallel_data_gathering=True)
     ctx = ContextData(agent_id="agent_x", user_id=None, input_content="hi")
-    result = await mgr.hook_data_gathering([_EchoModule()], ctx)
+    result = await mgr.gather([_EchoModule()], ctx)
     assert isinstance(result, ContextData)
     assert result.agent_id == "agent_x"
 
@@ -58,6 +58,6 @@ async def test_parallel_data_gathering_error_branch_is_executable():
     healthy module's result must still be merged."""
     mgr = HookManager(parallel_data_gathering=True)
     ctx = ContextData(agent_id="agent_x", user_id=None, input_content="hi")
-    result = await mgr.hook_data_gathering([_BoomModule(), _EchoModule()], ctx)
+    result = await mgr.gather([_BoomModule(), _EchoModule()], ctx)
     assert isinstance(result, ContextData)
     assert result.agent_id == "agent_x"

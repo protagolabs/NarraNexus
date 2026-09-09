@@ -17,6 +17,9 @@ import { Menu, Users } from 'lucide-react';
 import { BindingDot } from '@/components/nm';
 import { useConfigStore, useUIStore } from '@/stores';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import { TOP_BAR_ITEMS } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 
 /**
  * Community hub on the marketing site (Discord / WeChat / socials). The
@@ -37,6 +40,7 @@ function pageLabelKey(pathname: string): string | null {
 }
 
 export function TopBar() {
+  const whenCtx = useWhenContext({});
   const { t } = useTranslation();
   const location = useLocation();
   const agents = useConfigStore((s) => s.agents);
@@ -106,6 +110,8 @@ export function TopBar() {
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
             {connLabel}
           </span>
+          {/* Plugin items (ui.topBarItems), gated by `when`. */}
+          <SlotOutlet registry={TOP_BAR_ITEMS} ctx={whenCtx} agentId={null} as="span" className="inline-flex items-center gap-2" />
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}

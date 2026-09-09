@@ -1,9 +1,41 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-31
+last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07 — a throwing plugin message renderer is isolated (I-6)
+
+The shell-bubble JSX (the fallback path when no plugin renderer matches) is extracted into a
+`renderShellBubble = () => (...)` closure. When a renderer DOES match, it is now wrapped in
+`<PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>` instead of being rendered
+bare. Before this, a throwing message renderer bubbled to the route-level `ChunkErrorBoundary`
+above `MessageBubble`, replacing the ENTIRE conversation with an error page over one bad message
+— see `platform/PluginBoundary.tsx`'s mirror doc for the boundary itself and why it is a shared
+module rather than duplicated per content registry.
+
+---
+
+## 2026-09-03 (修订同日早条) — 两个方向都要剥
+
+早条只讲了用户消息里的指令。现在两个方向都有机器：**用户**消息裹着指令 +
+当前配置信封，**助手**消息尾部有 `<agent_draft>` 配置块。`visibleContent` 按
+`isUser` 分派到 `decodeBuilderTurn` / `stripAgentDraft`，用在气泡、复制、下载
+三处出口。
+
+剥离必须留在**渲染路径**而不是 store：[[useStudioTurn.ts]] 要从已落定消息里
+parse 出原始块。
+
+## 2026-09-03 — 剥掉 Builder 指令块
+
+新增 `visibleContent = stripBuilderInstruction(message.content)`，用在**所有
+展示消息文本的出口**：用户气泡、复制、下载。
+
+为什么必须做：创建工作室 v0 的 Builder 指令藏在**用户消息**里（对话跑在用户
+自己的 agent 上，没有别处可放 —— v0 不擅自写 Awareness）。漏一处，整段 prompt
+就出现在用户自己的气泡里。普通消息原样透传，所以对全部流量安全。
+
+助手侧分支没有改 —— 我们的标记只会出现在用户消息里。
 ## 2026-08-31 — 历史轮次的抽屉：自己把自己卸载了
 
 Owner 报了两个症状：点开「查看推理与工具」后**推理仍是折叠的**，而且**再也
@@ -348,3 +380,5 @@ This design avoids loading event log details for every message in a long history
 The event log cache (`eventLogCacheRef`) is per-component-instance. If the same message is rendered multiple times (e.g., after re-keying), the cache is lost and the API is called again.
 
 `tool_output` is only present on `EventLogToolCall` (history), not on `AgentToolCall` (real-time WebSocket). The output section only renders for history messages.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

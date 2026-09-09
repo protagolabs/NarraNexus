@@ -22,8 +22,8 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-import backend.routes.agents.social_network as sn_routes
-from backend.routes.agents.social_network import router as social_network_router
+import narranexus_plugins.social_network_module.routes as sn_routes
+from narranexus_plugins.social_network_module.routes import router as social_network_router
 
 
 # --------------------------------------------------------------------------- fakes

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/AgentProfilePage.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -201,3 +201,22 @@ Dashboard 是可扫描的目录,不应因展开某一行而被大块运行详情
 Capabilities 与 Settings 都保持“一次一个重面板”的原子挂载约束,避免 Awareness、
 Network、Memory、Skills、MCP 和 Channels 同时发请求或加载重依赖。General 沿用
 现有 Agent 更新接口,Model 配置沿用既有面板；页面不新增后端接口。
+
+## 2026-09-04 — Settings gets a fourth section: Capabilities
+
+`SettingsSection` widened from `'general' | 'awareness' | 'model'` to add
+`'capabilities'`, with its own left-nav item (`Puzzle` icon, between
+Awareness and Model & Framework) and its own render branch
+(`<AgentCapabilities agentId={agentId} />` from `AgentCapabilitiesPanel.tsx`,
+wrapped in a plain padded div — it is not `BookmarkPanelHost`-mounted like
+Awareness/Network/Memory/Skills/MCP/Channels, because it is not a bookmark
+drawer tab).
+
+Per-agent module toggles (plugin platform batch 5c: which registered
+capability modules take part in THIS agent's turns) live here rather than in
+a drawer panel because they are a **settings decision** scoped to one agent,
+not a live-data surface a user monitors — same category as General
+(name/description) and Model & Framework, not Jobs/Inbox/Network. Putting it
+in Capabilities (the atomic-tab left directory, one panel mounted at a time)
+instead would have implied it is something to check on repeatedly, which it
+is not: it is set once per agent and read by the turn pipeline thereafter.

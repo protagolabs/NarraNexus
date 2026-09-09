@@ -5,13 +5,13 @@
 the turn's reply surface to the framework (NexusPower reply contract).
 
 ``build_input_for_framework`` collects every active module's
-``get_expressive_tools()`` and orders the result by the TOTAL
+``expressive_tools()`` and orders the result by the TOTAL
 (priority, module_class) order (R4d) — NOT by active_instances order,
 which is created_at-driven and would let a later-created channel
 instance steal the first slot. The first entry is the turn's default
 reply tool and lands in the framework's STABLE prompt prefix, so this
 order must be priority-driven and deterministic. Crashing modules
-contribute nothing — fail-open, same posture as ``get_disallowed_tools``.
+contribute nothing — fail-open, same posture as ``disallowed_tools``.
 """
 from __future__ import annotations
 
@@ -19,14 +19,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.settings import settings
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
+from narranexus.platform.settings import settings
 
 AGENT_ID = "agent_expressive"
 
 
 class _FakeModule:
+
+
+    # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+
+    contribute_tools = XYZBaseModule.contribute_tools
     def __init__(
         self,
         name: str,
@@ -40,23 +47,23 @@ class _FakeModule:
         self._crash = crash
         if owns_source is not None:
             self._owns_source = owns_source
-            self.owns_working_source = self._owns_working_source
+            self.claims_source = self._owns_working_source
 
     def _owns_working_source(self, working_source) -> bool:
         return working_source == self._owns_source
 
-    async def get_mcp_config(self):
+    async def mcp_server(self):
         return None
 
-    async def get_disallowed_tools(self, ctx_data=None):
+    async def disallowed_tools(self, ctx_data=None):
         return []
 
-    async def get_expressive_tools(self, ctx_data=None):
+    async def expressive_tools(self, ctx_data=None):
         if self._crash:
             raise RuntimeError("boom")
         return list(self._expressive or [])
 
-    async def get_turn_context(self, ctx_data) -> str:
+    async def contribute_turn_context(self, ctx_data) -> str:
         return ""
 
 
@@ -74,7 +81,7 @@ async def _collect(instances, monkeypatch, working_source=None, extra=None) -> l
         ctx.working_source = working_source
     if extra:
         ctx.extra_data.update(extra)
-    _messages, _mcp, disallowed, expressive = await runtime.build_input_for_framework(
+    _messages, _mcp, disallowed, expressive, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=instances,
@@ -161,7 +168,7 @@ async def test_origin_first_only_applies_when_source_matches(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_modules_without_owns_hook_keep_priority_order(monkeypatch):
-    """Fail-open: a module that never heard of owns_working_source (or a
+    """Fail-open: a module that never heard of claims_source (or a
     turn with no working_source) sorts by (priority, module_class) as
     before."""
     instances = [
@@ -188,8 +195,8 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     to pick."""
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -222,11 +229,11 @@ async def test_team_room_turn_declares_the_room_send(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+    from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
 
     bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     chat = ChatModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
@@ -252,16 +259,16 @@ def test_every_module_expressive_signature_accepts_ctx_data():
     where fail-open silently drops that module's whole declaration."""
     import inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from narranexus.platform.module_system import module_registry
 
-    for name, cls in MODULE_MAP.items():
-        fn = cls.get_expressive_tools
+    for name, cls in module_registry.items():
+        fn = cls.expressive_tools
         params = list(inspect.signature(fn).parameters.values())
         assert any(
             p.name == "ctx_data" or p.kind is inspect.Parameter.VAR_POSITIONAL
             for p in params
         ), (
-            f"{name}.get_expressive_tools must accept ctx_data - a stale "
+            f"{name}.expressive_tools must accept ctx_data - a stale "
             f"(self)-only override is silently dropped by the fail-open "
             f"collection site"
         )
@@ -291,11 +298,11 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.chat_module.chat_module import ChatModule
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+    from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
 
     for label, source, extra in (
         ("team room", "message_bus", {BUS_TEAM_ROOM_EXTRA_KEY: True}),
@@ -331,22 +338,22 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
 def test_every_module_disallow_signature_accepts_ctx_data():
     """The twin of the expressive-signature guard above, for the same reason.
 
-    `get_disallowed_tools` grew a positional `ctx_data` on 2026-08-18. An
+    `disallowed_tools` grew a positional `ctx_data` on 2026-08-18. An
     override still on the old `(self)` shape raises TypeError at the call site,
     which fails OPEN — the module suppresses nothing, so both send verbs sit on
     the desk and the turn's rule is back to arguing with a visible tool.
     """
     import inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from narranexus.platform.module_system import module_registry
 
-    for name, cls in MODULE_MAP.items():
-        hook = getattr(cls, "get_disallowed_tools", None)
+    for name, cls in module_registry.items():
+        hook = getattr(cls, "disallowed_tools", None)
         if hook is None:
             continue
         params = list(inspect.signature(hook).parameters)
         assert params[:2] == ["self", "ctx_data"], (
-            f"{name}.get_disallowed_tools{tuple(params)} does not take ctx_data "
+            f"{name}.disallowed_tools{tuple(params)} does not take ctx_data "
             f"— it will TypeError at the collection site and suppress nothing"
         )
 
@@ -372,10 +379,10 @@ async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeyp
     """
     from unittest.mock import MagicMock
 
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
-    from xyz_agent_context.schema import (
+    from narranexus.platform.schema import (
         BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
         BUS_TEAM_ROOM_EXTRA_KEY,
     )
@@ -407,7 +414,7 @@ def test_patrol_does_not_arm_the_mute_turn_nudge():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     src = inspect.getsource(MessageBusTrigger._invoke_runtime)
     assert "if team_room and not patrol else None" in src, (
@@ -426,31 +433,35 @@ def test_patrol_does_not_arm_the_mute_turn_nudge():
 async def test_a_stale_disallow_signature_is_logged_loudly(monkeypatch, caplog):
     """Fail-open is right; failing open QUIETLY on a signature drift is not.
 
-    `get_expressive_tools` grew this arm after a stale override silently muted
-    ChatModule's whole declaration. `get_disallowed_tools` grew its `ctx_data`
+    `expressive_tools` grew this arm after a stale override silently muted
+    ChatModule's whole declaration. `disallowed_tools` grew its `ctx_data`
     parameter on 2026-08-18, which puts it in exactly that position — and the
     consequence is worse here: suppression that fails open leaves BOTH send verbs
     on the desk, which on a patrol turn is a desk whose own prompt forbids them.
 
-    `test_every_module_disallow_signature_accepts_ctx_data` covers `MODULE_MAP`;
+    `test_every_module_disallow_signature_accepts_ctx_data` covers `module_registry`;
     this covers the case that guard cannot see — a module class that never
     reaches the map.
     """
     import logging
 
     class _Stale:
+
+        # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+        contribute_tools = XYZBaseModule.contribute_tools
         config = SimpleNamespace(name="StaleModule", priority=5)
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
-        async def get_disallowed_tools(self):  # the OLD signature, on purpose
+        async def disallowed_tools(self):  # the OLD signature, on purpose
             return ["mcp__stale__tool"]
 
-        async def get_expressive_tools(self, ctx_data=None):
+        async def expressive_tools(self, ctx_data=None):
             return []
 
-        async def get_turn_context(self, ctx_data) -> str:
+        async def contribute_turn_context(self, ctx_data) -> str:
             return ""
 
     instances = [
@@ -474,7 +485,7 @@ async def test_a_stale_disallow_signature_is_logged_loudly(monkeypatch, caplog):
         "signature mismatch" in r.getMessage() and "StaleModule" in r.getMessage()
         for r in caplog.records
     ), (
-        "a stale get_disallowed_tools signature failed open with no ERROR — "
+        "a stale disallowed_tools signature failed open with no ERROR — "
         f"records: {[r.getMessage() for r in caplog.records]}"
     )
 
@@ -498,19 +509,23 @@ async def test_an_in_body_typeerror_is_not_reported_as_a_signature_mismatch(
     import logging
 
     class _RaisesInBody:
+
+        # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+        contribute_tools = XYZBaseModule.contribute_tools
         config = SimpleNamespace(name="BodyRaiser", priority=5)
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
-        async def get_disallowed_tools(self, ctx_data=None):
+        async def disallowed_tools(self, ctx_data=None):
             # Correct signature; the BODY is wrong.
             return ["a"] * None  # type: ignore[operator]
 
-        async def get_expressive_tools(self, ctx_data=None):
+        async def expressive_tools(self, ctx_data=None):
             return []
 
-        async def get_turn_context(self, ctx_data) -> str:
+        async def contribute_turn_context(self, ctx_data) -> str:
             return ""
 
     instances = [
