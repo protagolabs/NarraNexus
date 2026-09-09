@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/layout/TopBar.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — hamburger keeps its own size (GitHub #129)
+
+The left cluster (hamburger + BindingDot + truncating breadcrumb span) is
+a flex row; the hamburger button had no `shrink-0`, so on a narrow phone
+it shrank alongside the breadcrumb's `truncate` text instead of the
+breadcrumb absorbing the whole squeeze — reported as the icon getting
+squeezed down to ~15px. `truncate` already implies `overflow: hidden` on
+the span, which per the flexbox spec already zeroes its own automatic
+minimum width, so it was always the right element to give up space; the
+hamburger just needed `shrink-0` to opt out of that squeeze.
 
 ## 2026-08-06 — Chat UI v4:移动端专属化
 

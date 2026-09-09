@@ -106,6 +106,16 @@ describe('SettingsPage nav', () => {
     expect(screen.getByTestId('providers-pane')).toBeTruthy();
   });
 
+  test('the nav column collapses to a horizontal strip below md (GitHub #130)', () => {
+    // A fixed w-56 (224px) column with no breakpoint ate most of a 360px
+    // viewport. Below md it must give up the fixed width and stack above
+    // the content as a scrollable row instead.
+    render(<SettingsPage />);
+    const classes = screen.getByRole('navigation').className.split(/\s+/);
+    expect(classes).toContain('md:w-56');
+    expect(classes).not.toContain('w-56');
+  });
+
   test('personalization pane opens from the nav', () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.personalization/ }));

@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — left nav collapses to a horizontal strip below md (GitHub #130)
+
+The master–detail `<nav>` was a fixed `w-56` (224px) column with no
+breakpoint, eating most of a 360px viewport and leaving the detail pane
+unusably narrow. Below `md` it now becomes a `flex` row (`overflow-x-auto`,
+items `shrink-0`) stacked above the content (`flex-col md:flex-row` on the
+wrapper) instead of a fixed-width sidebar; at `md`+ it's pixel-identical to
+before (`md:block md:w-56 md:space-y-1 md:border-r`). DashboardPage's
+left rail is the same component shape (its own mirror note says it
+"mirrors SettingsPage's master–detail nav") and got the identical
+treatment in the same change.
 
 ## 2026-09-03 — 面板与导航来自 `SETTINGS_SECTIONS` 注册表
 

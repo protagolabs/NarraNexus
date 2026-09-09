@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — left rail collapses to a horizontal strip below md (GitHub #130)
+
+Same fix as SettingsPage.tsx (this rail already mirrors that nav's
+shape): the fixed `w-56` column had no breakpoint and ate most of a
+360px viewport. Below `md` the wrapper switches to `flex-col` and the
+`<nav>` becomes a horizontal `overflow-x-auto` strip (items `shrink-0`)
+instead of a fixed-width sidebar; `md`+ layout is unchanged.
 
 ## 2026-09-04 — framework 标签/图标改走 `lib/frameworkBrand`
 

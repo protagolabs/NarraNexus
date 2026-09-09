@@ -99,6 +99,16 @@ describe('Dashboard left-rail tabs (#1)', () => {
     expect(screen.getByRole('button', { name: /create agent/i })).toBeInTheDocument();
   });
 
+  it('the left rail collapses to a horizontal strip below md (GitHub #130)', () => {
+    // A fixed w-56 (224px) column with no breakpoint ate most of a 360px
+    // viewport. Below md it must give up the fixed width and stack above
+    // the content as a scrollable row instead.
+    renderAt('/app/dashboard');
+    const classes = screen.getByRole('navigation').className.split(/\s+/);
+    expect(classes).toContain('md:w-56');
+    expect(classes).not.toContain('w-56');
+  });
+
   it('the Create Agent button invokes useCreateAgent().createAgent', () => {
     renderAt('/app/dashboard');
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }));

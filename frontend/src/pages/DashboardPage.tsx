@@ -578,11 +578,13 @@ export function DashboardPage() {
         </h1>
       </header>
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 flex-col md:flex-row">
         {/* Left rail (master) — Manage Agents / Team Management / Export,
-            mirroring SettingsPage's master–detail nav. */}
+            mirroring SettingsPage's master–detail nav. Below md there's no
+            room for a fixed 224px column (GitHub #130); it becomes a
+            horizontal scroll strip above the content instead. */}
         <nav
-          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 md:block md:w-56 md:gap-0 md:overflow-x-visible md:overflow-y-auto md:space-y-1 md:border-b-0 md:border-r md:px-3 md:py-4"
           style={{ borderColor: 'var(--nm-line)' }}
         >
           {TAB_ITEMS.map((item) => {
@@ -594,7 +596,7 @@ export function DashboardPage() {
                 type="button"
                 onClick={() => selectTab(item.id)}
                 className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors',
+                  'shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors md:w-full',
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
                     : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]',
