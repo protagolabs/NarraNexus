@@ -203,6 +203,72 @@ def _stage_blob_newest_wins(
     )
 
 
+def _read_staged_credentials(config_dir: str | Path) -> str | None:
+    """Best-effort read of the already-staged ``.credentials.json`` blob, or
+    None when it's absent / unreadable. NEVER logs the returned blob."""
+    dest = Path(config_dir) / ".credentials.json"
+    if not dest.is_file():
+        return None
+    try:
+        return dest.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _should_reset_isolated_config_dir(
+    existing_blob: str | None, new_blob: str
+) -> bool:
+    """Should the isolated CONFIG_DIR be wiped before staging ``new_blob``?
+
+    Pure decision, no filesystem/Keychain I/O — kept separate from the
+    action (``shutil.rmtree``) so this can be unit-tested without touching
+    the real macOS Keychain.
+
+    Why this exists (GitHub #117 investigation): on macOS, Claude Code
+    imports the staged ``.credentials.json`` into a config-dir-namespaced
+    Keychain entry the FIRST time it runs against that ``CLAUDE_CONFIG_DIR``,
+    then only ever reads that entry — overwriting the staged file afterward
+    (what ``_stage_blob_newest_wins`` already does) has no effect on a CLI
+    that already completed its one-shot import for this exact directory.
+    A dead/rotated host credential therefore keeps failing forever even
+    after the owner fixes it, because the isolated CLI is stuck on its own
+    frozen copy from the FIRST import.
+
+    We cannot safely target that Keychain entry directly — its service name
+    is an undocumented CLI implementation detail, and guessing wrong risks
+    touching an unrelated Keychain item. What we DO fully own is the
+    isolated CONFIG_DIR itself: wiping it before staging a genuinely
+    ROTATED host credential removes whatever state the CLI cached there
+    (including its own one-shot-import bookkeeping), forcing a fresh import
+    on the next spawn — using the file we are about to write.
+
+    Only fires on a genuine rotation (source strictly newer than the
+    previously staged copy, or the staged copy being unparseable) so a
+    same-content re-stage or a no-op newest-wins skip doesn't churn the
+    directory on every spawn.
+    """
+    if existing_blob is None:
+        return False  # nothing staged yet — first stage, nothing stale to clear
+    new_exp = _oauth_expires_at(new_blob)
+    if new_exp is None:
+        return False  # unparseable source — never act on it (matches newest-wins)
+    old_exp = _oauth_expires_at(existing_blob)
+    if old_exp is None:
+        return True  # staged copy is corrupt/unreadable — force a clean re-import
+    return new_exp > old_exp
+
+
+def _reset_isolated_config_dir(config_dir: str | Path) -> None:
+    """Wipe the isolated CONFIG_DIR so the next spawn starts genuinely fresh
+    (see ``_should_reset_isolated_config_dir`` for why). Best-effort —
+    a failed rmtree just means the stale entry might survive one more spawn;
+    it must never block staging the new credential."""
+    import shutil
+
+    with suppress(OSError):
+        shutil.rmtree(config_dir)
+
+
 def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     """Copy the host Claude OAuth credential into the isolated CONFIG_DIR.
 
@@ -263,6 +329,14 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
         # file instead). darwin-ONLY: on Linux/cloud there is no Keychain.
         kc_blob = _read_keychain_blob()
         if kc_blob is not None:
+            # GitHub #117: if this is a genuine rotation, wipe whatever the
+            # isolated CLI cached for this exact dir (its one-shot Keychain
+            # import included) BEFORE staging — otherwise the file below
+            # would land but the CLI keeps reading its already-imported,
+            # now-stale copy forever. See _should_reset_isolated_config_dir.
+            existing = _read_staged_credentials(config_dir)
+            if _should_reset_isolated_config_dir(existing, kc_blob):
+                _reset_isolated_config_dir(config_dir)
             _stage_blob_newest_wins(config_dir, kc_blob, sourced_from="macOS Keychain")
             return
 

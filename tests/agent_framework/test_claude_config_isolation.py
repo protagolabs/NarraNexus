@@ -219,3 +219,122 @@ def test_stage_blob_preserves_inplace_refresh(tmp_path):
     assert (
         json.loads(staged.read_text())["claudeAiOauth"]["accessToken"] == "refreshed"
     )
+
+
+# =============================================================================
+# One-shot macOS Keychain import (GitHub #117): stale isolated CONFIG_DIR
+# state must be cleared before staging a genuinely rotated host credential,
+# or the isolated CLI keeps reading its own frozen one-shot import forever.
+# =============================================================================
+
+
+def test_should_reset_when_no_existing_stage():
+    """Nothing staged yet — first stage ever, nothing stale to clear."""
+    from narranexus_plugins.frameworks_claude_code.sdk import (
+        _should_reset_isolated_config_dir,
+    )
+
+    fresh = '{"claudeAiOauth":{"expiresAt":2000}}'
+    assert _should_reset_isolated_config_dir(None, fresh) is False
+
+
+def test_should_reset_true_on_genuine_rotation():
+    """Source strictly newer than the staged copy -> a real claude login
+    happened; the isolated CLI's frozen one-shot import must be cleared."""
+    from narranexus_plugins.frameworks_claude_code.sdk import (
+        _should_reset_isolated_config_dir,
+    )
+
+    old = '{"claudeAiOauth":{"expiresAt":1000}}'
+    new = '{"claudeAiOauth":{"expiresAt":2000}}'
+    assert _should_reset_isolated_config_dir(old, new) is True
+
+
+def test_should_reset_false_when_not_newer():
+    """Source is the SAME or OLDER than what's already staged — no rotation
+    happened, so don't churn the isolated dir on every spawn."""
+    from narranexus_plugins.frameworks_claude_code.sdk import (
+        _should_reset_isolated_config_dir,
+    )
+
+    same = '{"claudeAiOauth":{"expiresAt":2000}}'
+    older = '{"claudeAiOauth":{"expiresAt":1000}}'
+    assert _should_reset_isolated_config_dir(same, same) is False
+    assert _should_reset_isolated_config_dir(same, older) is False
+
+
+def test_should_reset_false_when_new_blob_unparseable():
+    """An unparseable source must never trigger a reset — matches
+    _stage_blob_newest_wins's own 'never clobber a good file' rule."""
+    from narranexus_plugins.frameworks_claude_code.sdk import (
+        _should_reset_isolated_config_dir,
+    )
+
+    old = '{"claudeAiOauth":{"expiresAt":1000}}'
+    garbage = "not json at all"
+    assert _should_reset_isolated_config_dir(old, garbage) is False
+
+
+def test_should_reset_true_when_existing_blob_unparseable():
+    """A corrupt/unreadable staged copy must be cleared so the CLI gets a
+    genuinely clean re-import rather than inheriting corrupt state."""
+    from narranexus_plugins.frameworks_claude_code.sdk import (
+        _should_reset_isolated_config_dir,
+    )
+
+    corrupt = "not json at all"
+    fresh = '{"claudeAiOauth":{"expiresAt":2000}}'
+    assert _should_reset_isolated_config_dir(corrupt, fresh) is True
+
+
+def test_stage_darwin_wipes_stale_config_dir_state_on_rotation(tmp_path, monkeypatch):
+    """End-to-end: an isolated dir carrying leftover CLI state (simulating its
+    own one-shot Keychain-import bookkeeping) from a PREVIOUS session must be
+    wiped before staging a genuinely rotated Keychain credential — the stale
+    extra file must not survive."""
+    import sys
+
+    from narranexus_plugins.frameworks_claude_code import sdk as sdk
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    dest = tmp_path / "isolated"
+    dest.mkdir()
+    (dest / ".credentials.json").write_text(
+        '{"claudeAiOauth":{"accessToken":"OLD","expiresAt":1000}}'
+    )
+    # Simulate CLI-internal state from the CONFIG_DIR's first one-shot import
+    # (the real culprit is a macOS Keychain entry we cannot inspect here;
+    # this stand-in proves the wipe actually clears the directory).
+    (dest / ".claude.json").write_text('{"stale":"cli-internal-state"}')
+
+    fresh = '{"claudeAiOauth":{"accessToken":"NEW","expiresAt":2000}}'
+    monkeypatch.setattr(sdk, "_read_keychain_blob", lambda: fresh)
+
+    sdk._stage_claude_oauth_credentials(dest)
+
+    assert not (dest / ".claude.json").exists()  # wiped
+    staged = json.loads((dest / ".credentials.json").read_text())
+    assert staged["claudeAiOauth"]["accessToken"] == "NEW"
+
+
+def test_stage_darwin_keeps_config_dir_when_keychain_not_rotated(tmp_path, monkeypatch):
+    """No rotation (Keychain blob unchanged) -> the isolated dir's other
+    state must be left alone; only newest-wins staging logic applies."""
+    import sys
+
+    from narranexus_plugins.frameworks_claude_code import sdk as sdk
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    dest = tmp_path / "isolated"
+    dest.mkdir()
+    blob = '{"claudeAiOauth":{"accessToken":"SAME","expiresAt":2000}}'
+    (dest / ".credentials.json").write_text(blob)
+    (dest / ".claude.json").write_text('{"kept":"cli-internal-state"}')
+
+    monkeypatch.setattr(sdk, "_read_keychain_blob", lambda: blob)
+
+    sdk._stage_claude_oauth_credentials(dest)
+
+    assert (dest / ".claude.json").exists()  # untouched — no rotation happened

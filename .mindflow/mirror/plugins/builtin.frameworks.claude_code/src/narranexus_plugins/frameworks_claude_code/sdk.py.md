@@ -4,6 +4,46 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-09 — macOS 一次性 Keychain 导入：轮换时清空隔离目录（GitHub #117 调查项）
+
+**背景**（不是新故障，是给 2026-07-23 incident 的遗留缺口补一刀）：macOS 上
+`claude` CLI 第一次针对某个 `CLAUDE_CONFIG_DIR` 启动时,会把我们暂存的
+`.credentials.json` **一次性导入**成一个按该目录命名空间化的 Keychain 条目,
+此后**只读那个条目、再也不读文件**——`_stage_blob_newest_wins` 后续每次刷新
+`.credentials.json` 都是在写一个隔离 CLI 已经不看的地方。2026-07-23 那次事故
+选择的正解是绕过整条路径的 `oauth_token`(env 注入,零 Keychain);但仍在用
+`oauth`(host-CLI 托管)卡的用户,凭据轮换后 agent 会永久卡死——即使 owner 重新
+`claude login`、Keychain 里已经是新 token,隔离 CLI 依旧读它自己冻结的旧一次性
+导入,认证永远失败,[[circuit_breaker]] 的熔断器也就永远重新 PAUSE。
+
+**做不到的事**:那个命名空间化 Keychain 条目的 service name 是 CLI 内部实现
+细节、未文档化;猜一个名字去 `security delete-generic-password` 有猜错、删掉
+不相关条目的风险——不做。
+
+**能安全做的事**:隔离 `CLAUDE_CONFIG_DIR` 整个目录是平台**完全自己拥有**的
+文件系统状态。新增 `_should_reset_isolated_config_dir(existing_blob, new_blob)`
+——纯判定函数,不碰任何 I/O,靠比较 `_oauth_expires_at` 判断是不是"真轮换"
+(源比已暂存的严格更新,或已暂存副本本身已损坏);新增
+`_reset_isolated_config_dir(config_dir)`——`shutil.rmtree`(best-effort,
+`suppress(OSError)`)。`_stage_claude_oauth_credentials` 的 darwin 分支在调用
+`_stage_blob_newest_wins` **之前**先读已暂存的 blob、跑判定,命中就整目录
+删除——把隔离 CLI 在这个目录下积累的任何内部状态(包括它自己的一次性导入
+记录)一并清空,逼它在下次 spawn 时把这次写入的新文件当全新目录重新导入。
+
+**为什么不是每次都清**:同内容重复暂存(newest-wins 本就是 no-op)或源没变
+新时不清——否则每次 spawn 都会强制隔离 CLI 重新做一次性导入,徒增开销且没有
+必要。只在检测到"真的轮换了"时才动手。
+
+**已知局限**(诚实记录,而非声称已解决 #117 的 Keychain 分支):这是基于"隔离
+CLI 的一次性导入状态就活在它自己被给的 CONFIG_DIR 里,删目录会让它下次重新
+读文件"这个推断——没有真实 macOS 机器验证 CLI 内部行为,只能验证"我们自己
+拥有的目录确实被正确清空、且没有轮换时不会误清"。测试相应地只覆盖判定逻辑
++ 目录清空动作,不模拟真实 Keychain(`tests/agent_framework/
+test_claude_config_isolation.py`:`test_should_reset_*` 五条纯判定测试、
+`test_stage_darwin_wipes_stale_config_dir_state_on_rotation` /
+`test_stage_darwin_keeps_config_dir_when_keychain_not_rotated` 两条集成测试,
+用一个占位文件模拟"CLI 内部状态"来断言清空/保留行为)。
+
 ## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
 
 `_inline_assistant_error_event` 在 `unknown` 时不写 `self_serviceable` 键（契约返回 None = 无判决），
