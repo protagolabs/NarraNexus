@@ -23,9 +23,18 @@ stub: false
 的既有调用）。`_dedup_reserve` 在**发送前**占位（而不是发送后记录），关掉两个并发调用
 同时通过的窗口；命中已占位则跳过 POST 并返回 `ok=True`——不能返回失败，工具契约要求
 agent 不重试、不向用户道歉（见本文件 docstring 与 [[feedback_client.py]] 的
-fire-and-forget 约定）。`_dedup_release` 在 `send_feedback` 返回 False 时撤销占位：
-否则缓存里存的就是**失败哨兵**，接收端一挂就把这个 agent+错误码唯一的一次上报名额白白
-吃掉，事故永远报不出去；撤销后失败路径与去重前的老行为一致。
+fire-and-forget 约定）。`_dedup_release` 在发送没落地时撤销占位：否则缓存里存的就是**失败哨兵**，接收端一挂
+就把这个 agent+错误码唯一的一次上报名额白白吃掉，事故永远报不出去；撤销后失败路径与
+去重前的老行为一致。
+
+**结算必须在 `finally` 里**（Opus 预审 C1，第三轮；前两轮都没看这条出口）：
+`send_feedback` 只 catch `Exception`，而 3.8 起 `asyncio.CancelledError` 不是
+`Exception`。MCP 调用在发送中途被取消（或任何东西从里面抛出去），占位就会以
+`[stamp, False]` 挂满整个 6h TTL——之后每一次调用都被压掉、一条 POST 都没发出去，还被
+告知「已经有一条在路上」。事故最可能被取消的时刻恰恰是接收端也在挣扎的时刻，于是本该
+上报的故障变成永远报不出去，而且日志里看着像功能正常。规则写死：**每一条出口都要结算
+占位**。`logger.info` 留在 `try` 外——被取消的请求根本没有结果，记 `delivered=False`
+等于编造一个。
 
 **占位有三态，不是两态**（Opus 预审 C1 打回的正是这里——第二轮修复在自己的边界上又开
 了一个口子，与 PR#260 连打五轮同一形状）。记录是 `[stamp, delivered]`：
@@ -43,15 +52,18 @@ fire-and-forget 约定）。`_dedup_release` 在 `send_feedback` 返回 False �
 `_dedup_release` 都带**身份校验**（`is record`）：坑位被容量/TTL 淘汰后可能已被别人重
 新占用，只按 key 删会把别人正在用的占位删掉。
 
-`feedback_disabled()` 在占位之前就短路（返回 `FEEDBACK_DISABLED`，不动缓存）——否则
-「本部署根本不上报」会被说成「刚才没联系上」，而且白白 churn 缓存。`category` 也在入口
+`feedback_disabled()` 与空 `summary` 都在占位之前就短路（各自返回
+`FEEDBACK_DISABLED` / `FEEDBACK_NO_SUMMARY`，不动缓存）——否则「本部署根本不上报」和
+「压根没写 summary」都会被 `send_feedback` 的 `False` 说成「刚才没联系上」，还白白吃掉
+一个去重名额。空 summary 是唯一一个 agent 真能自己解决的 outcome，所以也是唯一一个让它
+再调一次的。`category` 也在入口
 统一归一化（未知值 → `other`），否则 [[feedback_client.py]] 按 `other` 投递、
 `_feedback_result` 却按原字符串描述，同一条上报两半各说各话。
 
 **返回值承载「能对用户说什么」**（Owner 定调 2026-09-09）：`_feedback_result` 按
 `category` + 真实投递结果构造消息，取代原来那句恒定的「Feedback recorded」。
-- `delivered=False`（POST 挂了 / 本部署 `NARRANEXUS_FEEDBACK_DISABLED=1`）→
-  `notified=False` + 明确禁止告诉用户「已通知团队」。这是本次真正的修复点：
+- `delivered=False`（发送跑了但没落地）→ `notified=False` + 明确禁止告诉用户
+  「已通知团队」。这是本次真正的修复点：
   [[prompts.py]] 原文案让 agent 无条件宣称团队已被通知，而 [[feedback_client.py]]
   是 fire-and-forget、异常只进 DEBUG 日志，agent 根本无从知道有没有发出去。
 - `delivered=True` 且 `category="error"` → `notified=True`，允许转述「团队已被通知」，

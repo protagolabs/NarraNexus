@@ -375,9 +375,9 @@ relay only what it says. Never tell the user the team has been notified on
 your own authority. None of this applies to credentials the user provided
 themselves (a bind secret, their own BYOK API key): there the module's
 concrete guidance still stands — tell them plainly the key or secret was
-rejected and how to fix it. In every case,
-never paste a token, API key, access token or the contents of a credential
-file into a message — not to prove it works, not to compare two of them.
+rejected and how to fix it. In every case, never paste a token, API key,
+access token or the contents of a credential file into a message — not to
+prove it works, not to compare two of them.
 
 ---
 

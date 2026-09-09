@@ -231,7 +231,7 @@ async def _call(mt, monkeypatch, fn, *, delivered=True, send=None, **kw):
         agent_id=kw.pop("agent_id", "agent_a"),
         user_id="user_1",
         category=kw.pop("category", "error"),
-        summary="narra_cli rejected a platform token",
+        summary=kw.pop("summary_override", "narra_cli rejected a platform token"),
         **kw,
     )
     return result, sent
@@ -414,6 +414,10 @@ async def test_a_concurrent_duplicate_never_claims_an_unfinished_send_succeeded(
     assert second["notified"] is False
     assert "not known yet" in second["message"]
     assert "You may tell the user" not in second["message"]
+    # This is the message a model sees over and over during an outage. Left as
+    # an open question it invites the one workaround that defeats the gate.
+    assert "Nothing for you to retry" in second["message"]
+    assert "do not re-file it under a different dedup_key" in second["message"]
 
     may_finish.set()
     (first_result, _) = await first
@@ -506,3 +510,92 @@ def test_both_halves_of_the_slot_are_length_bounded(clean_dedup):
     slot = mt._dedup_slot("a" * 10_000, "k" * 10_000)
     assert len(slot[0]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN
     assert len(slot[1]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_send_settles_its_slot_instead_of_muting_the_code(
+    clean_dedup, monkeypatch
+):
+    """The exit path neither reserve-before-send nor release-on-failure covers.
+
+    `send_feedback` catches `Exception`, which has not included
+    `asyncio.CancelledError` since 3.8. Without a `finally`, cancelling the
+    tool call mid-send leaves the slot `[stamp, False]` until the 6 h TTL: every
+    later call for that agent + code is suppressed with no POST ever made, and
+    told "a report is already on its way" when nothing is. That converts a
+    reportable outage into an unreportable one, failing closed in the worst
+    direction and looking like the feature working in the logs.
+    """
+    import asyncio
+
+    fn = _feedback_tool()[1]
+    in_flight = asyncio.Event()
+
+    async def _never_returns(_payload):
+        in_flight.set()
+        await asyncio.Event().wait()   # cancelled from outside
+        return True                     # pragma: no cover
+
+    task = asyncio.create_task(_call(
+        clean_dedup, monkeypatch, fn,
+        send=_never_returns, dedup_key="narra_cli:agent-token-invalid",
+    ))
+    await asyncio.wait_for(in_flight.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not clean_dedup._feedback_dedup
+    # The cache being empty is not enough on its own — confirm the next call
+    # actually reaches the intake.
+    _, sent = await _call(
+        clean_dedup, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid",
+    )
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_raising_send_settles_its_slot_too(clean_dedup, monkeypatch):
+    # Same exit path, non-cancellation flavour: anything escaping
+    # send_feedback must not leave the slot claimed.
+    fn = _feedback_tool()[1]
+
+    async def _boom(_payload):
+        raise RuntimeError("intake exploded")
+
+    with pytest.raises(RuntimeError):
+        await _call(
+            clean_dedup, monkeypatch, fn,
+            send=_boom, dedup_key="narra_cli:agent-token-invalid",
+        )
+    assert not clean_dedup._feedback_dedup
+
+
+@pytest.mark.asyncio
+async def test_an_empty_summary_is_not_reported_as_an_unreachable_team(
+    clean_dedup, monkeypatch
+):
+    # send_feedback drops a blank summary before any network call and returns
+    # False; describing that as "could not reach the team" would be untrue, and
+    # burning a dedup slot on it would mute the real report.
+    result, sent = await _call(
+        clean_dedup, monkeypatch, _feedback_tool()[1],
+        summary_override="   ", dedup_key="narra_cli:agent-token-invalid",
+    )
+    assert sent == []
+    assert result["ok"] is True and result["notified"] is False
+    assert "`summary` was empty" in result["message"]
+    assert "Could not reach" not in result["message"]
+    assert not clean_dedup._feedback_dedup
+
+
+def test_only_the_owning_caller_gets_a_settleable_record(clean_dedup):
+    # Handing the existing record to a non-owner would let it confirm or
+    # release someone else's reservation.
+    mt = clean_dedup
+    slot = mt._dedup_slot("agent_a", "tool:code")
+    state, record = mt._dedup_reserve(slot)
+    assert state == mt.DEDUP_NEW and record is not None
+
+    state, record = mt._dedup_reserve(slot)
+    assert state == mt.DEDUP_PENDING and record is None

@@ -78,8 +78,11 @@ def _dedup_slot(agent_id: str, dedup_key: str) -> tuple[str, str]:
     )
 
 
-def _dedup_reserve(slot: tuple[str, str]) -> tuple[str, list]:
+def _dedup_reserve(slot: tuple[str, str]) -> tuple[str, list | None]:
     """Claim `slot`, returning ``(state, record)``.
+
+    ``record`` is non-None only for ``DEDUP_NEW`` — the caller that owns
+    the reservation is the only one allowed to settle it.
 
     Reserving BEFORE the send (rather than recording after it) is what closes
     the window two concurrent calls would otherwise both pass through. Records
@@ -95,7 +98,10 @@ def _dedup_reserve(slot: tuple[str, str]) -> tuple[str, list]:
 
     existing = _feedback_dedup.get(slot)
     if existing is not None:
-        return (DEDUP_CONFIRMED if existing[1] else DEDUP_PENDING), existing
+        # No record handed back: only the caller that OWNS a reservation may
+        # confirm or release it, so a non-NEW caller is given nothing it could
+        # settle by mistake.
+        return (DEDUP_CONFIRMED if existing[1] else DEDUP_PENDING), None
 
     record = [now, False]
     _feedback_dedup[slot] = record
@@ -122,8 +128,9 @@ def _dedup_release(slot: tuple[str, str], record: list) -> None:
 
     Without this the cache would hold a FAILURE sentinel: an intake outage
     would silently consume the one report this agent+code is allowed to make,
-    and the team would never learn about the platform error. Releasing means a
-    failed send behaves exactly like the un-deduped code (the next call tries
+    and the team would never learn about the platform error. The caller settles
+    its slot on EVERY exit — return, raise or cancellation — so a send that did
+    not deliver behaves exactly like the un-deduped code (the next call tries
     again); only a DELIVERED report suppresses repeats.
 
     The identity check stops a late failure from deleting a DIFFERENT call's
@@ -147,14 +154,13 @@ def _dedup_release(slot: tuple[str, str], record: list) -> None:
 # a DELIVERED `error` report: the user is sitting in front of a platform-side
 # failure right now, and "someone has been told" is the only true, useful thing
 # we can offer them.
-# `outcome` values, in the order they are handled below.
-FEEDBACK_DELIVERED = "delivered"      # this call reached the intake
-FEEDBACK_DUPLICATE = "duplicate"      # an earlier call for this slot did
-FEEDBACK_PENDING = "pending"          # a concurrent call is still in flight
-FEEDBACK_UNDELIVERED = "undelivered"  # the send failed
+# `outcome` values, in the order _feedback_result handles them.
 FEEDBACK_DISABLED = "disabled"        # this deployment reports nothing at all
-
-_KEEP_GOING = "Keep working on the user's problem."
+FEEDBACK_NO_SUMMARY = "no_summary"    # nothing to file; never left the process
+FEEDBACK_PENDING = "pending"          # a concurrent call is still in flight
+FEEDBACK_UNDELIVERED = "undelivered"  # the send ran and did not land
+FEEDBACK_DUPLICATE = "duplicate"      # an earlier call for this slot delivered
+FEEDBACK_DELIVERED = "delivered"      # this call reached the intake
 
 
 def _feedback_result(*, category: str, outcome: str) -> dict:
@@ -165,21 +171,39 @@ def _feedback_result(*, category: str, outcome: str) -> dict:
             "message": (
                 "Feedback reporting is switched off for this deployment, so no "
                 "one was told — do NOT tell the user the team has been "
-                f"notified. Nothing for you to retry. {_KEEP_GOING}"
+                "notified. Nothing for you to retry. Keep working on the "
+                "user's problem."
+            ),
+        }
+    if outcome == FEEDBACK_NO_SUMMARY:
+        # The one outcome the agent can actually act on, so it is the one
+        # outcome that asks for another call.
+        return {
+            "ok": True,
+            "notified": False,
+            "message": (
+                "Nothing was filed — `summary` was empty. Call again with ONE "
+                "sentence describing the problem in your own words. Do not "
+                "tell the user the team has been notified."
             ),
         }
     if outcome == FEEDBACK_PENDING:
         # Another call already owns this slot and has not come back yet. Its
         # send may still fail, so the honest answer is "not yet", never
         # "already reported" — that mistake is precisely what this branch
-        # exists to prevent.
+        # exists to prevent. The no-retry rule matters most here: this is the
+        # message a model sees over and over during an outage, and an open
+        # question would invite it to re-file under a fresh key, which is
+        # exactly the flood the dedup gate exists to stop.
         return {
             "ok": True,
             "notified": False,
             "message": (
                 "A report for this exact problem is already on its way; yours "
                 "was not sent again. Its outcome is not known yet, so do NOT "
-                f"tell the user the team has been notified. {_KEEP_GOING}"
+                "tell the user the team has been notified. Nothing for you to "
+                "retry, and do not re-file it under a different dedup_key. "
+                "Keep working on the user's problem."
             ),
         }
     if outcome == FEEDBACK_UNDELIVERED:
@@ -189,14 +213,14 @@ def _feedback_result(*, category: str, outcome: str) -> dict:
             "message": (
                 "Could not reach the NarraNexus team just now — do NOT tell the "
                 "user they were notified. Nothing for you to retry or apologise "
-                f"for; {_KEEP_GOING[0].lower()}{_KEEP_GOING[1:]}"
+                "for; keep working on the user's problem."
             ),
         }
     if category != "error":
         return {
             "ok": True,
             "notified": True,
-            "message": f"Feedback recorded. {_KEEP_GOING}",
+            "message": "Feedback recorded. Keep working on the user's problem.",
         }
     already = "Already reported" if outcome == FEEDBACK_DUPLICATE else "Reported"
     return {
@@ -205,7 +229,7 @@ def _feedback_result(*, category: str, outcome: str) -> dict:
         "message": (
             f"{already} — the NarraNexus team has been notified. You may tell "
             "the user that much, but still do not claim a cause. Keep working "
-            "on their problem."
+            "on the user's problem."
         ),
     }
 
@@ -288,11 +312,15 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         if category not in CATEGORIES:
             category = "other"
 
-        # Nothing leaves this deployment, so no slot is spent and no claim is
-        # made. Checked before the dedup cache so a disabled deployment does
-        # not churn it at all.
+        # Both of these end the call before any slot is claimed, so a
+        # deployment that reports nothing — and a call with nothing to report —
+        # never churn the dedup cache. send_feedback would drop an empty
+        # summary silently and return False, which would otherwise be
+        # described to the agent as "could not reach the team".
         if feedback_disabled():
             return _feedback_result(category=category, outcome=FEEDBACK_DISABLED)
+        if not (summary or "").strip():
+            return _feedback_result(category=category, outcome=FEEDBACK_NO_SUMMARY)
 
         # dedup_key is optional on purpose: triggers (a)/(b) call without it and
         # must keep working. An empty key means "no dedup", never "dedup all".
@@ -303,7 +331,7 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             if state != DEDUP_NEW:
                 logger.info(
                     f"[feedback] suppressed as {state} category={category} "
-                    f"dedup_key={slot[1]}"
+                    f"agent={slot[0]!r} dedup_key={slot[1]!r}"
                 )
                 # ok=True, never an error: the tool contract forbids the agent
                 # from retrying or apologising about telemetry.
@@ -312,22 +340,34 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
                 )
                 return _feedback_result(category=category, outcome=outcome)
 
-        delivered = await send_feedback(
-            category=category,
-            summary=summary,
-            severity=severity,
-            source="agent",
-            agent_id=agent_id,
-            user_id=user_id,
-        )
-        if slot is not None and record is not None:
-            if delivered:
-                _dedup_confirm(slot, record)
-            else:
-                _dedup_release(slot, record)
+        delivered = False
+        try:
+            delivered = await send_feedback(
+                category=category,
+                summary=summary,
+                severity=severity,
+                source="agent",
+                agent_id=agent_id,
+                user_id=user_id,
+            )
+        finally:
+            # Settle the reservation on EVERY exit, cancellation included.
+            # send_feedback's `except Exception` does not cover
+            # asyncio.CancelledError, so a cancelled tool call would otherwise
+            # leave the slot PENDING for the whole TTL — muting this agent and
+            # error code for six hours while telling every later call that a
+            # report is "already on its way" when none ever left the process.
+            if slot is not None and record is not None:
+                if delivered:
+                    _dedup_confirm(slot, record)
+                else:
+                    _dedup_release(slot, record)
+
+        # Outside the try on purpose: a cancelled request was never answered,
+        # and logging delivered=False for it would invent an outcome.
         logger.info(
             f"[feedback] agent report category={category} severity={severity} "
-            f"delivered={delivered}"
+            f"agent={agent_id!r} delivered={delivered}"
         )
         # Always ok — the agent shouldn't retry or apologise about telemetry.
         return _feedback_result(
