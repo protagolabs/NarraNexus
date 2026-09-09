@@ -291,3 +291,35 @@ async def test_a_silent_recipient_wakes_the_sender_once_per_content(db_client, m
     await trigger._handle_channel_batch(B, other.channel_id, [other], other, channel_owner=A)
     notices = await db_client.get("bus_messages", {"channel_id": first.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
     assert len(notices) == 2
+
+
+# ── failure path: a poisoned multipart message dies as a GROUP ──────────────
+
+
+def _boom(error_message: str):
+    async def _raise(*args, **kwargs):
+        raise RuntimeError(error_message)
+    return _raise
+
+
+@pytest.mark.asyncio
+async def test_a_merged_message_that_poisons_leaves_no_part_behind(db_client, monkeypatch):
+    """Failure is recorded on EVERY part row. Before 2026-09-09 (review C3)
+    only part 1 crossed the poison threshold; parts 2..N stayed pending, came
+    back as a headless group, were held for the whole grace, then delivered
+    as a fragment claiming part 1 "never arrived" — and crashed again."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    monkeypatch.setattr(trigger, "_invoke_runtime", _boom("worker crashed on import"))
+    ids = await _send_parts(tools, PARTS)
+    channel_id = (await db_client.get_one("bus_messages", {"message_id": ids[0]}))["channel_id"]
+
+    for attempt in (1, 2, 3):
+        assert await trigger._process_lane(B, channel_id) is True
+        counts = [await bus.get_failure_count(mid, B) for mid in ids]
+        assert counts == [attempt] * 3, counts
+
+    assert await bus.get_pending_messages(B, channel_id=channel_id) == []

@@ -2026,15 +2026,23 @@ class MessageBusTrigger:
                 f"MessageBusTrigger: failed to process channel {channel_id} "
                 f"for agent {agent_id}: {e}"
             )
-            # Record failure for the trigger message
-            await self._bus.record_failure(
-                message_id=trigger_message.message_id,
-                agent_id=agent_id,
-                error=str(e),
-            )
+            # Record the failure on EVERY row the trigger message stands for.
+            # A reassembled multipart message carries part 1's identity, and
+            # the poison filter in `get_pending_messages` is per ROW: counting
+            # on part 1 alone dropped it and left parts 2..N pending as a
+            # headless group — held for the grace, delivered as a fragment
+            # claiming part 1 "never arrived", crashed again (review C3).
+            for message_id in (trigger_message.part_message_ids or [trigger_message.message_id]):
+                await self._bus.record_failure(
+                    message_id=message_id,
+                    agent_id=agent_id,
+                    error=str(e),
+                )
             # Once this message crosses the poison threshold,
             # `get_pending_messages` will filter it out forever (local_bus.py)
-            # — this is the one chance to tell the owner it happened.
+            # — this is the one chance to tell the owner it happened. Read from
+            # part 1 (= the message's own id): every part carries the same
+            # count, so summing them would trip the threshold N times early.
             failure_count = await self._bus.get_failure_count(
                 trigger_message.message_id, agent_id
             )

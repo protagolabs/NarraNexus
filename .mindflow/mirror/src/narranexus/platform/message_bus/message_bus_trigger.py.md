@@ -4,6 +4,14 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review C3）— 分片消息的失败按**每一行**记
+
+`_handle_channel_batch` 的 except 分支对 `trigger_message.part_message_ids or [message_id]`
+逐行 `record_failure`。合成消息的身份是第 1 块，而 `get_pending_messages` 的 poison 过滤是
+按行的：只记第 1 块 → 第 1 块被滤掉、2..N 留在队列变成无头组 → hold 满 grace → 当碎片投递
+并谎称「part 1 never arrived」→ 再崩。`dropped` 判定仍读第 1 块的计数（每块计数相同，
+求和会让阈值提前 N 倍）。锁：`test_multipart_messages.py::test_a_merged_message_that_poisons_leaves_no_part_behind`。
+
 ## 2026-09-09 — 分片消息在车道入口重组；同一沉默只唤醒发件方一次（8/31 A2A 长消息复盘）
 
 **重组**：`_process_lane` 在 mention 过滤之后、限流之前调 [[multipart]] `assemble`：组还没
