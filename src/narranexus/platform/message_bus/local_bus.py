@@ -26,6 +26,10 @@ from narranexus.platform.channel.message_source_handler import (
     im_channel_prefixes,
 )
 from narranexus.platform.message_bus.message_bus_service import MessageBusService
+from narranexus.platform.message_bus.multipart import (
+    MAX_BUS_MESSAGE_BYTES,
+    oversize_reason,
+)
 from narranexus.platform.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from narranexus.platform.utils.db.db_backend import DatabaseBackend
 
@@ -232,6 +236,11 @@ class LocalMessageBus(MessageBusService):
         breaks at every agent→agent hop and a cascade stop leaves the branch
         beyond the hop running.
         """
+        size = len((content or "").encode("utf-8"))
+        if size > MAX_BUS_MESSAGE_BYTES:
+            # Every writer, not one tool: `message_team` and the platform's own
+            # lines reach this insert too (review I4). Refused, never cut.
+            raise ValueError(oversize_reason(size))
         msg_id = _generate_id("msg")
         part_group = await self._resolve_part_group(
             from_agent, to_channel, msg_id, part_index, part_count

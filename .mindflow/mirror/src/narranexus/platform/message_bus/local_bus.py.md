@@ -4,6 +4,13 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I4/M4）— 单行超长在 `send_message` 写入边拒绝
+
+`MAX_BUS_MESSAGE_BYTES`（定义在 [[multipart]]，60_000，低于 MySQL TEXT 65,535）现在在
+`send_message` 入口按 UTF-8 字节判、`ValueError(oversize_reason(size))` 拒绝——`message_agent`
+/ `message_team` / 平台自己写的行全部经过这一处；工具层不再各自检查（原只装在 `message_agent`）。
+平台通知最长 ~450 字符，远在上限之下。multipart 符号改为模块顶部 import（无循环依赖）。
+
 ## 2026-09-09（review I2）— `PENDING_BATCH_LIMIT` / `PENDING_BATCH_LIMIT_WIDE` 成为具名常量
 
 `get_pending_messages` 的默认 limit 从字面 50 改为 `PENDING_BATCH_LIMIT`，另有

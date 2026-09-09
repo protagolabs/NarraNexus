@@ -34,8 +34,8 @@ from narranexus.platform.repository.bus_delivery_receipt_repository import (
     RECEIPT_PROCESSED,
     BusDeliveryReceiptRepository,
 )
+from narranexus.platform.message_bus.multipart import MAX_BUS_MESSAGE_BYTES
 from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
-    MAX_BUS_MESSAGE_BYTES,
     register_message_bus_mcp_tools,
 )
 
@@ -428,3 +428,20 @@ async def test_a_group_cut_by_the_batch_limit_is_delivered_whole(db_client, monk
     assert len(calls) == 1 and LONG in calls[0]["prompt"]
     assert "never arrived" not in calls[0]["prompt"]
     assert await bus.get_pending_messages(B, channel_id=channel_id) == []
+
+
+@pytest.mark.asyncio
+async def test_oversize_is_refused_at_the_write_edge_for_every_sender(db_client):
+    """Review I4: the cap lives in LocalMessageBus.send_message, so a team
+    post (or any future tool) is refused the same way — never a MySQL 1406
+    the model cannot read, never a silently kept prefix."""
+    bus = LocalMessageBus(backend=db_client._backend)
+    await db_client.insert("bus_channels", {"channel_id": "room", "name": "room", "channel_type": "group", "created_by": "team_x"})
+    with pytest.raises(ValueError) as exc:
+        await bus.send_message("agent_x", "room", "x" * (MAX_BUS_MESSAGE_BYTES + 1))
+    assert "part_index/part_count" in str(exc.value)
+    assert await db_client.get("bus_messages", {"channel_id": "room"}) == []
+    # Multi-byte text is measured in BYTES, not characters.
+    with pytest.raises(ValueError):
+        await bus.send_message("agent_x", "room", "\u4e2d" * (MAX_BUS_MESSAGE_BYTES // 3 + 1))
+    assert await bus.send_message("agent_x", "room", "\u4e2d" * (MAX_BUS_MESSAGE_BYTES // 3)) is not None

@@ -43,6 +43,11 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
   最新一块，旧组永远续不上）→ 按到达的内容投递 + 明确标记缺哪几块。宁可标记也不静默
   丢（铁律 #16），不永远等（铁律 #14：平台不做打断源）。
 
+## 常量归属（review I4）
+
+`MAX_BUS_MESSAGE_BYTES` 与 `oversize_reason()` 住在本文件（单一家），由 [[local_bus]]
+`send_message` 对所有写入方执行；`message_agent` 工具不再自带副本。
+
 ## 边界
 
 `MessageBusModule.gather` 的未读预览仍逐行显示（带 `(part i/n)` 标签），只有 trigger 的

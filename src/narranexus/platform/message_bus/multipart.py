@@ -55,6 +55,15 @@ from typing import Dict, List, Optional, Tuple
 from narranexus.platform.message_bus.schemas import BusMessage
 from narranexus.platform.utils.timezone import coerce_utc
 
+#: One bus row's content ceiling, in UTF-8 bytes — under the column's MySQL
+#: TEXT capacity (65,535) with room for the dialect's own overhead. Enforced
+#: at the write edge (`LocalMessageBus.send_message`) for EVERY sender — the
+#: peer DM tool, the team-room tool, the platform's own lines. Over it the
+#: send is REFUSED with the part contract named, never truncated (iron rule
+#: #16): the column would otherwise reject the row with an opaque 1406 or
+#: silently keep a prefix, and both lose the tail.
+MAX_BUS_MESSAGE_BYTES = 60_000
+
 #: How long an incomplete group is held for its remaining parts, measured from
 #: the NEWEST part that arrived. Generous on purpose: the sender is a model
 #: mid-turn and a thinking model can take minutes between tool calls; the
@@ -66,6 +75,16 @@ _MISSING_MARKER = (
     "\n\n[platform: this message was sent in {count} parts; part(s) {missing} "
     "never arrived within {grace}s and the rest is delivered as-is]"
 )
+
+
+def oversize_reason(size: int) -> str:
+    """The agent-readable refusal for one row over `MAX_BUS_MESSAGE_BYTES`."""
+    return (
+        f"`text` is {size} bytes; one message holds at most "
+        f"{MAX_BUS_MESSAGE_BYTES}. Nothing was sent. Send it in ordered parts "
+        f"with part_index/part_count — each part under the limit — and the "
+        f"recipient receives it joined back into one message."
+    )
 
 
 def _age_seconds(created_at, now: datetime) -> float:
@@ -177,6 +196,8 @@ def _ts(value) -> str:
 
 
 __all__ = [
+    "MAX_BUS_MESSAGE_BYTES",
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
+    "oversize_reason",
 ]

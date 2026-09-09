@@ -4,6 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I4）— 超长检查移到写入边
+
+`_reject_oversize_text` / 本地 `MAX_BUS_MESSAGE_BYTES` 删除；[[local_bus]] `send_message` 对
+所有入口（含 `message_team`）统一按字节拒绝并给出分片指引，工具的 except 把 `ValueError` 文案
+原样交给模型。
+
 ## 2026-09-09（review C1/M3）— 预检改用只读 `peek_skip`
 
 `_book_receipt` 不再调 `should_skip`（turn 闸门，即将带 CAS 领取探针的副作用），改

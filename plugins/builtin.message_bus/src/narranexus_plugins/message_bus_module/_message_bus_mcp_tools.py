@@ -270,13 +270,6 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
 #: send this turn — is the same either way.
 _UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
 
-#: One bus row's content ceiling, in UTF-8 bytes — under the column's MySQL
-#: TEXT capacity (65,535) with room for the dialect's own overhead. Over it the
-#: send is REFUSED with the part contract named, never truncated (iron rule
-#: #16): a model whose output budget lets it produce this much in one call is
-#: told to send parts, and every byte still arrives.
-MAX_BUS_MESSAGE_BYTES = 60_000
-
 #: Ceiling on `read_history`. Sibling of the other agent-facing caps in
 #: `message_bus_module`; the number matters less than the fact that the model
 #: does not choose it.
@@ -321,28 +314,6 @@ def _reject_empty_text(text: str) -> Optional[dict]:
         "error": "`text` is empty — say something, or end the turn without "
                  "calling this. An attachment does not replace it: name what "
                  "you are sending.",
-    }
-
-
-def _reject_oversize_text(text: str) -> Optional[dict]:
-    """The refusal for ONE part/message over `MAX_BUS_MESSAGE_BYTES`, or None.
-
-    A refusal and not a cut: the column would either reject the row (MySQL
-    strict mode, an opaque 1406 the model cannot act on) or silently keep a
-    prefix, and both lose the tail. The message names the remedy the tool
-    already offers.
-    """
-    size = len((text or "").encode("utf-8"))
-    if size <= MAX_BUS_MESSAGE_BYTES:
-        return None
-    return {
-        "success": False,
-        "error": (
-            f"`text` is {size} bytes; one message holds at most "
-            f"{MAX_BUS_MESSAGE_BYTES}. Nothing was sent. Send it in ordered "
-            f"parts with part_index/part_count — each part under the limit — "
-            f"and the recipient receives it joined back into one message."
-        ),
     }
 
 
@@ -471,10 +442,6 @@ def register_message_bus_mcp_tools(
         empty = _reject_empty_text(text)
         if empty is not None:
             return empty
-        oversize = _reject_oversize_text(text)
-        if oversize is not None:
-            return oversize
-
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
             msg_id = await bus.send_to_agent(
