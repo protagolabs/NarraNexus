@@ -241,7 +241,13 @@ def _fresh_run_drive_kwargs(
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
     """Build the WS error frame shown when the Agent circuit-breaker skips a
     fresh run. ``cb_reason`` is ``should_skip``'s reason
-    ("paused:auth" / "paused:quota" / "cooling"). Pure — unit-tested."""
+    ("paused:auth" / "paused:quota" / "cooling" / "probing"). Pure —
+    unit-tested.
+
+    "probing" (GitHub #117 half-open) means a rejected CONCURRENT request
+    while another turn already claimed the single probe slot — not a hard
+    pause, so it falls through to the same "try again shortly" copy as
+    cooling rather than telling the user to go re-authenticate."""
     reason = cb_reason or ""
     if reason.startswith("paused:quota"):
         msg = (
@@ -255,7 +261,7 @@ def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
             "Re-authenticate (codex/claude login) or assign a working API-key "
             "provider to the Agent slot, then resume the agent in Settings."
         )
-    else:  # cooling
+    else:  # cooling / probing
         msg = (
             "This agent recently failed and is briefly cooling down before it "
             "will accept new messages. Please try again shortly."

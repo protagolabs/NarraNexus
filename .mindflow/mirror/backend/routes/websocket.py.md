@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `_circuit_open_frame` 补上 `should_skip` 的第四个原因 `probing`
+
+[[circuit_breaker]] 新增半开态 PROBING 后，`should_skip` 现在会返回
+`(True, "probing")`（并发 turn 撞上正在进行的探测时）。`_circuit_open_frame`
+的 else 分支本就把它当 "cooling" 文案处理（"稍后重试"，语义上完全对——探测
+不是硬暂停，不该建议用户去重新登录），代码行为无需改；只是补全文档字符串
+把 `probing` 列进已知的 `cb_reason` 取值集合，避免读者以为还是三值。
+`test_frame_probing_falls_back_to_cooling_copy` 钉住这个回退行为。
 
 ## 2026-08-24 — `_format_dt` 补上时区契约(#349 I1 根因)
 

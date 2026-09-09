@@ -6,7 +6,7 @@
  *
  * Background: backend/routes/websocket.py sends a fresh-run rejection frame
  * `{type:'error', error_type:'agent_circuit_open', severity:'fatal',
- * cb_reason:'paused:auth'|'paused:quota'|'cooling'}` when the real-time-layer
+ * cb_reason:'paused:auth'|'paused:quota'|'cooling'|'probing'}` when the real-time-layer
  * circuit-breaker (agent_framework/loop/circuit_breaker.py) is open for that
  * agent. Without this the user would just see a red chat bubble; the banner
  * gives them a one-click path to re-enable the agent once they've fixed the
@@ -35,7 +35,7 @@ export interface MaybeCircuitOpenFrame {
 
 export interface AgentCircuitOpenDetail {
   agentId: string;
-  reason: string; // "paused:auth" | "paused:quota" | "cooling"
+  reason: string; // "paused:auth" | "paused:quota" | "cooling" | "probing"
 }
 
 /** True iff `message` is the backend's circuit-open rejection frame. */

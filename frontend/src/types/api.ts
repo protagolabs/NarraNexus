@@ -128,7 +128,9 @@ export interface BusFailuresResponse extends ApiResponse {
 }
 
 // Real-time-layer Agent circuit-breaker status (agents_circuit_breaker.py).
-export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused';
+// 'probing' (GitHub #117 half-open): exactly one turn is in flight as a
+// health-check probe after a PAUSED breaker's delay elapses.
+export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused' | 'probing';
 
 export interface AgentCircuitBreakerResponse extends ApiResponse {
   agent_id: string;
