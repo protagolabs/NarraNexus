@@ -1,8 +1,23 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — `_CLI_CAPABILITY`：端点归平台 + 错误保守口径
+
+authority 段扩为 identity / tokens / **endpoint** / permissions，明确平台每次
+注入 token **和**端点，禁传 `--endpoint`，忽略 runtime.md / AGENTS.md /
+setup-guide 的自装 CLI、自存 token 文件、自选端点指引。新增一段（与
+basic_info Product Feedback Duty 同口径）：`narra_cli` 失败时把错误码原样给用户；
+`agent-token-invalid` / `no_endpoint` / 原本能用的绑定突然鉴权失败 = 平台注入的
+凭据被拒，**不断言原因**、`submit_feedback(category="error")` 报一次、继续用别的
+方式帮用户；`official-agent-required` / `no_credential` 是设计内答复，解释即可、
+不报（首版把这两个也列成上报触发，预审打回）。**绝不**把 token / access token /
+凭据文件内容贴进消息（含「对比两个 token」）。
+起因：prod 2026-09-09 数据星图 agent 笃定「平台缓存过期 token」并贴出 token，
+真因是 [[narra_cli_client]] 端点错配。
 
 ## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
 

@@ -122,7 +122,11 @@ RUN set -eux; \
 # narra-cli is the MCP/backend image (NarraNexus-deploy/docker/Dockerfile.python),
 # NOT the executor (which never shells it) — installed there in deploy 4007ca5
 # (dev) / 4b32444 (main). Missing it ships cloud NarraMessenger narra_cli dead.
-ARG NARRA_CLI_VERSION=1.1.0
+# 1.2.x CONTRACT: every API command REQUIRES --endpoint (configure + the global
+# config file are gone); narra_cli_client injects it from the binding. Do not
+# roll back below 1.2.0 without reverting that injection — 1.1.0 rejects the
+# flag, 1.2.x refuses to run without it.
+ARG NARRA_CLI_VERSION=1.2.1
 ENV NARRA_CLI_BIN=/opt/narra-cli/node_modules/.bin/narra-cli
 RUN npm install --prefix /opt/narra-cli "@narra-im/narra-cli@${NARRA_CLI_VERSION}" \
  && npm cache clean --force \

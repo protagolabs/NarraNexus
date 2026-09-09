@@ -25,6 +25,18 @@ def test_guide_states_platform_provides_narra_cli():
     assert "--help" in g  # live-flag escape hatch is advertised
     # Never pass a token yourself.
     assert "token" in g
+    # Since narra-cli 1.2 the endpoint is injected too — the guide must say so
+    # and forbid --endpoint, or an agent following narra's own runtime.md will
+    # try to pick one (api-cn / api-test bindings, prod 2026-09-09).
+    assert "--endpoint" in g
+    assert "injects" in g
+    # The live --help USAGE line shows `npx ... --endpoint --token`; the guide
+    # must inoculate against it, since it points the agent there.
+    assert "npx" in g and "ignore" in g
+    # Platform-injected credential failures are REPORTED, not diagnosed with
+    # certainty; by-design answers are explained, not reported.
+    assert "submit_feedback" in g
+    assert "official-agent-required" in g and "by-design" in g
 
 
 def test_guide_is_curated_not_raw_runtime_md():
@@ -44,3 +56,9 @@ def test_builtin_fallback_when_resource_missing(monkeypatch, tmp_path):
     g = ncg.get_guide()
     assert "narra_cli" in g
     assert "do NOT install" in g or "do not install" in g.lower()
+    # The fallback must carry the same 1.2-era invariants as the resource:
+    # endpoint is injected, --help's npx USAGE line is to be ignored, failures
+    # are reported conservatively, by-design answers are not defects.
+    for token in ("--endpoint", "injected", "npx", "submit_feedback",
+                  "official-agent-required", "never paste a token"):
+        assert token in g, token
