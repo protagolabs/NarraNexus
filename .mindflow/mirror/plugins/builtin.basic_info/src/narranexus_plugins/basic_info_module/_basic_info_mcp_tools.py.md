@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.basic_info/src/narranexus_plugins/basic_info_module/_basic_info_mcp_tools.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+
+## 2026-09-09 — submit_feedback 描述加 (c) 平台注入凭据被拒触发
+
+与 [[prompts.py]] Product Feedback Duty 第 3 条同口径：**平台注入的**凭据 / 端点 /
+额度被平台工具拒绝时 `category=error` 上报，写明工具名与错误码，每会话每
+工具+错误码一次；明确排除没绑定时的 `no_credential`、`official-agent-required`
+类策略拒绝、用户刚输入的 secret 被拒。
 
 ## 2026-08-10 (PR-7) — view_narrative/view_event/switch_narrative 迁走 seam
 

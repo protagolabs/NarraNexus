@@ -1,7 +1,34 @@
 ---
 code_file: plugins/builtin.basic_info/src/narranexus_plugins/basic_info_module/prompts.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — Product Feedback Duty：平台注入凭据被拒成为第 3 触发条件 + 保守措辞
+
+起因（prod 2026-09-09，agent_6b2dc72fc697）：平台代跑的 narra-cli 回
+`agent-token-invalid`（真因是平台把 token 送错了后端），agent 一次都没
+`submit_feedback`（原只有两个触发：用户不满 / 同指令连败 2 次），反而对用户断言
+「平台缓存了过期 token」，并把 token 明文贴进聊天「对比」。
+
+改动（同段内）：
+- 触发 3 的范围是**平台注入的**凭据 / 端点 / 额度被平台工具拒绝
+  （`agent-token-invalid`、原本能用的绑定突然 401/403）→ `category=error` 上报，
+  写明工具名和错误码，重试或绕过成功也要报；**每个会话每个 工具+错误码 只报一次**
+  （feedback_client 无去重，只能靠 prompt 限定范围）。
+- 明确**不算**触发 3：没绑定时的 `no_credential`（十几个渠道工具的正常答复，
+  lark 文案甚至教 agent 主动触发它确认干净状态）、`official-agent-required` 这类
+  设计内的策略拒绝、bind/setup 工具拒绝用户刚输入的 secret——这些是给用户的答案，
+  不是产品缺陷。（首版把前两者写成了触发条件，Opus 预审 C1/C2 打回。）
+- 「Be conservative about causes」只管触发 3 类错误：看不到平台怎么发凭据，禁止
+  断言诊断；用户自己给的凭据（bind secret、BYOK key）**不适用**，各模块原有的
+  明确诊断（discord intent 没开、lark secret 错）照旧。
+- 泄密红线（无例外）：绝不把 token / API key / access token / 凭据文件内容贴进
+  消息，「证明它有效」「对比两个」都不行。
+- 措辞刻意不用「report it」——narramessenger 文案里这词是「告诉用户」的意思。
+与 [[_basic_info_mcp_tools.py]] 的工具描述 (c) 条同口径（含 once-per-conversation
+与排除项）。测试 `tests/basic_info_module/test_feedback_duty_platform_errors.py`
+对 legacy 与 STABLE 两份模板都钉住触发、排除项、作用域与红线；回退任一文件即红。
 
 ## 2026-08-18 — 新增「Time-bound Commitments」段
 
