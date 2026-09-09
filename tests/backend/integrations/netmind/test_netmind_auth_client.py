@@ -182,6 +182,33 @@ async def test_verify_token_shiro_subclass_exception_is_auth_error():
 
 
 @pytest.mark.asyncio
+async def test_verify_token_base_authentication_exception_without_token_phrase_stays_upstream_error():
+    # Shiro wraps a Realm's OWN failures (its DB / user service down) in the
+    # same base class. Without the "token submission" phrase it is an outage,
+    # and an outage must not log every user out as "invalid token".
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["message"] = "Realm lookup failed: connection refused (user-service:8080)"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_unlisted_authc_class_stays_upstream_error():
+    # Only the explicit credential-verdict classes map to 401.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "org.apache.shiro.authc.pam.UnsupportedTokenException"
+        body["message"] = "no realm configured"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
 async def test_verify_token_spring_500_with_non_auth_exception_stays_upstream_error():
     # Same Spring error page, but a genuine server bug — must stay 502 so a
     # NetMind outage is never disguised as "your token is wrong".
