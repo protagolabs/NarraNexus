@@ -1,8 +1,24 @@
 ---
 code_file: backend/integrations/netmind/netmind_auth_client.py
-last_verified: 2026-08-05
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — Spring/Shiro 500 error page = bad token (GitHub #102)
+
+实测（2026-09-08，dev `userauth.protago-dev.com` 与 prod `auth-api.netmind.ai` 一致）：
+**缺** token 时上游答 200 + `{success:false, errorcode:NOT_LOGGEDIN}`（旧路径已覆盖）；
+但 **带了一个无效/过期/伪造 token** 时上游答 HTTP 500 + Spring Boot 通用错误页
+`{status:500, exception:"org.apache.shiro.authc.AuthenticationException", message:"Authentication failed for token submission [...JwtToken@...]"}`，
+**没有** `success:false` 字段。旧实现只认 `success:false`，这个形状落到 `>=500` 分支被当作
+上游故障 → 路由回 502，用户看到"NetMind 服务不可用"而不是"token 无效"。
+
+现在 verify_token 在 status 兜底之前还读 `exception` 字段：类名以 `org.apache.shiro.authc.`
+开头（Shiro 所有凭据类拒绝：Authentication/ExpiredCredentials/IncorrectCredentials…）→
+`NetmindAuthError`（401），消息带 `status=` / `exception=<短类名>` / `msg=`（Shiro 文本只含
+JwtToken 对象的 class@hash，永不含 token 串）。同一错误页若 `exception` 是别的类
+（NullPointerException 等）→ 仍是 `NetmindUpstreamError`（502），NetMind 真宕机不会被伪装成
+"你的 token 错了"。测试用的是抓包原样的 body。
 
 ## 2026-06-11 — 5xx carrying {success:false} maps to 401 not 502
 

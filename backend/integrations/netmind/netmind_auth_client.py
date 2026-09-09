@@ -15,7 +15,15 @@ Protocol quirks (verified against Arena's client, netmind.ts):
 - The auth header is a custom header literally named `token`, with a
   `Bearer ` prefix. It is NOT the standard Authorization header.
 - The response envelope is {"data": {"user": {...}}}; an explicit
-  {"success": false} body means the token was rejected.
+  {"success": false} body means the token was rejected (observed for a
+  MISSING token: 200 + {success:false, errorcode:"NOT_LOGGEDIN"}).
+- A PRESENT but invalid/expired/forged token is NOT answered with that
+  envelope. Captured live 2026-09-08 on both dev and prod hosts: HTTP 500
+  with Spring Boot's generic error page, whose `exception` field names the
+  Shiro authc exception ("org.apache.shiro.authc.AuthenticationException",
+  message "Authentication failed for token submission [...JwtToken@...]").
+  The only auth signal in that shape is the exception class, so the client
+  reads it (GitHub #102: this used to surface as 502).
 
 Error semantics are deliberately two-valued:
 - NetmindAuthError      -> the token is bad (caller maps to HTTP 401)
@@ -43,6 +51,10 @@ DEV_BYPASS_ENV = "NETMIND_DEV_BYPASS"
 DEV_BYPASS_PREFIX = "dev-bypass-"
 
 DEFAULT_BASE_URL_ENV = "NETMIND_AUTH_API_URL"
+# Spring/Shiro error page: every "this token is bad" verdict (generic,
+# expired, incorrect credentials, ...) is an exception class under this
+# package. Anything else named on a 5xx page is a real server fault.
+_SHIRO_AUTHC_EXCEPTION_PREFIX = "org.apache.shiro.authc."
 DEFAULT_TIMEOUT_ENV = "NETMIND_AUTH_TIMEOUT_SECONDS"
 _FALLBACK_TIMEOUT_SECONDS = 5.0
 
@@ -142,6 +154,21 @@ class NetmindAuthClient:
             raise NetmindAuthError(
                 f"NetMind rejected the token "
                 f"(status={response.status_code}, msg={msg!r})"
+            )
+
+        # The shape NetMind actually returns for a present-but-bad token: a
+        # Spring error page (any status; live-observed 500) whose `exception`
+        # is a Shiro authc class. The `message` is Shiro's own text — it names
+        # the JwtToken *object* (class@hash), never the token string.
+        exception_cls = body.get("exception") if isinstance(body, dict) else None
+        if isinstance(exception_cls, str) and exception_cls.startswith(
+            _SHIRO_AUTHC_EXCEPTION_PREFIX
+        ):
+            short_cls = exception_cls.rsplit(".", 1)[-1]
+            msg = str(body.get("message") or "").strip()[:120]
+            raise NetmindAuthError(
+                f"NetMind rejected the token "
+                f"(status={response.status_code}, exception={short_cls}, msg={msg!r})"
             )
 
         if response.status_code >= 500:
