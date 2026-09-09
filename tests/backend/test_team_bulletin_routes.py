@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import pytest
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
@@ -30,6 +33,7 @@ from narranexus.platform.schema.team_schema import (
     BULLETIN_MAX_TOTAL_CHARS,
 )
 
+import narranexus_plugins.teams.routes as teams_mod
 from narranexus_plugins.teams.routes import (
     BulletinLimitExceeded,
     add_bulletin_entry,
@@ -38,6 +42,39 @@ from narranexus_plugins.teams.routes import (
 )
 
 TEAM = "team_1"
+
+
+def _client(db_client, monkeypatch, viewer="usr_owner"):
+    """Mount the teams router with auth and the DB faked, matching the
+    pattern used for the work-board route tests.
+
+    The router calls into `narranexus.sdk.web` (current_user_id /
+    get_db_client), which resolves through the plugin kernel's `host.web`
+    service. That is normally exposed as a side effect of `backend.main`
+    being imported by the running app; a standalone route test has to
+    install it itself (`replace=True` makes repeat installs harmless).
+    """
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
+
+    app = FastAPI()
+    app.include_router(teams_mod.router, prefix="/api/teams")
+
+    @app.middleware("http")
+    async def _auth(request, call_next):
+        request.state.user_id = viewer
+        return await call_next(request)
+
+    async def _get_db():
+        return db_client
+
+    monkeypatch.setattr(teams_mod, "get_db_client", _get_db)
+    return TestClient(app)
+
+
+async def _seed_team(db_client, *, owner="usr_owner"):
+    await db_client.insert("teams", {"team_id": TEAM, "owner_user_id": owner, "name": "Desk"})
 
 
 @pytest.fixture
@@ -266,3 +303,48 @@ async def test_an_entry_from_another_team_is_not_editable_through_this_one(repo)
     theirs = await add_bulletin_entry(repo, team_id="team_2", content="theirs", source="user", author_id="usr_1")
     assert await edit_bulletin_entry(repo, team_id=TEAM, entry_id=theirs.entry_id, content="hijacked") is None
     assert (await repo.get(theirs.entry_id)).content == "theirs"
+
+
+# ── the API surface returns real JSON, not `str(dict)` reprs ────────────────
+#
+# `format_for_api` formats a single datetime; it is not a dict formatter. Fed
+# a whole `model_dump()`, it hits the AttributeError branch and falls back to
+# `str(dt)` — a Python repr string. The frontend's object filter then sees a
+# string where it expects an object and silently drops every entry (the
+# bulletin panel reporting empty).
+
+
+@pytest.mark.asyncio
+async def test_list_bulletin_returns_entries_as_dicts_with_string_timestamps(db_client, monkeypatch):
+    await _seed_team(db_client)
+    repo = TeamBulletinRepository(db_client)
+    await add_bulletin_entry(repo, team_id=TEAM, content="use Chinese", source="user", author_id="usr_owner")
+
+    client = _client(db_client, monkeypatch)
+    resp = client.get(f"/api/teams/{TEAM}/bulletin")
+
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert isinstance(entry, dict), f"entry must be a JSON object, got {entry!r}"
+    assert entry["content"] == "use Chinese"
+    assert isinstance(entry["created_at"], str)
+    assert not entry["created_at"].startswith("{"), "must not be a str(dict) repr"
+
+
+@pytest.mark.asyncio
+async def test_create_bulletin_entry_returns_entry_as_a_dict(db_client, monkeypatch):
+    await _seed_team(db_client)
+
+    client = _client(db_client, monkeypatch)
+    resp = client.post(f"/api/teams/{TEAM}/bulletin", json={"content": "keep replies short"})
+
+    assert resp.status_code == 200
+    entry = resp.json()["entry"]
+    assert isinstance(entry, dict), f"entry must be a JSON object, got {entry!r}"
+    assert entry["content"] == "keep replies short"
+    # `add()` returns the in-memory object it just built (never re-fetched),
+    # so `created_at` is legitimately None here — the DB default has not
+    # round-tripped back. The bug under test is the str(dict) repr, not this.
+    assert entry["created_at"] is None

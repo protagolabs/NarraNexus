@@ -1057,6 +1057,21 @@ class UpdateBulletinEntryRequest(BaseModel):
     content: str
 
 
+def _bulletin_entry_for_api(entry) -> dict:
+    """A `BulletinEntry` as JSON: every field verbatim except the two
+    datetimes, which `format_for_api` converts to ISO strings.
+
+    `format_for_api` formats ONE datetime, not a dict — feeding it
+    `entry.model_dump()` whole hits its except-branch and returns
+    `str(dict)`, a Python repr the frontend's object filter cannot parse
+    (every bulletin entry silently vanishes from the panel).
+    """
+    data = entry.model_dump()
+    data["created_at"] = format_for_api(entry.created_at)
+    data["updated_at"] = format_for_api(entry.updated_at)
+    return data
+
+
 @router.get("/{team_id}/bulletin")
 async def list_team_bulletin(team_id: str, request: Request):
     """The team's bulletin plus its current budget usage.
@@ -1069,7 +1084,7 @@ async def list_team_bulletin(team_id: str, request: Request):
     entries = await repo.list_for_team(team_id)
     usage = await check_bulletin_budget(repo, team_id)
     return {
-        "entries": [format_for_api(e.model_dump()) for e in entries],
+        "entries": [_bulletin_entry_for_api(e) for e in entries],
         "usage": usage.model_dump(),
         "limits": {
             "max_entries": BULLETIN_MAX_ENTRIES,
@@ -1097,7 +1112,7 @@ async def create_team_bulletin_entry(team_id: str, payload: CreateBulletinEntryR
     except BulletinLimitExceeded as e:
         raise HTTPException(status_code=400, detail=str(e))
     await _post_bulletin_notice(db, team_id, "updated")
-    return {"success": True, "entry": format_for_api(entry.model_dump())}
+    return {"success": True, "entry": _bulletin_entry_for_api(entry)}
 
 
 @router.patch("/{team_id}/bulletin/{entry_id}")

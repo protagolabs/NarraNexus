@@ -16,6 +16,19 @@ bus 写入边（[[local_bus]]）对超过 `MAX_BUS_MESSAGE_BYTES` 的行抛 `Val
 `HTTPException(400, multipart.oversize_reason(...))`——文案与 bus 同源，不另写常量。
 锁：`tests/backend/test_team_chat_oversize.py`（超一字节 400、刚好上限 200）。
 
+## 2026-09-09 — 公告栏 GET/POST 曾把整个 dict 喂给 `format_for_api`（B-18）
+
+`format_for_api` 只格式化**单个** datetime；喂给它一整个 `entry.model_dump()`
+会在函数内部撞上 `dt.tzinfo` 的 `AttributeError`，落进 except 分支返回
+`str(dt)`——也就是整个 dict 的 Python repr 字符串。前端拿到的 `entries` 因此
+是一串字符串而不是对象，它按对象过滤的逻辑于是把所有条目都判成不合法，公告栏
+永远显示为空（用户反馈的「公告栏找不到」）。
+
+修法是 `_bulletin_entry_for_api(entry)`：先 `model_dump()`，只把
+`created_at` / `updated_at` 两个字段单独喂给 `format_for_api`，其余字段原样
+透传。`list_team_bulletin` 和 `create_team_bulletin_entry` 都改用这个辅助函数；
+本文件里其余 `format_for_api(...)` 调用点全部已经是传单个字段，没有同类漏洞。
+
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 
 批 6b 把 router 搬进插件包时，`from backend.*` 没跟着走：本文件当时还在 import 宿主的
