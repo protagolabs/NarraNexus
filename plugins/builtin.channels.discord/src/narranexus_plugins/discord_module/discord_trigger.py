@@ -169,7 +169,8 @@ class DiscordTrigger(ChannelTriggerBase):
         if not self._db:
             return
         mgr = DiscordCredentialManager(self._db)
-        await mgr.set_enabled(credential.agent_id, False)
+        ok = await mgr.set_enabled(credential.agent_id, False, reason=reason)
+        self.log_disable_outcome("discord", credential.agent_id, ok, reason)
 
     async def connect(self, credential: DiscordCredential) -> AsyncIterator[dict]:
         """Gateway WebSocket → asyncio.Queue → async generator.

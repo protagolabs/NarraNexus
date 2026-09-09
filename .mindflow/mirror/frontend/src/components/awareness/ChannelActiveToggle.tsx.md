@@ -11,7 +11,8 @@ stub: false
 新增可选 `reason`：仅在 `!active && reason` 时在状态文字下方渲染
 `channelActiveToggle.disabledReason`（"Disabled automatically: {{reason}}"，10 份 locale 同步，
 另 8 份此前根本没有 `channelActiveToggle` 段，一并补齐）。后端在重新启用时清空该字段，所以
-用户手动 disable 不会显示。TelegramConfig 先接上（`credential.disabled_reason`）。
+用户手动 disable 不会显示。Telegram / Slack / Discord / WeChat 四个面板都传 `credential.disabled_reason`
+（Lark 走自己的 `auth_status` 状态条，不接）。
 
 ## 为什么存在
 

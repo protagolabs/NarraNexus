@@ -56,3 +56,43 @@ async def test_one_unreadable_row_does_not_break_the_channel(db_client, regs):
     # channel-wide lookups walk every row and must not raise either
     assert (await store.find_one("ur_demo", workspace="w")).agent_id == "good"
     assert {r.agent_id for r in await store.list_all("ur_demo")} == {"good", "bad"}
+
+
+@pytest.mark.asyncio
+async def test_set_enabled_never_rewrites_an_unreadable_secret(db_client, regs):
+    # A rotated key must stay recoverable: flipping the toggle (or the trigger
+    # writing disabled_reason) may touch enabled/public_json/version only.
+    store = GenericCredentialStore(db_client, regs)
+    await store.upsert("ur_demo", "bad", {"api_token": "t-bad", "workspace": "w"})
+    stale = "gAAAAABnot-a-real-token-for-this-key=="
+    await db_client.update(TABLE, {"channel": "ur_demo", "agent_id": "bad"}, {"secret_json": stale})
+    before = await db_client.get_one(TABLE, {"channel": "ur_demo", "agent_id": "bad"})
+
+    assert await store.set_enabled("ur_demo", "bad", False, reason="revoked") is True
+    after = await db_client.get_one(TABLE, {"channel": "ur_demo", "agent_id": "bad"})
+    assert after["secret_json"] == before["secret_json"] == stale
+    assert after["enabled"] == 0 and after["version"] == before["version"] + 1
+    record = await store.get("ur_demo", "bad")
+    assert record.public == {"workspace": "w", "disabled_reason": "revoked"} and not record.readable
+
+    assert await store.set_enabled("ur_demo", "bad", True) is True
+    again = await db_client.get_one(TABLE, {"channel": "ur_demo", "agent_id": "bad"})
+    assert again["secret_json"] == stale and again["enabled"] == 1
+    assert (await store.get("ur_demo", "bad")).public["disabled_reason"] == ""
+
+
+@pytest.mark.asyncio
+async def test_patch_keeps_an_unreadable_secret_unless_a_new_secret_is_given(db_client, regs):
+    store = GenericCredentialStore(db_client, regs)
+    await store.upsert("ur_demo", "bad", {"api_token": "t-bad", "workspace": "w"})
+    stale = "gAAAAABnot-a-real-token-for-this-key=="
+    await db_client.update(TABLE, {"channel": "ur_demo", "agent_id": "bad"}, {"secret_json": stale})
+
+    # Public-only patch (owner name, auth status, ...): ciphertext untouched.
+    assert (await store.patch("ur_demo", "bad", {"workspace": "w2"})).public["workspace"] == "w2"
+    assert (await db_client.get_one(TABLE, {"channel": "ur_demo", "agent_id": "bad"}))["secret_json"] == stale
+
+    # A re-bind that carries a new secret is the one thing allowed to replace it.
+    fixed = await store.patch("ur_demo", "bad", {"api_token": "t-new"})
+    assert fixed.readable and fixed.secret == {"api_token": "t-new"}
+    assert (await db_client.get_one(TABLE, {"channel": "ur_demo", "agent_id": "bad"}))["secret_json"] != stale

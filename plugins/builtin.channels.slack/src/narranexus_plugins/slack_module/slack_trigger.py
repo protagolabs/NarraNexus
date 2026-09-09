@@ -266,7 +266,8 @@ class SlackTrigger(ChannelTriggerBase):
         if not self._db:
             return
         mgr = SlackCredentialManager(self._db)
-        await mgr.set_enabled(credential.agent_id, False)
+        ok = await mgr.set_enabled(credential.agent_id, False, reason=reason)
+        self.log_disable_outcome("slack", credential.agent_id, ok, reason)
 
     async def connect(
         self, credential: SlackCredential

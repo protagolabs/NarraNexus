@@ -137,6 +137,30 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 CHANNEL_SILENT_SENTINEL = "(stayed silent)"
 
 
+# Upstream error text that reaches a credential row (and from there the
+# owner's panel) is trimmed to this many characters.
+DISABLE_REASON_MAX_CHARS = 200
+_REASON_URL = re.compile(r"https?://\S+")
+# Bot tokens (Telegram ``<digits>:<base64>``), JWTs and long opaque
+# secrets — anything a transport exception string could echo.
+_REASON_SECRET = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|\b[A-Za-z0-9_-]{32,}\b")
+
+
+def safe_disable_reason(exc: BaseException) -> str:
+    """The readable, persistable cause for an automatic credential disable.
+
+    Exception type + message, with URLs and token-shaped runs masked and the
+    whole thing capped at DISABLE_REASON_MAX_CHARS. Every channel's
+    ``disable_credential`` receives this — never the raw ``str(exc)`` — so a
+    transport exception that quotes the request URL (Telegram's carries the
+    bot token in its path) can never land in ``disabled_reason``.
+    """
+    text = f"{type(exc).__name__}: {exc}".replace("\n", " ")
+    text = _REASON_URL.sub("<url>", text)
+    text = _REASON_SECRET.sub("<redacted>", text)
+    return text[:DISABLE_REASON_MAX_CHARS]
+
+
 def _compute_next_backoff(
     current: int,
     ran_seconds: float,
@@ -472,13 +496,28 @@ class ChannelTriggerBase(ABC):
 
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
-    # ``reason`` is the readable cause (exception type + message, never a
-    # secret) the loop hands over; implementations that persist it pass it
-    # to ``mgr.set_enabled(agent_id, False, reason=reason)`` so the owner's
-    # panel can say WHY the channel went inactive. Default is a no-op for
-    # safety.
+    # ``reason`` is the sanitised cause (``safe_disable_reason``: exception
+    # type + message, URLs/token-shaped runs masked, <=200 chars) the loop
+    # hands over; every built-in channel persists it via
+    # ``mgr.set_enabled(agent_id, False, reason=reason)`` so the owner's
+    # panel can say WHY the channel went inactive, and logs an error when
+    # the store reports the flip did not happen (a still-enabled dead
+    # credential would be reconnected forever). Default is a no-op for
+    # safety. This is a contract change for every subclass (2026-09-09):
+    # the loop calls it with ``reason=`` as a keyword.
     async def disable_credential(self, credential: Any, reason: str = "") -> None:
         return None
+
+    @staticmethod
+    def log_disable_outcome(channel: str, agent_id: str, ok: bool, reason: str) -> None:
+        """One line per automatic disable; ERROR when the row flip failed."""
+        if ok:
+            logger.warning(f"[{channel}:{agent_id}] credential disabled: {reason}")
+        else:
+            logger.error(
+                f"[{channel}:{agent_id}] credential could NOT be disabled "
+                f"(row missing or write lost) — it will be reconnected: {reason}"
+            )
 
     # Override hook — async context manager wrapping the actual
     # ``_build_and_run_agent`` call. Subclasses MAY use this to drive a
@@ -1197,7 +1236,7 @@ class ChannelTriggerBase(ABC):
                     )
                     try:
                         await self.disable_credential(
-                            credential, reason=f"{type(e).__name__}: {e}"
+                            credential, reason=safe_disable_reason(e)
                         )
                     except Exception as disable_err:  # noqa: BLE001
                         logger.exception(

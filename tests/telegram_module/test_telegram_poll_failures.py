@@ -114,33 +114,37 @@ async def test_sdk_error_carries_status_and_description(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sdk_error_keeps_non_json_body_and_status(monkeypatch):
+async def test_sdk_error_keeps_non_json_body_and_status_with_a_stable_code(monkeypatch):
     client, _ = _sdk_with(monkeypatch, [_Resp(502, None, "<html>Bad Gateway</html>")])
     with pytest.raises(TelegramSDKError) as exc_info:
         await client.get_updates()
     err = exc_info.value
     assert err.status == 502
-    assert "Bad Gateway" in str(err)
+    assert err.code == "http_502"  # short code: bind/test panels render .code
+    assert "Bad Gateway" in str(err)  # the detail lives in description / str()
 
 
 @pytest.mark.asyncio
-async def test_sdk_error_names_the_transport_exception(monkeypatch):
+async def test_sdk_error_names_the_transport_exception_with_a_stable_code(monkeypatch):
     client, _ = _sdk_with(monkeypatch, [aiohttp.ClientConnectionError("Cannot connect to host api.telegram.org")])
     with pytest.raises(TelegramSDKError) as exc_info:
         await client.get_updates()
     err = exc_info.value
     assert err.status is None
-    assert "ClientConnectionError" in str(err)
+    assert err.code == "client_error:ClientConnectionError"
     assert "api.telegram.org" in str(err)
 
 
 @pytest.mark.asyncio
-async def test_api_call_envelope_carries_error_code(monkeypatch):
-    client, _ = _sdk_with(monkeypatch, [CONFLICT])
+async def test_api_call_envelope_carries_error_code_and_detail(monkeypatch):
+    client, _ = _sdk_with(monkeypatch, [CONFLICT, _Resp(502, None, "<html>Bad Gateway</html>")])
     out = await client.api_call("getUpdates", {})
     assert out["ok"] is False
     assert out["error_code"] == 409
     assert out["error"].startswith("Conflict")
+    out = await client.api_call("getUpdates", {})
+    assert (out["error"], out["error_code"]) == ("http_502", 502)
+    assert "Bad Gateway" in out["error_detail"]
 
 
 # ── trigger classification + poll behaviour ─────────────────────────────
@@ -207,7 +211,10 @@ async def test_401_is_permanent_and_raises_out_of_connect(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_409_gets_one_delete_webhook_retry_then_is_permanent(monkeypatch):
+async def test_409_gets_one_delete_webhook_retry_then_raises_as_transient(monkeypatch):
+    # A second 409 right after the retry is usually OUR previous long-poll
+    # still attached (up to POLL_TIMEOUT_SECONDS after a restart), so it
+    # must NOT disable the credential: it raises and rides the base backoff.
     conflict = "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"
     _script(monkeypatch, [_err(409, conflict), _err(409, conflict), [{"update_id": 1}]])
     trigger = TelegramTrigger()
@@ -217,9 +224,58 @@ async def test_409_gets_one_delete_webhook_retry_then_is_permanent(monkeypatch):
     with pytest.raises(TelegramSDKError) as exc_info:
         await _drain(trigger, _cred())
     assert exc_info.value.status == 409
-    assert trigger.is_permanent_auth_failure(exc_info.value) is True
-    assert _FakeClient.instances[0].delete_webhook_calls == 1
+    assert trigger.is_permanent_auth_failure(exc_info.value) is False
+    assert _FakeClient.instances[0].delete_webhook_calls == 1  # no per-second storm
     assert "other getUpdates request" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_409_retry_budget_resets_after_a_successful_poll(monkeypatch):
+    _script(
+        monkeypatch,
+        [_err(409, "Conflict: x"), [{"update_id": 1}], _err(409, "Conflict: y"), [{"update_id": 2}]],
+    )
+    trigger = TelegramTrigger()
+    trigger.running = True
+    monkeypatch.setattr(trigger_mod.asyncio, "sleep", _no_sleep)
+
+    got = []
+    async for raw in trigger.connect(_cred()):
+        got.append(raw)
+        if len(got) == 2:
+            trigger.running = False
+    assert got == [{"update_id": 1}, {"update_id": 2}]
+    assert _FakeClient.instances[0].delete_webhook_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_subscribe_loop_keeps_reconnecting_on_409(db_client, monkeypatch):
+    # The base loop must back off and try again, never disable the row.
+    store = GenericCredentialStore(db_client)
+    await store.upsert("telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001"}, enabled=True)
+    conflict = _err(409, "Conflict: terminated by other getUpdates request")
+    _script(monkeypatch, [conflict, conflict, conflict, conflict])
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+    trigger.running = True
+    sleeps: list[float] = []
+
+    async def _sleep(seconds, *_a, **_k):
+        # asyncio is one module: this stub sees the trigger's 1s retry sleep
+        # AND the base loop's backoff sleeps; only the backoffs (>= 5s) count.
+        if seconds >= 5:
+            sleeps.append(seconds)
+            if len(sleeps) >= 2:  # two backoffs observed — stop the loop
+                trigger.running = False
+
+    monkeypatch.setattr(trigger_mod.asyncio, "sleep", _sleep)
+
+    await trigger._subscribe_loop(_cred())
+
+    cred = await TelegramCredentialManager(db_client).get("agent_a")
+    assert cred.enabled is True and cred.disabled_reason == ""
+    assert len(_FakeClient.instances) == 2  # reconnected after the first backoff
+    assert sleeps and sleeps[0] >= 5
 
 
 @pytest.mark.asyncio
@@ -276,6 +332,7 @@ async def test_subscribe_loop_disables_credential_with_reason_on_401(db_client, 
     cred = await mgr.get("agent_a")
     assert cred.enabled is False
     assert "401" in cred.disabled_reason and "Unauthorized" in cred.disabled_reason
+    assert len(cred.disabled_reason) <= 200
     assert "disabled_reason" in cred.to_public_dict()
     assert await mgr.list_active() == []
     assert len(_FakeClient.instances) == 1  # no reconnect attempt after the permanent failure
@@ -296,3 +353,72 @@ async def test_re_enabling_clears_the_disabled_reason(db_client):
     assert cred.enabled is True
     assert cred.disabled_reason == ""
     assert await store.set_enabled("telegram", "nobody", False, reason="x") is False
+
+
+# ── reason hygiene + store contract ─────────────────────────────────────
+
+
+def test_safe_disable_reason_masks_urls_tokens_and_truncates():
+    from narranexus.platform.channel.channel_trigger_base import (
+        DISABLE_REASON_MAX_CHARS,
+        safe_disable_reason,
+    )
+
+    exc = TelegramSDKError(
+        "client_error:InvalidURL",
+        "getUpdates failed",
+        description="client_error:InvalidURL: https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates "
+        + "x" * 400,
+    )
+    reason = safe_disable_reason(exc)
+    assert reason.startswith("TelegramSDKError: getUpdates failed")
+    assert "7981632450:AAH" not in reason and "api.telegram.org" not in reason
+    assert len(reason) <= DISABLE_REASON_MAX_CHARS
+
+    plain = safe_disable_reason(_err(401, "Unauthorized"))
+    assert plain == "TelegramSDKError: getUpdates failed (HTTP 401: Unauthorized)"
+
+
+@pytest.mark.asyncio
+async def test_set_enabled_reports_a_lost_version_race_as_false(db_client, monkeypatch):
+    store = GenericCredentialStore(db_client)
+    await store.upsert("telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001"}, enabled=True)
+
+    async def _losing_patch(*_a, **_k):
+        raise RuntimeError("telegram/agent_a: credential patch kept losing the version race")
+
+    monkeypatch.setattr(GenericCredentialStore, "patch", _losing_patch)
+    assert await store.set_enabled("telegram", "agent_a", False, reason="x") is False
+    assert await TelegramCredentialManager(db_client).set_enabled("agent_a", False, reason="x") is False
+
+
+@pytest.mark.parametrize(
+    "channel, manager_path",
+    [
+        ("slack", "narranexus_plugins.slack_module._slack_credential_manager:SlackCredentialManager"),
+        ("discord", "narranexus_plugins.discord_module._discord_credential_manager:DiscordCredentialManager"),
+        ("wechat", "narranexus_plugins.wechat_module._wechat_credential_manager:WeChatCredentialManager"),
+        (
+            "narramessenger",
+            "narranexus_plugins.narramessenger_module._narramessenger_credential_manager:NarramessengerCredentialManager",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_every_auto_disabling_channel_persists_the_reason(db_client, channel, manager_path):
+    import importlib
+
+    mod_name, cls_name = manager_path.split(":")
+    manager_cls = getattr(importlib.import_module(mod_name), cls_name)
+    store = GenericCredentialStore(db_client)
+    await store.upsert(channel, "agent_a", {}, enabled=True)
+    mgr = manager_cls(db_client)
+
+    assert await mgr.set_enabled("agent_a", False, reason="SomeSDKError: token revoked") is True
+    cred = await mgr.get("agent_a")
+    assert cred.enabled is False
+    assert cred.disabled_reason == "SomeSDKError: token revoked"
+    assert cred.to_public_dict()["disabled_reason"] == "SomeSDKError: token revoked"
+
+    assert await mgr.set_enabled("agent_a", True) is True
+    assert (await mgr.get("agent_a")).disabled_reason == ""

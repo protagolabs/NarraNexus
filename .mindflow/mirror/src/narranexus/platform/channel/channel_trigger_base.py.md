@@ -4,12 +4,16 @@ stub: false
 last_verified: 2026-09-09
 ---
 
-## 2026-09-09 — `disable_credential(credential, reason="")`（B-28）
+## 2026-09-09 — `disable_credential(credential, reason="")` + `safe_disable_reason`（B-28，复审 I1/I3/I4）
 
-`_subscribe_loop` 的永久失败分支现在把 `f"{type(e).__name__}: {e}"` 作为 `reason` 传给
-`disable_credential`，让频道把可读原因落到凭据行（Telegram 先接：`disabled_reason`）。
-五个覆写（telegram/slack/discord/wechat/matrix）签名同步加 `reason: str = ""`，
-除 Telegram 外暂不持久化。异常消息只含类型+上游 description，永不含 token。
+`_subscribe_loop` 的永久失败分支把 `safe_disable_reason(e)` 作为 `reason` 传给 `disable_credential`：
+异常类型 + 消息，URL（Telegram 的请求 URL 路径里就是 bot token）与 token 形状（`<digits>:<base64>`、JWT、
+32+ 位不透明串）统一打码，截断到 `DISABLE_REASON_MAX_CHARS=200`——脱敏由基类保证，不依赖各频道异常文本
+"碰巧"干净。**这是对所有子类的契约变更**：基类以关键字 `reason=` 调用，五个内置频道
+（telegram/slack/discord/wechat/matrix）都已改签名并把 reason 持久化到 `disabled_reason`（各自 manager
+`set_enabled(reason=)`），第三方插件频道覆写 `disable_credential` 时必须接受 `reason`。新静态方法
+`log_disable_outcome(channel, agent_id, ok, reason)`：写成功 WARNING、写失败（store 返回 False）ERROR，
+让"熔断没生效、还在重连"可观测。`matrix_trigger` 缺凭据自停用那条路径也带上了 reason。
 
 ## 2026-08-28（接线 review）— 清扫作用域与闸门次序
 

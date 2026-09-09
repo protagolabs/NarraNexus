@@ -67,7 +67,8 @@ class TelegramSDKError(RuntimeError):
         code = str(envelope.get("error") or "unknown")
         raw_status = envelope.get("error_code")
         status = int(raw_status) if isinstance(raw_status, int) else None
-        return cls(code, message, status=status, description=code)
+        detail = str(envelope.get("error_detail") or "")
+        return cls(code, message, status=status, description=f"{code}: {detail}" if detail else code)
 
 
 class TelegramSDKClient:
@@ -134,10 +135,13 @@ class TelegramSDKClient:
         "description"?}``. Failures (HTTP non-2xx, ok=false, exceptions)
         are surfaced as ``{"ok": false, "error": "...", "error_code"?: int,
         "method": ...}`` rather than raising — agents read the envelope per
-        the per-method skill docs. ``error_code`` is Telegram's own (it
-        equals the HTTP status); a non-JSON body (proxy / outage page)
-        keeps the status and a snippet; a transport failure keeps the
-        exception text and has no ``error_code``.
+        the per-method skill docs. ``error`` stays the short, stable code
+        callers branch on (Telegram's ``description``, ``http_<status>``
+        for a non-JSON body, ``client_error:<ExceptionName>`` for a
+        transport failure); ``error_code`` is Telegram's own (it equals
+        the HTTP status; absent for transport failures); ``error_detail``
+        carries the diagnostic text that used to be lost — a snippet of
+        the non-JSON body, or the transport exception's message.
         """
         url = f"{self._base_url}/{method}"
         try:
@@ -149,8 +153,9 @@ class TelegramSDKClient:
                     snippet = (await resp.text())[:160].replace("\n", " ")
                     return {
                         "ok": False,
-                        "error": f"http_{resp.status}: {snippet}",
+                        "error": f"http_{resp.status}",
                         "error_code": resp.status,
+                        "error_detail": snippet,
                         "method": method,
                     }
                 if not data.get("ok"):
@@ -165,7 +170,8 @@ class TelegramSDKClient:
         except aiohttp.ClientError as e:
             return {
                 "ok": False,
-                "error": f"client_error:{type(e).__name__}: {e}",
+                "error": f"client_error:{type(e).__name__}",
+                "error_detail": str(e),
                 "method": method,
             }
         except Exception as e:  # pragma: no cover — defensive
@@ -365,6 +371,7 @@ class TelegramSDKClient:
         except aiohttp.ClientError as e:
             raise TelegramSDKError(
                 f"client_error:{type(e).__name__}",
-                f"binary fetch network error: {e}",
+                "binary fetch network error",
+                description=f"client_error:{type(e).__name__}: {e}",
             ) from e
         return data, file_path

@@ -249,9 +249,10 @@ class GenericCredentialStore:
         """
         descriptor = self.descriptor(channel)
         for _ in range(8):
-            current = await self.get(channel, agent_id)
-            if current is None:
+            raw = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})
+            if raw is None:
                 return None
+            current = self._row_to_record(raw)
             merged_values = {**current.public, **current.secret}
             if expect is not None and any(merged_values.get(k, "") != v for k, v in expect.items()):
                 return None
@@ -260,10 +261,20 @@ class GenericCredentialStore:
             row = {
                 "external_id": external_id,
                 "public_json": json.dumps(public, sort_keys=True, default=str),
-                "secret_json": encode_secrets(secret),
                 "updated_at": utc_now(),
                 "version": current.version + 1,
             }
+            # Fail-closed on an unreadable secret: ``current.secret`` is EMPTY
+            # then, so re-encoding the merge would overwrite the stored
+            # ciphertext with "" — a rotated/lost key would go from
+            # "restore the key and the binding works again" to "every user
+            # re-binds". Only a patch that itself carries a new secret value
+            # may replace it; anything else (enabled flip, disabled_reason,
+            # owner fields, auth status) leaves secret_json byte-identical.
+            if current.secret_error and not secret:
+                row["secret_json"] = raw.get("secret_json") or ""
+            else:
+                row["secret_json"] = encode_secrets(secret)
             if enabled is not None:
                 row["enabled"] = 1 if enabled else 0
             affected = await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id, "version": current.version}, row)
@@ -321,7 +332,15 @@ class GenericCredentialStore:
         (or a re-bind) is the fresh start. Goes through ``patch`` so it never
         clobbers a concurrent write to other fields.
         """
-        record = await self.patch(channel, agent_id, {"disabled_reason": (reason or "") if not enabled else ""}, enabled=enabled)
+        try:
+            record = await self.patch(channel, agent_id, {"disabled_reason": (reason or "") if not enabled else ""}, enabled=enabled)
+        except RuntimeError as exc:
+            # The version race is the only thing patch raises; keep the old
+            # "never raises, False means not done" contract for the route and
+            # the triggers so a lost race is a logged failure, not a 500 or a
+            # silently-still-enabled dead credential.
+            logger.error(f"channel_credentials: {channel}/{agent_id} set_enabled({enabled}) failed: {exc}")
+            return False
         return record is not None
 
     async def list_active(self, channel: str) -> list[CredentialRecord]:

@@ -665,7 +665,8 @@ class MatrixTrigger(ChannelTriggerBase):
         if not self._db:
             return
         mgr = NarramessengerCredentialManager(self._db)
-        await mgr.set_enabled(credential.agent_id, False)
+        ok = await mgr.set_enabled(credential.agent_id, False, reason=reason)
+        self.log_disable_outcome("narramessenger", credential.agent_id, ok, reason)
 
     def create_context_builder(  # type: ignore[override]
         self,
@@ -2243,7 +2244,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"flow to restore the credential."
             )
             try:
-                await self.disable_credential(credential)
+                await self.disable_credential(
+                    credential,
+                    reason="missing matrix credentials (homeserver / user id / access token); re-run the bind flow",
+                )
             except Exception as e:  # noqa: BLE001
                 # A DB write failure here is non-fatal — the ValueError
                 # below still surfaces and the retry loop is bounded by

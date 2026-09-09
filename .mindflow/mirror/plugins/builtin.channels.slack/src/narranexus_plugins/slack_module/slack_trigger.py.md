@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `disable_credential(credential, reason="")`（B-28 I1）
+
+基类契约变更：以关键字 `reason=`（已脱敏截断）调用；这里透传给 manager 落到 `disabled_reason`，
+并用 `log_disable_outcome` 对写失败打 ERROR。行为其余不变。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

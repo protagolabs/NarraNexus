@@ -379,7 +379,11 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         )}
 
         {credential && (
-          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
+          <ChannelActiveToggle
+            active={!!credential.enabled}
+            reason={credential.disabled_reason}
+            onToggle={handleToggleActive}
+          />
         )}
       </CardContent>
     </Card>

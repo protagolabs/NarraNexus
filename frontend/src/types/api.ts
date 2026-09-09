@@ -979,6 +979,8 @@ export interface SlackCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
 
@@ -1031,6 +1033,8 @@ export interface NarramessengerCredentialData {
   owner_name: string;
   connection_mode: string;
   enabled: boolean;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
 
@@ -1067,6 +1071,8 @@ export interface WeChatCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
 
@@ -1108,6 +1114,8 @@ export interface DiscordCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
 

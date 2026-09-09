@@ -4,9 +4,10 @@ last_verified: 2026-09-09
 stub: false
 ---
 
-## 2026-09-09 — `TelegramCredentialData.disabled_reason?`（B-28）
+## 2026-09-09 — `*CredentialData.disabled_reason?`（B-28）
 
-后端 `to_public_dict` 新增的公开字段；可选，旧响应无此键时 UI 不显示原因。
+Telegram / Slack / Discord / WeChat / Narramessenger 五个凭据类型都加了可选 `disabled_reason`（后端
+`to_public_dict` 新增的公开字段）；旧响应无此键时 UI 不显示原因。Lark 用自己的 `auth_status` 机制，不带。
 
 ## 2026-09-07 — `PluginChannelRow`
 

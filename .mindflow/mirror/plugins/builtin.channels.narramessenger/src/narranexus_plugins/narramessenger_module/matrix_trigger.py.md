@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `disable_credential(credential, reason="")`（B-28 I1）
+
+基类契约变更：以关键字 `reason=` 调用并透传到 `disabled_reason`，写失败打 ERROR；缺 matrix 凭据的
+自停用路径现在也带 reason（"missing matrix credentials … re-run the bind flow"）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

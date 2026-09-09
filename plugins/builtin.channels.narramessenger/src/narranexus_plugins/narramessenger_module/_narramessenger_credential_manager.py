@@ -63,6 +63,9 @@ class NarramessengerCredential:
     owner_name: str = ""
     connection_mode: str = "gateway"
     enabled: bool = True
+    # Why the platform switched the binding off (permanent upstream failure);
+    # empty while enabled or when the owner disabled it by hand.
+    disabled_reason: str = ""
     # ── Matrix transport fields (2026-07-02) ──────────────────────────────
     # Populated only on connection_mode == "matrix" rows. On "gateway" rows
     # they stay empty and MatrixTrigger's credential watcher skips the row.
@@ -91,6 +94,7 @@ class NarramessengerCredential:
             "owner_name": self.owner_name,
             "connection_mode": self.connection_mode,
             "enabled": self.enabled,
+            "disabled_reason": self.disabled_reason,
             # Matrix transport surface — device_id + since_token are safe
             # to expose (device_id is public server-side, since_token is
             # an opaque cursor with no auth power). matrix_access_token
@@ -121,6 +125,7 @@ class NarramessengerCredential:
             "owner_name": self.owner_name,
             "connection_mode": self.connection_mode,
             "enabled": self.enabled,
+            "disabled_reason": self.disabled_reason,
             "matrix_access_token": self.matrix_access_token,
             "matrix_device_id": self.matrix_device_id,
             "matrix_since_token": self.matrix_since_token,
@@ -145,6 +150,7 @@ def _cred_from_raw(raw: dict[str, Any]) -> "NarramessengerCredential":
         owner_name=raw.get("owner_name", "") or "",
         connection_mode=raw.get("connection_mode", "gateway") or "gateway",
         enabled=bool(raw.get("enabled", True)),
+        disabled_reason=raw.get("disabled_reason", "") or "",
         matrix_access_token=raw.get("matrix_access_token", "") or "",
         matrix_device_id=raw.get("matrix_device_id", "") or "",
         matrix_since_token=raw.get("matrix_since_token", "") or "",
@@ -225,9 +231,11 @@ class NarramessengerCredentialManager:
         """Every enabled binding (the trigger's subscriber set)."""
         return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]
 
-    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
-        """Flip ``enabled`` without deleting the row (bundle-imported credentials land inactive)."""
-        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
+    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+        """Flip ``enabled`` without deleting the row (bundle-imported credentials
+        land inactive). ``reason`` lands in the public ``disabled_reason``
+        (cleared on enable)."""
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled, reason=reason)
 
     async def update_owner(
         self, agent_id: str, owner_matrix_user_id: str, owner_name: str

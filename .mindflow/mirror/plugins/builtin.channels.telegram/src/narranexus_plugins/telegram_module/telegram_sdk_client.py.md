@@ -9,11 +9,14 @@ last_verified: 2026-09-09
 dev 日志里 115 条裸 `getUpdates failed`（三个 agent）根本分不清是 token 被撤（401）、另一个
 poller 抢了 bot（409）还是 Telegram 抽风（5xx）：异常只有 `code`（=description），非 JSON 响应和
 传输异常又被压成 `client_error:<ExceptionName>`。现在：`api_call` 失败信封多带 `error_code`
-（Telegram 自己的 error_code，等于 HTTP 状态；非 JSON body 也保留 status + 160 字符片段；传输异常
-带 `str(e)`）；`TelegramSDKError(code, message, *, status, description)` + `from_envelope()`，
+（Telegram 自己的 error_code，等于 HTTP 状态；传输异常无此键）与 `error_detail`（非 JSON body 的
+160 字符片段 / 传输异常的 `str(e)`）；`TelegramSDKError(code, message, *, status, description)` + `from_envelope()`，
 `str()` 形如 `getUpdates failed (HTTP 409: Conflict: terminated by other getUpdates request…)`。
-热路径包装（getMe/sendMessage/getUpdates/getChat/getFile）全走 `from_envelope`。`.code` 语义不变，
-现有按 description 分支的调用方（`_friendly_telegram_error` 等）不受影响。
+热路径包装（getMe/sendMessage/getUpdates/getChat/getFile）全走 `from_envelope`。复审 I5 后 `.code`
+保持**短而稳定**：JSON 失败 = Telegram description（原样）、非 JSON body = `http_<status>`、传输异常 =
+`client_error:<ExceptionName>`（与 `download_file` 一致）；明细（body 片段 / 异常文本）只进信封的
+`error_detail` 与异常的 `description` / `str()`。所以 `_friendly_telegram_error(e.code)` 的兜底分支
+不会把 HTML 片段渲染进 bind/test 面板，`telegram_module.send` 回给 agent 的 `error` 也还是短码。
 
 ## 2026-07-10 — set_message_reaction (backs react_to_user_message)
 
