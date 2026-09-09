@@ -11,6 +11,45 @@ artifacts, files})`,下拉含 members / artifacts / files / manage 四项。`fil
 member bar toggle **保留**,两条入口并存(注释改为「与标题切换器并存」)。见
 [[../../bookmarks/BookmarkDrawer]] 同日条。roster.test 新增「标题切换器可达全部四个面板」用例。
 
+## 2026-09-09 — root shell needs its own `min-w-0` (GitHub #131)
+
+Phone-width (360px) send button was clipped off-screen. Root cause: the
+outer `<div className="flex h-full flex-1 flex-col ...">` (the component's
+own top-level flex-row child, right under `<div className="flex h-full
+min-h-0">`) had **no `min-w-0`**. MainLayout's ancestor chain (`<main
+className="flex-1 flex min-w-0 overflow-hidden">` → the route wrapper
+`flex-1 min-w-0 ... overflow-hidden flex flex-col`) already sets `min-w-0`
++ `overflow-hidden` on ITS OWN box, so that box's rendered width is
+correctly capped by upstream flexbox math regardless of what's inside — but
+without `min-w-0` on the box we render *inside* it, the browser's default
+flex "automatic minimum size" lets that inner box's content-based min
+width win, so it silently grows past the ancestor's width. The ancestor's
+`overflow-hidden` then just **clips** the excess instead of scrolling it
+into view, which is why the symptom looked like the composer's
+right-anchored send button (`absolute right-2`) had vanished rather than
+"the page got a horizontal scrollbar."
+
+Compare `ChatPanel.tsx`'s root: it's a `Card` with `overflow-hidden`
+baked into its own className, which achieves the same "don't let content
+dictate my width" effect (per the flexbox spec, an item's automatic
+min-size is 0 when its own `overflow` isn't `visible` — same mechanism as
+an explicit `min-w-0`, just via a different CSS property). That's the
+structural reason the single-agent composer never hit this bug while the
+team room did — no code shared between the two, just a missing "cap my own
+size" hint.
+
+Fix: add `min-w-0` to that inner root div (given `data-testid=
+"team-room-shell"` so the regression test can pin the class without a real
+layout engine — jsdom does no layout, so this can only assert the CSS
+contract, not the pixel result). No downstream element needed touching:
+the header row (flex-wrap + `min-w-0` on its own sub-rows, from the
+2026-08-20 entry below) and the transcript pane (`min-w-0 flex-1` at its
+own div) were already correct; they just couldn't do anything with a
+parent that had already claimed unlimited width.
+
+Test: `TeamChatPanel.mobileLayout.test.tsx` asserts the shell's className
+contains both `flex-1` and `min-w-0`.
+
 ## 2026-09-03 — 公告栏和团队管理收进抽屉第四个 tab
 
 owner 反馈「找不到公告栏填写位置」:唯一入口是工具条最末的小按钮,设置页和空房引导都不提。
