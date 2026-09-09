@@ -215,11 +215,13 @@ def test_dedup_key_is_optional_so_triggers_a_and_b_keep_working():
 
 # ── Dedup gate ──────────────────────────────────────────────────────────────
 
-async def _call(mt, monkeypatch, fn, *, delivered=True, **kw):
+async def _call(mt, monkeypatch, fn, *, delivered=True, send=None, **kw):
     sent: list[dict] = []
 
     async def _fake_send(**payload):
         sent.append(payload)
+        if send is not None:
+            return await send(payload)
         return delivered
 
     monkeypatch.setattr(
@@ -308,10 +310,12 @@ async def test_expired_entries_stop_suppressing_and_are_swept(clean_dedup, monke
 
     # Age every entry past the TTL by rewriting its stored stamp — the clock
     # itself is left alone so nothing else in the process is affected.
-    for slot in list(mt._feedback_dedup):
-        mt._feedback_dedup[slot] -= mt.FEEDBACK_DEDUP_TTL_SECONDS + 1
+    for rec in mt._feedback_dedup.values():
+        rec[0] -= mt.FEEDBACK_DEDUP_TTL_SECONDS + 1
     stale = mt._dedup_slot("agent_zzz", "gone:stale")
-    mt._feedback_dedup[stale] = mt.time.monotonic() - mt.FEEDBACK_DEDUP_TTL_SECONDS - 1
+    mt._feedback_dedup[stale] = [
+        mt.time.monotonic() - mt.FEEDBACK_DEDUP_TTL_SECONDS - 1, True,
+    ]
 
     _, sent = await _call(mt, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid")
     assert len(sent) == 1
@@ -319,15 +323,11 @@ async def test_expired_entries_stop_suppressing_and_are_swept(clean_dedup, monke
     assert stale not in mt._feedback_dedup
 
 
-def test_the_cache_is_bounded_in_entries_and_key_length(clean_dedup):
+def test_the_cache_is_bounded_in_entries(clean_dedup):
     mt = clean_dedup
     for i in range(mt.FEEDBACK_DEDUP_MAX_ENTRIES + 50):
         mt._dedup_reserve(mt._dedup_slot("agent_a", f"tool:{i}"))
     assert len(mt._feedback_dedup) == mt.FEEDBACK_DEDUP_MAX_ENTRIES
-
-    # dedup_key is caller-controlled text; it must not be stored unbounded.
-    slot = mt._dedup_slot("agent_a", "x" * 10_000)
-    assert len(slot[1]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN
 
 
 # ── What the agent may tell the user ────────────────────────────────────────
@@ -355,9 +355,7 @@ async def test_an_undelivered_report_forbids_claiming_the_team_was_notified(
     assert result["ok"] is True          # never an error: no retry, no apology
     assert result["notified"] is False
     assert "do NOT tell the user they were notified" in result["message"]
-    assert "has been notified" not in result["message"].replace(
-        "do NOT tell the user they were notified", ""
-    )
+    assert "You may tell the user" not in result["message"]
 
 
 @pytest.mark.asyncio
@@ -372,3 +370,139 @@ async def test_other_categories_keep_the_dont_mention_it_default(
         assert result["notified"] is True
         assert "notified" not in result["message"]
         assert "tell the user" not in result["message"].lower()
+
+
+# ── Concurrency: a reservation is a claim, not yet a delivery ───────────────
+
+@pytest.mark.asyncio
+async def test_a_concurrent_duplicate_never_claims_an_unfinished_send_succeeded(
+    clean_dedup, monkeypatch
+):
+    """The hole a two-state reservation leaves.
+
+    One agent serves many sessions at once, and a platform-wide outage makes
+    every one of them hit the same tool + code within the same seconds.
+    send_feedback has a 3 s timeout and swallows its exception, so the window
+    where a slot is claimed but undelivered is up to three seconds wide — and
+    widest exactly when the intake is struggling. A duplicate arriving in that
+    window must NOT be told the team has been notified: here the only send
+    that ever runs fails, so nobody was told at all.
+    """
+    import asyncio
+
+    fn = _feedback_tool()[1]
+    in_flight = asyncio.Event()
+    may_finish = asyncio.Event()
+
+    async def _slow_failing_send(_payload):
+        in_flight.set()
+        await may_finish.wait()
+        return False
+
+    first = asyncio.create_task(_call(
+        clean_dedup, monkeypatch, fn,
+        send=_slow_failing_send, dedup_key="narra_cli:agent-token-invalid",
+    ))
+    await asyncio.wait_for(in_flight.wait(), timeout=5)
+
+    second, also_sent = await _call(
+        clean_dedup, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid",
+    )
+    # Suppressed (that is what reserving before the send buys) …
+    assert also_sent == []
+    # … but truthfully: the outcome is not known yet.
+    assert second["notified"] is False
+    assert "not known yet" in second["message"]
+    assert "You may tell the user" not in second["message"]
+
+    may_finish.set()
+    (first_result, _) = await first
+    assert first_result["notified"] is False
+    # The failed send released its claim, so the next call retries.
+    assert not clean_dedup._feedback_dedup
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_after_a_confirmed_send_may_still_claim_it(
+    clean_dedup, monkeypatch
+):
+    # The other side of the same branch: once a send is CONFIRMED delivered,
+    # a later duplicate legitimately reports notified.
+    fn = _feedback_tool()[1]
+    await _call(clean_dedup, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid")
+    slot = clean_dedup._dedup_slot("agent_a", "narra_cli:agent-token-invalid")
+    assert clean_dedup._feedback_dedup[slot][1] is True  # delivered flag flipped
+
+    second, _ = await _call(
+        clean_dedup, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid",
+    )
+    assert second["notified"] is True
+    assert "Already reported" in second["message"]
+
+
+def test_confirming_a_delivery_does_not_disturb_expiry_order(clean_dedup):
+    # The flag is flipped in place precisely so the key keeps its insertion
+    # position — the front sweep reads insertion order AS time order.
+    mt = clean_dedup
+    first = mt._dedup_slot("agent_a", "tool:first")
+    second = mt._dedup_slot("agent_a", "tool:second")
+    _, rec = mt._dedup_reserve(first)
+    mt._dedup_reserve(second)
+    mt._dedup_confirm(first, rec)
+    assert list(mt._feedback_dedup) == [first, second]
+
+
+def test_a_late_failure_cannot_delete_someone_elses_reservation(clean_dedup):
+    # Eviction can recycle a slot while our send is still in flight; releasing
+    # by key alone would then drop the live reservation that replaced ours.
+    mt = clean_dedup
+    slot = mt._dedup_slot("agent_a", "tool:code")
+    _, ours = mt._dedup_reserve(slot)
+    del mt._feedback_dedup[slot]                    # evicted under pressure
+    _, theirs = mt._dedup_reserve(slot)             # someone else re-claims it
+    mt._dedup_confirm(slot, theirs)
+
+    mt._dedup_release(slot, ours)                   # our send finally fails
+    assert mt._feedback_dedup.get(slot) is theirs
+
+
+@pytest.mark.asyncio
+async def test_a_deployment_with_feedback_switched_off_says_so(
+    clean_dedup, monkeypatch
+):
+    # send_feedback also returns False when NARRANEXUS_FEEDBACK_DISABLED=1, and
+    # "could not reach them just now" would imply a transient outage forever.
+    monkeypatch.setenv("NARRANEXUS_FEEDBACK_DISABLED", "1")
+    result, sent = await _call(
+        clean_dedup, monkeypatch, _feedback_tool()[1],
+        dedup_key="narra_cli:agent-token-invalid",
+    )
+    assert sent == []
+    assert result["ok"] is True and result["notified"] is False
+    assert "switched off for this deployment" in result["message"]
+    # A disabled deployment must not churn the cache either.
+    assert not clean_dedup._feedback_dedup
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_category_is_normalised_once_for_both_halves(
+    clean_dedup, monkeypatch
+):
+    # feedback_client coerces an unknown category to "other" before posting;
+    # without normalising here too, the tool would file one thing and describe
+    # another.
+    result, sent = await _call(
+        clean_dedup, monkeypatch, _feedback_tool()[1], category="Error",
+    )
+    assert sent[0]["category"] == "other"
+    assert result["notified"] is True
+    assert "You may tell the user" not in result["message"]
+
+
+def test_both_halves_of_the_slot_are_length_bounded(clean_dedup):
+    # agent_id is model-supplied too; bounding only the key leaves 4096 entries
+    # times an unbounded string.
+    mt = clean_dedup
+    slot = mt._dedup_slot("a" * 10_000, "k" * 10_000)
+    assert len(slot[0]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN
+    assert len(slot[1]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN

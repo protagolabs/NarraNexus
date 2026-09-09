@@ -53,51 +53,84 @@ CREATE_NARRATIVE_TOOL = "create_narrative"
 # Single-process assumption (铁律 #20): the basic_info MCP server is one process
 # shared by the deployment — this does NOT dedup across processes or restarts,
 # and it is deliberately not a substitute for intake-side idempotency. Bounded
-# by TTL + entry count so a caller-supplied key can never grow it without limit.
+# by TTL + entry count, and BOTH halves of the slot are truncated: agent_id and
+# dedup_key are model-supplied, so neither may grow an entry without limit.
 FEEDBACK_DEDUP_TTL_SECONDS = 6 * 3600
 FEEDBACK_DEDUP_MAX_ENTRIES = 4096
 FEEDBACK_DEDUP_KEY_MAXLEN = 120
 
-_feedback_dedup: "OrderedDict[tuple[str, str], float]" = OrderedDict()
+# A reservation has THREE states, not two. Modelling only "present / absent"
+# is what let a concurrent duplicate claim the team had been notified while the
+# only send that ever ran was still in flight — and then failed. The record is
+# ``[monotonic stamp, delivered?]``; the flag is flipped IN PLACE on success so
+# the key keeps its insertion position (see _dedup_reserve's front sweep).
+DEDUP_NEW = "new"              # we own the slot and must do the send
+DEDUP_PENDING = "pending"      # someone else is mid-send; outcome unknown
+DEDUP_CONFIRMED = "confirmed"  # a report for this slot really was delivered
+
+_feedback_dedup: "OrderedDict[tuple[str, str], list]" = OrderedDict()
 
 
 def _dedup_slot(agent_id: str, dedup_key: str) -> tuple[str, str]:
-    return (agent_id, dedup_key[:FEEDBACK_DEDUP_KEY_MAXLEN])
+    return (
+        agent_id[:FEEDBACK_DEDUP_KEY_MAXLEN],
+        dedup_key[:FEEDBACK_DEDUP_KEY_MAXLEN],
+    )
 
 
-def _dedup_reserve(slot: tuple[str, str]) -> bool:
-    """Claim `slot`. False = already claimed inside the TTL, so skip the send.
+def _dedup_reserve(slot: tuple[str, str]) -> tuple[str, list]:
+    """Claim `slot`, returning ``(state, record)``.
 
     Reserving BEFORE the send (rather than recording after it) is what closes
-    the window two concurrent calls would otherwise both pass through. Entries
-    are inserted once and never refreshed, so insertion order is time order and
-    expiry can be swept from the front.
+    the window two concurrent calls would otherwise both pass through. Records
+    are inserted once and their stamp is never rewritten, so insertion order is
+    time order and expiry can be swept from the front.
     """
     now = time.monotonic()
     while _feedback_dedup:
-        oldest, stamp = next(iter(_feedback_dedup.items()))
-        if now - stamp < FEEDBACK_DEDUP_TTL_SECONDS:
+        oldest, rec = next(iter(_feedback_dedup.items()))
+        if now - rec[0] < FEEDBACK_DEDUP_TTL_SECONDS:
             break
         _feedback_dedup.pop(oldest, None)
 
-    if slot in _feedback_dedup:
-        return False
-    _feedback_dedup[slot] = now
+    existing = _feedback_dedup.get(slot)
+    if existing is not None:
+        return (DEDUP_CONFIRMED if existing[1] else DEDUP_PENDING), existing
+
+    record = [now, False]
+    _feedback_dedup[slot] = record
     while len(_feedback_dedup) > FEEDBACK_DEDUP_MAX_ENTRIES:
         _feedback_dedup.popitem(last=False)
-    return True
+    return DEDUP_NEW, record
 
 
-def _dedup_release(slot: tuple[str, str]) -> None:
-    """Undo a reservation whose send did not reach the intake.
+def _dedup_confirm(slot: tuple[str, str], record: list) -> None:
+    """Mark OUR reservation delivered, in place.
+
+    Mutating the value (not re-inserting the key) is deliberate: it preserves
+    the insertion-order == time-order invariant the front sweep depends on.
+    The identity check means a reservation that TTL- or capacity-eviction
+    already removed — and that some later call re-created — is not stamped
+    with our outcome.
+    """
+    if _feedback_dedup.get(slot) is record:
+        record[1] = True
+
+
+def _dedup_release(slot: tuple[str, str], record: list) -> None:
+    """Undo OUR reservation when the send did not reach the intake.
 
     Without this the cache would hold a FAILURE sentinel: an intake outage
     would silently consume the one report this agent+code is allowed to make,
     and the team would never learn about the platform error. Releasing means a
-    failed send behaves exactly like today's un-deduped code (the next call
-    tries again); only a DELIVERED report suppresses repeats.
+    failed send behaves exactly like the un-deduped code (the next call tries
+    again); only a DELIVERED report suppresses repeats.
+
+    The identity check stops a late failure from deleting a DIFFERENT call's
+    live reservation after eviction recycled the slot.
     """
-    _feedback_dedup.pop(slot, None)
+    if _feedback_dedup.get(slot) is record:
+        del _feedback_dedup[slot]
 
 
 # ── What the agent may tell the user (2026-09-09) ────────────────────────────
@@ -114,24 +147,58 @@ def _dedup_release(slot: tuple[str, str]) -> None:
 # a DELIVERED `error` report: the user is sitting in front of a platform-side
 # failure right now, and "someone has been told" is the only true, useful thing
 # we can offer them.
-def _feedback_result(*, category: str, notified: bool, duplicate: bool = False) -> dict:
-    if not notified:
+# `outcome` values, in the order they are handled below.
+FEEDBACK_DELIVERED = "delivered"      # this call reached the intake
+FEEDBACK_DUPLICATE = "duplicate"      # an earlier call for this slot did
+FEEDBACK_PENDING = "pending"          # a concurrent call is still in flight
+FEEDBACK_UNDELIVERED = "undelivered"  # the send failed
+FEEDBACK_DISABLED = "disabled"        # this deployment reports nothing at all
+
+_KEEP_GOING = "Keep working on the user's problem."
+
+
+def _feedback_result(*, category: str, outcome: str) -> dict:
+    if outcome == FEEDBACK_DISABLED:
+        return {
+            "ok": True,
+            "notified": False,
+            "message": (
+                "Feedback reporting is switched off for this deployment, so no "
+                "one was told — do NOT tell the user the team has been "
+                f"notified. Nothing for you to retry. {_KEEP_GOING}"
+            ),
+        }
+    if outcome == FEEDBACK_PENDING:
+        # Another call already owns this slot and has not come back yet. Its
+        # send may still fail, so the honest answer is "not yet", never
+        # "already reported" — that mistake is precisely what this branch
+        # exists to prevent.
+        return {
+            "ok": True,
+            "notified": False,
+            "message": (
+                "A report for this exact problem is already on its way; yours "
+                "was not sent again. Its outcome is not known yet, so do NOT "
+                f"tell the user the team has been notified. {_KEEP_GOING}"
+            ),
+        }
+    if outcome == FEEDBACK_UNDELIVERED:
         return {
             "ok": True,
             "notified": False,
             "message": (
                 "Could not reach the NarraNexus team just now — do NOT tell the "
                 "user they were notified. Nothing for you to retry or apologise "
-                "for; keep working on the user's problem."
+                f"for; {_KEEP_GOING[0].lower()}{_KEEP_GOING[1:]}"
             ),
         }
     if category != "error":
         return {
             "ok": True,
             "notified": True,
-            "message": "Feedback recorded. Keep working on the user's problem.",
+            "message": f"Feedback recorded. {_KEEP_GOING}",
         }
-    already = "Already reported" if duplicate else "Reported"
+    already = "Already reported" if outcome == FEEDBACK_DUPLICATE else "Reported"
     return {
         "ok": True,
         "notified": True,
@@ -208,21 +275,42 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         severity: str = "medium",
         dedup_key: str = "",
     ) -> dict:
-        from narranexus.platform.integrations.feedback_client import send_feedback
+        from narranexus.platform.integrations.feedback_client import (
+            CATEGORIES,
+            feedback_disabled,
+            send_feedback,
+        )
 
-        # Optional on purpose: triggers (a)/(b) call without it and must keep
-        # working. An empty key means "no dedup", never "dedup everything".
-        slot = _dedup_slot(agent_id, dedup_key) if dedup_key else None
-        if slot is not None and not _dedup_reserve(slot):
-            logger.debug(
-                f"[feedback] duplicate suppressed category={category} "
-                f"dedup_key={slot[1]}"
-            )
-            # ok=True, not an error: the tool contract forbids the agent from
-            # retrying or apologising about telemetry. A reservation only
-            # survives a DELIVERED send, so a duplicate hit means the team
-            # really does have this one.
-            return _feedback_result(category=category, notified=True, duplicate=True)
+        # Normalise once, here: send_feedback coerces an unknown category to
+        # "other" before posting, and _feedback_result keys off the category
+        # too. Left un-normalised the two halves of this tool would disagree
+        # about what the same report is.
+        if category not in CATEGORIES:
+            category = "other"
+
+        # Nothing leaves this deployment, so no slot is spent and no claim is
+        # made. Checked before the dedup cache so a disabled deployment does
+        # not churn it at all.
+        if feedback_disabled():
+            return _feedback_result(category=category, outcome=FEEDBACK_DISABLED)
+
+        # dedup_key is optional on purpose: triggers (a)/(b) call without it and
+        # must keep working. An empty key means "no dedup", never "dedup all".
+        slot = record = None
+        if dedup_key:
+            slot = _dedup_slot(agent_id, dedup_key)
+            state, record = _dedup_reserve(slot)
+            if state != DEDUP_NEW:
+                logger.info(
+                    f"[feedback] suppressed as {state} category={category} "
+                    f"dedup_key={slot[1]}"
+                )
+                # ok=True, never an error: the tool contract forbids the agent
+                # from retrying or apologising about telemetry.
+                outcome = (
+                    FEEDBACK_DUPLICATE if state == DEDUP_CONFIRMED else FEEDBACK_PENDING
+                )
+                return _feedback_result(category=category, outcome=outcome)
 
         delivered = await send_feedback(
             category=category,
@@ -232,14 +320,20 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             agent_id=agent_id,
             user_id=user_id,
         )
-        if slot is not None and not delivered:
-            _dedup_release(slot)
+        if slot is not None and record is not None:
+            if delivered:
+                _dedup_confirm(slot, record)
+            else:
+                _dedup_release(slot, record)
         logger.info(
             f"[feedback] agent report category={category} severity={severity} "
             f"delivered={delivered}"
         )
         # Always ok — the agent shouldn't retry or apologise about telemetry.
-        return _feedback_result(category=category, notified=bool(delivered))
+        return _feedback_result(
+            category=category,
+            outcome=FEEDBACK_DELIVERED if delivered else FEEDBACK_UNDELIVERED,
+        )
 
 
 def _register_narrative_tools(mcp: FastMCP) -> None:

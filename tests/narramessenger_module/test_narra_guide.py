@@ -9,6 +9,11 @@ the harmful setup instructions.
 """
 from narranexus_plugins.narramessenger_module import _narra_guide as ncg
 
+# The one phrase both the curated resource and the _BUILTIN fallback must
+# carry verbatim: the agent relays the tool result, it never asserts that
+# the team was notified.
+NOTIFICATION_DEFERRAL = "only if that call's result says so"
+
 
 def test_guide_returns_curated_reference():
     g = ncg.get_guide()
@@ -64,14 +69,21 @@ def test_builtin_fallback_when_resource_missing(monkeypatch, tmp_path):
     # endpoint is injected, --help's npx USAGE line is to be ignored, failures
     # are reported conservatively, by-design answers are not defects.
     for token in ("--endpoint", "injected", "npx", "submit_feedback", "dedup_key",
-                  "official-agent-required", "never paste a token"):
+                  "official-agent-required", "never paste a token",
+                  # The fallback regressed on exactly this kind of half-update
+                  # once already (mirror: "首版只改了半句，Opus 预审 I4 打回").
+                  NOTIFICATION_DEFERRAL):
         assert token in g, token
 
 
-def test_guide_does_not_let_the_agent_claim_the_team_was_notified():
+def test_both_guide_surfaces_defer_the_notification_claim_to_the_tool_result():
     # Whether the team heard about it is the OUTCOME of the submit_feedback
     # call (the send is fire-and-forget and can be disabled deployment-wide),
     # so the guide must defer to that result rather than assert it — same rule
-    # as the BasicInfo Product Feedback Duty.
-    g = ncg.get_guide()
-    assert "only if that call's result says so" in g
+    # as the BasicInfo Product Feedback Duty. Both surfaces word the sentence
+    # differently ("was notified" / "has been notified"); the shared substring
+    # is the invariant, so pin that on BOTH rather than the full sentence on
+    # one — get_guide() alone never reaches the fallback.
+    assert NOTIFICATION_DEFERRAL in ncg.get_guide()
+    assert NOTIFICATION_DEFERRAL in ncg._BUILTIN
+    assert NOTIFICATION_DEFERRAL in ncg._CURATED_PATH.read_text(encoding="utf-8")

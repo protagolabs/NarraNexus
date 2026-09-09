@@ -9,10 +9,11 @@
   platform-wide outage. A report that never reached the intake releases its slot.
 - `submit_feedback` now answers with what actually happened instead of a constant
   "Feedback recorded": a `notified` flag plus a message that says whether the
-  agent may tell the user the team has been notified. An undelivered report (POST
-  failed, or feedback disabled for the deployment) explicitly forbids the claim —
-  it used to be asserted unconditionally by the prompt, which the agent had no way
-  to verify. Still always `ok=True`.
+  agent may tell the user the team has been notified. Five outcomes are
+  distinguished — delivered, duplicate of a confirmed delivery, a concurrent send
+  still in flight, undelivered, and reporting disabled for the deployment — and
+  only the first two permit the claim. It used to be asserted unconditionally by
+  the prompt, which the agent had no way to verify. Still always `ok=True`.
 
 ## 1.0.0
 

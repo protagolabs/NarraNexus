@@ -16,15 +16,48 @@ one with its own concrete filing instructions, so the key has to be named here �
 otherwise the gate is real but never engaged where it matters. `_narra_guide`'s
 two surfaces are covered by test_narra_guide.py.
 """
+import inspect
+
 from narranexus_plugins.narramessenger_module.narramessenger_module import _CLI_CAPABILITY
+
+
+def _submit_feedback_params() -> set[str]:
+    """The REAL parameter names of basic_info's submit_feedback.
+
+    Importing across plugins is fine in a test (tests are not modules, so
+    铁律 #3 is untouched) and is the point of this guard: the three
+    narramessenger surfaces hardcode `dedup_key` as prose, and nothing else
+    ties that literal to the tool it names.
+    """
+    from narranexus_plugins.basic_info_module import _basic_info_mcp_tools as mt
+
+    captured: dict = {}
+
+    class _Mcp:
+        def tool(self, **kw):
+            def _wrap(fn):
+                captured[kw["name"]] = fn
+                return fn
+            return _wrap
+
+    mt._register_feedback_tool(_Mcp())
+    return set(inspect.signature(captured["submit_feedback"]).parameters)
 
 
 def test_capability_block_hands_submit_feedback_a_dedup_key():
     assert 'submit_feedback(category="error"' in _CLI_CAPABILITY
     assert 'dedup_key="narra_cli:<code>"' in _CLI_CAPABILITY
     # A platform-wide outage reproduces on every call; the key is what keeps
-    # that to one report, so the text must say why it is not optional.
+    # that to one report per agent, so the text must say why it is not optional.
     assert "always pass it" in _CLI_CAPABILITY
+
+
+def test_the_kwarg_this_text_tells_the_agent_to_pass_actually_exists():
+    # FastMCP validates arguments against the signature: if `dedup_key` were
+    # renamed, an agent following these instructions verbatim would send an
+    # unknown kwarg and submit_feedback would fail outright — on the one path
+    # the 2026-09-09 incident came in on, silently disarming the gate.
+    assert "dedup_key" in _submit_feedback_params()
 
 
 def test_capability_block_defers_the_notification_claim_to_the_tool_result():

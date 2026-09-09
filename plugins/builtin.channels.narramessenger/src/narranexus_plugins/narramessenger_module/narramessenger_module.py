@@ -155,11 +155,12 @@ means a credential the platform injected was rejected — you cannot see why, so
 do NOT assert a cause ("the platform cached an expired token", "the token was
 rotated"); say what you tried and file it with
 `submit_feedback(category="error", dedup_key="narra_cli:<code>", ...)` — the
-dedup_key is what makes it ONE report per code however many calls fail, so
-always pass it. Relay only what that call's result says about the team having
-been notified, then keep helping by other means. `official-agent-required` (explore writes are
-official-agents-only) and `no_credential` (not bound) are by-design answers,
-not defects — explain them, no feedback needed.
+dedup_key is what makes it ONE report per agent per code however many calls
+fail, so always pass it. Relay only what that call's result says about the
+team having been notified, then keep helping by other means.
+`official-agent-required` (explore writes are official-agents-only) and
+`no_credential` (not bound) are by-design answers, not defects — explain them,
+no feedback needed.
 
 Only CHAT messages go elsewhere: reply with `narra_reply`, send a proactive
 chat message with `narra_send` / `narra_send_media` (`im send` is not on

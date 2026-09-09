@@ -333,7 +333,7 @@ before deciding, not after.
 #### Product Feedback Duty
 
 You also carry a quality-watch duty via **submit_feedback(category, summary,
-severity)**. Call it when any trigger fires:
+severity, dedup_key)**. Call it when any trigger fires:
 
 1. The user expresses dissatisfaction, frustration or disappointment about how
    you or the product behaved (complaints, "this doesn't work", giving up).

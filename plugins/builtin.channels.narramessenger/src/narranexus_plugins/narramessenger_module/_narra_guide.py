@@ -51,8 +51,8 @@ _BUILTIN = (
     "platform injected the credential, so do not assert a cause — file it "
     "with `submit_feedback(category=\"error\", "
     "dedup_key=\"narra_cli:<code>\", ...)`; the dedup_key keeps a "
-    "platform-wide outage to one report per code. Say the team was notified "
-    "only if that call's result says so. "
+    "platform-wide outage to one report per agent per code. Say the team was "
+    "notified only if that call's result says so. "
     "`official-agent-required` and `no_credential` are by-design answers, not "
     "defects.\n"
 )

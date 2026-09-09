@@ -21,7 +21,10 @@ dedup_key="narra_cli:<code>")` 上报、继续用别的方式帮用户；`offici
 
 **为什么这里必须点名 `dedup_key`**（同日随 basic_info 侧一并落地）：「报一次」现在
 由 [[_basic_info_mcp_tools.py]] 的 `submit_feedback` 用 `dedup_key` 在工具侧执行，
-**不传 key 就等于完全不去重**。narra_cli 恰恰是这次事故的入口、也是全仓唯一一处
+**不传 key 就等于完全不去重**。措辞是「每个 **agent** 每个错误码一条」而不是「一条」：
+闸门的键是 `(agent_id, dedup_key)` 且只在单进程内，平台级故障波及 N 个 agent 就是 N
+条——写成「一条」会让下一个值班的人看到 27 条同样的 `error` 就去查一个不存在的 bug
+（本仓头号历史命中形状：文案承诺代码没交付的东西）。narra_cli 恰恰是这次事故的入口、也是全仓唯一一处
 带自己具体上报指引的渠道文案——平台级故障每次调用都复现，key 缺席等于闸门装了却
 没接上。同理，「团队已被通知」是那次调用的**结果**（发送是 fire-and-forget，整个
 部署还可能关掉 feedback），所以文案只让 agent 转述 `submit_feedback` 结果里的说法，

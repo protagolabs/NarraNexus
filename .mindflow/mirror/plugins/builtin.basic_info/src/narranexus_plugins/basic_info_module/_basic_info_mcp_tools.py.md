@@ -21,12 +21,32 @@ stub: false
 
 实现：可选参数 `dedup_key`（**必须可选**，`= ""`；改成必填会直接打断触发 (a)/(b)
 的既有调用）。`_dedup_reserve` 在**发送前**占位（而不是发送后记录），关掉两个并发调用
-同时通过的窗口；命中已占位则跳过 POST 并返回 `ok=True` +「Already filed this one」
-——不能返回失败，工具契约要求 agent 不重试、不向用户道歉（见本文件 docstring 与
-[[feedback_client.py]] 的 fire-and-forget 约定）。`_dedup_release` 在
-`send_feedback` 返回 False 时撤销占位：否则缓存里存的就是**失败哨兵**，接收端一挂就
-把这个 agent+错误码唯一的一次上报名额白白吃掉，事故永远报不出去；撤销后失败路径与去重
-前的老行为一致。
+同时通过的窗口；命中已占位则跳过 POST 并返回 `ok=True`——不能返回失败，工具契约要求
+agent 不重试、不向用户道歉（见本文件 docstring 与 [[feedback_client.py]] 的
+fire-and-forget 约定）。`_dedup_release` 在 `send_feedback` 返回 False 时撤销占位：
+否则缓存里存的就是**失败哨兵**，接收端一挂就把这个 agent+错误码唯一的一次上报名额白白
+吃掉，事故永远报不出去；撤销后失败路径与去重前的老行为一致。
+
+**占位有三态，不是两态**（Opus 预审 C1 打回的正是这里——第二轮修复在自己的边界上又开
+了一个口子，与 PR#260 连打五轮同一形状）。记录是 `[stamp, delivered]`：
+- `DEDUP_NEW` —— 本次调用拿到坑位，负责真正发送。
+- `DEDUP_PENDING` —— 别人正在发、结果未知。**必须回 `notified=False`**（「已经有一
+  条在路上，结果还不知道」），绝不能说「团队已收到」。只判断「在不在」的两态实现会在
+  这里撒谎：`send_feedback` 有 3s 超时且吞异常，占位未决窗口最宽的时刻恰恰是接收端也
+  在挣扎的时刻；一个 agent 同时服务多个会话、平台级故障让它们在同几秒内全部命中同一
+  个 `narra_cli:agent-token-invalid`，于是除第一个之外每个会话都会对用户说「团队已被
+  通知」，而唯一真跑过的那次发送失败了——正是 `67719fcc1` 要消灭的那句假话，反过来
+  又长了回来。
+- `DEDUP_CONFIRMED` —— 确实投递成功过，这时命中才允许说「已通知」。
+成功后由 `_dedup_confirm` **原地**把 `delivered` 置 True（改 value 不动 key，插入序
+== 时间序的前向清扫契约才不被破坏；千万不要 pop 再插）。`_dedup_confirm` /
+`_dedup_release` 都带**身份校验**（`is record`）：坑位被容量/TTL 淘汰后可能已被别人重
+新占用，只按 key 删会把别人正在用的占位删掉。
+
+`feedback_disabled()` 在占位之前就短路（返回 `FEEDBACK_DISABLED`，不动缓存）——否则
+「本部署根本不上报」会被说成「刚才没联系上」，而且白白 churn 缓存。`category` 也在入口
+统一归一化（未知值 → `other`），否则 [[feedback_client.py]] 按 `other` 投递、
+`_feedback_result` 却按原字符串描述，同一条上报两半各说各话。
 
 **返回值承载「能对用户说什么」**（Owner 定调 2026-09-09）：`_feedback_result` 按
 `category` + 真实投递结果构造消息，取代原来那句恒定的「Feedback recorded」。
@@ -38,13 +58,15 @@ stub: false
   但仍禁止断言原因。只有这一类会覆盖「默认不向用户提 telemetry」：用户正卡在平台侧
   故障上，「有人已经知道了」是我们唯一能给的真话。
 - 其余 category → `notified=True` 但消息不提通知，维持默认不宣告。
-- 去重命中 → `duplicate=True` + `notified=True`：占位只在**投递成功**后才留存
-  （失败会 `_dedup_release`），所以命中即证明团队确实收到过。
+- 去重命中且状态为 `DEDUP_CONFIRMED` → `notified=True` +「Already reported」：只有
+  投递成功过的占位才会带 `delivered=True`，所以这时命中确实证明团队收到过。命中
+  `DEDUP_PENDING` 则 `notified=False`（见上）。
 恒为 `ok=True` 不变（工具契约：不重试、不道歉）。
 
-边界：`dedup_key` 是调用方（模型）可控文本，故 key 截断到
-`FEEDBACK_DEDUP_KEY_MAXLEN`、字典按 `FEEDBACK_DEDUP_MAX_ENTRIES` 上限 +
-`FEEDBACK_DEDUP_TTL_SECONDS` 过期从头清扫（条目只插入不刷新，所以插入序即时间序）。
+边界：`agent_id` 与 `dedup_key` **两半都是**调用方（模型）可控文本，故**两半都**截断到
+`FEEDBACK_DEDUP_KEY_MAXLEN`（只截 key 的话仍是 4096 条 × 无界字符串）；字典按
+`FEEDBACK_DEDUP_MAX_ENTRIES` 上限 + `FEEDBACK_DEDUP_TTL_SECONDS` 过期从头清扫
+（stamp 只写一次不刷新，所以插入序即时间序）。
 **单进程假设**（铁律 #20）：basic_info MCP server 是一个进程、全 deployment 共用，
 本闸门**不跨进程、不跨重启**，也不替代接收端幂等——真正彻底的做法是把 dedup_key 带进
 intake payload，但 intake 在本仓外、要先和团队约定字段。
