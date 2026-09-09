@@ -21,15 +21,16 @@ Two tiers, on purpose:
     cooldown-deduped). Transient blips (timeouts, 5xx) are not actionable by
     the owner, so they stay out of the inbox to avoid alarm fatigue.
 
-The cooldown map is in-process (a restart resets it) — the same accepted
-tradeoff the message bus already makes for its failure notices.
+The cooldown is persisted (``owner_notice_cooldowns``, the same row shape the
+message bus's failure notices use since 2026-09-09): a restart no longer
+re-notifies, and several background processes agree on one window. An
+unreadable window fails OPEN — the observer must never silence the observed.
 """
 
 from __future__ import annotations
 
-import time
 import uuid
-from typing import Dict, Optional
+from typing import Optional
 
 from loguru import logger
 
@@ -38,6 +39,9 @@ from narranexus.platform.agent_framework.llm.failure import (
     redact_secrets,
 )
 from narranexus.platform.repository.inbox_repository import InboxRepository
+from narranexus.platform.repository.owner_notice_cooldown_repository import (
+    OwnerNoticeCooldownRepository,
+)
 from narranexus.platform.schema.inbox_schema import InboxMessageType, MessageSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 from narranexus.platform.utils.db.db_factory import get_db_client
@@ -45,19 +49,31 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 # Name the background LLM plane records under in the service_audit table.
 _AUDIT_SERVICE = "background_llm"
 
-# One owner inbox notice per (agent_id, category) per this window. Matches the
-# message bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner running many
-# background paths for one broken key gets at most one nudge per surface per
-# half hour.
+# One owner inbox notice per (agent_id, target, category) per this window.
+# Matches the message bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner running
+# many background paths for one broken key gets at most one nudge per surface
+# per half hour. `target` is the source_id when the caller has one (a narrative,
+# an agent) so two sources failing for one agent are two facts, not one.
 ALERT_COOLDOWN_SECONDS = 1800
 
-# (agent_id:category) -> last owner-notice monotonic timestamp.
-_notify_cooldown: Dict[str, float] = {}
+
+async def _cooling(db, agent_id: str, target: str, category: str) -> bool:
+    """Is a notice for this key still inside its window? Fails OPEN."""
+    try:
+        return await OwnerNoticeCooldownRepository(db).is_cooling(
+            agent_id, target, category, ALERT_COOLDOWN_SECONDS
+        )
+    except Exception as e:  # noqa: BLE001 — a notice beats a silent window
+        logger.warning(f"[owner-notice] cooldown read failed for {agent_id}: {e}")
+        return False
 
 
-def reset_alert_state() -> None:
-    """Clear the in-process cooldown map. For tests / explicit resets."""
-    _notify_cooldown.clear()
+async def _arm(db, agent_id: str, target: str, category: str) -> None:
+    """Open the window — called only after the inbox write succeeded."""
+    try:
+        await OwnerNoticeCooldownRepository(db).arm(agent_id, target, category)
+    except Exception as e:  # noqa: BLE001 — best-effort; a duplicate later is the cheap failure
+        logger.warning(f"[owner-notice] cooldown arm failed for {agent_id}: {e}")
 
 
 async def alert_background_llm_failure(
@@ -115,14 +131,11 @@ async def alert_background_llm_failure(
     if not is_credential or not owner_user_id:
         return
 
-    cooldown_key = f"{agent_id}:{category}"
-    now = time.monotonic()
-    last = _notify_cooldown.get(cooldown_key)
-    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
-        return
-
     try:
         db = await get_db_client()
+        target = source_id or agent_id
+        if await _cooling(db, agent_id, target, category):
+            return
         safe_error = redact_secrets(error)
         content = (
             f"A background task ({source}) for this agent is failing with what "
@@ -143,7 +156,7 @@ async def alert_background_llm_failure(
         )
         # Arm cooldown only after a successful write — a transient DB blip must
         # not silently suppress the real notice for the rest of the window.
-        _notify_cooldown[cooldown_key] = now
+        await _arm(db, agent_id, target, category)
         logger.warning(
             f"[background-llm] notified owner {owner_user_id} of credential "
             f"failure for agent {agent_id} (source={source})"
@@ -191,12 +204,6 @@ async def alert_agent_paused(
     if not owner_user_id:
         return
 
-    cooldown_key = f"cb:{agent_id}:{reason}"
-    now = time.monotonic()
-    last = _notify_cooldown.get(cooldown_key)
-    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
-        return
-
     if reason == "quota":
         hint = (
             "The agent's provider reports the balance/quota is exhausted. Top up "
@@ -212,6 +219,9 @@ async def alert_agent_paused(
         )
     try:
         db = await get_db_client()
+        target = source_id or agent_id
+        if await _cooling(db, agent_id, target, f"cb:{reason}"):
+            return
         content = (
             f"Real-time replies for this agent were automatically paused after "
             f"repeated {reason} failures, to stop re-triggering a run that "
@@ -229,7 +239,7 @@ async def alert_agent_paused(
             message_type=InboxMessageType.SYSTEM_NOTICE,
             source=MessageSource(type="agent_circuit_breaker", id=source_id or agent_id),
         )
-        _notify_cooldown[cooldown_key] = now
+        await _arm(db, agent_id, target, f"cb:{reason}")
         logger.warning(
             f"[agent-cb] notified owner {owner_user_id}: agent {agent_id} "
             f"paused ({reason})"
@@ -273,14 +283,10 @@ async def alert_agent_transient_streak(
     if not owner_user_id:
         return
 
-    cooldown_key = f"cb:{agent_id}:transient"
-    now = time.monotonic()
-    last = _notify_cooldown.get(cooldown_key)
-    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
-        return
-
     try:
         db = await get_db_client()
+        if await _cooling(db, agent_id, agent_id, "cb:transient"):
+            return
         content = (
             f"This agent's real-time replies have failed {consecutive_failures} "
             f"times in a row talking to its LLM provider. It is NOT paused — it "
@@ -299,7 +305,7 @@ async def alert_agent_transient_streak(
             message_type=InboxMessageType.SYSTEM_NOTICE,
             source=MessageSource(type="agent_circuit_breaker", id=agent_id),
         )
-        _notify_cooldown[cooldown_key] = now
+        await _arm(db, agent_id, agent_id, "cb:transient")
         logger.warning(
             f"[agent-cb] notified owner {owner_user_id}: agent {agent_id} "
             f"transient-failing x{consecutive_failures}"

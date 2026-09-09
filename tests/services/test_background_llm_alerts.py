@@ -33,15 +33,16 @@ class _FakeAuditor:
 
 
 @pytest.fixture(autouse=True)
-def _wire(monkeypatch):
+def _wire(monkeypatch, db_client):
     _FakeInboxRepo.created = []
     _FakeAuditor.errors = []
-    alerts.reset_alert_state()
 
-    async def _fake_db():
-        return object()
+    # A REAL (in-memory) database: the cooldown is a table now, not a
+    # process-local map, so the dedup test exercises the persisted window.
+    async def _db():
+        return db_client
 
-    monkeypatch.setattr(alerts, "get_db_client", _fake_db)
+    monkeypatch.setattr(alerts, "get_db_client", _db)
     monkeypatch.setattr(alerts, "InboxRepository", _FakeInboxRepo)
     monkeypatch.setattr(alerts, "ServiceAuditor", _FakeAuditor)
     yield
@@ -107,3 +108,44 @@ async def test_missing_owner_still_audits():
     )
     assert len(_FakeAuditor.errors) == 1
     assert len(_FakeInboxRepo.created) == 0
+
+
+@pytest.mark.asyncio
+async def test_cooldown_survives_a_process_restart(db_client):
+    """2026-09-09: the window is persisted — a second process (or the same
+    one after a restart) must not re-notify inside it."""
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error="401 unauthorized", source_id="nar_1",
+    )
+    rows = await db_client.get("owner_notice_cooldowns", {"agent_id": "agt_1"})
+    assert [(r["target"], r["category"]) for r in rows] == [("nar_1", "provider_credential")]
+    # Nothing in-process to reset any more; the row alone suppresses.
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error="401 unauthorized", source_id="nar_1",
+    )
+    assert len(_FakeInboxRepo.created) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_cooldown_fails_open(monkeypatch):
+    class _Dead:
+        async def get_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        async def update(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        async def insert(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+    async def _db():
+        return _Dead()
+
+    monkeypatch.setattr(alerts, "get_db_client", _db)
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error="401 unauthorized", source_id="nar_1",
+    )
+    assert len(_FakeInboxRepo.created) == 1   # notified, not silenced
