@@ -37,6 +37,10 @@ def test_guide_states_platform_provides_narra_cli():
     # certainty; by-design answers are explained, not reported.
     assert "submit_feedback" in g
     assert "official-agent-required" in g and "by-design" in g
+    # `once` is not self-enforcing: narra_cli errors are machine-generated and
+    # a platform-wide outage reproduces on every call, so the guide must hand
+    # submit_feedback the dedup_key that makes the tool enforce it.
+    assert "dedup_key" in g
 
 
 def test_guide_is_curated_not_raw_runtime_md():
@@ -59,6 +63,15 @@ def test_builtin_fallback_when_resource_missing(monkeypatch, tmp_path):
     # The fallback must carry the same 1.2-era invariants as the resource:
     # endpoint is injected, --help's npx USAGE line is to be ignored, failures
     # are reported conservatively, by-design answers are not defects.
-    for token in ("--endpoint", "injected", "npx", "submit_feedback",
+    for token in ("--endpoint", "injected", "npx", "submit_feedback", "dedup_key",
                   "official-agent-required", "never paste a token"):
         assert token in g, token
+
+
+def test_guide_does_not_let_the_agent_claim_the_team_was_notified():
+    # Whether the team heard about it is the OUTCOME of the submit_feedback
+    # call (the send is fire-and-forget and can be disabled deployment-wide),
+    # so the guide must defer to that result rather than assert it — same rule
+    # as the BasicInfo Product Feedback Duty.
+    g = ncg.get_guide()
+    assert "only if that call's result says so" in g
