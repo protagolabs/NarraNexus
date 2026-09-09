@@ -3,6 +3,11 @@ code_file: src/narranexus/platform/message_bus/schemas.py
 last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09 — BusMessage.part_index / part_count / part_group
+
+分片消息的三列（可空；普通消息全 None），随 `_row_to_message` 进出。`part_group` 是
+第 1 块的 message_id。见 [[multipart]]。
+
 ## 2026-09-09 — BusMessage.part_message_ids（非列）
 
 内存字段：当一条 BusMessage 是多行（分片消息）的**重组体**时，按序列出它代表的每一行

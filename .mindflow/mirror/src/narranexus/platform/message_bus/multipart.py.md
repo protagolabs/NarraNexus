@@ -1,0 +1,43 @@
+---
+code_file: src/narranexus/platform/message_bus/multipart.py
+last_verified: 2026-09-09
+stub: false
+---
+
+# multipart.py — 长消息分片发送与收件方重组
+
+## 为什么存在
+
+bus 本身不截断（`bus_messages.content` 是 TEXT），截断发生在**发件方模型**：约 4-5k 字的
+回复正好撞到工具调用参数 JSON 的输出 token 预算，loop 唯一诚实的回答是「工具没执行，
+分小块发」（NexusPower `unparsed_call_result`）。没有分块契约时，「小块」= N 条独立 bus
+消息，而 wake 信号在第 1 块落地时就启动收件方的 turn——收件方回答一个片段，后续块又
+变成对那个回答的回复。8/31 用户报的三件事（长回复被截、收件方 turn 空、"This turn
+ended without delivering a reply" 反复）就是这个形状。
+
+## 契约
+
+`message_agent(text, part_index=i, part_count=n)`。每块各自一行 `bus_messages`（不截、
+不重编码），`part_group` = 第 1 块的 message_id，由写入边 `LocalMessageBus._resolve_part_group`
+解析：块 >1 必须紧跟同 sender 同 channel 的**最近一块**（index-1、同 count），否则拒绝——
+放不进组的碎片不允许存在。上限 `MAX_MESSAGE_PARTS=40`，低于车道 pending LIMIT(50)，
+保证整组总在一批里。
+
+收件侧 `assemble(batch)` 三种结果：
+- **不完整且年轻**（距最新一块 < `PART_ASSEMBLY_GRACE_SECONDS`=600s）→ `hold=True`，
+  车道不 ack 直接返回；最后一块自己的 `wake_signal.bump` 会把轮询拉回来。600s 刻意宽：
+  发件方是 turn 中的模型，思考型模型两次工具调用之间可以几分钟；这个数只约束「发件方
+  在两块之间死掉」能让收件方等多久。
+- **完整** → 合成一条：content 用空串拼（它们是子串不是段落）、attachments 取并集、
+  身份（message_id/event_id/root_run_id/turn source）取第 1 块、`created_at` 取最后一块
+  （ack 游标必须越过每一行）、`part_message_ids` 列出全部行（投递回执要逐行盖）。
+- **不完整但过期或被取代**（同 sender 在本 channel 又开了更新的组——写入边只会延续
+  最新一块，旧组永远续不上）→ 按到达的内容投递 + 明确标记缺哪几块。宁可标记也不静默
+  丢（铁律 #16），不永远等（铁律 #14：平台不做打断源）。
+
+## 边界
+
+`MessageBusModule.gather` 的未读预览仍逐行显示（带 `(part i/n)` 标签），只有 trigger 的
+turn 入口做重组；Agent 收件箱线程也按块记录（内容完整，只是分行）。
+`test_multipart_messages.py` 钉 12k 字节级往返、hold、取代、过期标记、乱序/超长拒绝；
+`test_multipart_mysql.py` 钉那条组查找 raw SQL 的 MySQL 方言。

@@ -63,6 +63,13 @@ class BusMessage(BaseModel):
     # this message wakes up inherits it, which is how a cascade stop reaches
     # past an agent→agent hop. None for user messages and legacy rows.
     root_run_id: Optional[str] = None
+    # A long message sent in ordered parts: 1-based index and total, and the
+    # group id (the first part's message_id) tying the parts together. All
+    # None on an ordinary single-row message. The trigger holds an incomplete
+    # group back and hands the turn ONE reassembled message (multipart.py).
+    part_index: Optional[int] = None
+    part_count: Optional[int] = None
+    part_group: Optional[str] = None
     # When this message is the REASSEMBLY of several stored rows (a long
     # message sent in ordered parts), the ids of every row it stands for, in
     # order. None for an ordinary single-row message. Not a column: it exists

@@ -4,6 +4,17 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — `message_agent` 的 `part_index/part_count` 与按字节拒绝超长
+
+docstring 教模型：一次放不下就按序分块发（同 count、从 1 开始），收件方在最后一块到达
+前不会被唤醒、收到的是原样拼回的一条——所以随便切、别摘要、别重复。返回里带
+`part: "i/n"`，未到最后一块时附 `note` 说明收件方还没被唤醒。写入边的顺序校验在
+[[local_bus]]，重组在 [[multipart]]。
+
+`_reject_oversize_text`：单条/单块超过 `MAX_BUS_MESSAGE_BYTES`（60_000，留在 MySQL TEXT 的
+65,535 之下）直接拒绝并点名分片——**拒绝而不是截断**（铁律 #16）：列要么在严格模式下抛
+一个模型看不懂的 1406，要么静默留前缀，两者都丢尾巴。
+
 ## 2026-09-09 — `message_agent` 返回投递回执 `receipt`
 
 成功路径多返回 `receipt: {status: accepted|held, reason?}`（`_book_receipt`），失败路径带

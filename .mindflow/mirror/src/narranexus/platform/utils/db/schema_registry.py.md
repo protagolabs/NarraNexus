@@ -4,6 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — `bus_messages` 加三列 `part_index / part_count / part_group`（additive，可空）
+
+长消息分片（[[multipart]]）。不改 `content` 的 TEXT 类型：`auto_migrate` 不做列加宽，
+而且真正的截断点是发件方模型的输出预算而不是 64 KiB；单行上限由发送工具按字节明确拒绝
+（`MAX_BUS_MESSAGE_BYTES`），超了就走分片，永不截断。
+
 ## 2026-09-09 — `bus_delivery_receipts` 表（26c，additive）
 
 (message_id, to_agent) 复合主键；status / reason(已脱敏) / attempts / content_key +

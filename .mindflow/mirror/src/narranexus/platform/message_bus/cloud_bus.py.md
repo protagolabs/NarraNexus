@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/message_bus/cloud_bus.py
-last_verified: 2026-08-14
+last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09 — 签名跟随契约：keyword-only `part_index/part_count`
+
+仍 `NotImplementedError`；只是让 `test_team_message_segments` 的「实现不得偏离协议」断言
+继续成立。
+
 ## 2026-08-14 — 签名跟随契约：`segments` + `get_messages_before`
 
 两处都只是 `NotImplementedError` 的桩，但**必须跟着抽象基类走**：这个文件存在的意义就是

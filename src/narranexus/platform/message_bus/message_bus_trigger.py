@@ -54,6 +54,7 @@ from narranexus.platform.message_bus.delivery_notice import (
     announce_delivery_failure,
     announce_undelivered,
 )
+from narranexus.platform.message_bus.multipart import assemble as assemble_parts
 from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
@@ -1110,6 +1111,19 @@ class MessageBusTrigger:
                     )
                     return False
 
+                # A long message sent in parts: hold the lane until the last
+                # part lands (no ack — the part's own wake bump brings the loop
+                # back), then hand the turn ONE reassembled message. Before
+                # this, the wake on part 1 started the turn on a fragment and
+                # the later parts read as replies to that answer (multipart.py).
+                relevant, hold = assemble_parts(relevant)
+                if hold:
+                    logger.debug(
+                        f"MessageBusTrigger: holding {channel_id} for {agent_id} "
+                        f"— a multipart message is still arriving"
+                    )
+                    return False
+
                 # Rate limiting
                 if not self._check_rate_limit(agent_id, channel_id):
                     latest = max(relevant, key=lambda m: str(m.created_at))
@@ -1953,6 +1967,7 @@ class MessageBusTrigger:
                 await self._announce_undelivered_turn(
                     agent_id, channel_id, trigger_message,
                     is_team=is_team, errand_continuation=errand_continuation,
+                    batch=messages,
                 )
                 if not is_team:
                     await self._stamp_receipts(
@@ -3916,8 +3931,12 @@ class MessageBusTrigger:
     async def _announce_undelivered_turn(
         self, agent_id: str, channel_id: str, trigger_message: BusMessage,
         *, is_team: bool, errand_continuation: bool,
+        batch: Optional[List[BusMessage]] = None,
     ) -> None:
         """The turn ran and reached nobody. Make that visible.
+
+        ``batch`` is what the turn was built from; on a DM it decides whether
+        the asking peer is woken (see the resend guard below).
 
         WHO is left waiting decides who gets woken, and the two surfaces
         differ:
@@ -3944,6 +3963,16 @@ class MessageBusTrigger:
         asked and got nothing". Platform-initiated turns have no one waiting on
         an answer, so their silence is not a silence we owe the user an
         explanation for.
+
+        And never wakes the asker TWICE for the same question (2026-09-09).
+        The notice is itself a message in a DM, so it starts the asker's next
+        turn; a model that reads "ended without replying" and simply sends the
+        same text again gets the same silence, which gets the same notice —
+        the 8/31 ping-pong. The receipt ledger remembers the content
+        fingerprint of every batch this agent went silent on
+        (`_stamp_receipts` → `content_key`), so a silence on a RESEND is
+        recorded but posts nothing: the asker's owner already has the inbox
+        notice, and the asker is not woken into round three.
         """
         if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
             return
@@ -3974,6 +4003,15 @@ class MessageBusTrigger:
             and bool(sender)
             and not sender.startswith(USER_SENDER_PREFIX)
         )
+        if await self._silence_already_announced(
+            agent_id, channel_id, batch or [trigger_message]
+        ):
+            logger.info(
+                f"[bus-resend] {agent_id} silent again on the same content in "
+                f"{channel_id}; not waking {sender or 'the sender'} a second time"
+            )
+            await self._notify_undelivered_owner(agent_id, channel_id, sender)
+            return
         await announce_undelivered(
             self._bus, channel_id, agent_id,
             mentions=[sender] if wake_peer else None,
@@ -3982,6 +4020,32 @@ class MessageBusTrigger:
         # A DM silence happens somewhere nobody is watching, so the owner only
         # ever learns of it here.
         await self._notify_undelivered_owner(agent_id, channel_id, sender)
+
+    async def _silence_already_announced(
+        self, agent_id: str, channel_id: str, batch: List[BusMessage],
+    ) -> bool:
+        """Has this agent already gone silent on exactly this content, in this
+        channel, on an earlier message? Reads the receipt ledger; fails to
+        False (announce) — a missed dedup costs one extra wake, a false one
+        would hide a fresh silence."""
+        worthy = self._receipt_worthy(batch)
+        if not worthy:
+            return False
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+                content_key,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            return await BusDeliveryReceiptRepository(await get_db_client()).prior_silence(
+                channel_id=channel_id, to_agent=agent_id,
+                key=content_key("\n".join(m.content for m in worthy)),
+                exclude_message_id=worthy[-1].message_id,
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.warning(f"[bus-resend] guard read failed for {agent_id}: {e}")
+            return False
 
     async def _notify_undelivered_owner(
         self, agent_id: str, channel_id: str, sender: str,

@@ -4,6 +4,22 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — 分片消息在车道入口重组；同一沉默只唤醒发件方一次（8/31 A2A 长消息复盘）
+
+**重组**：`_process_lane` 在 mention 过滤之后、限流之前调 [[multipart]] `assemble`：组还没
+到齐且年轻 → 直接 `return False`（不 ack，最后一块的 wake bump 会把车道拉回来）；到齐 →
+turn 收到**一条**合成消息（`_build_prompt` / `build_bus_anchor` 都只见一条）。这是 8/31
+「收件方 turn 是空的」的根：wake 在第 1 块上就起了 turn。
+
+**重发守卫**（`_announce_undelivered_turn`，仅 DM 分支）：undelivered 通知本身是 DM 里的一条
+消息，会起发件方下一轮；模型读到「没回复」就原样再发，得到同样的沉默、同样的通知——
+乒乓。现在通知前先问 `_silence_already_announced`：收件方是否已在本 channel 对**同样内容**
+（`content_key`，来自 `_stamp_receipts` 写进回执的指纹）在另一条 message 上沉默过。是 →
+只写回执 + owner 收件箱通知（有冷却），**不贴通知、不 @**，发件方不会被第三次唤醒。
+守卫读失败 fail-to-False（多唤醒一次比藏掉一次真沉默便宜）。`batch` 参数把整批传给它，
+指纹口径与 `_stamp_receipts` 一致（peer 正文按 `\n` 拼接）。
+锁：`test_multipart_messages.py`（12k 往返 / hold / 取代 / 过期标记 / 一次唤醒）。
+
 ## 2026-09-09 — 投递回执 + 被丢弃的消息回写给发件方（上游 #106 第 2/4 子项）
 
 DM 车道（`not is_team`）在 turn 结束时把结果写进 `bus_delivery_receipts`

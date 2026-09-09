@@ -970,6 +970,16 @@ _register(
             # continues. NULL for user messages and pre-column rows — the
             # cascade treats NULL as "not part of any tree being stopped".
             Column("root_run_id", "TEXT", "VARCHAR(128)", nullable=True),
+            # A long message sent in ordered parts (2026-09-09): 1-based index,
+            # total, and the group id (= the first part's message_id). NULL on
+            # every ordinary row. `content` is TEXT (64 KiB on MySQL), and a
+            # model's own output-token budget cuts a tool call long before
+            # that — so a reply that does not fit one call travels as parts and
+            # the recipient's trigger reassembles them (multipart.py). Never a
+            # truncation, in either direction (iron rule #16).
+            Column("part_index", "INTEGER", "INT", nullable=True),
+            Column("part_count", "INTEGER", "INT", nullable=True),
+            Column("part_group", "TEXT", "VARCHAR(64)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

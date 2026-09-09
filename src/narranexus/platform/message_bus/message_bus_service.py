@@ -45,6 +45,10 @@ class MessageBusService(ABC):
         # and a parameter added in the middle silently rebinds every one of
         # them. Pinned by test_team_message_segments.
         segments: Optional[List[dict]] = None,
+        # Keyword-only from here: a long message sent in ordered parts.
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """
         Send a message to a channel.
@@ -243,6 +247,9 @@ class MessageBusService(ABC):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         event_id: Optional[str] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.

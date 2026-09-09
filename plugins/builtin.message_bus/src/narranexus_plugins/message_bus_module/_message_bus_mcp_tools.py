@@ -269,6 +269,13 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
 #: send this turn — is the same either way.
 _UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
 
+#: One bus row's content ceiling, in UTF-8 bytes — under the column's MySQL
+#: TEXT capacity (65,535) with room for the dialect's own overhead. Over it the
+#: send is REFUSED with the part contract named, never truncated (iron rule
+#: #16): a model whose output budget lets it produce this much in one call is
+#: told to send parts, and every byte still arrives.
+MAX_BUS_MESSAGE_BYTES = 60_000
+
 #: Ceiling on `read_history`. Sibling of the other agent-facing caps in
 #: `message_bus_module`; the number matters less than the fact that the model
 #: does not choose it.
@@ -313,6 +320,28 @@ def _reject_empty_text(text: str) -> Optional[dict]:
         "error": "`text` is empty — say something, or end the turn without "
                  "calling this. An attachment does not replace it: name what "
                  "you are sending.",
+    }
+
+
+def _reject_oversize_text(text: str) -> Optional[dict]:
+    """The refusal for ONE part/message over `MAX_BUS_MESSAGE_BYTES`, or None.
+
+    A refusal and not a cut: the column would either reject the row (MySQL
+    strict mode, an opaque 1406 the model cannot act on) or silently keep a
+    prefix, and both lose the tail. The message names the remedy the tool
+    already offers.
+    """
+    size = len((text or "").encode("utf-8"))
+    if size <= MAX_BUS_MESSAGE_BYTES:
+        return None
+    return {
+        "success": False,
+        "error": (
+            f"`text` is {size} bytes; one message holds at most "
+            f"{MAX_BUS_MESSAGE_BYTES}. Nothing was sent. Send it in ordered "
+            f"parts with part_index/part_count — each part under the limit — "
+            f"and the recipient receives it joined back into one message."
+        ),
     }
 
 
@@ -383,6 +412,8 @@ def register_message_bus_mcp_tools(
         to: str,
         text: str,
         attachment_refs: str = "",
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> dict:
         """
         Send a private message to another agent.
@@ -403,6 +434,14 @@ def register_message_bus_mcp_tools(
                 to a file in your own workspace ("work/report.pdf"). Files are
                 shared by reference — the recipient opens them with Read — so
                 attach freely. Same-user agents only.
+            part_index, part_count: for a LONG message that does not fit one
+                call, send it in ordered parts: call this once per part with
+                part_index=1..part_count and the same part_count each time,
+                in order. The recipient is not woken until the last part
+                arrives and receives the parts joined back into ONE message
+                exactly as written — so split anywhere, do not summarise, do
+                not repeat what an earlier part already said. Leave both at 0
+                for an ordinary message.
 
         Sending to someone triggers a full turn for them, so send with intent.
         The reply arrives as a new turn, not inside this one.
@@ -431,6 +470,9 @@ def register_message_bus_mcp_tools(
         empty = _reject_empty_text(text)
         if empty is not None:
             return empty
+        oversize = _reject_oversize_text(text)
+        if oversize is not None:
+            return oversize
 
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
@@ -439,6 +481,8 @@ def register_message_bus_mcp_tools(
                 to_agent=to.strip(),
                 content=text,
                 attachments=attachments or None,
+                part_index=int(part_index or 0),
+                part_count=int(part_count or 0),
                 sender_turn_source=_send_turn_source(to_agent=to.strip()),
                 # Carry this turn's trigger tree onto the message: the run this
                 # wakes has no other way to learn which tree it continues, and a
@@ -456,15 +500,23 @@ def register_message_bus_mcp_tools(
             # send site, because this is the only place that holds the text the
             # peer actually received; never raises (see the helper's docstring).
             await _record_peer_dm_inbox(agent_id, to.strip(), text, attachments)
-            return {
+            out = {
                 "success": True,
                 "message_id": msg_id,
                 "sent_to": await _describe_agent(to.strip()),
                 "attached": len(attachments),
-                "receipt": await _book_receipt(
-                    message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
-                ),
             }
+            if part_count:
+                out["part"] = f"{int(part_index)}/{int(part_count)}"
+                if int(part_index) < int(part_count):
+                    out["note"] = (
+                        f"part {int(part_index)}/{int(part_count)} stored; the "
+                        f"recipient is not woken until part {int(part_count)} arrives"
+                    )
+            out["receipt"] = await _book_receipt(
+                message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
+            )
+            return out
         except Exception as e:
             reason = redact_secrets(str(e))
             return {

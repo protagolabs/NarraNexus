@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/message_bus/local_bus.py
-last_verified: 2026-08-18
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — 分片消息：`part_index/part_count` 与 `_resolve_part_group`
+
+`send_message` / `send_to_agent` 末尾加 **keyword-only** 的 `part_index` / `part_count`
+（`*` 之后，位置调用方不可能被重绑；`test_team_message_segments` 的签名钉子改成断言
+`segments` 是最后一个 positional 参数）。写入前 `_resolve_part_group` 解析组：1/n 用自己的
+msg_id 开组；i/n（i>1）查同 sender 同 channel **最近一块**（新 raw SQL，MySQL 孪生
+`test_multipart_mysql.py`），必须是 i-1/n，否则 `ValueError` 拒绝——放不进组的碎片不落库。
+三个可空列 `part_index/part_count/part_group` 经 `_row_to_message` 回到 `BusMessage`。
+重组在收件侧 [[multipart]]。
 
 ## 2026-08-17 — `send_message` 顺手叫醒轮询循环（跨进程）
 

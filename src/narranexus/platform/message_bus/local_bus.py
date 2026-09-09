@@ -166,6 +166,9 @@ class LocalMessageBus(MessageBusService):
             sender_turn_source=row.get("sender_turn_source"),
             routed_by=row.get("routed_by"),
             root_run_id=row.get("root_run_id"),
+            part_index=row.get("part_index") or None,
+            part_count=row.get("part_count") or None,
+            part_group=row.get("part_group") or None,
             created_at=row.get("created_at"),
         )
 
@@ -187,8 +190,19 @@ class LocalMessageBus(MessageBusService):
         # and a parameter added in the middle silently rebinds every one of
         # them. Pinned by test_team_message_segments.
         segments: Optional[List[dict]] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
+
+        ``part_index`` / ``part_count`` (both 0 = an ordinary message) mark ONE
+        part of a long message sent in order. Part 1 opens a group whose id is
+        its own message_id; every later part must follow the previous index
+        from the same sender in the same channel with the same count, or the
+        send is refused (a part that cannot be placed would be delivered as a
+        fragment). The recipient's trigger holds the group back until the last
+        part lands and hands the turn one reassembled message — see multipart.py.
 
         ``sender_turn_source`` records WHICH KIND of turn produced this
         message ("chat"/"job"/… = the sender was running an errand for its
@@ -209,6 +223,9 @@ class LocalMessageBus(MessageBusService):
         beyond the hop running.
         """
         msg_id = _generate_id("msg")
+        part_group = await self._resolve_part_group(
+            from_agent, to_channel, msg_id, part_index, part_count
+        )
         # A message carrying files is tagged "multimodal" so UI / search can
         # distinguish it; pure text stays "text".
         if attachments and msg_type == "text":
@@ -229,6 +246,9 @@ class LocalMessageBus(MessageBusService):
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
             "routed_by": routed_by,
+            "part_index": part_index or None,
+            "part_count": part_count or None,
+            "part_group": part_group,
             "created_at": _now_iso(),
         })
         # Nudge the poll loop — the ONE place this can live.
@@ -569,6 +589,58 @@ class LocalMessageBus(MessageBusService):
                 {"last_read_at": latest_ts},
             )
 
+    async def _resolve_part_group(
+        self, from_agent: str, channel_id: str, msg_id: str,
+        part_index: int, part_count: int,
+    ) -> Optional[str]:
+        """The group id a part belongs to, or None for an ordinary message.
+
+        Validates the part contract at the write edge so a fragment can never
+        be stored unplaceable: 1 <= index <= count <= MAX_MESSAGE_PARTS, and a
+        part > 1 must find the sender's most recent part in this channel to be
+        exactly index-1 of the same count (the group is then that part's).
+        Raises ValueError with an agent-readable reason otherwise.
+        """
+        from narranexus.platform.message_bus.multipart import MAX_MESSAGE_PARTS
+
+        if not part_index and not part_count:
+            return None
+        if part_count < 1 or part_index < 1 or part_index > part_count:
+            raise ValueError(
+                f"invalid part {part_index}/{part_count}: parts are numbered "
+                f"1..count, count >= 1"
+            )
+        if part_count > MAX_MESSAGE_PARTS:
+            raise ValueError(
+                f"too many parts ({part_count}): at most {MAX_MESSAGE_PARTS} "
+                f"parts per message — send larger parts"
+            )
+        if part_index == 1:
+            return msg_id
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT part_index, part_count, part_group FROM bus_messages "
+            f"WHERE channel_id = {ph} AND from_agent = {ph} "
+            f"AND part_group IS NOT NULL "
+            f"ORDER BY created_at DESC LIMIT 1",
+            (channel_id, from_agent),
+        )
+        prev = rows[0] if rows else None
+        if (
+            prev is None
+            or int(prev.get("part_count") or 0) != part_count
+            or int(prev.get("part_index") or 0) != part_index - 1
+        ):
+            have = (
+                f"{prev.get('part_index')}/{prev.get('part_count')}" if prev else "none"
+            )
+            raise ValueError(
+                f"part {part_index}/{part_count} does not follow the previous "
+                f"part (last stored: {have}); send parts in order, starting at "
+                f"1/{part_count}"
+            )
+        return prev["part_group"]
+
     async def send_to_agent(
         self,
         from_agent: str,
@@ -579,6 +651,9 @@ class LocalMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         event_id: Optional[str] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -635,6 +710,8 @@ class LocalMessageBus(MessageBusService):
             sender_turn_source=sender_turn_source,
             root_run_id=root_run_id,
             event_id=event_id,
+            part_index=part_index,
+            part_count=part_count,
         )
 
     # ===== Channel Management =====
