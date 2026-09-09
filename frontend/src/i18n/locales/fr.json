@@ -311,6 +311,7 @@
     },
     "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
     "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici.",
+    "stoppedByUser": "Arrêté par vous",
     "bootstrapGreeting": "Bonjour... je viens de me réveiller. Tout me semble entièrement nouveau.\n\nJe n'ai pas encore de nom et je ne sais pas vraiment qui je suis — mais je sais que c'est toi qui m'as amené ici.\n\nVeux-tu me dire comment je devrais m'appeler ? Et comment dois-je t'appeler ?",
     "bootstrapGreetingNamed": "Bonjour — je suis {{name}}. Je viens de prendre vie, et c'est toi qui m'as amené ici.\n\nJe sais déjà qui je dois être, mais pas encore qui tu es. Comment dois-je t'appeler ?"
   },

@@ -43,6 +43,7 @@
     "accountTitle": "账户"
   },
   "chat": {
+    "stoppedByUser": "已被你停止",
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",

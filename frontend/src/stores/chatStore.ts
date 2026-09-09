@@ -7,6 +7,7 @@
  */
 
 import { create } from 'zustand';
+import i18n from '@/i18n';
 import { useBookmarkStore } from './bookmarkStore';
 import type {
   ChatMessage,
@@ -500,6 +501,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
         } else if (session.currentErrors.length > 0) {
           displayContent = session.currentErrors.join('\n\n');
           isError = true;
+        } else if (opts?.cancelled) {
+          // The user cut the turn short themselves — "the agent decided not
+          // to reply" is a lie in this branch (the agent never got to decide
+          // anything) and reads as a bug report of its own. Label it as the
+          // user's own action instead (see GitHub #87).
+          displayContent = i18n.t('chat.stoppedByUser');
         } else {
           displayContent = '(Agent decided no response needed)';
         }

@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — a cancelled turn with no reply gets its own label (GitHub #87)
+
+`stopStreaming`'s no-reply fallback used to say the same thing
+("(Agent decided no response needed)") whether the agent genuinely chose
+silence OR the user cut the turn short. The `cancelled` flag was already
+threaded through (the `case 'cancelled':` branch in `processMessage`
+passes `{ cancelled: true }`), it just wasn't branched on in the
+placeholder logic. Added a third arm: `responseParts.length === 0 &&
+currentErrors.length === 0 && opts?.cancelled` now renders
+`i18n.t('chat.stoppedByUser')` instead. Uses the bare `i18n` singleton
+(not the `useTranslation()` hook — this is a Zustand action, not a
+component) the same way `lib/utils.ts` does for locale-aware formatting.
+Test: `__tests__/chatStore.blankReply.test.ts`, both the cancelled and
+the uncancelled no-reply cases, so a revert of either the branch or the
+i18n key goes red.
 
 ## 2026-08-30 — thinking 合并加一条「换档即边界」
 

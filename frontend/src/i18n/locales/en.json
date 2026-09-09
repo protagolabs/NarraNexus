@@ -43,6 +43,7 @@
     "accountTitle": "Account"
   },
   "chat": {
+    "stoppedByUser": "Stopped by you",
     "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
     "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
