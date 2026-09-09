@@ -81,7 +81,7 @@ from narranexus.platform.module_system import XYZBaseModule, module_registry
 from narranexus.platform.module_system.base import mcp_mount_path, mcp_port
 
 # Utils
-from narranexus.platform.utils import DatabaseClient, get_db_client, get_db_client_sync
+from narranexus.platform.utils import DatabaseClient, close_db_client, get_db_client, get_db_client_sync
 
 
 @contextlib.contextmanager
@@ -386,6 +386,20 @@ class ModuleRunner:
                     loop.remove_signal_handler(sig)
                 except (NotImplementedError, ValueError):  # pragma: no cover
                     pass
+            if db is not None:
+                # This process opened the pool (`db`, above) on THIS loop —
+                # aiomysql binds its Futures to the creating loop, so it must
+                # also be the one to close it. Without this, returning here
+                # lets asyncio.run() tear the loop down with the pool still
+                # open; aiomysql's connections are then finalized by GC after
+                # the loop is already closed, logging "Event loop is closed"
+                # once per leaked connection (dev logs, 11x). Mirrors the
+                # shutdown convention run_worker_supervisor.py and
+                # run_channel_triggers.py already use for the same reason.
+                try:
+                    await close_db_client()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[mcp] close_db_client failed: {e}")
 
     @staticmethod
     def _build_module_app(mcp_server: Any) -> Any:

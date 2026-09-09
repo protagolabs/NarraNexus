@@ -342,3 +342,94 @@ def test_module_urls_point_at_the_single_host(monkeypatch):
     assert mcp_server_url("chat_module") == "http://mcp:7801/mcp/chat_module/sse"
     monkeypatch.setenv("MCP_BASE_URL", "https://edge.example/mcp-host/")
     assert mcp_server_url("job_module") == "https://edge.example/mcp-host/mcp/job_module/sse"
+
+
+@pytest.mark.asyncio
+async def test_sigterm_closes_the_db_pool_it_opened(monkeypatch, fake_uvicorn):
+    """B-41: in local/direct-MySQL mode this process is the one that opened
+    the pool (`get_db_client()`, bound to THIS loop — aiomysql binds its
+    Futures to the creating loop). Without closing it before returning,
+    `asyncio.run()` tears the loop down with the pool still open; aiomysql's
+    connections are then finalized by GC after the loop is already closed,
+    logging "Event loop is closed" once per leaked connection (dev logs).
+    """
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+
+    close_calls = {"n": 0}
+
+    async def _fake_close_db_client():
+        close_calls["n"] += 1
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+    loop = asyncio.get_running_loop()
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, cb, *a: registered.__setitem__(sig, cb))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: True)
+
+    async def _fire_sigterm_once_ready():
+        for _ in range(500):
+            if signal.SIGTERM in registered and len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        registered[signal.SIGTERM]()
+
+    fire_task = asyncio.create_task(_fire_sigterm_once_ready())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await fire_task
+
+    assert close_calls["n"] == 1, "the pool this process opened must be closed on the SAME loop before shutdown returns"
+
+
+@pytest.mark.asyncio
+async def test_sigterm_does_not_close_a_pool_it_never_opened(monkeypatch, fake_uvicorn):
+    """The seam/HttpStore (creds-free) mode never opens a pool
+    (`test_async_runner_is_credfree_when_seam_is_httpstore`) — shutdown must
+    not call close_db_client() in that mode either, since doing so would
+    reach for a per-loop client this process never created."""
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+
+    async def _boom_db():
+        raise AssertionError("get_db_client must not run in seam/HttpStore mode")
+
+    async def _boom_migrate(_backend):
+        raise AssertionError("auto_migrate must not run in seam/HttpStore mode")
+
+    monkeypatch.setattr("narranexus.platform.module_system.module_runner.get_db_client", _boom_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+    monkeypatch.setattr("narranexus.platform.module_system.plugins_boot.boot_mcp_plugins", lambda: None)
+
+    close_calls = {"n": 0}
+
+    async def _fake_close_db_client():
+        close_calls["n"] += 1
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+    loop = asyncio.get_running_loop()
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, cb, *a: registered.__setitem__(sig, cb))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: True)
+
+    async def _fire_sigterm_once_ready():
+        for _ in range(500):
+            if signal.SIGTERM in registered and len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        registered[signal.SIGTERM]()
+
+    fire_task = asyncio.create_task(_fire_sigterm_once_ready())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await fire_task
+
+    assert close_calls["n"] == 0

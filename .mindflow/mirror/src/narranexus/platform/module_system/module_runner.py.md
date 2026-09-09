@@ -1,7 +1,27 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `run_mcp_servers_async` 关闭它自己开的池（B-41）
+
+单进程/本地或直连 MySQL 模式下,这个协程用 `get_db_client()` 在**自己这个 loop** 上开了池
+(`aiomysql.Pool` 把 Future 绑死在建它的 loop 上,见 2026-08-11 那条 entry)。2026-07-27
+补的集中式优雅退出只在 `finally` 里摘信号处理器,从没关过这个池——`server.serve()` 一返回,
+外层 `asyncio.run()` 就把 loop 拆了,池还开着。之后 GC 才终结那些遗留的连接对象,而这时 loop
+已经关了,于是每条连接各打一次 `"Event loop is closed"` 警告(dev 日志里连续 11 条,对应
+`aiomysql` 的 `minsize=1..maxsize` 池里那几条连接)。
+
+修法:在 `finally` 里加 `if db is not None: await close_db_client()`——只在这个进程真的自己
+开过池时才关(seam=HttpStore 模式 `db` 是 `None`,不该去关一个自己没开过的客户端)。抄的是
+`run_worker_supervisor.py` / `run_channel_triggers.py` 两个同族"冻结入口"已经在用的关闭
+惯例,同一层为什么要关、关谁,三处保持一致而不是各写一套。
+
+测试覆盖了两条分支(`test_sigterm_closes_the_db_pool_it_opened` /
+`test_sigterm_does_not_close_a_pool_it_never_opened`);GC 之后才冒出来的
+"Event loop is closed" 警告本身在单元测试里没法确定性复现（GC 时机不可控），能钉住的是
+「关闭钩子确实被注册且在关停时被调用」这个前置条件——手工验证仍需要在 dev/MySQL 环境跑一次
+`docker compose restart mcp` 或对 mcp 进程发 SIGTERM，确认日志里不再冒出那 11 条警告。
 
 ## 2026-09-08（复审）— boot 提到 `main()` 顶部
 
