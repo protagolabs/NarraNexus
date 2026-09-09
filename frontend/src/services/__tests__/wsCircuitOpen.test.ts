@@ -8,6 +8,7 @@ import {
   circuitOpenReason,
   dispatchAgentCircuitOpen,
   isCircuitOpenMessage,
+  shouldClearCircuitBanner,
 } from '../wsCircuitOpen';
 
 describe('isCircuitOpenMessage', () => {
@@ -38,6 +39,20 @@ describe('circuitOpenReason', () => {
 
   it('returns "" for a non-matching frame', () => {
     expect(circuitOpenReason({ type: 'error', error_type: 'AuthError' })).toBe('');
+  });
+});
+
+describe('shouldClearCircuitBanner', () => {
+  it('keeps the banner while the backend still reports paused', () => {
+    expect(shouldClearCircuitBanner('paused')).toBe(false);
+  });
+
+  it('clears the banner once the breaker is active again (self-heal)', () => {
+    expect(shouldClearCircuitBanner('active')).toBe(true);
+  });
+
+  it('clears the banner for cooling too (no longer paused)', () => {
+    expect(shouldClearCircuitBanner('cooling')).toBe(true);
   });
 });
 

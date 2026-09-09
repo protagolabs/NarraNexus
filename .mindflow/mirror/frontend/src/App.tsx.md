@@ -4,6 +4,19 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — 熔断横幅显示期间轮询状态，自愈后自动关闭（GitHub #117）
+
+`circuitOpen` 横幅原本纯事件驱动（只在 wsManager 收到 fresh-run 拒绝帧时 set，
+从不重新校验）——后端半开探测（[[circuit_breaker]]）自己好了，或 owner 在别的
+tab/设备确认了凭据，这个横幅仍会挂在屏幕上直到用户手动点 Resume 或刷新页面。
+新增一个 `useEffect`：只要 `circuitOpen.reason` 以 `"paused"` 开头就起
+`window.setInterval`（`CIRCUIT_BREAKER_POLL_INTERVAL_MS`,
+`@/services/wsCircuitOpen`），每次轮询 `api.getAgentCircuitBreaker`（既有、
+之前零调用方的端点）,`shouldClearCircuitBanner(status.cb_status)` 判定为真就
+`setCircuitOpen(null)`。cooling 原因的横幅不轮询——cooling 本就短暂、按设计
+会随下一次交互自然消失,没有"卡死"问题需要解决。轮询失败（网络抖动）保持横幅
+原样,下一 tick 重试,不因为一次探测失败就误清一个真的还 paused 的横幅。
+
 ## 2026-09-09 — the four global banners speak the user's language (GitHub #107/#108)
 
 Session-expired, session-expiring-soon, the circuit-breaker banner

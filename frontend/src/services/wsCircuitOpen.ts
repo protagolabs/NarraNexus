@@ -14,6 +14,16 @@
  *
  * Helper extracted so wsManager's run()/reconnect() handlers share it and the
  * logic is unit-testable without a real WebSocket.
+ *
+ * GitHub #117 follow-up: the banner used to be purely event-driven — once
+ * shown it never re-checked reality, so a self-healed breaker (the backend's
+ * half-open probe succeeding, or an owner confirming their key elsewhere)
+ * left a stale "paused" banner up until the user manually dismissed or
+ * retried. App.tsx now polls GET /api/agents/{id}/circuit-breaker (an
+ * existing, already-wired endpoint — see agents_circuit_breaker.py) while
+ * the banner is showing a "paused" reason, and `shouldClearCircuitBanner`
+ * is the pure decision of whether that fresh status means the banner is
+ * stale and should close itself.
  */
 
 export interface MaybeCircuitOpenFrame {
@@ -40,6 +50,17 @@ export function circuitOpenReason(message: unknown): string {
   if (!isCircuitOpenMessage(message)) return '';
   const m = message as MaybeCircuitOpenFrame;
   return typeof m.cb_reason === 'string' ? m.cb_reason : '';
+}
+
+/** How often the "paused" banner re-checks GET .../circuit-breaker to see
+ * whether the agent has already self-healed (half-open probe succeeded, or
+ * the owner fixed the key from another tab/device). */
+export const CIRCUIT_BREAKER_POLL_INTERVAL_MS = 30_000;
+
+/** True when a freshly-fetched `cb_status` means the "paused" banner is
+ * stale and should close itself — anything other than still-paused. */
+export function shouldClearCircuitBanner(cbStatus: string): boolean {
+  return cbStatus !== 'paused';
 }
 
 /**
