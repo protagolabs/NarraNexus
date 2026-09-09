@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `owner_notice_cooldowns` 表（26b，additive）
+
+(agent_id, target, category) 复合主键 + `last_notified_at DATETIME(6)`。把
+[[message_bus_trigger]] 的 owner 通知冷却窗从进程内 dict 搬进库：重启不忘、多容器一致、
+按 channel 而不是按类别塌缩。读写方 [[owner_notice_cooldown_repository]]；窗口长度仍是
+写入方的常量，表只记上次写入时间。
 
 ## 2026-09-08（本地 E2E 实测）— `register_table(spec, owner)` 的 owner 改为可位置传参
 

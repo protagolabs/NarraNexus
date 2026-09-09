@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — owner 通知冷却窗持久化，键改为 (agent, channel, category)
+
+`_notify_owner` 的 `cooldown_key: str` 参数换成 `cooldown_category: str`，窗口不再是
+`self._notify_cooldown` 进程内 dict（已删），而是查/写 `owner_notice_cooldowns`
+（[[owner_notice_cooldown_repository]]），`target=channel_id`。两处调用方随之变化：
+永久失败通知 `cooldown_category=category`（`provider_credential` / `generic`），
+「没回复」通知 `cooldown_category="no_reply"`——后者原先刻意按 agent 不按 peer，现在按
+channel：对 B 沉默与对 C 沉默是两件事，通知正文本来就点名 channel。
+
+为什么要动（上游 #106 交接失联复盘的第三子项）：旧 key `agent:category` 让 channel A
+上一次永久失败把 channel B 上无关失败的通知按掉 30 分钟；重启把窗口全忘、下一轮 poll
+重发；多容器各自为政。窗口读失败 **fail-open 照样通知**（重复比漏发便宜），
+`arm` 仍只在收件箱写成功之后。锁：`test_failure_notification.py` 新增
+per-channel 与「换一个 trigger 实例仍被压制」两条。
 
 ## 2026-09-07 — 两处消费方跟着注册表视图走
 

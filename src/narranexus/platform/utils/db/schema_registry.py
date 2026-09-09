@@ -1236,6 +1236,33 @@ _register(
 )
 
 
+# 26b. owner_notice_cooldowns — "when did we last tell this owner about THIS
+# thing" for the owner-facing SYSTEM_NOTICE writers.
+#
+# Until 2026-09-09 the bus trigger kept this as an in-process dict keyed by
+# (agent_id, error category): a restart forgot every window (the next poll
+# re-notified), two trigger processes each kept their own (double notices),
+# and one key covered EVERY channel of the agent — a permanent failure on
+# channel A silenced the notice for an unrelated failure on channel B for the
+# whole window. One row per (agent, target, category) fixes all three; the
+# window itself stays a constant on the writer, this table only remembers the
+# last write. `target` is the channel_id for the bus writers and is left
+# generic so any owner-notice path can share the row shape.
+_register(
+    TableDef(
+        name="owner_notice_cooldowns",
+        columns=[
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("target", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("category", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("last_notified_at", "TEXT", "DATETIME(6)", nullable=False),
+        ],
+        primary_key=["agent_id", "target", "category"],
+        indexes=[],
+    )
+)
+
+
 # --- 27. lark_credentials ---------------------------------------------------
 _register(
     TableDef(

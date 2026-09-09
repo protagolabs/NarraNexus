@@ -173,10 +173,12 @@ TEAM_BOARD_MAX_ITEMS = 15
 # owner gets when that happens.
 POISON_FAILURE_THRESHOLD = _POISON_FAILURE_THRESHOLD
 
-# De-dup window for permanent-failure inbox notices, keyed per
-# (agent_id, error_category). Same window as the rate limiter — a batch of
-# messages failing for one root cause (e.g. a broken provider key) should
-# not write one inbox row per message.
+# De-dup window for owner-facing inbox notices, keyed per
+# (agent_id, channel_id, category) and PERSISTED (`owner_notice_cooldowns`,
+# see `_notify_owner`). Same window as the rate limiter — a batch of messages
+# failing for one root cause (e.g. a broken provider key) should not write one
+# inbox row per message. Per channel, not per agent: a hand-off that broke on
+# channel A must not silence the notice about an unrelated failure on B.
 FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 
 # Credential-error classification and secret redaction moved to the shared
@@ -327,11 +329,6 @@ class MessageBusTrigger:
         # wait behind the agent's team-A turn. Unbounded (agent×channel keys, no
         # cleanup): bounded in practice by the roster, like `_in_flight`.
         self._lane_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
-        # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
-        # for a given cooldown key. Shared by both notifiers so a burst of
-        # failures sharing one root cause writes at most one inbox row per
-        # `FAILURE_NOTIFY_COOLDOWN_SECONDS`. See `_notify_owner`.
-        self._notify_cooldown: Dict[str, float] = {}
         # In-flight dispatches, LANE (agent_id, channel_id) -> _InFlight. The
         # poll loop spawns these and does NOT await them (see `_poll_cycle`), so
         # this is both the "don't dispatch the same LANE twice" guard and the
@@ -2067,9 +2064,10 @@ class MessageBusTrigger:
         source_type: str,
         channel_id: str,
         message_id_prefix: str,
-        cooldown_key: str,
+        cooldown_category: str,
     ) -> bool:
-        """Write a SYSTEM_NOTICE to the owner's inbox, de-duplicated per key.
+        """Write a SYSTEM_NOTICE to the owner's inbox, de-duplicated per
+        (agent, channel, category).
 
         The one shared path for owner-facing system notices (permanent-failure
         and no-reply-delivered). Resolves the owner, writes via
@@ -2078,20 +2076,37 @@ class MessageBusTrigger:
         Returns True when a row was written, False when the cooldown suppressed
         it, the owner could not be resolved, or the write failed.
 
+        The window lives in `owner_notice_cooldowns` (OwnerNoticeCooldownRepository),
+        not in this process: the in-process dict it replaced forgot every open
+        window on restart (re-notifying on the first poll after each deploy),
+        gave every trigger container its own answer, and was keyed on
+        `agent:category` alone — so a permanent failure on one channel silenced
+        the notice for an unrelated one on another for the whole window.
+
         The cooldown is armed ONLY after a successful inbox write — arming it
         up-front would let one transient write failure (DB blip, etc.) silently
         suppress the real notification for the rest of the cooldown window
         (the exact trap the original `_notify_permanent_failure` docstring
-        recorded). In-memory, per-process: a restart resets it, an accepted
-        tradeoff shared with `_rate_counters`.
+        recorded). An unreadable window fails OPEN (notify): a duplicate notice
+        is the cheaper mistake than a permanently missing one.
         """
-        last_notified = self._notify_cooldown.get(cooldown_key)
-        now = time.monotonic()
-        if (
-            last_notified is not None
-            and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
-        ):
-            return False
+        from narranexus.platform.repository.owner_notice_cooldown_repository import (
+            OwnerNoticeCooldownRepository,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        try:
+            cooldowns = OwnerNoticeCooldownRepository(await get_db_client())
+            if await cooldowns.is_cooling(
+                agent_id, channel_id, cooldown_category,
+                FAILURE_NOTIFY_COOLDOWN_SECONDS,
+            ):
+                return False
+        except Exception as e:  # noqa: BLE001 — fail open, see docstring
+            logger.warning(
+                f"MessageBusTrigger: cooldown read failed for {agent_id}/"
+                f"{channel_id}/{cooldown_category}, notifying anyway: {e}"
+            )
 
         try:
             owner_user_id = await self._get_agent_owner(agent_id)
@@ -2110,7 +2125,6 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from narranexus.platform.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             await InboxRepository(db).create_message(
@@ -2122,7 +2136,9 @@ class MessageBusTrigger:
                 source=MessageSource(type=source_type, id=channel_id),
             )
             # Arm the cooldown only now that the write actually succeeded.
-            self._notify_cooldown[cooldown_key] = now
+            await OwnerNoticeCooldownRepository(db).arm(
+                agent_id, channel_id, cooldown_category
+            )
             logger.warning(
                 f"MessageBusTrigger: notified owner {owner_user_id} "
                 f"({source_type}) for agent {agent_id} in channel {channel_id}"
@@ -2148,9 +2164,10 @@ class MessageBusTrigger:
         after 3 failures the message just vanishes from
         `get_pending_messages` forever with zero owner-facing signal.
 
-        De-duplicated per (agent_id, error category) via `_notify_owner`, so a
-        burst of messages failing for one root cause writes at most one inbox
-        row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+        De-duplicated per (agent_id, channel_id, error category) via
+        `_notify_owner`, so a burst of messages failing for one root cause on
+        one channel writes at most one inbox row per
+        `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
         """
         category = self._classify_error(error)
         if category == "provider_credential":
@@ -2180,7 +2197,7 @@ class MessageBusTrigger:
             source_type="message_bus_failure",
             channel_id=channel_id,
             message_id_prefix="busfail_",
-            cooldown_key=f"{agent_id}:{category}",
+            cooldown_category=category,
         )
 
     async def _team_roster(self, channel_id: str) -> List[dict]:
@@ -3853,10 +3870,12 @@ class MessageBusTrigger:
         title and MESSAGE_BUS type say "your agent relayed something from a
         peer", which is the opposite of what happened here.
 
-        Cooldown keyed per agent (not per agent+peer): the fix is "look at what
-        this agent keeps doing", not "look at this one message", so a busy A2A
+        Cooldown keyed per (agent, channel) with category `no_reply`, not per
+        message: the fix is "look at what this agent keeps doing", so a busy A2A
         channel where the agent goes quiet every turn must not flood the inbox
-        with one identically-titled row per incoming message.
+        with one identically-titled row per incoming message. Per channel rather
+        than per agent since 2026-09-09: silence towards peer B is a different
+        fact from silence towards peer C, and the notice names the channel.
         """
         await self._notify_owner(
             agent_id,
@@ -3872,7 +3891,7 @@ class MessageBusTrigger:
             source_type="message_bus_no_reply",
             channel_id=channel_id,
             message_id_prefix="busnorep_",
-            cooldown_key=f"{agent_id}:no_reply",
+            cooldown_category="no_reply",
         )
 
     async def _write_to_inbox(
