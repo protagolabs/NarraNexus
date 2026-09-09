@@ -4,6 +4,10 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review M1）— `get_message(message_id)`
+
+`_row_to_message` 的单行读回，供发送工具取刚写行的 channel_id。
+
 ## 2026-09-09（review I7/M6）— 组字节预算在 `_resolve_part_group` 执行；补索引
 
 块 ≥2 时再查一条 `SELECT content ... WHERE channel_id=? AND part_group=?`（MySQL 孪生已钉）

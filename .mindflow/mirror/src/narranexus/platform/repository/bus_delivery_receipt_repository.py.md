@@ -31,14 +31,13 @@ Web Developer 的 worker 早已在旧模块路径上 import 失败三次）。
 - `reason` 由调用方先 `redact_secrets` 再传入；本层不做脱敏（口径：谁持有原文谁脱敏）。
 - 只用 `get_one / get / insert / update`，无手写 SQL；仍有 MySQL 孪生测试钉复合主键
   upsert 与可空列。
-- `TERMINAL_FAILURE_STATUSES`（dropped / silent）供以后「发件方视图」用成员判定，
-  不要与单个常量比较（[[failure.py]] 2026-07-30 的教训）。
 
 ## 上下游
 
 写：`_message_bus_mcp_tools._book_receipt`（accepted/held）、
 `MessageBusTrigger._stamp_receipts`（其余状态，DM 车道 only）。读：trigger 的
-`prior_outcome`；`for_sender` 目前无调用方，是为发件 agent 视图预留的读面。
+`prior_outcome`。（review M2：曾预留的 `for_sender` / `TERMINAL_FAILURE_STATUSES` 无调用方，按
+铁律 #2 删除，连同 `idx_bus_receipt_sender` 索引。）
 
 ## Retention
 

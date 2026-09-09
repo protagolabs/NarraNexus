@@ -343,6 +343,10 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
+    async def get_message(self, message_id: str) -> Optional[BusMessage]:
+        row = await self._db.get_one("bus_messages", {"message_id": message_id})
+        return self._row_to_message(row) if row else None
+
     async def get_messages_before(
         self, channel_id: str, before: str, limit: int = 50
     ) -> List[BusMessage]:

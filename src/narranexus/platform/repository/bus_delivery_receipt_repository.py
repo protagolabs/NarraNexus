@@ -54,11 +54,6 @@ RECEIPT_SILENT = "silent"
 RECEIPT_FAILED = "failed"
 RECEIPT_DROPPED = "dropped"
 
-#: The statuses a sender can read as "the recipient will not act on this
-#: without you doing something": the message is gone, or nobody was reached.
-TERMINAL_FAILURE_STATUSES = frozenset({RECEIPT_DROPPED, RECEIPT_SILENT})
-
-
 def content_key(content: str) -> str:
     """Stable fingerprint of what a recipient was asked. Whitespace-normalised
     so a model that re-flows the same text on resend still matches."""
@@ -148,12 +143,6 @@ class BusDeliveryReceiptRepository:
             if seen is not None and seen >= floor:
                 return True
         return False
-
-    async def for_sender(self, from_agent: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """The sender's view: its most recently updated receipts, newest first."""
-        rows = await self._db.get(self.TABLE, {"from_agent": from_agent})
-        rows = sorted(rows or [], key=lambda r: str(r.get("updated_at") or ""), reverse=True)
-        return rows[:limit]
 
     async def cleanup_older_than_days(self, days: int) -> int:
         """Delete receipts not touched for ``days``. Returns rows deleted

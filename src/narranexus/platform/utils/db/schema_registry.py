@@ -1309,8 +1309,6 @@ _register(
         ],
         primary_key=["message_id", "to_agent"],
         indexes=[
-            # "What happened to what I sent" — the sender's view.
-            Index("idx_bus_receipt_sender", ["from_agent", "updated_at"]),
             # "Has this recipient already gone silent on this exact content in
             # this channel" — the resend-loop guard's lookup.
             Index("idx_bus_receipt_content", ["channel_id", "to_agent", "content_key"]),

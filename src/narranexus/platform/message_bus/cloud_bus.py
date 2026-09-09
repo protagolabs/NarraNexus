@@ -64,6 +64,9 @@ class CloudMessageBus(MessageBusService):
     ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
+    async def get_message(self, message_id: str) -> Optional[BusMessage]:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
     async def get_messages_before(
         self, channel_id: str, before: str, limit: int = 50
     ) -> List[BusMessage]:

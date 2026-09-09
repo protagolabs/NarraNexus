@@ -98,16 +98,6 @@ async def test_prior_outcome_matches_same_content_on_another_message_only(db_cli
 
 
 @pytest.mark.asyncio
-async def test_for_sender_is_newest_first_and_scoped(db_client):
-    repo = BusDeliveryReceiptRepository(db_client)
-    await repo.upsert(message_id="m7", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
-    await repo.upsert(message_id="m8", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
-    await repo.upsert(message_id="m9", to_agent="a", channel_id="ch", from_agent="z", status=RECEIPT_ACCEPTED)
-    rows = await repo.for_sender("a")
-    assert [r["message_id"] for r in rows] == ["m8", "m7"]
-
-
-@pytest.mark.asyncio
 async def test_prior_outcome_expires_with_its_window(db_client, monkeypatch):
     """An outcome older than the window is not a prior: the guard is a window,
     never a permanent mute (review I1 — a daily check-in silenced once must

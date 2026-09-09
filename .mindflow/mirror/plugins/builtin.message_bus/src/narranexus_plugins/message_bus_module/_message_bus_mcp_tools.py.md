@@ -4,6 +4,10 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review M1）— `_book_receipt` 经 `bus.get_message` 取 channel
+
+不再直读 `bus_messages`；协议新方法见 [[message_bus_service]]。
+
 ## 2026-09-09（review I4）— 超长检查移到写入边
 
 `_reject_oversize_text` / 本地 `MAX_BUS_MESSAGE_BYTES` 删除；[[local_bus]] `send_message` 对

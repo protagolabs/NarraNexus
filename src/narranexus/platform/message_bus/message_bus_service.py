@@ -121,6 +121,12 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def get_message(self, message_id: str) -> Optional[BusMessage]:
+        """One message by id, or None. The send tools read back the row they
+        just wrote (its channel is the DM the bus found or opened)."""
+        ...
+
+    @abstractmethod
     async def get_messages_before(
         self,
         channel_id: str,
