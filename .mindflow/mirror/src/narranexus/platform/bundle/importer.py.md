@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bundle/importer.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — url 安装法适配多 skill 仓（GitHub #95）
+
+`sm.install_from_github` 现在返回该仓全部 skill 的 SkillInfo 列表；importer 按 manifest 行的
+`name` 挑出对应项（找不到则取首个）作为缓存目录来源，其余 agent 仍从缓存目录复制。
 
 ## 2026-08-20 — 改名的导入现在会纠正身份记忆
 

@@ -1489,7 +1489,10 @@ async def _confirm_inner(
                 first_aid = target_aids[0]
                 if cached_dir is None:
                     sm = skill_workspace(first_aid, user_id)
-                    info = await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                    # A multi-skill repo installs every skill it ships; the
+                    # bundle entry names the one this row is about.
+                    infos = await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                    info = next((i for i in infos if i.name == skill_name), infos[0])
                     cached_dir = Path(info.path)
                     if key:
                         install_cache[key] = cached_dir

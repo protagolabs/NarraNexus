@@ -438,26 +438,33 @@ def create_skill_mcp_server() -> FastMCP:
 
             service = SkillMarketplaceService()
             if skill_id_or_url.startswith(("http://", "https://", "github:")):
-                result = await service.install_from_url(agent_id, user_id, skill_id_or_url)
+                # A repo may ship several skills — one result per skill.
+                results = await service.install_from_url(agent_id, user_id, skill_id_or_url)
             else:
-                result = await service.install(
-                    agent_id, user_id, skill_id_or_url, version=version or None
-                )
-            name = result.skill.name if result.skill else skill_id_or_url
-            if result.status == "already_installed":
-                return f"Skill '{name}' is already installed at this version."
-            message = f"Installed skill '{name}'"
-            if result.replaced_version:
-                message += f" (replaced v{result.replaced_version}; existing config migrated)"
-            message += ". It takes effect on the next run."
-            if result.config_required:
-                message += (
-                    " ⚠️ It needs configuration — tell the user to open the Skill tab "
-                    "and fill in the required keys before using it."
-                )
-            if result.warnings:
-                message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
-            return message
+                results = [
+                    await service.install(
+                        agent_id, user_id, skill_id_or_url, version=version or None
+                    )
+                ]
+            messages = []
+            for result in results:
+                name = result.skill.name if result.skill else skill_id_or_url
+                if result.status == "already_installed":
+                    messages.append(f"Skill '{name}' is already installed at this version.")
+                    continue
+                message = f"Installed skill '{name}'"
+                if result.replaced_version:
+                    message += f" (replaced v{result.replaced_version}; existing config migrated)"
+                message += ". It takes effect on the next run."
+                if result.config_required:
+                    message += (
+                        " ⚠️ It needs configuration — tell the user to open the Skill tab "
+                        "and fill in the required keys before using it."
+                    )
+                if result.warnings:
+                    message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
+                messages.append(message)
+            return " ".join(messages)
         except FileNotFoundError:
             return f"Skill '{skill_id_or_url}' was not found in the marketplace."
         except ValueError as e:

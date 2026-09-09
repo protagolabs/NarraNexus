@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `install_from_github` 返回 `List[InstallResult]`（GitHub #95）
+
+`fetch_github_repo` 现在返回一个仓里全部 skill 根（根 / `<name>/` / `skills/<name>/` 布局），
+pipeline 对每个根独立跑一遍 `_install_staged`（扫描门、冲突/配置迁移、审计各自成立，某个
+already_installed 不阻塞其他），按名序返回一个结果列表；单 skill 仓就是长度 1。zip / marketplace
+入口仍是单结果。调用方（routes install、MCP skill_install、SkillMarketplaceService.install_from_url）
+已改为遍历。
 
 ## 2026-08-04 — 装/卸技能后刷新同伴发现行
 

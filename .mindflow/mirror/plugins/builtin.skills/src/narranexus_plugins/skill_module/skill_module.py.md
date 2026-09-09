@@ -4,6 +4,19 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — GitHub 安装复用 `find_skill_roots`，支持多 skill 仓（GitHub #95）
+
+`fetch_github_repo` 过去硬编码 `<clone>/SKILL.md`，而 zip 路径早就用 `_find_skill_root` 往下找一层——
+于是 `my-skill/SKILL.md` 或 agent-skills / 插件仓惯用的 `skills/<name>/SKILL.md` 布局从 GitHub 装一律
+报 "SKILL.md not found"。现在两条路径共用新的公开 `find_skill_roots(dir) -> [Path]`（根 SKILL.md →
+只此一个；否则 `<name>/SKILL.md` 与 `skills/<name>/SKILL.md` 各算一个，跳过点目录，按名排序 R4d），
+`_find_skill_root` = 首个（zip 单 skill 契约不变）。签名变化：`fetch_github_repo -> ([roots], url)`，
+`install_from_github -> [SkillInfo]`（多 skill 仓逐个 `install_from_dir`，同一 source_url）；
+没有任何 SKILL.md 时 ValueError 带 URL/分支与 `SKILL_LAYOUT_HINT`（三种布局的一句话说明，zip 拒绝
+消息也引用它）。消费方同步：InstallPipeline / SkillMarketplaceService.install_from_url 返回列表，
+routes install 与 MCP `skill_install` 逐条汇总，bundle importer 按 manifest 名挑对应项。
+测试：`tests/skill_module/test_github_skill_layouts.py`（stub 掉 `git clone` 子进程，其余全真）。
+
 ## 2026-09-09 — `get_skill_requirements` 与 UI 同源（GitHub #115）
 
 `get_skill_requirements(skill_name)` 过去只读 `.skill_meta.json["requires"]`——那是 study 步骤才写的

@@ -221,7 +221,8 @@ class SkillMarketplaceService:
 
     async def install_from_url(
         self, agent_id: str, user_id: str, url: str, branch: str = "main"
-    ) -> InstallResult:
+    ) -> List[InstallResult]:
+        """One InstallResult per skill the repo ships (see InstallPipeline)."""
         pipeline = InstallPipeline(agent_id, user_id, db_client=await self._get_db())
         return await pipeline.install_from_github(url, branch=branch)
 

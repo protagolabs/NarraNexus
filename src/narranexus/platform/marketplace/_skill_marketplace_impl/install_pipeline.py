@@ -123,17 +123,31 @@ class InstallPipeline:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    async def install_from_github(self, url: str, branch: str = "main") -> InstallResult:
+    async def install_from_github(self, url: str, branch: str = "main") -> List[InstallResult]:
+        """Install every skill the repository ships — one result per skill.
+
+        A single-skill repo (root or nested SKILL.md) yields one result; a
+        multi-skill repo (``skills/<name>/SKILL.md`` or ``<name>/SKILL.md``)
+        yields one per skill, in name order. Each skill runs the full staged
+        pipeline (scan gate, conflict/config migration, audit) on its own,
+        so one already-installed skill does not block the others. Never
+        empty: a repo without any SKILL.md raises ValueError.
+        """
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            skill_root, canonical_url = self.skill_module.fetch_github_repo(url, branch, temp_dir)
-            return await self._install_staged(
-                skill_root,
-                source_type="github",
-                source_url=canonical_url,
-                package_hash=None,
-                branch=branch,
-            )
+            skill_roots, canonical_url = self.skill_module.fetch_github_repo(url, branch, temp_dir)
+            results: List[InstallResult] = []
+            for skill_root in skill_roots:
+                results.append(
+                    await self._install_staged(
+                        skill_root,
+                        source_type="github",
+                        source_url=canonical_url,
+                        package_hash=None,
+                        branch=branch,
+                    )
+                )
+            return results
         finally:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)

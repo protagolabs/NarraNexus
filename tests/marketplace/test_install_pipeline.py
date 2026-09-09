@@ -198,12 +198,12 @@ async def test_github_install_via_staged_fetch(db_client, workspace, tmp_path, m
         (dest_dir / "SKILL.md").write_text(
             "---\nname: gh-skill\ndescription: from github\nversion: 1.0.0\n---\nBody.\n"
         )
-        return dest_dir, url
+        return [dest_dir], url
 
     monkeypatch.setattr(SkillModule, "fetch_github_repo", _fake_fetch)
 
-    result = await _pipeline(db_client).install_from_github("https://github.com/acme/gh-skill")
-    assert result.status == "installed"
+    results = await _pipeline(db_client).install_from_github("https://github.com/acme/gh-skill")
+    assert [r.status for r in results] == ["installed"]
 
     meta = json.loads((_skills_dir() / "gh-skill" / ".skill_meta.json").read_text())
     assert meta["source_type"] == "github"
@@ -212,6 +212,36 @@ async def test_github_install_via_staged_fetch(db_client, workspace, tmp_path, m
 
     rows = await SkillInstallationRepository(db_client).list_for_workspace(AGENT_ID, USER_ID)
     assert rows[0].source_type == "github"
+
+
+@pytest.mark.asyncio
+async def test_github_multi_skill_repo_installs_each_skill(db_client, workspace, tmp_path, monkeypatch):
+    # GitHub #95: a repo shipping skills/<name>/SKILL.md yields one result
+    # per skill, each with its own audit row and provenance.
+    def _fake_fetch(self, url, branch, dest_dir):
+        roots = []
+        for name in ("alpha", "beta"):
+            root = dest_dir / "skills" / name
+            root.mkdir(parents=True)
+            (root / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: {name}\nversion: 1.0.0\n---\nBody.\n"
+            )
+            roots.append(root)
+        return roots, url
+
+    monkeypatch.setattr(SkillModule, "fetch_github_repo", _fake_fetch)
+
+    results = await _pipeline(db_client).install_from_github("https://github.com/acme/multi")
+    assert [(r.status, r.skill.name) for r in results] == [
+        ("installed", "alpha"),
+        ("installed", "beta"),
+    ]
+    for name in ("alpha", "beta"):
+        meta = json.loads((_skills_dir() / name / ".skill_meta.json").read_text())
+        assert meta["source_url"] == "https://github.com/acme/multi"
+
+    rows = await SkillInstallationRepository(db_client).list_for_workspace(AGENT_ID, USER_ID)
+    assert sorted(r.skill_id for r in rows) == ["alpha", "beta"]
 
 
 @pytest.mark.asyncio

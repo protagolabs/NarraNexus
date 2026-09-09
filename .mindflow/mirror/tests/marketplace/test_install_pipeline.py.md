@@ -1,6 +1,6 @@
 ---
 code_file: tests/marketplace/test_install_pipeline.py
-last_verified: 2026-07-20
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -19,3 +19,10 @@ upgrade in decryptable form; github flow is tested by stubbing
 `fetch_github_repo` (no network in tests); the two SecretBox tests pin the
 storage format (Fernet `gAAAA` prefix, never plaintext/base64) and the lazy
 migration rewrite of legacy base64 values.
+
+## 2026-09-09 — GitHub 多 skill 仓用例
+
+`_fake_fetch` 现在按新签名返回 `([roots], url)`；新增
+`test_github_multi_skill_repo_installs_each_skill`：两个 `skills/<name>/SKILL.md` → 两个
+installed 结果、各自 meta 带同一 source_url、审计表两行（按 `skill_id`）。
+

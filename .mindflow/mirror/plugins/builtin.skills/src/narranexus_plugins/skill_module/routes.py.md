@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — install 端点汇总多 skill 结果（GitHub #95）
+
+`pipeline.install_from_github` 现在返回列表（一个仓可含多个 skill），zip 路径包成单元素列表走同一段
+汇总：message 用 `; ` 逐 skill 拼 installed / already installed，安全告警计数求和；响应 `skill` 字段
+（单 skill 形状）取首个。前端只用 success + message 并刷新列表，形状不变。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

@@ -3,6 +3,11 @@ code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/_skill_mcp
 last_verified: 2026-09-09
 ---
 
+## 2026-09-09 — `skill_install` 对 GitHub URL 逐 skill 汇报（GitHub #95）
+
+`service.install_from_url` 返回列表（多 skill 仓），工具把每个结果的 installed / already installed /
+需配置 / 告警各拼一句后空格连接；marketplace id 路径包成单元素列表走同一段。
+
 ## 2026-09-09 — `skill_list_required_env` 不再只看 meta（GitHub #115）
 
 工具本身没改逻辑，但它依赖的 `SkillModule.get_skill_requirements` 现在与 UI 同源

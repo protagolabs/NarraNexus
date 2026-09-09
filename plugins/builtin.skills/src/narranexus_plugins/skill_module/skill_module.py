@@ -1201,9 +1201,7 @@ class SkillModule(XYZBaseModule):
         skill_root = self._find_skill_root(dest_dir)
         if not skill_root:
             raise ValueError(
-                "Invalid skill package: SKILL.md not found. "
-                "Place SKILL.md at the zip root, or inside a single "
-                "top-level subfolder (e.g. my-skill/SKILL.md)."
+                f"Invalid skill package: SKILL.md not found. {self.SKILL_LAYOUT_HINT}"
             )
         return skill_root
 
@@ -1248,21 +1246,56 @@ class SkillModule(XYZBaseModule):
         logger.info(f"Installed skill '{info.name}' to {target_dir} (source={source_type})")
         return info
 
-    def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
-        """Find the directory containing SKILL.md in the extracted directory
+    # Layouts every install source (zip / GitHub clone) understands. One
+    # message, quoted by both rejection paths, so the user always learns
+    # where SKILL.md is expected.
+    SKILL_LAYOUT_HINT = (
+        "Place SKILL.md at the root, inside a single subfolder "
+        "(<name>/SKILL.md), or one per skill under skills/<name>/SKILL.md."
+    )
 
-        Name-sorted (R4d): an archive with several candidate subdirectories
-        must resolve to the same root on every machine, not to whatever
-        readdir happened to yield first.
+    def find_skill_roots(self, staged_dir: Path) -> List[Path]:
+        """Every skill directory inside a staged package or clone, name-sorted.
+
+        Shared by the zip and GitHub paths (GitHub #95: the clone path used
+        to hardcode ``<clone>/SKILL.md`` while zip already looked one level
+        down). Accepted layouts:
+
+        - ``SKILL.md`` at the root -> that single skill (nothing else is
+          searched; a root manifest owns the whole tree);
+        - ``<name>/SKILL.md`` for any top-level directory -> one skill each;
+        - ``skills/<name>/SKILL.md`` (the agent-skills / plugin repo layout)
+          -> one skill each.
+
+        Dot-directories (``.git``, ``.github``) are skipped. Name-sorted
+        (R4d) so a multi-skill repo resolves to the same order on every
+        machine, not to whatever readdir happened to yield first.
         """
-        if (extract_dir / "SKILL.md").exists():
-            return extract_dir
+        if not staged_dir.is_dir():
+            return []
+        if (staged_dir / "SKILL.md").exists():
+            return [staged_dir]
 
-        for subdir in sorted(extract_dir.iterdir(), key=lambda p: p.name):
-            if subdir.is_dir() and (subdir / "SKILL.md").exists():
-                return subdir
+        roots: List[Path] = []
+        for subdir in sorted(staged_dir.iterdir(), key=lambda p: p.name):
+            if not subdir.is_dir() or subdir.name.startswith("."):
+                continue
+            if (subdir / "SKILL.md").exists():
+                roots.append(subdir)
+            elif subdir.name == "skills":
+                for nested in sorted(subdir.iterdir(), key=lambda p: p.name):
+                    if nested.is_dir() and not nested.name.startswith(".") and (nested / "SKILL.md").exists():
+                        roots.append(nested)
+        return roots
 
-        return None
+    def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
+        """The single skill root of a zip package (first of find_skill_roots).
+
+        A zip is one skill by contract; when an archive happens to carry
+        several, the name-sorted first one wins deterministically.
+        """
+        roots = self.find_skill_roots(extract_dir)
+        return roots[0] if roots else None
 
     def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
         """Extract a skill archive while rejecting zip-slip style paths."""
@@ -1307,9 +1340,9 @@ class SkillModule(XYZBaseModule):
                 with zip_ref.open(member) as src, open(destination, "wb") as dst:
                     shutil.copyfileobj(src, dst)
 
-    def install_from_github(self, url: str, branch: str = "main") -> SkillInfo:
+    def install_from_github(self, url: str, branch: str = "main") -> List[SkillInfo]:
         """
-        Install Skill from GitHub
+        Install every skill a GitHub repository ships.
 
         Args:
             url: GitHub repository URL, supported formats:
@@ -1318,25 +1351,32 @@ class SkillModule(XYZBaseModule):
             branch: Branch name, defaults to main
 
         Returns:
-            Successfully installed SkillInfo
+            The installed SkillInfo list — one entry for a single-skill repo
+            (root or nested SKILL.md), one per skill for a multi-skill repo
+            (see find_skill_roots for the accepted layouts). Never empty:
+            a repo without any SKILL.md raises ValueError.
         """
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
-        # Clone to temp directory, then commit via the shared tail
+        # Clone to temp directory, then commit each root via the shared tail
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            skill_root, canonical_url = self.fetch_github_repo(url, branch, temp_dir)
-            return self.install_from_dir(skill_root, source_type="github", source_url=canonical_url)
+            skill_roots, canonical_url = self.fetch_github_repo(url, branch, temp_dir)
+            return [
+                self.install_from_dir(root, source_type="github", source_url=canonical_url)
+                for root in skill_roots
+            ]
         finally:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def fetch_github_repo(self, url: str, branch: str, dest_dir: Path) -> tuple[Path, str]:
+    def fetch_github_repo(self, url: str, branch: str, dest_dir: Path) -> tuple[List[Path], str]:
         """Validate a GitHub URL and shallow-clone it into dest_dir.
 
         Public so the InstallPipeline can stage a repo, security-scan it, and
-        only then commit it. Returns (skill_root, canonical_url).
+        only then commit it. Returns (skill_roots, canonical_url) where
+        skill_roots is the non-empty, name-sorted list from find_skill_roots.
         """
         # Parse URL (supports shorthand format)
         if url.startswith("github:"):
@@ -1361,16 +1401,18 @@ class SkillModule(XYZBaseModule):
         except subprocess.CalledProcessError as e:
             raise ValueError(f"Failed to clone {url}: {e.stderr}")
 
-        skill_md = dest_dir / "SKILL.md"
-        if not skill_md.exists():
-            raise ValueError(f"Invalid skill: SKILL.md not found in {url}")
-
         # Remove .git directory (version control not needed)
         git_dir = dest_dir / ".git"
         if git_dir.exists():
             shutil.rmtree(git_dir)
 
-        return dest_dir, url
+        skill_roots = self.find_skill_roots(dest_dir)
+        if not skill_roots:
+            raise ValueError(
+                f"Invalid skill: no SKILL.md found in {url} (branch {branch}). "
+                f"{self.SKILL_LAYOUT_HINT}"
+            )
+        return skill_roots, url
 
     @staticmethod
     def _dir_is_builtin(skill_dir: Path) -> bool:
