@@ -21,8 +21,9 @@ Tools exposed:
   - narra_cli(agent_id, command)               — PASSTHROUGH to the local
     ``narra-cli`` binary for query/context ops: room list/info(+members),
     im messages (history/search), im attachments download, speech,
-    status. The platform injects the agent token per call; do NOT pass
-    ``--token*``. ``im send`` is blocked here (use the dedicated send tools).
+    status. The platform injects the agent token AND the binding's API
+    endpoint per call; do NOT pass ``--token*`` / ``--endpoint``. ``im send``
+    is blocked here (use the dedicated send tools).
 
 Transport split (transitional):
   - **Send / reply** stay Matrix-native (``narra_reply`` / ``narra_send`` /
@@ -223,9 +224,14 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         """Operate NarraMessenger via the narra-cli CLI (a ready, installed tool).
 
         This runs narra-cli for you. Do NOT try to install narra-cli / run npm,
-        and do NOT provide a token — narra-cli is already available and the
-        platform injects your agent token per call (never pass ``--token`` /
-        ``--token-file``). Just call this tool with the command.
+        and do NOT provide a token or an endpoint — narra-cli is already
+        available and the platform injects your agent token AND your binding's
+        API endpoint per call (never pass ``--token`` / ``--token-file`` /
+        ``--endpoint``). Just call this tool with the command. ``<domain>
+        --help`` prints a USAGE line meant for standalone users (``npx ...``
+        plus ``--endpoint`` / ``--token``) — ignore that part. If a call fails
+        with an auth / permission error, give the user the error code as-is
+        (see your NarraMessenger instructions) rather than guessing why.
 
         It covers rooms, history, attachments, speech, status, AND the public
         Explore timeline — including WRITES. Common commands (drop the
@@ -273,7 +279,7 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         Call this before driving ``narra_cli`` for a domain you haven't used this
         session. It lists the common command shapes and — importantly — reminds
         you that narra-cli is PLATFORM-PROVIDED: never install / configure it or
-        pass a token. For the exact / latest flags of any command, use
+        pass a token / endpoint. For the exact / latest flags of any command, use
         ``narra_cli("<domain> --help")`` (that hits the live CLI).
 
         Returns ``{"success": true, "guide": "<markdown>"}``.

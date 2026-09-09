@@ -1,7 +1,53 @@
 ---
 code_file: plugins/builtin.basic_info/src/narranexus_plugins/basic_info_module/prompts.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — Product Feedback Duty：平台注入凭据被拒成为第 3 触发条件 + 保守措辞
+
+起因（prod 2026-09-09，agent_6b2dc72fc697）：平台代跑的 narra-cli 回
+`agent-token-invalid`（真因是平台把 token 送错了后端），agent 一次都没
+`submit_feedback`（原只有两个触发：用户不满 / 同指令连败 2 次），反而对用户断言
+「平台缓存了过期 token」，并把 token 明文贴进聊天「对比」。
+
+改动（同段内）：
+- 触发 3 的范围是**平台注入的**凭据 / 端点 / 额度被平台工具拒绝
+  （`agent-token-invalid`、原本能用的绑定突然 401/403）→ `category=error` 上报，
+  写明工具名和错误码，重试或绕过成功也要报；**每个 agent 每个 工具+错误码 只报
+  一次**，靠 `dedup_key="<tool>:<code>"` 由工具侧执行，不靠模型记忆
+  （见 [[_basic_info_mcp_tools.py]]；首版只写在文案里，Opus 评审 I2 打回：触发 3
+  是机器生成事件，平台级故障每次工具调用都复现，而长 agent_loop 的上下文会被压缩，
+  「我报过了」正是最先被压掉的那类事实）。
+- 明确**不算**触发 3：没绑定时的 `no_credential`（十几个渠道工具的正常答复，
+  lark 文案甚至教 agent 主动触发它确认干净状态）、`official-agent-required` 这类
+  设计内的策略拒绝、bind/setup 工具拒绝用户刚输入的 secret——这些是给用户的答案，
+  不是产品缺陷。（首版把前两者写成了触发条件，Opus 预审 C1/C2 打回。）
+- 「Be conservative about causes」只管触发 3 类错误：看不到平台怎么发凭据，禁止
+  断言诊断；用户自己给的凭据（bind secret、BYOK key）**不适用**，各模块原有的
+  明确诊断（discord intent 没开、lark secret 错）照旧。
+- 泄密红线（无例外）：绝不把 token / API key / access token / 凭据文件内容贴进
+  消息，「证明它有效」「对比两个」都不行。
+- 措辞刻意不用「report it」——narramessenger 文案里这词是「告诉用户」的意思。
+- **「团队已被通知」不写在 prompt 里**（Owner 定调 2026-09-09）。它不是一条规则，
+  而是**那一次 submit_feedback 调用的结果**：`send_feedback` 吞掉所有异常只打
+  DEBUG 日志，`NARRANEXUS_FEEDBACK_DISABLED=1` 的部署更是一条都不发——agent 看不见
+  这些，写在通用指令里就等于让它对用户断言一件平台可能根本没做的事（和本段要修的
+  「别断言你验证不了的原因」是同一个毛病）。所以文案只留「读 submit_feedback 的结果、
+  只转述它说的话，绝不自作主张说团队已被通知」，真话由
+  [[_basic_info_mcp_tools.py]] 的 `_feedback_result` 按 `delivered` 给出。
+  这同时从根上解掉了 Opus 评审 I1 那对互相对撞的祈使句：Rules 段「别宣告」保持默认，
+  只留**一个**出口——工具结果本身；不要反过来删 Rules 段那句，它约束的是触发 1/2。
+- Rules 段的「never include names」指的是人名 / PII，与十行外「写明工具名」冲突；
+  已消歧为 personal names + 明说工具名和错误码是必填、不是 secret。弱模型（铁律 #15）
+  否则会保守地交出「一个平台凭据被拒了」这种无法定位的 summary。
+- 触发 2 与触发 3 在同一次失败上会同时命中（平台凭据被拒导致同一指令连败 2 次），
+  段内写死优先级：按触发 3 记 `error`，不重复记两条。
+与 [[_basic_info_mcp_tools.py]] 的工具描述 (c) 条同口径（含 dedup_key、(b)/(c)
+优先级与排除项）。测试 `tests/basic_info_module/test_feedback_duty_platform_errors.py`
+对 legacy 与 STABLE 两份模板都钉住触发、排除项、作用域、「不许自行宣告已通知」与
+红线；回退任一文件即红。切片守卫按下一个 `#### ` 标题取段（不再按第一个 `---`），否则段内以后加
+一条横线就会把守卫悄悄缩小到前半段。
 
 ## 2026-08-18 — 新增「Time-bound Commitments」段
 

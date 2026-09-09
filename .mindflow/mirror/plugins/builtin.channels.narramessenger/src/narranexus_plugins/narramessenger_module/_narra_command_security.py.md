@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narra_command_security.py
 stub: false
-last_verified: 2026-08-05
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — `--endpoint` 进 BLOCKED_FLAGS
+
+narra-cli 1.2 起端点是每条命令的必填 flag，由 [[narra_cli_client]] 按绑定的
+`backend_base_url` 注入；agent 自带 `--endpoint` 等于把自己的 bearer 重定向到
+任意主机，与 `--token*` 同一性质，加入 `BLOCKED_FLAGS`（同一 `t == flag or
+t.startswith(flag=)` + 大小写折叠规则，残留形状与 08-05 分析一致）。拒绝文案改为
+「platform injects the agent token and the API endpoint」。`configure` 上游已删，
+仍留在 `BLOCKED_PATTERNS` 让照旧指南行事的 agent 得到明确拒绝而非 CLI 的
+command-not-found。测试：三种拼写拒绝 + `--members` 放行；删 flag 1 红。
 
 ## 2026-08-05 — 删掉不可达的空命令分支（随 lark 侧同源清理）
 

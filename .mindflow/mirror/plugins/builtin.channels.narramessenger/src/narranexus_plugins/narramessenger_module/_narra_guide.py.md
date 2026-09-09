@@ -1,8 +1,33 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narra_guide.py
 stub: false
-last_verified: 2026-07-21
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — 文案对齐 1.2 契约：端点也是平台注入
+
+curated `resources/narra-runtime.md` 顶部 banner 改写：平台每次调用注入
+**token + 绑定端点**两样；禁传 `--endpoint`（`configure` 已不存在）；点名忽略
+NarraMessenger 自家 runtime.md / AGENTS.md 的 `npx ... --endpoint
+$NARRA_API_ENDPOINT --token-file .narra/<id>/agent-runtime-token` 流程；并且
+点名 `<domain> --help` 的 USAGE 行本身就印着 `npx ... --endpoint --token`
+（1.2.1 实况），告诉 agent 那是给独立用户看的、照样忽略——否则我们自己指过去的
+「最权威最新」文本会把禁令推翻。新增「调用失败时」段，与 basic_info 的
+Product Feedback Duty 同一口径：`agent-token-invalid` / `no_endpoint` /
+原本能用的绑定突然鉴权失败 = 平台注入的凭据被拒，不下结论、
+`submit_feedback(category="error", dedup_key="narra_cli:<code>")` 上报
+（「一次」由工具侧按 key 执行、粒度是**每 agent 每错误码**，不传 key 就完全不去重
+——见 [[_basic_info_mcp_tools.py]]），且「团队已被通知」只转述该调用结果里的说法、
+不自行断言（资源文件与 `_BUILTIN` 兜底共用同一句
+`only if that call's result says so`，`test_narra_guide.py` 对**两份**都钉住——
+上一轮就是只改了资源、兜底漏改）；`official-agent-required` /
+`no_credential` 是设计内答复，解释即可、不报。绝不贴 token（prod 2026-09-09
+agent 断言「平台缓存了过期 token」并把 token 明文贴进聊天，实际是端点错配）。
+`_BUILTIN` 兜底带同一套规则（首版只改了半句，Opus 预审 I4 打回），
+`test_narra_guide.py` 对资源文件和兜底都钉住 `--endpoint` / `npx` 忽略 /
+`submit_feedback` / `official-agent-required`；资源文件里刻意不出现
+`@narra-im` 包名（那是安装配方标记，既有测试守着）。
 
 ## 2026-07-21 — STOP live-fetching runtime.md; serve a curated reference
 

@@ -1,6 +1,6 @@
 {
   "name": "@narranexus/chat-widget",
-  "version": "1.21.1",
+  "version": "1.21.2",
   "description": "NarraNexus chat as a web component: <narranexus-chat agent-id user-id>.",
   "license": "Apache-2.0",
   "type": "module",
