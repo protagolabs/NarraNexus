@@ -4,6 +4,21 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — 状态确认也触发熔断器自动恢复（GitHub #117）
+
+`_resume_agent_circuit_breakers` 之前只挂在**重配置**路径上（`add_provider` /
+`onboard` / `use_subscription` / `set_slot`）——用户主动改了 provider 才会触发。
+但 owner 也会走**只读确认**路径来判断"我的凭据是不是好了"：`POST
+/{provider_id}/test`（`success=True`）、`GET /claude-status`（`logged_in=True`）、
+`GET /codex-status`（`logged_in=True`，honesty-fix 的过期判定跑完之后）。这三个
+路径原来只回一个布尔给前端，不触发任何恢复——owner 确认"key 已经修好了"，agent
+却还在等自己的半开探测窗口（[[circuit_breaker]] 2026-09-09 half-open 修复）。
+现在三处都在"确认健康"之后调 `_resume_agent_circuit_breakers(uid)`（best-effort，
+不影响响应）；失败/未登录的分支不调——一个仍然坏的凭据不该去清空熔断状态。
+`get_claude_status`/`get_codex_status` 原来不解析 `uid`（云端非 staff 提前
+return），恢复调用统一放在函数末尾、云端门禁分支之后，同一次 `_get_user_id`
+足够。
+
 ## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111；复审 I3/I4/M6/M7 修订）
 
 `/codex-status` 在 2026-06-11 事故后已经学乖：文件/凭据存在不等于会话还活着，必须拿

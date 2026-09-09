@@ -572,6 +572,12 @@ async def test_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
+    if success:
+        # A confirmed-working provider means any agent that was PAUSED for
+        # auth/quota on this user's credentials can stop waiting for its own
+        # half-open probe — resume now (GitHub #117; mirrors the reconfigure
+        # paths above). Best-effort, never fails the test response.
+        await _resume_agent_circuit_breakers(uid)
     return {"success": success, "message": message}
 
 
@@ -1328,6 +1334,12 @@ async def get_claude_status(request: Request):
         result["logged_in"] = False
         result["expired"] = True
 
+    if result["logged_in"]:
+        # Owner just confirmed (or re-confirmed) the host claude CLI is
+        # authenticated — resume any of their agents PAUSED for auth/quota
+        # rather than making them wait out the half-open probe (GitHub #117).
+        await _resume_agent_circuit_breakers(_get_user_id(request))
+
     return {"success": True, "data": result}
 
 
@@ -1434,6 +1446,11 @@ async def get_codex_status(request: Request):
         if result["expires_at"] is not None and _expiry_is_past(result["expires_at"]):
             result["logged_in"] = False
             result["expired"] = True
+
+    if result["logged_in"]:
+        # Same self-heal as /claude-status: a confirmed-live codex session
+        # resumes any of the owner's agents PAUSED for auth/quota (#117).
+        await _resume_agent_circuit_breakers(_get_user_id(request))
 
     return {"success": True, "data": result}
 
