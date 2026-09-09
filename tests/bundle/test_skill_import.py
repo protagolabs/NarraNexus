@@ -333,3 +333,88 @@ async def test_builtin_skill_forced_to_builtin_method_despite_full_copy_request(
     # And no skill archive for it travelled inside the bundle.
     with zipfile.ZipFile(bundle) as z:
         assert not any(n.startswith("skills/") and "officecli" in n and n.endswith(".zip") for n in z.namelist())
+
+
+def _seed_url_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str, url: str):
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+
+    skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
+    skills.mkdir(parents=True, exist_ok=True)
+    (skills / "SKILL.md").write_text(f"---\nname: {skill_dir}\ndescription: {skill_dir}\n---\n", encoding="utf-8")
+    (skills / ".skill_meta.json").write_text(
+        json.dumps({"source_type": "github", "source_url": url}), encoding="utf-8"
+    )
+
+
+async def test_url_rows_of_one_multi_skill_repo_each_land_their_own_skill(
+    db_client, tmp_workspace_root, tmp_path, monkeypatch
+):
+    """Review C4: two bundle rows point at the same GitHub repo (which ships
+    alpha AND beta). Each imported agent must receive exactly the skill its
+    row names — never alpha's files under beta's name, never the whole repo,
+    and a row naming a skill the repo does not ship is a recorded failure."""
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import confirm, preflight
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus_plugins.skill_module.skill_module import SkillModule
+
+    url = "https://github.com/acme/multi"
+    uid = "test_user"
+    a1, a2 = "agent_multi0001", "agent_multi0002"
+    await _seed_agent(db_client, a1, "AlphaAgent", uid)
+    await _seed_agent(db_client, a2, "BetaAgent", uid)
+    _seed_url_skill_on_disk(tmp_workspace_root, a1, uid, "alpha", url)
+    _seed_url_skill_on_disk(tmp_workspace_root, a2, uid, "beta", url)
+
+    def _fake_fetch(self, u, branch, dest_dir):
+        roots = []
+        for name in ("alpha", "beta"):
+            root = dest_dir / "skills" / name
+            root.mkdir(parents=True)
+            (root / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name}\n---\n")
+            (root / "run.sh").write_text(f"echo {name}\n")
+            roots.append(root)
+        return roots, u
+
+    clones = {"n": 0}
+    real = _fake_fetch
+
+    def _counting_fetch(self, u, branch, dest_dir):
+        clones["n"] += 1
+        return real(self, u, branch, dest_dir)
+
+    monkeypatch.setattr(SkillModule, "fetch_github_repo", _counting_fetch)
+
+    async def _no_backup(**kwargs):  # the real one fetches a GitHub tarball
+        return None
+
+    import narranexus.platform.bundle.skill_backup as skill_backup
+
+    monkeypatch.setattr(skill_backup, "backup_after_api_install", _no_backup)
+
+    bundle = tmp_path / "multi.nxbundle"
+    selection = ExportSelection(
+        agent_ids=[a1, a2],
+        skill_methods=[
+            {"agent_id": a1, "skill_name": "alpha", "skill_dir": "alpha", "install_method": "url", "source_url": url},
+            {"agent_id": a2, "skill_name": "beta", "skill_dir": "beta", "install_method": "url", "source_url": url},
+            {"agent_id": a2, "skill_name": "gamma", "skill_dir": "gamma", "install_method": "url", "source_url": url},
+        ],
+    )
+    await build_bundle(uid, selection, bundle)
+    pre = await preflight(bundle, uid)
+    summary = await confirm(pre["preflight_token"], uid)
+
+    agents = await db_client.get("agents", {"created_by": uid})
+    # Imported agents are name-deduped ("AlphaAgent (1)"); key on the prefix.
+    name_to_new = {a["agent_name"].split(" (")[0]: a["agent_id"] for a in agents if a["agent_id"] not in (a1, a2)}
+    for agent_name, skill in (("AlphaAgent", "alpha"), ("BetaAgent", "beta")):
+        skills_root = agent_workspace_path(name_to_new[agent_name], uid, base=str(tmp_workspace_root)) / "skills"
+        assert sorted(p.name for p in skills_root.iterdir() if p.is_dir()) == [skill]
+        assert (skills_root / skill / "run.sh").read_text() == f"echo {skill}\n"
+
+    assert summary["skills_imported"] == 2
+    failures = summary.get("skill_install_failures") or []
+    assert [f["skill"] for f in failures] == ["gamma"]
+    assert "ships no skill named 'gamma'" in failures[0]["reason"]
+    assert clones["n"] == 3  # one clone per row, none served from a wrong cache slot

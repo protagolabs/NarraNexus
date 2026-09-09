@@ -101,6 +101,9 @@ def create_skill_mcp_server() -> FastMCP:
         try:
             sm = _get_skill_module(agent_id, user_id)
             requirements = sm.get_skill_requirements(skill_name)
+            if requirements is None:
+                # A typo must not read as "nothing to configure".
+                return f"Skill '{skill_name}' is not installed for this agent."
             env_config = sm.get_skill_env_config(skill_name)
 
             required_env = requirements.get("env", [])
@@ -448,6 +451,11 @@ def create_skill_mcp_server() -> FastMCP:
                 ]
             messages = []
             for result in results:
+                if not result.ok:
+                    # A rejected sibling in a multi-skill repo: say so next to
+                    # the ones that did install instead of failing the whole call.
+                    messages.append(f"Skill '{result.skill_name or skill_id_or_url}' was NOT installed: {result.error}")
+                    continue
                 name = result.skill.name if result.skill else skill_id_or_url
                 if result.status == "already_installed":
                     messages.append(f"Skill '{name}' is already installed at this version.")
@@ -464,7 +472,7 @@ def create_skill_mcp_server() -> FastMCP:
                 if result.warnings:
                     message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
                 messages.append(message)
-            return " ".join(messages)
+            return "\n".join(messages)
         except FileNotFoundError:
             return f"Skill '{skill_id_or_url}' was not found in the marketplace."
         except ValueError as e:

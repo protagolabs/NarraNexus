@@ -4,6 +4,16 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
+
+`MAX_SKILLS_PER_REPO = 20`：`find_skill_roots` 超过即 ValueError（落盘前），因为 `skill_install` 是 agent
+可调用的 MCP 工具，一个几百目录的仓会打满工作区磁盘并长时间占住线程；错误文案单独一条，提示装 fork/子集。
+`get_skill_requirements` 对不存在的 skill 返回 **None**（不是空列表），让工具能说"没装"。
+`_parse_skill_md` 兜底 description 改成一行三元：有 SKILL.md 但无 frontmatter → ""（既有约定），无 SKILL.md →
+meta description 或 "(No SKILL.md found)"（meta 里空串也落占位符，与旧的 `.get(key, default)` 不同——空串
+描述在列表里等于没有描述）。测试：`test_github_skill_layouts.py::test_more_than_max_skills_per_repo_…`、
+`test_skill_required_env_single_source.py::test_directory_without_skill_md_is_still_listed_from_its_meta`。
+
 ## 2026-09-09 — GitHub 安装复用 `find_skill_roots`，支持多 skill 仓（GitHub #95）
 
 `fetch_github_repo` 过去硬编码 `<clone>/SKILL.md`，而 zip 路径早就用 `_find_skill_root` 往下找一层——

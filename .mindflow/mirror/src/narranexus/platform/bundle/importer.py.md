@@ -4,10 +4,15 @@ last_verified: 2026-09-09
 stub: false
 ---
 
-## 2026-09-09 — url 安装法适配多 skill 仓（GitHub #95）
+## 2026-09-09 — url 安装法只装 bundle 行点名的那个 skill（GitHub #95，复审 C4）
 
-`sm.install_from_github` 现在返回该仓全部 skill 的 SkillInfo 列表；importer 按 manifest 行的
-`name` 挑出对应项（找不到则取首个）作为缓存目录来源，其余 agent 仍从缓存目录复制。
+`install_cache_key` 以前读 `skill_name`，而 builder 写进 manifest 的键是 `name`，键恒为 None——单 skill 仓时代
+无害，多 skill 仓下同一仓的两行撞同一缓存槽，第二个 agent 会拿到 skill A 的文件、顶着 skill B 的名字。现在
+key 读 `name`（zip 分支同修）。url 分支不再调 `install_from_github`（那会把整仓装进第一个 agent），改为
+`_install_one_skill_from_github`：`fetch_github_repo` 后按 SKILL.md name 或目录名（manifest `skill_dir`，否则
+sanitize 后的 name）挑出唯一匹配的根，只 `install_from_dir` 它；找不到 → `skill_install_failures` 记一条
+"ships no skill named …(found: …)" 并 continue，**绝不取第一个兜底**。测试：
+`tests/bundle/test_skill_import.py::test_url_rows_of_one_multi_skill_repo_each_land_their_own_skill`。
 
 ## 2026-08-20 — 改名的导入现在会纠正身份记忆
 

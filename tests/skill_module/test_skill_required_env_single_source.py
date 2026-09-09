@@ -99,8 +99,44 @@ def test_skill_without_requirements_reports_empty_lists(module):
     assert module.get_skill_requirements("plain") == {"env": [], "bins": []}
 
 
-def test_unknown_skill_reports_empty_lists(module):
-    assert module.get_skill_requirements("nope") == {"env": [], "bins": []}
+def test_unknown_skill_is_none_and_the_tool_says_not_installed(module, monkeypatch):
+    # None, not empty lists: a typo must not read as "nothing to configure".
+    assert module.get_skill_requirements("nope") is None
+    monkeypatch.setattr(
+        "narranexus_plugins.skill_module._skill_mcp_tools._get_skill_module",
+        lambda agent_id, user_id: module,
+    )
+    import asyncio
+
+    text = asyncio.run(_mcp_tool("skill_list_required_env")("a1", "u1", "nope"))
+    assert "not installed" in text and "no required environment variables" not in text
+
+
+def test_directory_without_skill_md_is_still_listed_from_its_meta(module):
+    # Agent-created dirs (meta first, SKILL.md later) stay in the skills
+    # table with the meta's description / study state / studied requirements.
+    d = module.skills_dir / "draft"
+    d.mkdir()
+    (d / ".skill_meta.json").write_text(
+        json.dumps(
+            {
+                "description": "half-written",
+                "builtin": False,
+                "study_status": "completed",
+                "requires": {"env": ["DRAFT_KEY"], "bins": ["jq"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (module.skills_dir / "bare").mkdir()  # nothing at all inside
+
+    by_name = {s.name: s for s in module.list_skills(include_disabled=True)}
+    assert by_name["draft"].description == "half-written"
+    assert by_name["draft"].study_status == "completed"
+    assert by_name["draft"].requires_env == ["DRAFT_KEY"] and by_name["draft"].requires_bins == ["jq"]
+    assert by_name["draft"].builtin is False
+    assert by_name["bare"].description == "(No SKILL.md found)"
+    assert module.get_skill_requirements("draft") == {"env": ["DRAFT_KEY"], "bins": ["jq"]}
 
 
 def test_mcp_tool_and_route_path_agree_for_an_unstudied_skill(module, monkeypatch):
@@ -132,3 +168,23 @@ def test_mcp_tool_reports_configured_status_for_a_saved_var(module, monkeypatch)
 
     text = asyncio.run(_mcp_tool("skill_list_required_env")("a1", "u1", "weather"))
     assert "WEATHER_KEY: ✓ configured" in text
+
+
+def test_skill_install_tool_reports_failed_siblings_next_to_successes(monkeypatch):
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallResult
+    from narranexus.platform.marketplace import skill_marketplace_service as svc_mod
+    from narranexus.platform.schema.skill_schema import SkillInfo
+
+    ok = InstallResult(status="installed", skill=SkillInfo(name="alpha", description="", path="/x/alpha"))
+    bad = InstallResult(status="failed", skill=None, skill_name="evil", error="Security scan rejected this skill package (curl_pipe_sh)")
+
+    async def _fake_install_from_url(self, agent_id, user_id, url, branch="main"):
+        return [ok, bad]
+
+    monkeypatch.setattr(svc_mod.SkillMarketplaceService, "install_from_url", _fake_install_from_url)
+    import asyncio
+
+    text = asyncio.run(_mcp_tool("skill_install")("a1", "u1", "https://github.com/acme/mixed"))
+    assert "Installed skill 'alpha'" in text
+    assert "'evil' was NOT installed: Security scan rejected" in text
+    assert "\n" in text

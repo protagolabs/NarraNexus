@@ -128,3 +128,18 @@ def test_find_skill_roots_is_shared_by_zip_and_github(module, tmp_path):
     # The zip path keeps its single-root contract: first root, name-sorted.
     assert module._find_skill_root(staged) == roots[0]
     assert module.find_skill_roots(tmp_path / "empty-nope") == []
+
+
+def test_more_than_max_skills_per_repo_is_rejected_before_installing(module, monkeypatch):
+    cap = SkillModule.MAX_SKILLS_PER_REPO
+    layout = {f"skills/s{i:03d}/SKILL.md": _skill_md(f"s{i:03d}") for i in range(cap + 1)}
+    _stub_clone(monkeypatch, layout)
+
+    with pytest.raises(ValueError) as exc_info:
+        module.install_from_github(URL)
+    assert f"at most {cap}" in str(exc_info.value)
+    assert list(module.skills_dir.iterdir()) == []
+
+    # Exactly the cap is fine.
+    _stub_clone(monkeypatch, {f"skills/s{i:03d}/SKILL.md": _skill_md(f"s{i:03d}") for i in range(cap)})
+    assert len(module.install_from_github(URL)) == cap

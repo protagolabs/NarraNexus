@@ -4,11 +4,13 @@ last_verified: 2026-09-09
 stub: false
 ---
 
-## 2026-09-09 — install 端点汇总多 skill 结果（GitHub #95）
+## 2026-09-09 — install 端点分开汇报成功与失败（GitHub #95，复审 C3）
 
-`pipeline.install_from_github` 现在返回列表（一个仓可含多个 skill），zip 路径包成单元素列表走同一段
-汇总：message 用 `; ` 逐 skill 拼 installed / already installed，安全告警计数求和；响应 `skill` 字段
-（单 skill 形状）取首个。前端只用 success + message 并刷新列表，形状不变。
+`pipeline.install_from_github` 返回列表（一个仓可含多个 skill，被拒的是 `status="failed"` 项），zip 路径包成
+单元素列表走同一段：成功项各一行 installed / already installed，失败项一行 `was NOT installed: <error>`，
+行间 `\n`，安全告警计数求和。**只有零成功才 400**（把全部失败行作为 detail）；有成功就 200，响应 `skill`
+字段（单 skill 形状）取第一个成功项——被拒的兄弟不能掩盖已落盘、已审计的 skill。前端只用 success + message
+并刷新列表，形状不变。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

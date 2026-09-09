@@ -3,10 +3,12 @@ code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/_skill_mcp
 last_verified: 2026-09-09
 ---
 
-## 2026-09-09 — `skill_install` 对 GitHub URL 逐 skill 汇报（GitHub #95）
+## 2026-09-09 — `skill_install` 逐 skill 汇报成功与失败；`skill_list_required_env` 区分"没装"（复审 C3/M5）
 
-`service.install_from_url` 返回列表（多 skill 仓），工具把每个结果的 installed / already installed /
-需配置 / 告警各拼一句后空格连接；marketplace id 路径包成单元素列表走同一段。
+`service.install_from_url` 返回列表（多 skill 仓，被拒项 `status="failed"`）：每个结果一行
+（installed / already installed / `was NOT installed: <error>`），`\n` 连接（与 routes 同口径）；
+marketplace id 路径包成单元素列表走同一段。`skill_list_required_env` 在 `get_skill_requirements` 返回 None
+（该 agent 没装这个 skill）时答 "is not installed for this agent"，不再把拼错名字答成"无需配置"。
 
 ## 2026-09-09 — `skill_list_required_env` 不再只看 meta（GitHub #115）
 

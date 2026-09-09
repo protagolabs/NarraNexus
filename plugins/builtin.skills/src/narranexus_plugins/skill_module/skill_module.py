@@ -768,10 +768,10 @@ class SkillModule(XYZBaseModule):
             requires_env, env_config
         )
 
-        if skill_md.exists():
-            description = ""
-        else:
-            description = meta_data.get("description") or "(No SKILL.md found)"
+        # A SKILL.md that exists but has no parseable frontmatter keeps the
+        # long-standing empty description; only a directory WITHOUT a
+        # SKILL.md borrows the meta description (or the placeholder).
+        description = "" if skill_md.exists() else (meta_data.get("description") or "(No SKILL.md found)")
         return SkillInfo(
             name=skill_dir.name,
             description=description,
@@ -971,8 +971,10 @@ class SkillModule(XYZBaseModule):
         except Exception as e:
             logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
 
-    def get_skill_requirements(self, skill_name: str) -> dict:
-        """Resolve a skill's runtime requirements — ``{"env": [...], "bins": [...]}``.
+    def get_skill_requirements(self, skill_name: str) -> Optional[dict]:
+        """Resolve a skill's runtime requirements — ``{"env": [...], "bins": [...]}``,
+        or None when no such skill is installed (a caller must not read
+        "unknown skill" as "nothing to configure").
 
         This is the ONE resolver behind every "what does this skill need"
         surface: the Skills panel / routes read ``SkillInfo.requires_env``
@@ -987,7 +989,7 @@ class SkillModule(XYZBaseModule):
         """
         skill_dir = self._resolve_skill_dir(skill_name)
         if skill_dir is None:
-            return {"env": [], "bins": []}
+            return None
         info = self._parse_skill_md(skill_dir / "SKILL.md")
         return {
             "env": list(info.requires_env or []),
@@ -1254,6 +1256,11 @@ class SkillModule(XYZBaseModule):
         "(<name>/SKILL.md), or one per skill under skills/<name>/SKILL.md."
     )
 
+    # A repository is installed whole; this caps how many skills one URL
+    # (user- or agent-supplied — `skill_install` is an MCP tool) can drop
+    # into a workspace in one request. Larger repos need a fork / subset.
+    MAX_SKILLS_PER_REPO = 20
+
     def find_skill_roots(self, staged_dir: Path) -> List[Path]:
         """Every skill directory inside a staged package or clone, name-sorted.
 
@@ -1269,7 +1276,9 @@ class SkillModule(XYZBaseModule):
 
         Dot-directories (``.git``, ``.github``) are skipped. Name-sorted
         (R4d) so a multi-skill repo resolves to the same order on every
-        machine, not to whatever readdir happened to yield first.
+        machine, not to whatever readdir happened to yield first. More than
+        MAX_SKILLS_PER_REPO roots is a ValueError (before anything is
+        installed).
         """
         if not staged_dir.is_dir():
             return []
@@ -1286,6 +1295,12 @@ class SkillModule(XYZBaseModule):
                 for nested in sorted(subdir.iterdir(), key=lambda p: p.name):
                     if nested.is_dir() and not nested.name.startswith(".") and (nested / "SKILL.md").exists():
                         roots.append(nested)
+        if len(roots) > self.MAX_SKILLS_PER_REPO:
+            raise ValueError(
+                f"This package contains {len(roots)} skills; at most "
+                f"{self.MAX_SKILLS_PER_REPO} can be installed from one repository. "
+                "Install a fork or a subset that ships only the skills you need."
+            )
         return roots
 
     def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:

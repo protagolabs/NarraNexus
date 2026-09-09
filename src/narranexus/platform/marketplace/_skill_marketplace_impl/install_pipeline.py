@@ -43,11 +43,19 @@ from .scanner import scan_skill_dir
 
 @dataclass
 class InstallResult:
-    status: str  # installed | already_installed
+    status: str  # installed | already_installed | failed
     skill: Optional[SkillInfo]
     warnings: List[Dict[str, Any]] = field(default_factory=list)
     config_required: bool = False
     replaced_version: Optional[str] = None
+    # ``failed`` only (multi-skill GitHub installs): the SKILL.md name of the
+    # root that was rejected and the ValueError text. ``skill`` is None then.
+    skill_name: Optional[str] = None
+    error: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status != "failed"
 
 
 def _now() -> str:
@@ -128,25 +136,36 @@ class InstallPipeline:
 
         A single-skill repo (root or nested SKILL.md) yields one result; a
         multi-skill repo (``skills/<name>/SKILL.md`` or ``<name>/SKILL.md``)
-        yields one per skill, in name order. Each skill runs the full staged
-        pipeline (scan gate, conflict/config migration, audit) on its own,
-        so one already-installed skill does not block the others. Never
-        empty: a repo without any SKILL.md raises ValueError.
+        yields one per skill. Each skill runs the full staged pipeline
+        (scan gate, dependency/compat checks, conflict/config migration,
+        audit) on its own and a rejection is isolated: it becomes a
+        ``status="failed"`` result carrying ``skill_name`` + ``error`` while
+        the others still install — so "security scan rejected X" never
+        masks "Y and Z were installed". Roots are installed dependencies
+        first (manifest ``dependencies`` that name a sibling in the same
+        repo), name order otherwise, so a same-repo dependency chain works
+        whatever the directory names sort to. Never empty: a repo without
+        any SKILL.md raises ValueError (clone / layout problems are not
+        per-skill failures).
         """
         temp_dir = Path(tempfile.mkdtemp())
         try:
             skill_roots, canonical_url = self.skill_module.fetch_github_repo(url, branch, temp_dir)
             results: List[InstallResult] = []
-            for skill_root in skill_roots:
-                results.append(
-                    await self._install_staged(
-                        skill_root,
-                        source_type="github",
-                        source_url=canonical_url,
-                        package_hash=None,
-                        branch=branch,
+            for skill_root, skill_name in self._order_roots_by_dependency(skill_roots):
+                try:
+                    results.append(
+                        await self._install_staged(
+                            skill_root,
+                            source_type="github",
+                            source_url=canonical_url,
+                            package_hash=None,
+                            branch=branch,
+                        )
                     )
-                )
+                except ValueError as exc:
+                    logger.warning(f"[skills] github install of '{skill_name}' from {canonical_url} rejected: {exc}")
+                    results.append(InstallResult(status="failed", skill=None, skill_name=skill_name, error=str(exc)))
             return results
         finally:
             if temp_dir.exists():
@@ -344,6 +363,40 @@ class InstallPipeline:
         )
 
     # -- steps ---------------------------------------------------------------
+
+    def _order_roots_by_dependency(self, skill_roots: List[Path]) -> List[tuple[Path, str]]:
+        """(root, skill name) pairs, siblings a root depends on placed before it.
+
+        Only same-repo edges are ordered here; a dependency that is not in
+        the repo is left to ``_check_dependencies`` (must already be
+        installed). Ties and roots without a manifest keep name order; an
+        unreadable manifest / SKILL.md is not an ordering error — the root
+        keeps its slot and fails on its own inside the install loop.
+        """
+        named: List[tuple[Path, str, set]] = []
+        for root in skill_roots:
+            try:
+                name = self.skill_module.parse_skill_package(root).name
+            except Exception:  # noqa: BLE001 — the per-skill install reports it
+                name = root.name
+            try:
+                deps = set(((self._read_manifest(root) or {}).get("dependencies") or {}).keys())
+            except ValueError:
+                deps = set()
+            named.append((root, name, deps))
+        in_repo = {name for _, name, _ in named}
+        ordered: List[tuple[Path, str]] = []
+        placed: set = set()
+        pending = list(named)
+        while pending:
+            ready = [item for item in pending if not ((item[2] & in_repo) - placed)]
+            if not ready:  # dependency cycle: keep name order, let the checks explain
+                ready = [pending[0]]
+            for item in ready:
+                ordered.append((item[0], item[1]))
+                placed.add(item[1])
+                pending.remove(item)
+        return ordered
 
     @staticmethod
     def _read_manifest(skill_root: Path) -> Optional[dict]:

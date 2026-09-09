@@ -4,13 +4,16 @@ last_verified: 2026-09-09
 stub: false
 ---
 
-## 2026-09-09 — `install_from_github` 返回 `List[InstallResult]`（GitHub #95）
+## 2026-09-09 — `install_from_github` 返回 `List[InstallResult]`，逐 skill 隔离失败（GitHub #95，复审 C3）
 
-`fetch_github_repo` 现在返回一个仓里全部 skill 根（根 / `<name>/` / `skills/<name>/` 布局），
-pipeline 对每个根独立跑一遍 `_install_staged`（扫描门、冲突/配置迁移、审计各自成立，某个
-already_installed 不阻塞其他），按名序返回一个结果列表；单 skill 仓就是长度 1。zip / marketplace
-入口仍是单结果。调用方（routes install、MCP skill_install、SkillMarketplaceService.install_from_url）
-已改为遍历。
+`fetch_github_repo` 返回一个仓里全部 skill 根（根 / `<name>/` / `skills/<name>/` 布局，上限
+`SkillModule.MAX_SKILLS_PER_REPO`），pipeline 先按**同仓依赖**排序（`_order_roots_by_dependency`：
+manifest `dependencies` 指向同仓兄弟的先装，其余保持名序；仓外依赖仍交 `_check_dependencies`），再对每个
+根独立跑 `_install_staged`。任何一个根的 `ValueError`（扫描门 rejected / 缺依赖 / 版本不兼容 / manifest 坏）
+被捕获为 `InstallResult(status="failed", skill=None, skill_name=…, error=…)`，其它根照常安装——"安全拒绝了 X"
+不再把"Y、Z 已经落盘并进了审计表"伪装成整体失败。`InstallResult.ok` 属性给消费方分流。单 skill 仓就是长度 1；
+zip / marketplace 入口仍是单结果且仍抛异常。clone 失败 / 没有任何 SKILL.md 不是 per-skill 失败，仍抛 ValueError。
+调用方（routes install、MCP skill_install、SkillMarketplaceService.install_from_url）分别汇报成功与失败。
 
 ## 2026-08-04 — 装/卸技能后刷新同伴发现行
 
