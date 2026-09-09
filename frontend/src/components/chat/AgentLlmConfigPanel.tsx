@@ -110,6 +110,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Success feedback (GitHub #96): a Save that landed used to look
+  // identical to a click that did nothing — the dialog stays open by
+  // design (see file header), but nothing told the user it worked. Mirrors
+  // ModelDefaultsSettings' "✓ Saved" indicator so the two editors read the
+  // same way.
+  const [saved, setSaved] = useState(false);
   // While the owner's cloud free tier has budget, the runtime pins every run to
   // the fixed system model and ignores what's edited here — surface that
   // honestly (the edits still persist and apply once the free tier is spent).
@@ -228,6 +234,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       }
       await load();
       onSaved?.();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -242,6 +250,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       await api.resetAgentLlmConfig(agentId, slot);
       await load();
       onSaved?.();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.resetFailed'));
     } finally {
@@ -578,6 +588,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         <button className={btnGhost} onClick={onClose}>
           {t('pages.settings.modelDefaults.close')}
         </button>
+        {saved && !isDirty && (
+          <span className="text-sm text-[var(--color-success)]">
+            ✓ {t('pages.settings.modelDefaults.saved')}
+          </span>
+        )}
         <button className={btnPrimary} disabled={!isDirty || saving || loading} onClick={saveAll}>
           {saving
             ? t('pages.settings.modelDefaults.saving')

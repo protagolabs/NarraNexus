@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — a successful Save now says so (GitHub #96)
+
+`saveAll`/`resetSlot` always reloaded silently on success — the dialog
+stays open by design (one Save button can write both slots, and closing
+after every partial edit would fight that), but nothing ever told the
+user a save actually landed. A failed save already rendered `error`;
+only the success path was mute, so a working Save looked identical to a
+click that did nothing. Added a `saved` flag (mirrors
+ModelDefaultsSettings' own "✓ Saved" indicator — same key
+`pages.settings.modelDefaults.saved`, same 2.5s auto-clear, same
+`saved && !isDirty` guard so it never coexists with a freshly-dirtied
+draft). Test: `__tests__/AgentLlmConfigPanel.saveFeedback.test.tsx`
+covers both the success confirmation and that a failure still shows the
+error instead of a false "Saved".
 
 ## 2026-09-07 — new `liveFrameworks` state feeds `providerBacksFramework`/`availableFrameworks` (B6, same change as ModelDefaultsSettings)
 
