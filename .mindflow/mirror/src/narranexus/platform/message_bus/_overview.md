@@ -1,6 +1,6 @@
 ---
 code_dir: src/narranexus/platform/message_bus/
-last_verified: 2026-08-05
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -25,7 +25,7 @@ stub: false
 
 ## 和外部目录的协作
 
-**被谁启动**：`message_bus_trigger.py` 作为独立进程运行（`uv run python -m narranexus.platform.message_bus.message_bus_trigger`）；`services/message_bus_poller.py` 提供轻量的手动触发函数。
+**被谁启动**：`message_bus_trigger.py` 作为独立进程运行（`uv run python -m narranexus.platform.message_bus.message_bus_trigger`）。（曾有的 `services/message_bus_poller.py` 轻量轮询函数已于 2026-09-09 作为死代码删除。）
 
 **调用谁**：`MessageBusTrigger` 调用 `AgentRuntime.run()` 把待处理消息投递给目标 Agent；投递成功后调用 `LocalMessageBus.ack_processed()` 推进游标；失败时调用 `record_failure()` 记录。
 
