@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "narranexus"
-version = "1.21.1"
+version = "1.21.2"
 description = "NarraNexus engine: kernel + platform + backend host (plugins, contracts and the SDK are workspace packages)"
 readme = "README.md"
 license = {text = "Apache-2.0"}

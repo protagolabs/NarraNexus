@@ -263,6 +263,11 @@ check_deps() {
   # have validated against the hosted backend. Graceful degrade: if install
   # fails, NarraMessenger receive still works (Matrix /sync); only CLI-backed
   # query degrades.
+  # 1.2.x CONTRACT: every API command REQUIRES --endpoint (the `configure`
+  # command + global config file are gone); narra_cli_client injects it from
+  # each agent's binding. 1.2.x declares engines.node>=22 but runs on node 20
+  # (engine warning only — verified 2026-09-09); do not pin below 1.2.0 without
+  # reverting the injection.
   #
   # NOTE — cloud parity: `narra_cli` runs in the MCP container, so the cloud
   # image that needs narra-cli is the MCP/backend image
@@ -275,7 +280,7 @@ check_deps() {
   # finds it in BOTH run modes — `bash run.sh` (env-exported) and the
   # 4-terminal `make dev-mcp` path (which never sees run.sh's export).
   _NARRA_CLI_HOME="${NARRA_CLI_HOME:-$HOME/.narranexus/narra-cli}"
-  _NARRA_CLI_VERSION="1.1.0"
+  _NARRA_CLI_VERSION="1.2.1"
   _NARRA_CLI_TIMEOUT=120
   export NARRA_CLI_BIN="$_NARRA_CLI_HOME/node_modules/.bin/narra-cli"
 
@@ -299,27 +304,23 @@ check_deps() {
     fi
   fi
 
-  # Optional endpoint config. narra-cli defaults to https://api.netmind.chat
-  # (prod), so prod needs nothing. Point a non-prod box at its backend by
-  # exporting NARRA_BACKEND_ENDPOINT (e.g. https://api-test.netmind.chat).
-  # Global config (single backend per deployment); data commands read it via
-  # ~/.narra-cli/config.json.
-  if [ -x "$NARRA_CLI_BIN" ] && [ -n "${NARRA_BACKEND_ENDPOINT:-}" ]; then
-    "$NARRA_CLI_BIN" configure --endpoint "$NARRA_BACKEND_ENDPOINT" >/dev/null 2>&1 \
-      && echo -e "${Y}narra-cli endpoint → ${NARRA_BACKEND_ENDPOINT}${R}" \
-      || echo -e "${Y}⚠ narra-cli configure failed; using default endpoint.${R}"
-  fi
-
-  # Compat preflight: `doctor` checks the CLI install + local config + endpoint
-  # reachability. It makes a NETWORK call, so it MUST run under the timeout guard
-  # (a DNS blackhole / dead endpoint would otherwise hang startup forever — the
-  # very "never wedge startup" the comment promised). 15s cap, non-fatal: a
-  # timeout (124) or any non-zero just surfaces a WARNING.
+  # No endpoint config step: since narra-cli 1.2 there is no `configure` and no
+  # global config — the endpoint is a per-call flag that narra_cli_client
+  # injects from each agent's binding (backend_base_url), so one process serves
+  # api.netmind.chat / api-test / api-cn bindings side by side.
+  # NARRA_BACKEND_ENDPOINT is now ONLY the doctor preflight's probe target.
+  #
+  # Compat preflight: `doctor` checks the CLI install + endpoint reachability.
+  # It makes a NETWORK call, so it MUST run under the timeout guard (a DNS
+  # blackhole / dead endpoint would otherwise hang startup forever — the very
+  # "never wedge startup" the comment promised). 15s cap, non-fatal: a timeout
+  # (124) or any non-zero just surfaces a WARNING.
+  _NARRA_DOCTOR_ENDPOINT="${NARRA_BACKEND_ENDPOINT:-https://api.netmind.chat}"
   if [ -x "$NARRA_CLI_BIN" ]; then
-    if _run_with_timeout 15 "narra-cli doctor" "$NARRA_CLI_BIN" doctor >/dev/null 2>&1; then
+    if _run_with_timeout 15 "narra-cli doctor" "$NARRA_CLI_BIN" doctor --endpoint "$_NARRA_DOCTOR_ENDPOINT" >/dev/null 2>&1; then
       echo -e "${Y}narra-cli doctor OK (v${_NARRA_CLI_VERSION}).${R}"
     else
-      echo -e "${Y}⚠ narra-cli doctor failed/timed out (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor${R}"
+      echo -e "${Y}⚠ narra-cli doctor failed/timed out (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor --endpoint ${_NARRA_DOCTOR_ENDPOINT}${R}"
     fi
   fi
 

@@ -12,19 +12,25 @@ platform concerns the CLI itself does not:
      locally-installed CLI (or its ``env node`` shebang), so we resolve an
      absolute path from ``NARRA_CLI_BIN`` (set by run.sh / Docker) → PATH →
      node-bin discovery, and rebuild the child's PATH. Same class as lark #53.
-  2. **Token injection** — narra-cli takes the bearer only via ``--token`` /
-     ``--token-file`` (no env, no stdin). We write the DB bearer to an EPHEMERAL
-     ``--token-file`` (system tmp, ``chmod 600``, ``unlink`` in ``finally``) so
-     the token never lands on argv (``ps`` / ``/proc``), never persists, and
-     never sits in the agent's Read-sandbox workspace. See the design doc's
-     security model.
+  2. **Token + endpoint injection** — narra-cli takes the bearer only via
+     ``--token`` / ``--token-file`` (no env, no stdin). We write the DB bearer
+     to an EPHEMERAL ``--token-file`` (system tmp, ``chmod 600``, ``unlink`` in
+     ``finally``) so the token never lands on argv (``ps`` / ``/proc``), never
+     persists, and never sits in the agent's Read-sandbox workspace. Since
+     narra-cli 1.2 every API command also REQUIRES ``--endpoint`` (the
+     ``configure`` command and its global config file are gone), so we inject
+     the binding's ``backend_base_url`` per call as well. A binding on
+     ``api-cn.narramessenger.cn`` / ``api-test.netmind.chat`` therefore talks to
+     ITS backend, not a deployment-wide default (prod 2026-09-09: 27 non-default
+     bindings got ``agent-token-invalid`` on every call because the token was
+     sent to ``api.netmind.chat``). See the design doc's security model.
   3. **CWD = agent workspace** — narra-cli writes ``--output`` / media downloads
      at default-relative paths; pointing CWD at the agent's workspace lands them
      in the agent's Read sandbox (same P0 fix as lark 2026-05-28).
 
 Independent per binding rule #3 (no cross-module imports); mirrors
 ``lark_module/lark_cli_client.py`` in shape but is far thinner — narra-cli takes
-the token as a flag (no per-agent config hydration / HOME override needed).
+the token and the endpoint as flags (no per-agent config hydration needed).
 """
 
 from __future__ import annotations
@@ -134,12 +140,13 @@ _NARRA_HOME: Optional[str] = None
 def _narra_cli_home() -> str:
     """Return a process-owned, writable HOME for narra-cli, created once.
 
-    narra-cli's ``ConfigStore`` always ``chmod``s ``$HOME/.narra-cli`` (0700) at
-    startup; the container's real HOME is on a mount the server user cannot
-    chmod, so we redirect HOME to a dir under the system tmpdir that the process
-    owns. Shared across calls/agents is fine — the only thing narra-cli stores
-    there is the (default, prod) endpoint config; the per-call TOKEN goes via
-    ``--token-file``, never into this dir.
+    narra-cli 1.1's ``ConfigStore`` always ``chmod``ed ``$HOME/.narra-cli``
+    (0700) at startup; the container's real HOME is on a mount the server user
+    cannot chmod, so we redirect HOME to a dir under the system tmpdir that the
+    process owns. 1.2 dropped the config store (endpoint is a per-call flag
+    now), but a private, process-owned HOME stays the safe default for a
+    third-party CLI. Nothing secret lives there: the TOKEN goes via
+    ``--token-file`` and the ENDPOINT via ``--endpoint``, never into this dir.
     """
     global _NARRA_HOME
     if _NARRA_HOME is not None:
@@ -171,13 +178,26 @@ from narranexus.platform.module_system.data_access import resolve_agent_workspac
 
 
 # =============================================================================
-# Runtime client — one narra-cli invocation, token injected per call.
+# Runtime client — one narra-cli invocation, token + endpoint injected per call.
 # =============================================================================
-class NarraCliClient:
-    """Runs one narra-cli command with the bearer injected via ephemeral file."""
 
-    def __init__(self, bearer_token: str) -> None:
+# The bare ``help`` command takes no flags at all (narra-cli 1.2.1 rejects
+# ``--endpoint`` / ``--token-file`` with "Nonexistent flag"), while
+# ``<domain> [<sub>] --help`` tolerates both. Only the bare form skips injection.
+_NO_INJECT_DOMAINS = frozenset({"help"})
+
+
+def _needs_injection(command_args: list[str]) -> bool:
+    return not (command_args and command_args[0].lower() in _NO_INJECT_DOMAINS)
+
+
+class NarraCliClient:
+    """Runs one narra-cli command with the bearer (ephemeral file) and the
+    binding's API endpoint injected per call."""
+
+    def __init__(self, bearer_token: str, endpoint: str) -> None:
         self._bearer = bearer_token
+        self._endpoint = endpoint
 
     async def run(
         self,
@@ -186,7 +206,9 @@ class NarraCliClient:
         cwd: Path | str | None = None,
         timeout: float = 120.0,
     ) -> dict:
-        """Spawn narra-cli with ``command_args`` + injected ``--token-file``.
+        """Spawn narra-cli with ``command_args`` + injected ``--endpoint`` and
+        ``--token-file`` (neither for the bare ``help`` command, which rejects
+        every flag).
 
         Returns a normalized dict:
           - ``{"success": True, "data": <envelope.data>, "raw": <envelope>}``
@@ -198,7 +220,9 @@ class NarraCliClient:
         tok_path = self._write_token_file()
         try:
             resolved, extra_path = _resolve_narra_cli()
-            cmd = [resolved, *command_args, "--token-file", tok_path]
+            cmd = [resolved, *command_args]
+            if _needs_injection(command_args):
+                cmd += ["--endpoint", self._endpoint, "--token-file", tok_path]
             env = dict(os.environ)
             if extra_path:
                 env["PATH"] = os.pathsep.join([*extra_path, env.get("PATH", "")])
@@ -291,18 +315,15 @@ async def run_narra_cli(
     *,
     timeout: float = 120.0,
 ) -> dict:
-    """Resolve the agent's bearer + workspace, then run a narra-cli command.
+    """Resolve the agent's bearer + endpoint + workspace, then run a narra-cli
+    command.
 
-    Returns the normalized :meth:`NarraCliClient.run` dict, or a
-    ``no_credential`` error if the agent has no NarraMessenger binding.
-
-    Single-backend (prod) assumption: we inject the per-agent bearer, but the
-    ENDPOINT narra-cli talks to is its global config (``~/.narra-cli/config.json``,
-    default ``https://api.netmind.chat``), NOT ``cred.backend_base_url``. Every
-    binding is expected to use the same hosted backend as that global config.
-    A per-agent endpoint (e.g. an api-test binding on a prod-configured host)
-    would need a per-agent HOME override with its own config.json — deliberately
-    NOT built yet; ``cred.backend_base_url`` is only used here to sanity-warn.
+    Returns the normalized :meth:`NarraCliClient.run` dict, a ``no_credential``
+    error if the agent has no NarraMessenger binding, or ``no_endpoint`` if the
+    binding carries no ``backend_base_url`` (fail-closed: without an endpoint
+    the CLI cannot be pointed at the right backend, and guessing a default
+    would send this agent's bearer to a foreign host — the exact prod bug this
+    injection fixes).
     """
     from narranexus.platform.module_system.data_access import get_channel_credential_store
     from ._narramessenger_credential_manager import _cred_from_raw
@@ -312,7 +333,15 @@ async def run_narra_cli(
     if not cred or not getattr(cred, "bearer_token", ""):
         return {"success": False, "error": "no_credential",
                 "message": "no NarraMessenger binding for this agent"}
+    endpoint = (getattr(cred, "backend_base_url", "") or "").strip()
+    if not endpoint:
+        logger.warning(
+            f"[narra-cli:{agent_id}] binding has no backend_base_url; refusing to "
+            "run narra-cli against a guessed endpoint"
+        )
+        return {"success": False, "error": "no_endpoint",
+                "message": "NarraMessenger binding has no API endpoint; re-bind the agent"}
 
     cwd = await resolve_agent_workspace_cwd(agent_id, log_tag="narra-cli")
-    client = NarraCliClient(cred.bearer_token)
+    client = NarraCliClient(cred.bearer_token, endpoint)
     return await client.run(command_args, cwd=cwd, timeout=timeout)

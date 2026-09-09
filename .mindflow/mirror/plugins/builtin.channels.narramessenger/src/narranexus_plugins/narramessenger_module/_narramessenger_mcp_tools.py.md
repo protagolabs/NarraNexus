@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+
+## 2026-09-09 — narra_cli / narra_guide docstring：端点随绑定注入
+
+`narra_cli` 工具说明改为「平台注入 token **和**绑定端点，勿传 `--token*` /
+`--endpoint`」，指出 `<domain> --help` 的 USAGE 行印着 `npx ... --endpoint --token`
+要忽略，并加一句失败时按原样给用户错误码、别猜原因；`narra_guide` 说明同步。
+`test_narra_mcp_tools.py` 的 configure 用例改用 `configure --show`（原
+`configure --endpoint` 现在先被 flag 规则拦下，理由文案不再含 configure）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

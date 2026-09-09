@@ -9,11 +9,13 @@ has only ~6 domains):
 
   - ``ALLOWED_DOMAINS`` whitelist — the first token must be a known narra-cli
     domain.
-  - ``BLOCKED_PATTERNS`` — ``configure`` (endpoint is a platform-global concern)
-    and ``doctor`` (a probe surface); these are not the agent's to run.
-  - ``BLOCKED_FLAGS`` — ``--token`` / ``--token-file`` are INJECTED by
-    ``narra_cli_client`` per call; an agent supplying its own would override our
-    injection or probe for a readable path, so they are always rejected.
+  - ``BLOCKED_PATTERNS`` — ``configure`` (removed upstream in narra-cli 1.2;
+    kept blocked so an agent following stale guides gets a clear refusal) and
+    ``doctor`` (a probe surface); these are not the agent's to run.
+  - ``BLOCKED_FLAGS`` — ``--token`` / ``--token-file`` / ``--endpoint`` are
+    INJECTED by ``narra_cli_client`` per call from the agent's binding; an agent
+    supplying its own would override our injection (redirect its bearer to an
+    arbitrary host, or probe for a readable path), so they are always rejected.
   - ``explore`` is gated to official agents (upstream marks it "Official Agents
     Only").
   - ``shlex.split`` + ``shell=False`` argv is the real injection defense — NOT a
@@ -49,7 +51,8 @@ ALLOWED_DOMAINS = {
 }
 
 # Blocked commands (prefix match against the full command string).
-#   configure — endpoint is a platform-global concern (run.sh / configure once)
+#   configure — gone upstream (narra-cli 1.2 takes --endpoint per call, which
+#               the platform injects); stays blocked for a clear refusal
 #   doctor    — diagnostic probe surface; not the agent's to run
 #   im send   — TRANSITIONAL: sending stays on the Matrix-direct dedicated tools
 #               (narra_reply / narra_send / narra_send_media) while the proxy
@@ -65,9 +68,13 @@ BLOCKED_PATTERNS = [
 ]
 
 # Flags the platform INJECTS per call — the agent must never supply them.
+# ``--endpoint`` joined the list with narra-cli 1.2 (every API command requires
+# it; the platform passes the binding's ``backend_base_url``). An agent-supplied
+# endpoint would redirect its bearer to an arbitrary host.
 BLOCKED_FLAGS = [
     "--token",
     "--token-file",
+    "--endpoint",
 ]
 
 _ESCAPE_MAP = {
@@ -148,8 +155,8 @@ def validate_command(command: str) -> Tuple[bool, str]:
     for flag in BLOCKED_FLAGS:
         if any(t == flag or t.startswith(f"{flag}=") for t in lowered):
             return False, (
-                f"Blocked flag: '{flag}' — the platform injects the agent token; "
-                "do not pass it yourself"
+                f"Blocked flag: '{flag}' — the platform injects the agent token "
+                "and the API endpoint from your binding; do not pass them yourself"
             )
 
     # Blocked commands — match leading tokens (whitespace-robust).
