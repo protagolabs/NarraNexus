@@ -35,6 +35,16 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
+#: One lane's pending batch. A LIMIT, not a page: the poll loop takes the
+#: oldest N unprocessed rows of ONE channel, acks what it delivered, and comes
+#: back for the rest. A batch that fills the limit may therefore be cut in the
+#: middle of a multipart group — the trigger asks `multipart.assemble` to hold
+#: such a group rather than judge it stale on partial evidence, and widens to
+#: `PENDING_BATCH_LIMIT_WIDE` when nothing before the group can be delivered.
+PENDING_BATCH_LIMIT = 50
+PENDING_BATCH_LIMIT_WIDE = 500
+
+
 def canonical_ts(value) -> str:
     """A cursor-comparable ISO-8601 string.
 
@@ -596,24 +606,17 @@ class LocalMessageBus(MessageBusService):
         """The group id a part belongs to, or None for an ordinary message.
 
         Validates the part contract at the write edge so a fragment can never
-        be stored unplaceable: 1 <= index <= count <= MAX_MESSAGE_PARTS, and a
+        be stored unplaceable: 1 <= index <= count, and a
         part > 1 must find the sender's most recent part in this channel to be
         exactly index-1 of the same count (the group is then that part's).
         Raises ValueError with an agent-readable reason otherwise.
         """
-        from narranexus.platform.message_bus.multipart import MAX_MESSAGE_PARTS
-
         if not part_index and not part_count:
             return None
         if part_count < 1 or part_index < 1 or part_index > part_count:
             raise ValueError(
                 f"invalid part {part_index}/{part_count}: parts are numbered "
                 f"1..count, count >= 1"
-            )
-        if part_count > MAX_MESSAGE_PARTS:
-            raise ValueError(
-                f"too many parts ({part_count}): at most {MAX_MESSAGE_PARTS} "
-                f"parts per message — send larger parts"
             )
         if part_index == 1:
             return msg_id
@@ -867,7 +870,7 @@ class LocalMessageBus(MessageBusService):
     async def get_pending_messages(
         self,
         agent_id: str,
-        limit: int = 50,
+        limit: int = PENDING_BATCH_LIMIT,
         channel_id: Optional[str] = None,
     ) -> List[BusMessage]:
         """

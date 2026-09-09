@@ -4,6 +4,14 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I2）— 批次被 LIMIT 切断时不对组下结论
+
+`_process_lane` 显式传 `limit=PENDING_BATCH_LIMIT`，`len(messages) >= limit` 即视为「批次被切」，
+`assemble_parts(..., batch_truncated=True)` 对不完整组只 hold；若 hold 后 deliverable 为空
+（组顶在批次开头、无从推进），改用 `PENDING_BATCH_LIMIT_WIDE`(500) 重读一次再判。原注释
+「MAX_MESSAGE_PARTS < 50 保证整组在一批里」是假的（LIMIT 是整条 lane 的），已删。
+锁：`test_a_group_cut_by_the_batch_limit_is_delivered_whole`（把 LIMIT 打成 2）。
+
 ## 2026-09-09（review I3/I6）— hold 只扣未完成的组及其后续，ack 高水位=已投递最新行
 
 `_process_lane` 里 `assemble_parts` 改回 `(deliverable, held)`：`deliverable` 已按时间排序并去掉

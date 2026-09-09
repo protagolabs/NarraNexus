@@ -43,6 +43,8 @@ from narranexus.platform.message_bus._bus_activity import (
     is_stalled,
 )
 from narranexus.platform.message_bus.local_bus import (
+    PENDING_BATCH_LIMIT,
+    PENDING_BATCH_LIMIT_WIDE,
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
     _as_utc,
@@ -1068,8 +1070,9 @@ class MessageBusTrigger:
                 # SQL so the LIMIT falls on THIS room's backlog — not the agent's
                 # whole cross-channel backlog filtered to empty in Python, which
                 # starves a busy agent's other rooms and burns a slot each poll.
+                batch_limit = PENDING_BATCH_LIMIT
                 messages = await self._bus.get_pending_messages(
-                    agent_id, channel_id=channel_id
+                    agent_id, channel_id=channel_id, limit=batch_limit
                 )
                 if not messages:
                     return False
@@ -1128,7 +1131,24 @@ class MessageBusTrigger:
                 # `relevant` comes back sorted by created_at with the held
                 # tail removed, so `relevant[-1]` below is both the trigger
                 # message and the ack high-water — and never past a held row.
-                relevant, held = assemble_parts(relevant)
+                truncated = len(messages) >= batch_limit
+                relevant, held = assemble_parts(relevant, batch_truncated=truncated)
+                if held and truncated and not relevant:
+                    # The group starts at the batch's edge and the batch is
+                    # cut: nothing can be acked to move the window, so read
+                    # the lane once more with a wider limit (review I2). Still
+                    # cut at the wide limit → held again; the grace verdict is
+                    # only reached once the group is fully in view.
+                    batch_limit = PENDING_BATCH_LIMIT_WIDE
+                    messages = await self._bus.get_pending_messages(
+                        agent_id, channel_id=channel_id, limit=batch_limit
+                    )
+                    relevant = [
+                        m for m in messages
+                        if self._should_process_message(m, agent_id, channel_type, channel_owner)
+                    ]
+                    truncated = len(messages) >= batch_limit
+                    relevant, held = assemble_parts(relevant, batch_truncated=truncated)
                 if held:
                     logger.debug(
                         f"MessageBusTrigger: {channel_id} for {agent_id} — a "

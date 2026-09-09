@@ -181,7 +181,7 @@ async def test_a_stale_incomplete_group_is_delivered_with_a_marker(db_client, mo
     # we route through it; pin the trigger's call by patching the default.
     monkeypatch.setattr(
         "narranexus.platform.message_bus.message_bus_trigger.assemble_parts",
-        lambda msgs: multipart.assemble(msgs, grace_seconds=0),
+        lambda msgs, **kw: multipart.assemble(msgs, grace_seconds=0, **kw),
     )
 
     assert await trigger._process_lane(B, channel_id) is True
@@ -387,4 +387,44 @@ async def test_a_lane_with_a_held_group_still_delivers_earlier_messages(db_clien
     await _send_parts(tools, PARTS)                       # fresh 1/3..3/3 supersedes it
     assert await trigger._process_lane(B, channel_id) is True
     assert LONG in calls[1]["prompt"]
+    assert await bus.get_pending_messages(B, channel_id=channel_id) == []
+
+
+# ── review I2: a batch cut at its LIMIT never mis-judges a group ────────────
+
+
+def test_assemble_holds_an_incomplete_group_when_the_batch_is_cut():
+    now = datetime.now(timezone.utc)
+    old = (now - timedelta(seconds=99_999)).isoformat()   # far past any grace
+    batch = [_msg("p1", "a", "AB", old, part_index=1, part_count=2, part_group="p1")]
+    # Full evidence: stale → delivered with the marker.
+    out, held = multipart.assemble(batch, now=now)
+    assert held is False and "never arrived" in out[0].content
+    # Partial evidence (the batch filled its limit): held, no verdict.
+    out, held = multipart.assemble(batch, now=now, batch_truncated=True)
+    assert held is True and out == []
+
+
+@pytest.mark.asyncio
+async def test_a_group_cut_by_the_batch_limit_is_delivered_whole(db_client, monkeypatch):
+    """More pending rows than one batch holds, and the group straddles the
+    edge: the lane widens its read instead of calling the tail 'missing'."""
+    from narranexus.platform.message_bus import local_bus
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    calls = _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e", delivered=True))
+    monkeypatch.setattr(local_bus, "PENDING_BATCH_LIMIT", 2)
+    monkeypatch.setattr(
+        "narranexus.platform.message_bus.message_bus_trigger.PENDING_BATCH_LIMIT", 2
+    )
+    ids = await _send_parts(tools, PARTS)          # 3 parts > limit of 2
+    channel_id = (await db_client.get_one("bus_messages", {"message_id": ids[0]}))["channel_id"]
+
+    assert await trigger._process_lane(B, channel_id) is True
+    assert len(calls) == 1 and LONG in calls[0]["prompt"]
+    assert "never arrived" not in calls[0]["prompt"]
     assert await bus.get_pending_messages(B, channel_id=channel_id) == []

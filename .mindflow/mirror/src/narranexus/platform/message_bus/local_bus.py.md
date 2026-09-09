@@ -4,6 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I2）— `PENDING_BATCH_LIMIT` / `PENDING_BATCH_LIMIT_WIDE` 成为具名常量
+
+`get_pending_messages` 的默认 limit 从字面 50 改为 `PENDING_BATCH_LIMIT`，另有
+`PENDING_BATCH_LIMIT_WIDE=500` 供 trigger 在多段组被批次边缘切断且无法推进时二次读取。
+LIMIT 语义不变（整条 lane 最老 N 行）。
+
 ## 2026-09-09 — 分片消息：`part_index/part_count` 与 `_resolve_part_group`
 
 `send_message` / `send_to_agent` 末尾加 **keyword-only** 的 `part_index` / `part_count`

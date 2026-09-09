@@ -20,8 +20,11 @@ ended without delivering a reply" 反复）就是这个形状。
 `message_agent(text, part_index=i, part_count=n)`。每块各自一行 `bus_messages`（不截、
 不重编码），`part_group` = 第 1 块的 message_id，由写入边 `LocalMessageBus._resolve_part_group`
 解析：块 >1 必须紧跟同 sender 同 channel 的**最近一块**（index-1、同 count），否则拒绝——
-放不进组的碎片不允许存在。上限 `MAX_MESSAGE_PARTS=40`，低于车道 pending LIMIT(50)，
-保证整组总在一批里。
+放不进组的碎片不允许存在。块数没有上限（review I7 起以整组字节预算为唯一主约束，见 [[local_bus]]）。
+车道 batch 是整条 lane 的 LIMIT 而不是这个组的，所以组可能被批次边缘切断（review I2）：
+调用方传 `batch_truncated=True` 时不完整的组**一律 hold**、不做过期/取代判定（部分证据下的
+判定会把还躺在表里的块标成「never arrived」）；组之前的行照常投递并 ack，下一批就更靠近组；
+组顶在批次边缘、什么都推不动时，trigger 用 `PENDING_BATCH_LIMIT_WIDE` 再读一次。
 
 收件侧 `assemble(batch)` 返回 `(deliverable, held)`，**唯一不变式**（review I3/I6）：车道的 ack
 游标只推进到「实际投递的最新一行」，任何被 hold 的行都不能在游标之下。所以 `deliverable`

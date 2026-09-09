@@ -39,8 +39,12 @@ part). On the recipient side the trigger calls `assemble` on a lane's batch:
   #14: the platform is never the interruption source), and a silent gap would
   be the content loss iron rule #16 forbids.
 
-`MAX_MESSAGE_PARTS` stays under the lane's pending-batch LIMIT (50) so a whole
-group always fits one batch.
+A lane batch is a LIMIT over the whole lane, not over one group, so a group
+can be cut off by the batch edge. The caller says so (``batch_truncated``) and
+an incomplete group in a truncated batch is then always HELD — never judged
+stale or superseded on partial evidence; the rows before it are delivered and
+acked, the next batch starts closer to the group, and when nothing before the
+group can move the trigger re-reads the lane with a wider limit.
 """
 
 from __future__ import annotations
@@ -50,10 +54,6 @@ from typing import Dict, List, Optional, Tuple
 
 from narranexus.platform.message_bus.schemas import BusMessage
 from narranexus.platform.utils.timezone import coerce_utc
-
-#: Upper bound on parts per message. Below the pending-batch LIMIT of 50 so a
-#: complete group is always visible to one lane batch.
-MAX_MESSAGE_PARTS = 40
 
 #: How long an incomplete group is held for its remaining parts, measured from
 #: the NEWEST part that arrived. Generous on purpose: the sender is a model
@@ -100,8 +100,14 @@ def assemble(
     *,
     now: Optional[datetime] = None,
     grace_seconds: int = PART_ASSEMBLY_GRACE_SECONDS,
+    batch_truncated: bool = False,
 ) -> Tuple[List[BusMessage], bool]:
     """Collapse part rows in a lane batch into whole messages.
+
+    ``batch_truncated`` — the caller's batch filled its LIMIT, so parts may
+    exist beyond its edge: an incomplete group is then held regardless of
+    age or supersession (a verdict on partial evidence would deliver a
+    fragment and mis-label parts that are sitting in the table as missing).
 
     Returns ``(deliverable, held)``. ``deliverable`` is what the caller may
     hand to a turn NOW, sorted by ``created_at`` (a merged message sits at its
@@ -138,7 +144,7 @@ def assemble(
         if missing:
             superseded = latest_group_of.get(parts[0].from_agent) != group_id
             newest = min(_age_seconds(p.created_at, now) for p in parts)
-            if not superseded and newest < grace_seconds:
+            if batch_truncated or (not superseded and newest < grace_seconds):
                 held_groups.add(group_id)
                 continue
         merged[group_id] = _merge(parts, missing=missing, grace=grace_seconds)
@@ -171,7 +177,6 @@ def _ts(value) -> str:
 
 
 __all__ = [
-    "MAX_MESSAGE_PARTS",
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
 ]
