@@ -20,8 +20,12 @@
 > - `agent-token-invalid`, `no_endpoint`, or an unexpected auth error from a
 >   binding that was working: the platform injected the credential, so you
 >   cannot see why it was rejected — do NOT state a cause ("the token expired",
->   "the platform cached it"). File it once with
->   `submit_feedback(category="error", ...)` and keep helping by other means.
+>   "the platform cached it"). File it with `submit_feedback(category="error",
+>   dedup_key="narra_cli:<code>", ...)` — the dedup_key is what keeps a
+>   platform-wide outage to ONE report per agent per code, so always pass it.
+>   Say the
+>   team has been notified only if that call's result says so, then keep
+>   helping by other means.
 > - `official-agent-required` (explore writes are official-agents-only) or
 >   `no_credential` (not bound yet): these are by-design answers, not defects —
 >   explain them to the user; no feedback needed.
