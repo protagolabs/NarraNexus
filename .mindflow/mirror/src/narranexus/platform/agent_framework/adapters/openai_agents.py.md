@@ -1,8 +1,32 @@
 ---
 code_file: src/narranexus/platform/agent_framework/adapters/openai_agents.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `json_schema` 档发送 OpenAI strict 兼容 schema（`build_strict_json_schema`）
+
+dev 日志 2026-08-25：helper 槽位切到 gpt-5.4-mini 后一天 104 次 400——`json_schema`
+档带 `strict: true` 却发的是裸 `model_json_schema()`：对象没有
+`additionalProperties: false`、带默认值的字段不在 `required` 里，OpenAI 的 strict 校验两条都拒。
+阶梯随即把 `json_schema` 记成不支持、全部落到 `json_object`，阶梯最想用的那一档在 strict
+provider 上永远到不了。
+
+修法是**一个接缝**而不是逐个模型加 `extra="forbid"`：`build_strict_json_schema(output_type)`
+= `agents.strict_schema.ensure_strict_json_schema(model_json_schema())`（openai-agents 的公开函数，
+与 openai SDK 给 `beta.chat.completions.parse` 用的改写同源：关闭每个对象、全字段 required、
+内联带兄弟键的 `$ref`、去掉 None 默认值；不用 openai 的私有模块，锁文件刷新不会变成启动
+ImportError）。**只有 `json_schema` 档发它**；system prompt 里的 schema 提示、`json_object` /
+纯 prompt 档仍是裸 Pydantic schema——带默认值的字段在那里依旧可省，弱模型不会被逼着编一个值，
+客户端解析对多余键也保持宽容（首轮 review I4：统一口径会悄悄改所有 provider 的提示语义；
+测试 `test_prompt_hint_keeps_the_raw_pydantic_schema` 与 `test_parse_stays_lenient_to_extra_keys_on_lower_rungs`
+钉住两端）。
+
+覆盖面：`tests/agent_framework/test_helper_strict_schema.py` 扫 `src/` 与 `plugins/*/src/`
+里所有 `output_type=<Model>` 调用点（当前 16 个模型），逐个断言 strict 合规；再用假 client
+断言实际发出的 `response_format` 是 `strict: true` + 改写后的 schema。第三方插件经 `llm_function`
+传进来的模型不在扫描面内：`dict[str, Any]` 字段改写后仍是开放对象，strict 会 400，但报文含
+`response_format` 会被 `_is_response_format_unsupported_error` 命中优雅降到 `json_object`，不会炸。
 
 ## 2026-09-07（批 1 三轮复审移植）— 空 slot 的旧行为如实记录
 

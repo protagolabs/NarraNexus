@@ -20,6 +20,7 @@ from loguru import logger
 from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
+from agents.strict_schema import ensure_strict_json_schema
 
 from narranexus.platform.agent_framework.llm._prompt_probe import emit as _probe_emit
 from narranexus.platform.agent_framework.api_config import openai_config
@@ -210,6 +211,31 @@ _response_format_capability: dict[tuple[str, str], set[str]] = {}
 
 def _capability_key(model_name: str) -> tuple[str, str]:
     return ((openai_config.base_url or "").rstrip("/"), model_name)
+
+
+def build_strict_json_schema(output_type: Type[BaseModel]) -> dict:
+    """The JSON schema the ``json_schema`` (strict) rung sends for ``output_type``.
+
+    OpenAI's strict validator accepts a schema only if EVERY object node has
+    ``additionalProperties: false`` and lists every property in ``required``;
+    a raw ``model_json_schema()`` satisfies neither (Pydantic leaves objects
+    open and keeps defaulted fields optional). Sending the raw schema is what
+    produced the 2026-08-25 400 storm (104 rejections in a day with the helper
+    slot on gpt-5.4-mini): the rung was marked unsupported and every call fell
+    to ``json_object`` — the level the ladder exists to prefer was unreachable.
+
+    ``ensure_strict_json_schema`` (public in ``openai-agents``, the same
+    rewrite the OpenAI SDK applies for ``client.beta.chat.completions.parse``)
+    closes every object, promotes every property to required, inlines
+    ``$ref``s that carry siblings and drops ``None`` defaults. Applying it here
+    — one seam for all helper models — is preferred over ``extra="forbid"`` on
+    each model: strictness is a PROVIDER-side guarantee for THIS rung only.
+    The prompt hint and the ``json_object`` / prompt-only rungs keep the raw
+    Pydantic schema, so a weaker model may still omit a defaulted field and
+    client-side parsing stays lenient to a stray key. Pure per call: a fresh
+    ``model_json_schema()`` dict is rewritten each time.
+    """
+    return ensure_strict_json_schema(output_type.model_json_schema())
 
 
 def _allowed_levels(key: tuple[str, str]) -> set[str]:
@@ -600,6 +626,9 @@ class OpenAIAgentsSDK:
         """
         # ── 1. Build messages (schema hint goes into the prompt either way —
         # cheap insurance, especially for the level-3 prompt-only path).
+        # The hint is the RAW Pydantic schema: defaulted fields stay optional
+        # for the json_object / prompt-only rungs. Only the json_schema rung
+        # sends the strict rewrite (see build_strict_json_schema).
         system_prompt = instructions
         schema_obj: Optional[dict] = None
         if output_type:
@@ -666,7 +695,7 @@ class OpenAIAgentsSDK:
                         "json_schema": {
                             "name": output_type.__name__,
                             "strict": True,
-                            "schema": schema_obj,
+                            "schema": build_strict_json_schema(output_type),
                         },
                     }},
                 ))
