@@ -1,8 +1,22 @@
 ---
 code_file: src/narranexus/platform/agent_framework/api_config.py
-last_verified: 2026-08-14
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `SUBSCRIPTION_AUTH_TYPES` + 订阅账号并行工具上限注入
+
+- `SUBSCRIPTION_AUTH_TYPES = {oauth, oauth_token}` 落户本文件（CLI 判 `isSubscriber()` 的两种
+  运输层）：claude driver 的 transient-retry 门（原 sdk.py 私有副本已删）与下面的上限共用一份。
+- `CLI_MAX_TOOL_USE_CONCURRENCY_ENV = "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"`：CLI 自己的旋钮
+  （`parseInt(env)||10`），限一条 assistant 消息内**所有并发安全工具调用**的并行度，sub-agent
+  launch 是其中一类。`to_cli_env` 在 `CLAUDE_CODE_MAX_RETRIES` 旁边、**仅当 `auth_type ∈
+  SUBSCRIPTION_AUTH_TYPES` 且 settings 值 > 0** 时注入 `settings.claude_max_tool_use_concurrency`
+  （默认 4）；keyed 账号不注入（CLI 自己重试 429，注入只会拖慢并行读）。0/负数 = 不发
+  （CLI `||10` 语义下 "0" 等于不设，但我们干脆不发）。只限并发不封顶轮次（铁律 #14）。
+  不用 PreToolUse hook 做信号量：失败的工具调用没有释放事件，漏一个许可就卡死后续 launch。
+  测试 `tests/agent_framework/test_claude_fanout_concurrency.py` 经真实 adapter 驱动到
+  `options.env`。
 
 ## 2026-08-13 — 平台来源绑定：identity token 上 provider 配置
 

@@ -51,7 +51,7 @@ store·pipeline·secret-box / `agent_framework.llm.prompt_probe_emit` /
 2. 新增 `_run_with_transient_retry(run_kwargs)` 包住 `_run_once`，冷启动 / resume /
    resume 被拒后的冷重试三处调用点统一改走它：
    * 门：`settings.claude_transient_retry_attempts > 0` 且 `claude_config.auth_type ∈
-     _SUBSCRIPTION_AUTH_TYPES` 且错误枚举 ∈ `_TRANSIENT_CLI_ERROR_TYPES`（rate_limit /
+     SUBSCRIPTION_AUTH_TYPES`（2026-09-09 起从 [[api_config]] import，不再有私有副本）且错误枚举 ∈ `_TRANSIENT_CLI_ERROR_TYPES`（rate_limit /
      server_error）且拿得到 session id。任一不满足 → 事件原样透传（改前行为）。
    * 看到可重试错误先**扣住**，继续读该次 run 的尾巴：出现实质事件（工具调用 / 非空文本 /
      reply delta，`_is_substantive_event`）说明 CLI 自己续上了 → 按原顺序放行、不重试；

@@ -38,6 +38,20 @@ from narranexus.platform.schema.provider_schema import (
     SlotName,
 )
 
+# Auth transports the Claude Code CLI treats as a claude.ai SUBSCRIPTION
+# (``fI()`` in the CLI): the only ones where the CLI skips its own 429 retry
+# (its predicate is ``status === 429 → !isSubscriber()``). One definition —
+# the claude driver's transient-retry gate and the concurrency cap below key
+# on the same set.
+SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset({"oauth", "oauth_token"})
+
+# The CLI's own knob for how many concurrency-safe tool calls of ONE
+# assistant message execute in parallel — parallel Read / Grep / Glob / MCP
+# calls and every sub-agent (Task) launch alike (``parseInt(env) || 10`` in
+# the 2.1.56 binary; same name in 2.1.266). Injected by ``to_cli_env`` from
+# ``settings.claude_max_tool_use_concurrency`` for SUBSCRIPTION auth only.
+CLI_MAX_TOOL_USE_CONCURRENCY_ENV = "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"
+
 
 # =============================================================================
 # Configuration Dataclasses (public interface, unchanged)
@@ -184,6 +198,21 @@ class ClaudeConfig:
         from narranexus.platform.settings import settings as _settings
         env["API_TIMEOUT_MS"] = str(_settings.llm_api_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.llm_max_retries)
+
+        # Bounded parallel tool execution for a claude.ai subscription: every
+        # sub-agent launched from one message is a model loop against the same
+        # quota and the CLI never retries a subscriber's 429, so an unbounded
+        # fan-out is a 429 storm. Keyed auth keeps the CLI default — the CLI
+        # retries 429s there itself and the cap would only slow every parallel
+        # Read/Grep batch down. A CONCURRENCY cap (how many run at once — every
+        # call still runs, later), never an iteration / time ceiling on the
+        # loop (铁律 #14). 0 (or less) = keep the CLI default; the CLI reads
+        # ``|| 10`` so "0" would mean the same, but we do not send it at all.
+        # A PreToolUse-hook semaphore was rejected: a failed tool call has no
+        # matching release, and one leaked permit would wedge every later launch.
+        _tool_concurrency = int(_settings.claude_max_tool_use_concurrency)
+        if self.auth_type in SUBSCRIPTION_AUTH_TYPES and _tool_concurrency > 0:
+            env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] = str(_tool_concurrency)
 
         # Isolate the subprocess from the host user's personal
         # ``~/.claude/settings.json``. Claude Code applies that file's ``env``

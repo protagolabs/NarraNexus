@@ -44,7 +44,10 @@ from narranexus.contracts.agent_events import (
 from narranexus.platform.utils.logging import timed
 
 from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
-from narranexus.platform.agent_framework.api_config import claude_config
+from narranexus.platform.agent_framework.api_config import (
+    SUBSCRIPTION_AUTH_TYPES,
+    claude_config,
+)
 from narranexus.platform.agent_framework.providers.model_catalog import resolve_cli_alias
 from narranexus.platform.agent_framework.adapters import build_tool_policy_guard
 from narranexus_plugins.frameworks_claude_code.cli_binary import (
@@ -513,10 +516,6 @@ CLI_ENABLE_TASKS_ENV = "CLAUDE_CODE_ENABLE_TASKS"
 # billing, invalid_request, unknown, the adapter's own ``no_output`` — is
 # either deterministic or ours, and retrying would only delay the real error.
 _TRANSIENT_CLI_ERROR_TYPES: frozenset[str] = frozenset({"rate_limit", "server_error"})
-
-# Auth transports the CLI treats as a subscription (see ``fI()`` in the CLI):
-# the only ones where the CLI skips its own 429 retry.
-_SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset({"oauth", "oauth_token"})
 
 # What the retry run is asked. It lives ONLY in this turn's CLI session — the
 # platform's history is rebuilt from observed events each turn, so the nudge
@@ -1588,7 +1587,7 @@ class ClaudeAgentSDK:
             max_attempts = max(0, int(_s.claude_transient_retry_attempts))
             eligible = (
                 max_attempts > 0
-                and claude_config.auth_type in _SUBSCRIPTION_AUTH_TYPES
+                and claude_config.auth_type in SUBSCRIPTION_AUTH_TYPES
             )
             nonlocal transient_retry_attempt
             kwargs = dict(run_kwargs)
