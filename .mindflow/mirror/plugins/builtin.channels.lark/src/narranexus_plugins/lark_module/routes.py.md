@@ -1,8 +1,24 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/routes.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — 三条 OAuth 路由补上外层 except（B-31，#118 遗留）
+
+三条路由（login/complete/status）此前对「预期失败」（ownership 拒绝、未绑定 bot）已经
+统一返回 `{"success": False, "error": ...}`，但没有任何一层兜住**意外**异常——
+subprocess 调用、CLI JSON 解析里的下一个 bug，都会直接穿透路由，被 Starlette 默认的
+`ServerErrorMiddleware` 变成一段纯文本 `"Internal Server Error"` 500。前端从纯文本里读
+不出 `error` 字段，用户看到的是一片空白或乱码（#120 那次具体的 NameError 早已在 CLI 层
+修掉，但这层什么都没接住，下一个类似 bug 换个位置照样能穿透）。
+
+修法：三条函数体各包一层 `try/except Exception`，落回同一种
+`{"success": False, "error": str(e)}` 信封——不是新发明一种错误形状，是把这个文件已经
+在用的形状补到「意外」这条分支上。全仓扫过 telegram/discord/slack 的绑定路由：它们没有
+自己的路由文件，都走 `backend/routes/channels/generic.py` 的 `/{channel}/bind`，那条路由
+有一模一样的缺口，同批一起补（保留 `_descriptor` 的 404 和 `CredentialConflict` 的 409
+这两条已定型的类型化异常，只兜「其余一切」）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

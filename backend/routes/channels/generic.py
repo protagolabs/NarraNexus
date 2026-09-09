@@ -98,44 +98,61 @@ async def channel_schema(channel: str) -> dict[str, Any]:
 
 @router.post("/{channel}/bind")
 async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[str, Any]:
-    d = _descriptor(channel)
-    auth_err = await check_owned(request, body.agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
-    if not d.has_bind:
-        return {"success": False, "error": f"{d.display_name} binds through its own flow"}
-    invalid = validate_bind_fields(d, body.fields)
-    if invalid:
-        return {"success": False, "error": invalid}
-    db = await _db()
-    if d.credential_manager_ref:
-        # The channel's own service validates with the external platform and persists
-        # through its manager (generic store); its envelope is returned verbatim.
-        from narranexus.platform.module_system.data_access.channel_store import DirectStore
-
-        result = await DirectStore().bind(channel, body.agent_id, body.fields)
-        if result.get("success"):
-            logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
-        return result
-    fields = dict(body.fields)
-    issued_secret: Optional[str] = None
-    if d.transport == "webhook" and not str(fields.get(SECRET_FIELD, "") or "").strip():
-        # The binding's inbound token, generated once and shown once (it is a secret).
-        existing = await GenericCredentialStore(db).get(channel, body.agent_id)
-        kept = existing.secret.get(SECRET_FIELD) if existing else None
-        fields[SECRET_FIELD] = kept or new_webhook_secret()
-        issued_secret = None if kept else fields[SECRET_FIELD]  # shown once, at first bind
     try:
-        record = await GenericCredentialStore(db).upsert(channel, body.agent_id, fields, enabled=True)
-    except CredentialConflict as conflict:
-        raise HTTPException(status_code=409, detail=str(conflict)) from None
-    logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
-    data = record.to_public_dict()
-    if d.transport == "webhook":
-        data["webhook_path"] = f"/api/channels/{channel}/webhook/{body.agent_id}"
-        if issued_secret:
-            data["webhook_secret"] = issued_secret
-    return {"success": True, "data": data}
+        d = _descriptor(channel)
+        auth_err = await check_owned(request, body.agent_id)
+        if auth_err:
+            return {"success": False, "error": auth_err}
+        if not d.has_bind:
+            return {"success": False, "error": f"{d.display_name} binds through its own flow"}
+        invalid = validate_bind_fields(d, body.fields)
+        if invalid:
+            return {"success": False, "error": invalid}
+        db = await _db()
+        if d.credential_manager_ref:
+            # The channel's own service validates with the external platform and persists
+            # through its manager (generic store); its envelope is returned verbatim.
+            from narranexus.platform.module_system.data_access.channel_store import DirectStore
+
+            result = await DirectStore().bind(channel, body.agent_id, body.fields)
+            if result.get("success"):
+                logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
+            return result
+        fields = dict(body.fields)
+        issued_secret: Optional[str] = None
+        if d.transport == "webhook" and not str(fields.get(SECRET_FIELD, "") or "").strip():
+            # The binding's inbound token, generated once and shown once (it is a secret).
+            existing = await GenericCredentialStore(db).get(channel, body.agent_id)
+            kept = existing.secret.get(SECRET_FIELD) if existing else None
+            fields[SECRET_FIELD] = kept or new_webhook_secret()
+            issued_secret = None if kept else fields[SECRET_FIELD]  # shown once, at first bind
+        try:
+            record = await GenericCredentialStore(db).upsert(channel, body.agent_id, fields, enabled=True)
+        except CredentialConflict as conflict:
+            raise HTTPException(status_code=409, detail=str(conflict)) from None
+        logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
+        data = record.to_public_dict()
+        if d.transport == "webhook":
+            data["webhook_path"] = f"/api/channels/{channel}/webhook/{body.agent_id}"
+            if issued_secret:
+                data["webhook_secret"] = issued_secret
+        return {"success": True, "data": data}
+    except HTTPException:
+        # Typed rejections (unknown channel 404, CredentialConflict 409)
+        # keep their status code — only truly unexpected exceptions fall
+        # through to the outer handler below.
+        raise
+    except Exception as e:  # noqa: BLE001 — outer fallback (B-31 sweep)
+        # Every EXPECTED failure on this route already returns
+        # {"success": False, "error": ...} at 200 (see check_owned's
+        # deliberate contract, tested in test_every_verb_is_ownership_gated_
+        # against_an_outsider). An exception that reaches here is
+        # unexpected; without this handler it propagated past the route
+        # entirely and Starlette's default error middleware turned it into
+        # a plain-text 500 the frontend cannot read an `error` field out
+        # of -- the same gap fixed on the Lark OAuth routes (B-31).
+        logger.exception(f"[channels] {channel} bind crashed for agent={body.agent_id}: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @router.post("/{channel}/webhook/{agent_id}")

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/channels/generic.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -29,3 +29,11 @@ The inbound webhook no longer accepts ?token= (the request line lands in every r
 The **source address** comes from `backend/routes/_client_ip.py::client_ip`, never `request.client.host`. Uvicorn runs without `--proxy-headers` behind the deploy stack's nginx, so the socket peer is the SAME container address for every cloud request: keyed on it, the 600/min limiter is one GLOBAL bucket, and any single anonymous caller can 429 every agent's inbound webhooks at once — a limiter that reads as protection while measuring nothing. `_client_ip` is the shared implementation (the auth funnel is the other caller): the proxy-hop count is a property of the deployment and must have exactly one home.
 
 The middleware wiring is tested end to end in `tests/backend/test_channel_webhook_middleware.py` with the REAL `auth_middleware` and cloud mode forced — a hand-rolled identity middleware cannot tell "exempt by design" from "never behind auth at all".
+
+## 2026-09-09 — `channel_bind` gets an outer fallback (B-31 sweep, #118)
+
+Every EXPECTED failure on this route already returns `{"success": False, "error": ...}` at 200 (`check_owned`'s deliberate contract), and the two typed rejections (`_descriptor`'s unknown-channel 404, `CredentialConflict`'s 409) already had their own handling. Nothing caught anything BEYOND those — an unrelated bug anywhere in the body (the manager-backed `DirectStore.bind` call, `GenericCredentialStore.upsert` itself) propagated straight out of the route, and Starlette's default `ServerErrorMiddleware` turned it into a plain-text `"Internal Server Error"` 500 the frontend cannot parse an `error` field out of.
+
+This is the same gap fixed the same day on the Lark OAuth routes (`lark_module/routes.py`) — telegram/discord/slack have no bespoke bind route of their own, they all bind through THIS one, so this file is the actual sweep target for "the other channel bind routes."
+
+Fix: wrap the body in `try: ... except HTTPException: raise; except Exception: return {"success": False, "error": str(e)}`. The `except HTTPException: raise` re-raise is load-bearing — a bare `except Exception` would also catch the 404/409 HTTPExceptions and silently downgrade them to a 200 envelope, changing their status code.

@@ -28,10 +28,8 @@ PLUGIN = ChannelDescriptor(
 )
 
 
-@pytest.fixture
-def client(db_client, monkeypatch, tmp_path: Path):
-    credential_codec.use_key_dir(tmp_path / "keys")
-
+def _build_app(db_client, monkeypatch):
+    """Shared wiring behind both ``client`` fixtures below."""
     async def _db():
         return db_client
 
@@ -54,7 +52,27 @@ def client(db_client, monkeypatch, tmp_path: Path):
         return await call_next(request)
 
     app.include_router(generic_mod.router, prefix="/api/channels")
+    return app, dispose
+
+
+@pytest.fixture
+def client(db_client, monkeypatch, tmp_path: Path):
+    credential_codec.use_key_dir(tmp_path / "keys")
+    app, dispose = _build_app(db_client, monkeypatch)
     yield TestClient(app)
+    dispose.dispose()
+    credential_codec.use_key_dir(None)
+
+
+@pytest.fixture
+def client_surfacing_server_errors(db_client, monkeypatch, tmp_path: Path):
+    """Same wiring as ``client``, but with Starlette's default exception
+    re-raise disabled so an unhandled route exception comes back as an
+    actual HTTP response (what a real deployment returns) instead of
+    propagating into the test process."""
+    credential_codec.use_key_dir(tmp_path / "keys")
+    app, dispose = _build_app(db_client, monkeypatch)
+    yield TestClient(app, raise_server_exceptions=False)
     dispose.dispose()
     credential_codec.use_key_dir(None)
 
@@ -189,3 +207,34 @@ def test_builtin_set_active_and_credential_read_the_generic_store(client, db_cli
     assert client.post("/api/channels/lark/set-active", json={"agent_id": "a1", "active": True}, headers=H).json() == {"success": True, "enabled": True}
     assert asyncio_run(LarkCredentialManager(db_client).get_credential("a1")).is_active is True
     assert client.post("/api/channels/lark/set-active", json={"agent_id": "a2", "active": True}, headers=H).json()["success"] is False  # owned, unbound
+
+
+def test_bind_survives_an_unexpected_exception(client_surfacing_server_errors, monkeypatch):
+    """B-31 sweep: the generic ``/bind`` route (what telegram/discord/slack
+    all bind through) had the same gap as the Lark OAuth routes — an
+    unexpected exception past the store's own typed ``CredentialConflict``
+    handling propagated out of the route entirely. Starlette's default
+    error middleware turns that into a plain-text 500 the frontend cannot
+    read an ``error`` field out of. This must come back as the same
+    structured ``{"success": False, "error": ...}`` envelope every other
+    outcome on this route already uses.
+    """
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
+
+    async def _boom(self, channel, agent_id, values, *, enabled=None):
+        raise RuntimeError("unexpected boom")
+
+    monkeypatch.setattr(GenericCredentialStore, "upsert", _boom)
+
+    H = {"X-User-Id": "u1"}
+    r = client_surfacing_server_errors.post(
+        "/api/channels/acme_chat/bind",
+        json={"agent_id": "a1", "fields": {"bot_token": "tok", "bot_id": "b1"}},
+        headers=H,
+    )
+    assert r.headers.get("content-type", "").startswith("application/json"), (
+        f"expected structured JSON, got {r.headers.get('content-type')!r}: {r.text!r}"
+    )
+    body = r.json()
+    assert body["success"] is False
+    assert "boom" in body["error"]

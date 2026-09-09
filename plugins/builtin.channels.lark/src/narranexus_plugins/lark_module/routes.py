@@ -8,6 +8,16 @@ set-active are the generic ``/api/channels/lark/…`` routes since batch 4d.3):
   POST   /api/lark/auth/login    — Initiate OAuth login (returns auth URL)
   POST   /api/lark/auth/complete — Complete OAuth with device code
   GET    /api/lark/auth/status   — Check login status
+
+Every route wraps its body in an outer ``except Exception`` and returns
+``{"success": False, "error": str(e)}`` — the same shape every EXPECTED
+failure here already returns (ownership rejected / no bot bound). Without
+it, an unrelated crash (subprocess failure, a bug in the CLI JSON parser)
+propagated past this handler, and Starlette's default error middleware
+turns an unhandled exception into a plain-text "Internal Server Error"
+500 the frontend cannot read an ``error`` field out of (GitHub #118
+residue; the #120 NameError that originally triggered this was already
+fixed in the CLI layer, but nothing here would have caught the NEXT one).
 """
 
 from __future__ import annotations
@@ -70,97 +80,109 @@ async def _get_db():
 @router.post("/auth/login")
 async def lark_auth_login(request: Request, body: AgentRequest) -> dict[str, Any]:
     """Initiate OAuth login. Returns auth URL for browser authorization."""
-    auth_err = await _verify_agent_ownership(request, body.agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
+    try:
+        auth_err = await _verify_agent_ownership(request, body.agent_id)
+        if auth_err:
+            return {"success": False, "error": auth_err}
 
-    db = await _get_db()
-    mgr = LarkCredentialManager(db)
-    cred = await mgr.get_credential(body.agent_id)
+        db = await _get_db()
+        mgr = LarkCredentialManager(db)
+        cred = await mgr.get_credential(body.agent_id)
 
-    if not cred:
-        return {"success": False, "error": "No Lark bot bound to this agent."}
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    # V2: use workspace-based runner
-    result = await _cli._run_with_agent_id(
-        ["auth", "login", "--recommend", "--json", "--no-wait"],
-        agent_id=body.agent_id,
-        timeout=60.0,
-    )
-    return result
+        # V2: use workspace-based runner
+        result = await _cli._run_with_agent_id(
+            ["auth", "login", "--recommend", "--json", "--no-wait"],
+            agent_id=body.agent_id,
+            timeout=60.0,
+        )
+        return result
+    except Exception as e:  # noqa: BLE001 — outer fallback (see module docstring)
+        logger.exception(f"[lark] auth/login crashed for agent={body.agent_id}: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @router.post("/auth/complete")
 async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dict[str, Any]:
     """Complete OAuth login with device code from a previous --no-wait call."""
-    auth_err = await _verify_agent_ownership(request, body.agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
+    try:
+        auth_err = await _verify_agent_ownership(request, body.agent_id)
+        if auth_err:
+            return {"success": False, "error": auth_err}
 
-    db = await _get_db()
-    mgr = LarkCredentialManager(db)
-    cred = await mgr.get_credential(body.agent_id)
+        db = await _get_db()
+        mgr = LarkCredentialManager(db)
+        cred = await mgr.get_credential(body.agent_id)
 
-    if not cred:
-        return {"success": False, "error": "No Lark bot bound to this agent."}
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    # V2: use workspace-based runner
-    result = await _cli._run_with_agent_id(
-        ["auth", "login", "--device-code", body.device_code, "--json"],
-        agent_id=body.agent_id,
-        timeout=60.0,
-    )
-
-    # Update auth status on success
-    if result.get("success"):
-        from narranexus_plugins.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
-        await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
-
-        # Try to get bot name via bot-info API (bot identity has no "self"
-        # user concept, so `+get-user --as bot` fails without --user-id).
-        bot_info = await _cli._run_with_agent_id(
-            ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
+        # V2: use workspace-based runner
+        result = await _cli._run_with_agent_id(
+            ["auth", "login", "--device-code", body.device_code, "--json"],
             agent_id=body.agent_id,
+            timeout=60.0,
         )
-        if bot_info.get("success"):
-            bdata = bot_info.get("data", {}).get("bot", bot_info.get("data", {}))
-            name = bdata.get("app_name", bdata.get("name", ""))
-            # open_id rides along from the same response — the trigger's
-            # group @-mention gate matches against it.
-            await mgr.update_bot_identity(
-                body.agent_id,
-                bot_name=name,
-                bot_open_id=bdata.get("open_id", ""),
-            )
 
-    return result
+        # Update auth status on success
+        if result.get("success"):
+            from narranexus_plugins.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
+            await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
+
+            # Try to get bot name via bot-info API (bot identity has no "self"
+            # user concept, so `+get-user --as bot` fails without --user-id).
+            bot_info = await _cli._run_with_agent_id(
+                ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
+                agent_id=body.agent_id,
+            )
+            if bot_info.get("success"):
+                bdata = bot_info.get("data", {}).get("bot", bot_info.get("data", {}))
+                name = bdata.get("app_name", bdata.get("name", ""))
+                # open_id rides along from the same response — the trigger's
+                # group @-mention gate matches against it.
+                await mgr.update_bot_identity(
+                    body.agent_id,
+                    bot_name=name,
+                    bot_open_id=bdata.get("open_id", ""),
+                )
+
+        return result
+    except Exception as e:  # noqa: BLE001 — outer fallback (see module docstring)
+        logger.exception(f"[lark] auth/complete crashed for agent={body.agent_id}: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @router.get("/auth/status")
 async def lark_auth_status(request: Request, agent_id: str) -> dict[str, Any]:
     """Check the authentication status of the bound bot."""
-    auth_err = await _verify_agent_ownership(request, agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
+    try:
+        auth_err = await _verify_agent_ownership(request, agent_id)
+        if auth_err:
+            return {"success": False, "error": auth_err}
 
-    db = await _get_db()
-    mgr = LarkCredentialManager(db)
-    cred = await mgr.get_credential(agent_id)
+        db = await _get_db()
+        mgr = LarkCredentialManager(db)
+        cred = await mgr.get_credential(agent_id)
 
-    if not cred:
-        return {"success": False, "error": "No Lark bot bound to this agent."}
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    result = await _cli._run_with_agent_id(["auth", "status"], agent_id=agent_id)
+        result = await _cli._run_with_agent_id(["auth", "status"], agent_id=agent_id)
 
-    # Sync auth status to DB
-    if result.get("success"):
-        data = result.get("data", {})
-        new_status = determine_auth_status(data)
-        if new_status != cred.auth_status:
-            await mgr.update_auth_status(agent_id, new_status)
-        data["db_auth_status"] = new_status
+        # Sync auth status to DB
+        if result.get("success"):
+            data = result.get("data", {})
+            new_status = determine_auth_status(data)
+            if new_status != cred.auth_status:
+                await mgr.update_auth_status(agent_id, new_status)
+            data["db_auth_status"] = new_status
 
-    return result
+        return result
+    except Exception as e:  # noqa: BLE001 — outer fallback (see module docstring)
+        logger.exception(f"[lark] auth/status crashed for agent={agent_id}: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ---- plugin contribution (batch 3c.5): this router belongs to builtin.channels.lark and is
