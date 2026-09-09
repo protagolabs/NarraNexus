@@ -2619,7 +2619,9 @@
       "cancelJob": "Cancel Job",
       "cancelling": "Cancelling...",
       "editSchedule": "Edit Time",
-      "savingSchedule": "Saving..."
+      "savingSchedule": "Saving...",
+      "editPayload": "Edit Content",
+      "savingPayload": "Saving..."
     },
     "template": {
       "selectTemplate": "Select Template",
@@ -2657,6 +2659,19 @@
       "modeLabel": "Trigger mode",
       "modeInterval": "Interval",
       "modeCron": "Cron expression"
+    },
+    "editPayload": {
+      "title": "Edit Job Content",
+      "hint": "Change what this job runs. Changes take effect on the next run.",
+      "titleLabel": "Title",
+      "descriptionLabel": "Description",
+      "payloadLabel": "Payload / prompt",
+      "payloadHint": "The instruction text passed to the agent when this job runs.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "titleRequired": "Title cannot be empty",
+      "failedTitle": "Update failed",
+      "failedMessage": "Could not update the job content. Please try again."
     },
     "row": {
       "every": "Every {{interval}}",

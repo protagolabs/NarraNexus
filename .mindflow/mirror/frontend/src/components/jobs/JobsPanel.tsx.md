@@ -8,6 +8,19 @@ last_verified: 2026-09-10
 与后端 `job_recovery._RESUMABLE_STATUSES` 对齐：被日花费上限暂停的 job 面板上有 Resume 按钮
 （早恢复无害，下一次调度会重判 cap）。
 
+## 2026-09-09 — wired the payload/title/description edit dialog (GitHub #86)
+
+`editingJob`/`handleEditSchedule`/`JobScheduleEditDialog` already
+covered the job's execution time; added the identical shape for content
+— `editingPayloadJob` / `savingPayload` state,
+`handleEditPayload`/`handleSavePayload` handlers calling the new
+`api.updateJob`, and `<JobPayloadEditDialog>` rendered alongside
+`<JobScheduleEditDialog>`. Reuses the existing `canEdit(status)`
+predicate for the gate (`canEditPayload`) rather than inventing a
+second one — editing either the schedule or the content of a
+running/terminal job is equally meaningless, so the same non-running,
+non-terminal guard applies to both.
+
 ## 2026-08-27 — 密度重构：band 按数据条件渲染
 
 Owner 反馈「jobs 页面字太多」。测下来根因不是字号，是**常驻元素数量**：

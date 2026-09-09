@@ -2160,7 +2160,9 @@
       "cancelJob": "Annuler la tâche",
       "cancelling": "Annulation...",
       "editSchedule": "Modifier l'heure",
-      "savingSchedule": "Enregistrement..."
+      "savingSchedule": "Enregistrement...",
+      "editPayload": "Modifier le contenu",
+      "savingPayload": "Enregistrement..."
     },
     "template": {
       "selectTemplate": "Sélectionner un modèle",
@@ -2198,6 +2200,19 @@
       "modeLabel": "Mode de déclenchement",
       "modeInterval": "Intervalle",
       "modeCron": "Expression cron"
+    },
+    "editPayload": {
+      "title": "Modifier le contenu de la tâche",
+      "hint": "Modifiez ce que cette tâche exécute. Les changements prennent effet à la prochaine exécution.",
+      "titleLabel": "Titre",
+      "descriptionLabel": "Description",
+      "payloadLabel": "Contenu / prompt",
+      "payloadHint": "Le texte d'instructions transmis à l'agent lors de l'exécution de cette tâche.",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "titleRequired": "Le titre ne peut pas être vide",
+      "failedTitle": "Échec de la mise à jour",
+      "failedMessage": "Impossible de mettre à jour le contenu de la tâche. Veuillez réessayer."
     },
     "row": {
       "every": "Toutes les {{interval}}",

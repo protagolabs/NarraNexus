@@ -2619,7 +2619,9 @@
       "cancelJob": "取消任务",
       "cancelling": "正在取消…",
       "editSchedule": "改时间",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "编辑内容",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "选择模板",
@@ -2657,6 +2659,19 @@
       "modeLabel": "触发方式",
       "modeInterval": "间隔",
       "modeCron": "Cron 表达式"
+    },
+    "editPayload": {
+      "title": "编辑任务内容",
+      "hint": "修改此任务的执行内容，下次运行时生效。",
+      "titleLabel": "标题",
+      "descriptionLabel": "描述",
+      "payloadLabel": "内容 / 提示词",
+      "payloadHint": "任务运行时传给智能体的指令文本。",
+      "save": "保存",
+      "cancel": "取消",
+      "titleRequired": "标题不能为空",
+      "failedTitle": "更新失败",
+      "failedMessage": "无法更新任务内容，请重试。"
     },
     "row": {
       "every": "每 {{interval}}",

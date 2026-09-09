@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `updateJob` added: the seam PUT had no frontend caller (GitHub #86)
+
+Backend PUT /api/jobs/{job_id} (mirrors the job_update MCP tool) has
+existed for a while; nothing in the frontend ever called it — `getJob`
+was similarly unused. Added `updateJob(jobId, agentId, fields)`:
+`agentId` scopes ownership (`assert_owned`), `fields` is
+title/description/payload, only the keys the caller actually passes are
+sent (undefined keys are omitted by `JSON.stringify`, matching the
+backend's None-means-unchanged `JobUpdateFields` semantics). Sibling of
+the existing `updateJobSchedule` (a different route,
+`/api/dashboard/jobs/{id}/schedule`, for trigger/timing fields only —
+content and schedule were always two separate routes, so they stay two
+separate client methods). Test: `__tests__/api.updateJob.test.ts`
+asserts the exact method/URL/body shape.
 
 ## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
 

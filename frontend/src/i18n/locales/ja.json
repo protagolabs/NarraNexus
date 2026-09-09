@@ -2159,7 +2159,9 @@
       "cancelJob": "ジョブをキャンセル",
       "cancelling": "キャンセル中...",
       "editSchedule": "時刻変更",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "内容を編集",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "テンプレートを選択",
@@ -2197,6 +2199,19 @@
       "modeLabel": "トリガー方式",
       "modeInterval": "間隔",
       "modeCron": "Cron 式"
+    },
+    "editPayload": {
+      "title": "ジョブ内容を編集",
+      "hint": "このジョブが実行する内容を変更します。変更は次回の実行から適用されます。",
+      "titleLabel": "タイトル",
+      "descriptionLabel": "説明",
+      "payloadLabel": "内容 / プロンプト",
+      "payloadHint": "このジョブが実行される際にエージェントへ渡される指示テキストです。",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "titleRequired": "タイトルを空にすることはできません",
+      "failedTitle": "更新に失敗しました",
+      "failedMessage": "ジョブの内容を更新できませんでした。もう一度お試しください。"
     },
     "row": {
       "every": "{{interval}} ごと",

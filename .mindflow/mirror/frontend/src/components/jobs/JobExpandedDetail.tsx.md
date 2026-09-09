@@ -1,7 +1,17 @@
 ---
 code_file: frontend/src/components/jobs/JobExpandedDetail.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — Edit Content button next to Edit Time (GitHub #86)
+
+Payload was already displayed here (expand/collapse), but it was
+read-only — the backend's PUT /api/jobs/{job_id} had no frontend edit
+UI at all. Added `canEditPayload`/`onEditPayload` props, mirroring
+`canEdit`/`onEdit` (execution-time editing) exactly: same guard
+predicate from the caller (JobsPanel's `canEdit(status)`), same
+action-row placement, opens `JobPayloadEditDialog` instead of
+`JobScheduleEditDialog`.
 
 ## 2026-08-27 — description 从折叠行搬到这里（区块 0）
 

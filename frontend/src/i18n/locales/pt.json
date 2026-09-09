@@ -2160,7 +2160,9 @@
       "cancelJob": "Cancelar tarefa",
       "cancelling": "Cancelando...",
       "editSchedule": "Editar hora",
-      "savingSchedule": "Salvando..."
+      "savingSchedule": "Salvando...",
+      "editPayload": "Editar conteúdo",
+      "savingPayload": "Salvando..."
     },
     "template": {
       "selectTemplate": "Selecionar modelo",
@@ -2198,6 +2200,19 @@
       "modeLabel": "Modo de disparo",
       "modeInterval": "Intervalo",
       "modeCron": "Expressão cron"
+    },
+    "editPayload": {
+      "title": "Editar conteúdo da tarefa",
+      "hint": "Altere o que esta tarefa executa. As alterações têm efeito na próxima execução.",
+      "titleLabel": "Título",
+      "descriptionLabel": "Descrição",
+      "payloadLabel": "Conteúdo / prompt",
+      "payloadHint": "O texto de instrução passado ao agente quando esta tarefa é executada.",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "titleRequired": "O título não pode ficar vazio",
+      "failedTitle": "Falha ao atualizar",
+      "failedMessage": "Não foi possível atualizar o conteúdo da tarefa. Tente novamente."
     },
     "row": {
       "every": "A cada {{interval}}",

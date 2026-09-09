@@ -2159,7 +2159,9 @@
       "cancelJob": "작업 취소",
       "cancelling": "취소 중...",
       "editSchedule": "시간 변경",
-      "savingSchedule": "저장 중..."
+      "savingSchedule": "저장 중...",
+      "editPayload": "내용 편집",
+      "savingPayload": "저장 중..."
     },
     "template": {
       "selectTemplate": "템플릿 선택",
@@ -2197,6 +2199,19 @@
       "modeLabel": "트리거 방식",
       "modeInterval": "간격",
       "modeCron": "Cron 표현식"
+    },
+    "editPayload": {
+      "title": "작업 내용 편집",
+      "hint": "이 작업이 실행할 내용을 변경합니다. 변경 사항은 다음 실행부터 적용됩니다.",
+      "titleLabel": "제목",
+      "descriptionLabel": "설명",
+      "payloadLabel": "내용 / 프롬프트",
+      "payloadHint": "이 작업이 실행될 때 에이전트에 전달되는 지시 텍스트입니다.",
+      "save": "저장",
+      "cancel": "취소",
+      "titleRequired": "제목은 비워둘 수 없습니다",
+      "failedTitle": "업데이트 실패",
+      "failedMessage": "작업 내용을 업데이트할 수 없습니다. 다시 시도해 주세요."
     },
     "row": {
       "every": "{{interval}}마다",

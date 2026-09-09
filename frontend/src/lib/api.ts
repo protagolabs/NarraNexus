@@ -1776,6 +1776,23 @@ class ApiClient {
     });
   }
 
+  /** Edit a job's content fields (title/description/payload) — the seam
+   *  route PUT /api/jobs/{job_id}, which mirrors the job_update MCP tool
+   *  exactly. Only send the changed fields; omitted fields (undefined) keep
+   *  their existing value server-side. `agentId` is the owning agent, used
+   *  for ownership scoping (assert_owned), not the job's own id. */
+  async updateJob(
+    jobId: string,
+    agentId: string,
+    fields: { title?: string; description?: string; payload?: string },
+  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string; detail?: string }> {
+    return this.request(`/api/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, ...fields }),
+    });
+  }
+
   async larkAuthLogin(agentId: string): Promise<LarkAuthLoginResponse> {
     return this.request<LarkAuthLoginResponse>('/api/lark/auth/login', {
       method: 'POST',

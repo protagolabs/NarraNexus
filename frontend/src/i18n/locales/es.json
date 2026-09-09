@@ -2160,7 +2160,9 @@
       "cancelJob": "Cancelar trabajo",
       "cancelling": "Cancelando...",
       "editSchedule": "Editar hora",
-      "savingSchedule": "Guardando..."
+      "savingSchedule": "Guardando...",
+      "editPayload": "Editar contenido",
+      "savingPayload": "Guardando..."
     },
     "template": {
       "selectTemplate": "Seleccionar plantilla",
@@ -2198,6 +2200,19 @@
       "modeLabel": "Modo de activación",
       "modeInterval": "Intervalo",
       "modeCron": "Expresión cron"
+    },
+    "editPayload": {
+      "title": "Editar contenido de la tarea",
+      "hint": "Cambia lo que ejecuta esta tarea. Los cambios se aplican en la próxima ejecución.",
+      "titleLabel": "Título",
+      "descriptionLabel": "Descripción",
+      "payloadLabel": "Contenido / prompt",
+      "payloadHint": "El texto de instrucciones que se pasa al agente cuando se ejecuta esta tarea.",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "titleRequired": "El título no puede estar vacío",
+      "failedTitle": "Error al actualizar",
+      "failedMessage": "No se pudo actualizar el contenido de la tarea. Inténtalo de nuevo."
     },
     "row": {
       "every": "Cada {{interval}}",

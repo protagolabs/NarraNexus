@@ -2168,7 +2168,9 @@
       "cancelJob": "إلغاء المهمة",
       "cancelling": "جارٍ الإلغاء...",
       "editSchedule": "تعديل الوقت",
-      "savingSchedule": "جارٍ الحفظ..."
+      "savingSchedule": "جارٍ الحفظ...",
+      "editPayload": "تحرير المحتوى",
+      "savingPayload": "جارٍ الحفظ..."
     },
     "template": {
       "selectTemplate": "اختر قالبًا",
@@ -2206,6 +2208,19 @@
       "modeLabel": "وضع التشغيل",
       "modeInterval": "الفاصل",
       "modeCron": "تعبير cron"
+    },
+    "editPayload": {
+      "title": "تحرير محتوى المهمة",
+      "hint": "غيّر ما تنفذه هذه المهمة. تسري التغييرات في التشغيل التالي.",
+      "titleLabel": "العنوان",
+      "descriptionLabel": "الوصف",
+      "payloadLabel": "المحتوى / التعليمات",
+      "payloadHint": "نص التعليمات الذي يُمرَّر إلى الوكيل عند تشغيل هذه المهمة.",
+      "save": "حفظ",
+      "cancel": "إلغاء",
+      "titleRequired": "لا يمكن أن يكون العنوان فارغًا",
+      "failedTitle": "فشل التحديث",
+      "failedMessage": "تعذر تحديث محتوى المهمة. يرجى المحاولة مرة أخرى."
     },
     "row": {
       "every": "كل {{interval}}",

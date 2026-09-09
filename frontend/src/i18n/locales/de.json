@@ -2160,7 +2160,9 @@
       "cancelJob": "Job abbrechen",
       "cancelling": "Wird abgebrochen...",
       "editSchedule": "Zeit ändern",
-      "savingSchedule": "Speichern..."
+      "savingSchedule": "Speichern...",
+      "editPayload": "Inhalt bearbeiten",
+      "savingPayload": "Speichern..."
     },
     "template": {
       "selectTemplate": "Vorlage auswählen",
@@ -2198,6 +2200,19 @@
       "modeLabel": "Auslösemodus",
       "modeInterval": "Intervall",
       "modeCron": "Cron-Ausdruck"
+    },
+    "editPayload": {
+      "title": "Aufgabeninhalt bearbeiten",
+      "hint": "Ändere, was diese Aufgabe ausführt. Änderungen gelten ab dem nächsten Lauf.",
+      "titleLabel": "Titel",
+      "descriptionLabel": "Beschreibung",
+      "payloadLabel": "Inhalt / Prompt",
+      "payloadHint": "Der Anweisungstext, der beim Ausführen dieser Aufgabe an den Agenten übergeben wird.",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "titleRequired": "Der Titel darf nicht leer sein",
+      "failedTitle": "Aktualisierung fehlgeschlagen",
+      "failedMessage": "Der Aufgabeninhalt konnte nicht aktualisiert werden. Bitte erneut versuchen."
     },
     "row": {
       "every": "Alle {{interval}}",
