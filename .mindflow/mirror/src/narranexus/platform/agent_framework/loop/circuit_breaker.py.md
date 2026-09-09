@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/circuit_breaker.py
-last_verified: 2026-07-30
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -51,11 +51,20 @@ provider 打垮"的 DoS 风险,熔断器本就不该管。
 新 run、message bus 轮询、module poller 一遍遍重触发。本服务复用 Job 层的分类/退避，
 在每个实时触发入口设"跳过闸门"，并在 turn 结束时记账。
 
+## 2026-09-09 — AUTH 判定里的 `"forbidden"` 补丁删掉，统一回 `is_credential_error`
+
+`classify_agent_error` 第 ③ 步原本在 `is_credential_error` 之外再补一句
+`"forbidden" in msg.lower()`，因为旧 marker 表的 `" 403"/"(403"` 要求数字前有分隔符，
+顶格的 "403 Forbidden" 漏网。[[failure.py]] 今日改成锚定正则（403 按整数匹配、
+`forbidden` 进表、裸 "provider" 出表），这句补丁成了第二份口径，删掉。行为由
+`test_agent_circuit_breaker.py` 的 "HTTP 403 Forbidden" / "403 Forbidden" 两条用例钉住；
+"provider temporarily unavailable" 仍靠 TRANSIENT 先判，但即使去掉那层，它也不再是 AUTH。
+
 ## 核心行为（分而治之）
 
 `classify_agent_error` 是**四分类**，顺序刻意：① QUOTA（error_type 精确匹配）② TRANSIENT
-（**正面识别** provider 侧：429/5xx/超时/网络/overloaded；放在 auth 之前，避免 "provider
-temporarily unavailable" 被 `is_credential_error` 的宽泛 "provider" 子串误扫进 auth）
+（**正面识别** provider 侧：429/5xx/超时/网络/overloaded；放在 auth 之前，让一条恰好带
+凭据词的瞬时错误——"authentication service timed out"——落 TRANSIENT 而不是 AUTH）
 ③ AUTH（凭证死）④ **BUSINESS = 真正的残余桶**：我们自己的 pipeline bug、永久客户端错
 （context 超长 / 模型 404 / content policy）、或认不出的。
 

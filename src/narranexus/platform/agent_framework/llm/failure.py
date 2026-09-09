@@ -25,26 +25,48 @@ from __future__ import annotations
 import re
 from typing import Optional, Union
 
-# Substrings (lower-cased) that mark an error as a provider/credential
-# problem worth calling out explicitly, vs. a generic failure. Deliberately
-# coarse — provider SDKs phrase auth failures many ways, and this only
-# decides the owner-facing hint text + audit category, never retry/delivery
-# behavior.
-CREDENTIAL_ERROR_MARKERS: tuple[str, ...] = (
-    "api_key",
-    "api key",
-    "apikey",
-    "credential",
-    "unauthorized",
-    "authentication",
-    " 401",
-    "(401",
-    " 403",
-    "(403",
-    "invalid_api_key",
-    "invalid api key",
-    "provider",
+# Anchored patterns (case-insensitive) that mark an error as a provider
+# credential/auth problem, vs. a generic failure. Anchored, not bare substrings:
+# until 2026-09-09 the list carried a bare "provider" marker, so ANY error whose
+# text mentioned a provider — "provider temporarily unavailable", a worker's
+# "No module named ...provider_resolver" (upstream NetMindAI-Open/NarraNexus#106)
+# — was filed as a credential failure and the owner told to check an API key
+# that was fine. Status codes are matched as whole numbers so a token count
+# ("generated 403 tokens") cannot pass for an HTTP status. Provider SDKs still
+# phrase auth failures many ways, so the list stays broad on WORDING but every
+# entry is a credential word or a bounded status code — never a subsystem name.
+# This only decides the owner-facing hint text + audit category, never
+# retry/delivery behavior.
+_CREDENTIAL_ERROR_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Letter boundaries, not `\b`: `_` is a word character, so `\b` would
+        # miss `x_api_key`, `api_key_invalid`, `authentication_failed` and the
+        # bare class name `AuthenticationError` (review C4 — nine real provider
+        # strings went silently False). A letter on either side is the only
+        # thing that turns these into a different word.
+        r"(?<![A-Za-z])api[ _-]?key",
+        r"(?<![A-Za-z])credential",
+        r"(?<![A-Za-z])unauthori[sz]ed(?![A-Za-z])",
+        r"(?<![A-Za-z])authenticat",
+        r"(?<![A-Za-z])forbidden(?![A-Za-z])",
+        r"(?<![A-Za-z])invalid[ _-](?:api[ _-])?(?:key|token)(?![A-Za-z])",
+        # 401 / 403 as a whole number, and not the number in a token count.
+        r"(?<![\d.])40[13](?![\d.])(?!\s*tokens?\b)",
+    )
 )
+
+# Exception CLASS names that are a credential failure by construction — the
+# provider SDKs' own auth exceptions (OpenAI/Anthropic `AuthenticationError`,
+# `PermissionDeniedError`; litellm re-exports both). Matched on the exact class
+# name when the caller hands over the exception itself, so an SDK whose error
+# body is uninformative ("request failed") still classifies.
+_CREDENTIAL_ERROR_TYPES: frozenset[str] = frozenset({
+    "AuthenticationError",
+    "PermissionDeniedError",
+    "InvalidApiKeyError",
+    "AuthError",
+})
 
 # Max length of the (already-redacted) error string embedded anywhere an
 # owner can read it. Provider error bodies can be arbitrarily long (stack
@@ -72,15 +94,19 @@ _SECRET_BEARER_PATTERN = re.compile(
 def is_credential_error(error: Union[str, BaseException, None]) -> bool:
     """True when ``error`` looks like a provider auth/credential failure.
 
-    Accepts a string or an exception (``str(exc)`` is used). ``None`` /
-    empty → False. Substring match only — see ``CREDENTIAL_ERROR_MARKERS``.
+    Accepts a string or an exception. An exception is classified by its class
+    name first (``_CREDENTIAL_ERROR_TYPES``), then by ``str(exc)`` against the
+    anchored ``_CREDENTIAL_ERROR_PATTERNS``. ``None`` / empty → False.
     """
     if error is None:
         return False
-    text = str(error).lower()
+    if isinstance(error, BaseException):
+        if type(error).__name__ in _CREDENTIAL_ERROR_TYPES:
+            return True
+    text = str(error)
     if not text:
         return False
-    return any(marker in text for marker in CREDENTIAL_ERROR_MARKERS)
+    return any(pattern.search(text) for pattern in _CREDENTIAL_ERROR_PATTERNS)
 
 
 # --------------------------------------------------------------------------

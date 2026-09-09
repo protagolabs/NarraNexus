@@ -147,9 +147,9 @@ def classify_agent_error(
          and checking them BEFORE the transient rule is what keeps a budget
          429 out of the rate-limit bucket.
       2. TRANSIENT — positively identified provider-side signatures (network /
-         5xx / rate-limit / overload). Checked BEFORE auth so a message like
-         "provider temporarily unavailable" isn't mis-swept into AUTH by the
-         broad "provider" credential marker.
+         5xx / rate-limit / overload). Checked BEFORE auth so a transient that
+         happens to mention a credential word ("authentication service
+         timed out") lands here and not in AUTH.
       3. AUTH — dead credentials (401/403, invalid/expired key, re-login).
       4. BUSINESS — everything else: our-own pipeline bug, a permanent client
          error (context too long, unknown model, content policy), or simply an
@@ -167,11 +167,6 @@ def classify_agent_error(
         _is_auth_failure(et, msg)
         or is_credential_error(et)
         or is_credential_error(msg)
-        # `is_credential_error`'s " 403"/"(403" markers need a delimiter before
-        # the digits, so a string-leading "403 Forbidden" slips through. Catch
-        # the unambiguous word so a permission/credential 403 is treated as
-        # AUTH (owner-actionable), not misrouted to BUSINESS (platform-only).
-        or "forbidden" in msg.lower()
     ):
         return ErrorCategory.AUTH
     return ErrorCategory.BUSINESS
