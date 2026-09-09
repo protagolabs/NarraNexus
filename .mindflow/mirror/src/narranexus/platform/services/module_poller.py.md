@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/services/module_poller.py
-last_verified: 2026-07-22
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-16：`_process_completed_instance` 按 narrative_id 有无分叉
+
+`InstanceHandler.handle_completion`（这里唯一处理依赖激活的调用点，见
+docstring「Execution strategy: Path B」）只能在 `instance_narrative_links`
+里按 `narrative_id` 找依赖方——`/api/jobs/complex` 建的 job 从没绑过
+narrative（route 从不传 `narrative_id`），根本没进过那张表，`handle_completion`
+对它们永远等价于「查不到任何依赖方」。于是这类依赖链「永不触发」
+（GitHub #114/#109）：上游 job 跑完，`_process_completed_instance` 照常执行，
+但下游 job 的 BLOCKED 状态永远没人碰。
+
+`info.narrative_id` 为假值时改叫 [[instance_handler]] 新增的
+`handle_completion_no_narrative`——直接读 `module_instances.dependencies`，
+不touch 任何 narrative 相关表。有 narrative_id 时行为完全不变（回归测试
+`test_narrative_id_present_still_uses_the_narrative_scoped_path` 钉死这点）。
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 

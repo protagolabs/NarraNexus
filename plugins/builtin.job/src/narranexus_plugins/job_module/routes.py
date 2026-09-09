@@ -138,6 +138,52 @@ class CreateJobComplexRequest(BaseModel):
     jobs: List[JobComplexJobRequest]
 
 
+def _topological_sort_job_complex(
+    jobs: List["JobComplexJobRequest"],
+) -> "tuple[Optional[List[JobComplexJobRequest]], Optional[str]]":
+    """Kahn's algorithm over the `task_key` dependency edges (B-16).
+
+    `create_job_complex` used to walk `body.jobs` in raw REQUEST order and
+    look up `task_key_to_job_id[dep]` as it went — a forward reference (a job
+    whose `depends_on` names a task_key appearing LATER in the list) raised a
+    bare KeyError (#285 only sanitised the message into a generic 500, never
+    fixed the ordering). This returns the jobs re-ordered so every dependency
+    is created before its dependents, or `(None, error)` naming the cycle
+    when the graph isn't a DAG.
+
+    Assumes every `depends_on` entry is a known task_key — the caller
+    validates that separately before this runs; an unknown task_key is
+    ignored here (not double-reported).
+    """
+    from collections import deque
+
+    by_key = {j.task_key: j for j in jobs}
+    indegree = {k: 0 for k in by_key}
+    dependents: dict[str, List[str]] = {k: [] for k in by_key}
+    for j in jobs:
+        for dep in j.depends_on:
+            if dep not in by_key:
+                continue
+            dependents[dep].append(j.task_key)
+            indegree[j.task_key] += 1
+
+    queue = deque(k for k in by_key if indegree[k] == 0)
+    ordered: List[str] = []
+    while queue:
+        k = queue.popleft()
+        ordered.append(k)
+        for nxt in dependents[k]:
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                queue.append(nxt)
+
+    if len(ordered) != len(by_key):
+        cyclic = sorted(k for k in by_key if k not in ordered)
+        return None, f"dependency cycle detected among task_keys: {', '.join(cyclic)}"
+
+    return [by_key[k] for k in ordered], None
+
+
 class CreateJobComplexResponse(BaseModel):
     """Response for creating a Job Complex"""
     success: bool
@@ -485,6 +531,14 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
                         error=f"Invalid dependency: '{dep}' not found in job list"
                     )
 
+        # 1.5. Topological sort (B-16): create dependencies before their
+        # dependents regardless of request order, and reject a cycle loudly
+        # (400, naming the task_keys involved) instead of leaving every job
+        # in it BLOCKED forever with no diagnostic.
+        ordered_jobs, cycle_error = _topological_sort_job_complex(body.jobs)
+        if ordered_jobs is None:
+            raise HTTPException(status_code=400, detail=cycle_error)
+
         # 2. Generate group_id
         group_id = body.group_id or f"group_{uuid4().hex[:8]}"
 
@@ -496,7 +550,7 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
         job_ids = []
         task_key_to_job_id = {}  # task_key -> job_id mapping
 
-        for job in body.jobs:
+        for job in ordered_jobs:
             # Convert task_key dependencies to job_id dependencies
             depends_on_job_ids = [task_key_to_job_id[dep] for dep in job.depends_on]
 
@@ -545,6 +599,10 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
             job_ids=job_ids,
         )
 
+    except HTTPException:
+        # The cycle-detection 400 above must reach the caller as a 400, not
+        # be downgraded into a 200 success=False by the generic handler below.
+        raise
     except Exception as e:
         logger.exception(f"Error creating Job Complex: {e}")
         return CreateJobComplexResponse(

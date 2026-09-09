@@ -190,6 +190,7 @@ class JobRepository(BaseRepository[JobModel]):
         related_entity_id: Optional[str] = None,
         narrative_id: Optional[str] = None,
         monitored_job_ids: Optional[List[str]] = None,  # 2026-01-21: Monitor Job pattern
+        status: JobStatus = JobStatus.PENDING,
     ) -> int:
         """
         Create a Job
@@ -221,6 +222,12 @@ class JobRepository(BaseRepository[JobModel]):
             related_entity_id: Target user ID (used as the principal identity when the Job executes)
             narrative_id: Associated Narrative ID (for loading conversation context)
             monitored_job_ids: Monitor Job pattern, other Job IDs monitored by this Job
+            status: Initial status. Defaults to PENDING; a Job whose
+                ModuleInstance starts BLOCKED (has dependencies — see
+                job_service.create_job_with_instance) MUST be created with
+                JobStatus.BLOCKED so get_due_jobs() (which only selects
+                PENDING/ACTIVE) does not fire it before its dependencies
+                complete (B-16).
 
         Returns:
             Inserted record ID
@@ -238,7 +245,7 @@ class JobRepository(BaseRepository[JobModel]):
             job_type=job_type,
             trigger_config=trigger_config,
             payload=payload,
-            status=JobStatus.PENDING,
+            status=status,
             process=[],
             next_run_time=next_run_time,
             next_run_at_local=next_run_at_local,
@@ -1117,6 +1124,14 @@ class JobRepository(BaseRepository[JobModel]):
         making them pollable by JobTrigger. Resolves the job's frozen timezone
         from its trigger_config so the beta fields stay in sync with alpha.
 
+        B-16: also flips `status` to ACTIVE. The `WHERE` clause used to only
+        match PENDING/ACTIVE — a job correctly created BLOCKED (dependencies
+        not yet met) could never be un-blocked by this method (0 rows
+        affected), which is exactly the call `JobModule.on_instance_activated`
+        makes when a dependency completes. Widened to include BLOCKED and the
+        `SET` now explicitly moves it to ACTIVE so `get_due_jobs()` (which only
+        selects PENDING/ACTIVE) can pick it up.
+
         Args:
             instance_id: Instance ID
             next_run_time: Next execution time (aware UTC datetime)
@@ -1143,8 +1158,8 @@ class JobRepository(BaseRepository[JobModel]):
         query = f"""
             UPDATE {self.table_name}
             SET next_run_time = %s, next_run_at_local = %s, next_run_tz = %s,
-                updated_at = %s
-            WHERE instance_id = %s AND status IN (%s, %s)
+                status = %s, updated_at = %s
+            WHERE instance_id = %s AND status IN (%s, %s, %s)
         """
 
         result = await self._db.execute(
@@ -1153,10 +1168,12 @@ class JobRepository(BaseRepository[JobModel]):
                 next_run_time,
                 local_str,
                 tz_name,
+                JobStatus.ACTIVE.value,
                 utc_now(),
                 instance_id,
                 JobStatus.PENDING.value,
-                JobStatus.ACTIVE.value
+                JobStatus.ACTIVE.value,
+                JobStatus.BLOCKED.value,
             ),
             fetch=False
         )

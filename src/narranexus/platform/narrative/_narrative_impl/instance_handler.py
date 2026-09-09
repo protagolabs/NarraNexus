@@ -189,6 +189,86 @@ class InstanceHandler:
         logger.info(f"Newly activated: {newly_activated}")
         return newly_activated
 
+    async def handle_completion_no_narrative(
+        self,
+        instance_id: str,
+        new_status: "InstanceStatus",
+    ) -> List[str]:
+        """
+        Narrative-independent counterpart of `handle_completion` (B-16).
+
+        `handle_completion` resolves dependents by scanning
+        `instance_narrative_links` scoped to a `narrative_id` — it can only
+        ever see an instance that was linked to a narrative in the first
+        place. Jobs created via `/api/jobs/complex` never bind one (the route
+        never passes `narrative_id`), so a dependent Job's BLOCKED instance
+        was invisible to `handle_completion` and stayed BLOCKED forever no
+        matter how many of its dependencies completed — dependency chains
+        "never trigger" (GitHub #114/#109).
+
+        This resolves purely from `module_instances.dependencies` — the raw
+        graph every instance already carries, independent of narrative
+        linkage — scoped to this handler's `agent_id` (dependencies are
+        instance_ids from the SAME job-complex batch, which is always
+        single-agent).
+
+        Semantics mirror `handle_completion`/`_check_dependencies_from_db`:
+        a dependency counts as resolved once it reaches EITHER terminal
+        state (COMPLETED or FAILED) — the caller, not this method, owns any
+        "block on upstream failure" policy.
+        """
+        from narranexus.platform.schema.module_schema import InstanceStatus
+        from narranexus.platform.repository import InstanceRepository
+
+        db_client = await self._get_db_client()
+        instance_repo = InstanceRepository(db_client)
+
+        db_instance = await instance_repo.get_by_instance_id(instance_id)
+        if not db_instance:
+            logger.warning(f"Instance {instance_id} not found in database")
+            return []
+
+        now = datetime.now(timezone.utc)
+        await instance_repo.update_status(
+            instance_id=instance_id,
+            status=new_status,
+            completed_at=now if new_status in [InstanceStatus.COMPLETED, InstanceStatus.FAILED] else None,
+        )
+
+        terminal_statuses = {InstanceStatus.COMPLETED.value, InstanceStatus.FAILED.value}
+        blocked = await instance_repo.get_by_agent(self.agent_id, status=InstanceStatus.BLOCKED)
+
+        newly_activated: List[str] = []
+        for inst in blocked:
+            dependencies = inst.dependencies or []
+            if instance_id not in dependencies:
+                continue
+
+            all_resolved = True
+            for dep_id in dependencies:
+                dep = await instance_repo.get_by_instance_id(dep_id)
+                dep_status = dep.status if dep and isinstance(dep.status, str) else (
+                    dep.status.value if dep else None
+                )
+                if dep_status not in terminal_statuses:
+                    all_resolved = False
+                    break
+            if not all_resolved:
+                continue
+
+            await instance_repo.update_status(inst.instance_id, InstanceStatus.ACTIVE)
+            newly_activated.append(inst.instance_id)
+            logger.info(f"Activated blocked instance (no-narrative path): {inst.instance_id}")
+
+            from narranexus.platform.module_system import module_registry
+
+            module_class = module_registry.get(inst.module_class)
+            if module_class is not None:
+                await module_class.on_instance_activated(inst.instance_id, db_client)
+
+        logger.info(f"Newly activated (no-narrative path): {newly_activated}")
+        return newly_activated
+
     def _check_dependencies(
         self,
         dependencies: List[str],

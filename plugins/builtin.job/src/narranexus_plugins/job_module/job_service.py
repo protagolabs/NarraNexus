@@ -288,6 +288,15 @@ class JobInstanceService:
                 related_entity_id=related_entity_id,  # Feature 2.2.1 (single value)
                 narrative_id=narrative_id,  # Feature 3.1
                 monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitored Job pattern
+                # B-16: the Job's OWN status must mirror the ModuleInstance's
+                # initial_status — get_due_jobs() only selects PENDING/ACTIVE,
+                # so a dependent job left at the default PENDING fired
+                # immediately (next_run computed the same way regardless of
+                # dependencies), completely ignoring the BLOCKED instance.
+                status=(
+                    JobStatus.BLOCKED if initial_status == InstanceStatus.BLOCKED
+                    else JobStatus.PENDING
+                ),
             )
             logger.info(f"Created Job: {job_id}")
 

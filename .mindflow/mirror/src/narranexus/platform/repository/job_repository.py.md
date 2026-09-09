@@ -4,6 +4,23 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — B-16：`create_job` 加 `status` 参数 + BLOCKED 纳入激活集合
+
+两处改动，同一个根因（依赖链「永不触发」，GitHub #114/#109）：
+
+1. `create_job` 新增 `status: JobStatus = JobStatus.PENDING` 参数——此前硬编码
+   `JobStatus.PENDING`，即便调用方（[[job_service]] / `instance_sync_service`）
+   早就判定这个 job 的 ModuleInstance 该是 BLOCKED，Job 自己的状态也从不跟着变，
+   `get_due_jobs()`（只选 PENDING/ACTIVE）照样把它当成到期任务拉走。
+2. `update_next_run_time_by_instance`（`JobModule.on_instance_activated` 依赖
+   完成后调的那个方法）的 `WHERE status IN (...)` 原来只有 PENDING/ACTIVE——
+   docstring 早就写着「Used to activate BLOCKED Jobs」，代码却从没把 BLOCKED
+   放进去，是个从一开始就没兑现的方法。现在把 BLOCKED 纳入 WHERE，`SET`
+   里显式把 `status` 写成 ACTIVE。
+
+两处必须同时改：只改#1，job 正确落成 BLOCKED 但从此激活不了（0 rows
+affected）；只改#2，因为 job 状态从来不是 BLOCKED，这个分支永远轮不到。
+
 ## 2026-09-09 — B-15：两处读路径改用 `TriggerConfig.from_stored_dict`
 
 `_row_to_entity`（`get_job`/`find` 等一切读路径的落脚点）和

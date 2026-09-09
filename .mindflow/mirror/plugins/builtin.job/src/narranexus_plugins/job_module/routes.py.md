@@ -1,8 +1,25 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-16：`create_job_complex` 建前先 Kahn 排序 + 环检测
+
+`create_job_complex` 原来按 `body.jobs` 的**请求顺序**建 job，边建边查
+`task_key_to_job_id[dep]`——一个依赖写在自己**后面**的 forward reference
+（GitHub #114/#109 那种形状）必然 KeyError（#285 只把这个 500 的报错文案
+擦干净，没修排序本身）；一个环则会让环上所有 job 永远卡在 BLOCKED、没有任何
+诊断信息。
+
+新增纯函数 `_topological_sort_job_complex`：Kahn 算法，对 `depends_on` 建
+`task_key` 级的依赖图，返回重排后的 job 列表，或者 `(None, 环错误信息)`。
+挂在依赖合法性校验之后、真正建 job 之前；排序失败时 `raise HTTPException(400,
+detail=cycle_error)`——外层 `except Exception` 之前专门插了
+`except HTTPException: raise`，否则那个 400 会被通用兜底吞成
+`200 success=False`。
+
+未知 task_key（已被前一步 validate 挡掉）在排序函数里直接跳过，不重复报错。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

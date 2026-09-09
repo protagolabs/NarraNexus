@@ -434,11 +434,24 @@ class ModulePoller:
             handler = InstanceHandler(agent_id=info.agent_id)
             handler.set_database_client(self.db)
 
-            newly_activated = await handler.handle_completion(
-                narrative_id=info.narrative_id,
-                instance_id=info.instance_id,
-                new_status=new_status,
-            )
+            # B-16: an instance with no narrative_id (e.g. a Job created via
+            # /api/jobs/complex, which never binds one) was never linked into
+            # instance_narrative_links in the first place — handle_completion's
+            # narrative-scoped dependent lookup can never see it, so its
+            # dependents stayed BLOCKED forever no matter how many upstream
+            # jobs completed. Resolve directly from module_instances.dependencies
+            # instead when there is no narrative to scope by.
+            if info.narrative_id:
+                newly_activated = await handler.handle_completion(
+                    narrative_id=info.narrative_id,
+                    instance_id=info.instance_id,
+                    new_status=new_status,
+                )
+            else:
+                newly_activated = await handler.handle_completion_no_narrative(
+                    instance_id=info.instance_id,
+                    new_status=new_status,
+                )
 
             # 3. Record newly activated instances
             # Note: Using Path B strategy, these instances will be executed via JobTrigger polling
