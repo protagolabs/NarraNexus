@@ -42,7 +42,9 @@ from typing import Any, Dict, List, Optional
 
 from datetime import timedelta
 
-from narranexus.platform.utils.timezone import coerce_utc, utc_now
+from loguru import logger
+
+from narranexus.platform.utils.timezone import coerce_utc, to_datetime6_literal, utc_now
 
 RECEIPT_ACCEPTED = "accepted"
 RECEIPT_HELD = "held"
@@ -152,3 +154,25 @@ class BusDeliveryReceiptRepository:
         rows = await self._db.get(self.TABLE, {"from_agent": from_agent})
         rows = sorted(rows or [], key=lambda r: str(r.get("updated_at") or ""), reverse=True)
         return rows[:limit]
+
+    async def cleanup_older_than_days(self, days: int) -> int:
+        """Delete receipts not touched for ``days``. Returns rows deleted
+        (best-effort; 0 on driver error).
+
+        A receipt is a delivery-time fact; once every window that reads it
+        (`prior_outcome`'s) has closed it is history, and this table would
+        otherwise grow 1:1 with `bus_messages` forever. Run by
+        ``MessageBusTrigger._maybe_run_steer_cleanup`` daily, with a retention
+        far above the guard window.
+        """
+        cutoff = to_datetime6_literal(utc_now() - timedelta(days=days))
+        try:
+            result = await self._db.execute(
+                f"DELETE FROM {self.TABLE} WHERE updated_at < %s",
+                params=(cutoff,),
+                fetch=False,
+            )
+            return int(result) if isinstance(result, (int, float)) else 0
+        except Exception as e:  # noqa: BLE001 — retention is best-effort
+            logger.warning(f"[bus-receipt] cleanup({days}): {type(e).__name__}: {e}")
+            return 0

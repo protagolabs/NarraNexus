@@ -74,3 +74,15 @@ async def test_upsert_roundtrip_and_prior_silence(mysql_client):
     assert await repo.prior_outcome(channel_id=CH, to_agent=TO, key=key, status=RECEIPT_SILENT, exclude_message_id="r3", within_seconds=3600) is True
     assert await repo.prior_outcome(channel_id=CH, to_agent=TO, key=key, status=RECEIPT_SILENT, exclude_message_id="r2", within_seconds=3600) is False
     assert [r["message_id"] for r in await repo.for_sender(SENDER)] == ["r2", "r1"]
+
+    # Retention DELETE on the real dialect.
+    from datetime import timedelta
+
+    from narranexus.platform.utils.timezone import utc_now
+
+    assert await repo.cleanup_older_than_days(30) == 0
+    await mysql_client.update(
+        BusDeliveryReceiptRepository.TABLE, {"message_id": "r1", "to_agent": TO},
+        {"updated_at": utc_now() - timedelta(days=40)},
+    )
+    assert await repo.cleanup_older_than_days(30) == 1

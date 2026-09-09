@@ -404,5 +404,7 @@ async def test_cooldown_survives_a_trigger_restart(db_client, monkeypatch):
 
     rows = await db_client.get("inbox_table", {"user_id": "user_x"})
     assert len(rows) == 1, rows
-    cooldown_rows = await db_client.get("owner_notice_cooldowns", {"agent_id": "agent_a"})
+    cooldown_rows = await db_client.get(
+        "owner_notice_cooldowns", {"agent_id": "agent_a", "category": "generic"}
+    )
     assert [(r["target"], r["category"]) for r in cooldown_rows] == [("ch1", "generic")]

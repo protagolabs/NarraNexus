@@ -63,3 +63,9 @@ async def test_arm_cool_expire_roundtrip(mysql_client):
     assert await repo.is_cooling(AGENT, "ch1", "generic", WINDOW) is False
     rows = await mysql_client.get(OwnerNoticeCooldownRepository.TABLE, {"agent_id": AGENT})
     assert len(rows) == 1
+
+    # Retention DELETE on the real dialect: the expired row above is well
+    # inside 2 days, so nothing goes; backdate it past the bound and it does.
+    assert await repo.cleanup_older_than_days(2) == 0
+    await repo.arm(AGENT, "ch1", "generic", at=utc_now() - timedelta(days=3))
+    assert await repo.cleanup_older_than_days(2) == 1

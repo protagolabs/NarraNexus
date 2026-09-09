@@ -137,6 +137,15 @@ STEER_RETENTION_DAYS = 3
 STEER_ORPHAN_DAYS = 7
 STEER_CLEANUP_INTERVAL_S = 24 * 3600
 
+#: Retention for the two 2026-09-09 ledgers this trigger is the production
+#: writer of, swept on the same daily tick. Both bounds sit far above every
+#: window that reads the rows: the receipt guards and the owner-notice
+#: cooldowns are FAILURE_NOTIFY_COOLDOWN_SECONDS (30 min) wide, so a sweep can
+#: never reach into a live window — which would re-open it and bring back the
+#: duplicate notice B-20.3 removed.
+RECEIPT_RETENTION_DAYS = 30
+NOTICE_COOLDOWN_RETENTION_DAYS = 2
+
 # How often the poll loop checks the cross-process wake signal while it sleeps.
 # Bounds the added latency of a send made outside this process; 0.5s keeps that
 # under a second while costing two single-row reads per second.
@@ -1380,10 +1389,11 @@ class MessageBusTrigger:
             flight.steer_cycles_in_flight -= 1
 
     async def _maybe_run_steer_cleanup(self) -> None:
-        """Reclaim old steer_inbox rows — startup + once a day. This trigger is
-        the table's only production writer, so it owns the retention tick (else
-        the table is write-only and grows forever). Gated on monotonic time;
-        best-effort — a cleanup failure never touches the poll loop."""
+        """Reclaim old steer_inbox rows, delivery receipts and owner-notice
+        cooldowns — startup + once a day. This trigger is each table's only
+        production writer, so it owns the retention tick (else the tables are
+        write-only and grow forever). Gated on monotonic time; best-effort — a
+        cleanup failure never touches the poll loop."""
         now = time.monotonic()
         if now - self._last_steer_cleanup_monotonic < STEER_CLEANUP_INTERVAL_S:
             return
@@ -1394,13 +1404,37 @@ class MessageBusTrigger:
             )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
-            deleted = await SteerInboxRepository(
-                await get_db_client()
-            ).cleanup_older_than_days(STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS)
+            db = await get_db_client()
+            deleted = await SteerInboxRepository(db).cleanup_older_than_days(
+                STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS
+            )
             if deleted:
                 logger.info(f"[steer-inbox] retention swept {deleted} rows")
         except Exception as e:  # noqa: BLE001 — retention never breaks the loop
             logger.warning(f"[steer-inbox] retention sweep failed: {type(e).__name__}: {e}")
+        # The same tick sweeps the two ledgers this trigger writes (2026-09-09):
+        # each is best-effort on its own so one failing sweep never starves
+        # the others.
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+            )
+            from narranexus.platform.repository.owner_notice_cooldown_repository import (
+                OwnerNoticeCooldownRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            swept = await BusDeliveryReceiptRepository(db).cleanup_older_than_days(
+                RECEIPT_RETENTION_DAYS
+            )
+            swept += await OwnerNoticeCooldownRepository(db).cleanup_older_than_days(
+                NOTICE_COOLDOWN_RETENTION_DAYS
+            )
+            if swept:
+                logger.info(f"[bus-ledgers] retention swept {swept} rows")
+        except Exception as e:  # noqa: BLE001 — retention never breaks the loop
+            logger.warning(f"[bus-ledgers] retention sweep failed: {type(e).__name__}: {e}")
 
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent

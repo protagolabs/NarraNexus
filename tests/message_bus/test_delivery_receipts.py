@@ -370,3 +370,37 @@ async def test_pre_flight_never_calls_the_turn_gate(db_client, monkeypatch):
     # An unknown/future status is held, never silently accepted.
     assert out["receipt"]["status"] == RECEIPT_HELD
     assert "probing" in out["receipt"]["reason"]
+
+
+# ── 2026-09-09 (review I1): the trigger owns retention for both tables ──────
+
+
+@pytest.mark.asyncio
+async def test_the_daily_sweep_prunes_receipts_and_cooldowns(db_client, monkeypatch):
+    from datetime import timedelta
+
+    from narranexus.platform.message_bus import message_bus_trigger as mbt
+    from narranexus.platform.repository.owner_notice_cooldown_repository import (
+        OwnerNoticeCooldownRepository,
+    )
+    from narranexus.platform.utils.timezone import utc_now
+
+    _patch_db(monkeypatch, db_client)
+    repo = BusDeliveryReceiptRepository(db_client)
+    await repo.upsert(message_id="old", to_agent=B, channel_id=DM, from_agent=A, status=RECEIPT_ACCEPTED)
+    await db_client.update(
+        BusDeliveryReceiptRepository.TABLE, {"message_id": "old", "to_agent": B},
+        {"updated_at": utc_now() - timedelta(days=mbt.RECEIPT_RETENTION_DAYS + 1)},
+    )
+    await OwnerNoticeCooldownRepository(db_client).arm(
+        B, DM, "generic", at=utc_now() - timedelta(days=mbt.NOTICE_COOLDOWN_RETENTION_DAYS + 1)
+    )
+    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    trigger._last_steer_cleanup_monotonic = float("-inf")
+
+    await trigger._maybe_run_steer_cleanup()
+
+    assert await repo.get("old", B) is None
+    assert await db_client.get("owner_notice_cooldowns", {"agent_id": B}) == []
+    # And the sweep threshold sits above the longest window this trigger uses.
+    assert mbt.NOTICE_COOLDOWN_RETENTION_DAYS * 86400 > mbt.FAILURE_NOTIFY_COOLDOWN_SECONDS

@@ -36,3 +36,7 @@ dict，三个后果都在上游 issue NetMindAI-Open/NarraNexus#106 那类交接
 
 写：`MessageBusTrigger._notify_owner`（成功写入收件箱之后才 `arm`，与原先「先写成功再
 武装」的纪律一致）。读：同一函数入口处 `is_cooling`。
+
+## Retention
+
+`cleanup_older_than_days(days)`（2026-09-09，review I1）：按 `last_notified_at` 删过期窗口，一条 raw DELETE（MySQL 孪生已钉）；调用方给的天数必须远大于最长窗口，否则会把活窗口扫掉。

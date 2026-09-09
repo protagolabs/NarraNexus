@@ -56,3 +56,25 @@ async def test_windows_are_per_target_and_per_category(db_client):
     assert await repo.is_cooling("agent_a", "ch2", "generic", WINDOW) is False
     assert await repo.is_cooling("agent_a", "ch1", "provider_credential", WINDOW) is False
     assert await repo.is_cooling("agent_b", "ch1", "generic", WINDOW) is False
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_only_long_closed_windows(db_client):
+    repo = OwnerNoticeCooldownRepository(db_client)
+    await repo.arm("agent_a", "ch1", "generic", at=utc_now() - timedelta(days=3))
+    await repo.arm("agent_a", "ch2", "generic")
+    assert await repo.cleanup_older_than_days(2) == 1
+    rows = await db_client.get(OwnerNoticeCooldownRepository.TABLE, {"agent_id": "agent_a"})
+    assert [r["target"] for r in rows] == ["ch2"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_older_than_days_keeps_live_windows(db_client):
+    """The sweep threshold must sit far above any window: a row still inside
+    its window is exactly what the table exists to remember."""
+    repo = OwnerNoticeCooldownRepository(db_client)
+    await repo.arm("agent_a", "ch1", "generic", at=utc_now() - timedelta(days=10))
+    await repo.arm("agent_a", "ch2", "generic", at=utc_now() - timedelta(seconds=WINDOW - 60))
+    assert await repo.cleanup_older_than_days(2) == 1
+    assert await repo.is_cooling("agent_a", "ch2", "generic", WINDOW) is True
+    assert await repo.last_notified_at("agent_a", "ch1", "generic") is None

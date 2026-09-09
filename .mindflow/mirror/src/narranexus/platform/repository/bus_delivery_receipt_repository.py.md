@@ -39,3 +39,7 @@ Web Developer 的 worker 早已在旧模块路径上 import 失败三次）。
 写：`_message_bus_mcp_tools._book_receipt`（accepted/held）、
 `MessageBusTrigger._stamp_receipts`（其余状态，DM 车道 only）。读：trigger 的
 `prior_outcome`；`for_sender` 目前无调用方，是为发件 agent 视图预留的读面。
+
+## Retention
+
+`cleanup_older_than_days(days)`（2026-09-09，review I1）：按 `updated_at` 删旧回执——回执是投递时的事实，读它的窗口关了就是历史，否则表与 `bus_messages` 1:1 永远增长。由 trigger 每日 tick 调（`RECEIPT_RETENTION_DAYS`）。

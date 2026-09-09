@@ -134,3 +134,38 @@ async def test_prior_outcome_expires_with_its_window(db_client, monkeypatch):
         channel_id="ch", to_agent="b", key=key, status=RECEIPT_SILENT,
         exclude_message_id="new", within_seconds=10_000,
     ) is True
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_only_stale_receipts(db_client):
+    from datetime import timedelta
+
+    from narranexus.platform.utils.timezone import utc_now
+
+    repo = BusDeliveryReceiptRepository(db_client)
+    await repo.upsert(message_id="stale", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
+    await db_client.update(
+        BusDeliveryReceiptRepository.TABLE, {"message_id": "stale", "to_agent": "b"},
+        {"updated_at": utc_now() - timedelta(days=40)},
+    )
+    await repo.upsert(message_id="fresh", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
+    assert await repo.cleanup_older_than_days(30) == 1
+    assert await repo.get("stale", "b") is None
+    assert await repo.get("fresh", "b") is not None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_older_than_days_prunes_by_updated_at(db_client):
+    from datetime import timedelta
+
+    from narranexus.platform.utils.timezone import utc_now
+
+    repo = BusDeliveryReceiptRepository(db_client)
+    for mid in ("stale", "fresh"):
+        await repo.upsert(message_id=mid, to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
+    await db_client.update(
+        BusDeliveryReceiptRepository.TABLE, {"message_id": "stale", "to_agent": "b"},
+        {"updated_at": utc_now() - timedelta(days=40)},
+    )
+    assert await repo.cleanup_older_than_days(30) == 1
+    assert [r["message_id"] for r in await db_client.get(BusDeliveryReceiptRepository.TABLE, {"to_agent": "b"})] == ["fresh"]

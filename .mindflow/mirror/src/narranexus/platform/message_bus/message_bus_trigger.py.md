@@ -4,6 +4,13 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I1）— 两张新账本挂进每日 retention tick
+
+`_maybe_run_steer_cleanup` 同一 tick 顺带清 `bus_delivery_receipts`（`RECEIPT_RETENTION_DAYS=30`）
+与 `owner_notice_cooldowns`（`NOTICE_COOLDOWN_RETENTION_DAYS=2`），各自独立 try。两个阈值都远
+大于它们服务的 30 分钟窗口——扫进活窗口等于重新打开它（B-20.3 反向复发），
+`test_steer_routing.py::test_the_daily_tick_also_sweeps_the_two_bus_ledgers` 钉了这层关系。
+
 ## 2026-09-09（review C2）— 掉包唤醒发件方加窗口：同一 (收件方, channel) 每窗一次
 
 `_wake_sender_on_drop` 之前没有任何上限：通知唤醒 A → A 换措辞重发 → B 再崩 3 次再 drop →
