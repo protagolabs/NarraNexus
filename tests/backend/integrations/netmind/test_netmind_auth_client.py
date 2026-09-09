@@ -209,6 +209,20 @@ async def test_verify_token_unlisted_authc_class_stays_upstream_error():
 
 
 @pytest.mark.asyncio
+async def test_verify_token_unknown_authc_subclass_stays_upstream_error():
+    # An authc class outside the explicit credential-verdict set (a future
+    # Shiro release, a NetMind-specific subclass) must not be guessed as 401.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "org.apache.shiro.authc.SomeFutureAuthcException"
+        body["message"] = "Authentication failed for token submission [JwtToken@1]"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
 async def test_verify_token_spring_500_with_non_auth_exception_stays_upstream_error():
     # Same Spring error page, but a genuine server bug — must stay 502 so a
     # NetMind outage is never disguised as "your token is wrong".
