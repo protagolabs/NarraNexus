@@ -74,7 +74,12 @@ describe('Chinese localization completeness', () => {
     expect(subscriptionConnect).not.toContain('>Codex CLI Login<');
     expect(subscriptionConnect).toContain("t('settings.provider.claudeLoginTitle')");
     expect(subscriptionConnect).toContain("t('settings.provider.codexLoginTitle')");
-    expect(chatPanel).toContain("t('chat.bootstrapGreeting')");
+    // The greeting translation moved into lib/bootstrapGreeting (generic AND
+    // named form); ChatPanel routes every greeting through it.
+    const bootstrapGreeting = source('../lib/bootstrapGreeting.ts');
+    expect(bootstrapGreeting).toContain("t('chat.bootstrapGreeting')");
+    expect(bootstrapGreeting).toContain("t('chat.bootstrapGreetingNamed'");
+    expect(chatPanel).toContain("from '@/lib/bootstrapGreeting'");
     expect(chatPanel).toContain("t('chat.securityReminder')");
     expect(chatPanel).not.toContain('Security reminder: never paste sensitive');
     expect(chatPanel).toContain('localizeBootstrapGreeting(item.content)');
