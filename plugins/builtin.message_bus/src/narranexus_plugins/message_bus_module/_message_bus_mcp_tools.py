@@ -19,7 +19,7 @@ from typing import Any, Callable, List, Optional
 from loguru import logger
 
 from narranexus.platform.agent_framework.llm.failure import redact_secrets
-from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
+from narranexus.platform.agent_framework.loop.circuit_breaker import peek_skip
 from narranexus.platform.channel.channel_audit_events import EVENT_INBOX_WRITE_FAILED
 from narranexus.platform.repository.bus_delivery_receipt_repository import (
     RECEIPT_ACCEPTED,
@@ -221,17 +221,18 @@ async def _book_receipt(*, message_id: str, from_agent: str, to_agent: str) -> d
 
     status, reason = RECEIPT_ACCEPTED, None
     try:
-        skip, why = await should_skip(to_agent, db=await get_db_client())
-        if skip:
+        db = await get_db_client()
+        # `peek_skip`, never `should_skip`: the latter is the TURN gate and may
+        # claim the recipient's one half-open probe (GitHub #117) — a send-side
+        # look must not consume it, or every DM to a paused agent would eat
+        # its recovery. Read-only, fail-open by contract.
+        held, why = await peek_skip(to_agent, db=db)
+        if held:
             status = RECEIPT_HELD
             reason = (
                 f"the recipient is not running turns right now ({why}); the "
                 f"message is queued and runs once that clears"
             )
-    except Exception as e:  # noqa: BLE001 — pre-flight is advisory
-        logger.warning(f"[bus-receipt] pre-flight failed for {to_agent}: {e}")
-    try:
-        db = await get_db_client()
         # The channel is the DM the bus found or opened for this pair; the
         # sent row is the one place that already knows which.
         sent = await db.get_one("bus_messages", {"message_id": message_id})

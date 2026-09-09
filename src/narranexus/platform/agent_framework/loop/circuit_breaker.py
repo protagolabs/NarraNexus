@@ -62,7 +62,7 @@ from narranexus.platform.services.background_llm_alerts import (
 )
 from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.timezone import utc_now
+from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on
 # purpose: a dead key / exhausted balance is flagged in ~3 min (the backoff
@@ -341,6 +341,43 @@ async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
         return (False, None)
     except Exception as e:  # noqa: BLE001 — fail open, never block a turn
         logger.warning(f"[agent-cb] should_skip read failed for {agent_id}: {e}")
+        return (False, None)
+
+
+async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
+    """Read-only twin of ``should_skip`` for callers that will NOT run a turn.
+
+    ``(held, reason)``: True for EVERY status other than ACTIVE — paused,
+    cooling (unless its cooldown has already elapsed, which the next real turn
+    would let through), and any status this function does not know (a future
+    half-open ``probing``). Same fail-open contract as ``should_skip``: an
+    unreadable row reads as not held.
+
+    Exists because ``should_skip`` is the TURN gate and is free to carry side
+    effects (claiming a half-open probe, GitHub #117); a send-side pre-flight
+    such as the bus receipt must never consume what only a turn may consume.
+    Deliberately small: it reads the row and classifies, nothing else.
+    """
+    try:
+        # The raw row, not the entity: the entity's enum would REJECT a status
+        # this build does not know, and "unknown status" is the one case this
+        # function must classify as held rather than fail open on.
+        row = await db.get_one(
+            AgentCircuitBreakerRepository.table_name, {"agent_id": agent_id}
+        )
+        status = str((row or {}).get("cb_status") or CbStatus.ACTIVE.value)
+        if row is None or status == CbStatus.ACTIVE.value:
+            return (False, None)
+        if status == CbStatus.COOLING.value:
+            until = _as_aware_utc(coerce_utc(row.get("cooldown_until")))
+            if until is None or until <= utc_now():
+                return (False, None)
+            return (True, "cooling")
+        if status == CbStatus.PAUSED.value:
+            return (True, f"paused:{row.get('paused_reason') or 'unknown'}")
+        return (True, status)
+    except Exception as e:  # noqa: BLE001 — fail open, same as should_skip
+        logger.warning(f"[agent-cb] peek_skip read failed for {agent_id}: {e}")
         return (False, None)
 
 

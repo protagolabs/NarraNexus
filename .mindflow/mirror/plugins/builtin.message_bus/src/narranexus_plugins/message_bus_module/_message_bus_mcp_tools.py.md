@@ -4,6 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review C1/M3）— 预检改用只读 `peek_skip`
+
+`_book_receipt` 不再调 `should_skip`（turn 闸门，即将带 CAS 领取探针的副作用），改
+[[circuit_breaker]] 的只读 `peek_skip`；未知/未来状态（`probing`）映射成 held。外层那圈
+冗余 try 随之删掉（`peek_skip` 自身 fail-open）。
+
 ## 2026-09-09 — `message_agent` 的 `part_index/part_count` 与按字节拒绝超长
 
 docstring 教模型：一次放不下就按序分块发（同 count、从 1 开始），收件方在最后一块到达
@@ -14,6 +20,12 @@ docstring 教模型：一次放不下就按序分块发（同 count、从 1 开�
 `_reject_oversize_text`：单条/单块超过 `MAX_BUS_MESSAGE_BYTES`（60_000，留在 MySQL TEXT 的
 65,535 之下）直接拒绝并点名分片——**拒绝而不是截断**（铁律 #16）：列要么在严格模式下抛
 一个模型看不懂的 1406，要么静默留前缀，两者都丢尾巴。
+
+## 2026-09-09（review C1/M3）— 预检改用只读 `peek_skip`
+
+`_book_receipt` 不再调 `should_skip`（turn 闸门，G4 起带 CAS 领取探针的副作用），改
+[[circuit_breaker]] 的 `peek_skip(to, db=…)`：任何非 ACTIVE 状态（含未来的 `probing`）→ `held`。
+外层那圈冗余 try 去掉——`peek_skip` 自身 fail-open。
 
 ## 2026-09-09 — `message_agent` 返回投递回执 `receipt`
 

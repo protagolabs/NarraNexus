@@ -337,3 +337,36 @@ async def test_the_same_content_dropped_again_is_recognised_by_fingerprint(db_cl
     await db_client.delete("owner_notice_cooldowns", {"agent_id": B})
     await _drop(trigger, db_client, tools, "something unrelated")
     assert len(await _failed_notices(db_client, first.channel_id)) == 2
+
+
+# ── 2026-09-09 (review C1): the pre-flight is read-only ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pre_flight_never_calls_the_turn_gate(db_client, monkeypatch):
+    """`should_skip` is the TURN gate and is allowed side effects (claiming a
+    half-open probe). The send-side receipt must use the read-only
+    `peek_skip`, or every DM to a paused recipient would consume the one
+    probe that lets it recover."""
+    from narranexus.platform.agent_framework.loop import circuit_breaker as cb
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    await db_client.insert(
+        "instance_agent_circuit_breaker",
+        {"agent_id": B, "cb_status": "probing", "paused_reason": "auth"},
+    )
+
+    async def _forbidden(*_a, **_k):
+        raise AssertionError("should_skip must not be called from the send tool")
+
+    monkeypatch.setattr(cb, "should_skip", _forbidden)
+    tools, _ = _tools(db_client)
+
+    out = await tools["message_agent"](agent_id=A, to=B, text="hi")
+
+    assert out["success"] is True
+    # An unknown/future status is held, never silently accepted.
+    assert out["receipt"]["status"] == RECEIPT_HELD
+    assert "probing" in out["receipt"]["reason"]
