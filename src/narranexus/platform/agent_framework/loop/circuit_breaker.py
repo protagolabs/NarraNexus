@@ -17,8 +17,9 @@ Design (see the plan for the full rationale):
 
     * auth / quota  — won't self-heal (needs a key/balance change). PAUSE
       after ``AUTH_QUOTA_PAUSE_THRESHOLD`` consecutive same-category failures
-      and alert the owner. Recovers on key-reconfigure (reset_for_owner) or a
-      manual reset.
+      and alert the owner. Recovers on key-reconfigure (reset_for_owner), a
+      manual reset, OR a half-open probe once the pause's own timeout
+      elapses (GitHub #117 — PAUSED is not a dead end; see ``should_skip``).
     * transient / business — self-healing, or the user's chosen flaky model.
       NEVER hard-pauses (binding rule #15 forbids the platform giving up on a
       user's model). Cools with backoff (capped 1h) and retries forever; a
@@ -69,6 +70,22 @@ from narranexus.platform.utils.timezone import coerce_utc, utc_now
 # purpose: a dead key / exhausted balance is flagged in ~3 min (the backoff
 # spans 60s + 120s before the 3rd strike) instead of burning ~2h to reach 8.
 AUTH_QUOTA_PAUSE_THRESHOLD = 3
+
+# Half-open: once PAUSED, a single probe turn is allowed through after this
+# many seconds — self-heal without a manual reset or a reconfigure (GitHub
+# #117: PAUSED used to be a dead end). Grows with consecutive same-category
+# trips (a re-pause after a failed probe doubles it) so a chronically-dead
+# credential isn't re-probed every 5 minutes forever; capped at
+# PAUSE_HALF_OPEN_CAP_SECONDS.
+PAUSE_HALF_OPEN_BASE_SECONDS = 300  # 5 minutes
+PAUSE_HALF_OPEN_CAP_SECONDS = 6 * 3600  # 6 hours
+
+# How long a claimed probe grant is honored before it is considered
+# abandoned (the turn crashed without ever calling record_success /
+# record_failure) and can be re-claimed. Independent of the pause delay
+# above — this only guards against a jammed PROBING row, not against
+# hammering a dead credential.
+PROBE_GRANT_SECONDS = 300  # 5 minutes — generous for one real-time turn
 
 # Neither TRANSIENT nor BUSINESS ever pauses; after this many consecutive we
 # raise an alert so a chronically-failing agent isn't invisible. For TRANSIENT
@@ -174,6 +191,28 @@ def classify_agent_error(
     ):
         return ErrorCategory.AUTH
     return ErrorCategory.BUSINESS
+
+
+def _compute_half_open_delay_seconds(consecutive_failure_count: int) -> int:
+    """Delay before a PAUSED breaker allows one half-open probe through.
+
+    ``consecutive_failure_count`` already only advances on same-category
+    failures (a category change resets it, see ``record_failure``), and it
+    keeps incrementing across repeated pause->probe->fail cycles (a failed
+    probe IS another same-category failure). So each extra trip past the
+    pause threshold doubles the delay — first pause: base delay; the probe
+    fails and re-pauses: 2x; fails again: 4x; ... capped at
+    PAUSE_HALF_OPEN_CAP_SECONDS. This reuses the same signal
+    ``compute_cooldown_seconds`` uses for COOLING, but with its own base/cap
+    — the two schedules serve different purposes (COOLING retries a
+    self-healing failure fast; PAUSED gates a probe against a credential
+    that has already proven dead 3 times).
+    """
+    trips_over_threshold = max(0, consecutive_failure_count - AUTH_QUOTA_PAUSE_THRESHOLD)
+    return min(
+        PAUSE_HALF_OPEN_BASE_SECONDS * (2 ** trips_over_threshold),
+        PAUSE_HALF_OPEN_CAP_SECONDS,
+    )
 
 
 def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -304,6 +343,11 @@ async def record_failure(
         updates["cb_status"] = CbStatus.PAUSED.value
         updates["paused_reason"] = category.value  # auth | quota
         updates["paused_at"] = now
+        # Half-open gate, NOT the COOLING backoff above — overwrite it.
+        # should_skip reads this same field to decide when a probe may pass.
+        updates["cooldown_until"] = now + timedelta(
+            seconds=_compute_half_open_delay_seconds(count)
+        )
     else:
         updates["cb_status"] = CbStatus.COOLING.value
         updates["paused_reason"] = None
@@ -360,6 +404,23 @@ async def record_success(agent_id: str, db=None) -> None:
     await repo.upsert_state(agent_id, _CLEAN_STATE)
 
 
+async def _try_claim_half_open_probe(
+    repo: AgentCircuitBreakerRepository, agent_id: str, from_status: str
+) -> bool:
+    """Attempt to flip ``from_status`` (PAUSED or a stale PROBING) into
+    PROBING, granting exactly this caller the single half-open probe turn.
+
+    Both callers of this helper have already confirmed ``cooldown_until``
+    has elapsed on the row THEY read; the actual concurrency guard is the
+    equality-filtered CAS in ``try_claim_probe`` — a concurrent should_skip
+    racing on the same expired row can still lose there even though it also
+    passed the timestamp check, since only one UPDATE can match
+    ``cb_status=from_status`` before the other's write lands.
+    """
+    grant_until = utc_now() + timedelta(seconds=PROBE_GRANT_SECONDS)
+    return await repo.try_claim_probe(agent_id, from_status, grant_until)
+
+
 async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
     """Should the given agent's next real-time turn be skipped?
 
@@ -368,7 +429,19 @@ async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
 
     Lazy expiry: a COOLING row whose ``cooldown_until`` has elapsed is
     ALLOWED through; the retry then either succeeds (→ reset) or fails
-    (→ re-backoff). A PAUSED row never expires by time — only by reset.
+    (→ re-backoff).
+
+    Half-open (GitHub #117): a PAUSED row is no longer a dead end. Once its
+    ``cooldown_until`` (the half-open delay, see ``_compute_half_open_delay_
+    seconds``) elapses, exactly ONE caller may claim the probe turn — the
+    CAS in ``try_claim_probe`` is what keeps two concurrent callers from
+    both getting through (the loser's UPDATE affects 0 rows because the
+    winner already flipped ``cb_status`` to PROBING). The claiming turn then
+    runs like any other; ``record_success``/``record_failure`` resolve
+    PROBING back to ACTIVE or PAUSED (with a longer delay) same as before. A
+    PROBING row whose own grant has expired (the claiming turn crashed
+    without recording an outcome) is itself re-claimable — the breaker never
+    jams open waiting for a turn that will never report back.
     """
     try:
         db = db or await get_db_client()
@@ -377,7 +450,18 @@ async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
         if row is None:
             return (False, None)
         if row.cb_status == CbStatus.PAUSED.value:
+            until = _as_aware_utc(row.cooldown_until)
+            if until is not None and until <= utc_now():
+                if await _try_claim_half_open_probe(repo, agent_id, CbStatus.PAUSED.value):
+                    return (False, None)  # this turn IS the probe
             return (True, f"paused:{row.paused_reason or 'unknown'}")
+        if row.cb_status == CbStatus.PROBING.value:
+            until = _as_aware_utc(row.cooldown_until)
+            if until is not None and until <= utc_now():
+                # Prior probe never reported back — self-heal by re-claiming.
+                if await _try_claim_half_open_probe(repo, agent_id, CbStatus.PROBING.value):
+                    return (False, None)
+            return (True, "probing")
         if row.cb_status == CbStatus.COOLING.value:
             until = _as_aware_utc(row.cooldown_until)
             if until is not None and until > utc_now():
@@ -438,15 +522,18 @@ async def reset_agent(agent_id: str, db=None) -> None:
 
 async def reset_for_owner(user_id: str, db=None) -> int:
     """Auto-resume the owner's auth/quota-blocked agents after a key/balance
-    reconfigure. Clears PAUSED (all pauses are auth/quota) and in-progress
-    auth/quota COOLING streaks; a transient COOLING streak is left alone
-    (unrelated to the key). Returns the number of agents reset. Best-effort.
+    reconfigure. Clears PAUSED and PROBING (both only ever arise from an
+    auth/quota pause — PROBING is the half-open in-flight-probe state) and
+    in-progress auth/quota COOLING streaks; a transient COOLING streak is
+    left alone (unrelated to the key). Returns the number of agents reset.
+    Best-effort.
     """
     db = db or await get_db_client()
     repo = AgentCircuitBreakerRepository(db)
     try:
         candidates = (
             await repo.find_by_status(CbStatus.PAUSED.value)
+            + await repo.find_by_status(CbStatus.PROBING.value)
             + await repo.find_by_status(CbStatus.COOLING.value)
         )
         if not candidates:
@@ -456,8 +543,9 @@ async def reset_for_owner(user_id: str, db=None) -> int:
         for cb in candidates:
             if cb.agent_id not in owned:
                 continue
-            # PAUSED is always auth/quota; for COOLING only clear auth/quota
-            # streaks (a transient cooldown is unrelated to the key).
+            # PAUSED and PROBING are always auth/quota; for COOLING only
+            # clear auth/quota streaks (a transient cooldown is unrelated to
+            # the key).
             if cb.cb_status == CbStatus.COOLING.value and cb.failure_category not in (
                 ErrorCategory.AUTH.value,
                 ErrorCategory.QUOTA.value,

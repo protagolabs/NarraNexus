@@ -37,7 +37,12 @@ class CbStatus(str, Enum):
     """Circuit-breaker state for one Agent's real-time turns."""
     ACTIVE = "active"      # normal — new turns are allowed
     COOLING = "cooling"    # recent failure(s); skip until cooldown_until elapses
-    PAUSED = "paused"      # hard stop; only auth/quota reach this. Needs reset.
+    PAUSED = "paused"      # hard stop; only auth/quota reach this. Needs reset,
+                           # OR a half-open probe once cooldown_until elapses.
+    PROBING = "probing"    # exactly one turn is in flight as a half-open probe;
+                           # every other should_skip caller is rejected while
+                           # this holds. Resolves to ACTIVE (probe succeeded)
+                           # or back to PAUSED (probe failed, longer timeout).
 
 
 class PausedReason(str, Enum):

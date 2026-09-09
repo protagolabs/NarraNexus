@@ -54,6 +54,35 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
         rows = await self._db.get(self.table_name, filters={"cb_status": status})
         return [self._row_to_entity(r) for r in rows if r]
 
+    async def try_claim_probe(
+        self, agent_id: str, from_status: str, grant_until: Any
+    ) -> bool:
+        """Atomically transition ``from_status`` -> PROBING, granting the
+        caller the single half-open probe turn.
+
+        Equality-filtered ``UPDATE ... WHERE agent_id=? AND cb_status=?`` is
+        the compare-and-swap: only the caller whose write actually matches
+        the current ``cb_status`` flips it, so concurrent callers racing the
+        same expired PAUSED row can never both win. ``grant_until`` re-stamps
+        ``cooldown_until`` as the probe's own expiry — if the winning turn
+        crashes without recording an outcome (record_success/record_failure
+        never runs), a later ``should_skip`` sees a stale PROBING row and can
+        re-claim it via the same call (``from_status=PROBING``), so a dead
+        probe self-heals instead of jamming the breaker open forever.
+
+        Returns True iff this call won the race (rowcount > 0).
+        """
+        rowcount = await self._db.update(
+            self.table_name,
+            {"agent_id": agent_id, "cb_status": from_status},
+            {
+                "cb_status": CbStatus.PROBING.value,
+                "cooldown_until": grant_until,
+                "updated_at": utc_now(),
+            },
+        )
+        return rowcount > 0
+
     async def find_paused(self) -> List[AgentCircuitBreaker]:
         """All agents currently in PAUSED state (any reason)."""
         return await self.find_by_status(CbStatus.PAUSED.value)

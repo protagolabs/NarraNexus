@@ -16,6 +16,43 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
+## 2026-09-09 — 半开（half-open）：PAUSED 不再是死胡同（GitHub #117）
+
+**症状**：`should_skip` 原逻辑里 PAUSED 只能靠 `reset_agent`(手动) /
+`reset_for_owner`(换 key 自动恢复) 解除，本身**永不按时间过期**——如果两条
+恢复路径都没触发（比如 owner 没有走 `/providers` 相关端点去重新配置，或
+`get_claude_status`/`test_provider` 判定 provider 已恢复但没人调用
+`reset_for_owner`），agent 会**永久卡死**在 PAUSED，即使底层凭据早已修好。
+
+**修复**：`CbStatus` 新增 `PROBING`——半开态。`record_failure` 进入 PAUSED 分支时，
+`cooldown_until` 改写成半开延迟（`_compute_half_open_delay_seconds`，基于
+`consecutive_failure_count`：首次 PAUSE 用 `PAUSE_HALF_OPEN_BASE_SECONDS`(5min)，
+每多一次同类失败（含探测失败后的再次 PAUSE）翻倍，封顶
+`PAUSE_HALF_OPEN_CAP_SECONDS`(6h)——不复用 `compute_cooldown_seconds` 的 COOLING
+退避表，两者服务的场景不同）。`should_skip` 在 PAUSED 且 `cooldown_until` 已过时，
+调用新的 `AgentCircuitBreakerRepository.try_claim_probe`（`UPDATE ... WHERE
+agent_id=? AND cb_status='paused'` 的等值 CAS）尝试把状态翻成 PROBING；赢的那个
+调用者拿到 `(False, None)`（这个 turn 就是探测），其余并发调用者原样看到
+`(True, "paused:...")`——**CAS 本身**保证只有一个 turn 通过，不依赖任何应用层加锁。
+探测 turn 走完照常调 `record_success`（→ ACTIVE）或 `record_failure`（→ 重新
+PAUSED，因 `consecutive_failure_count` 又 +1，半开延迟翻倍）。
+
+PROBING 也有自愈：`try_claim_probe` 每次都重写 `cooldown_until` 为
+`utc_now()+PROBE_GRANT_SECONDS`(5min)，如果拿到探测名额的那个 turn 崩溃、从没调用
+`record_success`/`record_failure`（best-effort 包裹失败），下一次 `should_skip`
+看到 PROBING 且 grant 已过期会用同一个 CAS（`from_status=PROBING`）重新认领——
+不会永久卡死在 PROBING。`reset_for_owner` 现在也把 PROBING 纳入候选集（PROBING
+只可能源自 auth/quota 的 PAUSE，语义上跟 PAUSED 一样"永远可清"）。
+
+测试（`tests/agent_framework/test_agent_circuit_breaker.py`）：
+`test_paused_before_timeout_stays_skipped`、
+`test_paused_after_timeout_allows_exactly_one_probe`、
+`test_second_concurrent_request_during_half_open_still_skipped`（并发只放一个）、
+`test_half_open_probe_success_closes_breaker`、
+`test_half_open_probe_failure_repauses_with_longer_timeout`（延迟翻倍）、
+`test_probing_row_with_expired_grant_self_heals`、
+`test_probing_row_with_live_grant_stays_skipped`。
+
 ## 2026-07-30 — `_is_out_of_credit` 改为成员判定
 
 原本与 `SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE` 做相等比较。免费额度用完在同日拆成
@@ -120,9 +157,11 @@ owner 修不了）→ **只报平台方**（内部审计 + loud log），**绝�
 （成功即清零）。
 
 `record_success` 清零；`should_skip` 是**fail-open** 的读闸门（读错→放行，绝不因熔断器
-故障挡住健康 turn）：PAUSED→skip，COOLING 且 `cooldown_until>now`→skip，冷却到期→惰性
-放行。`reset_agent`（手动）/`reset_for_owner`（换 key 自动恢复，只清 auth/quota 的
-paused + auth/quota 的 cooling 连击，不动 transient 冷却）。
+故障挡住健康 turn）：PAUSED 且半开延迟未到→skip，半开延迟已到→用等值 CAS
+（`try_claim_probe`）抢唯一一次探测 turn（赢家放行，其余仍 skip）；PROBING→skip（除非
+探测 grant 也过期，同样的 CAS 可重新认领，见 2026-09-09 条）；COOLING 且
+`cooldown_until>now`→skip，冷却到期→惰性放行。`reset_agent`（手动）/`reset_for_owner`
+（换 key 自动恢复，清 PAUSED/PROBING + auth/quota 的 cooling 连击，不动 transient 冷却）。
 
 ## 上下游关系
 
