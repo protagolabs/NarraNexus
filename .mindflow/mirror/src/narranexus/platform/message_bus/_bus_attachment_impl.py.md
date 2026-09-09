@@ -1,8 +1,26 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-08-19
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `_resolve_ref_to_source` 补上共享区回退（B-22，#122）
+
+`att_...` 格式的 ref 只试过 `resolve_attachment_path`（发送方自己的
+`user_upload_files`），从不试 `resolve_shared_file_by_id`（本文件后面就定义了它，
+只是没人从这里调）。两个 store 的 file_id 都由同一个 `generate_file_id()` 铸造，
+形状完全相同——区分不了「这是我自己传的」还是「这是团队群里别人（人类上传或另一个
+agent 已 stage 过）传的」，唯一的办法就是两边都探一遍。
+
+之前的行为：`bus_share_to_team` 转发一个团队群聊里的 `att_` 附件（人类在群里直接上传、
+或另一个 agent 已经 stage 进这个团队的文件）到另一个团队时，`resolve_attachment_path`
+在发送 agent 自己的 upload 目录里必然找不到，函数直接返回 `None`，ref 静默解析失败——
+调用方 `resolve_and_stage_refs` / `stage_path_into_team` 都把 `None` 当作「这条 ref 跳过」，
+所以症状是分享无声无息地丢了，没有任何错误。
+
+修法：`is_valid_file_id(ref)` 命中后，先探 `resolve_attachment_path`（发送方自己的
+store，最常见路径，保持不变），**miss 时**再探 `resolve_shared_file_by_id(owner_user_id,
+ref, base)`。顺序很重要——发送方自己的 upload 优先，共享区只是兜底，不反过来。
 
 ## 2026-08-19 — 文档指针刷新
 

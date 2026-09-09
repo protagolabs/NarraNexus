@@ -298,3 +298,68 @@ async def test_attachment_meta_sidecar_roundtrip(tmp_path):
     # Same user-scoping gate as the file itself; missing sidecar → None.
     assert load_bus_attachment_meta("user_intruder", att["rel_path"], base=str(tmp_path)) is None
     assert load_bus_attachment_meta(OWNER, f"{OWNER}/_shared/bus_files/x/none.txt", base=str(tmp_path)) is None
+
+
+# ── bus_share_to_team resolving a team-chat (shared bus area) attachment id ──
+#
+# `att_...` ids come in two flavours that look identical (same prefix, same
+# format — both minted by `generate_file_id`): one lives in the SENDING
+# agent's own `user_upload_files` store, the other lives in the per-user
+# SHARED bus area (a human's team-chat upload, or a file another agent already
+# staged there). `_resolve_ref_to_source` only ever tried the former, so an
+# agent re-sharing a team-chat attachment into another team always failed
+# silently (the ref just did not resolve — GitHub #122).
+
+
+@pytest.mark.asyncio
+async def test_stage_by_shared_bus_attachment_id(tmp_path):
+    """An att_ id that lives in the shared bus area (e.g. a human's team-chat
+    upload) must resolve even though it is not in the sender agent's own
+    user_upload_files store."""
+    shared = await store_bytes_into_bus(
+        user_id=OWNER, raw_bytes=b"team upload bytes",
+        original_name="notes.txt", mime_type="text/plain", base=str(tmp_path),
+    )
+
+    staged = await resolve_and_stage_refs(
+        sender_agent_id=AGENT,
+        owner_user_id=OWNER,
+        refs=[shared["file_id"]],
+        base=str(tmp_path),
+    )
+
+    assert len(staged) == 1
+    assert (tmp_path / staged[0]["rel_path"]).read_bytes() == b"team upload bytes"
+
+
+@pytest.mark.asyncio
+async def test_stage_by_upload_file_id_still_resolves_through_the_sender_store(tmp_path, monkeypatch):
+    """Regression guard for the primary (and far more common) path: a fallback
+    to the shared area must never come at the cost of the sender's own
+    user_upload_files resolving as before."""
+    from narranexus.platform import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "base_working_path", str(tmp_path))
+    from narranexus.platform.utils.attachment_storage import store_uploaded_attachment
+
+    file_id, _ = store_uploaded_attachment(
+        AGENT, OWNER, raw_bytes=b"own upload", original_name="mine.txt",
+        mime_type="text/plain",
+    )
+
+    staged = await resolve_and_stage_refs(
+        sender_agent_id=AGENT, owner_user_id=OWNER, refs=[file_id],
+    )
+
+    assert len(staged) == 1
+    assert (tmp_path / staged[0]["rel_path"]).read_bytes() == b"own upload"
+
+
+@pytest.mark.asyncio
+async def test_stage_by_unknown_attachment_id_resolves_to_nothing(tmp_path):
+    """An id that exists in neither store must be skipped, not raise."""
+    staged = await resolve_and_stage_refs(
+        sender_agent_id=AGENT, owner_user_id=OWNER,
+        refs=["att_deadbeef"], base=str(tmp_path),
+    )
+    assert staged == []
