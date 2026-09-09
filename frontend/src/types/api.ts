@@ -1014,6 +1014,8 @@ export interface TelegramCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
+  /** Why the platform switched the binding off (revoked token, competing poller); "" while enabled. */
+  disabled_reason?: string;
 }
 
 

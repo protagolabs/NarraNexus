@@ -7,6 +7,8 @@
     "inactive": "Inactive",
     "enable": "Enable",
     "disable": "Disable"
+,
+    "disabledReason": "Disabled automatically: {{reason}}"
   },
   "sidebar": {
     "chats": "Chats",

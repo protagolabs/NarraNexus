@@ -262,7 +262,7 @@ class SlackTrigger(ChannelTriggerBase):
             return code in _SLACK_PERMANENT_AUTH_CODES
         return False
 
-    async def disable_credential(self, credential: SlackCredential) -> None:  # type: ignore[override]
+    async def disable_credential(self, credential: SlackCredential, reason: str = "") -> None:  # type: ignore[override]
         if not self._db:
             return
         mgr = SlackCredentialManager(self._db)

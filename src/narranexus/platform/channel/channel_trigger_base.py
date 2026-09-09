@@ -472,9 +472,12 @@ class ChannelTriggerBase(ABC):
 
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
-    # Subclass implementations typically call ``mgr.set_enabled(agent_id,
-    # False)``. Default is a no-op for safety.
-    async def disable_credential(self, credential: Any) -> None:
+    # ``reason`` is the readable cause (exception type + message, never a
+    # secret) the loop hands over; implementations that persist it pass it
+    # to ``mgr.set_enabled(agent_id, False, reason=reason)`` so the owner's
+    # panel can say WHY the channel went inactive. Default is a no-op for
+    # safety.
+    async def disable_credential(self, credential: Any, reason: str = "") -> None:
         return None
 
     # Override hook — async context manager wrapping the actual
@@ -1193,7 +1196,9 @@ class ChannelTriggerBase(ABC):
                         },
                     )
                     try:
-                        await self.disable_credential(credential)
+                        await self.disable_credential(
+                            credential, reason=f"{type(e).__name__}: {e}"
+                        )
                     except Exception as disable_err:  # noqa: BLE001
                         logger.exception(
                             f"{type(self).__name__}: disable_credential raised "

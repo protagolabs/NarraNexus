@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/channel/credential_store.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `set_enabled(..., reason=)` 写通用 `disabled_reason`（B-28）
+
+`disabled_reason` 是频道无关的"平台把凭据关掉了，原因是什么"记录：`set_enabled` 现在走版本化的
+`patch`（不再裸 update `enabled`），禁用时把 reason 写进 public 值，启用时清成 ""——generic
+`set-active` 路由的用户重新启用自然清掉。trigger 基类的永久失败路径是第一个写入方。
 
 ## 2026-09-07 — 删掉 `descriptor_for` / `all_descriptors` 里的死 import
 

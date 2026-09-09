@@ -55,6 +55,10 @@ class TelegramCredential:
     owner_user_id: str = ""
     owner_name: str = ""
     enabled: bool = True
+    # Why the platform switched the binding off (revoked token, a second
+    # poller on the same bot) — empty while enabled or when the owner
+    # disabled it by hand. Written by the trigger via set_enabled(reason=).
+    disabled_reason: str = ""
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -68,6 +72,7 @@ class TelegramCredential:
             "owner_user_id": self.owner_user_id,
             "owner_name": self.owner_name,
             "enabled": self.enabled,
+            "disabled_reason": self.disabled_reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -91,6 +96,7 @@ def _cred_from_raw(raw: dict[str, Any]) -> TelegramCredential:
         owner_user_id=raw.get("owner_user_id", "") or "",
         owner_name=raw.get("owner_name", "") or "",
         enabled=bool(raw.get("enabled", True)),
+        disabled_reason=raw.get("disabled_reason", "") or "",
         created_at=TelegramCredentialManager._parse_dt(raw.get("created_at")),
         updated_at=TelegramCredentialManager._parse_dt(raw.get("updated_at")),
     )
@@ -267,12 +273,14 @@ class TelegramCredentialManager:
         logger.info(f"[telegram:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
         """Flip ``enabled`` flag without deleting the row. See
         ``SlackCredentialManager.set_enabled`` for the rationale — used by
         the trigger to break out of a reconnect loop against a revoked
-        token (Telegram ``Unauthorized``)."""
-        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
+        token (Telegram ``Unauthorized``, HTTP 401) or a competing poller
+        (``Conflict``, HTTP 409). ``reason`` lands in the public
+        ``disabled_reason`` so the panel can show why; enabling clears it."""
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled, reason=reason)
 
     async def list_active(self) -> list[TelegramCredential]:
         return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]

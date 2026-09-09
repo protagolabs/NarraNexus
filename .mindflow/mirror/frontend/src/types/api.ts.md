@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `TelegramCredentialData.disabled_reason?`（B-28）
+
+后端 `to_public_dict` 新增的公开字段；可选，旧响应无此键时 UI 不显示原因。
 
 ## 2026-09-07 — `PluginChannelRow`
 

@@ -16,7 +16,13 @@ Telegram-specific concerns this class handles:
     filtering for groups beyond what Telegram already does at source.
   - **getUpdates / setWebhook exclusivity**: 409 Conflict if a webhook
     is set. ``deleteWebhook`` runs once at bind time; if a 409 still
-    happens at runtime, we call it again and retry.
+    happens at runtime, we call it again and retry ONCE. A second 409 in
+    a row means another getUpdates consumer owns this bot (a second
+    NarraNexus install, a developer box) — that is permanent: polling
+    stops and the credential is disabled with the reason, same as a
+    revoked token (401). Retrying every second forever only produced
+    log noise (115 bare ``getUpdates failed`` lines in dev) while the
+    other poller kept winning.
   - **chat_id is signed int64**: positive=user DM, negative=group,
     very-large-negative=supergroup/channel. Stored as string everywhere.
   - **forum topic threads**: supergroup forums have ``message_thread_id``;
@@ -159,21 +165,29 @@ class TelegramTrigger(ChannelTriggerBase):
     def _subscriber_key(self, credential: TelegramCredential) -> str:  # type: ignore[override]
         return credential.agent_id
 
+    # Bot API statuses that no amount of retrying fixes on our side.
+    #   401 Unauthorized — token revoked / never minted / bot deleted.
+    #   409 Conflict     — another getUpdates consumer owns the bot (after
+    #                      connect() already spent its one deleteWebhook
+    #                      retry on the stale-webhook variant).
+    PERMANENT_POLL_STATUSES: frozenset[int] = frozenset({401, 409})
+
     def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
-        # Telegram surfaces ``description="Unauthorized"`` (HTTP 401) when
-        # the token is revoked, never minted, or the bot account was
-        # deleted by the owner via @BotFather. Treat that as terminal —
-        # the watcher would otherwise reconnect every 120s forever.
+        # Treat these as terminal — the watcher would otherwise reconnect
+        # every 120s forever. Everything else (5xx, transport errors,
+        # timeouts, flood control) is transient and keeps the base backoff.
         if isinstance(exc, TelegramSDKError):
+            if exc.status in self.PERMANENT_POLL_STATUSES:
+                return True
             code = exc.code or ""
-            return code == "Unauthorized" or code.startswith("Unauthorized")
+            return code.startswith("Unauthorized")
         return False
 
-    async def disable_credential(self, credential: TelegramCredential) -> None:  # type: ignore[override]
+    async def disable_credential(self, credential: TelegramCredential, reason: str = "") -> None:  # type: ignore[override]
         if not self._db:
             return
         mgr = TelegramCredentialManager(self._db)
-        await mgr.set_enabled(credential.agent_id, False)
+        await mgr.set_enabled(credential.agent_id, False, reason=reason)
 
     @asynccontextmanager
     async def processing_indicator(  # type: ignore[override]
@@ -244,14 +258,18 @@ class TelegramTrigger(ChannelTriggerBase):
     ) -> AsyncIterator[dict]:
         """Long-poll loop. Yields raw Telegram update dicts.
 
-        On 409 Conflict (webhook still set), call ``deleteWebhook`` once
-        and retry. Other ``TelegramSDKError`` raises so the base class
-        backs off and reconnects.
+        On the first 409 Conflict of a session (a webhook may still be
+        set), call ``deleteWebhook`` once and retry. A 409 straight after
+        that retry means another poller owns the bot: it raises, and
+        ``is_permanent_auth_failure`` turns it into a one-time disable
+        (no per-second retry storm). Every other ``TelegramSDKError``
+        raises so the base class backs off and reconnects.
         """
         client = TelegramSDKClient(credential.bot_token)
         key = self._subscriber_key(credential)
         self._sdk_clients[key] = client
         offset = self._poll_offsets.get(key, 0)
+        webhook_retry_spent = False
 
         logger.info(
             f"[telegram:{credential.agent_id}] long-poll started, "
@@ -267,10 +285,11 @@ class TelegramTrigger(ChannelTriggerBase):
                         allowed_updates=["message"],
                     )
                 except TelegramSDKError as e:
-                    if "Conflict" in e.code or "terminated by setWebhook" in e.code:
+                    if e.status == 409 and not webhook_retry_spent:
+                        webhook_retry_spent = True
                         logger.warning(
-                            f"[telegram:{credential.agent_id}] getUpdates 409 — "
-                            f"webhook still set; calling deleteWebhook"
+                            f"[telegram:{credential.agent_id}] getUpdates 409 "
+                            f"({e.description}) — calling deleteWebhook once and retrying"
                         )
                         try:
                             await client.delete_webhook()
@@ -279,6 +298,7 @@ class TelegramTrigger(ChannelTriggerBase):
                         await asyncio.sleep(1.0)
                         continue
                     raise
+                webhook_retry_spent = False
 
                 for update in updates:
                     if not self.running:

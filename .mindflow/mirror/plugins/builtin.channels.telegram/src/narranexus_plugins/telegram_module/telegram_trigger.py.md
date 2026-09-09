@@ -1,8 +1,21 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — 401/409 是永久失败：停轮询、禁用凭据并写原因（B-28）
+
+以前 409 Conflict 在 `connect()` 里被当作"webhook 还没删"无限 deleteWebhook+1s 重试，另一个
+getUpdates 消费者（第二套部署、开发机）永远赢，日志每秒一条。现在一个会话只给一次
+deleteWebhook 重试（仅为 stale webhook 变体），紧接着再 409 就 raise；
+`PERMANENT_POLL_STATUSES = {401, 409}` 让 `is_permanent_auth_failure` 按 `exc.status` 判定
+（description 以 Unauthorized 开头仍兜底），基类因此只记一条 warning、写一条审计、调
+`disable_credential(credential, reason=…)` 后退出，不再 120s 重连。`disable_credential` 把
+reason 透传给 `TelegramCredentialManager.set_enabled(agent_id, False, reason=)` → 公开字段
+`disabled_reason`，面板能显示为什么停了。5xx / 传输错误 / 超时保持基类退避重连。
+测试：`tests/telegram_module/test_telegram_poll_failures.py`（假 HTTP 层，端到端跑到
+`_subscribe_loop` 落库）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

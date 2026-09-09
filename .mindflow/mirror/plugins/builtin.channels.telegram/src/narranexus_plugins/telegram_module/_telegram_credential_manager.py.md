@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/_telegram_credential_manager.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28）
+
+`TelegramCredential.disabled_reason`（默认 ""）进 `to_public_dict` / `_cred_from_raw`；
+`set_enabled(agent_id, enabled, reason="")` 透传给通用 store，禁用时写原因、启用时清空。
+trigger 命中永久失败（401 token 撤销 / 409 别的 poller）时写入，面板与 `tg_status` 都能看到。
 
 ## Why it exists
 

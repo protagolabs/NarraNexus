@@ -123,7 +123,7 @@ class WeChatTrigger(ChannelTriggerBase):
         # WeChatSDKError and keep retrying under the base backoff.
         return isinstance(exc, WeChatSDKError) and exc.source == "updates"
 
-    async def disable_credential(self, credential: WeChatCredential) -> None:  # type: ignore[override]
+    async def disable_credential(self, credential: WeChatCredential, reason: str = "") -> None:  # type: ignore[override]
         if not self._db:
             return
         await WeChatCredentialManager(self._db).set_enabled(credential.agent_id, False)

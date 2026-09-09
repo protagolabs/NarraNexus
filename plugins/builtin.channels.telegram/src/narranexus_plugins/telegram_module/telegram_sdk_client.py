@@ -37,12 +37,37 @@ class TelegramSDKError(RuntimeError):
     """Raised when the Bot API returns ``{"ok": false}`` or HTTP failure.
 
     Carries the upstream ``description`` (mapped to ``code``) so callers
-    can branch without parsing strings.
+    can branch without parsing strings, plus the HTTP status / Telegram
+    ``error_code`` (``status``, None for transport failures) so the poller
+    can tell a revoked token (401) from a competing poller (409) from a
+    Telegram outage (5xx). ``str()`` names status and description — the
+    line the base trigger logs must be diagnosable on its own (dev logs
+    once showed 115 bare ``getUpdates failed`` lines across three agents).
     """
 
-    def __init__(self, code: str, message: str = ""):
-        super().__init__(message or code)
+    def __init__(
+        self,
+        code: str,
+        message: str = "",
+        *,
+        status: Optional[int] = None,
+        description: str = "",
+    ):
         self.code = code
+        self.status = status
+        self.description = description or code
+        detail = self.description
+        if status is not None:
+            detail = f"HTTP {status}: {detail}"
+        super().__init__(f"{message} ({detail})" if message else detail)
+
+    @classmethod
+    def from_envelope(cls, envelope: dict[str, Any], message: str) -> "TelegramSDKError":
+        """Build from an ``api_call`` failure envelope (``error`` + ``error_code``)."""
+        code = str(envelope.get("error") or "unknown")
+        raw_status = envelope.get("error_code")
+        status = int(raw_status) if isinstance(raw_status, int) else None
+        return cls(code, message, status=status, description=code)
 
 
 class TelegramSDKClient:
@@ -107,26 +132,40 @@ class TelegramSDKClient:
 
         Returns Telegram's native envelope ``{"ok": bool, "result"?,
         "description"?}``. Failures (HTTP non-2xx, ok=false, exceptions)
-        are surfaced as ``{"ok": false, "error": "...", "method": ...}``
-        rather than raising — agents read the envelope per the
-        per-method skill docs.
+        are surfaced as ``{"ok": false, "error": "...", "error_code"?: int,
+        "method": ...}`` rather than raising — agents read the envelope per
+        the per-method skill docs. ``error_code`` is Telegram's own (it
+        equals the HTTP status); a non-JSON body (proxy / outage page)
+        keeps the status and a snippet; a transport failure keeps the
+        exception text and has no ``error_code``.
         """
         url = f"{self._base_url}/{method}"
         try:
             session = await self._ensure_session()
             async with session.post(url, json=args) as resp:
-                data = await resp.json()
+                try:
+                    data = await resp.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    snippet = (await resp.text())[:160].replace("\n", " ")
+                    return {
+                        "ok": False,
+                        "error": f"http_{resp.status}: {snippet}",
+                        "error_code": resp.status,
+                        "method": method,
+                    }
                 if not data.get("ok"):
+                    raw_code = data.get("error_code")
                     return {
                         "ok": False,
                         "error": data.get("description", f"http_{resp.status}"),
+                        "error_code": raw_code if isinstance(raw_code, int) else resp.status,
                         "method": method,
                     }
                 return data
         except aiohttp.ClientError as e:
             return {
                 "ok": False,
-                "error": f"client_error:{type(e).__name__}",
+                "error": f"client_error:{type(e).__name__}: {e}",
                 "method": method,
             }
         except Exception as e:  # pragma: no cover — defensive
@@ -145,7 +184,7 @@ class TelegramSDKClient:
         """Validate token + return bot identity (id, username, first_name)."""
         resp = await self.api_call("getMe", {})
         if not resp.get("ok"):
-            raise TelegramSDKError(resp.get("error", "unknown"), "getMe failed")
+            raise TelegramSDKError.from_envelope(resp, "getMe failed")
         return resp.get("result", {})
 
     async def send_message(
@@ -171,7 +210,7 @@ class TelegramSDKClient:
             args["parse_mode"] = parse_mode
         resp = await self.api_call("sendMessage", args)
         if not resp.get("ok"):
-            raise TelegramSDKError(resp.get("error", "unknown"), "sendMessage failed")
+            raise TelegramSDKError.from_envelope(resp, "sendMessage failed")
         return resp.get("result", {})
 
     async def get_updates(
@@ -190,7 +229,7 @@ class TelegramSDKClient:
             args["allowed_updates"] = allowed_updates
         resp = await self.api_call("getUpdates", args)
         if not resp.get("ok"):
-            raise TelegramSDKError(resp.get("error", "unknown"), "getUpdates failed")
+            raise TelegramSDKError.from_envelope(resp, "getUpdates failed")
         result = resp.get("result", [])
         return list(result) if isinstance(result, list) else []
 
@@ -252,7 +291,7 @@ class TelegramSDKClient:
         owner-trust signal at bind time)."""
         resp = await self.api_call("getChat", {"chat_id": chat_id_or_handle})
         if not resp.get("ok"):
-            raise TelegramSDKError(resp.get("error", "unknown"), "getChat failed")
+            raise TelegramSDKError.from_envelope(resp, "getChat failed")
         return resp.get("result", {})
 
     async def get_chat_member(
@@ -302,9 +341,7 @@ class TelegramSDKClient:
 
         info = await self.api_call("getFile", {"file_id": file_id})
         if not info.get("ok"):
-            raise TelegramSDKError(
-                info.get("error", "getFile_failed"), "getFile failed"
-            )
+            raise TelegramSDKError.from_envelope(info, "getFile failed")
         file_path = (info.get("result") or {}).get("file_path", "")
         if not file_path:
             raise TelegramSDKError(

@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_sdk_client.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `TelegramSDKError` 带 HTTP status + description（B-28）
+
+dev 日志里 115 条裸 `getUpdates failed`（三个 agent）根本分不清是 token 被撤（401）、另一个
+poller 抢了 bot（409）还是 Telegram 抽风（5xx）：异常只有 `code`（=description），非 JSON 响应和
+传输异常又被压成 `client_error:<ExceptionName>`。现在：`api_call` 失败信封多带 `error_code`
+（Telegram 自己的 error_code，等于 HTTP 状态；非 JSON body 也保留 status + 160 字符片段；传输异常
+带 `str(e)`）；`TelegramSDKError(code, message, *, status, description)` + `from_envelope()`，
+`str()` 形如 `getUpdates failed (HTTP 409: Conflict: terminated by other getUpdates request…)`。
+热路径包装（getMe/sendMessage/getUpdates/getChat/getFile）全走 `from_envelope`。`.code` 语义不变，
+现有按 description 分支的调用方（`_friendly_telegram_error` 等）不受影响。
 
 ## 2026-07-10 — set_message_reaction (backs react_to_user_message)
 

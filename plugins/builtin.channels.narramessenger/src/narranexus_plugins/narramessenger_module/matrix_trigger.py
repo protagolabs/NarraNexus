@@ -660,7 +660,7 @@ class MatrixTrigger(ChannelTriggerBase):
         )
 
     async def disable_credential(  # type: ignore[override]
-        self, credential: NarramessengerCredential
+        self, credential: NarramessengerCredential, reason: str = ""
     ) -> None:
         if not self._db:
             return

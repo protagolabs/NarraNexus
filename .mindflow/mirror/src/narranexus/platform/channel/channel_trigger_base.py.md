@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `disable_credential(credential, reason="")`（B-28）
+
+`_subscribe_loop` 的永久失败分支现在把 `f"{type(e).__name__}: {e}"` 作为 `reason` 传给
+`disable_credential`，让频道把可读原因落到凭据行（Telegram 先接：`disabled_reason`）。
+五个覆写（telegram/slack/discord/wechat/matrix）签名同步加 `reason: str = ""`，
+除 Telegram 外暂不持久化。异常消息只含类型+上游 description，永不含 token。
 
 ## 2026-08-28（接线 review）— 清扫作用域与闸门次序
 

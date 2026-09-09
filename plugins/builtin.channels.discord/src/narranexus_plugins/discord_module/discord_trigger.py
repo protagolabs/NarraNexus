@@ -165,7 +165,7 @@ class DiscordTrigger(ChannelTriggerBase):
             return (exc.code or "") in PERMANENT_AUTH_CODES
         return False
 
-    async def disable_credential(self, credential: DiscordCredential) -> None:  # type: ignore[override]
+    async def disable_credential(self, credential: DiscordCredential, reason: str = "") -> None:  # type: ignore[override]
         if not self._db:
             return
         mgr = DiscordCredentialManager(self._db)
