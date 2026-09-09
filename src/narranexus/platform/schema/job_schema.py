@@ -246,6 +246,32 @@ class TriggerConfig(BaseModel):
         return self
 
     @classmethod
+    def from_stored_dict(cls, data: Optional[dict]) -> "TriggerConfig":
+        """Build a TriggerConfig from a raw DB-stored dict, tolerating rows
+        written before `timezone_required_for_time_bearing_triggers` existed
+        (2026-04-21) — e.g. `{'cron': '0 13 * * 1-5'}` with no `timezone` key
+        at all. `TriggerConfig(**data)` raises `ValidationError` on those, by
+        design, for NEW writes (`TestTriggerConfigTimezoneRequired` pins that);
+        this is the READ-side counterpart used only when reconstructing an
+        already-persisted row, never for validating user/LLM-supplied input.
+
+        Defaults the missing timezone to UTC **in memory only** — the caller
+        must not write the defaulted value back to the row; a legacy row
+        that never recorded its author's real timezone should stay
+        unannotated in storage, not be silently rewritten with a guess.
+        An explicit-but-invalid timezone (e.g. 'CST') still raises: this only
+        fills in an ABSENT value, it never repairs a bad one.
+        """
+        data = dict(data or {})
+        has_time_field = any(
+            data.get(f) is not None
+            for f in ("run_at", "cron", "interval_seconds", "end_at")
+        )
+        if has_time_field and not data.get("timezone"):
+            data["timezone"] = "UTC"
+        return cls(**data)
+
+    @classmethod
     def immediate(cls) -> "TriggerConfig":
         """Canonical "fire now" one_off trigger.
 

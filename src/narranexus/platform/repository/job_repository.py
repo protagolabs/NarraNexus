@@ -969,7 +969,8 @@ class JobRepository(BaseRepository[JobModel]):
                     # Parse trigger_config
                     trigger_config = self._parse_json_field(trigger_config_raw, {})
                     if trigger_config:
-                        tc = TriggerConfig(**trigger_config) if isinstance(trigger_config, dict) else trigger_config
+                        # B-15: tolerant read-side constructor — see _row_to_entity.
+                        tc = TriggerConfig.from_stored_dict(trigger_config) if isinstance(trigger_config, dict) else trigger_config
                         job_type_enum = JobType(job_type_str)
                         # Calculate next execution time (based on current time + interval)
                         from narranexus.platform.utils.job_scheduling import compute_next_run
@@ -1374,7 +1375,11 @@ class JobRepository(BaseRepository[JobModel]):
             except (json.JSONDecodeError, TypeError):
                 trigger_config_data = {}
 
-        trigger_config = TriggerConfig(**trigger_config_data) if isinstance(trigger_config_data, dict) else TriggerConfig()
+        # B-15: use the tolerant read-side constructor so a legacy row saved
+        # before the timezone-required validator existed (e.g. bare
+        # {'cron': '0 13 * * 1-5'}) still loads instead of raising a
+        # ValidationError that would abort every caller of get_job()/find().
+        trigger_config = TriggerConfig.from_stored_dict(trigger_config_data) if isinstance(trigger_config_data, dict) else TriggerConfig()
 
         return JobModel(
             id=row.get("id"),

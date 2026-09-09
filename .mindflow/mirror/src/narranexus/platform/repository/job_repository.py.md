@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/repository/job_repository.py
-last_verified: 2026-08-14
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-15：两处读路径改用 `TriggerConfig.from_stored_dict`
+
+`_row_to_entity`（`get_job`/`find` 等一切读路径的落脚点）和
+`recover_stuck_jobs` 的 next_run 重算，此前都用严格构造器
+`TriggerConfig(**trigger_config_data)` 重建已存的行。2026-04-21 才上线的
+`timezone_required_for_time_bearing_triggers` validator 让这两处对**更早写入**
+且缺 `timezone` 的旧行必炸 `ValidationError`——`_row_to_entity` 这处直接让
+`get_job()` 抛出，`job_module._load_related_jobs_context` 的宽 `except` 把它
+悄悄吞掉，整批相关 job 上下文消失不见；`recover_stuck_jobs` 那处有自己的
+try/except，会跳过重算 next_run（该行为不算错，但同样源于同一个洞）。
+
+改用 [[job_schema]] 新增的 `TriggerConfig.from_stored_dict`：只在内存里给缺失
+的 `timezone` 补 `"UTC"`，从不回写行本身。**其余** 4 个 `TriggerConfig(**...)`
+写路径（job_update 工具、reschedule、创建、instance 自动装配）保持严格——
+它们校验的是即将持久化的新数据，必须继续拒绝缺 timezone。
 
 ## 2026-08-14 — origin 两列贯通读写
 

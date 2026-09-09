@@ -67,3 +67,45 @@ class TestJobEntityNewFields:
         assert "next_run_tz" in fields
         assert "last_run_at_local" in fields
         assert "last_run_tz" in fields
+
+
+class TestTriggerConfigFromStoredDict:
+    """B-15: rows written before the timezone-required validator existed
+    (e.g. `{'cron': '0 13 * * 1-5'}`) must still load — `TriggerConfig(**data)`
+    raises on them (by design, for NEW writes), so the read path needs a
+    tolerant constructor that defaults the missing timezone in memory only.
+    """
+
+    def test_missing_timezone_defaults_to_utc(self):
+        tc = TriggerConfig.from_stored_dict({"cron": "0 13 * * 1-5"})
+        assert tc.cron == "0 13 * * 1-5"
+        assert tc.timezone == "UTC"
+
+    def test_present_timezone_is_kept(self):
+        tc = TriggerConfig.from_stored_dict(
+            {"cron": "0 13 * * 1-5", "timezone": "Asia/Shanghai"}
+        )
+        assert tc.timezone == "Asia/Shanghai"
+
+    def test_no_time_bearing_field_stays_untouched(self):
+        """A row with no cron/interval_seconds/run_at/end_at never needed a
+        timezone in the first place — don't force one on it."""
+        tc = TriggerConfig.from_stored_dict({})
+        assert tc.timezone is None
+
+    def test_still_rejects_invalid_iana_even_when_defaulting(self):
+        """Defaulting only fills in a MISSING timezone; an explicit garbage
+        value must still fail loudly, not be silently swallowed."""
+        with pytest.raises(ValidationError, match="not a valid IANA"):
+            TriggerConfig.from_stored_dict({"cron": "0 8 * * *", "timezone": "CST"})
+
+    def test_none_input_is_treated_as_empty(self):
+        tc = TriggerConfig.from_stored_dict(None)
+        assert tc.timezone is None
+
+    def test_constructor_still_rejects_missing_timezone(self):
+        """The strict constructor is untouched — new/updated jobs still must
+        supply timezone explicitly (regression guard for TestTriggerConfig
+        TimezoneRequired above)."""
+        with pytest.raises(ValidationError, match="timezone"):
+            TriggerConfig(cron="0 8 * * *")

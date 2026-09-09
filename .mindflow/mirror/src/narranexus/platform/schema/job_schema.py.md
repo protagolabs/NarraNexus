@@ -1,8 +1,38 @@
 ---
 code_file: src/narranexus/platform/schema/job_schema.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-15：`TriggerConfig.from_stored_dict` —— 只对读路径宽容
+
+`timezone_required_for_time_bearing_triggers`（2026-04-21 上线）之前写入的行——
+比如裸 `{'cron': '0 13 * * 1-5'}`，完全没有 `timezone` 键——用严格构造器
+`TriggerConfig(**data)` 重建时必炸 `ValidationError`。`_load_related_jobs_context`
+([[job_module]]) 就是这样悄悄失败的：`JobRepository.get_job` 内部重建
+`TriggerConfig` 时炸掉，异常被外层宽 `except` 吞掉，整批 related-job 上下文
+静默消失。
+
+**新增 `TriggerConfig.from_stored_dict(data)`**：只在「存在 time-bearing 字段
+但 `timezone` 缺失」时，在**内存里**补一个 `"UTC"` 默认值再构造；`timezone`
+本来就存在（哪怕是错的，如 `"CST"`）一律原样传给严格构造器——校验该炸还是炸，
+这个方法只补「缺失」，不修「错误」。**绝不回写数据库**——旧行永远保持它写入
+时的原样，下次读到还是同一个待补默认值的状态,不会有第二个进程静默"修数据"。
+
+**为什么不放宽 `timezone_required_for_time_bearing_triggers` 本身**：那个
+validator 是**写路径**的门（job 创建/更新、`job_update` MCP 工具、
+`instance_sync_service` 的自动装配、`job_recovery.reschedule_job`）——所有这些
+都必须继续强制新/改的 job 显式给 timezone，`TestTriggerConfigTimezoneRequired`
+钉死这个行为。放宽它等于让新代码也悄悄退回不写 timezone 的坏习惯。
+
+**Swept**：`git grep "TriggerConfig(\*\*"` 命中的另外 4 处
+（[[_job_writes]] 的 `update_job_from_args`、[[job_recovery]] 的
+`reschedule_job`、[[job_service]] 的创建路径、
+`services/instance_sync_service.py` 的自动装配）全部是**写路径**——重建的对象
+即将被持久化或立即拿去调度，都必须保留严格校验，未改动。**只有**
+[[job_repository]] 的两处**读路径**（`_row_to_entity` / `recover_stuck_jobs`
+的 next_run 重算）换成了宽容构造器，因为它们重建的是已经存在、无法追溯改写的
+历史行。
 
 ## 2026-08-14 — `JobOrigin` + 两个 origin 字段
 
