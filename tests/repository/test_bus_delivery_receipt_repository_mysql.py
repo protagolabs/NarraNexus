@@ -71,6 +71,6 @@ async def test_upsert_roundtrip_and_prior_silence(mysql_client):
         message_id="r2", to_agent=TO, channel_id=CH, from_agent=SENDER,
         status=RECEIPT_SILENT, content_key=key,
     )
-    assert await repo.prior_silence(channel_id=CH, to_agent=TO, key=key, exclude_message_id="r3") is True
-    assert await repo.prior_silence(channel_id=CH, to_agent=TO, key=key, exclude_message_id="r2") is False
+    assert await repo.prior_outcome(channel_id=CH, to_agent=TO, key=key, status=RECEIPT_SILENT, exclude_message_id="r3", within_seconds=3600) is True
+    assert await repo.prior_outcome(channel_id=CH, to_agent=TO, key=key, status=RECEIPT_SILENT, exclude_message_id="r2", within_seconds=3600) is False
     assert [r["message_id"] for r in await repo.for_sender(SENDER)] == ["r2", "r1"]

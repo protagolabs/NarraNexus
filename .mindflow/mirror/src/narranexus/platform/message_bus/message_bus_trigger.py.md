@@ -4,6 +4,17 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review C2）— 掉包唤醒发件方加窗口：同一 (收件方, channel) 每窗一次
+
+`_wake_sender_on_drop` 之前没有任何上限：通知唤醒 A → A 换措辞重发 → B 再崩 3 次再 drop →
+再唤醒——B 坏一天这条 DM 就几千轮（8/17 Liam 乒乓的形状，这次由平台点火）。现在两层守卫、
+共用 `FAILURE_NOTIFY_COOLDOWN_SECONDS` 一个常量：① 回执账本 `prior_outcome(status=dropped)`
+——同 channel 同收件方对**同样内容**（`content_key`）窗口内已 drop 过；② `owner_notice_cooldowns`
+按 (收件方 agent, channel, `"peer_drop"`) 的窗口，兜住换措辞。通知真的落地才 `arm`；守卫读
+失败 fail-open（多唤醒一次比藏掉一次便宜）。窗口而不是永久：B 修好又坏必须重新告警。
+`_silence_already_announced` 同步改走带窗口的 `prior_outcome(status=silent)`（review I1 的
+「永久压制」也由此消失）。锁：`test_delivery_receipts.py` 末尾两条（每窗一次 + 指纹层独立生效）。
+
 ## 2026-09-09（review C3）— 分片消息的失败按**每一行**记
 
 `_handle_channel_batch` 的 except 分支对 `trigger_message.part_message_ids or [message_id]`

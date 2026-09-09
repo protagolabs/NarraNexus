@@ -58,7 +58,7 @@ async def test_partial_update_keeps_earlier_fields(db_client):
 
 
 @pytest.mark.asyncio
-async def test_prior_silence_matches_same_content_on_another_message_only(db_client):
+async def test_prior_outcome_matches_same_content_on_another_message_only(db_client):
     repo = BusDeliveryReceiptRepository(db_client)
     key = content_key("please  build the\nsite")
     await repo.upsert(
@@ -66,20 +66,25 @@ async def test_prior_silence_matches_same_content_on_another_message_only(db_cli
         status=RECEIPT_SILENT, content_key=key,
     )
     # Same content, a different (later) message → the resend the guard exists for.
-    assert await repo.prior_silence(
+    def _silent(**kw):
+        return repo.prior_outcome(
+            status=RECEIPT_SILENT, within_seconds=3600, **kw
+        )
+
+    assert await _silent(
         channel_id="ch", to_agent="b", key=content_key("please build the site"),
         exclude_message_id="m4",
     ) is True
     # The very message that was silent is not a "prior" silence for itself.
-    assert await repo.prior_silence(
+    assert await _silent(
         channel_id="ch", to_agent="b", key=key, exclude_message_id="m3"
     ) is False
     # Different content, another channel, another recipient → fresh.
-    assert await repo.prior_silence(
+    assert await _silent(
         channel_id="ch", to_agent="b", key=content_key("something else"),
         exclude_message_id="m4",
     ) is False
-    assert await repo.prior_silence(
+    assert await _silent(
         channel_id="other", to_agent="b", key=key, exclude_message_id="m4"
     ) is False
     # A non-silent receipt with the same content does not count.
@@ -87,7 +92,7 @@ async def test_prior_silence_matches_same_content_on_another_message_only(db_cli
         message_id="m5", to_agent="c", channel_id="ch", from_agent="a",
         status=RECEIPT_ACCEPTED, content_key=key,
     )
-    assert await repo.prior_silence(
+    assert await _silent(
         channel_id="ch", to_agent="c", key=key, exclude_message_id="m6"
     ) is False
 
@@ -100,3 +105,32 @@ async def test_for_sender_is_newest_first_and_scoped(db_client):
     await repo.upsert(message_id="m9", to_agent="a", channel_id="ch", from_agent="z", status=RECEIPT_ACCEPTED)
     rows = await repo.for_sender("a")
     assert [r["message_id"] for r in rows] == ["m8", "m7"]
+
+
+@pytest.mark.asyncio
+async def test_prior_outcome_expires_with_its_window(db_client, monkeypatch):
+    """An outcome older than the window is not a prior: the guard is a window,
+    never a permanent mute (review I1 — a daily check-in silenced once must
+    still be able to wake the sender next month)."""
+    from datetime import timedelta
+
+    from narranexus.platform.utils.timezone import utc_now
+
+    repo = BusDeliveryReceiptRepository(db_client)
+    key = content_key("daily check-in: any blockers?")
+    await repo.upsert(
+        message_id="old", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_SILENT, content_key=key,
+    )
+    await db_client.update(
+        BusDeliveryReceiptRepository.TABLE, {"message_id": "old", "to_agent": "b"},
+        {"updated_at": utc_now() - timedelta(seconds=7200)},
+    )
+    assert await repo.prior_outcome(
+        channel_id="ch", to_agent="b", key=key, status=RECEIPT_SILENT,
+        exclude_message_id="new", within_seconds=3600,
+    ) is False
+    assert await repo.prior_outcome(
+        channel_id="ch", to_agent="b", key=key, status=RECEIPT_SILENT,
+        exclude_message_id="new", within_seconds=10_000,
+    ) is True

@@ -23,8 +23,9 @@ Web Developer 的 worker 早已在旧模块路径上 import 失败三次）。
   `silent`（跑了谁也没触达）/ `failed`（抛异常，`attempts` 计数）/ `dropped`（到
   poison 阈值，不再重试）。
 - **`content_key`** = 收件方那一轮所见正文（按空白规整）的 sha256。只为一个问题存在：
-  `prior_silence`——「这个收件方是否已经在这个 channel 对**同样内容**沉默过一次
-  （另一条 message_id）」。这是 [[message_bus_trigger]] 分辨「重发」与「新消息」、
+  `prior_outcome(status=…, within_seconds=…)`——「这个收件方是否在窗口内已经在这个 channel
+  对**同样内容**到过同一结局（silent / dropped，另一条 message_id）」。**带窗口，绝不永久**
+  （review I1/C2）：每日打卡那种重复内容沉默一次不能把链路永远哑掉。这是 [[message_bus_trigger]] 分辨「重发」与「新消息」、
   对同一沉默只唤醒发件方一次的依据（8/31 "This turn ended without delivering a reply"
   乒乓）。
 - `reason` 由调用方先 `redact_secrets` 再传入；本层不做脱敏（口径：谁持有原文谁脱敏）。
@@ -37,4 +38,4 @@ Web Developer 的 worker 早已在旧模块路径上 import 失败三次）。
 
 写：`_message_bus_mcp_tools._book_receipt`（accepted/held）、
 `MessageBusTrigger._stamp_receipts`（其余状态，DM 车道 only）。读：trigger 的
-`prior_silence`；`for_sender` 目前无调用方，是为发件 agent 视图预留的读面。
+`prior_outcome`；`for_sender` 目前无调用方，是为发件 agent 视图预留的读面。

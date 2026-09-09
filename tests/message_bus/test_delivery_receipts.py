@@ -252,3 +252,88 @@ async def test_a_team_turn_writes_no_receipts(db_client, monkeypatch):
     )
 
     assert await BusDeliveryReceiptRepository(db_client).get("m_team", B) is None
+
+
+# ── 2026-09-09 (review C2): the drop wake is windowed, never a loop ─────────
+
+
+async def _drop(trigger, db_client, tools, text):
+    msg = await _seed_dm_text(db_client, tools, text)
+    for _ in range(3):
+        await trigger._handle_channel_batch(B, msg.channel_id, [msg], msg, channel_owner=A)
+    return msg
+
+
+async def _seed_dm_text(db_client, tools, text):
+    out = await tools["message_agent"](agent_id=A, to=B, text=text)
+    row = await db_client.get_one("bus_messages", {"message_id": out["message_id"]})
+    return BusMessage(
+        message_id=row["message_id"], channel_id=row["channel_id"],
+        from_agent=A, content=row["content"], created_at=row["created_at"],
+    )
+
+
+async def _failed_notices(db_client, channel_id):
+    return await db_client.get(
+        "bus_messages", {"channel_id": channel_id, "msg_type": DELIVERY_FAILED_MSG_TYPE}
+    )
+
+
+@pytest.mark.asyncio
+async def test_repeated_drops_wake_the_sender_once_per_window(db_client, monkeypatch):
+    """A recipient that stays broken must not turn the drop notice into a
+    ping-pong: notice wakes A, A rephrases and resends, B drops again, notice
+    wakes A... One wake per (recipient, channel) per window; the window then
+    expires so a recipient that is fixed and breaks again is reported anew."""
+    from datetime import timedelta
+
+    from narranexus.platform.message_bus.message_bus_trigger import (
+        FAILURE_NOTIFY_COOLDOWN_SECONDS,
+    )
+    from narranexus.platform.repository.owner_notice_cooldown_repository import (
+        OwnerNoticeCooldownRepository,
+    )
+    from narranexus.platform.utils.timezone import utc_now
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    monkeypatch.setattr(trigger, "_invoke_runtime", _boom("worker crashed"))
+
+    first = await _drop(trigger, db_client, tools, "build the site")
+    await _drop(trigger, db_client, tools, "please build the site now")   # rephrased
+    await _drop(trigger, db_client, tools, "build the site")               # verbatim
+    notices = await _failed_notices(db_client, first.channel_id)
+    assert len(notices) == 1, "one wake per window, whatever the wording"
+
+    # The window elapses (B was fixed, then broke again next day).
+    await OwnerNoticeCooldownRepository(db_client).arm(
+        B, first.channel_id, "peer_drop",
+        at=utc_now() - timedelta(seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS + 5),
+    )
+    await _drop(trigger, db_client, tools, "a brand new request")
+    assert len(await _failed_notices(db_client, first.channel_id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_same_content_dropped_again_is_recognised_by_fingerprint(db_client, monkeypatch):
+    """Second layer, independent of the cooldown row: the receipt ledger
+    already holds a `dropped` row with this content fingerprint in this
+    channel, so even with no cooldown row the sender is not woken again."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    monkeypatch.setattr(trigger, "_invoke_runtime", _boom("worker crashed"))
+
+    first = await _drop(trigger, db_client, tools, "build the site")
+    await db_client.delete("owner_notice_cooldowns", {"agent_id": B})
+    await _drop(trigger, db_client, tools, "build  the site")
+    assert len(await _failed_notices(db_client, first.channel_id)) == 1
+    # Different content with no cooldown row → a fresh wake (the positive case).
+    await db_client.delete("owner_notice_cooldowns", {"agent_id": B})
+    await _drop(trigger, db_client, tools, "something unrelated")
+    assert len(await _failed_notices(db_client, first.channel_id)) == 2

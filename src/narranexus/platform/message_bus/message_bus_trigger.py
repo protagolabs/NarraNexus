@@ -3930,10 +3930,63 @@ class MessageBusTrigger:
             return
         if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
             return
-        await announce_processing_failure(
+        # Windowed, two layers, never a loop (review C2): the notice wakes the
+        # sender, a model that reads "could not process" resends or rephrases,
+        # the recipient drops that too — and without a bound this DM would
+        # run thousands of rounds a day while the recipient stays broken (the
+        # 2026-08-17 Liam ping-pong, lit by the platform itself). The receipt
+        # ledger recognises the SAME content dropped again; the cooldown row
+        # (recipient, channel, "peer_drop") bounds rephrasings. Both share
+        # FAILURE_NOTIFY_COOLDOWN_SECONDS so the recipient's owner notice and
+        # the sender's wake expire together, and a recipient fixed-then-broken
+        # again is reported anew.
+        from narranexus.platform.repository.owner_notice_cooldown_repository import (
+            OwnerNoticeCooldownRepository,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        try:
+            db = await get_db_client()
+            cooldowns = OwnerNoticeCooldownRepository(db)
+            if await cooldowns.is_cooling(
+                agent_id, channel_id, "peer_drop", FAILURE_NOTIFY_COOLDOWN_SECONDS
+            ) or await self._drop_already_announced(agent_id, channel_id, trigger_message):
+                logger.info(
+                    f"[bus-drop] {agent_id} dropped another message from {sender} "
+                    f"in {channel_id} inside the window; not waking it again"
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — fail open: one extra wake beats a hidden drop
+            logger.warning(f"[bus-drop] guard read failed for {agent_id}: {e}")
+            cooldowns = None
+        landed = await announce_processing_failure(
             self._bus, channel_id, agent_id,
             error=error, attempts=attempts, mentions=[sender],
             root_run_id=trigger_message.root_run_id or None,
+        )
+        if landed and cooldowns is not None:
+            await cooldowns.arm(agent_id, channel_id, "peer_drop")
+
+    async def _drop_already_announced(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+    ) -> bool:
+        """Was this exact content already dropped by this recipient in this
+        channel within the window? Same fingerprint `_stamp_receipts` wrote."""
+        from narranexus.platform.repository.bus_delivery_receipt_repository import (
+            BusDeliveryReceiptRepository,
+            content_key,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        worthy = self._receipt_worthy([trigger_message])
+        if not worthy:
+            return False
+        return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
+            channel_id=channel_id, to_agent=agent_id,
+            key=content_key("\n".join(m.content for m in worthy)),
+            status=RECEIPT_DROPPED,
+            exclude_message_id=trigger_message.message_id,
+            within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
         )
 
     async def _announce_undelivered_turn(
@@ -4046,10 +4099,12 @@ class MessageBusTrigger:
             )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
-            return await BusDeliveryReceiptRepository(await get_db_client()).prior_silence(
+            return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
                 channel_id=channel_id, to_agent=agent_id,
                 key=content_key("\n".join(m.content for m in worthy)),
+                status=RECEIPT_SILENT,
                 exclude_message_id=worthy[-1].message_id,
+                within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
             )
         except Exception as e:  # noqa: BLE001 — see docstring
             logger.warning(f"[bus-resend] guard read failed for {agent_id}: {e}")

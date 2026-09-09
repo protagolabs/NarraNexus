@@ -40,7 +40,9 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List, Optional
 
-from narranexus.platform.utils.timezone import utc_now
+from datetime import timedelta
+
+from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 RECEIPT_ACCEPTED = "accepted"
 RECEIPT_HELD = "held"
@@ -113,19 +115,37 @@ class BusDeliveryReceiptRepository:
             self.TABLE, {"message_id": message_id, "to_agent": to_agent}
         )
 
-    async def prior_silence(
-        self, *, channel_id: str, to_agent: str, key: str, exclude_message_id: str
+    async def prior_outcome(
+        self,
+        *,
+        channel_id: str,
+        to_agent: str,
+        key: str,
+        status: str,
+        exclude_message_id: str,
+        within_seconds: float,
     ) -> bool:
-        """Has `to_agent` already gone silent on this exact content in this
-        channel, on a DIFFERENT message? The resend-loop guard's question."""
+        """Did `to_agent` already reach `status` on this exact content in this
+        channel, on a DIFFERENT message, within the window?
+
+        The guard behind "wake the sender once, not every time" for both a
+        silent turn (`silent`) and a dropped message (`dropped`). Windowed on
+        `updated_at`, never permanent: a daily check-in that went unanswered
+        once must still be able to wake the sender next month, and a recipient
+        that was fixed and broke again must be reported anew.
+        """
         rows = await self._db.get(
             self.TABLE,
             {"channel_id": channel_id, "to_agent": to_agent, "content_key": key},
         )
-        return any(
-            r.get("status") == RECEIPT_SILENT and r.get("message_id") != exclude_message_id
-            for r in rows or []
-        )
+        floor = utc_now() - timedelta(seconds=within_seconds)
+        for r in rows or []:
+            if r.get("status") != status or r.get("message_id") == exclude_message_id:
+                continue
+            seen = coerce_utc(r.get("updated_at"))
+            if seen is not None and seen >= floor:
+                return True
+        return False
 
     async def for_sender(self, from_agent: str, limit: int = 50) -> List[Dict[str, Any]]:
         """The sender's view: its most recently updated receipts, newest first."""
