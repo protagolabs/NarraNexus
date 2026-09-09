@@ -606,28 +606,11 @@ class SkillModule(XYZBaseModule):
         skills = []
         for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
             if skill_path.is_dir() and not skill_path.name.startswith("."):
-                skill_md = skill_path / "SKILL.md"
-                if skill_md.exists():
-                    info = self._parse_skill_md(skill_md)
-                    skills.append(info)
-                else:
-                    # Directory without SKILL.md (may be a skill auto-created by agent)
-                    # Still list it, using directory name as the name
-                    meta_data = self._load_meta_dict(skill_path / ".skill_meta.json")
-
-                    info = SkillInfo(
-                        name=skill_path.name,
-                        description=meta_data.get("description", "(No SKILL.md found)"),
-                        path=str(skill_path),
-                        builtin=bool(meta_data.get("builtin", False)),
-                        source_url=meta_data.get("source_url"),
-                        installed_at=meta_data.get("installed_at"),
-                        study_status=meta_data.get("study_status"),
-                        study_result=meta_data.get("study_result"),
-                        study_error=meta_data.get("study_error"),
-                        studied_at=meta_data.get("studied_at"),
-                    )
-                    skills.append(info)
+                # A directory without SKILL.md (e.g. auto-created by the
+                # agent) is still listed: _parse_skill_md falls back to the
+                # directory name + whatever .skill_meta.json carries
+                # (description, study state, studied requirements).
+                skills.append(self._parse_skill_md(skill_path / "SKILL.md"))
 
         return skills
 
@@ -709,7 +692,10 @@ class SkillModule(XYZBaseModule):
         env_config = meta_data.get("env_config", {})
 
         try:
-            content = skill_md.read_text(encoding="utf-8")
+            # A directory without SKILL.md (agent-created, or meta written
+            # before the manifest landed) is the meta-only fallback below,
+            # not a parse failure worth a warning.
+            content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else ""
             if content.startswith("---"):
                 parts = content.split("---", 2)
                 if len(parts) >= 3:
@@ -782,9 +768,13 @@ class SkillModule(XYZBaseModule):
             requires_env, env_config
         )
 
+        if skill_md.exists():
+            description = ""
+        else:
+            description = meta_data.get("description") or "(No SKILL.md found)"
         return SkillInfo(
             name=skill_dir.name,
-            description="",
+            description=description,
             path=str(skill_dir),
             builtin=builtin,
             source_url=source_url,
@@ -982,9 +972,27 @@ class SkillModule(XYZBaseModule):
             logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
 
     def get_skill_requirements(self, skill_name: str) -> dict:
-        """Get the requirements dict from .skill_meta.json"""
-        meta_data = self._read_skill_meta(skill_name)
-        return meta_data.get("requires", {})
+        """Resolve a skill's runtime requirements — ``{"env": [...], "bins": [...]}``.
+
+        This is the ONE resolver behind every "what does this skill need"
+        surface: the Skills panel / routes read ``SkillInfo.requires_env``
+        from ``_parse_skill_md`` and the ``skill_list_required_env`` MCP
+        tool calls this method, which delegates to the same parser. It used
+        to read only ``.skill_meta.json["requires"]`` — a field the study
+        step writes — so an installed-but-never-studied skill answered the
+        agent "no required environment variables" while the UI listed the
+        vars declared in the SKILL.md frontmatter / mentioned in its body
+        (GitHub #115). Frontmatter, body scan (fallback) and studied meta are
+        unioned exactly as the UI shows them.
+        """
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if skill_dir is None:
+            return {"env": [], "bins": []}
+        info = self._parse_skill_md(skill_dir / "SKILL.md")
+        return {
+            "env": list(info.requires_env or []),
+            "bins": list(info.requires_bins or []),
+        }
 
     def get_skill_env_config(self, skill_name: str) -> dict:
         """Get env_config from .skill_meta.json (var_name -> base64-encoded value)"""

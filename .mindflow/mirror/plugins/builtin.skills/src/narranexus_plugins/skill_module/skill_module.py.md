@@ -1,8 +1,20 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `get_skill_requirements` 与 UI 同源（GitHub #115）
+
+`get_skill_requirements(skill_name)` 过去只读 `.skill_meta.json["requires"]`——那是 study 步骤才写的
+字段——于是"装了但没 study"的 skill 对 `skill_list_required_env` MCP 工具永远答"no required env"，
+而 Skills 面板（`_parse_skill_md` → `SkillInfo.requires_env`：frontmatter ∪ body 扫描兜底 ∪ meta）
+明明列着变量。两份真相现在收敛为一份：`get_skill_requirements` 走 `_resolve_skill_dir` 后调用同一个
+`_parse_skill_md`，返回 `{"env": [...], "bins": [...]}`（未知 skill → 空列表，不抛）。
+顺带：`_parse_skill_md` 对**不存在**的 SKILL.md 走 meta-only 兜底（不再打 "Failed to parse" warning，
+description 取 meta 或 "(No SKILL.md found)"），`_scan_workspace_skills` 的无 SKILL.md 分支也改走它——
+以前那个分支根本不看 meta 的 requires，也是一处分叉。测试见
+`tests/skill_module/test_skill_required_env_single_source.py`。
 
 ## 2026-09-07 — `SKILL_METADATA_KEYS` 改从 `narranexus.contracts.openclaw` 取
 
