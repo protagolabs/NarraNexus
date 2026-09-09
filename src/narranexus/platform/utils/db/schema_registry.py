@@ -1263,6 +1263,48 @@ _register(
 )
 
 
+# 26c. bus_delivery_receipts — what became of ONE bus message at ONE recipient.
+#
+# The bus's "send success" only ever meant "row inserted" (upstream
+# NetMindAI-Open/NarraNexus#106: the PM agent told its user "build is now in
+# progress" while the Web Developer's worker had crashed three times and the
+# only trace was an unread owner-inbox row). This table is the delivery-side
+# ledger the sender can be shown: `accepted` / `held` at send time (the send
+# tool's pre-flight), then `processed` / `relayed` / `silent` / `failed` /
+# `dropped` as the recipient's trigger runs the message. One row per
+# (message_id, to_agent), updated in place — a receipt, not an event log
+# (`bus_message_failures` keeps the retry count; `service_audit` the lifecycle).
+# `content_key` (sha256 of the batch the recipient saw) is what lets the
+# trigger recognise "this silence is a RESEND of the same message" and stop
+# waking the sender for it a second time.
+_register(
+    TableDef(
+        name="bus_delivery_receipts",
+        columns=[
+            Column("message_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("to_agent", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("from_agent", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(24)", nullable=False),
+            # Redacted at write time (redact_secrets); NULL when there is none.
+            Column("reason", "TEXT", "TEXT", nullable=True),
+            Column("attempts", "INTEGER", "INT", nullable=False, default="0"),
+            Column("content_key", "TEXT", "VARCHAR(64)", nullable=True),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        primary_key=["message_id", "to_agent"],
+        indexes=[
+            # "What happened to what I sent" — the sender's view.
+            Index("idx_bus_receipt_sender", ["from_agent", "updated_at"]),
+            # "Has this recipient already gone silent on this exact content in
+            # this channel" — the resend-loop guard's lookup.
+            Index("idx_bus_receipt_content", ["channel_id", "to_agent", "content_key"]),
+        ],
+    )
+)
+
+
 # --- 27. lark_credentials ---------------------------------------------------
 _register(
     TableDef(

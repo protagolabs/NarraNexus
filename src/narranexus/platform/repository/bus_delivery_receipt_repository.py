@@ -1,0 +1,134 @@
+"""
+@file_name: bus_delivery_receipt_repository.py
+@author:
+@date: 2026-09-09
+@description: The owner of `bus_delivery_receipts` — the per-(message,
+recipient) delivery ledger a bus sender can be shown.
+
+A bus send used to be a fire-and-forget insert: "success" meant the row
+existed, and everything after — the recipient's trigger crashing on it three
+times, or its turn coming back empty — was visible only in the recipient
+OWNER's inbox. The sender agent, which had just promised its user that work
+was under way, learned nothing (upstream NetMindAI-Open/NarraNexus#106).
+
+The receipt is one row per (message_id, to_agent), updated in place as the
+message moves through its life:
+
+    accepted   send tool: queued, recipient reachable
+    held       send tool: queued, but the recipient's circuit breaker is
+               paused/cooling — it will not run until that clears
+    processed  trigger: the turn ran and reached someone (peer reply / tool)
+    relayed    trigger: the turn produced owner-facing text only — the
+               recipient relayed to ITS owner, the sender got no reply
+    silent     trigger: the turn ran and reached nobody
+    failed     trigger: the turn raised (retry pending; `attempts` counts)
+    dropped    trigger: poison threshold reached, no more retries
+
+`content_key` is the sha256 of the message content the recipient's turn was
+built from. It exists for one question — "has this recipient ALREADY gone
+silent on this exact content in this channel?" — which is how the trigger
+tells a resend from a fresh message and stops waking the sender a second time
+for the same silence (the 8/31 "This turn ended without delivering a reply"
+ping-pong).
+
+Plain class (composite key, upsert + two reads); dialect-safe by construction —
+`get_one` / `get` / `insert` / `update` only, no hand-written SQL.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Any, Dict, List, Optional
+
+from narranexus.platform.utils.timezone import utc_now
+
+RECEIPT_ACCEPTED = "accepted"
+RECEIPT_HELD = "held"
+RECEIPT_PROCESSED = "processed"
+RECEIPT_RELAYED = "relayed"
+RECEIPT_SILENT = "silent"
+RECEIPT_FAILED = "failed"
+RECEIPT_DROPPED = "dropped"
+
+#: The statuses a sender can read as "the recipient will not act on this
+#: without you doing something": the message is gone, or nobody was reached.
+TERMINAL_FAILURE_STATUSES = frozenset({RECEIPT_DROPPED, RECEIPT_SILENT})
+
+
+def content_key(content: str) -> str:
+    """Stable fingerprint of what a recipient was asked. Whitespace-normalised
+    so a model that re-flows the same text on resend still matches."""
+    normalised = " ".join((content or "").split())
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
+class BusDeliveryReceiptRepository:
+    TABLE = "bus_delivery_receipts"
+
+    def __init__(self, db):
+        # Untyped on purpose (the family convention): the async DB client is
+        # injected; naming its type here would only add a load-order coupling.
+        self._db = db
+
+    async def upsert(
+        self,
+        *,
+        message_id: str,
+        to_agent: str,
+        channel_id: str,
+        from_agent: str,
+        status: str,
+        reason: Optional[str] = None,
+        attempts: Optional[int] = None,
+        content_key: Optional[str] = None,
+    ) -> None:
+        """Insert-or-update the receipt for (message_id, to_agent).
+
+        Only the fields given are written on an existing row (plus
+        `updated_at`); `channel_id` / `from_agent` are identity and set on
+        insert. `reason` must already be redacted by the caller.
+        """
+        key = {"message_id": message_id, "to_agent": to_agent}
+        now = utc_now()
+        data: Dict[str, Any] = {"status": status, "updated_at": now}
+        if reason is not None:
+            data["reason"] = reason
+        if attempts is not None:
+            data["attempts"] = int(attempts)
+        if content_key is not None:
+            data["content_key"] = content_key
+        updated = await self._db.update(self.TABLE, key, data)
+        if not updated:
+            await self._db.insert(self.TABLE, {
+                **key,
+                "channel_id": channel_id,
+                "from_agent": from_agent,
+                "attempts": int(attempts or 0),
+                "created_at": now,
+                **data,
+            })
+
+    async def get(self, message_id: str, to_agent: str) -> Optional[Dict[str, Any]]:
+        return await self._db.get_one(
+            self.TABLE, {"message_id": message_id, "to_agent": to_agent}
+        )
+
+    async def prior_silence(
+        self, *, channel_id: str, to_agent: str, key: str, exclude_message_id: str
+    ) -> bool:
+        """Has `to_agent` already gone silent on this exact content in this
+        channel, on a DIFFERENT message? The resend-loop guard's question."""
+        rows = await self._db.get(
+            self.TABLE,
+            {"channel_id": channel_id, "to_agent": to_agent, "content_key": key},
+        )
+        return any(
+            r.get("status") == RECEIPT_SILENT and r.get("message_id") != exclude_message_id
+            for r in rows or []
+        )
+
+    async def for_sender(self, from_agent: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """The sender's view: its most recently updated receipts, newest first."""
+        rows = await self._db.get(self.TABLE, {"from_agent": from_agent})
+        rows = sorted(rows or [], key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+        return rows[:limit]

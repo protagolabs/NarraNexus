@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/message_bus/schemas.py
-last_verified: 2026-08-18
+last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09 — BusMessage.part_message_ids（非列）
+
+内存字段：当一条 BusMessage 是多行（分片消息）的**重组体**时，按序列出它代表的每一行
+message_id；普通单行消息为 None。不进表——只存在于 trigger 交给 turn 的那份对象上，
+让按行记账的东西（投递回执 `_stamp_receipts`）能触达每个分片。重组本身见
+[[multipart]]（下一条 commit）。
+
 ## 2026-08-14 — BusMessage.segments
 
 `Optional[List[dict]]`，每项是 `{kind: "monologue"|"reply", text}`：agent 自己的思考和

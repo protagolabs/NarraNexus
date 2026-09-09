@@ -40,6 +40,7 @@ from .agent_registry_repository import AgentRegistryRepository
 from .agent_message_repository import AgentMessageRepository
 from .agent_circuit_breaker_repository import AgentCircuitBreakerRepository
 from .owner_notice_cooldown_repository import OwnerNoticeCooldownRepository
+from .bus_delivery_receipt_repository import BusDeliveryReceiptRepository
 from .channel_ingress_breaker_repository import ChannelIngressBreakerRepository
 from .event_memory_repository import EventMemoryRepository
 
@@ -88,6 +89,7 @@ __all__ = [
     "AgentMessageRepository",
     "AgentCircuitBreakerRepository",
     "OwnerNoticeCooldownRepository",
+    "BusDeliveryReceiptRepository",
     "ChannelIngressBreakerRepository",
     "EventMemoryRepository",
     # MCP

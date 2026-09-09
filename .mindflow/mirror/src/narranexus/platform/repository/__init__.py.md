@@ -3,6 +3,11 @@ code_file: src/narranexus/platform/repository/__init__.py
 last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09 — 导出 `BusDeliveryReceiptRepository`
+
+bus 投递回执（`bus_delivery_receipts` 表）的读写方进公共导出面（import + `__all__`）。
+纯转发改动。见 [[bus_delivery_receipt_repository]]。
+
 ## 2026-09-09 — 导出 `OwnerNoticeCooldownRepository`
 
 owner 系统通知冷却窗（`owner_notice_cooldowns` 表）的读写方进公共导出面

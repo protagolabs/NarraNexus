@@ -18,7 +18,15 @@ from typing import Any, Callable, List, Optional
 
 from loguru import logger
 
+from narranexus.platform.agent_framework.llm.failure import redact_secrets
+from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
 from narranexus.platform.channel.channel_audit_events import EVENT_INBOX_WRITE_FAILED
+from narranexus.platform.repository.bus_delivery_receipt_repository import (
+    RECEIPT_ACCEPTED,
+    RECEIPT_FAILED,
+    RECEIPT_HELD,
+    BusDeliveryReceiptRepository,
+)
 from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 
@@ -194,6 +202,52 @@ async def _record_peer_dm_inbox(
             )
 
 
+async def _book_receipt(*, message_id: str, from_agent: str, to_agent: str) -> dict:
+    """The sender-facing receipt for a DM that was just queued. Never raises.
+
+    "Send success" used to mean "row inserted" and nothing more — the sender
+    then told its user work was under way while the recipient's worker was
+    crashing on the message (upstream NetMindAI-Open/NarraNexus#106). The
+    pre-flight here asks the one thing knowable at send time: is the
+    recipient able to RUN at all? A circuit-breaker PAUSED / COOLING recipient
+    leaves its queue untouched until it recovers (the trigger's skip-gate), so
+    the honest answer is ``held``, with the reason, not ``accepted``.
+
+    Runs AFTER the send succeeded, inside the tool's `try`, so like
+    `_describe_agent` it must never invert the outcome: a receipt we could not
+    book degrades to ``accepted`` with a note, never to `success: false`.
+    """
+    from narranexus.platform.utils.db.db_factory import get_db_client
+
+    status, reason = RECEIPT_ACCEPTED, None
+    try:
+        skip, why = await should_skip(to_agent, db=await get_db_client())
+        if skip:
+            status = RECEIPT_HELD
+            reason = (
+                f"the recipient is not running turns right now ({why}); the "
+                f"message is queued and runs once that clears"
+            )
+    except Exception as e:  # noqa: BLE001 — pre-flight is advisory
+        logger.warning(f"[bus-receipt] pre-flight failed for {to_agent}: {e}")
+    try:
+        db = await get_db_client()
+        # The channel is the DM the bus found or opened for this pair; the
+        # sent row is the one place that already knows which.
+        sent = await db.get_one("bus_messages", {"message_id": message_id})
+        await BusDeliveryReceiptRepository(db).upsert(
+            message_id=message_id, to_agent=to_agent,
+            channel_id=(sent or {}).get("channel_id") or "",
+            from_agent=from_agent, status=status, reason=reason,
+        )
+    except Exception as e:  # noqa: BLE001 — never invert a delivered send
+        logger.warning(f"[bus-receipt] could not book receipt for {message_id}: {e}")
+    receipt = {"status": status, "message_id": message_id}
+    if reason:
+        receipt["reason"] = reason
+    return receipt
+
+
 async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
     """Resolve + stage attachment_refs for a sending agent into the shared bus
     area. Returns [] when there are no refs or the owner can't be resolved."""
@@ -354,9 +408,16 @@ def register_message_bus_mcp_tools(
         The reply arrives as a new turn, not inside this one.
 
         Returns:
-            {"success": true, "message_id": ..., "sent_to": "<name> (<id>)"}
+            {"success": true, "message_id": ..., "sent_to": "<name> (<id>)",
+             "receipt": {"status": "accepted" | "held", "reason": ...}}
             The recipient is echoed back so a mistake is visible in the same
-            turn instead of surfacing as a confused answer later.
+            turn instead of surfacing as a confused answer later. `receipt`
+            says whether the recipient can run it: "accepted" means it will be
+            picked up; "held" means it is queued but the recipient is not
+            running turns right now (reason given) — do not tell anyone the
+            work is under way on the strength of a held message. If the
+            recipient later fails on it or never replies, a platform notice
+            arrives in this conversation.
         """
         bus = await get_message_bus_fn()
         if bus is None:
@@ -400,9 +461,17 @@ def register_message_bus_mcp_tools(
                 "message_id": msg_id,
                 "sent_to": await _describe_agent(to.strip()),
                 "attached": len(attachments),
+                "receipt": await _book_receipt(
+                    message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
+                ),
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            reason = redact_secrets(str(e))
+            return {
+                "success": False,
+                "error": str(e),
+                "receipt": {"status": RECEIPT_FAILED, "reason": reason},
+            }
 
     @mcp.tool()
     async def message_team(

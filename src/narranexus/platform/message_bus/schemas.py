@@ -63,6 +63,12 @@ class BusMessage(BaseModel):
     # this message wakes up inherits it, which is how a cascade stop reaches
     # past an agent→agent hop. None for user messages and legacy rows.
     root_run_id: Optional[str] = None
+    # When this message is the REASSEMBLY of several stored rows (a long
+    # message sent in ordered parts), the ids of every row it stands for, in
+    # order. None for an ordinary single-row message. Not a column: it exists
+    # only on the in-memory message the trigger hands to a turn, so that
+    # per-row bookkeeping (delivery receipts) can reach every part.
+    part_message_ids: Optional[List[str]] = None
     created_at: Any = None
 
 

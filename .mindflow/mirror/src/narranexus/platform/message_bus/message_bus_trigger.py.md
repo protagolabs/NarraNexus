@@ -4,6 +4,23 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — 投递回执 + 被丢弃的消息回写给发件方（上游 #106 第 2/4 子项）
+
+DM 车道（`not is_team`）在 turn 结束时把结果写进 `bus_delivery_receipts`
+（`_stamp_receipts`，[[bus_delivery_receipt_repository]]）：有工具触达→`processed`；
+只有 owner 文字（走 `_write_to_inbox`）→`relayed`；`reached_nobody`→`silent`；抛异常→
+`failed`（attempts=失败计数、reason 已脱敏）；到 `POISON_FAILURE_THRESHOLD`→`dropped`。
+团队房不写回执：发件方本来就盯着房间。人（`usr_` 前缀）与平台行不算「等回执的发件方」
+（`_receipt_worthy`）。回执写入 best-effort 永不抛——账本不能把已投递的一轮变成失败。
+
+**丢弃时唤醒发件方**（`_wake_sender_on_drop`）：此前 poison 阈值只走
+`_notify_permanent_failure` 写收件方 owner 收件箱；发件 agent 毫无信号，就是 #106
+「PM 说开工了、Web Developer 已经崩了三次」的形状。现在同时调 [[delivery_notice]]
+`announce_processing_failure`：在该 DM 里贴一条 `system_delivery_failed` 并 @ 发件方，
+让它下一轮开在失败上。仅当发件方是 agent（人没有 turn 可唤醒）且触发消息不是平台行
+（不对通告发通告）。`_stamp_receipts` 同时写 `content_key`（本批 peer 正文的指纹），
+是下一条 commit 里「同一沉默只唤醒一次」的依据。锁：`test_delivery_receipts.py`。
+
 ## 2026-09-09 — owner 通知冷却窗持久化，键改为 (agent, channel, category)
 
 `_notify_owner` 的 `cooldown_key: str` 参数换成 `cooldown_category: str`，窗口不再是

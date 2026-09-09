@@ -82,6 +82,10 @@ _TRIGGER_LABELS = {
     PATROL_MSG_TYPE: "the team's Leader check",
     UNDELIVERED_MSG_TYPE: "a platform notice that the agent you contacted "
                           "ended its turn without replying",
+    # Third trigger-capable platform line (2026-09-09): the recipient could not
+    # RUN the message (poison threshold) and the sender is woken to hear it.
+    DELIVERY_FAILED_MSG_TYPE: "a platform notice that the agent you contacted "
+                              "could not process your message and it was dropped",
 }
 # Neutral fallback: a new platform type gets a truthful vague label rather than
 # a synthetic `team_<id>` marker printed as if it were a teammate.

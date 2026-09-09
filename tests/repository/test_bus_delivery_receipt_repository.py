@@ -1,0 +1,102 @@
+"""
+@file_name: test_bus_delivery_receipt_repository.py
+@date: 2026-09-09
+@description: BusDeliveryReceiptRepository — the per-(message, recipient)
+delivery ledger. Covers the upsert life-cycle (insert then in-place update),
+the partial update contract, the sender's view, and the resend-loop guard's
+`prior_silence` question (same content elsewhere = yes; same message = no;
+different content = no).
+"""
+
+import pytest
+
+from narranexus.platform.repository.bus_delivery_receipt_repository import (
+    RECEIPT_ACCEPTED,
+    RECEIPT_FAILED,
+    RECEIPT_SILENT,
+    BusDeliveryReceiptRepository,
+    content_key,
+)
+
+
+@pytest.mark.asyncio
+async def test_upsert_inserts_then_updates_in_place(db_client):
+    repo = BusDeliveryReceiptRepository(db_client)
+    await repo.upsert(
+        message_id="m1", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_ACCEPTED,
+    )
+    row = await repo.get("m1", "b")
+    assert row["status"] == RECEIPT_ACCEPTED and row["attempts"] == 0
+    assert row["reason"] is None
+
+    await repo.upsert(
+        message_id="m1", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_FAILED, reason="boom", attempts=2,
+    )
+    row = await repo.get("m1", "b")
+    assert (row["status"], row["reason"], row["attempts"]) == (RECEIPT_FAILED, "boom", 2)
+    # Identity columns are not rewritten and there is still one row.
+    assert row["from_agent"] == "a" and row["channel_id"] == "ch"
+    assert len(await db_client.get(BusDeliveryReceiptRepository.TABLE, {"message_id": "m1"})) == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_update_keeps_earlier_fields(db_client):
+    repo = BusDeliveryReceiptRepository(db_client)
+    await repo.upsert(
+        message_id="m2", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_FAILED, reason="first", attempts=1,
+    )
+    await repo.upsert(
+        message_id="m2", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_SILENT,
+    )
+    row = await repo.get("m2", "b")
+    assert row["status"] == RECEIPT_SILENT
+    assert row["reason"] == "first" and row["attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_prior_silence_matches_same_content_on_another_message_only(db_client):
+    repo = BusDeliveryReceiptRepository(db_client)
+    key = content_key("please  build the\nsite")
+    await repo.upsert(
+        message_id="m3", to_agent="b", channel_id="ch", from_agent="a",
+        status=RECEIPT_SILENT, content_key=key,
+    )
+    # Same content, a different (later) message → the resend the guard exists for.
+    assert await repo.prior_silence(
+        channel_id="ch", to_agent="b", key=content_key("please build the site"),
+        exclude_message_id="m4",
+    ) is True
+    # The very message that was silent is not a "prior" silence for itself.
+    assert await repo.prior_silence(
+        channel_id="ch", to_agent="b", key=key, exclude_message_id="m3"
+    ) is False
+    # Different content, another channel, another recipient → fresh.
+    assert await repo.prior_silence(
+        channel_id="ch", to_agent="b", key=content_key("something else"),
+        exclude_message_id="m4",
+    ) is False
+    assert await repo.prior_silence(
+        channel_id="other", to_agent="b", key=key, exclude_message_id="m4"
+    ) is False
+    # A non-silent receipt with the same content does not count.
+    await repo.upsert(
+        message_id="m5", to_agent="c", channel_id="ch", from_agent="a",
+        status=RECEIPT_ACCEPTED, content_key=key,
+    )
+    assert await repo.prior_silence(
+        channel_id="ch", to_agent="c", key=key, exclude_message_id="m6"
+    ) is False
+
+
+@pytest.mark.asyncio
+async def test_for_sender_is_newest_first_and_scoped(db_client):
+    repo = BusDeliveryReceiptRepository(db_client)
+    await repo.upsert(message_id="m7", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
+    await repo.upsert(message_id="m8", to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
+    await repo.upsert(message_id="m9", to_agent="a", channel_id="ch", from_agent="z", status=RECEIPT_ACCEPTED)
+    rows = await repo.for_sender("a")
+    assert [r["message_id"] for r in rows] == ["m8", "m7"]

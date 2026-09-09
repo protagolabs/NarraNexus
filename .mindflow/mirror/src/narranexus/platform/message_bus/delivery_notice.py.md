@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/message_bus/delivery_notice.py
-last_verified: 2026-09-03
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — 第四种结局：`announce_processing_failure`（收件方根本跑不起来）
+
+文件头列的三种结局都假设 turn **跑起来了**。上游 #106 是第四种：收件方 runtime 在产出
+任何东西之前就抛（worker 在旧模块路径上 import 失败），三次后消息被 `get_pending_messages`
+永久过滤——收件方 owner 收件箱知道，**发件 agent** 不知道，继续等。
+
+新函数把这件事写进发件方正在看的那个会话，并 @ 发件方，让它下一轮开在失败上而不是
+沉默上（[[system_messages]] `trigger_label` 给了专门措辞）。**复用 `DELIVERY_FAILED_MSG_TYPE`**
+而不是新类型：对每个读者它就是一次投递失败（平台的而非模型的），前端已按 warning 权重
+渲染该类型，`PLATFORM_MSG_TYPES` 也已收录——新类型要连改前端与 10 份 locale，换来的只是一个
+没人区分的名字。带 `attempts` 与脱敏后的原因，理由同 `announce_delivery_failure`。
+调用方：[[message_bus_trigger]] `_wake_sender_on_drop`（仅 DM、仅发件方是 agent、仅非平台行）。
 
 ## 2026-09-03 — `announce_undelivered` 只剩 A2A 私聊一个调用点
 

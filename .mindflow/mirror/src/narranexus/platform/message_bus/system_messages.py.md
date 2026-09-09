@@ -1,10 +1,17 @@
 ---
 code_file: src/narranexus/platform/message_bus/system_messages.py
-last_verified: 2026-08-13
+last_verified: 2026-09-09
 stub: false
 ---
 
 # system_messages — 平台自述行的唯一真源
+
+## 2026-09-09 — `_TRIGGER_LABELS` 增加 `DELIVERY_FAILED_MSG_TYPE`
+
+第三种能成为触发源的平台行：收件方在 poison 阈值上被丢弃的消息，trigger 会 @ 发件方
+（[[delivery_notice]] `announce_processing_failure`）。没有这条标签它会落到
+`_TRIGGER_FALLBACK` 的「a platform notice」——发件 agent 醒来只知道「有个通知」，不知道
+自己的消息已经死了。措辞点明「could not process your message and it was dropped」。
 
 ## 为什么存在
 

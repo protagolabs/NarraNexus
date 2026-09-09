@@ -1,8 +1,25 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `message_agent` 返回投递回执 `receipt`
+
+成功路径多返回 `receipt: {status: accepted|held, reason?}`（`_book_receipt`），失败路径带
+`receipt: {status: failed, reason(已脱敏)}`。**`held`** 来自 pre-flight：用
+[[circuit_breaker]] 的 `should_skip(to, db=…)` 问「收件方现在跑不跑 turn」——PAUSED/COOLING
+的收件方会让消息在队列里躺到熔断清除（trigger 的 skip-gate），此时报 `accepted` 就是
+上游 #106 那句 "build is now in progress" 的来源。工具 docstring 明说：held 的消息不要
+拿去向任何人承诺开工。
+
+纪律与 `_describe_agent` / `_record_peer_dm_inbox` 相同：**跑在发送成功之后、绝不反转
+结果**——pre-flight 读失败退化成 accepted 并 warning，回执写失败只 warning。回执行写进
+`bus_delivery_receipts`（[[bus_delivery_receipt_repository]]），channel_id 从刚插入的
+`bus_messages` 行取（bus 找到/新开的那个 DM），不在 `MessageBusService` 协议上加新方法。
+`message_team` 不出回执：房间本身就是发件方在看的面，`capped` 已经说了谁没被触达。
+后续状态（processed/relayed/silent/failed/dropped）由收件方 trigger 写，见
+[[message_bus_trigger]]。锁：`tests/message_bus/test_delivery_receipts.py`。
 
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 

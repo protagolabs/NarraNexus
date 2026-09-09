@@ -49,6 +49,7 @@ from narranexus.platform.message_bus.local_bus import (
     canonical_ts,
 )
 from narranexus.platform.message_bus.delivery_notice import (
+    announce_processing_failure,
     UNDELIVERED_MSG_TYPE,
     announce_delivery_failure,
     announce_undelivered,
@@ -65,6 +66,13 @@ from narranexus.platform.message_bus.system_messages import (
     trigger_label as _platform_trigger_label,
 )
 from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.repository.bus_delivery_receipt_repository import (
+    RECEIPT_DROPPED,
+    RECEIPT_FAILED,
+    RECEIPT_PROCESSED,
+    RECEIPT_RELAYED,
+    RECEIPT_SILENT,
+)
 from narranexus.platform.channel.message_source_handler import (
     im_channel_prefixes,
 )
@@ -1930,6 +1938,13 @@ class MessageBusTrigger:
                     await self._write_to_inbox(
                         agent_id, channel_id, trigger_message, turn.text
                     )
+                    # The sender's receipt: its message was acted on, but the
+                    # action was a relay to OUR owner, not a reply to it. A
+                    # peer that also got a tool reply reads `processed`.
+                    await self._stamp_receipts(
+                        messages, agent_id, channel_id,
+                        RECEIPT_PROCESSED if turn.delivered else RECEIPT_RELAYED,
+                    )
             elif turn.reached_nobody:
                 # `reached_nobody` IS "no text and no tool reached anyone", so
                 # the only thing this channel gets is the platform's own line
@@ -1938,6 +1953,17 @@ class MessageBusTrigger:
                 await self._announce_undelivered_turn(
                     agent_id, channel_id, trigger_message,
                     is_team=is_team, errand_continuation=errand_continuation,
+                )
+                if not is_team:
+                    await self._stamp_receipts(
+                        messages, agent_id, channel_id, RECEIPT_SILENT
+                    )
+            elif not is_team:
+                # No owner-facing text, but a tool reached someone: the peer
+                # was answered (or a third party was), which is the receipt
+                # the sender is waiting on.
+                await self._stamp_receipts(
+                    messages, agent_id, channel_id, RECEIPT_PROCESSED
                 )
 
             # A reply that never got out is not a completed hop: [bus-timing]
@@ -1997,12 +2023,25 @@ class MessageBusTrigger:
             failure_count = await self._bus.get_failure_count(
                 trigger_message.message_id, agent_id
             )
-            if failure_count >= POISON_FAILURE_THRESHOLD:
+            dropped = failure_count >= POISON_FAILURE_THRESHOLD
+            if not is_team:
+                await self._stamp_receipts(
+                    messages, agent_id, channel_id,
+                    RECEIPT_DROPPED if dropped else RECEIPT_FAILED,
+                    reason=self._redact_error_for_owner(str(e)),
+                    attempts=failure_count,
+                )
+            if dropped:
                 await self._notify_permanent_failure(
                     agent_id=agent_id,
                     channel_id=channel_id,
                     error=str(e),
                 )
+                if not is_team:
+                    await self._wake_sender_on_drop(
+                        agent_id, channel_id, trigger_message,
+                        error=str(e), attempts=failure_count,
+                    )
 
         # One line per successful hop, grep-stable — emitted OUTSIDE the try
         # so observation code can never turn an already-delivered-and-acked
@@ -3789,6 +3828,89 @@ class MessageBusTrigger:
         )
         await self._write_to_inbox(
             agent_id, channel_id, trigger_message, turn.text
+        )
+
+    @staticmethod
+    def _receipt_worthy(messages: List[BusMessage]) -> List[BusMessage]:
+        """The messages in a batch a SENDER is waiting on a receipt for: peer
+        agents' own messages. A person's message has no agent turn behind it,
+        and a platform line is nobody's question."""
+        return [
+            m for m in messages
+            if m.from_agent
+            and not m.from_agent.startswith(USER_SENDER_PREFIX)
+            and (m.msg_type or "") not in PLATFORM_MSG_TYPES
+        ]
+
+    async def _stamp_receipts(
+        self,
+        messages: List[BusMessage],
+        agent_id: str,
+        channel_id: str,
+        status: str,
+        *,
+        reason: Optional[str] = None,
+        attempts: Optional[int] = None,
+    ) -> None:
+        """Write what became of this batch at this recipient into
+        `bus_delivery_receipts` — one row per message, upserted. Best-effort,
+        never raises: a ledger write must not turn a delivered turn into a
+        recorded failure. `reason` arrives already redacted.
+
+        DM lanes only (the callers gate on `not is_team`): a team room's
+        senders are watching the room itself, and a receipt per mention per
+        member would be a write per turn nobody reads.
+        """
+        worthy = self._receipt_worthy(messages)
+        if not worthy:
+            return
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+                content_key,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            repo = BusDeliveryReceiptRepository(await get_db_client())
+            key = content_key("\n".join(m.content for m in worthy))
+            for m in worthy:
+                for message_id in (m.part_message_ids or [m.message_id]):
+                    await repo.upsert(
+                        message_id=message_id, to_agent=agent_id,
+                        channel_id=channel_id, from_agent=m.from_agent,
+                        status=status, reason=reason, attempts=attempts,
+                        content_key=key,
+                    )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.warning(
+                f"[bus-receipt] could not stamp {status} for {agent_id} in "
+                f"{channel_id}: {e}"
+            )
+
+    async def _wake_sender_on_drop(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        *, error: str, attempts: int,
+    ) -> None:
+        """The message is gone for good: say so where the SENDER will see it.
+
+        `_notify_permanent_failure` tells the recipient's owner. The sender —
+        another agent, mid-errand, that has just told its own user the work
+        is under way — was told nothing (upstream NetMindAI-Open/NarraNexus#106),
+        and kept waiting. This posts a `system_delivery_failed` line into the
+        conversation with the sender mentioned, so its next turn opens on the
+        failure (labelled by `system_messages.trigger_label`) and it can retry,
+        route around, or tell its user. Only when the sender is an agent: a
+        person's message has no turn to wake, and the owner inbox is theirs.
+        """
+        sender = trigger_message.from_agent or ""
+        if not sender or sender.startswith(USER_SENDER_PREFIX):
+            return
+        if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
+            return
+        await announce_processing_failure(
+            self._bus, channel_id, agent_id,
+            error=error, attempts=attempts, mentions=[sender],
+            root_run_id=trigger_message.root_run_id or None,
         )
 
     async def _announce_undelivered_turn(

@@ -4,6 +4,13 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — `bus_delivery_receipts` 表（26c，additive）
+
+(message_id, to_agent) 复合主键；status / reason(已脱敏) / attempts / content_key +
+两个索引（发件方视图 `from_agent, updated_at`；重发判定 `channel_id, to_agent,
+content_key`）。bus 的「发送成功≠开始处理」（上游 #106）由这张表补上收件方一侧的账。
+读写方 [[bus_delivery_receipt_repository]]。
+
 ## 2026-09-09 — `owner_notice_cooldowns` 表（26b，additive）
 
 (agent_id, target, category) 复合主键 + `last_notified_at DATETIME(6)`。把
