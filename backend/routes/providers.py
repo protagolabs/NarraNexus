@@ -1167,7 +1167,13 @@ async def get_claude_status(request: Request):
     import json as _json
     from pathlib import Path
 
-    result = {"cli_installed": False, "logged_in": False, "email": None, "expires_at": None}
+    result = {
+        "cli_installed": False,
+        "logged_in": False,
+        "email": None,
+        "expires_at": None,
+        "expired": False,
+    }
 
     if _is_cloud() and not _is_staff(request):
         return {"success": True, "data": {**result, "allowed": False}}
@@ -1252,6 +1258,18 @@ async def get_claude_status(request: Request):
                                     break
             except Exception:
                 pass
+
+    # Honesty fix (mirrors the /codex-status fix, incident 2026-06-11): an
+    # expires_at we found (from either the CLI probe or the legacy
+    # credentials file) is not useful if nothing ever compares it against
+    # "now" — a token past its expiry was still reported logged_in=True,
+    # so the UI showed a working session when every Claude turn would
+    # actually fail unauthorized (GitHub #111). _expiry_is_past fails open
+    # (returns False) when it can't confidently parse the value, so an
+    # unparseable expiry never wrongly locks out a working session.
+    if result["expires_at"] is not None and _expiry_is_past(result["expires_at"]):
+        result["logged_in"] = False
+        result["expired"] = True
 
     return {"success": True, "data": result}
 

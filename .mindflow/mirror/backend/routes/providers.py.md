@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111）
+
+`/codex-status` 在 2026-06-11 事故后已经学乖：文件/凭据存在不等于会话还活着，必须拿
+`expires_at` 跟"现在"比一次，过期就把 `logged_in` 掰回 `False` 并加一个 `expired` 字段。
+`_expiry_is_past` 那个 helper 就定义在两条路由之间，`/claude-status` 却从来没调用它——
+`expires_at` 一路被填（CLI probe 的 `claude auth status` 输出、或旧版 `.credentials.json`
+兜底）却从未拿去比较，于是一个已过期的 token 仍然报 `logged_in=True`，Settings 页面显示
+"已登录"而实际每一轮 Claude 调用都会因未授权失败。
+
+修法照抄 `/codex-status` 的做法：`result` 初始字典加 `"expired": False`；两条填充路径
+（CLI probe + 旧版凭据文件）都跑完之后、`return` 之前，统一跑一次
+`if result["expires_at"] is not None and _expiry_is_past(result["expires_at"]): result["logged_in"] = False; result["expired"] = True`。
+`_expiry_is_past` 本身不需要改——它已经对两条路由生效，只是没被这条路由调用。fail-open
+语义随之继承：解析不了的 `expires_at` 不算过期，避免误伤还在工作的会话。
 
 ## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
 
