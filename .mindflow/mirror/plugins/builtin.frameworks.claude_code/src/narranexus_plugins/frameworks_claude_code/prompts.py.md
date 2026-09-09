@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.frameworks.claude_code/src/narranexus_plugins/frameworks_claude_code/prompts.py
-last_verified: 2026-08-17
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `task_list_tools_notice`（跨 run 工作的去向）
+
+`TASK_LIST_TOOLS_NOTICE_TEMPLATE` + `task_list_tools_notice(tools)`：渲染一段通用规则——
+CLI 自带的任务清单工具（列表由 [[sdk]] 的 `TASK_LIST_TOOLS` 传入，模板与关闭集合不会各写一份）
+在本平台被禁、该清单只活在本 run；**本 run 内后台命令（run_in_background + TaskOutput/TaskStop）
+照常可用**——文案必须明说这一点，否则是在对模型抹掉一个可用能力；必须跨 run 的工作
+（延迟/定时/周期）走平台 Job module 工具（可用时），否则本轮做完。空列表 → 空串。
+只提 Job module 与 create_job 的存在，不写场景（铁律 #4）。
 
 ## 2026-08-17 — 来源声明排在回复规则前面
 

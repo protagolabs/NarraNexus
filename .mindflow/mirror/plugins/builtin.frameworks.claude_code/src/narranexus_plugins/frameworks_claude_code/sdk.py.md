@@ -1,8 +1,24 @@
 ---
 code_file: plugins/builtin.frameworks.claude_code/src/narranexus_plugins/frameworks_claude_code/sdk.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — CLI 任务清单工具族（TaskCreate/Get/List/Update）每 run 关闭（GitHub #74）
+
+`TASK_LIST_TOOLS` 只含 **TaskCreate / TaskGet / TaskList / TaskUpdate**。从 2.1.56 二进制核过：
+这四个是唯一 `isEnabled(){return T4()}` 的工具，`T4()` 读 `CLAUDE_CODE_ENABLE_TASKS`；
+它们的清单只活在 CLI 进程里，平台无读取方，模型"排进去"的工作在 run 结束即孤儿化。
+**故意不在集合里**：`TaskOutput`（别名 AgentOutputTool/BashOutputTool）与 `TaskStop`（别名
+KillShell）——它们读取/停止**本 run 内** `Bash(run_in_background)` 的命令，读者是模型自己，
+禁掉等于砍掉一个在用的能力（首轮 review C1 抓到的错归类）；`Task`（起 sub-agent）也不在。
+两层生效：`cli_env[CLAUDE_CODE_ENABLE_TASKS]="false"` 从源头关（schema 根本不建），且**放在
+`extra_env` 合并之后**，skill 注入的 env 改不回来（fail-closed）；四个名字同时进
+`disallowed_tools` 起始列表，CLI 若忽略 env 也暴露不出来。WebSearch 守卫与 kwargs 合并逻辑不变。
+`base_system_prompt` 末尾拼 `prompts.task_list_tools_notice(...)`：清单工具已禁、本 run 内
+后台命令照常、跨 run 的工作走 Job module；拼在 BASE prompt 上，冷启动与陈旧句柄冷重试共用。
+测试 `tests/agent_framework/test_claude_task_list_tools.py`：名字与 env 门对二进制核对、env 值、
+skill env 覆盖不了、disallow/merge、notice 文案（去掉 env 注入 / 起始列表 / 拼接 → 红）。
 
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 

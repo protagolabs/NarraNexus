@@ -59,6 +59,7 @@ from narranexus_plugins.frameworks_claude_code.transcript import (
 )
 from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
+    task_list_tools_notice,
 )
 from narranexus.platform.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
@@ -460,6 +461,35 @@ def _inline_assistant_error_event(
             "error_message": message + detail,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# CLI task-list tools — switched off on every run
+# ---------------------------------------------------------------------------
+# The bundled CLI (2.1.56 for SDK 0.1.43) ships a task LIST feature —
+# TaskCreate / TaskGet / TaskList / TaskUpdate — whose store lives only in
+# the CLI process. Nothing on the platform reads it, so work a model
+# "schedules" there is orphaned the moment the run ends (GitHub #74). The
+# platform's primitive for work that outlives a run is the Job module; the
+# prompt notice built from this tuple (prompts.task_list_tools_notice) says
+# so. Verified in the binary (2026-09-09): these four are the only tools
+# gated on ``isEnabled(){return T4()}`` where ``T4`` reads
+# CLAUDE_CODE_ENABLE_TASKS. NOT in this set, on purpose:
+#   * TaskOutput (aliases AgentOutputTool / BashOutputTool) and TaskStop
+#     (alias KillShell) — they read / stop a ``Bash(run_in_background)``
+#     command inside the SAME run; the model itself is their reader.
+#   * Task — the sub-agent launch, a platform-visible mechanism.
+# Two layers: CLI_ENABLE_TASKS_ENV=false disables the family at the source
+# (schemas never built), and the names ride disallowed_tools as well so a
+# CLI that ignores the env still cannot expose them. Both propagate into
+# subagents, where PreToolUse hooks do not run.
+TASK_LIST_TOOLS: tuple[str, ...] = (
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskUpdate",
+)
+CLI_ENABLE_TASKS_ENV = "CLAUDE_CODE_ENABLE_TASKS"
 
 
 # ---------------------------------------------------------------------------
@@ -954,6 +984,11 @@ class ClaudeAgentSDK:
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )
+        # Where background work goes on this platform (the CLI's own task
+        # tools are disallowed below). Constant bytes per run, appended to
+        # the BASE prompt so both the cold-start and the stale-handle cold
+        # retry (which re-assembles from the same base) carry it.
+        base_system_prompt += task_list_tools_notice(TASK_LIST_TOOLS)
 
         # Reply-surface reminder — the platform's declared delivery tools for
         # THIS turn's origin (TurnInput.expressive_tools), rendered at the end
@@ -1097,6 +1132,10 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
+        # AFTER the skill env merge so no skill can switch the orphaned
+        # task-list feature back on (fail-closed). See TASK_LIST_TOOLS.
+        cli_env[CLI_ENABLE_TASKS_ENV] = "false"
+
         # Observability (#1): log the provider the subprocess will ACTUALLY use
         # — the EFFECTIVE env after every override, not just the configured
         # intent (logged above). A personal ~/.claude/settings.json env block
@@ -1129,12 +1168,14 @@ class ClaudeAgentSDK:
             supports_server_tools=supports_server_tools,
         )
 
+        # The CLI's task-list family is never wired to the platform (see
+        # TASK_LIST_TOOLS) — disallowed on every run, every provider.
+        disallowed_tools: list[str] = list(TASK_LIST_TOOLS)
         # Defense-in-depth: when the provider doesn't speak the server-tool
         # protocol, also disallow WebSearch at the CLI level. Hooks cover
         # the main session but do NOT propagate into Task-spawned subagent
         # subprocesses; the CLI flag does. Without this, a subagent could
         # still call WebSearch and hang the whole run.
-        disallowed_tools: list[str] = []
         if not supports_server_tools:
             disallowed_tools.append("WebSearch")
 
