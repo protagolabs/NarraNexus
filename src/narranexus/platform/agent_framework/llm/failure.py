@@ -177,6 +177,13 @@ OUT_OF_CREDIT_REASONS: frozenset[str] = frozenset({
 _SELF_SERVICEABLE_TYPES: dict[str, str] = {
     "ContextWindowExceededError": SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     "billing_error": SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,  # SDK enum
+    # B-12 (446x/day 429 storm on prod, 2026-09-08): an OpenAI-compatible
+    # aggregator surfaces the exhausted-credit condition as the error CODE —
+    # folded into `error_type` by the caller — with an otherwise generic
+    # "429 Too Many Requests" message that would classify as a retryable
+    # rate limit if only the message were read. Exact type match, same as
+    # `billing_error` above.
+    "credit_balance_exhausted": SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
 }
 
 # Message-substring markers (lower-cased) per reason. Order of the reason list
@@ -211,6 +218,7 @@ _INSUFFICIENT_BALANCE_MARKERS: tuple[Marker, ...] = (
     "exceeded your current quota",
     "payment required",
     "402 payment",  # narrowed from bare "402" (token counts etc. contain 402)
+    "credit_balance_exhausted",  # aggregator code folded into the message body
 )
 # OUR OWN LiteLLM gateway refusing a per-user budget — i.e. the free-tier wallet
 # is spent. Split out of the generic balance markers above (2026-07-30) because

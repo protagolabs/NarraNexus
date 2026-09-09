@@ -50,6 +50,13 @@ from narranexus.platform.agent_framework.llm.failure import (
         ("unknown", "Error code: 402 - Insufficient Balance", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         ("unknown", "balance not enough", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         ("unknown", "Your credit balance is too low to access the Claude API", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
+        # B-12: a provider that reports the error CODE as the type field
+        # rather than folding it into the message (e.g. an OpenAI-compatible
+        # aggregator returning `{"error": {"code": "credit_balance_exhausted"}}`)
+        # must classify identically — the 446x/day 429 storm on prod was this
+        # code arriving as `error_type` with an otherwise generic message.
+        ("credit_balance_exhausted", "429 Too Many Requests", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
+        ("unknown", "Error: credit_balance_exhausted", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         # bad / missing model id
         ("unknown", "The model `gpt-nope` does not exist", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
         ("unknown", "model_not_found", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
