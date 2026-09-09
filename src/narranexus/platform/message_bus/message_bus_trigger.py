@@ -1125,12 +1125,17 @@ class MessageBusTrigger:
                 # back), then hand the turn ONE reassembled message. Before
                 # this, the wake on part 1 started the turn on a fragment and
                 # the later parts read as replies to that answer (multipart.py).
-                relevant, hold = assemble_parts(relevant)
-                if hold:
+                # `relevant` comes back sorted by created_at with the held
+                # tail removed, so `relevant[-1]` below is both the trigger
+                # message and the ack high-water — and never past a held row.
+                relevant, held = assemble_parts(relevant)
+                if held:
                     logger.debug(
-                        f"MessageBusTrigger: holding {channel_id} for {agent_id} "
-                        f"— a multipart message is still arriving"
+                        f"MessageBusTrigger: {channel_id} for {agent_id} — a "
+                        f"multipart message is still arriving; "
+                        f"{len(relevant)} earlier message(s) go ahead"
                     )
+                if not relevant:
                     return False
 
                 # Rate limiting

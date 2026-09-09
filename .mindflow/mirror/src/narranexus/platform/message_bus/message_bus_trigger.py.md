@@ -4,6 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I3/I6）— hold 只扣未完成的组及其后续，ack 高水位=已投递最新行
+
+`_process_lane` 里 `assemble_parts` 改回 `(deliverable, held)`：`deliverable` 已按时间排序并去掉
+被扣的尾部，`relevant[-1]` 同时是触发消息与 ack 高水位，永远不会越过被扣的行；组之前的无关
+消息立刻投递，不再整批陪跑 600s。空 deliverable 才 `return False`。不变式与理由见 [[multipart]]。
+
 ## 2026-09-09（review I1）— 两张新账本挂进每日 retention tick
 
 `_maybe_run_steer_cleanup` 同一 tick 顺带清 `bus_delivery_receipts`（`RECEIPT_RETENTION_DAYS=30`）

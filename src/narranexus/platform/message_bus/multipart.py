@@ -103,11 +103,18 @@ def assemble(
 ) -> Tuple[List[BusMessage], bool]:
     """Collapse part rows in a lane batch into whole messages.
 
-    Returns ``(messages, hold)``. ``hold`` is True when some group is still
-    incomplete and young: the caller must leave the batch pending (no ack)
-    and return; the returned list is then not to be delivered. Otherwise the
-    list is the batch with every group replaced by one merged message, in
-    the position of the group's first part, ordering otherwise untouched.
+    Returns ``(deliverable, held)``. ``deliverable`` is what the caller may
+    hand to a turn NOW, sorted by ``created_at`` (a merged message sits at its
+    LAST part's time, so the newest deliverable row is always the ack
+    high-water). ``held`` is True when some rows were withheld because a
+    group is still incomplete and young.
+
+    The one invariant (review I3/I6): the lane's ack cursor advances to the
+    newest DELIVERED row, and no held row may lie below it. So everything at
+    or after the oldest held row is withheld too — an unrelated message that
+    arrived after part 1 waits with the group rather than being delivered now
+    and delivered again when the group completes. Everything before the
+    oldest held row is delivered as usual.
     """
     now = now or datetime.now(timezone.utc)
     groups: Dict[str, List[BusMessage]] = {}
@@ -122,6 +129,7 @@ def assemble(
             latest_group_of[m.from_agent] = m.part_group
 
     merged: Dict[str, BusMessage] = {}
+    held_groups: set = set()
     for group_id, parts in groups.items():
         parts.sort(key=lambda p: int(p.part_index or 0))
         count = int(parts[0].part_count or 0)
@@ -131,18 +139,35 @@ def assemble(
             superseded = latest_group_of.get(parts[0].from_agent) != group_id
             newest = min(_age_seconds(p.created_at, now) for p in parts)
             if not superseded and newest < grace_seconds:
-                return [], True
+                held_groups.add(group_id)
+                continue
         merged[group_id] = _merge(parts, missing=missing, grace=grace_seconds)
+
+    held_from: Optional[str] = None
+    if held_groups:
+        held_from = min(
+            _ts(m.created_at) for m in messages if m.part_group in held_groups
+        )
 
     out: List[BusMessage] = []
     emitted: set = set()
     for m in messages:
+        if held_from is not None and _ts(m.created_at) >= held_from:
+            continue
         if not m.part_group:
             out.append(m)
-        elif m.part_group not in emitted:
+        elif m.part_group in merged and m.part_group not in emitted:
             emitted.add(m.part_group)
-            out.append(merged[m.part_group])
-    return out, False
+            whole = merged[m.part_group]
+            if held_from is None or _ts(whole.created_at) < held_from:
+                out.append(whole)
+    out.sort(key=lambda m: _ts(m.created_at))
+    return out, held_from is not None
+
+
+def _ts(value) -> str:
+    """Cursor-comparable timestamp text (the bus's own convention)."""
+    return value.isoformat() if hasattr(value, "isoformat") else str(value or "")
 
 
 __all__ = [

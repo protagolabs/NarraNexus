@@ -23,9 +23,14 @@ ended without delivering a reply" 反复）就是这个形状。
 放不进组的碎片不允许存在。上限 `MAX_MESSAGE_PARTS=40`，低于车道 pending LIMIT(50)，
 保证整组总在一批里。
 
-收件侧 `assemble(batch)` 三种结果：
-- **不完整且年轻**（距最新一块 < `PART_ASSEMBLY_GRACE_SECONDS`=600s）→ `hold=True`，
-  车道不 ack 直接返回；最后一块自己的 `wake_signal.bump` 会把轮询拉回来。600s 刻意宽：
+收件侧 `assemble(batch)` 返回 `(deliverable, held)`，**唯一不变式**（review I3/I6）：车道的 ack
+游标只推进到「实际投递的最新一行」，任何被 hold 的行都不能在游标之下。所以 `deliverable`
+按 `created_at` 排序（合成消息坐在末块的时间上，`relevant[-1]` 既是触发消息也是 ack 高水位），
+且**最早被 hold 的行之后的一切都跟着等**——组之后到的无关消息若现在投递，游标就越过了
+part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三种组结局：
+- **不完整且年轻**（距最新一块 < `PART_ASSEMBLY_GRACE_SECONDS`=600s）→ 该组及其后的行被扣住
+  （`held=True`），之前的行照常投递并 ack 到它们的最新一行；最后一块自己的 `wake_signal.bump`
+  会把轮询拉回来。600s 刻意宽：
   发件方是 turn 中的模型，思考型模型两次工具调用之间可以几分钟；这个数只约束「发件方
   在两块之间死掉」能让收件方等多久。
 - **完整** → 合成一条：content 用空串拼（它们是子串不是段落）、attachments 取并集、

@@ -233,7 +233,7 @@ def test_assemble_leaves_ordinary_batches_alone():
     assert hold is False and out == msgs
 
 
-def test_assemble_merges_in_place_and_keeps_the_last_created_at():
+def test_assemble_merges_the_group_and_keeps_the_last_created_at():
     now = datetime.now(timezone.utc)
     t = lambda s: (now - timedelta(seconds=s)).isoformat()  # noqa: E731
     msgs = [
@@ -246,8 +246,8 @@ def test_assemble_merges_in_place_and_keeps_the_last_created_at():
     ]
     out, hold = multipart.assemble(msgs, now=now)
     assert hold is False
-    assert [m.message_id for m in out] == ["p1", "o"]
-    whole = out[0]
+    assert [m.message_id for m in out] == ["o", "p1"]   # time order (review I3)
+    whole = out[1]
     assert whole.content == "ABCD"
     assert whole.created_at == t(10)
     assert whole.part_message_ids == ["p1", "p2"]
@@ -322,4 +322,69 @@ async def test_a_merged_message_that_poisons_leaves_no_part_behind(db_client, mo
         counts = [await bus.get_failure_count(mid, B) for mid in ids]
         assert counts == [attempt] * 3, counts
 
+    assert await bus.get_pending_messages(B, channel_id=channel_id) == []
+
+
+# ── review I3/I6: the ack high-water never passes a held row ────────────────
+
+
+def _msg(mid, sender, content, at, **part):
+    return BusMessage(message_id=mid, channel_id="c", from_agent=sender, content=content,
+                      created_at=at, **part)
+
+
+def test_assemble_sorts_by_time_so_the_merged_message_is_last_when_it_is_newest():
+    now = datetime.now(timezone.utc)
+    t = lambda s: (now - timedelta(seconds=s)).isoformat()  # noqa: E731
+    batch = [
+        _msg("p1", "a", "AB", t(30), part_index=1, part_count=2, part_group="p1"),
+        _msg("o", "z", "other", t(20)),
+        _msg("p2", "a", "CD", t(10), part_index=2, part_count=2, part_group="p1"),
+    ]
+    out, held = multipart.assemble(batch, now=now)
+    assert held is False
+    assert [m.message_id for m in out] == ["o", "p1"]   # time order: other, then the merged
+    assert out[-1].created_at == t(10)                   # the ack high-water covers part 2
+
+
+def test_assemble_delivers_only_what_precedes_a_held_group():
+    now = datetime.now(timezone.utc)
+    t = lambda s: (now - timedelta(seconds=s)).isoformat()  # noqa: E731
+    batch = [
+        _msg("before", "z", "earlier", t(40)),
+        _msg("p1", "a", "AB", t(30), part_index=1, part_count=2, part_group="p1"),
+        _msg("after", "y", "later", t(20)),
+    ]
+    out, held = multipart.assemble(batch, now=now)
+    assert held is True
+    # `after` is newer than the held part: delivering it now would put the
+    # cursor past part 1 and lose the group, so it waits with the group.
+    assert [m.message_id for m in out] == ["before"]
+
+
+@pytest.mark.asyncio
+async def test_a_lane_with_a_held_group_still_delivers_earlier_messages(db_client, monkeypatch):
+    """Review I6: an unrelated message that arrived BEFORE the incomplete
+    group runs now instead of waiting up to the whole grace with it — and
+    the ack stops short of the group."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    calls = _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e", delivered=True))
+
+    early = await tools["message_agent"](agent_id=A, to=B, text="quick question first")
+    channel_id = (await db_client.get_one("bus_messages", {"message_id": early["message_id"]}))["channel_id"]
+    await _send_parts(tools, PARTS, upto=1)
+
+    assert await trigger._process_lane(B, channel_id) is True
+    assert len(calls) == 1 and "quick question first" in calls[0]["prompt"]
+    assert "[00000]" not in calls[0]["prompt"]
+    pending = await bus.get_pending_messages(B, channel_id=channel_id)
+    assert [m.part_index for m in pending] == [1]        # the part is still queued
+
+    await _send_parts(tools, PARTS)                       # fresh 1/3..3/3 supersedes it
+    assert await trigger._process_lane(B, channel_id) is True
+    assert LONG in calls[1]["prompt"]
     assert await bus.get_pending_messages(B, channel_id=channel_id) == []
