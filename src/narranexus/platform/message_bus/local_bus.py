@@ -28,6 +28,8 @@ from narranexus.platform.channel.message_source_handler import (
 from narranexus.platform.message_bus.message_bus_service import MessageBusService
 from narranexus.platform.message_bus.multipart import (
     MAX_BUS_MESSAGE_BYTES,
+    MAX_MULTIPART_TOTAL_BYTES,
+    group_budget_reason,
     oversize_reason,
 )
 from narranexus.platform.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
@@ -243,7 +245,7 @@ class LocalMessageBus(MessageBusService):
             raise ValueError(oversize_reason(size))
         msg_id = _generate_id("msg")
         part_group = await self._resolve_part_group(
-            from_agent, to_channel, msg_id, part_index, part_count
+            from_agent, to_channel, msg_id, part_index, part_count, size
         )
         # A message carrying files is tagged "multimodal" so UI / search can
         # distinguish it; pure text stays "text".
@@ -610,7 +612,7 @@ class LocalMessageBus(MessageBusService):
 
     async def _resolve_part_group(
         self, from_agent: str, channel_id: str, msg_id: str,
-        part_index: int, part_count: int,
+        part_index: int, part_count: int, size: int,
     ) -> Optional[str]:
         """The group id a part belongs to, or None for an ordinary message.
 
@@ -618,7 +620,11 @@ class LocalMessageBus(MessageBusService):
         be stored unplaceable: 1 <= index <= count, and a
         part > 1 must find the sender's most recent part in this channel to be
         exactly index-1 of the same count (the group is then that part's).
-        Raises ValueError with an agent-readable reason otherwise.
+        Also the ONE bound on a group: the parts already stored plus this one
+        (``size`` bytes) may not exceed ``MAX_MULTIPART_TOTAL_BYTES`` (review
+        I7) — measured in bytes in Python, not with SQL LENGTH(), which counts
+        characters on SQLite and bytes on MySQL. Raises ValueError with an
+        agent-readable reason otherwise.
         """
         if not part_index and not part_count:
             return None
@@ -628,6 +634,8 @@ class LocalMessageBus(MessageBusService):
                 f"1..count, count >= 1"
             )
         if part_index == 1:
+            if size > MAX_MULTIPART_TOTAL_BYTES:
+                raise ValueError(group_budget_reason(0, size))
             return msg_id
         ph = self._db.placeholder
         rows = await self._db.execute(
@@ -651,6 +659,14 @@ class LocalMessageBus(MessageBusService):
                 f"part (last stored: {have}); send parts in order, starting at "
                 f"1/{part_count}"
             )
+        stored = await self._db.execute(
+            f"SELECT content FROM bus_messages WHERE channel_id = {ph} "
+            f"AND part_group = {ph}",
+            (channel_id, prev["part_group"]),
+        )
+        stored_bytes = sum(len((r.get("content") or "").encode("utf-8")) for r in stored)
+        if stored_bytes + size > MAX_MULTIPART_TOTAL_BYTES:
+            raise ValueError(group_budget_reason(stored_bytes, size))
         return prev["part_group"]
 
     async def send_to_agent(

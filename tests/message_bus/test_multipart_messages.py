@@ -445,3 +445,26 @@ async def test_oversize_is_refused_at_the_write_edge_for_every_sender(db_client)
     with pytest.raises(ValueError):
         await bus.send_message("agent_x", "room", "\u4e2d" * (MAX_BUS_MESSAGE_BYTES // 3 + 1))
     assert await bus.send_message("agent_x", "room", "\u4e2d" * (MAX_BUS_MESSAGE_BYTES // 3)) is not None
+
+
+@pytest.mark.asyncio
+async def test_a_group_over_the_total_budget_is_refused_not_trimmed(db_client, monkeypatch):
+    """Review I7: parts are each under the row cap, but the whole message
+    would be 3 x 60 KB; the part that crosses MAX_MULTIPART_TOTAL_BYTES is
+    refused and the group keeps what it had — nothing is cut."""
+    from narranexus.platform.message_bus.multipart import MAX_MULTIPART_TOTAL_BYTES
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, _ = _tools(db_client)
+    per_part = MAX_BUS_MESSAGE_BYTES
+    count = MAX_MULTIPART_TOTAL_BYTES // per_part + 1          # 4 parts of 60 KB > 200 KB
+    for i in range(1, count):
+        out = await tools["message_agent"](agent_id=A, to=B, text="x" * per_part, part_index=i, part_count=count)
+        assert out["success"] is True, out
+    out = await tools["message_agent"](agent_id=A, to=B, text="x" * per_part, part_index=count, part_count=count)
+    assert out["success"] is False
+    assert "two separate messages" in out["error"]
+    rows = await db_client.get("bus_messages", {"from_agent": A})
+    assert len(rows) == count - 1 and all(len(r["content"]) == per_part for r in rows)

@@ -984,6 +984,10 @@ _register(
         ],
         indexes=[
             Index("idx_bus_msg_channel_time", ["channel_id", "created_at"]),
+            # `_resolve_part_group`: the sender's newest part in this channel
+            # (ORDER BY created_at DESC LIMIT 1) and the group's rows; without
+            # it a long-lived DM scans its whole history on every part >= 2.
+            Index("idx_bus_msg_sender_time", ["channel_id", "from_agent", "created_at"]),
         ],
     )
 )

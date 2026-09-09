@@ -65,3 +65,13 @@ async def test_parts_group_in_order_and_reassemble(backend):
     ]
     whole, hold = multipart.assemble(pending)
     assert hold is False and [m.content for m in whole] == ["hello world"]
+
+    # The group budget's stored-bytes lookup (second raw statement) on MySQL:
+    # a part that would overflow the total is refused.
+    big = "y" * (multipart.MAX_BUS_MESSAGE_BYTES - 10)
+    await bus.send_message(A, CH, big, part_index=1, part_count=5)
+    await bus.send_message(A, CH, big, part_index=2, part_count=5)
+    await bus.send_message(A, CH, big, part_index=3, part_count=5)
+    with pytest.raises(ValueError) as exc:
+        await bus.send_message(A, CH, big, part_index=4, part_count=5)
+    assert "two separate messages" in str(exc.value)

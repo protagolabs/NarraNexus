@@ -4,6 +4,13 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review I7/M6）— 组字节预算在 `_resolve_part_group` 执行；补索引
+
+块 ≥2 时再查一条 `SELECT content ... WHERE channel_id=? AND part_group=?`（MySQL 孪生已钉）
+累加字节，超 `MAX_MULTIPART_TOTAL_BYTES` 拒绝；1/n 自身超预算也拒。原 `MAX_MESSAGE_PARTS`
+计数上限删除。`bus_messages` 新增 `idx_bus_msg_sender_time (channel_id, from_agent, created_at)`
+服务「发件方最近一块」查询，长寿命 DM 不再全表扫。
+
 ## 2026-09-09（review I4/M4）— 单行超长在 `send_message` 写入边拒绝
 
 `MAX_BUS_MESSAGE_BYTES`（定义在 [[multipart]]，60_000，低于 MySQL TEXT 65,535）现在在

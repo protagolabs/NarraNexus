@@ -4,6 +4,11 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09（review M6）— `bus_messages` 加索引 `idx_bus_msg_sender_time`
+
+`(channel_id, from_agent, created_at)`，服务 [[local_bus]] `_resolve_part_group` 的「发件方最近
+一块」与组内行查询。additive。
+
 ## 2026-09-09 — `bus_messages` 加三列 `part_index / part_count / part_group`（additive，可空）
 
 长消息分片（[[multipart]]）。不改 `content` 的 TEXT 类型：`auto_migrate` 不做列加宽，

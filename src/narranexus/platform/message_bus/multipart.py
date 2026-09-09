@@ -64,6 +64,16 @@ from narranexus.platform.utils.timezone import coerce_utc
 #: silently keep a prefix, and both lose the tail.
 MAX_BUS_MESSAGE_BYTES = 60_000
 
+#: The whole reassembled message's ceiling, in UTF-8 bytes — the ONE bound on
+#: a multipart group (there is no parts-count cap). Enforced at the write
+#: edge (`LocalMessageBus._resolve_part_group`): a part that would push its
+#: group past this is refused with "split into two separate messages", never
+#: trimmed. Sized so the recipient's turn gets a long deliverable, not a
+#: context-window overflow dressed up as a message: 200 KB is ~65k CJK or
+#: ~200k ASCII characters, well inside any current context after the prompt's
+#: own overhead.
+MAX_MULTIPART_TOTAL_BYTES = 200_000
+
 #: How long an incomplete group is held for its remaining parts, measured from
 #: the NEWEST part that arrived. Generous on purpose: the sender is a model
 #: mid-turn and a thinking model can take minutes between tool calls; the
@@ -75,6 +85,16 @@ _MISSING_MARKER = (
     "\n\n[platform: this message was sent in {count} parts; part(s) {missing} "
     "never arrived within {grace}s and the rest is delivered as-is]"
 )
+
+
+def group_budget_reason(stored: int, this_part: int) -> str:
+    """The agent-readable refusal for a part that would overflow the group."""
+    return (
+        f"this multipart message would reach {stored + this_part} bytes; one "
+        f"message holds at most {MAX_MULTIPART_TOTAL_BYTES} in total. This part "
+        f"was NOT stored. Finish the message within the budget, or split the "
+        f"content into two separate messages."
+    )
 
 
 def oversize_reason(size: int) -> str:
@@ -197,6 +217,8 @@ def _ts(value) -> str:
 
 __all__ = [
     "MAX_BUS_MESSAGE_BYTES",
+    "MAX_MULTIPART_TOTAL_BYTES",
+    "group_budget_reason",
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
     "oversize_reason",

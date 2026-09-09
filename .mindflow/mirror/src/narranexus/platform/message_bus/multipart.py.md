@@ -43,6 +43,14 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
   最新一块，旧组永远续不上）→ 按到达的内容投递 + 明确标记缺哪几块。宁可标记也不静默
   丢（铁律 #16），不永远等（铁律 #14：平台不做打断源）。
 
+## 整组预算（review I7）
+
+`MAX_MULTIPART_TOTAL_BYTES = 200_000` 是多段消息的**唯一**主约束（块数不设上限）：写入边
+[[local_bus]] `_resolve_part_group` 把组内已存块的字节数（Python 里按 UTF-8 算，不用 SQL
+`LENGTH()`——SQLite 数字符、MySQL 数字节）加上本块，超了就以 `group_budget_reason` 拒绝本块，
+已存的块原样保留，绝不裁剪。单行 60 KB 是列的物理上限，与之是两个不同的拒绝理由（「这一块
+放不进一行」vs「整条消息太长，拆成两条」）。
+
 ## 常量归属（review I4）
 
 `MAX_BUS_MESSAGE_BYTES` 与 `oversize_reason()` 住在本文件（单一家），由 [[local_bus]]
