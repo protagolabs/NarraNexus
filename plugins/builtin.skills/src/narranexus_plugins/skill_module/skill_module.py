@@ -1327,7 +1327,19 @@ class SkillModule(XYZBaseModule):
         max_uncompressed_bytes = _file_safety.MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES
         max_uncompressed_mb = max_uncompressed_bytes // (1024 * 1024)
 
-        with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+        try:
+            zip_ref_cm = zipfile.ZipFile(zip_file_path, "r")
+        except zipfile.BadZipFile as e:
+            # Not a valid zip at all (corrupted upload, wrong file type).
+            # Every other rejection in this method raises ValueError, which
+            # the install route maps to a 400 (`except ValueError: raise
+            # _reject(...)`). BadZipFile is a plain Exception, not a
+            # ValueError, so left unconverted it fell through to the route's
+            # generic `except Exception` branch and surfaced as an opaque
+            # 500 instead of a 400 telling the user their upload isn't a zip.
+            raise ValueError(f"Invalid skill package: not a valid zip file ({e}).") from e
+
+        with zip_ref_cm as zip_ref:
             members = zip_ref.infolist()
             if len(members) > max_entries:
                 raise ValueError(
