@@ -1199,24 +1199,37 @@ class ContextRuntime:
         turn_extra = ctx_data.extra_data or {}
         errand_peer = str(turn_extra.get("bus_errand_peer") or "")
         errand_channel = str(turn_extra.get("bus_errand_channel") or "")
-        # Which trigger TREE this turn belongs to. A message the agent sends
-        # this turn becomes the trigger for someone else's run, and the tree
-        # would otherwise be lost at that hop — so the bus send tools stamp it
-        # onto the message. Empty when unknown; the cascade reads that as "not
-        # part of the tree being stopped".
-        root_run_id = str(turn_extra.get("root_run_id") or "")
-        # The turn's team, when it has one. Server-side on purpose: tools take
-        # agent_id as a model-filled parameter, so "am I in a team" can never
-        # be answered from tool arguments without letting a private turn claim
-        # a team it is not in.
-        team_id = str(turn_extra.get("bus_team_id") or "")
         # This turn's events-row id. Created in Step 0, so it is already known
         # by the time Step 3 builds this spec — which is what lets attribution
         # record WHICH turn changed an artifact instead of guessing.
         # getattr, not self.event_id: several tests build this object with
         # ``ContextRuntime.__new__`` and set only the attributes they exercise,
         # so a bare read would make an optional field break unrelated suites.
+        # Computed BEFORE root_run_id: a root turn's own id IS its root_run_id
+        # (see the fallback below).
         event_id = str(getattr(self, "event_id", None) or "")
+        # Which trigger TREE this turn belongs to. A message the agent sends
+        # this turn becomes the trigger for someone else's run, and the tree
+        # would otherwise be lost at that hop — so the bus send tools stamp it
+        # onto the message.
+        #
+        # Falls back to this turn's OWN event_id when turn_extra carries none:
+        # that is exactly the case where nothing upstream handed us a tree to
+        # join, i.e. THIS turn is the root of a new one — the same rule
+        # RunRecorder already applies when it writes `events.root_run_id`
+        # (`inherited_root_run_id or run_id`). Skipping the fallback here left
+        # the header "" for a root turn while the events row correctly held
+        # the turn's own id, so anything this turn stamped via the header
+        # (e.g. a work-board item via `record_handoffs`) recorded root_run_id
+        # "" and could never be found again by `pause_by_root(root)` once the
+        # owner stopped the run — the item stayed in_progress forever even
+        # though the run itself did stop (GitHub #124).
+        root_run_id = str(turn_extra.get("root_run_id") or "") or event_id
+        # The turn's team, when it has one. Server-side on purpose: tools take
+        # agent_id as a model-filled parameter, so "am I in a team" can never
+        # be answered from tool arguments without letting a private turn claim
+        # a team it is not in.
+        team_id = str(turn_extra.get("bus_team_id") or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
