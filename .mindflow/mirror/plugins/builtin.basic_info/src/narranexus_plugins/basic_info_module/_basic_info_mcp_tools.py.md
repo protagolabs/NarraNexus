@@ -28,6 +28,20 @@ stub: false
 把这个 agent+错误码唯一的一次上报名额白白吃掉，事故永远报不出去；撤销后失败路径与去重
 前的老行为一致。
 
+**返回值承载「能对用户说什么」**（Owner 定调 2026-09-09）：`_feedback_result` 按
+`category` + 真实投递结果构造消息，取代原来那句恒定的「Feedback recorded」。
+- `delivered=False`（POST 挂了 / 本部署 `NARRANEXUS_FEEDBACK_DISABLED=1`）→
+  `notified=False` + 明确禁止告诉用户「已通知团队」。这是本次真正的修复点：
+  [[prompts.py]] 原文案让 agent 无条件宣称团队已被通知，而 [[feedback_client.py]]
+  是 fire-and-forget、异常只进 DEBUG 日志，agent 根本无从知道有没有发出去。
+- `delivered=True` 且 `category="error"` → `notified=True`，允许转述「团队已被通知」，
+  但仍禁止断言原因。只有这一类会覆盖「默认不向用户提 telemetry」：用户正卡在平台侧
+  故障上，「有人已经知道了」是我们唯一能给的真话。
+- 其余 category → `notified=True` 但消息不提通知，维持默认不宣告。
+- 去重命中 → `duplicate=True` + `notified=True`：占位只在**投递成功**后才留存
+  （失败会 `_dedup_release`），所以命中即证明团队确实收到过。
+恒为 `ok=True` 不变（工具契约：不重试、不道歉）。
+
 边界：`dedup_key` 是调用方（模型）可控文本，故 key 截断到
 `FEEDBACK_DEDUP_KEY_MAXLEN`、字典按 `FEEDBACK_DEDUP_MAX_ENTRIES` 上限 +
 `FEEDBACK_DEDUP_TTL_SECONDS` 过期从头清扫（条目只插入不刷新，所以插入序即时间序）。

@@ -150,20 +150,23 @@ def test_no_diagnosis_rule_is_scoped_to_platform_injected_credentials(text):
 
 
 @pytest.mark.parametrize("text", _templates(), ids=["legacy", "stable"])
-def test_announcing_the_notification_is_an_explicit_trigger_three_exception(text):
-    # The Rules paragraph says "don't announce that you filed feedback"; the
-    # trigger-3 paragraph says to tell the user the team was notified. Those
-    # collide unless the exception is written down as one, so pin the wording
-    # that scopes it — and pin that the general rule survives for 1 and 2.
+def test_the_prompt_never_asserts_that_the_team_was_notified(text):
+    # "The team has been notified" is the OUTCOME of the submit_feedback call,
+    # not a standing rule: the send is fire-and-forget with every exception
+    # swallowed, and a whole deployment can have feedback switched off. A
+    # prompt that asserts it makes the agent tell the user something the
+    # platform may not have done. The claim therefore lives in the tool result.
     duty = _duty_section(text)
+    para = duty[duty.index("Be conservative"):]
+    assert "OUTCOME of your submit_feedback call" in para
+    assert "relay only what it says" in para
+    assert "Never tell the user the team has been notified on your own authority" in para
+
+    # The general default survives, with exactly one escape hatch — the tool's
+    # own result — instead of a second imperative buried in another paragraph.
     rules = duty[duty.index("Rules:"):duty.index("Be conservative")]
     assert "don't announce that you filed feedback unless the user asked" in rules
-
-    para = duty[duty.index("Be conservative"):]
-    assert "For trigger-3 errors ONLY" in para
-    assert "unlike the general rule above" in para
-    assert "team has been notified" in para
-    assert "for triggers 1 and 2 the general rule still holds" in para
+    assert "unless submit_feedback's own result tells you to pass something on" in rules
 
 
 @pytest.mark.parametrize("text", _templates(), ids=["legacy", "stable"])
@@ -197,6 +200,12 @@ def test_tool_description_states_the_b_vs_c_precedence():
     assert "satisfies both (b) and (c)" in _tool_description()
 
 
+def test_tool_description_points_the_agent_at_the_result_for_the_notification():
+    desc = _tool_description()
+    assert "`notified`" in desc
+    assert "Never tell the user the team has been notified unless this call said so" in desc
+
+
 def test_dedup_key_is_optional_so_triggers_a_and_b_keep_working():
     import inspect
 
@@ -219,7 +228,7 @@ async def _call(mt, monkeypatch, fn, *, delivered=True, **kw):
     result = await fn(
         agent_id=kw.pop("agent_id", "agent_a"),
         user_id="user_1",
-        category="error",
+        category=kw.pop("category", "error"),
         summary="narra_cli rejected a platform token",
         **kw,
     )
@@ -237,8 +246,11 @@ async def test_a_delivered_report_suppresses_later_repeats_of_the_same_code(
     second, sent2 = await _call(clean_dedup, monkeypatch, fn, dedup_key="narra_cli:agent-token-invalid")
     # Still ok=True — a failure return would make the agent retry or apologise.
     assert second["ok"] is True
-    assert "Already filed" in second["message"]
     assert sent2 == []
+    # A reservation only survives a delivered send, so a duplicate hit is proof
+    # the team really has this one — the agent may still say so.
+    assert second["notified"] is True
+    assert "Already reported" in second["message"]
 
 
 @pytest.mark.asyncio
@@ -316,3 +328,47 @@ def test_the_cache_is_bounded_in_entries_and_key_length(clean_dedup):
     # dedup_key is caller-controlled text; it must not be stored unbounded.
     slot = mt._dedup_slot("agent_a", "x" * 10_000)
     assert len(slot[1]) == mt.FEEDBACK_DEDUP_KEY_MAXLEN
+
+
+# ── What the agent may tell the user ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_a_delivered_error_report_lets_the_agent_say_the_team_was_notified(
+    clean_dedup, monkeypatch
+):
+    result, _ = await _call(clean_dedup, monkeypatch, _feedback_tool()[1])
+    assert result["notified"] is True
+    assert "the NarraNexus team has been notified" in result["message"]
+    assert "You may tell the user" in result["message"]
+    # Still no cause-asserting, even once the team is on it.
+    assert "do not claim a cause" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_an_undelivered_report_forbids_claiming_the_team_was_notified(
+    clean_dedup, monkeypatch
+):
+    # send_feedback swallows every exception and returns False — it also
+    # returns False when the deployment has feedback switched off. Either way
+    # nobody was told, and the agent must not say otherwise to the user.
+    result, _ = await _call(clean_dedup, monkeypatch, _feedback_tool()[1], delivered=False)
+    assert result["ok"] is True          # never an error: no retry, no apology
+    assert result["notified"] is False
+    assert "do NOT tell the user they were notified" in result["message"]
+    assert "has been notified" not in result["message"].replace(
+        "do NOT tell the user they were notified", ""
+    )
+
+
+@pytest.mark.asyncio
+async def test_other_categories_keep_the_dont_mention_it_default(
+    clean_dedup, monkeypatch
+):
+    # Trigger 1/2 reports are not something the user is waiting on; the
+    # standing "don't announce telemetry" default applies to them.
+    fn = _feedback_tool()[1]
+    for category in ("user_dissatisfaction", "repeated_failure", "feature_gap", "other"):
+        result, _ = await _call(clean_dedup, monkeypatch, fn, category=category)
+        assert result["notified"] is True
+        assert "notified" not in result["message"]
+        assert "tell the user" not in result["message"].lower()

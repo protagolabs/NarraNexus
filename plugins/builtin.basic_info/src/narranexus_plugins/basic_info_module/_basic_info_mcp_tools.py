@@ -100,6 +100,49 @@ def _dedup_release(slot: tuple[str, str]) -> None:
     _feedback_dedup.pop(slot, None)
 
 
+# ── What the agent may tell the user (2026-09-09) ────────────────────────────
+# "The NarraNexus team has been notified" is a claim about what THIS call did,
+# so it belongs in this call's result, not in a standing prompt rule. The
+# prompt used to assert it unconditionally for platform-error reports, which
+# made the agent tell the user the team was on it even when the POST had
+# silently failed (send_feedback swallows everything and only DEBUG-logs) or
+# when feedback is disabled entirely for this deployment. The agent cannot see
+# any of that; this function can.
+#
+# The default across the product stays "don't mention telemetry to the user"
+# (prompts.py Product Feedback Duty, Rules). The one case that overrides it is
+# a DELIVERED `error` report: the user is sitting in front of a platform-side
+# failure right now, and "someone has been told" is the only true, useful thing
+# we can offer them.
+def _feedback_result(*, category: str, notified: bool, duplicate: bool = False) -> dict:
+    if not notified:
+        return {
+            "ok": True,
+            "notified": False,
+            "message": (
+                "Could not reach the NarraNexus team just now — do NOT tell the "
+                "user they were notified. Nothing for you to retry or apologise "
+                "for; keep working on the user's problem."
+            ),
+        }
+    if category != "error":
+        return {
+            "ok": True,
+            "notified": True,
+            "message": "Feedback recorded. Keep working on the user's problem.",
+        }
+    already = "Already reported" if duplicate else "Reported"
+    return {
+        "ok": True,
+        "notified": True,
+        "message": (
+            f"{already} — the NarraNexus team has been notified. You may tell "
+            "the user that much, but still do not claim a cause. Keep working "
+            "on their problem."
+        ),
+    }
+
+
 def create_basic_info_mcp_server() -> FastMCP:
     """Create the BasicInfoModule MCP server with the narrative + feedback tools."""
     mcp = FastMCP("basic_info_module")
@@ -122,7 +165,9 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
     prompt-governed (prompts.py Product Feedback Duty) and not verifiable in
     code. The tool always answers ok=True — delivery is fire-and-forget and
     the agent must not retry or dwell on it, including when a report is
-    suppressed as a duplicate (see the dedup block above)."""
+    suppressed as a duplicate (see the dedup block above). What the agent is
+    allowed to TELL THE USER about the report travels in the result, not in the
+    prompt — see _feedback_result."""
 
     @mcp.tool(
         name="submit_feedback",
@@ -149,7 +194,10 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             "contents (the TOOL name and the error code are required for (c) — "
             "they are not secrets). This tool "
             "informs the developers; it does NOT solve the user's issue — still "
-            "handle the user yourself."
+            "handle the user yourself. Read the result: it reports whether the "
+            "team was actually reached (`notified`) and whether you may pass "
+            "that on to the user. Never tell the user the team has been "
+            "notified unless this call said so."
         ),
     )
     async def submit_feedback(
@@ -171,11 +219,10 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
                 f"dedup_key={slot[1]}"
             )
             # ok=True, not an error: the tool contract forbids the agent from
-            # retrying or apologising about telemetry.
-            return {
-                "ok": True,
-                "message": "Already filed this one. Keep working on the user's problem.",
-            }
+            # retrying or apologising about telemetry. A reservation only
+            # survives a DELIVERED send, so a duplicate hit means the team
+            # really does have this one.
+            return _feedback_result(category=category, notified=True, duplicate=True)
 
         delivered = await send_feedback(
             category=category,
@@ -192,7 +239,7 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             f"delivered={delivered}"
         )
         # Always ok — the agent shouldn't retry or apologise about telemetry.
-        return {"ok": True, "message": "Feedback recorded. Continue helping the user."}
+        return _feedback_result(category=category, notified=bool(delivered))
 
 
 def _register_narrative_tools(mcp: FastMCP) -> None:

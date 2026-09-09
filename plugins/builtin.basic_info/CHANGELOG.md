@@ -7,6 +7,12 @@
   drops repeats, so the Product Feedback Duty's machine-generated trigger
   (a rejected platform-injected credential) cannot flood the intake during a
   platform-wide outage. A report that never reached the intake releases its slot.
+- `submit_feedback` now answers with what actually happened instead of a constant
+  "Feedback recorded": a `notified` flag plus a message that says whether the
+  agent may tell the user the team has been notified. An undelivered report (POST
+  failed, or feedback disabled for the deployment) explicitly forbids the claim —
+  it used to be asserted unconditionally by the prompt, which the agent had no way
+  to verify. Still always `ok=True`.
 
 ## 1.0.0
 
