@@ -18,6 +18,40 @@ last_verified: 2026-09-10
 「查看推理」与级联停止才追得到产出它的 run。锁：
 `test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
 
+## 2026-09-09 — B-13：banned 用户不再自动跑 job
+
+**症状**：被封号用户的定时 job 每天照常触发，打出成堆 `Key is blocked` 401。根因是
+`_user_can_run`（PAUSED_NO_QUOTA 恢复闸）和 `_poll_and_enqueue`（到期扫描）对
+`users.status` **零引用**——`classify_provider_for_user` 只判「provider 能不能跑」，
+账户本身被封是另一个正交事实，谁都没查过。
+
+**修法两处**：
+1. 新增 `_is_user_banned(user_id)`：查 `users` 表 `status == "banned"`。DB 读失败
+   或行不存在都 fail **open**（返回 False）——这是刻意的：一次 DB 抖动不该让全平台
+   job 集体冻结，且「banned」是显式 opt-in 状态，行不存在≠被封。
+2. `_user_can_run` 把它加在 provider 分类**之前**短路返回 `False`——banned 用户不消耗
+   一次 provider 探测（省一次外呼，也让「账户不可用」与「provider 不可用」两条判据
+   互不掩盖）。`_poll_and_enqueue` 对每个到期 job 算出 `exec_uid = related_entity_id or
+   user_id`（与 `_user_can_run` 现有口径一致），banned 就地 `update_job` 成
+   `PAUSED` + `paused_reason="banned"`，**不进队列**——这样它在下一次 poll 也不会
+   再被 `get_due_jobs()` 捞到（因为不再是 PENDING/ACTIVE），而不是每个周期反复判一次。
+
+**为什么用 `PAUSED`+`paused_reason="banned"` 而不是新状态值**：`paused_reason`
+本来就是自由字符串字段（见 [[job_schema]]），复用现有 `PAUSED` 语义——「不会自动
+恢复，需要外部动作」——精确匹配「封号只能靠 reinstate/未来的人工操作」这件事，
+且不必碰 `JobStatus` 枚举（additive-only 铁律）。这个状态天然落在
+`_resume_eligible_no_quota_jobs` 只扫 `PAUSED_NO_QUOTA` 的范围之外，所以也不会被
+15 分钟 backstop 误拉活。
+
+**为什么 `rearm_user_no_quota_jobs`（登录/换 provider 触发的 edge 恢复）不用改**：
+它只从鉴权中间件放行的 backend 路由触发（登录、配额变更、provider 保存），而
+[[auth]] 的 account-state gate 会在到达这些路由前对 banned 账户返回 403——banned
+用户物理上摸不到这条边缘触发路径，不存在绕过口。
+
+**Swept**：`git grep -n "_user_can_run\|def _poll_and_enqueue"` 命中
+`module_poller.py` 的同名方法——不同子系统（检测 Instance 完成，不代表用户执行
+LLM 调用），不在本 bug 范围内，未改动。
+
 ## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
 
 此前它是唯一路径：房间的契约是 job 的纯文本自动上墙，prompt 也这么写。那个契约没了

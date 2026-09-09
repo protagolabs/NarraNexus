@@ -278,3 +278,80 @@ async def test_secret_not_configured_is_503(db_client, monkeypatch):
     )
 
     assert resp.status_code == 503
+
+
+# --------------------- B-13: suspend pauses the user's jobs ---------------------
+# A banned user's scheduled jobs must stop re-firing immediately, in the same
+# request that flips `users.status` — otherwise the job keeps hammering the
+# provider with `Key is blocked` 401s until the next poll cycle happens to
+# notice (and only then because job_trigger separately checks ban state).
+
+SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
+
+
+async def _seed_job(db_client, job_id, user_id, status="active"):
+    await db_client.insert("instance_jobs", {
+        "job_id": job_id,
+        "instance_id": f"ins_{job_id}",
+        "agent_id": "agent_1",
+        "user_id": user_id,
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": "scheduled",
+        "trigger_config": SCHEDULED_TRIGGER,
+        "status": status,
+        "notification_method": "inbox",
+    })
+
+
+@pytest.mark.asyncio
+async def test_suspend_pauses_the_users_active_jobs(db_client, monkeypatch):
+    await _seed_user(db_client)
+    await _seed_job(db_client, "job_1", UID, status="active")
+    await _seed_job(db_client, "job_2", UID, status="pending")
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.status_code == 200
+    for job_id in ("job_1", "job_2"):
+        row = await db_client.get_one("instance_jobs", {"job_id": job_id})
+        assert row["status"] == "paused"
+        assert row["paused_reason"] == "banned"
+
+
+@pytest.mark.asyncio
+async def test_suspend_does_not_touch_terminal_jobs(db_client, monkeypatch):
+    """Completed / cancelled / failed jobs never run again regardless — suspend
+    must not rewrite their terminal status."""
+    await _seed_user(db_client)
+    await _seed_job(db_client, "job_done", UID, status="completed")
+    await _seed_job(db_client, "job_cancelled", UID, status="cancelled")
+    app = _make_app(db_client, monkeypatch)
+
+    await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_done"})
+    assert row["status"] == "completed"
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_cancelled"})
+    assert row["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_suspend_idempotent_second_call_leaves_already_paused_jobs(db_client, monkeypatch):
+    await _seed_user(db_client)
+    await _seed_job(db_client, "job_1", UID, status="active")
+    app = _make_app(db_client, monkeypatch)
+
+    await _post(app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET})
+    second = await _post(app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET})
+
+    assert second.json() == {"suspended": True, "already": True}
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_1"})
+    assert row["status"] == "paused"
+    assert row["paused_reason"] == "banned"

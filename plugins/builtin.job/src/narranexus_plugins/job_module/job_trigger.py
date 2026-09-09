@@ -76,6 +76,7 @@ from narranexus.platform.schema.job_schema import (
 )
 from narranexus.platform.schema.hook_schema import WorkingSource
 from narranexus.platform.schema.runtime_message import AUTH_EXPIRED_ERROR_TYPE
+from narranexus.platform.schema.entity_schema import UserStatus
 from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
 # Utils
@@ -534,19 +535,67 @@ class JobTrigger:
             # 3. Put tasks into queue (skip already executing ones)
             enqueued = 0
             for job in due_jobs:
-                if job.job_id not in self._running_jobs:
-                    self._running_jobs.add(job.job_id)
-                    await self._job_queue.put(job)
-                    self._enqueued_total += 1
-                    enqueued += 1
-                else:
+                if job.job_id in self._running_jobs:
                     logger.debug(f"Job {job.job_id} already running, skipped")
+                    continue
+
+                # B-13: a banned owner must never be enqueued — `Key is
+                # blocked` 401s are otherwise indistinguishable from an
+                # ordinary auth failure, so the job cycled through
+                # PAUSED_NO_QUOTA and resurrected daily even though the
+                # account itself (not the provider) is what is unusable.
+                # Pause it here, BEFORE it ever reaches a worker, so it also
+                # drops out of `get_due_jobs()` on the next poll instead of
+                # being re-evaluated every cycle.
+                exec_uid = job.related_entity_id or job.user_id
+                if exec_uid and await self._is_user_banned(exec_uid):
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.PAUSED.value,
+                        "paused_reason": "banned",
+                        "paused_at": utc_now(),
+                    })
+                    logger.warning(
+                        f"Job {job.job_id} paused: owner {exec_uid} is banned"
+                    )
+                    continue
+
+                self._running_jobs.add(job.job_id)
+                await self._job_queue.put(job)
+                self._enqueued_total += 1
+                enqueued += 1
 
             if enqueued > 0:
                 logger.info(f"Enqueued {enqueued} jobs (queue size: {self._job_queue.qsize()})")
 
         except Exception as e:
             logger.exception(f"Error in poll_and_enqueue: {e}")
+
+    async def _is_user_banned(self, user_id: str) -> bool:
+        """Is `user_id`'s account currently BANNED (`users.status`)?
+
+        B-13: a banned user's `Key is blocked` 401s look identical to a dead
+        credential to every other classifier in this file, so a banned owner's
+        scheduled job kept being treated as a normal auth failure and cycling
+        through PAUSED_NO_QUOTA → resume-probe → fail again forever, resurrecting
+        daily even though the account itself is what is actually unusable —
+        no provider check can ever fix that. This is intentionally its OWN
+        check ahead of any provider classification (never folded into
+        `classify_provider_for_user`): account standing and provider readiness
+        are orthogonal facts, and a banned account must short-circuit before a
+        provider probe is even attempted.
+
+        Fails OPEN (returns False) on a lookup error or a missing `users` row
+        — a transient DB hiccup here must not freeze every job in the system,
+        and banned is an explicit opt-in state, never the absence of a row.
+        """
+        try:
+            row = await self.db.get_one("users", {"user_id": user_id})
+            if not row:
+                return False
+            return row.get("status") == UserStatus.BANNED.value
+        except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
+            logger.debug(f"_is_user_banned lookup failed for {user_id}: {e}")
+            return False
 
     async def _user_can_run(self, user_id: str) -> bool:
         """Would a run for this user resolve a provider right now?
@@ -564,7 +613,14 @@ class JobTrigger:
         铁律 #15 is still honoured: the platform never overrides the user's
         provider choice — it only stops resuming a job into a run the
         runtime will refuse.
+
+        B-13: checked BEFORE the provider classifier — a banned user can never
+        run regardless of provider readiness, and skipping the classifier call
+        entirely avoids probing a provider for an account that is not allowed
+        to transact at all.
         """
+        if await self._is_user_banned(user_id):
+            return False
         try:
             from narranexus.platform.agent_framework.providers.resolver import (
                 classify_provider_for_user,

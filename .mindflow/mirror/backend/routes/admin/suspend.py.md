@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/admin/suspend.py
-last_verified: 2026-08-13
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-13：suspend 同请求内暂停该用户的活跃 job
+
+**问题**：`suspend_account` 只翻 `users.status`，从不碰 `instance_jobs`。job 调度层
+（[[job_trigger]]）对 `users.status` 全零引用，于是被封号用户的定时 job（如「每日
+签到」）继续按计划触发，天天撞 `Key is blocked` 401，直到 job 层自己独立发现账号
+被封（B-13 的另一半修复，见 job_trigger 的 `_is_user_banned`）才会在下一次 poll
+周期停下——中间那段窗口纯属浪费重试。
+
+**修法**：`suspend_account` 在 `not already` 分支里，紧跟 `users.status` 写入之后
+调用新增的 `_pause_jobs_for_banned_user(db, user_id)`——同一个请求、同一次调用栈内
+完成，不等下一次 job poll。跳过终态 job（`completed`/`cancelled`/`failed`，反正不会
+再跑）和已经是 `paused_reason="banned"` 的 job（幂等）。用 `JobStatus.PAUSED` +
+`paused_reason="banned"`，不是新状态值——`paused_reason` 是自由字符串字段
+（`max_length=32`），加一个新取值是纯 additive 变更，不碰 schema。
+
+**为什么允许 backend 路由直接 import `JobRepository`**：`repository/` 是铁律里
+明确的「central」层（不是可热插拔 Module），`backend/routes/` 直接调用 repository
+是既有模式（本文件已经在用 `UserRepository`）——不违反铁律 #3（Module 独立）。
+
+**为什么不在这里检查 banned 用户「谁能恢复」**：`reinstate_account` 只管把
+`users.status` 翻回 `ACTIVE`，刻意不联动恢复 job——一个被封号又解封的用户，其 job
+走普通的手动/自动恢复路径（用户主动 resume，或原本就没被判 no-quota 的 job 保持
+`paused` 等用户自己操作），恢复账号本身不该悄悄把所有 job 重新拉活，那是另一个
+决策（用户可能就是想封号期间顺便清理掉这些 job）。
 
 # admin/suspend.py — 账户停用（account suspension）HTTP 端点
 
@@ -33,6 +58,7 @@ stub: false
 
 **依赖谁**：
 - `narranexus.platform.repository.user_repository.UserRepository`：读用户、写 `users.status`。
+- `narranexus.platform.repository.job_repository.JobRepository`（2026-09-09 起）：suspend 成功后暂停该用户名下所有非终态 job（B-13）。
 - `narranexus.platform.repository.ban_audit_repository.BanAuditRepository`（+ `ACTION_SUSPEND` / `ACTION_REINSTATE` 常量）：写审计行。
 - `narranexus.platform.schema.UserStatus` + `NON_TRANSACTING_USER_STATUSES`：状态枚举，以及三面共享的「不可交易」集合（`_SUSPENDED_STATES` 直接指向它，见下）。
 - `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与 [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。本模块仍保留 `from narranexus.platform.settings import settings` 的再导出，只是为了让测试可以通过 `mod.settings` 覆盖 secret（helper 读的是同一个 settings 单例对象）。
