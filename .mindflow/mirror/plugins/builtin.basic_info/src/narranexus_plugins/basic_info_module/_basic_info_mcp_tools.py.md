@@ -5,12 +5,35 @@ stub: false
 ---
 
 
-## 2026-09-09 — submit_feedback 描述加 (c) 平台注入凭据被拒触发
+## 2026-09-09 — submit_feedback 加 (c) 平台注入凭据被拒触发 + 工具侧去重闸门
 
 与 [[prompts.py]] Product Feedback Duty 第 3 条同口径：**平台注入的**凭据 / 端点 /
-额度被平台工具拒绝时 `category=error` 上报，写明工具名与错误码，每会话每
-工具+错误码一次；明确排除没绑定时的 `no_credential`、`official-agent-required`
-类策略拒绝、用户刚输入的 secret 被拒。
+额度被平台工具拒绝时 `category=error` 上报，写明工具名与错误码；明确排除没绑定时的
+`no_credential`、`official-agent-required` 类策略拒绝、用户刚输入的 secret 被拒；
+同一次失败同时命中 (b)/(c) 时只按 (c) 记一条。
+
+**为什么「一次」必须落在代码里**：触发 (a)/(b) 天然被人交互频率限住（用户得先抱怨 /
+同指令得先失败两次），(c) 是机器生成的——平台侧故障在**每一次工具调用**上复现，且是
+平台级而非单 agent 级。若只靠文案，一次 token 送错后端的事故就会给
+`feedback_client` 灌几百上千条同义 `category=error`，团队反而看不见信号；而长
+`agent_loop`（铁律 #14）上下文被压缩后，「我已经报过这个码了」是最先丢的事实，工具又
+恒返回 ok=True，等于每次都在强化再报一次。
+
+实现：可选参数 `dedup_key`（**必须可选**，`= ""`；改成必填会直接打断触发 (a)/(b)
+的既有调用）。`_dedup_reserve` 在**发送前**占位（而不是发送后记录），关掉两个并发调用
+同时通过的窗口；命中已占位则跳过 POST 并返回 `ok=True` +「Already filed this one」
+——不能返回失败，工具契约要求 agent 不重试、不向用户道歉（见本文件 docstring 与
+[[feedback_client.py]] 的 fire-and-forget 约定）。`_dedup_release` 在
+`send_feedback` 返回 False 时撤销占位：否则缓存里存的就是**失败哨兵**，接收端一挂就
+把这个 agent+错误码唯一的一次上报名额白白吃掉，事故永远报不出去；撤销后失败路径与去重
+前的老行为一致。
+
+边界：`dedup_key` 是调用方（模型）可控文本，故 key 截断到
+`FEEDBACK_DEDUP_KEY_MAXLEN`、字典按 `FEEDBACK_DEDUP_MAX_ENTRIES` 上限 +
+`FEEDBACK_DEDUP_TTL_SECONDS` 过期从头清扫（条目只插入不刷新，所以插入序即时间序）。
+**单进程假设**（铁律 #20）：basic_info MCP server 是一个进程、全 deployment 共用，
+本闸门**不跨进程、不跨重启**，也不替代接收端幂等——真正彻底的做法是把 dedup_key 带进
+intake payload，但 intake 在本仓外、要先和团队约定字段。
 
 ## 2026-08-10 (PR-7) — view_narrative/view_event/switch_narrative 迁走 seam
 

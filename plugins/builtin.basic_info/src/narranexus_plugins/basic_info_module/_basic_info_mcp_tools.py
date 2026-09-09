@@ -27,6 +27,9 @@ so detection-from-the-tool-call is how they communicate (no shared state).
 """
 from __future__ import annotations
 
+import time
+from collections import OrderedDict
+
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
@@ -35,6 +38,66 @@ from mcp.server.fastmcp import FastMCP
 # with step_4_persist_results._detect_narrative_routing_signal).
 SWITCH_NARRATIVE_TOOL = "switch_narrative"
 CREATE_NARRATIVE_TOOL = "create_narrative"
+
+
+# ── submit_feedback dedup (2026-09-09) ───────────────────────────────────────
+# Feedback triggers (a)/(b) are rate-limited by human interaction: the user has
+# to complain, or the same instruction has to fail twice. Trigger (c) is
+# machine-generated — a platform-side outage reproduces on EVERY tool call, and
+# it is platform-WIDE, so every affected agent hits it every turn. "File it
+# once" therefore cannot be left to the model's memory: a long agent_loop
+# (铁律 #14) gets its context compacted, and this tool always answers ok=True,
+# which reinforces re-filing. The gate lives here so the agent's own
+# confirmation enforces the rule.
+#
+# Single-process assumption (铁律 #20): the basic_info MCP server is one process
+# shared by the deployment — this does NOT dedup across processes or restarts,
+# and it is deliberately not a substitute for intake-side idempotency. Bounded
+# by TTL + entry count so a caller-supplied key can never grow it without limit.
+FEEDBACK_DEDUP_TTL_SECONDS = 6 * 3600
+FEEDBACK_DEDUP_MAX_ENTRIES = 4096
+FEEDBACK_DEDUP_KEY_MAXLEN = 120
+
+_feedback_dedup: "OrderedDict[tuple[str, str], float]" = OrderedDict()
+
+
+def _dedup_slot(agent_id: str, dedup_key: str) -> tuple[str, str]:
+    return (agent_id, dedup_key[:FEEDBACK_DEDUP_KEY_MAXLEN])
+
+
+def _dedup_reserve(slot: tuple[str, str]) -> bool:
+    """Claim `slot`. False = already claimed inside the TTL, so skip the send.
+
+    Reserving BEFORE the send (rather than recording after it) is what closes
+    the window two concurrent calls would otherwise both pass through. Entries
+    are inserted once and never refreshed, so insertion order is time order and
+    expiry can be swept from the front.
+    """
+    now = time.monotonic()
+    while _feedback_dedup:
+        oldest, stamp = next(iter(_feedback_dedup.items()))
+        if now - stamp < FEEDBACK_DEDUP_TTL_SECONDS:
+            break
+        _feedback_dedup.pop(oldest, None)
+
+    if slot in _feedback_dedup:
+        return False
+    _feedback_dedup[slot] = now
+    while len(_feedback_dedup) > FEEDBACK_DEDUP_MAX_ENTRIES:
+        _feedback_dedup.popitem(last=False)
+    return True
+
+
+def _dedup_release(slot: tuple[str, str]) -> None:
+    """Undo a reservation whose send did not reach the intake.
+
+    Without this the cache would hold a FAILURE sentinel: an intake outage
+    would silently consume the one report this agent+code is allowed to make,
+    and the team would never learn about the platform error. Releasing means a
+    failed send behaves exactly like today's un-deduped code (the next call
+    tries again); only a DELIVERED report suppresses repeats.
+    """
+    _feedback_dedup.pop(slot, None)
 
 
 def create_basic_info_mcp_server() -> FastMCP:
@@ -58,7 +121,8 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
     truncated); the CONTENT of the summary — no user quotes, no keys/PII — is
     prompt-governed (prompts.py Product Feedback Duty) and not verifiable in
     code. The tool always answers ok=True — delivery is fire-and-forget and
-    the agent must not retry or dwell on it."""
+    the agent must not retry or dwell on it, including when a report is
+    suppressed as a duplicate (see the dedup block above)."""
 
     @mcp.tool(
         name="submit_feedback",
@@ -68,16 +132,22 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             "how you/the product behaved, (b) you have failed the SAME user "
             "instruction 2+ times in a row, or (c) a credential / endpoint / "
             "quota the PLATFORM injects for you is rejected by a platform tool "
-            "(agent-token-invalid, an unexpected 401/403 from a working binding) "
-            "— file it with category `error` naming the tool and the error code, "
-            "once per conversation per tool+code, even if a retry later works. "
-            "Not (c): `no_credential` when nothing is bound, by-design policy "
-            "refusals like official-agent-required, or a secret the user just "
-            "typed being rejected. `category` is one of: "
+            "(`agent-token-invalid`, an unexpected 401/403 from a working "
+            "binding) — file it with category `error` naming the tool and the "
+            "error code, even if a retry later works, and pass "
+            "`dedup_key=\"<tool>:<code>\"`: this tool then files it ONCE per "
+            "agent per tool+code and silently drops repeats, so you never have "
+            "to remember what you already filed. Not (c): `no_credential` when "
+            "nothing is bound, by-design policy refusals like "
+            "`official-agent-required`, or a secret the user just "
+            "typed being rejected. If a failure satisfies both (b) and (c), "
+            "file it as (c) only. `category` is one of: "
             "user_dissatisfaction | repeated_failure | error | feature_gap | other. "
             "`severity` is low | medium | high. `summary` must be ONE sentence "
             "describing the PROBLEM in your own words — never quote the user's "
-            "messages, never include names, keys or file contents. This tool "
+            "messages, never include personal names, secrets/keys or file "
+            "contents (the TOOL name and the error code are required for (c) — "
+            "they are not secrets). This tool "
             "informs the developers; it does NOT solve the user's issue — still "
             "handle the user yourself."
         ),
@@ -88,8 +158,24 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         category: str,
         summary: str,
         severity: str = "medium",
+        dedup_key: str = "",
     ) -> dict:
         from narranexus.platform.integrations.feedback_client import send_feedback
+
+        # Optional on purpose: triggers (a)/(b) call without it and must keep
+        # working. An empty key means "no dedup", never "dedup everything".
+        slot = _dedup_slot(agent_id, dedup_key) if dedup_key else None
+        if slot is not None and not _dedup_reserve(slot):
+            logger.debug(
+                f"[feedback] duplicate suppressed category={category} "
+                f"dedup_key={slot[1]}"
+            )
+            # ok=True, not an error: the tool contract forbids the agent from
+            # retrying or apologising about telemetry.
+            return {
+                "ok": True,
+                "message": "Already filed this one. Keep working on the user's problem.",
+            }
 
         delivered = await send_feedback(
             category=category,
@@ -99,6 +185,8 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
             agent_id=agent_id,
             user_id=user_id,
         )
+        if slot is not None and not delivered:
+            _dedup_release(slot)
         logger.info(
             f"[feedback] agent report category={category} severity={severity} "
             f"delivered={delivered}"
