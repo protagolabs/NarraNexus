@@ -27,7 +27,7 @@ were the user's local wall clock.
 
 import re
 
-from xyz_agent_context.utils.timezone import (
+from narranexus.platform.utils.timezone import (
     format_now_for_agent,
     format_timestamp_for_agent,
 )

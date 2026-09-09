@@ -8,8 +8,8 @@ earliest-joined member (members list is ordered by join time).
 
 from __future__ import annotations
 
-from xyz_agent_context.schema.team_schema import resolve_default_responder
-from xyz_agent_context.schema.team_schema import Team
+from narranexus.platform.schema.team_schema import resolve_default_responder
+from narranexus.platform.schema.team_schema import Team
 
 
 def _lead(lead=None):

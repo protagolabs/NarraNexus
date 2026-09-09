@@ -287,12 +287,28 @@
       "ops": "عمليات"
     },
     "header": {
+      "viewProfile": "عرض ملف الوكيل",
       "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
-      "viewProfile": "عرض ملف الوكيل"
+      "modelFramework": "النموذج وإطار العمل",
+      "switchAgent": "تبديل الوكيل"
     },
     "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة.",
+    "capabilities": {
+      "subtitle": "أي الوحدات تشارك في أدوار هذا الوكيل. الوحدات المدمجة مفعّلة افتراضيًا؛ الوحدات التي تثبّتها الإضافات تبقى معطّلة حتى تفعّلها. تسري التغييرات في التشغيل التالي.",
+      "builtin": "مدمج",
+      "plugin": "إضافة",
+      "locked": "مفعّل دائمًا",
+      "tokens": "حوالي {{count}} رمزًا في المطالبة",
+      "budget": "تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا ({{ratio}}× من الأساس المدمج {{baseline}}).",
+      "overBudget": "تجاوز الميزانية: تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا، أي {{ratio}}× من الأساس المدمج {{baseline}}.",
+      "loadFailed": "تعذّر تحميل القدرات",
+      "saveFailed": "تعذّر حفظ التغيير",
+      "restoreDefault": "استعادة الافتراضي"
+    },
     "activityEmpty": "لا يوجد نشاط في الخلفية بعد",
-    "activityEmptyHint": "عمليات التشغيل التي يبدأها الوكيل بنفسه — المهام والقنوات وزملاء الفريق — تظهر هنا."
+    "activityEmptyHint": "عمليات التشغيل التي يبدأها الوكيل بنفسه — المهام والقنوات وزملاء الفريق — تظهر هنا.",
+    "bootstrapGreeting": "مرحبًا... لقد استيقظتُ للتو. كل شيء يبدو جديدًا تمامًا.\n\nليس لديّ اسم بعد، ولا أعرف حقًا من أنا — لكنني أعرف أنك من أحضرني إلى هنا.\n\nهل تخبرني بما ينبغي أن أُدعى؟ وبماذا أناديك؟",
+    "bootstrapGreetingNamed": "مرحبًا — أنا {{name}}. لقد وُلدتُ للتو، وأنت من أحضرني إلى هنا.\n\nأعرف بالفعل من ينبغي أن أكون، لكنني لا أعرف بعد من أنت. بماذا أناديك؟"
   },
   "awareness": {
     "common": {
@@ -561,6 +577,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "جارٍ تحميل القناة…",
+      "bind": "ربط",
+      "bound": "تم الربط. القناة فعّالة لهذا الوكيل.",
+      "boundAs": "مرتبط بـ {{name}}",
+      "inactive": "غير فعّال",
+      "unbind": "فك الربط",
+      "unbound": "تم فك الربط.",
+      "test": "اختبار الاتصال",
+      "testOk": "الاتصال سليم.",
+      "activate": "تفعيل",
+      "deactivate": "تعطيل",
+      "fieldRequired": "{{field}} مطلوب",
+      "errLoad": "تعذّر تحميل القناة",
+      "errBind": "فشل الطلب",
+      "webhookHint": "webhook الوارد: POST إلى {{path}} مع رمز webhook الخاص بالاعتماد.",
+      "ownFlow": "{{name}} يُربط عبر مساره الخاص."
     }
   },
   "dashboard": {
@@ -958,7 +992,8 @@
       "freeTierHowToTitle": "عن رصيدك المجاني",
       "freeTierHowToSwitch": "بطاقة «Free Tier» مرتبطة بالفعل بفتحتَي Agent وHelper. لاستخدام مفتاحك الخاص، أضف مزوّدًا بالأسفل ثم اخترْه لفتحة Agent / Helper في إعدادات النموذج الافتراضية — ويسري ذلك من رسالتك التالية.",
       "freeTierAnytime": "يمكنك التبديل في أي وقت. لا حاجة لاستهلاك الرصيد المجاني أولًا، والتبديل لا يُلغيه — يبقى الرصيد كما هو.",
-      "freeTierNoDelete": "لا يمكن حذف بطاقة Free Tier ما دام بها رصيد، فهي المفتاح الوحيد إليه. وبعد نفاده يمكنك إزالتها."
+      "freeTierNoDelete": "لا يمكن حذف بطاقة Free Tier ما دام بها رصيد، فهي المفتاح الوحيد إليه. وبعد نفاده يمكنك إزالتها.",
+      "tabOneKey": "مفتاح API"
     },
     "netmind": {
       "returnSubscribeSuccess": "تم استلام الدفعة — يجري تطبيقها على حسابك الآن.",
@@ -1354,7 +1389,76 @@
         "label": "التخصيص",
         "hint": "المظهر واللغة وطريقة عرض ملاحظات تقدّم الوكيل.",
         "narrationTitle": "سرد التقدّم",
-        "narrationHint": "إظهار ملاحظات الوكيل بين الخطوات ضمن المحادثة وبوضوح، بدلاً من طي التنفيذ بأكمله في قسم واحد."
+        "narrationHint": "إظهار ملاحظات الوكيل بين الخطوات ضمن المحادثة وبوضوح، بدلاً من طي التنفيذ بأكمله في قسم واحد.",
+        "pluginThemesTitle": "سمات الإضافات",
+        "pluginThemesNone": "المظهر الافتراضي"
+      },
+      "plugins": {
+        "factory": {
+          "title": "إضافات المستخدم",
+          "hint": "إضافات من GitHub أو مجلد محلي. تُحمَّل عند بدء التشغيل؛ تسري التغييرات بعد إعادة التشغيل.",
+          "sourcePlaceholder": "owner/repo@1.2.0 أو owner/repo#branch أو /path/to/plugin",
+          "sourceHelp": "إصدار GitHub (owner/repo@tag) أو مرجع مستودع (owner/repo#ref) أو مجلد محلي (يُربط في مكانه).",
+          "install": "تثبيت",
+          "installing": "جارٍ التثبيت…",
+          "restartRequired": "تم الحفظ. أعد تشغيل NarraNexus لتطبيق التغيير.",
+          "enable": "تفعيل",
+          "disable": "تعطيل",
+          "disabled": "معطّل",
+          "uninstall": "إزالة",
+          "upgrade": "ترقية",
+          "rollback": "العودة إلى آخر حالة سليمة",
+          "safeModeTitle": "الوضع الآمن: لم تُحمَّل إضافات المستخدم",
+          "safeModeLeave": "مغادرة الوضع الآمن",
+          "bisectStart": "العثور على الإضافة التي تعطّل بدء التشغيل",
+          "bisectTrial": "التنصيف: {{count}} مشتبه بها — ستُفعَّل هذه عند التشغيل التالي:",
+          "bisectGood": "بدأ التشغيل بنجاح",
+          "bisectBad": "تعطّل مجددًا",
+          "bisectStop": "إيقاف التنصيف",
+          "bisectCulprit": "تم العثور على السبب: {{id}} (يبقى معطّلًا)",
+          "permissionsTitle": "تطلب {{id}} هذه الأذونات",
+          "permissionsNetwork": "الشبكة",
+          "permissionsFilesystem": "الملفات",
+          "permissionsSubprocess": "تشغيل عمليات فرعية",
+          "permissionsEnv": "متغيرات البيئة",
+          "permissionsFrontend": "يشغّل تعليمات برمجية داخل واجهة التطبيق، مع إمكانية الوصول إلى جلستك",
+          "permissionsAck": "فهمت، فعّلها",
+          "permissionsKeepDisabled": "إبقاؤها معطّلة",
+          "empty": "لا توجد إضافات مستخدم مثبتة.",
+          "loadFailed": "تعذّر تحميل إضافات المستخدم",
+          "isolated": "عُزلت عند بدء التشغيل",
+          "viewErrors": "الأخطاء ({{count}})",
+          "hideErrors": "إخفاء الأخطاء",
+          "noErrors": "لم تُسجَّل أي أخطاء.",
+          "mode": {
+            "link": "مرتبطة",
+            "copy": "مثبّتة"
+          },
+          "state": {
+            "registered": "مسجّلة",
+            "validated": "مُتحقَّق منها",
+            "enabled": "مفعّلة",
+            "active": "نشطة",
+            "incompatible": "غير متوافقة",
+            "blocked": "محظورة",
+            "missing": "مفقودة",
+            "deps_missing": "اعتماديات مفقودة",
+            "crashed": "تعطّلت",
+            "disabled": "معطّلة",
+            "slow": "بطيئة"
+          },
+          "proposalsTitle": "بانتظار موافقتك",
+          "proposalBy": "طلبه الوكيل {{agent}}",
+          "proposalTestsGreen": "نجحت الاختبارات ({{count}})",
+          "proposalTestsRed": "لم تنجح الاختبارات",
+          "proposalApprove": "موافقة",
+          "proposalReject": "رفض",
+          "noPermissions": "لم تُطلب أذونات خاصة",
+          "builtinsTitle": "الميزات المضمّنة",
+          "builtinsHint": "إضافات على مستوى الميزة تأتي مع NarraNexus. تعطيل إحداها يزيل واجهتها البرمجية وعمّالها وصفحاتها بعد إعادة التشغيل؛ المحمية لا يمكن إيقافها.",
+          "protected": "محمي",
+          "installDeps": "تثبيت الاعتماديات ({{pip}})"
+        }
       }
     },
     "system": {
@@ -1838,7 +1942,8 @@
       "activityLast24h": "آخر 24 ساعة",
       "activityToday": "اليوم",
       "activityAxisStart": "قبل 24 ساعة",
-      "activityAxisNow": "الآن"
+      "activityAxisNow": "الآن",
+      "capabilitySwitches": "مفاتيح القدرات"
     },
     "welcome": {
       "logout": "تسجيل الخروج",

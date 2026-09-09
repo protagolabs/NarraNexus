@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl.retrieval import NarrativeRetrieval
-from xyz_agent_context.narrative.narrative_service import NarrativeService
+from narranexus.platform.narrative._narrative_impl.retrieval import NarrativeRetrieval
+from narranexus.platform.narrative.narrative_service import NarrativeService
 
 
 def _narrative(nid: str, *, name: str, is_special: str = "other", summary: str = ""):
@@ -27,7 +27,7 @@ def _narrative(nid: str, *, name: str, is_special: str = "other", summary: str =
     """
     from datetime import datetime, timezone
 
-    from xyz_agent_context.narrative.models import (
+    from narranexus.platform.narrative.models import (
         Narrative,
         NarrativeInfo,
         NarrativeType,
@@ -70,7 +70,7 @@ def retrieval_with_pool(monkeypatch):
         return {}
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.retrieval."
+        "narranexus.platform.narrative._narrative_impl.retrieval."
         "ensure_default_narratives",
         _seed,
     )
@@ -79,7 +79,7 @@ def retrieval_with_pool(monkeypatch):
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "xyz_agent_context.narrative._narrative_impl.retrieval.get_db_client",
+        "narranexus.platform.narrative._narrative_impl.retrieval.get_db_client",
         _fake_db,
     )
     return retrieval, spy
@@ -144,7 +144,7 @@ def service_no_topic(monkeypatch):
     svc._get_continuity_detector = lambda: _NotContinuous()
 
     async def _retrieve(**kwargs):
-        from xyz_agent_context.narrative.models import NarrativeSelectionResult
+        from narranexus.platform.narrative.models import NarrativeSelectionResult
 
         return NarrativeSelectionResult(
             narratives=[], selection_reason="stub", selection_method="no_topic",
@@ -215,7 +215,7 @@ def service_continuity(monkeypatch):
     svc._get_continuity_detector = lambda: _Detector()
 
     async def _retrieve(**kwargs):
-        from xyz_agent_context.narrative.models import NarrativeSelectionResult
+        from narranexus.platform.narrative.models import NarrativeSelectionResult
 
         return NarrativeSelectionResult(
             narratives=[real], selection_reason="stub",

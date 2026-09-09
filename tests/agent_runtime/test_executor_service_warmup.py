@@ -11,7 +11,7 @@ kill the optimization.
 """
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.agent_runtime import executor_service
+from narranexus.platform.agent_runtime import executor_service
 
 
 def test_startup_warms_nexus_power_pool_by_default(monkeypatch):

@@ -48,7 +48,7 @@ def _line(at: datetime, action: str, item: str, *, origin="auto",
     stamp = at.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     extra = "from=agent_lead " if action == "open" else ""
     return (
-        f"{stamp} | INFO | xyz_agent_context.message_bus.errand:x:1 - "
+        f"{stamp} | INFO | narranexus.platform.message_bus.errand:x:1 - "
         f"[work-item] action={action} item={item} team={team} channel=ch_1 "
         f"assignee={assignee} {extra}origin={origin}\n"
     )

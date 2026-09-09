@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.analytics import track
-from xyz_agent_context.analytics.events import FRONTEND_EVENTS, PROP_SOURCE
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import FRONTEND_EVENTS, PROP_SOURCE
 
 router = APIRouter()
 _EVENT_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{8,128}$")

@@ -22,9 +22,9 @@ from typing import Any, Callable, Dict
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module import _work_board_mcp_tools as mod
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+from narranexus_plugins.message_bus_module import _work_board_mcp_tools as mod
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
 
 class _FakeMCP:

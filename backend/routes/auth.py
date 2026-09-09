@@ -22,21 +22,21 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.logging import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.logging import (
     set_telemetry_optout,
     telemetry_consent,
 )
-from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.analytics import track
-from xyz_agent_context.analytics.events import (
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import (
     EVENT_SIGNED_UP, PROP_METHOD,
 )
-from xyz_agent_context.repository import (
+from narranexus.platform.repository import (
     AgentRepository,
     UserRepository,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AGENT_TEXT_MAX_LENGTH,
     NON_TRANSACTING_USER_STATUSES,
     agent_field_matches,
@@ -74,17 +74,18 @@ from backend.auth_errors import (
     NETMIND_TOKEN_INVALID,
     AuthError,
 )
+from backend.routes._client_ip import client_ip
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.agent_profile import apply_agent_profile_change
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.bundle.channel_credential_tables import channel_binding_tables
-from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
-from xyz_agent_context.utils import is_valid_timezone
-from xyz_agent_context.agent_runtime.background_run import run_is_live
-from xyz_agent_context.settings import settings as app_settings
+from narranexus.platform.agent_profile import apply_agent_profile_change
+from narranexus.platform.utils.deployment_mode import is_power_login_enabled
+from narranexus.platform.utils import is_valid_timezone
+from narranexus.platform.agent_runtime.background_run import run_is_live
+from narranexus.platform.settings import settings as app_settings
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.channel.binding_tables import bound_channels_query, channel_binding_sources
 
 from pydantic import BaseModel
-from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
+from narranexus.platform.repository.user_settings_repository import UserSettingsRepository
 from typing import Iterable, Optional
 
 
@@ -99,15 +100,15 @@ router = APIRouter()
 _run_is_live = run_is_live
 
 
-def _schedule_login_rearm(user_id: str) -> None:
+async def _schedule_login_rearm(user_id: str) -> None:
     """On login, kick a background edge-recovery: if the user is now provider-
-    ready (e.g. they topped up / fixed config while away), revive their
-    PAUSED_NO_QUOTA jobs. Non-blocking — login responds immediately."""
+    ready (e.g. they topped up / fixed config while away), builtin.job revives
+    their PAUSED_NO_QUOTA jobs (its hook schedules the work; login responds
+    immediately)."""
     try:
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(user_id)
+        from backend.host_events import notify_user_runnability_changed
+
+        await notify_user_runnability_changed(user_id)
     except Exception:  # noqa: BLE001 — never let recovery wiring break login
         pass
 
@@ -143,7 +144,7 @@ async def login(request: LoginRequest):
 
         await user_repo.update_last_login(request.user_id)
         logger.info(f"User {request.user_id} logged in (local)")
-        _schedule_login_rearm(request.user_id)
+        await _schedule_login_rearm(request.user_id)
         # A local login is never a signup (create-user is); is_new=False routes
         # it through the backfill brake.
         _schedule_guide_agent_provisioning(request.user_id, is_new=False)
@@ -336,52 +337,6 @@ _FUNNEL_STAGES = frozenset({
 })
 
 
-# Counting X-Forwarded-For from the RIGHT depends on exactly ONE fact: the
-# number of proxy hops in front of this backend. (Not on any proxy's XFF
-# semantics — whether the edge appends to or overwrites a forged header,
-# the entry it contributes is the same distance from the right.) Today the
-# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops
-# (the DEPLOY repo's docker/nginx.conf — not a file in this repo — carries
-# the reverse pointer for topology editors);
-# the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
-# repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
-# proxy) MUST bump this — misconfigure it and per-IP silently collapses
-# into one shared bucket. Overridable per deployment, no config required.
-
-
-def _parse_trusted_proxy_hops(raw: Optional[str]) -> int:
-    """Clamp to >= 1: hops=0 would make ``parts[-0] == parts[0]`` — the
-    CALLER-written entry — and `len(parts) >= 0` is always true, so the
-    short-chain fallback would never fire (empty header would even
-    IndexError). Empty/garbage values fall back to the default rather
-    than blowing up at import time (the executor_reaper precedent)."""
-    try:
-        return max(1, int(raw or 2))
-    except (TypeError, ValueError):
-        return 2
-
-
-_TRUSTED_PROXY_HOPS = _parse_trusted_proxy_hops(
-    os.getenv("FUNNEL_TRUSTED_PROXY_HOPS")
-)
-
-
-def _funnel_client_ip(request: Request) -> str:
-    """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
-    from the right (N = _TRUSTED_PROXY_HOPS — the ONLY assumption, see its
-    comment). A shorter-than-expected chain (local runs, tests, or a
-    directly-forged single-entry header) falls back to the socket peer
-    rather than trusting caller-supplied text."""
-    parts = [
-        p.strip()
-        for p in (request.headers.get("x-forwarded-for") or "").split(",")
-        if p.strip()
-    ]
-    if len(parts) >= _TRUSTED_PROXY_HOPS:
-        return parts[-_TRUSTED_PROXY_HOPS]
-    return request.client.host if request.client else "-"
-
-
 def _note_dropped_report() -> None:
     _funnel_dropped["count"] += 1
     now = monotonic()
@@ -409,7 +364,7 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
     if payload.stage not in _FUNNEL_STAGES:
         raise HTTPException(status_code=400, detail="Unknown stage")
     email = (payload.email or "").strip().lower()
-    ip = _funnel_client_ip(request)
+    ip = client_ip(request)
     # The order carries TWO invariants ("and" short-circuits):
     #   1. per-IP FIRST caps caller-chosen key ALLOCATION: a new email key
     #      under limit>0 is always allowed-and-allocated by the limiter
@@ -827,14 +782,14 @@ async def get_agents(request: Request):
                 logger.error(f"[/api/auth/agents] llm summary enrichment failed: {e}")
 
         # Channel presence for the directory table: one UNION query across the
-        # channel-table registry (bundle/channel_credential_tables — the same
-        # list export/import and preflight use, so a new IM channel is one
-        # entry there), not one query per agent. Each branch carries the
-        # table's on/off column so the UI can tell "configured" from "live".
+        # binding sources (channel/binding_tables — one parameterised view of
+        # channel_credentials per registered IM channel, so a new channel needs
+        # no edit here), not one query per agent. Each branch carries the
+        # source's on/off column so the UI can tell "configured" from "live".
         # Only owned agents participate: exposing a public agent's
         # integrations would leak private account metadata to viewers.
-        binding_tables = channel_binding_tables()
-        channel_order = [channel for channel, _table, _active in binding_tables]
+        binding_sources = channel_binding_sources()
+        channel_order = [src.channel for src in binding_sources]
         bound_channels_by_agent: dict[str, list[BoundChannel]] = {
             aid: [] for aid in agent_ids
         }
@@ -842,20 +797,9 @@ async def get_agents(request: Request):
             row["agent_id"] for row in rows if row.get("created_by") == user_id
         ]
         if owned_agent_ids:
-            owned_placeholders = ",".join(["%s"] * len(owned_agent_ids))
-            union_parts = [
-                f"SELECT '{channel}' AS channel_name, agent_id, "
-                f"{active_col if active_col else '1'} AS active "
-                f"FROM {table} WHERE agent_id IN ({owned_placeholders})"
-                for channel, table, active_col in binding_tables
-            ]
+            query, params = bound_channels_query(binding_sources, owned_agent_ids)
             try:
-                # Every UNION branch carries the same IN(...) list, so the
-                # parameter tuple is the id list repeated once per branch.
-                channel_rows = await db_client.execute(
-                    " UNION ALL ".join(union_parts),
-                    tuple(owned_agent_ids) * len(binding_tables),
-                )
+                channel_rows = await db_client.execute(query, params)
                 # channel → active; a channel with any live row counts as live.
                 channel_state: dict[str, dict[str, bool]] = {
                     aid: {} for aid in owned_agent_ids
@@ -887,14 +831,14 @@ async def get_agents(request: Request):
             # NOTE: this is the FRONTEND-facing bootstrap_active — deliberately a
             # looser isfile-only rule (no event-count threshold), because a list
             # endpoint can't afford a per-agent COUNT query. It diverges from
-            # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the two
+            # narranexus.platform.bootstrap.lifecycle.is_bootstrap_active (the two
             # greeting writers' gate, which DOES apply the threshold) in the
             # narrow "over threshold but Bootstrap.md not yet auto-deleted"
             # window. Keep the two in mind together when touching either.
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
-                from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+                from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
                 bootstrap_path = os.path.join(
                     str(resolve_existing_workspace(
                         row['agent_id'], created_by, app_settings.base_working_path
@@ -994,6 +938,28 @@ async def get_agents(request: Request):
         )
 
 
+async def _mark_first_agent_created(db_client, user_id: str) -> None:
+    """Creating an agent through the agents API completes the first-agent
+    onboarding step server-side; the welcome flow must not depend on the
+    frontend remembering to post it. Other creation doors (bundle import,
+    team install, social-network provisioning) do not mark it yet — a user
+    whose first agent arrives that way still sees the step. Best-effort,
+    never fails the create."""
+    try:
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(user_id)
+        if not user:
+            return
+        current = _read_onboarding(user.metadata)
+        if current.first_agent_created:
+            return
+        metadata = dict(user.metadata or {})
+        metadata[_ONBOARDING_METADATA_KEY] = current.model_copy(update={"first_agent_created": True}).model_dump()
+        await user_repo.update_user(user_id, {"metadata": metadata})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"onboarding first_agent_created not recorded for {user_id}: {exc}")
+
+
 @router.post("/agents", response_model=CreateAgentResponse)
 async def create_agent(http_request: Request, request: CreateAgentRequest):
     """
@@ -1025,7 +991,9 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # so an `or` on the raw value lets whitespace through as the name and
         # the default never fires — the row then renders a blank sidebar title
         # (worse than the agent_id fallback, which at least identifies it).
-        agent_name = normalize_agent_text(request.agent_name) or "New Agent"
+        from narranexus.platform.bootstrap.template import PLACEHOLDER_AGENT_NAME
+
+        agent_name = normalize_agent_text(request.agent_name) or PLACEHOLDER_AGENT_NAME
         # No placeholder: an agent with nothing said about it yet has an EMPTY
         # description. The old filler ("A new agent ready for configuration")
         # was snapshotted into the bus registry and reported to peers as fact,
@@ -1042,7 +1010,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # `get_profile`. This route stays the SEMANTIC SOURCE the seam mirrors;
         # everything below that ISN'T the shared sequence (team assignment #43,
         # response shape) stays here.
-        from xyz_agent_context.bootstrap.provision import provision_new_agent
+        from narranexus.platform.bootstrap.provision import provision_new_agent
         provision_result = await provision_new_agent(
             db_client,
             agent_id=agent_id,
@@ -1060,7 +1028,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # agent ungrouped.
         if request.team_id:
             try:
-                from xyz_agent_context.repository import (
+                from narranexus.platform.repository import (
                     TeamRepository,
                     TeamMemberRepository,
                 )
@@ -1093,6 +1061,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             created_by=created_by,
             bootstrap_active=provision_result.bootstrap_active,
         )
+        await _mark_first_agent_created(db_client, created_by)
 
         return CreateAgentResponse(
             success=True,
@@ -1293,9 +1262,9 @@ async def update_agent(
 
         # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,
         # isfile-only rule (no threshold) — see the /api/auth/agents note above and
-        # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
-        from xyz_agent_context.settings import settings
-        from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+        # narranexus.platform.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
+        from narranexus.platform.settings import settings
+        from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
         workspace_path = str(resolve_existing_workspace(
             agent_id, updated_agent.created_by, settings.base_working_path
         ))
@@ -1522,7 +1491,7 @@ async def delete_agent(
         # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
         # are all agent-scoped; without this an account deletion would leave
         # orphaned memory rows (entities, learned facts, etc.).
-        from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
+        from narranexus.platform.utils.db.schema_registry import MEMORY_KINDS
         for _kind in MEMORY_KINDS:
             _tbl = f"memory_{_kind}"
             try:
@@ -1606,8 +1575,8 @@ async def delete_agent(
         try:
             import os
             import shutil
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+            from narranexus.platform.settings import settings
+            from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
             workspace_path = str(
                 resolve_existing_workspace(
                     agent_id, agent.created_by, settings.base_working_path
@@ -1621,18 +1590,18 @@ async def delete_agent(
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
         # 14. Channel cleanups — registry-driven walk over every
-        # ChannelModuleBase subclass in MODULE_MAP. Each subclass owns
+        # ChannelModuleBase subclass in module_registry. Each subclass owns
         # its own cleanup_for_agent (default: credential row + inbox
         # channels by channel_id prefix; Lark overrides to also drop
         # CLI profile + workspace dir). Adding a new IM channel requires
         # zero edits here.
         try:
-            from xyz_agent_context.channel.channel_module_base import (
+            from narranexus.platform.channel.channel_module_base import (
                 ChannelModuleBase,
             )
-            from xyz_agent_context.module import MODULE_MAP
+            from narranexus.platform.module_system import module_registry
 
-            for module_name, cls in MODULE_MAP.items():
+            for module_name, cls in module_registry.items():
                 if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):
                     continue
                 try:
@@ -1649,6 +1618,23 @@ async def delete_agent(
                     )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Channel cleanup walk failed (non-critical): {e}")
+
+        # 14a. Retired per-channel credential tables — ONE distribution-independent
+        # sweep. The walk above only visits channels whose plugin this
+        # distribution installs and registry.json has not disabled; a channel
+        # that was dropped still has its pre-cutover `lark_credentials` /
+        # `channel_*_credentials` rows (base64 bot tokens, app secrets) in the
+        # database, and nothing else would ever delete them. `LEGACY_TABLES` is
+        # the single source of truth for which tables ever held a channel secret,
+        # so this is keyed on agent_id alone and needs no descriptor. Overlaps
+        # harmlessly with the per-channel purge (the second DELETE matches
+        # nothing); best-effort per table, never fails the deletion.
+        try:
+            from narranexus.platform.channel.credential_legacy import purge_legacy_for_agent
+
+            stats.update(await purge_legacy_for_agent(db_client, agent_id))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Legacy channel-credential purge failed (non-critical): {e}")
 
         # 14b. team_members (subproject 1) — drop this agent from every team it's a member of.
         # Without this, the team panel keeps showing the deleted agent_id as a ghost member.

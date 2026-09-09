@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.migration.applier import apply_plan
-from xyz_agent_context.migration.mapper import build_plan
-from xyz_agent_context.schema.migration_schema import (
+from narranexus.platform.migration.applier import apply_plan
+from narranexus.platform.migration.mapper import build_plan
+from narranexus.platform.schema.migration_schema import (
     MigrationAgent,
     MigrationMcpServer,
     MigrationMemory,
@@ -23,16 +23,16 @@ from xyz_agent_context.schema.migration_schema import (
     MigrationTurn,
     StandardizedAgentImport,
 )
-from xyz_agent_context.repository.agent_repository import AgentRepository
-from xyz_agent_context.repository.instance_repository import InstanceRepository
-from xyz_agent_context.repository.instance_awareness_repository import (
+from narranexus.platform.repository.agent_repository import AgentRepository
+from narranexus.platform.repository.instance_repository import InstanceRepository
+from narranexus.platform.repository.instance_awareness_repository import (
     InstanceAwarenessRepository,
 )
 
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
     return tmp_path
 
@@ -83,17 +83,17 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     # normally-created agent gets). Stub the registry call to stay hermetic.
     async def _fake_defaults(self, aid, uid):
         return {"installed": ["netmind-vision", "officecli"], "skipped": [], "failed": []}
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
     monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _fake_defaults)
     # Stub the session-summary helper LLM (one call per imported session).
-    import xyz_agent_context.migration.applier as applier_mod
+    import narranexus.platform.migration.applier as applier_mod
     monkeypatch.setattr(applier_mod, "get_helper_sdk", lambda: _FakeHelperSDK())
     # Capture the ChatModule instance-memory write (its table machinery uses
     # MySQL information_schema, which the direct sqlite test backend can't run —
     # the real write is ChatModule's own prod-proven path; here we assert the
     # message payload _seed_chat_history builds).
     seeded_calls: list = []
-    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    import narranexus.platform.repository.event_memory_repository as emr_mod
     async def _capture(self, module_name, instance_id, memory):
         seeded_calls.append((module_name, instance_id, memory))
         return True
@@ -118,7 +118,7 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
 
     # skill copied verbatim into workspace/skills/<name>/
     assert res.skills_copied == ["myskill"]
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
     copied = agent_workspace_path(res.agent_id, "user_x") / "skills" / "myskill" / "SKILL.md"
     assert copied.exists()
 
@@ -128,7 +128,7 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     # session → Narrative created (summarized), turns retained as scoped memory
     assert res.narratives_created == ["Plan the Q3 roadmap"]
     assert res.memory_turns_retained == 2
-    from xyz_agent_context.narrative.narrative_service import NarrativeService
+    from narranexus.platform.narrative.narrative_service import NarrativeService
     narrs = await NarrativeService(res.agent_id, db_client).load_narratives_by_agent_user(
         res.agent_id, "user_x", 10)
     assert any(n.narrative_info.name == "Plan the Q3 roadmap" for n in narrs)
@@ -137,7 +137,7 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
     assert n.topic_keywords == ["roadmap", "q3"]
     # the imported turns are retained as EVENT memory scoped to the narrative
     # (event = append-only, not consolidated — observation would tombstone them)
-    from xyz_agent_context.memory import MemoryEngine, SCOPE_NARRATIVE
+    from narranexus.platform.memory import MemoryEngine, SCOPE_NARRATIVE
     evs = await MemoryEngine(db_client, res.agent_id).recall(
         "event", "roadmap", scope_type=SCOPE_NARRATIVE, scope_id=n.id, limit=10)
     assert any("ship the roadmap" in o.content_text for o in evs)
@@ -161,7 +161,7 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
 async def test_copy_local_skill_rejects_path_traversal(workspace, tmp_path):
     # A crafted skill name must not escape skills/ (it is rmtree'd + copytree'd,
     # so a `../..` name could delete/overwrite arbitrary dirs).
-    from xyz_agent_context.migration.applier import _copy_local_skill
+    from narranexus.platform.migration.applier import _copy_local_skill
     src = tmp_path / "s"
     src.mkdir()
     (src / "SKILL.md").write_text("x", encoding="utf-8")
@@ -185,7 +185,7 @@ async def test_apply_no_local_source_marks_unmatched(db_client, workspace, monke
         return {"items": []}
     async def _no_defaults(self, aid, uid):
         return {"installed": [], "skipped": [], "failed": []}
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
     monkeypatch.setattr(sms.SkillMarketplaceService, "search", _empty_search)
     monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _no_defaults)
 
@@ -225,10 +225,10 @@ async def test_hurried_apply_skips_the_llm_but_still_imports_every_session(
     one LLM call per remaining session. Marking the import id makes the applier
     take the deterministic summary path — every session still lands, and the
     result says how many were degraded."""
-    from xyz_agent_context.migration import hurry
-    import xyz_agent_context.migration.applier as applier_mod
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
-    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    from narranexus.platform.migration import hurry
+    import narranexus.platform.migration.applier as applier_mod
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.repository.event_memory_repository as emr_mod
 
     async def _no_defaults(self, aid, uid):
         return {"installed": [], "skipped": [], "failed": []}
@@ -266,9 +266,9 @@ async def test_hurried_apply_skips_the_llm_but_still_imports_every_session(
 @pytest.mark.asyncio
 async def test_unhurried_apply_still_summarizes(db_client, workspace, monkeypatch):
     """Guard the other direction: without a mark, nothing degrades."""
-    import xyz_agent_context.migration.applier as applier_mod
-    import xyz_agent_context.marketplace.skill_marketplace_service as sms
-    import xyz_agent_context.repository.event_memory_repository as emr_mod
+    import narranexus.platform.migration.applier as applier_mod
+    import narranexus.platform.marketplace.skill_marketplace_service as sms
+    import narranexus.platform.repository.event_memory_repository as emr_mod
 
     async def _no_defaults(self, aid, uid):
         return {"installed": [], "skipped": [], "failed": []}
@@ -302,8 +302,8 @@ async def test_hurry_mark_is_dropped_when_the_apply_raises(db_client, workspace,
     so any exception in the steps above it leaked the mark into the process-
     level registry. The user's later RETRY of that same row (the frontend
     reused the import id) then ran hurried although nobody pressed stop."""
-    from xyz_agent_context.migration import hurry
-    import xyz_agent_context.migration.applier as applier_mod
+    from narranexus.platform.migration import hurry
+    import narranexus.platform.migration.applier as applier_mod
 
     async def _boom(db, agent_id):
         raise RuntimeError("awareness lookup exploded")

@@ -35,6 +35,7 @@ import {
   isFrameworkAvailable,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
+  type LiveFrameworkEntry,
 } from '@/lib/agentFramework';
 import type { AgentSlotView, AgentSlotEffective } from '@/types';
 
@@ -96,6 +97,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // the only place it's reported, so it's fetched alongside the per-agent
   // config on every open.
   const [frameworkAvailability, setFrameworkAvailability] = useState<Record<string, boolean>>({});
+  // The live `frameworks[]` list itself (B6, 2026-09-07 final cut) —
+  // `providerBacksFramework` reads `protocol`/`oauth_source` straight off it
+  // and fails closed with no hardcoded fallback, so this stays `undefined`
+  // (not `[]`) until a response actually lands.
+  const [liveFrameworks, setLiveFrameworks] = useState<LiveFrameworkEntry[] | undefined>(undefined);
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
   // Snapshot of what was loaded — so Save only writes slots the user changed.
@@ -123,9 +129,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
-      setFrameworkAvailability(
-        frameworkAvailabilityMap(fwRes?.success ? fwRes.data.frameworks : undefined),
-      );
+      const liveFwList = fwRes?.success ? fwRes.data.frameworks : undefined;
+      setFrameworkAvailability(frameworkAvailabilityMap(liveFwList));
+      setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
       setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
@@ -161,14 +167,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     (p) => !netmindOnly || isSlotBindableSource(p.source),
   );
   const agentProviders = bindableProviders.filter((p) =>
-    providerBacksFramework(p, agentDraft.agent_framework),
+    providerBacksFramework(p, agentDraft.agent_framework, liveFrameworks),
   );
   // Hide frameworks no bindable card can drive — picking one would leave the
   // provider dropdown empty and the save rejected. Plugin availability is
   // layered on top and never hides further (see ModelDefaultsSettings for
   // the shared rationale).
   const frameworkOptions = withFrameworkAvailability(
-    availableFrameworks(bindableProviders, agentDraft.agent_framework),
+    availableFrameworks(bindableProviders, agentDraft.agent_framework, liveFrameworks),
     frameworkAvailability,
   );
   const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;

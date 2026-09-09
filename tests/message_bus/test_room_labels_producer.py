@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 AGENT, TEAM = "agent_me", "t_lbl"
 ROOM, DM = "ch_room_lbl", "ch_dm_lbl"
@@ -40,7 +40,7 @@ def _patch_db(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -123,7 +123,7 @@ async def test_an_empty_window_asks_the_database_nothing(db_client, monkeypatch)
         return _Counting()
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
     assert await _module(db_client)._room_labels(set()) == {}
     assert calls == []

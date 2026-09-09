@@ -17,16 +17,16 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.team_posting import team_cascade_depth
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.team_posting import team_cascade_depth
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.utils.timezone import utc_now
 
 
 CHANNEL = "ch_room"
@@ -67,7 +67,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 
@@ -138,7 +138,7 @@ async def test_the_speech_cap_silences_a_looping_patrol(db_client):
     repo = TeamWorkItemRepository(db_client)
     await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="OCR",
                            created_by="agent_lead", assignee_id="agent_worker")
-    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+    from narranexus.platform.message_bus.patrol import PATROL_SPEECH_MAX
 
     await db_client.update("teams", {"team_id": TEAM}, {
         "patrol_spoke_at": utc_now(), "patrol_spoke_count": PATROL_SPEECH_MAX,
@@ -190,7 +190,7 @@ async def test_the_patrol_prompt_carries_the_board_and_the_stalled_facts(db_clie
 async def test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team(
     db_client,
 ):
-    """A patrol turn has BOTH bus send verbs off the desk (`get_disallowed_tools`
+    """A patrol turn has BOTH bus send verbs off the desk (`disallowed_tools`
     returns `[message_agent, message_team]`), so the prompt must (a) forbid both,
     not just `message_team`, and (b) NOT also carry the ordinary-turn instruction
     "Speak in this room by calling message_team(...)". Ordering the very tool it
@@ -272,7 +272,7 @@ async def test_patrol_lines_do_not_eat_the_depth_window(db_client):
     stopped applying — precisely in the rooms patrol frequents, since it only
     speaks where a chain is already looping.
     """
-    from xyz_agent_context.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
+    from narranexus.platform.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
 
     await _seed_room(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
@@ -312,7 +312,7 @@ async def test_a_capped_patrol_does_not_run_the_turn_at_all(db_client):
     repo = TeamWorkItemRepository(db_client)
     await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="OCR",
                            created_by="agent_lead", assignee_id="agent_worker")
-    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+    from narranexus.platform.message_bus.patrol import PATROL_SPEECH_MAX
 
     await db_client.update("teams", {"team_id": TEAM}, {
         "patrol_spoke_at": utc_now(), "patrol_spoke_count": PATROL_SPEECH_MAX,
@@ -399,8 +399,8 @@ async def test_a_capped_patrol_still_updates_the_board(db_client):
     """
     from datetime import timedelta
 
-    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.message_bus.patrol import PATROL_SPEECH_MAX
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     await _seed_room(db_client)
     repo = TeamWorkItemRepository(db_client)
@@ -468,7 +468,7 @@ async def test_the_sweep_can_be_stopped(db_client):
     stop it. The stop arrives through the DB (the click lands in the backend
     process), so the run has to be registered with the watcher — and dropped
     again however the sweep ends, or the poll loop outlives it."""
-    from xyz_agent_context.agent_runtime.cancel_watcher import get_cancel_watcher
+    from narranexus.platform.agent_runtime.cancel_watcher import get_cancel_watcher
 
     await _seed_room(db_client)
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
@@ -503,7 +503,7 @@ async def test_a_lead_does_not_stall_its_own_work_by_patrolling(db_client):
     chase itself), read after it says running (so the lead's items can never
     stall). Neither answer is about the item, so the item is skipped.
     """
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     await _seed_room(db_client)
     repo = TeamWorkItemRepository(db_client)
@@ -533,7 +533,7 @@ async def test_a_capped_sweep_leaves_the_previous_run_link_alone(db_client):
     is 180s and the cap is 6 per 30 minutes, so the tail of every window is
     exactly these no-op sweeps.
     """
-    from xyz_agent_context.message_bus.patrol import PATROL_SPEECH_MAX
+    from narranexus.platform.message_bus.patrol import PATROL_SPEECH_MAX
 
     await _seed_room(db_client)
     await db_client.insert("bus_agent_activity", {
@@ -565,8 +565,8 @@ async def test_a_stale_stall_on_the_sweepers_own_item_is_cleared(db_client):
     If this row carries no information about the sweeper, then a verdict drawn
     from it earlier has no business outliving that.
     """
-    from xyz_agent_context.message_bus.patrol import detect_stalled_items
-    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+    from narranexus.platform.message_bus.patrol import detect_stalled_items
+    from narranexus.platform.schema.team_work_schema import WorkItemStatus
 
     await _seed_room(db_client)
     repo = TeamWorkItemRepository(db_client)
@@ -600,13 +600,13 @@ async def test_patrol_mentions_are_bounded_by_its_speech_cap_not_the_hop_cap(
     cascade already is. If someone later removes the speech cap, this fails here
     instead of as a room being @-spammed every 180 seconds.
     """
-    from xyz_agent_context.message_bus.patrol import may_patrol_speak
+    from narranexus.platform.message_bus.patrol import may_patrol_speak
 
     await _seed_room(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
 
     # Drive the room well past the hop cap first: patrol must not be gated on it.
-    from xyz_agent_context.message_bus.team_posting import (
+    from narranexus.platform.message_bus.team_posting import (
         MAX_TEAM_AGENT_HOPS,
         team_cascade_depth,
     )

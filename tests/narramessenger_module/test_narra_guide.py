@@ -7,7 +7,7 @@ load-bearing invariants: it tells the agent narra-cli is platform-provided (no
 install/configure/token), points at `--help` for exact flags, and does NOT carry
 the harmful setup instructions.
 """
-from xyz_agent_context.module.narramessenger_module import _narra_guide as ncg
+from narranexus_plugins.narramessenger_module import _narra_guide as ncg
 
 
 def test_guide_returns_curated_reference():

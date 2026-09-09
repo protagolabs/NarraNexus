@@ -16,7 +16,7 @@
 import { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Artifact } from '@/types/artifact';
-import { KIND_REGISTRY } from './kindRegistry';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 interface Props {
   artifact: Artifact;
@@ -38,7 +38,9 @@ interface Props {
 
 export default function ArtifactRenderer({ artifact, bounded = true }: Props) {
   const { t } = useTranslation();
-  const Renderer = KIND_REGISTRY[artifact.kind]?.renderer;
+  // Subscribed: a plugin registering this kind after the artifact opened re-renders it.
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const Renderer = ARTIFACT_KINDS.get(artifact.kind)?.renderer;
   if (!Renderer) {
     return <div className="p-4 opacity-60">{t('artifacts.unsupportedKind', { kind: artifact.kind })}</div>;
   }

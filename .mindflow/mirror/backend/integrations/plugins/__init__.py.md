@@ -18,9 +18,9 @@ stub: false
 
 - **被谁用**：Phase 3 的安装/状态路由（backend/routes 下，本次未实现）会
   只 import `service.PluginService`；不会绕过它直接碰 `_installers/`。
-- **依赖谁**：`registry.py` 依赖 `xyz_agent_context.agent_framework.
+- **依赖谁**：`registry.py` 依赖 `narranexus.platform.agent_framework.
   adapters.claude.cli_binary.PINNED_CLI_VERSION`（版本单一真值）；
-  `_installers/*.py` 依赖 `xyz_agent_context.agent_framework.plugin_paths`
+  `_installers/*.py` 依赖 `narranexus.platform.agent_framework.plugin_paths`
   （落点单一真值）。除此之外本包不 import 任何 `xyz_agent_context` 之外的
   agent 侧代码，也绝不反向被 `xyz_agent_context` import。
 

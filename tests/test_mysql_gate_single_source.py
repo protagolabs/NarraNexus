@@ -207,8 +207,41 @@ def _has_skip_gate(tree: ast.AST, imports_helper: bool) -> bool:
     return False
 
 
+def _test_roots() -> list[Path]:
+    """Every directory pytest collects from (``pyproject.toml`` ``testpaths``).
+
+    ``tests/`` alone was the scan face, but batch 6 moved a plugin's tests into
+    ``plugins/<id>/tests`` and added them to ``testpaths``: a MySQL twin placed
+    there was invisible to every check in this file — it could drift its env
+    var, skip in CI and stay green forever, which is the exact failure this
+    file exists to prevent. Derived from the same helper the other engine-wide
+    guards use, so the next move fixes every guard at once.
+    """
+    roots = [_TESTS, *sorted((_REPO / "plugins").glob("*/tests"))]
+    return [r for r in roots if r.is_dir()]
+
+
+def _iter_test_files(pattern: str) -> list[Path]:
+    seen: list[Path] = []
+    for root in _test_roots():
+        seen.extend(p for p in root.rglob(pattern) if "__pycache__" not in p.parts)
+    return sorted(seen)
+
+
+def test_the_scan_face_matches_what_pytest_collects():
+    """The guards below are only worth their runtime if they look everywhere
+    pytest does; an empty or shrunken scan face is the failure mode this whole
+    file was written to catch, so it is asserted rather than assumed."""
+    import tomllib
+
+    testpaths = tomllib.loads((_REPO / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]["testpaths"]
+    expected = {p for spec in testpaths for p in _REPO.glob(spec) if p.is_dir()}
+    assert set(_test_roots()) == expected, sorted(str(p) for p in expected.symmetric_difference(_test_roots()))
+    assert len(_iter_test_files("*.py")) >= 500  # the walk really found the suite
+
+
 def _twins() -> list[Path]:
-    return sorted(_TESTS.rglob("*_mysql.py"))
+    return _iter_test_files("*_mysql.py")
 
 
 def test_the_helper_still_declares_the_env_var_name():
@@ -240,7 +273,7 @@ def test_no_gated_file_sits_outside_the_twin_shape():
     silently shrinks the checked set.
     """
     strays: dict[str, list[str]] = {}
-    for path in sorted(_TESTS.rglob("*.py")):
+    for path in _iter_test_files("*.py"):
         rel = str(path.relative_to(_REPO))
         if rel in _NOT_TWINS or path.name.endswith("_mysql.py"):
             continue

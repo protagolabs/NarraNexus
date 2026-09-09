@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import im_thread_id
+from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from xyz_agent_context.module.lark_module import lark_trigger as lark_trigger_mod
-from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module import lark_trigger as lark_trigger_mod
+from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 def _make_cred(agent_id: str = "agent_test") -> LarkCredential:

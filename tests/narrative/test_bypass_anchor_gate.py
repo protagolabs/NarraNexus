@@ -54,14 +54,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl.routing_gate import (
+from narranexus.platform.narrative._narrative_impl.routing_gate import (
     BypassDecision,
     evaluate_bypass,
     evaluate_gate,
 )
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.narrative_service import NarrativeService
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.narrative_service import NarrativeService
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
 )
 
@@ -178,7 +178,7 @@ def service(db_client, monkeypatch):
     async def _get():
         return db_client
 
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _get)
 
     async def _stub_judge(**kw):
         return {"matched_type": "none", "matched_id": None, "reason": "stubbed"}
@@ -187,7 +187,7 @@ def service(db_client, monkeypatch):
 
     class _NotContinuous:
         async def detect(self, **kw):
-            from xyz_agent_context.narrative.models import ContinuityResult
+            from narranexus.platform.narrative.models import ContinuityResult
 
             return ContinuityResult(
                 is_continuous=False, confidence=0.9, reason="stub: not continuous"
@@ -329,7 +329,7 @@ async def test_the_score_gate_series_survives_for_calibration(service, db_client
 def test_the_bypass_columns_are_registered_on_both_dialects() -> None:
     """`auto_migrate` picks per backend; a missing dialect is a column that
     only exists on one of prod (MySQL) and the desktop build (SQLite)."""
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     cols = {c.name: c for c in TABLES["narrative_routing_audit"].columns}
     for name in ("bypass_score_gate", "bypass_reason"):
@@ -342,7 +342,7 @@ def test_the_bypass_columns_are_registered_on_both_dialects() -> None:
 def test_the_bypass_columns_are_additive_and_nullable() -> None:
     """Binding rule #6: 26,922 existing prod rows predate both columns, so
     NOT NULL here would make `ALTER TABLE ADD COLUMN` fail on a live table."""
-    from xyz_agent_context.utils.db.schema_registry import TABLES
+    from narranexus.platform.utils.db.schema_registry import TABLES
 
     cols = {c.name: c for c in TABLES["narrative_routing_audit"].columns}
     assert cols["bypass_score_gate"].nullable

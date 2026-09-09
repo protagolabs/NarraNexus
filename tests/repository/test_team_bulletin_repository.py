@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
 

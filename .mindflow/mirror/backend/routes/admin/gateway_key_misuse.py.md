@@ -93,9 +93,9 @@ pydantic 会丢弃请求里的未知字段，所以攻击者无法夹带一个�
   同构）。
 - `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与
   [[suspend.py]] / [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。
-  本模块保留 `from xyz_agent_context.settings import settings` 的再导出，只为测试能用
+  本模块保留 `from narranexus.platform.settings import settings` 的再导出，只为测试能用
   `mod.settings` 覆盖 secret。
-- `xyz_agent_context.utils.db.db_factory.get_db_client`：取全局 async DB client。
+- `narranexus.platform.utils.db.db_factory.get_db_client`：取全局 async DB client。
 - [[schema_registry.py]] 的 `varchar_width(...)`：列宽单一真相，导出为具名截断/阈值常量。
 - [[timezone.py]] 的 `to_datetime6_literal`：hit_at 归一化到 DATETIME(6) UTC 字面量。
 

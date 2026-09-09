@@ -17,15 +17,15 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.message_bus.patrol import (
+from narranexus.platform.message_bus.patrol import (
     PATROL_INTERVAL_S,
     PATROL_STALLED_INTERVAL_S,
     patrol_due_at,
     teams_due_for_patrol,
 )
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemStatus
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_work_schema import WorkItemStatus
+from narranexus.platform.utils.timezone import utc_now
 
 
 @pytest.fixture

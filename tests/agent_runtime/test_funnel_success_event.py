@@ -13,7 +13,7 @@ async def _async_return(v):
 @pytest.fixture
 def captured_events(monkeypatch):
     events = []
-    import xyz_agent_context.analytics as analytics
+    import narranexus.platform.analytics as analytics
 
     async def _capture(**event):
         events.append(event)
@@ -25,7 +25,7 @@ def captured_events(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_success_helper_fires(captured_events):
-    from xyz_agent_context.agent_runtime.background_run import (
+    from narranexus.platform.agent_runtime.background_run import (
         _fire_message_success,
     )
     await _fire_message_success(user_id="u1", agent_id="a1", run_id="r1")
@@ -38,7 +38,7 @@ async def test_success_helper_fires(captured_events):
 
 @pytest.mark.asyncio
 async def test_success_helper_ignores_empty_user(captured_events):
-    from xyz_agent_context.agent_runtime.background_run import (
+    from narranexus.platform.agent_runtime.background_run import (
         _fire_message_success,
     )
     await _fire_message_success(user_id="", agent_id="a1", run_id="r1")
@@ -65,7 +65,7 @@ async def _seed_events_row(db, event_id):
 
 
 async def _make_bg(db, event_id):
-    from xyz_agent_context.agent_runtime.background_run import BackgroundRun
+    from narranexus.platform.agent_runtime.background_run import BackgroundRun
     await _seed_events_row(db, event_id)
     bg = BackgroundRun(
         agent_id="a_funnel", user_id="u_funnel", input_preview="",

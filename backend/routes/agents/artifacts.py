@@ -14,7 +14,7 @@ Endpoints:
 - DELETE /{agent_id}/artifacts/{aid}                 remove DB row (workspace files are NOT touched)
 
 This router is a thin HTTP shell: business logic (registration validation,
-heal recovery strategy) lives in `xyz_agent_context.artifact.ArtifactService`;
+heal recovery strategy) lives in `narranexus.platform.artifact.ArtifactService`;
 plain CRUD goes through `ArtifactRepository`. Handlers only do auth, HTTP
 mapping, and response shaping.
 
@@ -38,16 +38,16 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.artifact import (
+from narranexus.platform.artifact import (
     MAX_ARTIFACT_BYTES,
     ArtifactEditConflict,
     ArtifactError,
     ArtifactService,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.settings import settings
-from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.settings import settings
+from narranexus.platform.schema import Artifact, EmbedMode, HealResult
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 from backend.middleware.body_size import MAX_OFFICE_ASSET_BYTES, PUT_CONTENT_MARGIN
 from backend.routes.artifacts import _token as _artifact_token

@@ -21,16 +21,16 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.team_bulletin_repository import (
+from narranexus.platform.repository.team_bulletin_repository import (
     TeamBulletinRepository,
 )
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.schema.team_schema import (
     BULLETIN_MAX_ENTRIES,
     BULLETIN_MAX_ENTRY_CHARS,
     BULLETIN_MAX_TOTAL_CHARS,
 )
 
-from backend.routes.teams import (
+from narranexus_plugins.teams.routes import (
     BulletinLimitExceeded,
     add_bulletin_entry,
     check_bulletin_budget,
@@ -166,7 +166,7 @@ async def test_wiping_the_chat_does_not_wipe_the_bulletin(db_client, repo):
     """The bulletin exists BECAUSE it is not chat. Folding it into the chat
     scope would recreate the "say it again" loop it was built to end — the
     user clears a noisy transcript and silently loses every standing rule."""
-    from backend.routes.teams import _wipe_team_data
+    from narranexus_plugins.teams.routes import _wipe_team_data
 
     await add_bulletin_entry(repo, team_id=TEAM, content="use Chinese", source="user", author_id="usr_1")
 
@@ -177,7 +177,7 @@ async def test_wiping_the_chat_does_not_wipe_the_bulletin(db_client, repo):
 
 @pytest.mark.asyncio
 async def test_the_bulletin_scope_clears_rules_and_summary(db_client, repo):
-    from backend.routes.teams import _wipe_team_data
+    from narranexus_plugins.teams.routes import _wipe_team_data
 
     await add_bulletin_entry(repo, team_id=TEAM, content="use Chinese", source="user", author_id="usr_1")
     await repo.upsert_summary(TEAM, "halfway there")
@@ -190,7 +190,7 @@ async def test_the_bulletin_scope_clears_rules_and_summary(db_client, repo):
 
 @pytest.mark.asyncio
 async def test_a_wipe_leaves_another_teams_bulletin_alone(db_client, repo):
-    from backend.routes.teams import _wipe_team_data
+    from narranexus_plugins.teams.routes import _wipe_team_data
 
     await add_bulletin_entry(repo, team_id=TEAM, content="ours", source="user", author_id="usr_1")
     await add_bulletin_entry(repo, team_id="team_2", content="theirs", source="user", author_id="usr_1")
@@ -205,7 +205,7 @@ def test_deleting_a_team_takes_its_bulletin():
     bulletin's only reader — this team's turn builder — can never reach it."""
     import inspect
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     src = inspect.getsource(mod.delete_team)
     assert "clear_bulletin=True" in src

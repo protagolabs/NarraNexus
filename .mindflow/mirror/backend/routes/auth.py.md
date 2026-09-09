@@ -1,66 +1,32 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
 
-## 2026-09-04 (评审二轮) — 目录富化：传 id、import 提到模块顶、失败记 error
+## 2026-09-08 — 空白建 agent 的占位名用 `PLACEHOLDER_AGENT_NAME`
 
-`owner_agents_overview(user_id, agent_ids=agent_ids)`（service 内部批量读且重查归属）；
-`AgentSlotService` / `channel_binding_tables` 的 import 提到模块顶部——原来一个在 `try`
-里会把 ImportError 降级成一列空数据，另一个在 `try` 外会让路由 500。两个富化块的
-`except` 仍然降级（500 会锁死应用启动）但改记 `logger.error`：那不是预期路径。
-`tests/backend/test_auth_agents_directory.py` 用真 SQLite 钉住投影、开关列、注册表顺序
-与「失败降级仍 200」。
+与 bootstrap 模板共用同一个常量，问候渲染据此判断「还没起名」。
 
-## 2026-09-03 (评审修订) — `/api/auth/agents` 的模型/框架投影改调唯一真源
+## 2026-09-07 — 删除 agent：多一遍与发行版无关的 legacy 凭据清扫（14a）
 
-PR #383 评审 🔴C1/C2：路由里自研的 `agent_slots` / `user_slots` 解析是这条规则的
-**第四份实现**，且不看 `provider_id`（framework-only stub 会被当成有效覆盖），兜底又写死
-`claude_code`（平台默认自 2026-08-20 起是 `nexus_power`）——目录表对多数用户显示错误品牌。
-现在直接调 `AgentSlotService.owner_agents_overview(user_id)`，规则在
-[[../../src/xyz_agent_context/agent_framework/providers/model_identity.py]]，路由里**没有任何**
-框架字面量。只解析调用者自己的 agent；别人的公开 agent 两字段为 None（前端渲染 `—`）。
+原有的 14 号步骤是「按 module_registry 遍历每个 `ChannelModuleBase` 子类，各自
+`cleanup_for_agent`」。这条路径只覆盖**本发行版装了**的渠道；被排除的渠道（两个示例发行
+版排除了全部六个）没有模块可走，它退役前的 `lark_credentials` /
+`channel_*_credentials` 行——base64 bot token 和 app secret——就永远留在库里，包括用户删掉
+agent 之后。
 
-渠道列改从 [[../../src/xyz_agent_context/bundle/channel_credential_tables.py]] 的
-`channel_binding_tables()` 生成 UNION（评审 M1：原是第二份表清单），每支带上该表的
-开关列（M2：原只看行存在），`bound_channels` 变成 `[{channel, active}]`。
-
-## 2026-08-27 — `/api/auth/agents` 再加两段富化:运行时身份 + 已绑渠道
-
-Dashboard 的智能体目录要在表格里直接回答「这个 agent 跑在什么框架/模型上」和
-「接了哪些渠道」(见 [[../../frontend/src/pages/DashboardPage.tsx]])。两段富化都
-**刻意做成有界查询**,插在 last_assistant 富化之后、组装 `AgentInfo` 之前:
-
-- **运行时身份** → `llm_by_agent`。两条 SQL:一条查 `agent_slots`(per-agent
-  覆盖),一条查 `user_slots`(owner 默认),然后在 Python 里按
-  「覆盖 > owner 默认 > `claude_code`」合成。**这条优先级必须和运行时
-  (step_3_agent_loop 的 SDK 分发)保持一致**——两处分叉的话,目录里显示的框架
-  就不是真正会跑的那个。走 `/llm-config` 一行一次请求的话,60 个 agent 的看板
-  会变成 N+1 请求风暴,所以这里是 bulk。
-- **已绑渠道** → `bound_channels_by_agent`。七张凭证表(`lark_credentials` /
-  `channel_{slack,telegram,wechat,narramessenger,discord}_credentials` /
-  `instance_homeassistant_bindings`)**一条 `UNION ALL`**,不是七次查询、更不是
-  每 agent 一次。参数元组是 `tuple(owned_agent_ids) * len(channel_tables)`——每个
-  UNION 分支带同一份 `IN (...)` 列表,所以就是把 id 列表按分支数重复。
-  输出顺序由 `channel_order` 固定,不是集合的迭代序,否则同一个 agent 每次刷新
-  图标都会换位置。
-
-**只有自己拥有的 agent 参与渠道查询**(`row.get("created_by") == user_id`)。公开
-agent 是别人的,把他的集成暴露给访客等于泄漏私有账号元数据;`bound_channels_by_agent`
-预填成全 `[]`,所以公开行天然拿到空列表,不需要在组装处再判一次。
-
-两段都包在 `try/except → logger.warning` 里,**理由是「这是锦上添花的富化,坏了
-不该让整个 agent 列表 500」**,和上面 active_run / last_assistant 两段同一个理由。
-但这也意味着查询写错了不会有任何页面报错,只会全列显示 `—`——改这两段 SQL 后
-务必真跑一次,别只看页面没崩(教训见 CLAUDE.md「不要为了日志干净过滤异常」)。
+14a 补的就是这一遍：`credential_legacy.purge_legacy_for_agent(db, agent_id)`，按
+`agent_id` 扫 `LEGACY_TABLES`（曾经存过渠道密钥的表的唯一真值表），不需要描述符、不需要
+插件。与 14 里的每渠道清理重叠无害（第二条 DELETE 匹配不到行）；按表尽力而为，从来没有
+这张表的安装不会让删除失败。
 
 ## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
 
 `/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
 `os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
 COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
-`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/narranexus/platform/bootstrap/lifecycle]]
 `.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
@@ -87,7 +53,7 @@ property，两个路由各推一份就是同一条规则的两处漂移点（本
 ## 2026-08-18 (四改) — import 改指领域包
 
 `apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
-`xyz_agent_context.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+`narranexus.platform.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
 Module——它 import 的是一个核心领域包。行为不变。
 
 ## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
@@ -207,7 +173,7 @@ rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op �
 实体（`upsert_netmind_user` 返回值，本身就是经 `UserRepository.get_user` 的
 `WHERE BINARY user_id` 读到的行，故大小写敏感、与停用**写**侧同 collation）取
 `user.status.value`，若落在共享的 `NON_TRANSACTING_USER_STATUSES`（从
-`xyz_agent_context.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
+`narranexus.platform.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
 内联的 `{banned, blocked, deleted}` 字面量），记一行 WARNING 后
 `raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
 （见 [[auth_errors]]），**不签 token**。
@@ -607,8 +573,8 @@ to render a one-shot welcome toast on successful cloud-mode registration
   - `UserRepository` — 用户的增删查、last_login 更新、timezone 更新
   - `InviteCodeRepository` — 注册时校验 + 原子消费邀请码
   - `backend.auth` — `hash_password`、`verify_password`、`create_token`、`_is_cloud_mode`
-  - `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
-  - `xyz_agent_context.settings.settings.base_working_path` — Agent 工作区根目录
+  - `narranexus.platform.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
+  - `narranexus.platform.settings.settings.base_working_path` — Agent 工作区根目录
 
 ## 设计决策
 
@@ -755,11 +721,29 @@ fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
 - 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
   取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。
 
-## 2026-08-27 — the onboarding GET has a caller again
+## 2026-09-04 · services + host hooks (batch 3c.6)
 
-`GET /api/auth/onboarding` sat without a frontend consumer after the checklist
-card was retired. The first-run flow brought one back: the root redirect reads
-`landing_completed` to decide whether a user still owes the flow, and the flow
-POSTs the flag on every exit. `_read_onboarding` and the POST merge both carry
-the new field; the merge stays write-once-true, so a stray `False` can never
-resurrect the flow for someone who already finished it.
+`_schedule_login_rearm` is async and fires `onDidChangeUserRunnability`; builtin.job's hook schedules the re-arm (login still responds immediately).
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
+
+Fix 2026-09-07 (fresh-install journey): `_mark_first_agent_created()` flips the onboarding step when an agent is created through the API (best-effort, idempotent), so the welcome flow does not depend on the frontend posting it.
+
+## 2026-09-07 — agents directory channel UNION is fully parameterised
+
+The bound_channels enrichment builds its UNION through channel.binding_tables.bound_channels_query: channel names and agent ids are parameters, derived tables use index aliases. Behaviour (one query, owned agents only, degrade to [] on failure) unchanged.
+
+
+## 2026-09-07 — `_funnel_client_ip` 提升成共享模块 `backend/routes/_client_ip.py`
+
+跳数常量和取值函数搬去 `backend/routes/_client_ip.py`（导出 `client_ip` /
+`TRUSTED_PROXY_HOPS`），本文件 import 它。动机不是整洁：渠道 webhook 的匿名限流
+（`backend/routes/channels/generic.py`）新写了一份 `request.client.host`，于是
+仓里同时存在两个「客户端 IP 是什么」的答案，而其中一个在云端恒为 nginx 容器地址。
+跳数是**部署拓扑属性**，两份跳数就是这个修复要防的漂移，所以它只能有一个家。
+上文 R2/R4/R5+R6 记的所有决策（从右数、≥1 钳制、空/垃圾值回默认）原样搬过去，
+测试也改成打 `_client_ip`。

@@ -6,6 +6,10 @@
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 import type {
+  AgentCapabilitiesView,
+  ChannelCredentialView,
+  ChannelSchema,
+  PluginChannelRow,
   MigrationFramework,
   MigrationDetectResponse,
   StandardizedAgentImport,
@@ -64,8 +68,6 @@ import type {
   SkillEnvConfigResponse,
   DashboardResponse,
   ApiResponse,
-  LarkCredentialResponse,
-  LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
   TeamListResponse,
@@ -83,20 +85,8 @@ import type {
   BundleArtifactPreview,
   BundleMcpPreview,
   SkillArchiveRecord,
-  SlackCredentialResponse,
-  SlackBindResponse,
-  SlackTestResponse,
-  TelegramCredentialResponse,
-  TelegramBindResponse,
-  NarramessengerCredentialResponse,
-  NarramessengerBindResponse,
-  TelegramTestResponse,
-  WeChatCredentialResponse,
   WeChatQrStartResponse,
   WeChatQrPollResponse,
-  DiscordCredentialResponse,
-  DiscordBindResponse,
-  DiscordTestResponse,
   PlanListResponse,
   SubscriptionMeResponse,
   SubscribeResponse,
@@ -117,6 +107,11 @@ import type {
   PluginsListResponse,
   PluginUninstallResponse,
   PluginInstallEvent,
+  FactoryListResponse,
+  FactoryInstallResponse,
+  FactoryErrorsResponse,
+  FactoryIndexResponse,
+  FactoryProposalsResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1434,13 +1429,25 @@ class ApiClient {
    * is treated as available — that "unknown ⇒ available" default lives in
    * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
    * modelled as optional here.
+   *
+   * `display_name` / `protocol` / `oauth_source` (B6, 2026-09-07 final cut) come straight off
+   * the framework registry's own metadata — `display_name` is the label
+   * `lib/frameworkBrand.ts`'s `formatFrameworkFromList` prefers over the static picker table;
+   * `protocol`/`oauth_source` are the ONLY source `lib/agentFramework.ts`'s
+   * `providerBacksFramework` reads for its matching — that function has no hardcoded table left
+   * to fall back to, so a caller MUST pass this array once loaded, or it fails closed. `protocol`
+   * is the backend's `FrameworkMeta.protocol` three-valued enum: a specific protocol, or `'any'`
+   * for a framework (NexusPower) that drives the provider API itself and works with either — a
+   * caller must NOT branch on framework id/name to special-case this, only on the `'any'` value.
+   * All three fields are still optional on the type — an older backend, or a request made before
+   * this list has ever loaded, has none of them.
    */
   async getAgentFramework(): Promise<{
     success: boolean;
     data: {
       framework: string;
       supported: string[];
-      frameworks?: Array<{ name: string; available: boolean }>;
+      frameworks?: Array<{ name: string; available: boolean; display_name?: string; protocol?: 'anthropic' | 'openai' | 'any'; oauth_source?: string | null }>;
       probe: { ok: boolean; detail: string };
     };
   }> {
@@ -1483,6 +1490,71 @@ class ApiClient {
   // Claude Code / Codex CLI ship as user-installed plugins rather than
   // baked into the desktop image. `cloud_managed` in the response tells the
   // panel to hide itself entirely — cloud installs its own CLIs centrally.
+
+  // ---- plugin factory (/api/plugin-factory): user plugins from GitHub / local dirs.
+
+  async factoryList(): Promise<FactoryListResponse> {
+    return this.request(`/api/plugin-factory`);
+  }
+
+  async factoryInstall(source: string, opts: { permissionsAcknowledged?: boolean; scope?: string } = {}): Promise<FactoryInstallResponse> {
+    return this.request(`/api/plugin-factory/install`, {
+      method: 'POST',
+      body: JSON.stringify({ source, permissions_acknowledged: opts.permissionsAcknowledged ?? false, scope: opts.scope ?? 'global' }),
+    });
+  }
+
+  async factoryAction(
+    id: string,
+    action: 'enable' | 'disable' | 'uninstall' | 'upgrade' | 'acknowledge-permissions',
+    opts: { permissionsAcknowledged?: boolean } = {},
+  ): Promise<ApiResponse> {
+    // Only the acknowledge action carries a body: it is the one write that must record
+    // `permissions_acknowledged = true` server-side, the durable flag the disclosure modal
+    // uses to decide whether it must reopen after a reload.
+    const body = action === 'acknowledge-permissions' ? JSON.stringify({ permissions_acknowledged: opts.permissionsAcknowledged ?? true }) : undefined;
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST', ...(body !== undefined ? { body } : {}) });
+  }
+
+  async factoryBuiltinSetEnabled(id: string, enabled: boolean): Promise<ApiResponse & { data?: { id: string; enabled: boolean; also_disabled: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+  }
+
+  async factoryBuiltinInstallDeps(id: string): Promise<ApiResponse & { data?: { id: string; installed: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/install-deps`, { method: 'POST' });
+  }
+
+  async factoryRollback(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/rollback`, { method: 'POST' });
+  }
+
+  async factoryLeaveSafeMode(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/safe-mode/leave`, { method: 'POST' });
+  }
+
+  async factoryBisect(step: 'start' | 'stop'): Promise<ApiResponse & { data?: { trial?: string[]; remaining?: number; culprit?: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/${step}`, { method: 'POST' });
+  }
+
+  async factoryBisectAnswer(good: boolean): Promise<ApiResponse & { data?: { trial: string[]; remaining: number; culprit: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/answer`, { method: 'POST', body: JSON.stringify({ good }) });
+  }
+
+  async factoryProposals(): Promise<FactoryProposalsResponse> {
+    return this.request(`/api/plugin-factory/proposals`);
+  }
+
+  async factoryDecide(proposalId: string, approved: boolean): Promise<ApiResponse & { data?: { decision: string; restart_required?: boolean } }> {
+    return this.request(`/api/plugin-factory/proposals/${encodeURIComponent(proposalId)}/decide`, { method: 'POST', body: JSON.stringify({ approved }) });
+  }
+
+  async factoryErrors(id: string): Promise<FactoryErrorsResponse> {
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/errors`);
+  }
+
+  async factoryIndex(q = ''): Promise<FactoryIndexResponse> {
+    return this.request(`/api/plugin-factory/index?q=${encodeURIComponent(q)}`);
+  }
 
   /** List every known plugin's install/update/login state. */
   async getPlugins(): Promise<PluginsListResponse> {
@@ -1582,6 +1654,23 @@ class ApiClient {
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
+  }
+
+  // ---- per-agent capabilities (plugin platform batch 5c): which registered modules take part in this agent's turns.
+  async getAgentCapabilities(agentId: string): Promise<{ success: boolean; detail?: string; data?: AgentCapabilitiesView }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities`);
+  }
+
+  async setAgentCapability(agentId: string, moduleClass: string, enabled: boolean): Promise<{ success: boolean; detail?: string; data?: { module_class: string; enabled: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async resetAgentCapability(agentId: string, moduleClass: string): Promise<{ success: boolean; data?: { module_class: string; reset: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, { method: 'DELETE' });
   }
 
   /** Set (or replace) this agent's override for one slot. */
@@ -1687,18 +1776,6 @@ class ApiClient {
     });
   }
 
-  // Lark / Feishu Integration API
-  async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
-    return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindLarkBot(agentId: string, appId: string, appSecret: string, brand: string, ownerEmail: string = ''): Promise<LarkBindResponse> {
-    return this.request<LarkBindResponse>('/api/lark/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, app_id: appId, app_secret: appSecret, brand, owner_email: ownerEmail }),
-    });
-  }
-
   async larkAuthLogin(agentId: string): Promise<LarkAuthLoginResponse> {
     return this.request<LarkAuthLoginResponse>('/api/lark/auth/login', {
       method: 'POST',
@@ -1717,117 +1794,44 @@ class ApiClient {
     return this.request<ApiResponse>(`/api/lark/auth/status?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async testLarkConnection(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindLarkBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Activate/deactivate a bound channel credential (flip is_active/enabled)
-  // without re-binding. Used to turn a bundle-imported (inactive) channel live.
-  async setLarkActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  // Slack Integration API
-  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
-    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindSlackBot(
-    agentId: string,
-    botToken: string,
-    appToken: string,
-    ownerEmail: string = '',
-  ): Promise<SlackBindResponse> {
-    return this.request<SlackBindResponse>('/api/slack/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        app_token: appToken,
-        owner_email: ownerEmail,
-      }),
-    });
-  }
-
-  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
-    return this.request<SlackTestResponse>('/api/slack/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setSlackActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
+  /** The `ingress.channels` catalog: one row per channel plugin the host loaded, with its
+   *  `ChannelUi` (label / lucide icon name / order) and owning plugin id. `registerBuiltinChannels`
+   *  builds the Channels section from this instead of restating each row in TypeScript. */
+  async pluginChannels(): Promise<ApiResponse & { data?: PluginChannelRow[] }> {
+    return this.request('/api/plugins/channels');
   }
 
   // Telegram Integration API
-  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
-    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
+  // ---- generic channels (/api/channels/{channel}): every channel in ingress.channels — the six
+  // builtins and plugin channels alike (plugin platform batch 4d.3 retired the per-channel
+  // bind/credential/test/unbind/set-active routes). The type parameters let a builtin's config
+  // component keep its precise credential / bind envelope (the service's response is returned
+  // verbatim by the route); channel-specific flows (Lark OAuth, WeChat QR) keep their own methods.
+  async channelSchema(channel: string): Promise<ApiResponse & { data?: ChannelSchema }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/schema`);
   }
 
-  async bindTelegramBot(
-    agentId: string,
-    botToken: string,
-    ownerUsername: string = '',
-  ): Promise<TelegramBindResponse> {
-    return this.request<TelegramBindResponse>('/api/telegram/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_username: ownerUsername,
-      }),
-    });
+  async channelCredential<D extends object = ChannelCredentialView>(channel: string, agentId: string): Promise<ApiResponse & { data?: D | null }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/credential?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
-    return this.request<TelegramTestResponse>('/api/telegram/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
+  async channelBind<R extends ApiResponse = ApiResponse & { data?: ChannelCredentialView }>(channel: string, agentId: string, fields: Record<string, unknown>): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/bind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, fields }) });
   }
 
-  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
+  async channelTest<R extends ApiResponse = ApiResponse & { data?: Record<string, unknown> }>(channel: string, agentId: string): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/test`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
-  async setTelegramActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
+  async channelUnbind(channel: string, agentId: string): Promise<ApiResponse> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/unbind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
-  // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
-  async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
-    return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
+  /** Flip a bound credential's active flag without re-binding (a bundle-imported binding goes live here). */
+  async channelSetActive(channel: string, agentId: string, active: boolean): Promise<ApiResponse & { enabled?: boolean }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/set-active`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, active }) });
   }
+
 
   async startWeChatQrcode(agentId: string): Promise<WeChatQrStartResponse> {
     return this.request<WeChatQrStartResponse>('/api/wechat/qrcode/start', {
@@ -1845,79 +1849,6 @@ class ApiClient {
     return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId, qrcode }),
-    });
-  }
-
-  async unbindWeChat(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setWeChatActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  async getNarramessengerCredential(agentId: string): Promise<NarramessengerCredentialResponse> {
-    return this.request<NarramessengerCredentialResponse>(`/api/narramessenger/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindNarramessenger(agentId: string, bindCommand: string): Promise<NarramessengerBindResponse> {
-    return this.request<NarramessengerBindResponse>('/api/narramessenger/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, bind_command: bindCommand }),
-    });
-  }
-
-  async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/narramessenger/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Discord Integration API
-  async getDiscordCredential(agentId: string): Promise<DiscordCredentialResponse> {
-    return this.request<DiscordCredentialResponse>(`/api/discord/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindDiscordBot(
-    agentId: string,
-    botToken: string,
-    ownerUserId: string = '',
-  ): Promise<DiscordBindResponse> {
-    return this.request<DiscordBindResponse>('/api/discord/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_user_id: ownerUserId,
-      }),
-    });
-  }
-
-  async testDiscordConnection(agentId: string): Promise<DiscordTestResponse> {
-    return this.request<DiscordTestResponse>('/api/discord/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindDiscordBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setDiscordActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 

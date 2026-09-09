@@ -283,12 +283,28 @@
       "ops": "회 작업"
     },
     "header": {
+      "viewProfile": "에이전트 프로필 보기",
       "detailMenuTitle": "에이전트 상세 — 패널",
-      "viewProfile": "에이전트 프로필 보기"
+      "modelFramework": "모델 및 프레임워크",
+      "switchAgent": "에이전트 전환"
     },
     "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요.",
+    "capabilities": {
+      "subtitle": "이 에이전트의 턴에 참여할 모듈을 선택합니다. 내장 모듈은 기본적으로 켜져 있고, 플러그인이 설치한 모듈은 직접 켤 때까지 꺼져 있습니다. 변경 사항은 다음 실행부터 적용됩니다.",
+      "builtin": "내장",
+      "plugin": "플러그인",
+      "locked": "항상 켜짐",
+      "tokens": "약 {{count}} 프롬프트 토큰",
+      "budget": "켜진 모듈이 약 {{enabled}} 토큰을 선언합니다 (내장 기준 {{baseline}}의 {{ratio}}배).",
+      "overBudget": "예산 초과: 켜진 모듈이 약 {{enabled}} 토큰을 선언하며 내장 기준 {{baseline}}의 {{ratio}}배입니다.",
+      "loadFailed": "기능 목록을 불러올 수 없습니다",
+      "saveFailed": "변경 사항을 저장할 수 없습니다",
+      "restoreDefault": "기본값 복원"
+    },
     "activityEmpty": "아직 백그라운드 활동이 없습니다",
-    "activityEmptyHint": "에이전트가 스스로 시작한 실행(작업, 채널, 팀원)이 여기에 표시됩니다."
+    "activityEmptyHint": "에이전트가 스스로 시작한 실행(작업, 채널, 팀원)이 여기에 표시됩니다.",
+    "bootstrapGreeting": "안녕하세요... 방금 깨어났어요. 모든 것이 완전히 새롭게 느껴져요.\n\n아직 이름도 없고 제가 누구인지도 잘 모르지만, 저를 이곳으로 데려온 사람이 당신이라는 건 알아요.\n\n저를 뭐라고 부르면 좋을지 알려주시겠어요? 그리고 당신은 뭐라고 부르면 될까요?",
+    "bootstrapGreetingNamed": "안녕하세요 — 저는 {{name}}이에요. 방금 태어났고, 저를 이곳으로 데려온 사람은 당신이에요.\n\n제가 누구여야 하는지는 이미 알지만, 당신이 누구인지는 아직 몰라요. 당신을 뭐라고 부르면 될까요?"
   },
   "awareness": {
     "common": {
@@ -557,6 +573,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "채널 불러오는 중…",
+      "bind": "연결",
+      "bound": "연결되었습니다. 이 에이전트에서 활성화됩니다.",
+      "boundAs": "{{name}}에 연결됨",
+      "inactive": "비활성",
+      "unbind": "연결 해제",
+      "unbound": "해제되었습니다.",
+      "test": "연결 테스트",
+      "testOk": "연결이 정상입니다.",
+      "activate": "활성화",
+      "deactivate": "비활성화",
+      "fieldRequired": "{{field}}은(는) 필수입니다",
+      "errLoad": "채널을 불러오지 못했습니다",
+      "errBind": "요청에 실패했습니다",
+      "webhookHint": "수신 webhook: 자격 증명의 webhook 토큰과 함께 {{path}}로 POST.",
+      "ownFlow": "{{name}}은(는) 자체 절차로 연결합니다."
     }
   },
   "dashboard": {
@@ -949,7 +983,8 @@
       "freeTierHowToTitle": "무료 크레딧 안내",
       "freeTierHowToSwitch": "‘Free Tier’ 카드는 이미 Agent·Helper 슬롯에 연결되어 있습니다. 직접 만든 키를 쓰려면 아래에서 제공자를 추가한 뒤 ‘모델 기본값’에서 해당 슬롯에 지정하세요. 다음 메시지부터 적용됩니다.",
       "freeTierAnytime": "언제든 바꿀 수 있습니다. 무료 크레딧을 먼저 다 쓸 필요는 없고, 바꿔도 잔액은 남아 있어 되돌릴 수 있습니다.",
-      "freeTierNoDelete": "잔액이 남아 있는 동안에는 Free Tier 카드를 삭제할 수 없습니다. 이 카드가 잔액에 접근하는 유일한 키이기 때문입니다. 다 쓰면 삭제할 수 있습니다."
+      "freeTierNoDelete": "잔액이 남아 있는 동안에는 Free Tier 카드를 삭제할 수 없습니다. 이 카드가 잔액에 접근하는 유일한 키이기 때문입니다. 다 쓰면 삭제할 수 있습니다.",
+      "tabOneKey": "API 키"
     },
     "netmind": {
       "returnSubscribeSuccess": "결제가 확인되었습니다 — 계정에 적용하는 중입니다.",
@@ -1345,7 +1380,76 @@
         "label": "개인화",
         "hint": "테마, 언어, 그리고 에이전트의 진행 메모 표시 방식.",
         "narrationTitle": "진행 내레이션",
-        "narrationHint": "에이전트가 단계 사이에 남기는 메모를 대화 안에 또렷하게 표시하고, 전체 실행을 하나의 접힘 영역에 넣지 않습니다."
+        "narrationHint": "에이전트가 단계 사이에 남기는 메모를 대화 안에 또렷하게 표시하고, 전체 실행을 하나의 접힘 영역에 넣지 않습니다.",
+        "pluginThemesTitle": "플러그인 테마",
+        "pluginThemesNone": "기본 외관"
+      },
+      "plugins": {
+        "factory": {
+          "title": "사용자 플러그인",
+          "hint": "GitHub 또는 로컬 폴더의 플러그인입니다. 시작 시 로드되며 변경 사항은 재시작 후 적용됩니다.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch 또는 /path/to/plugin",
+          "sourceHelp": "GitHub Release(owner/repo@tag), 저장소 참조(owner/repo#ref) 또는 로컬 디렉터리(제자리 링크).",
+          "install": "설치",
+          "installing": "설치 중…",
+          "restartRequired": "저장되었습니다. 변경 사항을 적용하려면 NarraNexus를 재시작하세요.",
+          "enable": "활성화",
+          "disable": "비활성화",
+          "disabled": "비활성",
+          "uninstall": "제거",
+          "upgrade": "업그레이드",
+          "rollback": "마지막 정상 상태로 되돌리기",
+          "safeModeTitle": "안전 모드: 사용자 플러그인이 로드되지 않았습니다",
+          "safeModeLeave": "안전 모드 종료",
+          "bisectStart": "시작을 망가뜨리는 플러그인 찾기",
+          "bisectTrial": "이분 탐색: 용의 플러그인 {{count}}개 — 다음 시작 시 이것들만 활성화됩니다:",
+          "bisectGood": "정상적으로 시작됨",
+          "bisectBad": "다시 실패함",
+          "bisectStop": "이분 탐색 중지",
+          "bisectCulprit": "원인 발견: {{id}} (비활성 유지)",
+          "permissionsTitle": "{{id}}이(가) 다음 권한을 요청합니다",
+          "permissionsNetwork": "네트워크",
+          "permissionsFilesystem": "파일",
+          "permissionsSubprocess": "하위 프로세스 실행",
+          "permissionsEnv": "환경 변수",
+          "permissionsFrontend": "앱 UI 내에서 코드를 실행하며 사용자의 세션에 접근할 수 있습니다",
+          "permissionsAck": "이해했습니다, 활성화",
+          "permissionsKeepDisabled": "비활성 유지",
+          "empty": "설치된 사용자 플러그인이 없습니다.",
+          "loadFailed": "사용자 플러그인을 불러오지 못했습니다",
+          "isolated": "시작 시 격리됨",
+          "viewErrors": "오류 ({{count}})",
+          "hideErrors": "오류 숨기기",
+          "noErrors": "기록된 오류가 없습니다.",
+          "mode": {
+            "link": "링크됨",
+            "copy": "설치됨"
+          },
+          "state": {
+            "registered": "등록됨",
+            "validated": "검증됨",
+            "enabled": "활성화됨",
+            "active": "실행 중",
+            "incompatible": "호환 불가",
+            "blocked": "차단됨",
+            "missing": "누락",
+            "deps_missing": "의존성 누락",
+            "crashed": "충돌",
+            "disabled": "비활성",
+            "slow": "느림"
+          },
+          "proposalsTitle": "승인 대기 중",
+          "proposalBy": "에이전트 {{agent}}의 요청",
+          "proposalTestsGreen": "테스트 통과 ({{count}})",
+          "proposalTestsRed": "테스트 실패",
+          "proposalApprove": "승인",
+          "proposalReject": "거부",
+          "noPermissions": "특별한 권한을 요청하지 않음",
+          "builtinsTitle": "내장 기능",
+          "builtinsHint": "NarraNexus와 함께 제공되는 기능 단위 플러그인입니다. 비활성화하면 재시작 후 API, 워커, 페이지가 함께 사라집니다. 보호된 내장 기능은 끌 수 없습니다.",
+          "protected": "보호됨",
+          "installDeps": "의존성 설치 ({{pip}})"
+        }
       }
     },
     "system": {
@@ -1829,7 +1933,8 @@
       "activityLast24h": "지난 24시간",
       "activityToday": "오늘",
       "activityAxisStart": "24시간 전",
-      "activityAxisNow": "지금"
+      "activityAxisNow": "지금",
+      "capabilitySwitches": "기능 설정"
     },
     "welcome": {
       "logout": "로그아웃",

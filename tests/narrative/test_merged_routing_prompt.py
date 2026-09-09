@@ -35,19 +35,19 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative._narrative_impl import (
+from narranexus.platform.narrative._narrative_impl import (
     merged_router,
     prompts,
     routing_blocks,
 )
-from xyz_agent_context.narrative._narrative_impl import prompts_merged
-from xyz_agent_context.narrative._narrative_impl import routing_gate
-from xyz_agent_context.narrative._narrative_impl.merged_router import (
+from narranexus.platform.narrative._narrative_impl import prompts_merged
+from narranexus.platform.narrative._narrative_impl import routing_gate
+from narranexus.platform.narrative._narrative_impl.merged_router import (
     MergedRoutingInput,
     build_merged_prompt,
 )
-from xyz_agent_context.narrative.config import config
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.config import config
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeInfo,
     NarrativeSearchResult,

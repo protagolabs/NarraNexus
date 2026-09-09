@@ -27,8 +27,8 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository import AgentRepository
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository import AgentRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 OWNER = "alice"
 

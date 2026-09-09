@@ -31,8 +31,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
 
 
 # --------------------------------------------------------------------------
@@ -608,7 +608,7 @@ async def test_close_terminates_connections_that_never_come_back():
     """`pool.close()` only stops new checkouts; `wait_closed()` waits for the
     borrowed ones forever. A connection held by another task at shutdown would
     otherwise keep the container alive until docker SIGKILLs it."""
-    import xyz_agent_context.utils.db.db_backend_mysql as mod
+    import narranexus.platform.utils.db.db_backend_mysql as mod
 
     backend, pool = make_backend()
 
@@ -700,7 +700,7 @@ async def test_the_shutdown_budget_stays_under_the_evict_sweep_budget():
     The relationship lives in two files, so it is asserted rather than left to a
     comment — the comment was already there when the two constants were equal.
     """
-    from xyz_agent_context.utils.db import db_backend_mysql, db_factory
+    from narranexus.platform.utils.db import db_backend_mysql, db_factory
 
     assert db_backend_mysql._POOL_CLOSE_TIMEOUT_SEC < db_factory._EVICT_SWEEP_BUDGET
 
@@ -871,8 +871,8 @@ async def test_a_lazily_initialised_sqlite_client_can_probe_before_anything_else
     `AttributeError` from `probe()` and a silent `False` from `ping()` against a
     perfectly healthy database.
     """
-    from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
     db_file = tmp_path / "probe.db"
     monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_file}", raising=False)
@@ -965,8 +965,8 @@ async def test_every_crud_method_works_on_a_lazily_initialised_client(tmp_path, 
     The previous round's lazy-path test stopped one method short of all four.
     This one starts a NEW client per method so each really takes the cold path.
     """
-    from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
     db_file = tmp_path / "crud.db"
     monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_file}", raising=False)
@@ -994,8 +994,8 @@ async def test_every_crud_method_works_on_a_lazily_initialised_client(tmp_path, 
 async def test_the_empty_input_guards_survived_the_collapse(tmp_path, monkeypatch):
     """Collapsing the two paths into one must not drop the validation that only
     lived on the deleted half."""
-    from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
     monkeypatch.setattr(
         settings, "database_url", f"sqlite:///{tmp_path / 'guards.db'}", raising=False

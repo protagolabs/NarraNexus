@@ -1,7 +1,7 @@
 /**
  * Blank replies never become bubbles: when reply_owner
  * carries whitespace-only content ("\n"), stopStreaming falls through to
- * the placeholder branch — the same line the backend hook_persist_turn
+ * the placeholder branch — the same line the backend persist_turn
  * strip guard draws. Otherwise the session shows a blank bubble that
  * vanishes on refresh (the DB side is caught by the strip guard, the
  * session side let it through via filter(Boolean)).

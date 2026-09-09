@@ -2,14 +2,17 @@
  * @file_name: kindRegistry.ts
  * @author: NetMind.AI
  * @date: 2026-08-19
- * @description: Single source of truth for what each ArtifactKind can do.
+ * @description: The shell's builtin artifact kinds (registered into ARTIFACT_KINDS by platform/builtin.ts) and the download-extension helper.
  *
  * Before this file, kind knowledge was scattered: ArtifactRenderer held the
  * renderer map, ArtifactPreviewCard a chain of `kind ===` branches,
  * ArtifactDownloadMenu its own ext map + `isChart`, ArtifactsSection a label
  * map. Adding a kind (or a capability like editing) meant hunting all of
- * them. Now every consumer looks up one descriptor, and a new kind is one
- * entry + one renderer file.
+ * them. Now every consumer looks up one descriptor in the `ARTIFACT_KINDS`
+ * registry (`platform/registries/artifactKinds.ts`, which also owns the
+ * descriptor vocabulary), and a new builtin kind is one entry in
+ * `BUILTIN_ARTIFACT_KINDS` + one renderer file; a plugin's kind is one
+ * `host.registries.artifactKinds.register(...)`.
  *
  * `editSurface` / `saveMode` / `selectionToAI` encode the 2026-08-19 editing
  * design (no-mode framework): the tab shell mounts editing behaviour
@@ -20,7 +23,10 @@
  */
 
 import { lazy } from 'react';
-import type { Artifact, ArtifactKind } from '@/types/artifact';
+import type { Artifact, BuiltinArtifactKind } from '@/types/artifact';
+import { ARTIFACT_KINDS, type KindDescriptor } from '@/platform/registries';
+
+export type { EditSurface, KindDescriptor, PreviewStrategy, RendererComponent, SaveMode } from '@/platform/registries';
 
 const HtmlRenderer = lazy(() => import('./renderers/HtmlRenderer'));
 const ChartRenderer = lazy(() => import('./renderers/ChartRenderer'));
@@ -31,69 +37,14 @@ const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
 const OfficeWatchViewer = lazy(() => import('./OfficeWatchViewer'));
 const UrlRenderer = lazy(() => import('./renderers/UrlRenderer'));
 
-export type RendererComponent = React.LazyExoticComponent<
-  React.ComponentType<{ artifact: Artifact }>
->;
-
 /**
- * Which editing surface the tab offers. There is deliberately NO view/edit
- * mode toggle anywhere — the render surface itself takes a cursor where the
- * kind allows it (no-mode framework):
- *  - block-editor:    the render IS a WYSIWYG editor (markdown).
- *  - per-element:     rendered page, but clicking into static text makes that
- *                     one element editable; blur commits (html).
- *  - resident-editor: the source editor IS the render, always editable (csv).
- *  - office-watch:    live officecli watch page; edits go through officecli
- *                     command translation (office editing spec).
- *  - none:            read-only surface; user changes go through the AI.
+ * The shell's own kinds, exhaustive over `BuiltinArtifactKind`. Registered
+ * into `ARTIFACT_KINDS` under owner `builtin.ui` by `platform/builtin.ts`
+ * (the one place the shell contributes to its registries); consumers never
+ * read this table directly — they look the registry up, so a plugin's kind
+ * and a builtin one resolve the same way.
  */
-export type EditSurface =
-  | 'block-editor'
-  | 'per-element'
-  | 'resident-editor'
-  | 'office-watch'
-  | 'none';
-
-/**
- * How user edits reach disk. Null exactly when editSurface is 'none'.
- *  - debounced-autosave: continuous typing, saved on blur + idle (markdown).
- *  - element-commit:     each element blur is one atomic commit (html).
- *  - explicit-dirty:     Cmd+S / save button with dirty guards (csv).
- *  - office-resident:    officecli resident serializes all writers.
- */
-export type SaveMode =
-  | 'debounced-autosave'
-  | 'element-commit'
-  | 'explicit-dirty'
-  | 'office-resident'
-  | null;
-
-/** What ArtifactPreviewCard shows inside a chat message. */
-export type PreviewStrategy = 'image' | 'csv-head' | 'md-head' | 'placeholder' | 'none';
-
-export interface KindDescriptor {
-  renderer: RendererComponent;
-  editSurface: EditSurface;
-  saveMode: SaveMode;
-  /** v1.5 mount point: can a selection on this surface be sent to the AI? */
-  selectionToAI: boolean;
-  preview: PreviewStrategy;
-  /** i18n key for the preview line; present iff preview === 'placeholder'. */
-  previewPlaceholderKey?: string;
-  /**
-   * Download filename extension. Absent when the kind has no SINGLE natural
-   * extension (office-live covers pptx/docx/xlsx) — consumers must go
-   * through downloadExtFor, which derives it from the artifact's file_path.
-   * A static 'bin' here was the Shenzhen-r2 ".bin download" bug.
-   */
-  downloadExt?: string;
-  /** Human label for admin lists; consumers fall back to the raw kind. */
-  label?: string;
-  /** Chart-only: PNG/JPEG export entries in the download menu. */
-  chartImageExport?: boolean;
-}
-
-export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
+export const BUILTIN_ARTIFACT_KINDS: Record<BuiltinArtifactKind, KindDescriptor> = {
   'text/html': {
     renderer: HtmlRenderer,
     editSurface: 'per-element',
@@ -191,9 +142,9 @@ export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
  * not a transport type.
  */
 export function downloadExtFor(artifact: Pick<Artifact, 'kind' | 'file_path'>): string {
-  // `?.` stays despite the exhaustive Record type: `kind` is a server value
-  // and a NEWER backend may ship a kind this build's union doesn't know.
-  const staticExt = KIND_REGISTRY[artifact.kind]?.downloadExt;
+  // `kind` is a server value: a NEWER backend may ship a kind this build
+  // does not know and no plugin has registered.
+  const staticExt = ARTIFACT_KINDS.get(artifact.kind)?.downloadExt;
   if (staticExt) return staticExt;
   const base = (artifact.file_path ?? '').split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');

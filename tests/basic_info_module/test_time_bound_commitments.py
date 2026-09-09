@@ -14,7 +14,7 @@ moment the agent makes a promise), and it has to survive into BOTH prompt
 layouts — the stable one and the legacy one.
 """
 
-from xyz_agent_context.module.basic_info_module.prompts import (
+from narranexus_plugins.basic_info_module.prompts import (
     BASIC_INFO_MODULE_INSTRUCTIONS,
     BASIC_INFO_MODULE_INSTRUCTIONS_STABLE,
     BASIC_INFO_REAL_WORLD_TURN_TEMPLATE,

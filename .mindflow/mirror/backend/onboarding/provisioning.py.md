@@ -1,6 +1,6 @@
 ---
 code_file: backend/onboarding/provisioning.py
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -66,7 +66,7 @@ marker. Zero raw SQL.
   container needs an env change + restart to flip.
 - **The daily check-in is a SCHEDULED job, deliberately NOT "ongoing"**: an
   ONGOING job's iteration counter and end_condition Helper-LLM analysis also
-  run on EVERY chat event (`hook_after_event_execution`), which would (a)
+  run on EVERY chat event (`after_turn`), which would (a)
   burn a max_iterations budget on ordinary conversation — a chatty first
   week would silently COMPLETE the "daily companionship" — and (b) add one
   LLM call to every chat turn of every new user (the exact cost face that
@@ -130,3 +130,7 @@ marker. Zero raw SQL.
 - Integration coverage (real DB, no collaborator mocks):
   `tests/backend/onboarding/test_onboarding_provisioning_integration.py`
   pins the persisted rows; the unit file pins parameter pipes only.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_create_checkin_job` creates through the `jobs.instances` service (`utils/plugin_services.job_instances`); with builtin.job disabled the require fails and the existing warning path records it.

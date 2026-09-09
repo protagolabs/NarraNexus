@@ -15,7 +15,7 @@ EITHER the exception class name (raw-exception path) OR the message substring
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm.failure import (
+from narranexus.platform.agent_framework.llm.failure import (
     classify_self_serviceable,
     OUT_OF_CREDIT_REASONS,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
@@ -263,7 +263,7 @@ def test_out_of_credit_reasons_holds_every_no_money_reason():
 
 
 def test_every_out_of_credit_reason_pauses_the_circuit_breaker():
-    from xyz_agent_context.agent_framework.loop.circuit_breaker import (
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
         ErrorCategory,
         classify_agent_error,
     )
@@ -285,7 +285,7 @@ def test_every_out_of_credit_reason_pauses_the_circuit_breaker():
 def test_every_out_of_credit_reason_resumes_only_on_an_edge():
     """A balance top-up leaves config unchanged, so the static readiness check
     cannot observe it. Any out-of-credit reason must therefore be edge-only."""
-    from xyz_agent_context.module.job_module.job_trigger import (
+    from narranexus_plugins.job_module.job_trigger import (
         _EDGE_ONLY_RESUME_REASONS,
     )
 

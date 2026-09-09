@@ -26,21 +26,21 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus import wake_signal
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus import wake_signal
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
-from xyz_agent_context.schema.team_schema import (
+from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
 )
-from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
+from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
 
 from ._mcp_headers import injected
 
@@ -55,7 +55,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 

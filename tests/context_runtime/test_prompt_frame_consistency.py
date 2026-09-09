@@ -21,8 +21,8 @@ import re
 
 import pytest
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
 
 TZ = "Asia/Shanghai"
 _OFFSET = re.compile(r"[+-]\d{2}:\d{2}")
@@ -77,7 +77,7 @@ def test_recent_actions_default_to_utc_not_a_crash():
 async def test_timeline_and_recent_actions_share_one_offset(db_client, monkeypatch):
     """The actual invariant, end to end: assemble a turn that carries BOTH
     blocks and assert every timestamp in it names the same offset."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
 
@@ -114,7 +114,7 @@ async def test_timeline_and_recent_actions_share_one_offset(db_client, monkeypat
         "event_id": "evt_job",
     }]}
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt="sys", active_instances=[], ctx_data=ctx,
     )
     whole_prompt = "\n".join(m["content"] for m in final_messages)
@@ -130,7 +130,7 @@ async def test_timeline_and_recent_actions_share_one_offset(db_client, monkeypat
 async def test_no_bare_utc_slice_survives_in_the_turn_prompt(db_client, monkeypatch):
     """Guard the negative directly: a `YYYY-MM-DD HH:MM` with no offset after
     it is the shape the old slice produced."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
 
@@ -166,7 +166,7 @@ async def test_no_bare_utc_slice_survives_in_the_turn_prompt(db_client, monkeypa
         "title": "reminder fired",
     }]}
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt="sys", active_instances=[], ctx_data=ctx,
     )
     whole_prompt = "\n".join(m["content"] for m in final_messages)

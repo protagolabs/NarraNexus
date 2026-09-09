@@ -1,8 +1,24 @@
 ---
 code_file: backend/auth_errors.py
-last_verified: 2026-08-13
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `AuthError` 多继承 `contracts.web.AuthError`（批 6c）
+
+本模块是 backend 的私有模块，插件不许 import 它（新的 import-linter 契约
+`plugins never import the host (backend)`）。但 `builtin.auth.netmind` 和
+`builtin.teams` 确实需要抛出带 `code` 的鉴权错误。
+
+解法：契约包里放一个纯 Exception 基类（contracts 不依赖 fastapi，只能是纯的），
+本模块的 `AuthError` 同时继承它和 `HTTPException`。于是插件
+`except AuthError` 成立，而 `install_auth_error_handler` 注册在具体类上、
+把 `code` 渲染进响应体的行为完全不变。插件不构造这个类，
+它调 `narranexus.sdk.web.auth_error(code, detail)`，由宿主还回自己的实例——
+一个 handler 认不出的异常等于把 `code` 字段丢掉，正是本模块存在的理由。
+
+`__init__` 里显式写 `HTTPException.__init__(self, ...)` 而不是 `super()`：
+MRO 的第一个是契约基类（纯 Exception），它不收这些关键字。
 
 ## 2026-08-13 — `ACCOUNT_SUSPENDED`（403）+ AuthError/response 的 status_code 覆盖
 

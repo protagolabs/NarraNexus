@@ -7,7 +7,7 @@ stub: false
 ## 2026-08-17 — 为什么存在
 
 [[errand]] 挂在 [[message_bus_trigger]] 上，那是 **agent 回帖**走的路。人发的消
-息从 `backend/routes/teams.py` 直接进 bus，于是「@Bruno 把数拉一下」被无视之后
+息从 `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py` 直接进 bus，于是「@Bruno 把数拉一下」被无视之后
 **什么痕迹都没有**：板子上没有行，巡查无事可扫，闭环率报告里也没有它。
 
 而这恰恰是**用户唯一亲眼看得见**的那类断链——agent 之间互相无视用户看不见，自己

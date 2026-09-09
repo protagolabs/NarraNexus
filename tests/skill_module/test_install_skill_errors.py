@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
+from narranexus_plugins.skill_module.skill_module import SkillModule
 
 
 @pytest.fixture

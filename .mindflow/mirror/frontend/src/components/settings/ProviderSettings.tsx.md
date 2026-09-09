@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（Owner 反转 09-03 决定）— 「添加 provider」找回一键接入 tab
+
+云端非 staff 此前只剩「自定义」，NetMind.AI Power / Anthropic / OpenAI 的一键预设只在首程页有。现在弹窗第一个 tab（默认）是
+`OneKeyOnboard`（bare + hideHeader，完成后关弹窗并刷新列表），Sign-in 仍按 `oauthAllowed` 门控，Custom 不变。
 
 ---
 

@@ -12,15 +12,15 @@ import re
 
 import pytest
 
-from xyz_agent_context.agent_runtime.steer_channel import (
+from narranexus.platform.agent_runtime.steer_channel import (
     SteerChannel,
     render_injection,
     rendered_injection_payload,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
     QueueSteeringInlet,
 )
-from xyz_agent_context.schema.steer_schema import SteerInjection
+from narranexus.platform.schema.steer_schema import SteerInjection
 
 
 def _inj(content: str, source: str = "team", sender: str = "agent_x") -> SteerInjection:

@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from xyz_agent_context.channel.inbox_recorder import (
+from narranexus.platform.channel.inbox_recorder import (
     AGENT_DM_THREAD_PREFIX,
     IM_THREAD_PREFIX,
     INBOUND,

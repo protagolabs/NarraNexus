@@ -32,12 +32,12 @@ from datetime import date, datetime, timezone as dt_timezone
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.module.common_tools_module._common_tools_impl import date_tool
-from xyz_agent_context.module.common_tools_module._common_tools_impl.date_tool import (
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus_plugins.common_tools_module._common_tools_impl import date_tool
+from narranexus_plugins.common_tools_module._common_tools_impl.date_tool import (
     _parse_date,
 )
-from xyz_agent_context.utils.timezone import (
+from narranexus.platform.utils.timezone import (
     format_now_for_agent,
     format_timestamp_for_agent,
 )
@@ -61,7 +61,7 @@ def _fixed_clock_and_tz(monkeypatch):
     tool disagree about today, which is precisely the class of bug this file
     exists to catch — so the fixture must not introduce it itself.
     """
-    import xyz_agent_context.utils.timezone as tz_mod
+    import narranexus.platform.utils.timezone as tz_mod
 
     frozen = datetime(2026, 8, 8, 1, 0, tzinfo=dt_timezone.utc)
     monkeypatch.setattr(tz_mod, "utc_now", lambda: frozen)

@@ -8,10 +8,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { ArtifactKind } from '@/types/artifact';
-import { KIND_REGISTRY, downloadExtFor } from '../kindRegistry';
+import type { BuiltinArtifactKind } from '@/types/artifact';
+import { ARTIFACT_KINDS, RegistryConflictError, type KindDescriptor } from '@/platform/registries';
+import { BUILTIN_ARTIFACT_KINDS, downloadExtFor } from '../kindRegistry';
 
-const ALL_KINDS: ArtifactKind[] = [
+// The registry as populated by platform/builtin.ts (test-setup imports it);
+// the capability matrix below is pinned on the builtin table itself.
+const KIND_REGISTRY = BUILTIN_ARTIFACT_KINDS;
+
+// Builtin-typed on purpose: a typo here must be a compile error, not a silent "unsupported kind".
+const ALL_KINDS: BuiltinArtifactKind[] = [
   'text/html',
   'application/vnd.echarts+json',
   'text/csv',
@@ -23,9 +29,13 @@ const ALL_KINDS: ArtifactKind[] = [
   'application/x-url',
 ];
 
-describe('KIND_REGISTRY', () => {
-  it('covers every ArtifactKind and nothing else', () => {
+describe('BUILTIN_ARTIFACT_KINDS', () => {
+  it('covers every builtin ArtifactKind and nothing else, and is what the registry holds', () => {
     expect(Object.keys(KIND_REGISTRY).sort()).toEqual([...ALL_KINDS].sort());
+    for (const kind of ALL_KINDS) {
+      expect(ARTIFACT_KINDS.get(kind), kind).toBe(KIND_REGISTRY[kind]);
+      expect(ARTIFACT_KINDS.ownerOf(kind), kind).toBe('builtin.ui');
+    }
   });
 
   it('every kind has a renderer', () => {
@@ -213,5 +223,53 @@ describe('KIND_REGISTRY', () => {
       return surface !== 'none' && surface !== 'office-watch';
     });
     expect(putEditable.sort()).toEqual(['text/csv', 'text/html', 'text/markdown']);
+  });
+});
+
+describe('ARTIFACT_KINDS registry', () => {
+  const fake = (): KindDescriptor => ({
+    renderer: KIND_REGISTRY['text/markdown'].renderer,
+    editSurface: 'none',
+    saveMode: null,
+    selectionToAI: false,
+    preview: 'none',
+    label: 'Fake',
+  });
+
+  it('a plugin adds an unknown kind and the disposer removes it again', () => {
+    const dispose = ARTIFACT_KINDS.register('application/x-acme', fake(), { owner: 'acme.plugin' });
+    expect(ARTIFACT_KINDS.get('application/x-acme')?.label).toBe('Fake');
+    expect(downloadExtFor({ kind: 'application/x-acme', file_path: 'a/b.acme' })).toBe('acme');
+    dispose();
+    expect(ARTIFACT_KINDS.get('application/x-acme')).toBeUndefined();
+  });
+
+  it('a plugin cannot silently take over a builtin kind (registry conflict, builtin untouched)', () => {
+    const original = ARTIFACT_KINDS.get('text/markdown');
+    expect(() => ARTIFACT_KINDS.register('text/markdown', fake(), { owner: 'acme.plugin' })).toThrow(RegistryConflictError);
+    expect(ARTIFACT_KINDS.get('text/markdown')).toBe(original);
+  });
+
+  it('a stale disposer does not clobber a newer registration of the same id', () => {
+    const first = ARTIFACT_KINDS.register('application/x-acme', fake(), { owner: 'acme.plugin' });
+    const second = ARTIFACT_KINDS.register('application/x-acme', { ...fake(), label: 'Second' }, { owner: 'acme.plugin', replace: true });
+    first();
+    expect(ARTIFACT_KINDS.get('application/x-acme')?.label).toBe('Second');
+    second();
+    expect(ARTIFACT_KINDS.get('application/x-acme')).toBeUndefined();
+  });
+
+  it('rejects a descriptor whose invariants do not hold, at registration time', () => {
+    expect(() => ARTIFACT_KINDS.register('application/x-bad', { ...fake(), saveMode: 'explicit-dirty' }, { owner: 'acme.plugin' }))
+      .toThrow(/saveMode must be null exactly when editSurface is 'none'/);
+    expect(() => ARTIFACT_KINDS.register('application/x-bad', { ...fake(), preview: 'placeholder' }, { owner: 'acme.plugin' }))
+      .toThrow(/previewPlaceholderKey is required/);
+    expect(ARTIFACT_KINDS.has('application/x-bad')).toBe(false);
+  });
+
+  it('every builtin descriptor passes the same validation a plugin faces', () => {
+    for (const kind of ALL_KINDS) {
+      expect(() => ARTIFACT_KINDS.register(`probe/${kind}`, KIND_REGISTRY[kind], { owner: 'probe' })(), kind).not.toThrow();
+    }
   });
 });

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-08-24
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -81,3 +81,7 @@ the text in this small memoized child means a keystroke re-renders only here.
   comment.
 - 铁律 #16: this is pure render isolation — no message content is dropped,
   truncated, or throttled.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+A `SlotOutlet` strip above the textarea mounts `composerExtensions` (when-filtered, `agentId` passed).

@@ -18,7 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module._mcp_identity import (
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.module_system._mcp_identity import (
     AGENT_ID_HEADER,
     BEARER_AGENT_PREFIX,
 )
@@ -27,18 +28,24 @@ AGENT = "agent_d8795abf5021"
 
 
 class _FakeModule:
-    """A module that only needs to answer get_mcp_config()."""
+
+
+    # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+
+    contribute_tools = XYZBaseModule.contribute_tools
+    """A module that only needs to answer mcp_server()."""
 
     def __init__(self, name: str, url: str):
         self._name, self._url = name, url
 
-    async def get_mcp_config(self):
+    async def mcp_server(self):
         return SimpleNamespace(server_name=self._name, server_url=self._url)
 
-    async def get_turn_context(self, ctx_data):
+    async def contribute_turn_context(self, ctx_data):
         return ""
 
-    async def get_expressive_tools(self, ctx_data=None):
+    async def expressive_tools(self, ctx_data=None):
         # Accepts ctx_data since #228 — context_runtime calls it WITH the
         # arg and logs "declaration DROPPED" (error) on signature drift, so a
         # stale fake here would silently exercise that error path.
@@ -53,8 +60,8 @@ def _instance(module_class: str, module) -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_mcp_spec_carries_the_callers_identity():
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData
 
     runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
                              database_client=object())
@@ -90,8 +97,8 @@ async def test_mcp_spec_carries_the_callers_identity():
 @pytest.mark.asyncio
 async def test_injected_identity_is_this_agent_not_a_constant():
     """Guard against a hardcoded/stale id: two runtimes must inject their own."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData
 
     seen = {}
     for agent in (AGENT, "agent_25dec880a426"):
@@ -112,8 +119,8 @@ async def test_injected_identity_is_this_agent_not_a_constant():
 
 
 async def _bus_turn_headers(extra_data: dict) -> dict:
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData, WorkingSource
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData, WorkingSource
 
     runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
                              database_client=object())
@@ -141,7 +148,7 @@ async def test_errand_continuation_bus_turn_injects_its_errand_scope():
     same turn gives to unrelated peers, which reproduced the P1 one seat over
     (2026-08-03 review).
     """
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELD_SEP,
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
@@ -169,7 +176,7 @@ async def test_errand_continuation_bus_turn_injects_its_errand_scope():
 @pytest.mark.asyncio
 async def test_a_plain_bus_turn_carries_no_errand_scope():
     """Answering a peer is not an errand of ours — nothing to inherit."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELD_SEP,
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
@@ -189,9 +196,9 @@ async def test_a_plain_bus_turn_carries_no_errand_scope():
 @pytest.mark.asyncio
 async def test_mcp_spec_carries_the_turn_owner():
     """user_id rides the same seam — and an ownerless turn omits it."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.module._mcp_identity import BEARER_FIELD_SEP, USER_ID_HEADER
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.module_system._mcp_identity import BEARER_FIELD_SEP, USER_ID_HEADER
+    from narranexus.platform.schema import ContextData
 
     for user_id, expect in (("user_tc", "user_tc"), (None, None)):
         runtime = ContextRuntime(agent_id=AGENT, user_id=user_id,

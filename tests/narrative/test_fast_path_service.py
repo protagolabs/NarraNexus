@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.narrative import NarrativeService
+from narranexus.platform.narrative import NarrativeService
 
 AGENT = "agent_fastsvc"
 USER = "user_fastsvc"
@@ -38,7 +38,7 @@ def service(db_client, monkeypatch):
     svc._crud.set_database_client(db_client)
     svc._retrieval.set_database_client(db_client)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         _const(db_client),
     )
     return svc
@@ -114,7 +114,7 @@ async def test_select_fast_anchor_override_uses_strong_floor(service, monkeypatc
     # A mid-strength score (above the noise floor, below the override
     # floor) picks normally but must NOT be allowed to steal a live
     # anchor — the step layer reuses the anchor. Thresholds in config.py.
-    from xyz_agent_context.narrative.config import config
+    from narranexus.platform.narrative.config import config
 
     score = (config.NARRATIVE_MATCH_RAW_FLOOR + config.FAST_ANCHOR_OVERRIDE_FLOOR) / 2
 

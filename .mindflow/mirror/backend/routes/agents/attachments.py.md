@@ -59,13 +59,13 @@ Upstream:
   `GET /agents/{aid}/attachments/{file_id}/raw`
 
 Downstream:
-- `xyz_agent_context.utils.attachment_storage.store_uploaded_attachment`
+- `narranexus.platform.utils.attachment_storage.store_uploaded_attachment`
   writes the file and updates the daily index
-- `xyz_agent_context.utils.attachment_storage.resolve_attachment_path`
+- `narranexus.platform.utils.attachment_storage.resolve_attachment_path`
   re-resolves on `/raw` requests with the workspace sandbox check
-- `xyz_agent_context.schema.attachment_schema.derive_category_from_mime`
+- `narranexus.platform.schema.attachment_schema.derive_category_from_mime`
   classifies the upload so the frontend can render an icon vs a thumbnail
-- `xyz_agent_context.utils.audio_transcription.transcribe_audio` /
+- `narranexus.platform.utils.audio_transcription.transcribe_audio` /
   `is_transcription_available` — called only on `audio/*` uploads, with
   the request's `user_id` so per-user provider lookup works
 

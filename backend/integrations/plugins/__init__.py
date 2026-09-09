@@ -12,8 +12,8 @@ This package owns the platform-side half of that flow: what to install
 a failure (errors.py), and the public facade routes call (service.py).
 
 Consumed exclusively by backend routes/lifespan (binding rule #21) — never
-imported from ``xyz_agent_context``. The actual install LOCATIONS (where the
+imported from ``narranexus.platform``. The actual install LOCATIONS (where the
 pyenv/nodejs trees live) are owned by
-``xyz_agent_context.agent_framework.plugin_paths``, which this package
+``narranexus.platform.agent_framework.plugin_paths``, which this package
 imports rather than re-deriving.
 """

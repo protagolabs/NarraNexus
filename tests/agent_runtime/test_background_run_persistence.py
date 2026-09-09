@@ -25,7 +25,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_runtime.background_run import (
+from narranexus.platform.agent_runtime.background_run import (
     BackgroundRun,
     STATE_COMPLETED,
     STATE_RUNNING,

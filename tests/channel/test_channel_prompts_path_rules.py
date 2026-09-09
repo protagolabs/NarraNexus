@@ -21,7 +21,7 @@ can change wording but must preserve the three guarantees.
 """
 from __future__ import annotations
 
-from xyz_agent_context.channel.channel_prompts import (
+from narranexus.platform.channel.channel_prompts import (
     CHANNEL_MESSAGE_EXECUTION_TEMPLATE,
     ROOM_TYPE_GROUP,
     communication_protocol_for,

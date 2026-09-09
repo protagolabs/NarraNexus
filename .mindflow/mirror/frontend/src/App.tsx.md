@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 挂载 `usePluginTheme()`
+
+与 `useTheme` 并列：持久化的插件主题在其插件激活注册后自动生效。
+
+## 2026-09-08（本地 E2E 实测）— `/app/x/*` 的插件页保持路由
+
+`/app` 布局下新增 `x/*` → `PluginPagePending`：插件 boot 未结束时渲染 `PageFallback`，结束后仍无匹配才 `Navigate` 到 chat。
+已注册的 `x/<page>` 静态段永远比 `x/*` 优先，所以已加载的插件页不受影响；`appRoutes.test.tsx` 钉住「x/* 走布局保留
+?next=」与「hold 等 boot 结束才离开」。
+
+## 2026-09-07（批 1 三轮复审移植）— `<Routes>` 抽成导出的 `AppRoutes`
+
+路由骨架（注册表页面 + 受保护的 `/app` 布局与 index 重定向 + 根重定向 + 兜底）抽成 `export function AppRoutes()`，
+`App` 只在横幅/错误边界/Suspense 里渲染它。目的：`src/__tests__/appRoutes.test.tsx` 能在不挂载横幅与 store 副作用
+的前提下证明「壳渲染的就是 `PAGES`」——删掉 `{pageRoutes.top}` 或 `{pageRoutes.app}` 该测试即红（此前没有任何测试
+碰 `App.tsx`）。
 
 ## 2026-09-03 — 创建工作室入口路由
 
@@ -285,3 +302,5 @@ to Stripe; interrupting it with onboarding would lose the checkout).
 `RootRedirect`'s old question — "does this LOCAL user have zero providers?" — is
 gone. Both modes are eligible for the flow; its own step list adapts, and it
 redirects itself out when that list is empty, so no branch here can trap anyone.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

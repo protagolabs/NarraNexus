@@ -67,6 +67,14 @@ function stubFetch() {
 
 async function fireBridgeEdit(container: HTMLElement, data: Record<string, unknown>) {
   const iframe = container.querySelector('iframe')!;
+  // `waitFor` above resolves off the DOM mutation that inserts the iframe, and
+  // RTL runs it OUTSIDE the act environment — so React's passive effect that
+  // re-registers the `message` listener against the freshly minted url may
+  // still be queued. Dispatching now would hit the mount-time listener whose
+  // `commitBridgeEdit` closes over `url === null` and returns immediately, and
+  // the edit would be dropped for good (a ~0.5% flake). Flush the pending
+  // effects first; this is a real ordering fix, not a timeout.
+  await act(async () => {});
   await act(async () => {
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -130,6 +138,9 @@ describe('HtmlRenderer per-element editing', () => {
     const { container } = render(<HtmlRenderer artifact={ART} />);
     await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull());
 
+    // Same effect flush as fireBridgeEdit: the `e.source` check must be what rejects
+    // the message, not a stale mount-time listener that ignores everything.
+    await act(async () => {});
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent('message', {

@@ -42,6 +42,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 
+from narranexus.contracts.web import AuthError as _ContractAuthError
+
 # =============================================================================
 # The vocabulary
 # =============================================================================
@@ -83,8 +85,13 @@ SESSION_DEAD_CODES = frozenset({
 })
 
 
-class AuthError(HTTPException):
+class AuthError(_ContractAuthError, HTTPException):
     """An auth rejection that says *why*.
+
+    Inherits ``narranexus.contracts.web.AuthError`` so a plugin can
+    ``except AuthError`` (and the SDK's ``auth_error()`` factory can hand this
+    class back) without importing the host: this module is a private backend
+    module and the API policy forbids a plugin depending on it.
 
     Route handlers raise this instead of ``HTTPException(401, ...)``.
     ``install_auth_error_handler`` renders it as
@@ -99,7 +106,9 @@ class AuthError(HTTPException):
     """
 
     def __init__(self, code: str, detail: str, status_code: int = 401):
-        super().__init__(status_code=status_code, detail=detail)
+        # Explicit base call: the MRO's first __init__ is the contract base's
+        # (plain Exception), which does not take these keywords.
+        HTTPException.__init__(self, status_code=status_code, detail=detail)
         self.code = code
 
 

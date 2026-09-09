@@ -353,6 +353,8 @@
     },
     "header": {
       "detailMenuTitle": "Agent 详情 — 面板入口",
+      "modelFramework": "模型与框架",
+      "switchAgent": "切换 agent",
       "viewProfile": "查看 Agent 资料"
     },
     "composerPrivacyHint": "请勿分享敏感个人信息。",
@@ -370,8 +372,21 @@
         "unknown": "未能送达"
       }
     },
+    "capabilities": {
+      "subtitle": "决定哪些模块参与此 agent 的回合。内置模块默认开启；插件安装的模块默认关闭，直到你手动开启。更改在下一次运行生效。",
+      "builtin": "内置",
+      "plugin": "插件",
+      "locked": "始终开启",
+      "tokens": "约 {{count}} 个提示词 token",
+      "budget": "已开启模块声明约 {{enabled}} 个提示词 token（为内置基线 {{baseline}} 的 {{ratio}} 倍）。",
+      "overBudget": "超出预算：已开启模块声明约 {{enabled}} 个提示词 token，为内置基线 {{baseline}} 的 {{ratio}} 倍。",
+      "loadFailed": "无法加载能力列表",
+      "saveFailed": "无法保存更改",
+      "restoreDefault": "恢复默认"
+    },
     "activityEmpty": "还没有后台活动",
-    "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。"
+    "activityEmptyHint": "智能体自己发起的运行（任务、渠道、队友消息）会出现在这里。",
+    "bootstrapGreetingNamed": "你好——我是{{name}}。我刚刚来到这个世界，是你把我带到了这里。\n\n我已经知道自己是谁，却还不知道你是谁。我该怎么称呼你？"
   },
   "awareness": {
     "common": {
@@ -641,6 +656,24 @@
       "copyPrompt": "复制配置 Prompt",
       "setupPrompt": "先检查有没有内置助手：跑 `ha-setup doctor`（或在 skills 目录里找 `ha_setup.py`）。有的话就用它——它会自动完成下面每一步；你跑它的命令，只把 `ACTION_REQUIRED:` 提示转告我（登录 URL 作为聊天可点链接）。没有的话，再按下面手动做。\n\n帮我在本地搭建一个 Home Assistant，接入我的智能家居设备，最后把结果给我，让我接到当前这个智能体。\n\n总原则：尽量你自己动手——用 HA 的 REST API（`/api/…`）、WebSocket API（`/api/websocket`，HA 界面能做的它都能做，包括用 `config_entries/flow` 添加和配置集成）、以及在 HA Docker 容器内的文件操作。别让我在 HA 界面里一步步点。只有真正需要我的凭据或授权的操作（登录我的小米账号、点 OAuth 授权页）才交给我。这种时候，把登录/授权 URL 作为聊天里的一个可点链接给我（别埋在一大段文字里），我点开、在官方页面登录后，你再接管把流程走完。\n\n步骤：\n1. 检测我的系统和是否装了 Docker；没有就指导我装。\n2. 部署 HA（官方镜像 `ghcr.io/home-assistant/home-assistant:stable`，端口 8123），把 internal_url/external_url 设为我实际访问的地址（如 http://localhost:8123）。给确切命令并执行。\n3. 打开 http://localhost:8123 完成初始化（创建管理员账号）。如果浏览器在 auth_callback 地址报 ERR_FAILED，忽略它，重开 http://localhost:8123。\n4. 现在就创建一个长期访问令牌（头像 → 安全 → 长期访问令牌），用它给下面所有 API 调用鉴权。（这同一个令牌最后我会填进 NarraNexus。）\n5. 问我设备属于哪个生态，然后配置集成——尽量你自己用 API 驱动：\n   - 小米 / 米家 → 装**官方** “Xiaomi Home”集成（`XiaoMi/ha_xiaomi_home`）：下载到 config/custom_components/（我本机 GitHub 被墙就**在容器内**下载），然后重启 HA（`docker restart homeassistant`）。再用 WebSocket API 启动它的 config flow。轮到需要我登录小米 / 点 OAuth 授权时，把授权 URL 作为一个可点链接给我，我点开小米官方页面登录后，你继续把流程走完。别用 “Xiaomi Miot Auto”（localhost 收不到手机验证回调）。如果 OAuth 回调用的是 homeassistant.local，往 hosts 加一条 `127.0.0.1 homeassistant.local`。\n   - 品牌云（Hue / Nest / Tuya / SmartThings）→ 用 API 启动它的 config flow，只把账号登录 / OAuth 那步交给我（同样作为可点链接）。\n   - 本地 Zigbee / Z-Wave / Matter → 配 ZHA / Zigbee2MQTT / Matter，不需要云账号。\n   - 不确定 / 混用 → 先问我有哪些设备。\n6. 你自己验证：调 `/api/states` 确认我的设备作为实体出现了，告诉我有多少个。\n7. 把 base URL 和令牌给我，我填进 Smart Home 面板、**绑到当前这个智能体**。\n\n任何假设前先问我（系统、生态、账号区域、设备），每步确认成功再继续，出错就看 HA 日志。能自动化就别让我手动。",
       "verify": "验证已保存的连接"
+    },
+    "generic": {
+      "loading": "正在加载渠道…",
+      "bind": "绑定",
+      "bound": "已绑定，该渠道已对此 Agent 生效。",
+      "boundAs": "已绑定到 {{name}}",
+      "inactive": "未激活",
+      "unbind": "解绑",
+      "unbound": "已解绑。",
+      "test": "测试连接",
+      "testOk": "连接正常。",
+      "activate": "激活",
+      "deactivate": "停用",
+      "fieldRequired": "{{field}} 为必填",
+      "errLoad": "加载渠道失败",
+      "errBind": "请求失败",
+      "webhookHint": "入站 webhook：携带凭据的 webhook token POST {{path}}。",
+      "ownFlow": "{{name}} 通过自己的流程绑定。"
     }
   },
   "dashboard": {
@@ -1277,7 +1310,8 @@
       "claudeCodeSdk": "Claude Code SDK",
       "codexSdk": "Codex SDK",
       "claudeCodeSdkDesc": "Anthropic API key（sk-ant-…）。Agent 与 Helper 都跑在 Claude Code SDK 上。",
-      "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。"
+      "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。",
+      "tabOneKey": "API 密钥"
     }
   },
   "system": {
@@ -1789,7 +1823,9 @@
         "label": "个性化",
         "hint": "主题、语言，以及 agent 的进度短讯如何显示。",
         "narrationTitle": "进度短讯",
-        "narrationHint": "把 agent 在步骤之间写的说明直接显示在对话里、清晰可读，而不是把整轮过程收进一个折叠区。"
+        "narrationHint": "把 agent 在步骤之间写的说明直接显示在对话里、清晰可读，而不是把整轮过程收进一个折叠区。",
+        "pluginThemesTitle": "插件主题",
+        "pluginThemesNone": "默认外观"
       },
       "plugins": {
         "label": "插件",
@@ -1804,7 +1840,72 @@
         "loggedIn": "已登录",
         "starting": "启动中…",
         "installFailed": "安装失败",
-        "uninstallFailed": "卸载失败"
+        "uninstallFailed": "卸载失败",
+        "factory": {
+          "title": "用户插件",
+          "hint": "来自 GitHub 或本地目录的插件。启动时加载，改动重启后生效。",
+          "sourcePlaceholder": "owner/repo@1.2.0、owner/repo#branch 或 /path/to/plugin",
+          "sourceHelp": "GitHub Release（owner/repo@tag）、仓库引用（owner/repo#ref）或本地目录（原地链接）。",
+          "install": "安装",
+          "installing": "安装中…",
+          "restartRequired": "已保存。重启 NarraNexus 后生效。",
+          "enable": "启用",
+          "disable": "停用",
+          "disabled": "已停用",
+          "uninstall": "卸载",
+          "upgrade": "升级",
+          "rollback": "回滚到上一个正常状态",
+          "safeModeTitle": "安全模式：未加载用户插件",
+          "safeModeLeave": "退出安全模式",
+          "bisectStart": "定位导致启动失败的插件",
+          "bisectTrial": "二分定位：{{count}} 个嫌疑——下次启动只启用这些：",
+          "bisectGood": "这次启动正常",
+          "bisectBad": "又坏了",
+          "bisectStop": "停止定位",
+          "bisectCulprit": "已找到：{{id}}（保持停用）",
+          "permissionsTitle": "{{id}} 申请以下权限",
+          "permissionsNetwork": "网络",
+          "permissionsFilesystem": "文件",
+          "permissionsSubprocess": "运行子进程",
+          "permissionsEnv": "环境变量",
+          "permissionsFrontend": "在应用界面内运行代码，可以访问你的会话",
+          "permissionsAck": "我了解，启用它",
+          "permissionsKeepDisabled": "保持停用",
+          "empty": "尚未安装用户插件。",
+          "loadFailed": "加载用户插件失败",
+          "isolated": "启动时已隔离",
+          "viewErrors": "错误（{{count}}）",
+          "hideErrors": "收起错误",
+          "noErrors": "没有记录到错误。",
+          "mode": {
+            "link": "链接",
+            "copy": "已安装"
+          },
+          "state": {
+            "registered": "已登记",
+            "validated": "已校验",
+            "enabled": "已启用",
+            "active": "运行中",
+            "incompatible": "不兼容",
+            "blocked": "已阻止",
+            "missing": "文件缺失",
+            "deps_missing": "缺少依赖",
+            "crashed": "已崩溃",
+            "disabled": "已停用",
+            "slow": "过慢"
+          },
+          "proposalsTitle": "等待你的批准",
+          "proposalBy": "由 Agent {{agent}} 发起",
+          "proposalTestsGreen": "测试通过（{{count}}）",
+          "proposalTestsRed": "测试未通过",
+          "proposalApprove": "批准",
+          "proposalReject": "拒绝",
+          "noPermissions": "未申请特殊权限",
+          "builtinsTitle": "内置功能",
+          "builtinsHint": "随 NarraNexus 一起发布的功能级插件。禁用后其 API、后台任务和页面在重启后一起消失；受保护的内置不可关闭。",
+          "protected": "受保护",
+          "installDeps": "安装依赖（{{pip}}）"
+        }
       }
     },
     "system": {
@@ -2298,7 +2399,8 @@
       "activityLast24h": "过去 24 小时",
       "activityToday": "今日",
       "activityAxisStart": "24 小时前",
-      "activityAxisNow": "现在"
+      "activityAxisNow": "现在",
+      "capabilitySwitches": "能力开关"
     },
     "welcome": {
       "logout": "退出登录",

@@ -34,9 +34,9 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-from xyz_agent_context.utils import utc_now
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils import utc_now
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
 # Load-bearing side-effect import: registers the "onboarding" bootstrap
 # profile so provision_new_agent's apply_bootstrap resolves it. Lives HERE
@@ -46,7 +46,7 @@ from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 import backend.onboarding.profile  # noqa: E402,F401  isort:skip
 
 if TYPE_CHECKING:
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
 # Env kill-switch. Default ON: merging to dev exercises it on the dev
 # deployment immediately and prod picks it up at the next release, with no
@@ -79,7 +79,7 @@ GUIDE_SKILL_ID = "narranexus-guide"
 CHECKIN_JOB_TITLE = "Daily check-in"
 # The daily check-in is a plain SCHEDULED job, deliberately NOT "ongoing":
 # an ONGOING job's iteration counter and end_condition analysis also run on
-# every CHAT event (hook_after_event_execution), which would (a) burn a
+# every CHAT event (after_turn), which would (a) burn a
 # max_iterations budget on ordinary conversation — a chatty first week would
 # silently kill the "daily companionship" — and (b) add one Helper-LLM
 # analysis call to EVERY chat turn of every new user. A scheduled job fires
@@ -194,8 +194,8 @@ async def ensure_guide_agent(
 
 
 async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any]:
-    from xyz_agent_context.repository import AgentRepository
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository import AgentRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     user_repo = UserRepository(db)
     user = await user_repo.get_user(user_id)
@@ -236,7 +236,7 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     topic_index = pick_topic_index(rng)
     is_local = not is_cloud_mode()
 
-    from xyz_agent_context.bootstrap.provision import provision_new_agent
+    from narranexus.platform.bootstrap.provision import provision_new_agent
 
     agent_id = f"agent_{uuid4().hex[:12]}"
     result = await provision_new_agent(
@@ -275,7 +275,7 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     # The guide skill — targeted install (default:false keeps it off ordinary
     # new agents).
     try:
-        from xyz_agent_context.marketplace.skill_marketplace_service import (
+        from narranexus.platform.marketplace.skill_marketplace_service import (
             SkillMarketplaceService,
         )
 
@@ -339,8 +339,8 @@ def _safe_timezone(raw: Optional[str]) -> str:
 async def _create_checkin_job(
     db: AsyncDatabaseClient, agent_id: str, user_id: str
 ) -> str:
-    from xyz_agent_context.module.job_module.job_service import JobInstanceService
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
+    from narranexus.platform.utils.plugin_services import job_instances
 
     user = await UserRepository(db).get_user(user_id)
     tz = _safe_timezone(getattr(user, "timezone", None) if user else None)
@@ -354,7 +354,7 @@ async def _create_checkin_job(
     end_local = end_utc.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
     end_date = (end_local - timedelta(days=1)).date().isoformat()
 
-    result = await JobInstanceService(db).create_job_with_instance(
+    result = await job_instances(db).create_job_with_instance(
         agent_id=agent_id,
         user_id=user_id,
         title=CHECKIN_JOB_TITLE,

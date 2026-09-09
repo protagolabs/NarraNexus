@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07（批 1 三轮复审移植）— `DETAIL_GROUP_A: BuiltinTabId[]`
+
+壳自己写的菜单分组用窄类型，拼错即编译错误；`openPanel/DetailItem` 仍接受 `AtomicTabId`（插件 tab 也能从这里打开）。
+
+## 2026-09-07 — the plugin-actions divider is conditional (M-1)
+
+The divider between `DETAIL_GROUP_A`'s fixed panel entries and the plugin-contributed
+`ui.chatHeaderActions` entries used to render unconditionally, so every user without a
+chat-header-action plugin saw a dangling separator at the bottom of the ⋯ menu. It now only
+renders when `headerActions.length > 0`; `data-testid="chat-header-plugin-divider"` was added so
+`chatHeaderPluginDivider.test.tsx` can assert presence/absence directly.
 
 ## 2026-09-04 (合并 dev #383 后) — `builder` 成为 ⋯ 菜单的**条件项**
 
@@ -131,3 +143,11 @@ deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
   只剩 workspace / channels / skills / mcp / smarthome 五项。
 - Artifacts 图标 `openPanel('artifacts')` 开抽屉面板(collapsed 机制已退役)。
 - 徽标/markTabOpened 语义沿用 tabs.ts 注册表,不另造信号源。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+The ⋯ menu lists `chatHeaderActions` entries (when-filtered for `conversationKind:chat`, ordered) after the model/framework row; each runs with `{agentId}` and closes the menu.
+
+## 2026-09-04 · capabilities entry (batch 5c)
+
+The detail menu gains "Capabilities" (`onOpenCapabilities`) under "Model & framework".

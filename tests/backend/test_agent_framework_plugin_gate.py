@@ -44,7 +44,7 @@ class _StubService:
 @pytest.fixture
 def make_client(monkeypatch):
     def _make(*, cloud: bool = False, service: _StubService | None = None):
-        from xyz_agent_context.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
+        from narranexus.platform.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
         monkeypatch.delenv(DEPLOYMENT_MODE_ENV_VAR, raising=False)
         monkeypatch.setenv(
             "DATABASE_URL",
@@ -136,11 +136,13 @@ def test_set_framework_allows_installed_plugin(make_client, monkeypatch):
     assert svc.set_calls == ["claude_code"]
 
 
-def test_set_framework_nexus_power_exempt_even_when_not_installed(make_client, monkeypatch):
-    # framework_installed always reports True for nexus_power in real code,
-    # but the route's own exemption (body.framework != "nexus_power") must
-    # hold even if that ever regressed.
-    monkeypatch.setattr(providers_mod, "framework_installed", lambda name: False)
+def test_set_framework_host_shipped_framework_passes_gate_without_any_package(make_client, monkeypatch):
+    # nexus_power declares no install recipe, so the registry-driven
+    # framework_installed reports it available even when NO package probe
+    # succeeds — the route needs no name-keyed exemption for it.
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda framework, package: False)
     client, svc = make_client()
 
     resp = client.post(
@@ -183,7 +185,7 @@ async def test_ensure_codex_installed_activates_plugin_pyenv_first(tmp_path, mon
     has it, so without this the branch is skipped."""
     import sys
 
-    from xyz_agent_context.agent_framework import plugin_paths
+    from narranexus.platform.agent_framework import plugin_paths
 
     monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "plugins"))
     monkeypatch.setitem(sys.modules, "codex_cli_bin", None)  # → ImportError on import

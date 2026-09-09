@@ -54,10 +54,10 @@ from backend.auth import resolve_current_user_id
 from backend.middleware.body_size import MAX_OFFICE_EDIT_BYTES
 from backend.routes.office_watch import _token as office_watch_token
 from backend.routes.artifacts._token import TokenError
-from xyz_agent_context.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
-from xyz_agent_context.artifact import office_lock_present
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
-from xyz_agent_context.utils.office_watch import (
+from narranexus.platform.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
+from narranexus.platform.artifact import office_lock_present
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.office_watch import (
     OFFICE_LIVE_KIND,
     ensure_watch,
     is_watch_port,
@@ -262,9 +262,9 @@ async def _lookup_office_file(request: Request, artifact_id: str) -> tuple[str, 
         HTTPException: 404 if missing/foreign, 400 if not an office artifact or
             the file escapes the workspace / is the wrong type.
     """
-    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.workspace_paths import resolve_workspace_relative_file
+    from narranexus.platform.repository.artifact_repository import ArtifactRepository
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.workspace_paths import resolve_workspace_relative_file
 
     user_id = await resolve_current_user_id(request)
     repo = ArtifactRepository(await get_db_client())

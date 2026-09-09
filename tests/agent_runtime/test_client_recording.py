@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime.client import InProcessAgentRuntimeClient
-from xyz_agent_context.agent_runtime.run_recorder import (
+from narranexus.platform.agent_runtime.client import InProcessAgentRuntimeClient
+from narranexus.platform.agent_runtime.run_recorder import (
     RECORDING_DISABLED_ENV,
     STATE_COMPLETED,
     STATE_FAILED,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 class _WireMsg:
@@ -97,13 +97,13 @@ def patch_stack(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         fake_get_db_client,
     )
 
     def set_runtime(rt):
         monkeypatch.setattr(
-            "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+            "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
             lambda: rt,
         )
 

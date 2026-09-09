@@ -26,7 +26,7 @@ import hmac
 
 from fastapi import HTTPException
 
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 
 
 def require_admin_secret(provided: str) -> None:

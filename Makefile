@@ -55,7 +55,7 @@ help:
 lint: lint-backend lint-frontend
 
 lint-backend:
-	uv run ruff check src/ backend/
+	uv run ruff check src/ backend/ packages/ plugins/
 
 lint-frontend:
 	cd frontend && npx eslint src/
@@ -84,7 +84,7 @@ typecheck-frontend:
 test: test-backend
 
 test-backend:
-	uv run pytest tests/ -v
+	uv run pytest -v
 
 # ── Build ───────────────────────────────────────────────────────────────────
 
@@ -94,7 +94,7 @@ build-frontend:
 # ── Dev Servers ─────────────────────────────────────────────────────────────
 
 dev-db-proxy:
-	uv run python -m xyz_agent_context.utils.db.sqlite_proxy_server
+	uv run python -m narranexus.platform.utils.db.sqlite_proxy_server
 
 dev-backend:
 	DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
@@ -103,10 +103,10 @@ dev-frontend:
 	cd frontend && npm run dev
 
 dev-mcp:
-	uv run python -m xyz_agent_context.module.module_runner mcp
+	uv run python -m narranexus.platform.module_system.module_runner mcp
 
 dev-poller:
-	uv run python -m xyz_agent_context.services.module_poller
+	uv run python -m narranexus.platform.services.module_poller
 
 # ── Database ────────────────────────────────────────────────────────────────
 # Schema is auto-migrated on startup via schema_registry.auto_migrate().
@@ -127,7 +127,7 @@ verify-release: ## Pre-push gate for upstream sync — catches squash-merge dup 
 	bash scripts/release/verify_release_artifacts.sh
 
 models-refresh: ## Re-probe provider catalogs + refresh the committed model_probe_ledger.json (run during release prep, then commit the ledger so the DMG ships fresh lists). Needs NETMIND_API_KEY (and optionally OPENROUTER_API_KEY / YUNWU_API_KEY) in env.
-	uv run python -m xyz_agent_context.agent_framework.providers.model_sync
+	uv run python -m narranexus.platform.agent_framework.providers.model_sync
 
 # ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
 # Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.

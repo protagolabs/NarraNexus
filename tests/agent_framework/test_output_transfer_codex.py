@@ -10,12 +10,12 @@ response_processor.ResponseProcessor.process consumes.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
+from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 
 
 def _t(event: dict) -> list[dict]:

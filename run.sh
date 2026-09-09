@@ -37,9 +37,7 @@ status() {
   echo ""
   local services=(
     "8100:DB Proxy" "8000:Backend API" "5173:Frontend"
-    "7801:MCP Awareness" "7802:MCP SocialNetwork" "7803:MCP Job" "7804:MCP Chat"
-    "7806:MCP Skill" "7807:MCP CommonTools" "7808:MCP BasicInfo" "7820:MCP MessageBus"
-    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger" "7834:Discord Trigger")
+    "7801:MCP Modules (every module server mounted by path)" "47831:Channel health (aggregated, every IM channel)")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -58,13 +56,13 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+  for port in 8100 8000 5173 5174 7801 47831; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-  pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+  pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
   pkill -f "run_worker_supervisor" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
@@ -497,7 +495,7 @@ run_container_mode() {
 
   # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
   if [[ "${DATABASE_URL}" == sqlite* ]]; then
-    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.db.sqlite_proxy_server &
+    "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.utils.db.sqlite_proxy_server &
     SQLITE_PID=$!
     # Wait up to 30s for :8100
     for i in {1..30}; do
@@ -515,8 +513,8 @@ run_container_mode() {
     export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
-  # 2. MCP module runner (stays its own process — port-bound SSE servers)
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
+  # 2. MCP module runner (stays its own process — ONE port, every module server mounted by path)
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.module_runner mcp &
   # 3. Worker supervisor — ONE process running poller / job / message-bus / all
   #     IM channel triggers in a single event loop, each as a supervised task
   #     with backoff-restart, sharing one package import + one DB pool. Replaces
@@ -536,7 +534,7 @@ run_container_mode() {
     supervisor_args+=(--exclude jobs,channels)
     echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
   fi
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor \
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.run_worker_supervisor \
     "${supervisor_args[@]+"${supervisor_args[@]}"}" &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
@@ -602,8 +600,8 @@ case "${1:-}" in
       exit 1
     }
     # Verify import works
-    "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-      echo -e "${RED}xyz_agent_context still not importable. Rebuilding venv from scratch...${R}"
+    "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null || {
+      echo -e "${RED}narranexus still not importable. Rebuilding venv from scratch...${R}"
       rm -rf "$SCRIPT_DIR/.venv"
       $UV_CLEAN_ENV uv sync || { echo -e "${RED}uv sync failed.${R}"; exit 1; }
       $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" || {
@@ -612,7 +610,7 @@ case "${1:-}" in
         exit 1
       }
       # Final check after rebuild
-      "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" || {
+      "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" || {
         echo -e "${RED}STILL not importable. Tell maintainer.${R}"
         exit 1
       }

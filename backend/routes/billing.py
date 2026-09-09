@@ -36,17 +36,17 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.analytics import track
-from xyz_agent_context.analytics.events import (
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import (
     EVENT_CHECKOUT_CREATED,
     EVENT_SUBSCRIPTION_ACTIVATED,
     PROP_MONTHS,
     PROP_PAYMENT_METHOD,
     PROP_SESSION_ID,
 )
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.url_safety import is_obviously_non_public_host
-from xyz_agent_context.utils.deployment_mode import (
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.url_safety import is_obviously_non_public_host
+from narranexus.platform.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )

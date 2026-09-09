@@ -29,8 +29,8 @@ import time
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
 A, B = "agent_a", "agent_b"
 
@@ -41,7 +41,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 
@@ -60,7 +60,7 @@ async def _seed_channel(db, channel="ch_x"):
 @pytest.mark.asyncio
 async def test_a_send_bumps_the_wake_signal(db_client):
     """Every send advances it — the seam is the write itself, not a caller."""
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     ch = await _seed_channel(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
@@ -82,7 +82,7 @@ async def test_the_signal_survives_a_missing_row(db_client):
     promises. The same inert assertion shipped in the MySQL twin and made a dead
     wake lane look covered; found in round 4.
     """
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     # `""` is the documented "no news" value, and the poll loop compares against
     # it — a different falsy value would still pass `is not None` and would break
@@ -148,7 +148,7 @@ async def test_a_broken_signal_read_does_not_break_the_loop(db_client, monkeypat
     Raising here would take the whole poll loop down over a latency
     optimisation — the tail wagging the dog.
     """
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     async def _boom(*_a, **_k):
         raise RuntimeError("signal table gone")
@@ -166,7 +166,7 @@ async def test_a_broken_signal_read_does_not_break_the_loop(db_client, monkeypat
 @pytest.mark.asyncio
 async def test_a_send_that_fails_does_not_bump(db_client, monkeypatch):
     """The signal means "there IS new work", so a failed insert must not set it."""
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     ch = await _seed_channel(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
@@ -200,13 +200,13 @@ async def test_a_bump_during_the_scan_is_not_folded_into_the_baseline(
     then a scan that bumps — so a future refactor that moves the read back into
     the sleeper fails here rather than in production.
     """
-    from xyz_agent_context.message_bus import wake_signal
+    from narranexus.platform.message_bus import wake_signal
 
     async def _async_db():
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
     trigger._current_interval = 30.0  # so a wrong answer blocks rather than races

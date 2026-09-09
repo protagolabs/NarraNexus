@@ -37,8 +37,8 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.settings import settings as core_settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -91,7 +91,7 @@ async def _resolve_workspace_root(agent_id: str) -> tuple[Path, str]:
             status_code=500,
             detail=f"agent {agent_id!r} has no created_by user",
         )
-    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
     workspace = resolve_existing_workspace(
         agent_id, user_id, str(core_settings.base_working_path)
     )
@@ -462,10 +462,10 @@ async def _audit_files_write(
     an audit row must not fail (or double-fail) the write itself."""
     global _audit_cleanup_next
     try:
-        from xyz_agent_context.channel.channel_audit_events import (
+        from narranexus.platform.channel.channel_audit_events import (
             EVENT_MANYFOLD_FILES_WRITE,
         )
-        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
             ChannelTriggerAuditRepository,
         )
 

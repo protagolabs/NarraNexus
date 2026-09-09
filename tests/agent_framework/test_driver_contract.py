@@ -16,15 +16,15 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
-from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import NexusAgent
-from xyz_agent_context.agent_framework.loop.driver import AgentLoopDriver
-from xyz_agent_context.agent_framework.loop.remote_driver import (
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import NexusAgent
+from narranexus.platform.agent_framework.loop.driver import AgentLoopDriver
+from narranexus.platform.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
 )
 
 try:
-    from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
+    from narranexus_plugins.frameworks_codex_cli.official_sdk import (
         CodexSDKv2,
     )
 
@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover - optional dependency
 _CAPABILITY_VOCABULARY = {
     "steering", "plan", "resume", "fork", "sleep", "subagent_announce",
     "event_log", "interrupt_soft", "raw_context", "arg_streaming",
+    "native_replay",
 }
 
 
@@ -136,7 +137,7 @@ def test_agent_loop_streaming_is_keyword_only(cls):
 def _timed_classes():
     """Driver classes whose agent_loop carries @timed instrumentation.
     (RemoteAgentLoopDriver is deliberately un-instrumented.)"""
-    from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
+    from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
 
     classes = [ClaudeAgentSDK, CodexSDK]
     if _CODEX_AVAILABLE:

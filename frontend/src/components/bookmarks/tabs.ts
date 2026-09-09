@@ -2,35 +2,27 @@
  * @file_name: tabs.ts
  * @author:
  * @date: 2026-06-11
- * @description: The atomic-tab registry for the bookmark strip.
+ * @description: The atomic-tab strip, DERIVED from the `PANELS` registry's `strip` metadata (was a hardcoded literal table until 2026-09-07 — see the changelog entry below).
  *
  * Owner-decided IA (2026-06-11): the smallest unit is an atomic tab —
  * ONE tab opens exactly ONE panel, never a stack of sections to scroll
  * through. Categories group the atomic tabs visually on the strip.
  *
- * This file is the single source of truth for: tab ids, labels, icons,
- * category grouping, and how bookmarkStore signals map onto each tab's
- * status (spinner / attention pulse / info dot / badge count).
+ * `stripCategories()` / `allTabs()` / `builtinTabIds()` are functions, not
+ * precomputed constants: `platform/builtin.ts` (which populates `PANELS`)
+ * itself imports `ArtifactsGlyph` from this file for one panel's icon, so a
+ * module-level `const STRIP_CATEGORIES = ...` evaluated at THIS file's
+ * first import would run partway through `builtin.ts`'s own registration
+ * pass and freeze on an incomplete (or empty) `PANELS` forever. Computing
+ * on every call costs a sort over ~a dozen entries — cheap, and immune to
+ * import-order accidents by construction.
  */
 
 import { createElement, forwardRef } from 'react';
-import {
-  Sparkles,
-  FolderOpen,
-  Radio,
-  Home,
-  Network,
-  ListTodo,
-  Inbox,
-  Wand2,
-  Puzzle,
-  Server,
-  BookOpen,
-  type LucideIcon,
-  type LucideProps,
-} from 'lucide-react';
+import type { LucideIcon, LucideProps } from 'lucide-react';
 import type { AgentBookmarkState } from '@/stores/bookmarkStore';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+import { PANELS, type PanelDef, type RegistryEntry } from '@/platform/registries';
 
 /**
  * Artifacts glyph — node-circle joined to a frame (Owner-provided reference,
@@ -62,19 +54,9 @@ export const ArtifactsGlyph = forwardRef<SVGSVGElement, LucideProps>(
   },
 ) as unknown as LucideIcon;
 
-export type AtomicTabId =
-  | 'builder'
-  | 'awareness'
-  | 'workspace'
-  | 'channels'
-  | 'smarthome'
-  | 'social'
-  | 'jobs'
-  | 'inbox'
-  | 'artifacts'
-  | 'skills'
-  | 'mcp'
-  | 'memory';
+/** A tab id is any registered `PANELS` id with `strip` metadata; plugins may register
+ *  further ids (any string), so consumers must not exhaustively switch on a builtin list. */
+export type AtomicTabId = string;
 
 export interface AtomicTabDef {
   id: AtomicTabId;
@@ -95,7 +77,7 @@ export interface AtomicTabDef {
    * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
    * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette — filter on it.
    * One field here rather than a filter in each consumer — but the rule is
-   * applied ONLY by `visibleTabs(ctx)`. `STRIP_CATEGORIES` / `ALL_TABS` are
+   * applied ONLY by `visibleTabs(ctx)`. `stripCategories()` / `allTabs()` are
    * the UNFILTERED registry, for looking a def up by id (the chat header's
    * `ALL_TAB_DEFS`) and resolving the drawer title; a new panel entry must go
    * through `visibleTabs`, or it will offer this tab to every agent.
@@ -124,104 +106,90 @@ export interface StripCategory {
   accent?: 'carbon' | 'silicon';
 }
 
-/** Strip layout, top to bottom. ONE content per tab — no nested stacks.
- *  Narra·Memory (carbon) and Nexus·Network (silicon) carry colored brand
- *  headers; Memory sits between Inbox and Social so the spine reads
- *  Activity → Narrative → Nexus. */
-export const STRIP_CATEGORIES: StripCategory[] = [
-  {
-    label: 'Config',
-    labelKey: 'rail.category.config',
-    tabs: [
-      // Creation studio. Sits first in Config because it is the "start here"
-      // of configuration — a conversation that fills the other tabs in.
-      {
-        id: 'builder',
-        label: 'Builder',
-        labelKey: 'rail.builder',
-        icon: Wand2,
-        conditional: 'studio',
-      },
-      { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
-      { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
-      { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },
-      { id: 'smarthome', label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home },
-    ],
-  },
-  {
-    label: 'Activity',
-    labelKey: 'rail.category.activity',
-    tabs: [
-      { id: 'jobs', label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo },
-      { id: 'inbox', label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox },
-      { id: 'artifacts', label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph },
-    ],
-  },
-  {
-    label: 'Narra',
-    labelKey: 'rail.category.narra',
-    title: 'Narra',
-    titleKey: 'rail.brand.narra',
-    accent: 'carbon',
-    tabs: [{ id: 'memory', label: 'Memory', labelKey: 'rail.memory', icon: BookOpen }],
-  },
-  {
-    label: 'Nexus',
-    labelKey: 'rail.category.nexus',
-    title: 'Nexus',
-    titleKey: 'rail.brand.nexus',
-    accent: 'silicon',
-    tabs: [
-      {
-        id: 'social',
-        label: 'Social Network',
-        labelKey: 'rail.social',
-        icon: Network,
-        stripLabel: 'Network',
-        stripLabelKey: 'rail.socialShort',
-      },
-    ],
-  },
-  {
-    label: 'Skills',
-    labelKey: 'rail.category.skills',
-    tabs: [
-      { id: 'skills', label: 'Skills', labelKey: 'rail.skills', icon: Puzzle },
-      {
-        id: 'mcp',
-        label: 'MCP Servers',
-        labelKey: 'rail.mcp',
-        icon: Server,
-        stripLabel: 'MCP',
-        stripLabelKey: 'rail.mcpShort',
-      },
-    ],
-  },
-];
+/**
+ * Category branding (label, optional brand header/accent) stays a small
+ * fixed table — unlike per-tab metadata, this is shell IA, not something a
+ * panel registration should restate. A plugin panel names a category by
+ * key (`PanelStripDef.category`); an unknown key falls back to `config`.
+ * Order here is strip top-to-bottom order.
+ */
+const CATEGORY_ORDER = ['config', 'activity', 'narra', 'nexus', 'skills'] as const;
+type CategoryKey = (typeof CATEGORY_ORDER)[number];
+const CATEGORY_META: Record<CategoryKey, Omit<StripCategory, 'tabs'>> = {
+  config: { label: 'Config', labelKey: 'rail.category.config' },
+  activity: { label: 'Activity', labelKey: 'rail.category.activity' },
+  narra: { label: 'Narra', labelKey: 'rail.category.narra', title: 'Narra', titleKey: 'rail.brand.narra', accent: 'carbon' },
+  nexus: { label: 'Nexus', labelKey: 'rail.category.nexus', title: 'Nexus', titleKey: 'rail.brand.nexus', accent: 'silicon' },
+  skills: { label: 'Skills', labelKey: 'rail.category.skills' },
+};
 
-export const ALL_TABS: AtomicTabDef[] = STRIP_CATEGORIES.flatMap((c) => c.tabs);
+function isCategoryKey(key: string | undefined): key is CategoryKey {
+  return !!key && (CATEGORY_ORDER as readonly string[]).includes(key);
+}
+
+function tabDefFor(entry: RegistryEntry<PanelDef>): AtomicTabDef | undefined {
+  const strip = entry.value.strip;
+  if (!strip) return undefined;
+  return {
+    id: entry.id,
+    label: strip.label,
+    labelKey: strip.labelKey,
+    icon: strip.icon,
+    stripLabel: strip.stripLabel,
+    stripLabelKey: strip.stripLabelKey,
+    conditional: strip.conditional,
+  };
+}
+
+/** Strip layout, top to bottom, derived from `PANELS` entries that declared `strip`
+ *  metadata — see the file header for why this is a function, not a cached constant. */
+export function stripCategories(entries: RegistryEntry<PanelDef>[] = PANELS.list()): StripCategory[] {
+  const byCategory = new Map<CategoryKey, AtomicTabDef[]>();
+  const sorted = [...entries].sort((a, b) => (a.value.strip?.order ?? 100) - (b.value.strip?.order ?? 100));
+  for (const entry of sorted) {
+    const def = tabDefFor(entry);
+    if (!def) continue;
+    const key = isCategoryKey(entry.value.strip?.category) ? entry.value.strip!.category! : 'config';
+    const list = byCategory.get(key as CategoryKey) ?? [];
+    list.push(def);
+    byCategory.set(key as CategoryKey, list);
+  }
+  return CATEGORY_ORDER.filter((key) => byCategory.has(key)).map((key) => ({ ...CATEGORY_META[key], tabs: byCategory.get(key)! }));
+}
+
+/** Every strip-visible tab, unfiltered (see `AtomicTabDef.conditional` doc for why
+ *  "unfiltered" is the correct default here). */
+export function allTabs(entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabDef[] {
+  return stripCategories(entries).flatMap((c) => c.tabs);
+}
+
+/** The ids of every builtin (owner `builtin.ui`) strip tab — used by `builtin.test.ts`
+ *  to assert every one of them resolves to a real panel component. */
+export function builtinTabIds(entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabId[] {
+  return entries.filter((e) => e.owner === 'builtin.ui' && e.value.strip).map((e) => e.id);
+}
 
 function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
   return tab.conditional !== 'studio' || ctx.studioOpen || ctx.studioResumable;
 }
 
 /**
- * The tabs a user may PICK from right now — `ALL_TABS` minus the conditional
+ * The tabs a user may PICK from right now — `allTabs()` minus the conditional
  * tabs whose context does not hold. Every entry point that offers panels (the
  * chat header's ⋯ menu, the ⌘K palette) goes through here, so a conditional
  * tab can never leak out of one entry while being hidden in another.
  */
-export function visibleTabs(ctx: TabVisibilityContext): AtomicTabDef[] {
-  return ALL_TABS.filter((t) => tabOffered(t, ctx));
+export function visibleTabs(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabDef[] {
+  return allTabs(entries).filter((t) => tabOffered(t, ctx));
 }
 
 export function tabLabel(id: AtomicTabId): string {
-  return ALL_TABS.find((t) => t.id === id)?.label ?? id;
+  return allTabs().find((t) => t.id === id)?.label ?? id;
 }
 
 /** i18n key (namespace `rail`) for a tab's label, for consumers with a `t`. */
 export function tabLabelKey(id: AtomicTabId): string {
-  return ALL_TABS.find((t) => t.id === id)?.labelKey ?? `rail.${id}`;
+  return allTabs().find((t) => t.id === id)?.labelKey ?? `rail.${id}`;
 }
 
 /**

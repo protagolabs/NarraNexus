@@ -20,10 +20,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     is_free_tier_enabled,
 )
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletBalance,
     WalletClient,
     WalletError,

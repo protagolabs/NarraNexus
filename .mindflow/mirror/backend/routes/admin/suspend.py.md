@@ -32,10 +32,10 @@ stub: false
 - 三条路径都在 [[auth]] 的豁免名单里：两个 POST 进 `AUTH_EXEMPT_PATHS`，路径参数形式的 GET 读端点进 `AUTH_EXEMPT_PREFIXES`（`/api/admin/account-state/`）。
 
 **依赖谁**：
-- `xyz_agent_context.repository.user_repository.UserRepository`：读用户、写 `users.status`。
-- `xyz_agent_context.repository.ban_audit_repository.BanAuditRepository`（+ `ACTION_SUSPEND` / `ACTION_REINSTATE` 常量）：写审计行。
-- `xyz_agent_context.schema.UserStatus` + `NON_TRANSACTING_USER_STATUSES`：状态枚举，以及三面共享的「不可交易」集合（`_SUSPENDED_STATES` 直接指向它，见下）。
-- `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与 [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。本模块仍保留 `from xyz_agent_context.settings import settings` 的再导出，只是为了让测试可以通过 `mod.settings` 覆盖 secret（helper 读的是同一个 settings 单例对象）。
+- `narranexus.platform.repository.user_repository.UserRepository`：读用户、写 `users.status`。
+- `narranexus.platform.repository.ban_audit_repository.BanAuditRepository`（+ `ACTION_SUSPEND` / `ACTION_REINSTATE` 常量）：写审计行。
+- `narranexus.platform.schema.UserStatus` + `NON_TRANSACTING_USER_STATUSES`：状态枚举，以及三面共享的「不可交易」集合（`_SUSPENDED_STATES` 直接指向它，见下）。
+- `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与 [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。本模块仍保留 `from narranexus.platform.settings import settings` 的再导出，只是为了让测试可以通过 `mod.settings` 覆盖 secret（helper 读的是同一个 settings 单例对象）。
 - `backend.auth.invalidate_account_state`：**惰性 import**，停用/恢复后清掉 middleware 的账户状态缓存，让改动在本进程内立即可见。
 
 ## 设计决策

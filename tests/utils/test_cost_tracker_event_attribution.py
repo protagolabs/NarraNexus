@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.utils.cost_tracker import (
+from narranexus.platform.utils.cost_tracker import (
     clear_cost_context,
     cost_context_scope,
     cost_event_scope,
@@ -184,12 +184,12 @@ async def test_fallback_reply_stream_leaves_the_turns_context_intact():
     was. The bug was this specific call site using set + clear, so the guard
     rail has to run this specific function — revert it and this goes red.
     """
-    from xyz_agent_context.agent_framework.llm import helper_sdk as helper_sdk_mod
+    from narranexus.platform.agent_framework.llm import helper_sdk as helper_sdk_mod
     # importlib, not `import … as`: the package's __init__ rebinds the name
     # `step_3_agent_loop` to a same-named FUNCTION, so both import forms hand
     # back that function rather than the module the private helper lives in.
     step_3_agent_loop = importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
 
     class _FakeSdk:

@@ -25,7 +25,7 @@ stub: false
 ## Why it exists
 
 TypeScript mirror of the Agent Migration standardized JSON contract
-(`src/xyz_agent_context/schema/migration_schema.py`) plus the `ApplyResult`
+(`src/narranexus/platform/schema/migration_schema.py`) plus the `ApplyResult`
 returned by `POST /api/migrate/apply`. Consumed by [[api]] (the migrate*
 methods) and [[ImportAgentModal]].
 

@@ -14,7 +14,7 @@ import dataclasses
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
@@ -25,7 +25,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
     TYPE_ERROR,
     TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_USE_START,
@@ -33,12 +33,12 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_TURN_DONE,
     Usage,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
     ModelParams,
     ProviderProfile,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     PolicyContext,
     ToolAnnotations,
     ToolCall,
@@ -46,34 +46,34 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
     ToolResult,
     ToolSpec,
 )
-from xyz_agent_context.agent_framework.nexus_power.assembly import LoopAssembly
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
+from narranexus_plugins.frameworks_nexus_power.core.assembly import LoopAssembly
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.event_adapter import (
     LegacyEventAdapter,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.expression import (
     ExpressionContract,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
     QueueSteeringInlet,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.loop import (
     CONTINUE_PREFILL,
     NexusPowerLoop,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
     StepRetry,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
 
@@ -106,6 +106,9 @@ class FakeTools:
 
     def visible_tools(self):
         return list(self._specs)
+
+    def model_tools(self):
+        return self.visible_tools()
 
     def spec_for(self, name):
         return next((s for s in self._specs if s.name == name), None)
@@ -383,12 +386,12 @@ async def test_non_expressive_arg_stream_stays_internal():
 
 @pytest.mark.asyncio
 async def test_plan_events_stream_and_reinject_into_prompt():
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.scheduling_channel import (
         PlanState,
         SchedulingChannel,
     )
 
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
         TurnLedger,
     )
 
@@ -652,7 +655,7 @@ async def test_tool_name_reaches_the_ui_before_arguments_finish():
 
 
 def test_adapter_maps_tool_use_start_to_a_pending_tool_call():
-    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
         LoopEvent,
     )
 

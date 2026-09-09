@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_runtime.executor_reaper import (
+from narranexus.platform.agent_runtime.executor_reaper import (
     UNKNOWN_RUN,
     _REAPER_LIVENESS,
     ExecutorReaper,
@@ -60,7 +60,7 @@ def audited(monkeypatch):
         return True          # the row landed; a falsy return means "retry"
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
+        "narranexus.platform.agent_runtime.executor_reaper._audit", fake_audit
     )
     return rows
 
@@ -266,7 +266,7 @@ async def test_unreadable_db_reads_as_busy(monkeypatch):
         raise RuntimeError("pool exhausted")
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", boom
+        "narranexus.platform.utils.db.db_factory.get_db_client", boom
     )
     assert await live_run_elsewhere(
         "u", caller="reaper", consequence="culling is OFF"
@@ -277,7 +277,7 @@ async def test_unreadable_db_reads_as_busy(monkeypatch):
 async def test_recording_kill_switch_disables_culling(monkeypatch):
     """The switch turns off the very rows this guard reads, so it must not
     silently become a licence to destroy containers."""
-    from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+    from narranexus.platform.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
 
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
     assert await live_run_elsewhere(
@@ -308,10 +308,10 @@ def test_production_wiring_installs_the_cross_process_veto(monkeypatch):
     pre-2026-07-31 behaviour and every other test here would still pass."""
     import asyncio
 
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.loop.broker_client.broker_url",
+        "narranexus.platform.agent_framework.loop.broker_client.broker_url",
         lambda: "http://broker:8030",
     )
     built = {}
@@ -369,7 +369,7 @@ async def _noop_stop(user_id):
 
 @pytest.fixture(autouse=True)
 def _reset_reaper_module_state():
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     def _clear():
         # Every mutable module-level name this file can write. _STALE_AFTER_S
@@ -394,13 +394,13 @@ def audit_rows(monkeypatch):
         return True          # the row landed; a falsy return means "retry"
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
+        "narranexus.platform.agent_runtime.executor_reaper._audit", fake_audit
     )
     return rows
 
 
 def test_status_reports_not_running_before_any_pass():
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     status = reaper_status()
     assert status["running"] is False
@@ -419,7 +419,7 @@ def test_status_reports_not_running_before_any_pass():
 async def test_a_wholly_blind_pass_is_counted_and_audited(audit_rows):
     """The failure this exists for: every candidate unreadable ⇒ nothing is
     ever culled, and from outside it looks exactly like an idle system."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def blind(user_id):
         return UNKNOWN_RUN
@@ -442,7 +442,7 @@ async def test_a_wholly_blind_pass_is_counted_and_audited(audit_rows):
 async def test_a_real_veto_is_not_a_blind_pass(audit_rows):
     """A live run blocking the cull is the guard WORKING; it must not read as
     the reaper having gone blind."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def busy(user_id):
         return "evt_real"
@@ -458,7 +458,7 @@ async def test_a_real_veto_is_not_a_blind_pass(audit_rows):
 
 @pytest.mark.asyncio
 async def test_blind_passes_reset_once_liveness_is_readable_again(audit_rows):
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     # reap_once asks twice per surviving user (claim, then again before the
     # stop), so this is keyed on the pass, not on a call counter.
@@ -484,7 +484,7 @@ async def test_blind_passes_reset_once_liveness_is_readable_again(audit_rows):
 async def test_an_empty_pass_is_not_blind(audit_rows):
     """Nothing due is the healthy steady state — it must not raise the alarm
     the blind counter exists to raise."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def check(user_id):
         return None
@@ -504,8 +504,8 @@ async def test_a_slow_liveness_lookup_counts_as_blind(audit_rows, monkeypatch):
     at the admission layer cancels the veto mid-await, so nothing is tallied
     and the pass reports the same zeros as a healthy empty one — the exact
     blind spot the blind-pass alarm exists to close."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    import narranexus.platform.agent_runtime.executor_reaper as mod
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     monkeypatch.setattr(mod, "_PER_CANDIDATE_S", 0.02)
 
@@ -529,7 +529,7 @@ async def test_a_slow_liveness_lookup_counts_as_blind(audit_rows, monkeypatch):
 async def test_a_pass_with_no_candidates_does_not_reset_blind_passes(audit_rows):
     """The kill switch stays on for hours; an idle minute in the middle must
     not punch the counter back to zero and defeat a threshold alert."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def blind(user_id):
         return UNKNOWN_RUN
@@ -549,7 +549,7 @@ async def test_a_pass_with_no_candidates_does_not_reset_blind_passes(audit_rows)
 async def test_claim_and_recheck_are_counted_separately(audit_rows):
     """One healthy pass asks twice per survivor. Merged, `judged: 10,
     reaped: 5` sends the reader hunting for 5 users that do not exist."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def idle(user_id):
         return None
@@ -570,7 +570,7 @@ async def test_claim_and_recheck_are_counted_separately(audit_rows):
 async def test_a_blind_recheck_is_not_a_blind_pass(audit_rows):
     """Claim phase read the DB fine; a hiccup during the recheck is a hiccup,
     not a reaper that has gone blind."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     seen = {"n": 0}
 
@@ -594,7 +594,7 @@ async def test_a_reaper_without_the_veto_is_reported_not_hidden(audit_rows):
     """is_busy=None is the pre-2026-07-31 configuration: it culls on this
     process's local view alone. Reporting it as "not running" would send the
     reader looking for a leak while runs are being cut off."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     reaper = ExecutorReaper(
         _FakeController(["a"]), _noop_stop, is_busy=None, ttl_seconds=1
@@ -614,8 +614,8 @@ async def test_a_reaper_without_the_veto_is_reported_not_hidden(audit_rows):
 async def test_status_goes_stale_when_no_pass_completes(audit_rows):
     """"The task exists" is L1 and proves nothing (incident lesson #4): a
     wedged reaper keeps reporting its last good pass forever."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    import narranexus.platform.agent_runtime.executor_reaper as mod
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def idle(user_id):
         return None
@@ -635,8 +635,8 @@ async def test_status_goes_stale_when_no_pass_completes(audit_rows):
 
 def test_a_dead_background_task_is_visible_in_status():
     """Its only other trace is one log line the next rotation eats."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    import narranexus.platform.agent_runtime.executor_reaper as mod
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def _boom():
         raise RuntimeError("reap loop exploded")
@@ -657,7 +657,7 @@ async def test_cull_disabled_rows_are_rate_limited_like_the_warning(
 ):
     """One row per pass would make the row count a function of outage
     duration — the shape this file already avoids for run duration."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     monkeypatch.setattr(mod, "_BLIND_WARN_EVERY", 3)
 
@@ -682,7 +682,7 @@ async def test_cull_disabled_rows_are_rate_limited_like_the_warning(
 async def test_cull_disabled_names_the_kill_switch_when_that_is_the_cause(
     audit_rows, monkeypatch
 ):
-    from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+    from narranexus.platform.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
 
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
     controller = _FakeController(["a"])
@@ -697,7 +697,7 @@ async def test_cull_disabled_names_the_kill_switch_when_that_is_the_cause(
 async def test_status_key_set_is_identical_before_and_after_a_pass(audit_rows):
     """Two shapes for one endpoint section is how a watcher breaks in the
     window it is most needed."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     before = set(reaper_status())
 
@@ -723,9 +723,9 @@ async def test_the_two_timeout_layers_together_still_record_a_blind_pass(
     — the inner budget fires FIRST — is never exercised. Drive the real
     controller so a regression in either constant fails here.
     """
-    import xyz_agent_context.agent_runtime.admission as adm
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    import narranexus.platform.agent_runtime.admission as adm
+    import narranexus.platform.agent_runtime.executor_reaper as mod
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     # With room for a whole check, not merely "smaller": a per-check budget
     # of 59 against a batch of 60 would satisfy `<` and still let the batch
@@ -769,7 +769,7 @@ async def test_the_batch_budget_never_cancels_a_check_mid_flight(monkeypatch):
     is the last candidate of every wedged pass, not an occasional one. The
     batch must decline to start what it cannot see through, leaving the
     candidate its stamp for the next pass."""
-    import xyz_agent_context.agent_runtime.admission as adm
+    import narranexus.platform.agent_runtime.admission as adm
 
     monkeypatch.setattr(adm, "_VETO_BUDGET_S", 10.0)
 
@@ -802,7 +802,7 @@ async def test_a_wedged_audit_write_cannot_park_the_pass(monkeypatch):
     touches it. Its promise: a stuck pool must not park the pass, because a
     pass that never finishes never reports — and a wedged reaper would then
     show up as "never ran"."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     monkeypatch.setattr(mod, "_AUDIT_WRITE_S", 0.02)
 
@@ -811,7 +811,7 @@ async def test_a_wedged_audit_write_cannot_park_the_pass(monkeypatch):
 
     # Patched on the SOURCE module: _audit imports it inside the function.
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", wedged_client
+        "narranexus.platform.utils.db.db_factory.get_db_client", wedged_client
     )
 
     # Returns, does not raise, and does not wait for the pool.
@@ -822,8 +822,8 @@ async def test_a_wedged_audit_write_cannot_park_the_pass(monkeypatch):
 async def test_a_wedged_audit_write_still_lets_the_pass_report(monkeypatch):
     """The same promise, stated the way the docstring states it: the pass
     completes and reaper_status() says so."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    import narranexus.platform.agent_runtime.executor_reaper as mod
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     monkeypatch.setattr(mod, "_AUDIT_WRITE_S", 0.02)
 
@@ -831,7 +831,7 @@ async def test_a_wedged_audit_write_still_lets_the_pass_report(monkeypatch):
         await asyncio.sleep(30)
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", wedged_client
+        "narranexus.platform.utils.db.db_factory.get_db_client", wedged_client
     )
 
     async def blind(user_id):
@@ -855,7 +855,7 @@ async def test_reap_once_hands_its_per_call_budget_to_the_batch(audit_rows):
     test calls claim_idle_users directly and the fake controller swallows the
     parameter. Its default is 0.0 — i.e. "guard off" — so a lost line brings
     back "the last candidate of every wedged pass goes uncounted"."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     controller = _FakeController([])
     reaper = ExecutorReaper(
@@ -873,7 +873,7 @@ async def test_a_lost_audit_row_is_retried_next_pass(monkeypatch):
     """These rows are the guard's only durable evidence — one per run saved.
     Noting "already audited" before the write means a pool stall drops that
     row forever: the next pass sees the same (user, run) and never retries."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     attempts = []
 
@@ -901,7 +901,7 @@ async def test_a_lost_cull_disabled_row_is_retried_next_pass(monkeypatch):
     """Same for the pass-level row, and it matters more: keyed off the pass
     number alone, a first row lost to a stalled pool leaves the whole first
     hour of an outage with no trace — during exactly the outage it reports."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     monkeypatch.setattr(mod, "_BLIND_WARN_EVERY", 30)
     attempts = []
@@ -936,7 +936,7 @@ async def test_a_lost_cull_disabled_row_is_retried_next_pass(monkeypatch):
 @pytest.mark.asyncio
 async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
     """Same container, same rule as the cull: a live run means hands off."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     async def live(user_id, *, exclude_run_id=None, caller, consequence):
         return "evt_live"
@@ -947,7 +947,7 @@ async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stale_replacement_is_allowed_when_nothing_is_live(monkeypatch):
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     async def idle(user_id, *, exclude_run_id=None, caller, consequence):
         return None
@@ -961,7 +961,7 @@ async def test_stale_replacement_excludes_the_asking_run(monkeypatch):
     """Step 3's own events row is already 'running' when it asks. Counting
     itself would mean "never replace", and a stale executor after a
     wire-protocol change degrades runs silently."""
-    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    import narranexus.platform.agent_runtime.executor_reaper as mod
 
     seen = {}
 
@@ -992,7 +992,7 @@ async def test_stale_replacement_is_refused_when_liveness_is_unreadable(monkeypa
         raise RuntimeError("pool exhausted")
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", boom
+        "narranexus.platform.utils.db.db_factory.get_db_client", boom
     )
     assert await no_live_recorded_run_for("u") is False
 
@@ -1034,7 +1034,7 @@ async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
     work — an office-watch session leaves no run row, so this side's oracle
     reads the user as idle. Treating that as stopped would drop the idle stamp
     and leave the container unreclaimed for good."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def refused_stop(user_id):
         return False
@@ -1056,7 +1056,7 @@ async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
 async def test_a_successful_stop_still_counts(audit_rows):
     """The other half of the pair: a stop that happened is counted and the
     stamp stays consumed."""
-    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+    from narranexus.platform.agent_runtime.executor_reaper import reaper_status
 
     async def real_stop(user_id):
         return True

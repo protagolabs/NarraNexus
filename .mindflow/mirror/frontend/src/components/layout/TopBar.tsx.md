@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/TopBar.tsx
-last_verified: 2026-08-06
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -51,3 +51,7 @@ logout) are deliberately kept *out* of here.
   drawer; on desktop the sidebar is in normal flow so the toggle is inert. A
   cross-agent unread bell is a planned addition once a rollup exists — left out
   on purpose rather than faked.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+A `SlotOutlet` in the right cluster (before ⌘K) mounts `topBarItems`.

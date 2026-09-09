@@ -18,7 +18,7 @@ async def _async_return(value):
 @pytest.fixture
 def captured_events(monkeypatch):
     events = []
-    import xyz_agent_context.analytics as analytics
+    import narranexus.platform.analytics as analytics
 
     async def _capture(**event):
         events.append(event)

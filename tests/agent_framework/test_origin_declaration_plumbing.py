@@ -15,10 +15,10 @@ was — you would only find it by reading a prompt dump.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
 )
-from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
+from narranexus.platform.agent_framework.loop.turn_input import TurnInput
 
 
 def _turn(**kw) -> TurnInput:
@@ -77,7 +77,7 @@ def test_no_reply_surface_means_no_reminder_and_no_origin_line():
 
 
 def test_nexus_options_carry_the_line():
-    from xyz_agent_context.agent_framework.nexus_power.contracts.options import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.options import (
         TurnOptions,
     )
 
@@ -113,10 +113,10 @@ def test_step_3_reads_the_plain_text_marker_from_the_turns_own_extras():
     """
     import inspect
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps import (
         step_3_agent_loop,
     )
-    from xyz_agent_context.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
+    from narranexus.platform.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
 
     src = inspect.getsource(step_3_agent_loop)
 
@@ -141,7 +141,7 @@ def test_step_3_reads_the_plain_text_marker_from_the_turns_own_extras():
 # at driver_kwargs() and the two in-process adapters, so origin_declaration
 # vanished on this hop while every unit test stayed green.
 
-from xyz_agent_context.agent_runtime.executor_protocol import (  # noqa: E402
+from narranexus.platform.agent_runtime.executor_protocol import (  # noqa: E402
     build_agent_loop_request,
 )
 
@@ -182,7 +182,7 @@ def test_executor_service_reads_the_same_body_key():
     import inspect
     import re
 
-    from xyz_agent_context.agent_runtime import executor_service
+    from narranexus.platform.agent_runtime import executor_service
 
     src_no_ws = re.sub(r"\s+", "", inspect.getsource(executor_service))
     assert 'origin_declaration=body.get("origin_declaration")' in src_no_ws, (

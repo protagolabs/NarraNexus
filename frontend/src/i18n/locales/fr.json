@@ -283,12 +283,28 @@
       "ops": "ops"
     },
     "header": {
+      "viewProfile": "Voir le profil de l'agent",
       "detailMenuTitle": "Détail de l'agent — panneaux",
-      "viewProfile": "Voir le profil de l'agent"
+      "modelFramework": "Modèle & framework",
+      "switchAgent": "Changer d'agent"
     },
     "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles.",
+    "capabilities": {
+      "subtitle": "Quels modules participent aux tours de cet agent. Les modules intégrés sont activés par défaut ; ceux installés par des plugins restent désactivés jusqu'à ce que vous les activiez. Les changements s'appliquent à la prochaine exécution.",
+      "builtin": "intégré",
+      "plugin": "plugin",
+      "locked": "Toujours actif",
+      "tokens": "~{{count}} jetons de prompt",
+      "budget": "Les modules activés déclarent ~{{enabled}} jetons ({{ratio}}× la base intégrée de {{baseline}}).",
+      "overBudget": "Budget dépassé : les modules activés déclarent ~{{enabled}} jetons, {{ratio}}× la base intégrée de {{baseline}}.",
+      "loadFailed": "Impossible de charger les capacités",
+      "saveFailed": "Impossible d'enregistrer le changement",
+      "restoreDefault": "Rétablir la valeur par défaut"
+    },
     "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
-    "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici."
+    "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici.",
+    "bootstrapGreeting": "Bonjour... je viens de me réveiller. Tout me semble entièrement nouveau.\n\nJe n'ai pas encore de nom et je ne sais pas vraiment qui je suis — mais je sais que c'est toi qui m'as amené ici.\n\nVeux-tu me dire comment je devrais m'appeler ? Et comment dois-je t'appeler ?",
+    "bootstrapGreetingNamed": "Bonjour — je suis {{name}}. Je viens de prendre vie, et c'est toi qui m'as amené ici.\n\nJe sais déjà qui je dois être, mais pas encore qui tu es. Comment dois-je t'appeler ?"
   },
   "awareness": {
     "common": {
@@ -557,6 +573,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Chargement du canal…",
+      "bind": "Lier",
+      "bound": "Lié. Le canal est actif pour cet agent.",
+      "boundAs": "Lié à {{name}}",
+      "inactive": "inactif",
+      "unbind": "Délier",
+      "unbound": "Délié.",
+      "test": "Tester la connexion",
+      "testOk": "Connexion OK.",
+      "activate": "Activer",
+      "deactivate": "Désactiver",
+      "fieldRequired": "{{field}} est obligatoire",
+      "errLoad": "Impossible de charger le canal",
+      "errBind": "La requête a échoué",
+      "webhookHint": "Webhook entrant : POST sur {{path}} avec le jeton webhook de l'identifiant.",
+      "ownFlow": "{{name}} se lie via son propre parcours."
     }
   },
   "dashboard": {
@@ -950,7 +984,8 @@
       "freeTierHowToTitle": "À propos de votre crédit gratuit",
       "freeTierHowToSwitch": "La carte « Free Tier » est déjà reliée à vos emplacements Agent et Helper. Pour utiliser votre propre clé, ajoutez un fournisseur ci-dessous, puis sélectionnez-le pour l’emplacement Agent / Helper dans les Modèles par défaut — effectif dès votre prochain message.",
       "freeTierAnytime": "Vous pouvez changer à tout moment. Inutile d’épuiser le crédit gratuit d’abord, et changer ne le fait pas perdre : le solde reste disponible.",
-      "freeTierNoDelete": "La carte Free Tier ne peut pas être supprimée tant qu’il reste du crédit : elle détient l’unique clé de ce solde. Une fois épuisé, vous pourrez la retirer."
+      "freeTierNoDelete": "La carte Free Tier ne peut pas être supprimée tant qu’il reste du crédit : elle détient l’unique clé de ce solde. Une fois épuisé, vous pourrez la retirer.",
+      "tabOneKey": "Clé API"
     },
     "netmind": {
       "returnSubscribeSuccess": "Paiement reçu — application à votre compte en cours.",
@@ -1346,7 +1381,76 @@
         "label": "Personnalisation",
         "hint": "Thème, langue et affichage des notes de progression de l'agent.",
         "narrationTitle": "Narration de progression",
-        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet."
+        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet.",
+        "pluginThemesTitle": "Thèmes de plugins",
+        "pluginThemesNone": "Apparence par défaut"
+      },
+      "plugins": {
+        "factory": {
+          "title": "Plugins utilisateur",
+          "hint": "Plugins depuis GitHub ou un dossier local. Chargés au démarrage ; les changements prennent effet après redémarrage.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch ou /chemin/vers/plugin",
+          "sourceHelp": "Une Release GitHub (owner/repo@tag), une référence de dépôt (owner/repo#ref) ou un dossier local (lié sur place).",
+          "install": "Installer",
+          "installing": "Installation…",
+          "restartRequired": "Enregistré. Redémarrez NarraNexus pour appliquer le changement.",
+          "enable": "Activer",
+          "disable": "Désactiver",
+          "disabled": "désactivé",
+          "uninstall": "Désinstaller",
+          "upgrade": "Mettre à jour",
+          "rollback": "Revenir au dernier état fonctionnel",
+          "safeModeTitle": "Mode sans échec : les plugins utilisateur ne sont pas chargés",
+          "safeModeLeave": "Quitter le mode sans échec",
+          "bisectStart": "Trouver le plugin qui casse le démarrage",
+          "bisectTrial": "Bissection : {{count}} suspects — ceux-ci seront actifs au prochain démarrage :",
+          "bisectGood": "Démarrage réussi",
+          "bisectBad": "Encore cassé",
+          "bisectStop": "Arrêter la bissection",
+          "bisectCulprit": "Coupable trouvé : {{id}} (reste désactivé)",
+          "permissionsTitle": "{{id}} demande ces permissions",
+          "permissionsNetwork": "Réseau",
+          "permissionsFilesystem": "Fichiers",
+          "permissionsSubprocess": "Lance des sous-processus",
+          "permissionsEnv": "Variables d’environnement",
+          "permissionsFrontend": "Exécute du code dans l’interface de l’application, avec accès à votre session",
+          "permissionsAck": "Je comprends, l’activer",
+          "permissionsKeepDisabled": "Laisser désactivé",
+          "empty": "Aucun plugin utilisateur installé.",
+          "loadFailed": "Échec du chargement des plugins utilisateur",
+          "isolated": "Isolé au démarrage",
+          "viewErrors": "Erreurs ({{count}})",
+          "hideErrors": "Masquer les erreurs",
+          "noErrors": "Aucune erreur enregistrée.",
+          "mode": {
+            "link": "lié",
+            "copy": "installé"
+          },
+          "state": {
+            "registered": "enregistré",
+            "validated": "validé",
+            "enabled": "activé",
+            "active": "actif",
+            "incompatible": "incompatible",
+            "blocked": "bloqué",
+            "missing": "manquant",
+            "deps_missing": "dépendances manquantes",
+            "crashed": "planté",
+            "disabled": "désactivé",
+            "slow": "lent"
+          },
+          "proposalsTitle": "En attente de votre approbation",
+          "proposalBy": "demandé par l’agent {{agent}}",
+          "proposalTestsGreen": "Tests réussis ({{count}})",
+          "proposalTestsRed": "Tests non réussis",
+          "proposalApprove": "Approuver",
+          "proposalReject": "Refuser",
+          "noPermissions": "Aucune permission particulière demandée",
+          "builtinsTitle": "Fonctions intégrées",
+          "builtinsHint": "Plugins fonctionnels livrés avec NarraNexus. En désactiver un retire son API, ses workers et ses pages après redémarrage ; les protégés ne peuvent pas être désactivés.",
+          "protected": "protégé",
+          "installDeps": "Installer les dépendances ({{pip}})"
+        }
       }
     },
     "system": {
@@ -1830,7 +1934,8 @@
       "activityLast24h": "Dernières 24 heures",
       "activityToday": "Aujourd'hui",
       "activityAxisStart": "il y a 24 h",
-      "activityAxisNow": "maintenant"
+      "activityAxisNow": "maintenant",
+      "capabilitySwitches": "Interrupteurs de capacités"
     },
     "welcome": {
       "logout": "Se déconnecter",

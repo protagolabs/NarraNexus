@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from xyz_agent_context.agent_runtime.admission import (
+from narranexus.platform.agent_runtime.admission import (
     AgentAdmissionController,
     reset_admission_controller_for_test,
 )
@@ -292,7 +292,7 @@ async def _get_workers(app) -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_workers_parses_latest_heartbeat(db_client, monkeypatch):
-    from xyz_agent_context.repository.service_audit_repository import (
+    from narranexus.platform.repository.service_audit_repository import (
         ServiceAuditRepository,
     )
 
@@ -323,7 +323,7 @@ async def test_workers_parses_latest_heartbeat(db_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_workers_started_fallback_when_no_heartbeat(db_client, monkeypatch):
     """Just booted (only a `started` row) → list workers as 'starting'."""
-    from xyz_agent_context.repository.service_audit_repository import (
+    from narranexus.platform.repository.service_audit_repository import (
         ServiceAuditRepository,
     )
 

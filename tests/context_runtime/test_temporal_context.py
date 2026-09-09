@@ -8,15 +8,15 @@
 with `prompt_turn_context_relocation_enabled` on (default) it renders into
 the [Turn context] block of the current user message instead of the system
 prompt; the heading string "User Temporal Context" is unchanged (job MCP
-tool docstrings reference it). `_build_user_temporal_block` itself is
+tool docstrings reference it). `build_user_temporal_block` itself is
 unchanged and keeps its direct tests below.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.context_runtime.prompts import USER_TEMPORAL_CONTEXT
-from xyz_agent_context.settings import settings
+from narranexus.platform.context_runtime.prompts import USER_TEMPORAL_CONTEXT
+from narranexus.platform.settings import settings
 
 
 def test_user_temporal_context_template_fields():
@@ -52,8 +52,8 @@ def test_user_temporal_context_forbids_mental_date_arithmetic():
 
 
 @pytest.mark.asyncio
-async def test_build_user_temporal_block_uses_user_timezone(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+async def testbuild_user_temporal_block_uses_user_timezone(db_client):
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     # Seed a user row with a specific timezone
     await db_client.insert("users", {
@@ -69,7 +69,7 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
     runtime.db = db_client
     runtime.agent_id = "agent_unused"
 
-    block = await runtime._build_user_temporal_block("u_tz_test")
+    block = await runtime.build_user_temporal_block("u_tz_test")
     assert "Asia/Shanghai" in block
     # No date literal: the block names the timezone and delegates "now" to
     # Real World Information (see test_user_temporal_context_states_no_second_now).
@@ -78,19 +78,19 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
 
 
 @pytest.mark.asyncio
-async def test_build_user_temporal_block_absent_user_returns_empty(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+async def testbuild_user_temporal_block_absent_user_returns_empty(db_client):
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.db = db_client
     runtime.agent_id = "agent_unused"
 
-    block = await runtime._build_user_temporal_block(None)
+    block = await runtime.build_user_temporal_block(None)
     assert block == ""
 
 
 async def _seeded_runtime(db_client):
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
 
     await db_client.insert("users", {
         "user_id": "u_tz_site",
@@ -107,7 +107,7 @@ async def _seeded_runtime(db_client):
 
 
 def _ctx(user_id: str = "u_tz_site"):
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.schema import ContextData
 
     return ContextData(agent_id="agent_tz_site", user_id=user_id, input_content="hi")
 
@@ -125,7 +125,7 @@ async def test_relocation_on_temporal_moves_to_turn_context(db_client, monkeypat
     )
     assert "## User Temporal Context" not in system_prompt
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt=system_prompt, active_instances=[], ctx_data=ctx,
     )
     user_msg = final_messages[-1]["content"]
@@ -147,7 +147,7 @@ async def test_relocation_off_temporal_stays_in_system_prompt(db_client, monkeyp
     assert "## User Temporal Context" in system_prompt
     assert "Asia/Shanghai" in system_prompt
 
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[], system_prompt=system_prompt, active_instances=[], ctx_data=ctx,
     )
     assert final_messages[-1]["content"] == "hi"

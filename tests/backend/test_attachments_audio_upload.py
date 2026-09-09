@@ -29,7 +29,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.routes.agents import attachments as attachments_mod
-from xyz_agent_context.agent_framework.llm.transcription import service as svc_mod
+from narranexus.platform.agent_framework.llm.transcription import service as svc_mod
 
 
 @pytest.fixture

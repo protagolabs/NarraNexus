@@ -22,8 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 
-from xyz_agent_context.utils.logging import setup_logging
-from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
+from narranexus.platform.utils.logging import setup_logging
+from narranexus.platform.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 
@@ -163,17 +163,37 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database connection pool...")
     db = await get_db_client()
     logger.info("Database connection pool initialized")
+    from backend.plugins_boot import set_host_db
+
+    set_host_db(db)  # plugin contexts / settings stores share the lifespan's async client
+
+    # Plugin platform boot (spec §9.2): builtins fail-fast, user plugins
+    # isolated, plugin tables registered — all BEFORE auto_migrate so a
+    # plugin's tables exist whether or not it ever activates.
+    from backend.plugins_boot import boot_backend_plugins, fire_startup
+
+    app.state.plugin_boot = boot_backend_plugins()
+    from backend.plugins_factory.routes import service as _factory_service
+
+    _factory_service().boot_report = app.state.plugin_boot
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
+    # Plugins that asked for onStartup activate now (their declarative
+    # contributions are already registered); the boot marker clears here —
+    # reaching a migrated database and a serving process is the health the
+    # marker measures.
+    await fire_startup()
+    app.state.plugin_boot.mark_healthy()
+
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
     # added by an older codebase gets classified the moment we start.
-    from xyz_agent_context.agent_framework.providers.driver import (
+    from narranexus.platform.agent_framework.providers.driver import (
         backfill_provider_metadata,
     )
 
@@ -192,7 +212,7 @@ async def lifespan(app: FastAPI):
     # not only when the backend happens to restart.
     import asyncio as _asyncio
 
-    from xyz_agent_context.agent_runtime.run_recorder import (
+    from narranexus.platform.agent_runtime.run_recorder import (
         HEARTBEAT_INTERVAL_S,
         sweep_stale_runs,
     )
@@ -215,7 +235,7 @@ async def lifespan(app: FastAPI):
     )
 
     # One-shot data migrations (idempotent; run after schema migration)
-    from xyz_agent_context.utils.one_shot_migrations import (
+    from narranexus.platform.utils.one_shot_migrations import (
         heal_legacy_singleton_ownership,
         migrate_jobs_protocol_v2_timezone,
     )
@@ -259,16 +279,16 @@ async def lifespan(app: FastAPI):
     # Provider resolution. One tree for every caller (see providers/resolver);
     # the free tier is an ordinary provider card, so nothing extra is wired for
     # it here beyond the wallet client the routes build on demand.
-    from xyz_agent_context.agent_framework.providers.free_tier import (
+    from narranexus.platform.agent_framework.providers.free_tier import (
         is_free_tier_enabled,
     )
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         ProviderResolver,
     )
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     app.state.user_repository = UserRepository(db)
     app.state.provider_resolver = ProviderResolver(UserProviderService(db))
@@ -278,7 +298,7 @@ async def lifespan(app: FastAPI):
     # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
     # observations into consolidated memory out of the turn's path. Opportunistic
     # background work — never caps the agent loop (iron rule #14).
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
 
@@ -292,17 +312,17 @@ async def lifespan(app: FastAPI):
     # Same opportunistic contract as the memory worker: per-team isolation, a
     # failure keeps the previous summary, and nothing ever waits on it
     # (iron rule #14).
-    from xyz_agent_context.services.team_summary_worker import TeamSummaryWorker
+    # Since batch 3c.2 the worker is a backend.workers contribution of
+    # builtin.teams (host="backend"); every such contribution starts here.
+    from backend.plugins_host import start_backend_workers
 
-    team_summary_worker = TeamSummaryWorker(db)
-    await team_summary_worker.start()
-    app.state.team_summary_worker = team_summary_worker
-    logger.info("Team summary worker started")
+    started_workers = await start_backend_workers(app, KERNEL_REGISTRIES, db)
+    logger.info(f"Backend plugin workers started: {started_workers or 'none'}")
 
     # Per-user Executor idle-cull reaper (cloud + broker only; no-op
     # otherwise). Stops executor containers whose user has gone idle past
     # the TTL — only idle ones, never a running loop (iron rule #14).
-    from xyz_agent_context.agent_runtime.executor_reaper import (
+    from narranexus.platform.agent_runtime.executor_reaper import (
         maybe_start_executor_reaper,
     )
 
@@ -317,27 +337,25 @@ async def lifespan(app: FastAPI):
     # compose healthcheck start_period. Fire-and-forget with a done-callback.
     async def _seed_marketplaces() -> None:
         try:
-            from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
+            from narranexus.platform.marketplace.skill_marketplace_service import is_registry_host
 
-            if not TeamMarketplaceService()._is_registry_host():
+            if not is_registry_host():
                 return  # a pure desktop client proxies to the cloud
-            from xyz_agent_context.marketplace._team_marketplace_seed import (
-                seed_team_marketplace,
-            )
-
-            seeded = await seed_team_marketplace(db)
-            logger.info(f"Team Marketplace seed: {seeded} templates present")
-
             # First-party skills vendored in marketplace/resources/marketplace_skills/ (incl. the
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
-            from xyz_agent_context.marketplace._skill_marketplace_seed import (
+            from narranexus.platform.marketplace._skill_marketplace_seed import (
                 seed_skill_marketplace,
             )
 
             skill_seeded = await seed_skill_marketplace(db)
             logger.info(f"Skill Marketplace seed: {skill_seeded} first-party skill(s) present")
+            # Plugin-owned seeds (the team marketplace templates live in
+            # builtin.teams) run on the same background task via the host event.
+            from backend.host_events import emit_host_event
+
+            await emit_host_event("onDidStartBackend", db=db)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[marketplace-seed] skipped due to error: {e}")
 
@@ -361,7 +379,7 @@ async def lifespan(app: FastAPI):
     # failure here only means the table loads lazily later, which is the old
     # behaviour, so it warns rather than raising.
     async def _warm_price_table() -> None:
-        from xyz_agent_context.utils import model_pricing
+        from narranexus.platform.utils import model_pricing
 
         await _asyncio.to_thread(model_pricing.warm_cache)
 
@@ -379,7 +397,7 @@ async def lifespan(app: FastAPI):
     # loop does its first reconcile pass immediately, so we do NOT block
     # startup on it here (reconcile_all scans every workspace + hashes every
     # installed skill — latency grows with users).
-    from xyz_agent_context.services.skill_sync_service import SkillSyncService
+    from narranexus.platform.services.skill_sync_service import SkillSyncService
 
     skill_sync = SkillSyncService(db)
     app.state.skill_sync_task = _asyncio.create_task(skill_sync.run_forever())
@@ -414,9 +432,9 @@ async def lifespan(app: FastAPI):
     # Stopped BEFORE the db client closes: its poll loop holds that client, and
     # a pass landing mid-teardown would log a confusing connection error on
     # every clean shutdown.
-    summary_worker = getattr(app.state, "team_summary_worker", None)
-    if summary_worker is not None:
-        await summary_worker.stop()
+    from backend.plugins_host import stop_backend_workers
+
+    await stop_backend_workers(app)
     await close_db_client()
     logger.info("Database connections closed")
 
@@ -504,24 +522,15 @@ from backend.routes.websocket import router as websocket_router
 from backend.routes.agents.core import router as agents_router
 from backend.routes.agents.artifacts import router as agents_artifacts_router
 from backend.routes.artifacts.users import router as users_artifacts_router
-from backend.routes.jobs import router as jobs_router
 from backend.routes.runs import router as runs_router
 from backend.routes.auth import router as auth_router
-from backend.routes.skills import router as skills_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
-from backend.routes.marketplace_teams import router as marketplace_teams_router
-from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.plugins.routes import router as plugins_router
+from backend.plugins_factory.routes import router as plugin_factory_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
 from backend.routes.dashboard.routes import router as dashboard_router
-from backend.routes.channels.lark import router as lark_router
-from backend.routes.channels.slack import router as slack_router
-from backend.routes.channels.telegram import router as telegram_router
-from backend.routes.channels.wechat import router as wechat_router
-from backend.routes.channels.narramessenger import router as narramessenger_router
-from backend.routes.channels.discord import router as discord_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin.quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
@@ -538,7 +547,6 @@ from backend.routes.office_watch.proxy import (
     router as office_watch_router,
     public_router as office_watch_public_router,
 )
-from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 from backend.routes.migrate import router as migrate_router
 from backend.routes.arena import router as arena_router
@@ -554,21 +562,15 @@ app.include_router(agents_artifacts_router, prefix="/api/agents", tags=["Artifac
 app.include_router(office_watch_router, prefix="/api", tags=["OfficeWatch"])
 app.include_router(office_watch_public_router, prefix="/api/public", tags=["OfficeWatch"])
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
-app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(runs_router, prefix="/api/runs", tags=["Runs"])
-app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # /api/marketplace is one namespace, split by object: skills/* here;
 # teams/* is reserved for the Team/Agent bundle marketplace.
 app.include_router(
     marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
 )
-app.include_router(
-    marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
-)
-app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
+app.include_router(plugin_factory_router, tags=["PluginFactory"])
 app.include_router(plugins_router, tags=["Plugins"])
-app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
@@ -578,13 +580,22 @@ app.include_router(product_analytics_router, prefix="/api/analytics", tags=["Ana
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
-app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
-app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
-app.include_router(wechat_router, prefix="/api/wechat", tags=["WeChat"])
-app.include_router(narramessenger_router, prefix="/api/narramessenger", tags=["NarraMessenger"])
+from backend.routes.channels.generic import router as channels_generic_router  # noqa: E402
+
+# Generic channel routes (/api/channels/{channel}/…) serve ANY channel in
+# ingress.channels — shell-level, not plugin-owned.
+app.include_router(channels_generic_router, prefix="/api/channels", tags=["Channels"])
+# GET /api/plugins/channels — the catalog the shell renders (name / display name /
+# ui / owner per ingress.channels entry), so the frontend keeps no channel table.
+# Under /api/plugins, not /api/channels: it is a read of the plugin registry, not
+# an ownership-gated operation on one agent's binding.
+from backend.routes.channels.catalog import router as channels_catalog_router  # noqa: E402
+
+app.include_router(channels_catalog_router, prefix="/api/plugins", tags=["Channels"])
+# jobs / skills / home-assistant / the six IM channel routers are backend.routes
+# contributions of their builtin plugins (batch 3c.5), mounted below by
+# mount_plugin_routes together with the data-access twins and teams.
 app.include_router(arena_router, tags=["Arena"])
-app.include_router(discord_router, prefix="/api/discord", tags=["Discord"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])
@@ -750,13 +761,6 @@ def _health_body(db_ok: bool, db_detail: str):
         "status": "healthy" if db_ok else "unhealthy",
         "database": db_detail,
     }
-    summary_worker = getattr(app.state, "team_summary_worker", None)
-    if summary_worker is not None:
-        body["team_summary"] = {
-            "running": summary_worker.running,
-            **summary_worker.last_pass,
-        }
-
     if not db_ok:
         return JSONResponse(status_code=503, content=body)
     return body
@@ -806,6 +810,25 @@ else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
 
 
+# ─── Plugin routers (backend.routes contributions) ───────
+# After every shell router (a plugin cannot shadow one) and before the SPA
+# fallback (the catch-all cannot swallow one). With no user plugins loaded this
+# mounts nothing, so the route snapshot is unchanged.
+from backend.plugins_host import mount_plugin_routes, register_builtins_for_import  # noqa: E402
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES  # noqa: E402
+
+# Builtin plugins (incl. builtin.teams' router) register at import so the route
+# table is complete before serving; the lifespan boot repeats this idempotently.
+app.state.disabled_builtins = register_builtins_for_import(KERNEL_REGISTRIES)
+app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)
+# User plugins (registry.json) mount a lazy router under /api/x/<id> now — before
+# the SPA fallback below, which would otherwise swallow their paths — and build
+# the real router on the first request, after the lifespan boot registered it.
+from backend.plugins_host import mount_user_plugin_routes  # noqa: E402
+
+app.state.user_plugin_routes = mount_user_plugin_routes(app, KERNEL_REGISTRIES)
+
+
 # ─── Frontend static files & SPA fallback ────────────────
 # Mounted after all API routes so /api/* and /ws/* take priority.
 
@@ -851,7 +874,11 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
         /manyfold/* requests must return 404 — never the SPA bundle.
         Otherwise platform readiness probes get a fake 200.
         """
-        if full_path.startswith("v1/") or full_path.startswith("manyfold/"):
+        if full_path.startswith(("v1/", "manyfold/", "api/", "ws/")):
+            # An API path nothing serves is a 404, never the SPA bundle: a
+            # distribution that leaves a builtin out (batch 6) must answer its
+            # former routes with 404, and a frontend bug asking for a missing
+            # endpoint must not receive index.html with a 200.
             from fastapi.responses import JSONResponse
 
             return JSONResponse(status_code=404, content={"detail": "not found"})

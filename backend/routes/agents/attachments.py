@@ -27,14 +27,14 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
-from xyz_agent_context.schema.attachment_schema import (
+from narranexus.platform.schema.attachment_schema import (
     derive_category_from_mime,
 )
-from xyz_agent_context.utils.attachment_storage import (
+from narranexus.platform.utils.attachment_storage import (
     resolve_attachment_path,
     store_uploaded_attachment,
 )
-from xyz_agent_context.utils.mime_sniff import sniff_mime_type
+from narranexus.platform.utils.mime_sniff import sniff_mime_type
 
 
 router = APIRouter()
@@ -138,7 +138,7 @@ async def upload_attachment(
         transcript: str | None = None
         transcription_available: bool | None = None
         if mime_type.startswith("audio/"):
-            from xyz_agent_context.agent_framework.llm.transcription import (
+            from narranexus.platform.agent_framework.llm.transcription import (
                 TranscriptionService,
             )
             svc = TranscriptionService.instance()

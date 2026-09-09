@@ -30,11 +30,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.system_messages import PLATFORM_MSG_TYPES
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
-from backend.routes.teams import _team_room_activity
+from narranexus_plugins.teams.routes import _team_room_activity
 
 USER = "usr_1"
 TEAM = "team_1"
@@ -280,7 +280,7 @@ def _chat_client(monkeypatch, db):
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     async def _get_db():
         return db

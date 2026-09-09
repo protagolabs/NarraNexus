@@ -146,7 +146,7 @@ async def test_since_accepts_iso_t_form_against_real_write_path(
     (isoformat(sep=" ") — SPACE form). A caller's ISO `since` with the
     'T' separator must still match; lexicographic comparison without
     normalization silently returned empty."""
-    from xyz_agent_context.repository.channel_trigger_audit_repository import (
+    from narranexus.platform.repository.channel_trigger_audit_repository import (
         ChannelTriggerAuditRepository,
     )
 

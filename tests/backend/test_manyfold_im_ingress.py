@@ -17,8 +17,8 @@ from httpx import ASGITransport
 
 import backend.routes.manyfold.sync as sync_mod
 import backend.routes.openai_compat as compat_mod
-from xyz_agent_context.schema.channel_tag import ChannelTag
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.channel_tag import ChannelTag
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ async def test_endpoint_unknown_channel_provider_is_ignored(compat_app):
 # Stage B — reply classification via MessageSourceRegistry declaration chain
 # ---------------------------------------------------------------------------
 
-from xyz_agent_context.channel.message_source_handler import (  # noqa: E402
+from narranexus.platform.channel.message_source_handler import (  # noqa: E402
     MessageSourceHandler,
     MessageSourceRegistry,
 )
@@ -457,11 +457,11 @@ async def test_stream_fallback_keeps_legacy_text_for_plain_turn(compat_app):
 
 from types import SimpleNamespace  # noqa: E402
 
-from xyz_agent_context.channel.channel_trigger_base import (  # noqa: E402
+from narranexus.platform.channel.channel_trigger_base import (  # noqa: E402
     ChannelTriggerBase,
 )
-from xyz_agent_context.module import managed_channel_ingress as ingress_mod  # noqa: E402
-from xyz_agent_context.schema.parsed_message import ChatType  # noqa: E402
+from narranexus.platform.module_system import managed_channel_ingress as ingress_mod  # noqa: E402
+from narranexus.platform.schema.parsed_message import ChatType  # noqa: E402
 
 
 def _tagged_extra(**overrides):
@@ -574,7 +574,7 @@ async def test_before_run_stamps_turn_envelope_for_dm(monkeypatch):
         trigger_extra_data=ted,
         db=object(),
     )
-    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
+    from narranexus.platform.channel.channel_prompts import ROOM_TYPE_DIRECT
 
     assert ted["channel_room_type"] == ROOM_TYPE_DIRECT
     assert ted["channel_reply_kwargs"] == {"context_token": "tok-55"}
@@ -592,13 +592,13 @@ async def test_before_run_stamps_group_room_type(monkeypatch):
         trigger_extra_data=ted,
         db=object(),
     )
-    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_GROUP
+    from narranexus.platform.channel.channel_prompts import ROOM_TYPE_GROUP
 
     assert ted["channel_room_type"] == ROOM_TYPE_GROUP
 
 
 def test_wechat_trigger_managed_reply_kwargs_carries_reply_token():
-    from xyz_agent_context.module.wechat_module.wechat_trigger import WeChatTrigger
+    from narranexus_plugins.wechat_module.wechat_trigger import WeChatTrigger
 
     trigger = WeChatTrigger.__new__(WeChatTrigger)
     assert trigger.managed_reply_kwargs({"reply_token": "ctx-1"}) == {
@@ -608,7 +608,7 @@ def test_wechat_trigger_managed_reply_kwargs_carries_reply_token():
 
 
 def test_base_managed_reply_kwargs_defaults_empty():
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
 
     # Unbound call — the ABC can't be instantiated bare, and the default
     # implementation reads nothing off self.
@@ -777,7 +777,7 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
 
 
 async def test_wechat_managed_before_run_claims_owner(monkeypatch):
-    from xyz_agent_context.module.wechat_module import wechat_trigger as wt
+    from narranexus_plugins.wechat_module import wechat_trigger as wt
 
     trig = wt.WeChatTrigger()
     cred = SimpleNamespace(agent_id="a1", owner_wx_id="")
@@ -805,7 +805,7 @@ async def test_wechat_managed_before_run_claims_owner(monkeypatch):
 
 
 async def test_matrix_managed_before_run_paths(monkeypatch):
-    from xyz_agent_context.module.narramessenger_module import matrix_trigger as mt
+    from narranexus_plugins.narramessenger_module import matrix_trigger as mt
 
     trig = mt.MatrixTrigger()
     msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
@@ -972,7 +972,7 @@ from unittest.mock import MagicMock  # noqa: E402
 
 
 def _nm_module():
-    from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+    from narranexus_plugins.narramessenger_module.narramessenger_module import (
         NarramessengerModule,
     )
 
@@ -1003,7 +1003,7 @@ async def test_nm_managed_turn_instructs_narra_send():
         extra_data={module.ctx_data_key: _nm_info(managed_ingress=True)},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert 'narra_send(room_id="!r:hs"' in text
     assert "Do NOT" in text and "narra_reply" in text
 
@@ -1014,7 +1014,7 @@ async def test_nm_native_turn_keeps_narra_reply():
         extra_data={module.ctx_data_key: _nm_info()},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert 'narra_reply(text="<your reply>")' in text
 
 
@@ -1093,9 +1093,9 @@ async def test_files_write_overwrite_semantics(files_app):
 
 
 async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_path):
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
-    import xyz_agent_context.utils.attachment_storage as storage_mod
-    import xyz_agent_context.utils.workspace_paths as wsp_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.utils.attachment_storage as storage_mod
+    import narranexus.platform.utils.workspace_paths as wsp_mod
 
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
@@ -1143,7 +1143,7 @@ async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_pa
 
 
 async def test_convert_attachments_never_raises_on_bad_env(monkeypatch):
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
 
     class _BoomRepo:
         def __init__(self, db):
@@ -1278,7 +1278,7 @@ async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
         extra_data={"managed_ingress": True},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    tools = await module.get_expressive_tools(managed_ctx)
+    tools = await module.expressive_tools(managed_ctx)
     assert any("narra_send" in t for t in tools)
     assert not any("narra_reply" in t for t in tools)
 
@@ -1286,10 +1286,10 @@ async def test_nm_managed_turn_declares_only_narra_send(monkeypatch):
         extra_data={},
         working_source=WorkingSource.NARRAMESSENGER,
     )
-    native = await module.get_expressive_tools(native_ctx)
+    native = await module.expressive_tools(native_ctx)
     assert any("narra_reply" in t for t in native)
     # No-ctx callers (tests, other frameworks) keep the full declaration.
-    assert await module.get_expressive_tools() == native
+    assert await module.expressive_tools() == native
 
 
 def test_is_mention_and_chat_type_survive_typescript_stringification():
@@ -1483,9 +1483,9 @@ async def test_silent_ingest_writes_silent_audit(monkeypatch, audit_rows):
 
 
 def _fake_workspace_env(monkeypatch, tmp_path):
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
-    import xyz_agent_context.utils.attachment_storage as storage_mod
-    import xyz_agent_context.utils.workspace_paths as wsp_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.utils.attachment_storage as storage_mod
+    import narranexus.platform.utils.workspace_paths as wsp_mod
 
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
@@ -1541,7 +1541,7 @@ async def test_attachments_resolution_failure_still_audits(
 ):
     """Workspace resolution failing loses ALL declared attachments — the
     exact case this row exists for."""
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
 
     class _BoomRepo2:
         def __init__(self, db):
@@ -1687,7 +1687,7 @@ async def test_files_write_audit_cleanup_runs_once_per_day(monkeypatch):
             cleaned.append(days)
             return 0
 
-    import xyz_agent_context.repository.channel_trigger_audit_repository as repo_mod
+    import narranexus.platform.repository.channel_trigger_audit_repository as repo_mod
 
     async def fake_db():
         return object()
@@ -1717,12 +1717,12 @@ async def test_files_write_audit_cleanup_runs_once_per_day(monkeypatch):
 async def test_route_renders_the_agent_marker_into_what_the_model_reads(
     compat_app, monkeypatch
 ):
-    from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER
+    from narranexus.platform.schema.channel_tag import AGENT_PEER_MARKER
 
     async def _allow(self, **kwargs):
         return True, ""
 
-    from xyz_agent_context.module.managed_channel_ingress import (
+    from narranexus.platform.module_system.managed_channel_ingress import (
         get_managed_channel_ingress,
     )
 
@@ -1759,12 +1759,12 @@ async def test_route_renders_the_agent_marker_into_what_the_model_reads(
 
 
 async def test_route_leaves_a_human_managed_turn_unmarked(compat_app, monkeypatch):
-    from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER
+    from narranexus.platform.schema.channel_tag import AGENT_PEER_MARKER
 
     async def _allow(self, **kwargs):
         return True, ""
 
-    from xyz_agent_context.module.managed_channel_ingress import (
+    from narranexus.platform.module_system.managed_channel_ingress import (
         get_managed_channel_ingress,
     )
 
@@ -1921,7 +1921,7 @@ async def test_managed_deny_answers_with_a_receipt(monkeypatch):
 async def test_every_managed_message_the_breaker_drops_leaves_an_audit_row(
     monkeypatch,
 ):
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_INGRESS_BREAKER_TRIPPED,
         EVENT_INGRESS_DROPPED_BREAKER,
     )
@@ -1953,7 +1953,7 @@ async def test_every_managed_message_the_breaker_drops_leaves_an_audit_row(
 
 
 async def test_a_dropped_row_carries_the_numbers_that_explain_it(monkeypatch):
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_INGRESS_DROPPED_BREAKER,
     )
 
@@ -2050,7 +2050,7 @@ async def test_the_managed_gate_gets_the_agent_peer_answer(monkeypatch):
     ones (as the shared `_GuardedTrigger` does) leaves an agent peer
     judged at the default 20 and this storm never trips at all.
     """
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_INGRESS_BREAKER_TRIPPED,
     )
 

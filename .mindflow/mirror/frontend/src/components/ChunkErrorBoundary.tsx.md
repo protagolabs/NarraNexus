@@ -1,10 +1,14 @@
 ---
 code_file: frontend/src/components/ChunkErrorBoundary.tsx
-last_verified: 2026-08-12
+last_verified: 2026-09-03
 stub: false
 ---
 
 # ChunkErrorBoundary.tsx — 崩溃兜底 + stale-chunk 自愈,区分两类
+
+## 2026-09-03 — 崩溃同时上报 `platform/errorSink`
+
+console 输出保留；`reportUiError` 按 chunk URL 归因到插件或壳，供观察窗与工场页。
 
 ## 为什么存在
 

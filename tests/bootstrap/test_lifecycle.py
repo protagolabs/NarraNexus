@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.bootstrap import lifecycle
-from xyz_agent_context.bootstrap.profiles import META_AUTO_DELETE
+from narranexus.platform.bootstrap import lifecycle
+from narranexus.platform.bootstrap.profiles import META_AUTO_DELETE
 
 
 async def _insert_events(db, agent_id: str, n: int) -> None:

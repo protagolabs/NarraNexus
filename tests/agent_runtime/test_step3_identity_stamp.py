@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.broker_client import ExecutorEnsureResult
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_framework.loop.broker_client import ExecutorEnsureResult
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _dispatch_identity_token,
 )
 
@@ -25,7 +25,7 @@ def _fresh_local_issuer():
     public key only on first use — without a reset, a second self-signing
     test with a different tmp_path would read an empty dir (ordering
     coupling flagged by the pre-push review)."""
-    from xyz_agent_context.module.identity import tokens
+    from narranexus.platform.module_system.identity import tokens
 
     tokens._local_issuer = None
     yield
@@ -54,7 +54,7 @@ def test_local_audit_mode_self_signs(monkeypatch, tmp_path):
     token = _dispatch_identity_token(None, "usr_1")
     assert token
 
-    from xyz_agent_context.module.identity.tokens import verify_identity_token
+    from narranexus.platform.module_system.identity.tokens import verify_identity_token
 
     pub = (tmp_path / "identity_ed25519.pub").read_bytes()
     assert verify_identity_token(token, pub).user_id == "usr_1"
@@ -90,7 +90,7 @@ def test_cloud_mode_without_broker_result_never_self_signs(monkeypatch, tmp_path
     monkeypatch.setenv("NX_IDENTITY_KEY_DIR", str(tmp_path))
     monkeypatch.setenv("NX_MCP_AUTH_MODE", "audit")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
     assert _dispatch_identity_token(None, "usr_1") is None
     assert list(tmp_path.iterdir()) == []

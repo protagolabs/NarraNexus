@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.message_source_handler import im_channel_prefixes
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.channel.message_source_handler import im_channel_prefixes
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 AGENT = "agent_me"
 PEER_CH = "ch_peer"
@@ -166,7 +166,7 @@ def test_the_predicate_and_its_params_cannot_desynchronise(db_client):
     Clause and param are appended together in one loop now, so a `continue` drops
     both. This test states the invariant the loop provides.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     bus = LocalMessageBus(backend=db_client._backend)
     for ph in ("?", "%s"):

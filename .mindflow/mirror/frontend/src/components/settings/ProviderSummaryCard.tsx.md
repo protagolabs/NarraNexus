@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — the framework label uses the live `display_name` (B6)
+
+The local `FRAMEWORK_LABELS` hardcoded table is gone. The Agent row's detail text now calls
+`lib/frameworkBrand.ts`'s `formatFrameworkFromList(framework, frameworks)`, where `frameworks` is
+the `frameworks[]` array already returned alongside `framework` by the SAME
+`api.getAgentFramework()` call this component already made (previously only `fw.data.framework`
+was kept; `fw.data.frameworks` is now also stored in state). This prefers the backend's own
+`display_name` per framework entry over the static picker label, with the same fallback chain as
+`formatFramework` when the live entry has no `display_name` or the list has not loaded.
 
 ## 2026-09-03 — 注释里的 `/setup` 改为「first-run」
 

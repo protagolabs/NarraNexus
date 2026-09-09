@@ -29,10 +29,10 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.artifact import ArtifactService
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.workspace_paths import (
+from narranexus.platform.artifact import ArtifactService
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
     team_shared_dir,
 )
@@ -45,7 +45,7 @@ TEAM = "team_1"
 @pytest.fixture
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "ws"
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
 
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
 

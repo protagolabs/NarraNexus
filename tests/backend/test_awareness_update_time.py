@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from xyz_agent_context.repository.instance_awareness_repository import (
+from narranexus.platform.repository.instance_awareness_repository import (
     InstanceAwarenessRepository,
 )
 

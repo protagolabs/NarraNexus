@@ -39,8 +39,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus import message_bus_trigger as mbt
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus import message_bus_trigger as mbt
+from narranexus.platform.message_bus.message_bus_trigger import (
     STARVATION_ALERT_AFTER_S,
     MessageBusTrigger,
     _InFlight,
@@ -241,7 +241,7 @@ def test_max_workers_is_configurable_and_defaults_sanely():
     unfixable without a code change. The pool size is OUR resource decision,
     not a limit on agents — raising it is what "do not become the interruption
     source" asks for."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     assert isinstance(settings.bus_max_workers, int)
     assert settings.bus_max_workers >= 1

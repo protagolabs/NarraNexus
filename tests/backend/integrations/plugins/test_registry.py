@@ -7,9 +7,37 @@
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.claude.cli_binary import PINNED_CLI_VERSION
+from narranexus_plugins.frameworks_claude_code.cli_binary import PINNED_CLI_VERSION
 
-from backend.integrations.plugins.registry import PLUGIN_SPECS
+from backend.integrations.plugins.registry import build_plugin_specs
+
+# One build for the pin assertions below; the first test proves it is a
+# snapshot of its moment by registering a framework into a private registries
+# set and building again from that.
+PLUGIN_SPECS = build_plugin_specs()
+
+
+def test_a_framework_registered_later_appears_in_the_next_build():
+    from narranexus.contracts.framework import FrameworkInstall, FrameworkMeta, InstallComponent
+    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+    from narranexus.kernel.plugins.registries import Registries
+    from narranexus.platform.agent_framework.loop.driver import FRAMEWORK_SLOT
+
+    # A private registries set with the builtin plugins' slots declared (the
+    # framework slot is builtin.turn's), untouched by the process-wide boot.
+    private = Registries(slot_tree_with_builtins())
+    install = FrameworkInstall(
+        components=(InstallComponent(kind="pip", requirement="acme-loop==9.9.9"),),
+        probe_package="acme_loop",
+        user_version_source="pip_pkg",
+        size_hint="~1 MB",
+    )
+    private.registry_for(FRAMEWORK_SLOT).register(
+        "acme_loop", lambda: None, owner="acme.frameworks", meta={"framework": FrameworkMeta("acme_loop", "Acme", install=install)}
+    )
+    assert "acme_loop" not in PLUGIN_SPECS
+    assert build_plugin_specs(private)["acme_loop"].components[0].requirement == "acme-loop==9.9.9"
+    assert "acme_loop" not in build_plugin_specs()
 
 
 def test_registry_has_exactly_claude_and_codex():
@@ -53,8 +81,6 @@ def test_plugin_id_equals_framework_name_and_dict_key():
     probes pyenv/<framework_name>/ and reports 'not installed' forever. This
     turns that docstring-only contract into a guard (same shape as
     test_plugins_extra_lockstep / test_claude_cli_pin)."""
-    from backend.integrations.plugins.registry import PLUGIN_SPECS
-
     for key, spec in PLUGIN_SPECS.items():
         assert key == spec.id == spec.framework_name, (
             f"plugin key/id/framework_name diverge: key={key!r} id={spec.id!r} "
@@ -73,8 +99,6 @@ def test_pip_pins_match_uv_lock():
     import re
     import tomllib
     from pathlib import Path
-
-    from backend.integrations.plugins.registry import PLUGIN_SPECS
 
     repo = Path(__file__).resolve().parents[4]
     lock = tomllib.loads((repo / "uv.lock").read_text(encoding="utf-8"))

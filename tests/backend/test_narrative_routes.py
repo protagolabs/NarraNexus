@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
-from backend.routes.agents import narrative as nr
+from narranexus_plugins.basic_info_module import routes as nr
 
 
 class _FakeNarrativeRow(dict):

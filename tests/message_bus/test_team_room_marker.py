@@ -17,18 +17,18 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_runtime.run_collector import RunCollection
+from narranexus.platform.agent_runtime.run_collector import RunCollection
 from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 def _patch_db_factory(monkeypatch, db_client):
@@ -36,7 +36,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -100,7 +100,7 @@ async def test_invoke_runtime_stamps_marker_into_trigger_extra_data(monkeypatch)
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        "narranexus.platform.agent_runtime.client.get_agent_runtime_client",
         lambda: client,
     )
 

@@ -32,9 +32,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.utils.db import sqlite_proxy_server as proxy
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.db_backend_sqlite_proxy import SQLiteProxyBackend
+from narranexus.platform.utils.db import sqlite_proxy_server as proxy
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.db_backend_sqlite_proxy import SQLiteProxyBackend
 
 pytestmark = pytest.mark.asyncio
 

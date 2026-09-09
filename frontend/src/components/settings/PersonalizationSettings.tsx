@@ -13,11 +13,13 @@
  */
 
 import { useTranslation } from 'react-i18next';
-import { Monitor, Sun, Moon, Check } from 'lucide-react';
+import { Monitor, Sun, Moon, Check, Palette } from 'lucide-react';
 import { useTheme } from '@/hooks';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/uiStore';
+import { useThemeStore } from '@/stores/themeStore';
+import { THEMES, useRegistryEntries } from '@/platform/registries';
 
 const THEME_OPTIONS = [
   { value: 'system', icon: Monitor, labelKey: 'sidebar.themeSystem' },
@@ -28,6 +30,10 @@ const THEME_OPTIONS = [
 export function PersonalizationSettings() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const pluginTheme = useThemeStore((s) => s.pluginTheme);
+  const setPluginTheme = useThemeStore((s) => s.setPluginTheme);
+  // Themes plugins contributed (ui.themes); the list grows as plugins activate.
+  const pluginThemes = useRegistryEntries(THEMES);
   const interimNarration = useUIStore((s) => s.interimNarration);
   const setInterimNarration = useUIStore((s) => s.setInterimNarration);
   const currentLang =
@@ -66,6 +72,45 @@ export function PersonalizationSettings() {
           })}
         </div>
       </div>
+
+      {/* Plugin themes — token overlays contributed through ui.themes; shown only when one exists. */}
+      {pluginThemes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-[var(--nm-ink)] mb-2">
+            {t('pages.settings.personalization.pluginThemesTitle')}
+          </h3>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('pages.settings.personalization.pluginThemesTitle')}>
+            {[null, ...pluginThemes.map((e) => e.id)].map((id) => {
+              const entry = id === null ? null : pluginThemes.find((e) => e.id === id)!;
+              const active = pluginTheme === id;
+              const label = entry ? entry.value.displayName : t('pages.settings.personalization.pluginThemesNone');
+              return (
+                <button
+                  key={id ?? '__none'}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  data-testid={id ? `plugin-theme-${id}` : 'plugin-theme-none'}
+                  onClick={() => {
+                    setPluginTheme(id);
+                    // A plugin theme declares which base it was designed on; follow it.
+                    if (entry && entry.value.dark !== undefined) setTheme(entry.value.dark ? 'dark' : 'light');
+                  }}
+                  className={cn(
+                    'flex items-center gap-2 px-4 py-2 rounded-[var(--radius-md)] border text-sm transition-colors',
+                    active
+                      ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
+                      : 'border-[var(--border-default)] text-[var(--nm-ink70)] hover:border-[var(--border-strong)]',
+                  )}
+                >
+                  <Palette className="w-4 h-4" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Language */}
       <div>

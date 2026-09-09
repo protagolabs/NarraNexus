@@ -24,7 +24,7 @@ to check here and expensive to discover later:
 
 import pytest
 
-from xyz_agent_context.utils.db.schema_registry import TABLES
+from narranexus.platform.utils.db.schema_registry import TABLES
 
 TABLE = "team_bulletin_entries"
 

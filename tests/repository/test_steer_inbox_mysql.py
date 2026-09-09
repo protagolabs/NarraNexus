@@ -17,12 +17,12 @@ from datetime import timedelta
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.steer_inbox_repository import SteerInboxRepository
-from xyz_agent_context.schema.steer_schema import SteerInjection
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
-from xyz_agent_context.utils.timezone import to_datetime6_literal, utc_now
+from narranexus.platform.repository.steer_inbox_repository import SteerInboxRepository
+from narranexus.platform.schema.steer_schema import SteerInjection
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.timezone import to_datetime6_literal, utc_now
 from tests.mysql_dialect import mysql_configured, mysql_url, parse_mysql_url, skip_reason
 
 pytestmark = pytest.mark.skipif(
@@ -121,7 +121,7 @@ async def test_discard_run_delete_on_mysql(mysql_client):
 async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeypatch):
     # The COUNT-unconsumed backlog guard and the retention DELETE are both raw
     # SQL — exercise them on the real dialect (IS NULL / IS NOT NULL / < cutoff).
-    import xyz_agent_context.repository.steer_inbox_repository as sir
+    import narranexus.platform.repository.steer_inbox_repository as sir
 
     repo = SteerInboxRepository(mysql_client)
     monkeypatch.setattr(sir, "MAX_UNCONSUMED_PER_RUN", 2)

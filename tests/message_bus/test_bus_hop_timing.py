@@ -24,13 +24,13 @@ from datetime import datetime, timezone
 import pytest
 from loguru import logger
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.schemas import BusMessage
 
 from ._team_turn import speak_in_room
 
@@ -61,7 +61,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 

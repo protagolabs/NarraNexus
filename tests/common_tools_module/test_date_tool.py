@@ -21,7 +21,7 @@ from datetime import date, datetime, timezone as dt_timezone
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import date_tool
+from narranexus_plugins.common_tools_module._common_tools_impl import date_tool
 
 
 @pytest.fixture

@@ -49,17 +49,20 @@ WRITE_PATTERN = (
 # instead. Do not copy "creation paths need no correction" onto the next entry
 # without checking whether that entry renames.
 ALLOWED = {
-    ("src/xyz_agent_context/bootstrap/provision.py", "add_agent"),
-    ("src/xyz_agent_context/migration/applier.py", "add_agent"),
+    ("src/narranexus/platform/bootstrap/provision.py", "add_agent"),
+    ("src/narranexus/platform/migration/applier.py", "add_agent"),
     ("backend/integrations/arena/arena_provisioning_service.py", "add_agent"),
     ("backend/integrations/arena/arena_provisioning_service.py", "update_agent"),
-    ("src/xyz_agent_context/bootstrap/profiles.py", "update_agent"),
+    ("src/narranexus/platform/bootstrap/profiles.py", "update_agent"),
+    # Metadata only: re-renders the stored first-run greeting after a rename
+    # (bootstrap_greeting); the name itself was written by agent_profile.
+    ("src/narranexus/platform/bootstrap/greeting_seed.py", "update_agent"),
     ("backend/onboarding/provisioning.py", "update_agent"),
     ("backend/routes/manyfold/agents.py", 'insert("agents"'),
-    ("src/xyz_agent_context/bundle/importer.py", '_ins("agents"'),
+    ("src/narranexus/platform/bundle/importer.py", '_ins("agents"'),
     # The transaction itself — the one writer a rename may go through.
     (
-        "src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py",
+        "src/narranexus/platform/agent_profile/_agent_profile_impl/profile_write.py",
         "update_agent",
     ),
 }
@@ -93,7 +96,7 @@ def test_every_writer_of_the_agents_row_is_on_the_allowlist():
     unexpected = found - ALLOWED
     assert not unexpected, (
         "a new writer of the agents row appeared. If it can set agent_name, it "
-        "must go through xyz_agent_context.agent_profile — a rename is not a "
+        "must go through narranexus.platform.agent_profile — a rename is not a "
         "column write. If it genuinely cannot (creation, or metadata only), add "
         f"it here with the reason: {sorted(unexpected)}"
     )
@@ -116,15 +119,15 @@ def test_the_allowlist_has_no_entries_that_no_longer_exist():
 # bootstrap/profiles.py and watching the coarse check pass.
 MAY_NAME_THE_COLUMN = {
     # Creation: the name is set as the agent comes into existence.
-    "src/xyz_agent_context/bootstrap/provision.py",
-    "src/xyz_agent_context/migration/applier.py",
+    "src/narranexus/platform/bootstrap/provision.py",
+    "src/narranexus/platform/migration/applier.py",
     "backend/integrations/arena/arena_provisioning_service.py",
     "backend/routes/manyfold/agents.py",
-    "src/xyz_agent_context/bundle/importer.py",
+    "src/narranexus/platform/bundle/importer.py",
     # The rename transaction.
-    "src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py",
+    "src/narranexus/platform/agent_profile/_agent_profile_impl/profile_write.py",
     # The repository helpers the above go through.
-    "src/xyz_agent_context/repository/agent_repository.py",
+    "src/narranexus/platform/repository/agent_repository.py",
 }
 
 
@@ -174,5 +177,5 @@ def test_no_unlisted_file_writes_agent_name_into_the_row():
     assert not offenders, (
         "these files write the agents row and name agent_name, without being "
         "the transaction or a creation path — route the rename through "
-        f"xyz_agent_context.agent_profile instead: {offenders}"
+        f"narranexus.platform.agent_profile instead: {offenders}"
     )

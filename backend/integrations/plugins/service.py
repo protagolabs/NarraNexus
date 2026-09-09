@@ -19,23 +19,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
-from xyz_agent_context.agent_framework.plugin_paths import node_prefix, plugin_pyenv
+from narranexus.platform.agent_framework.plugin_paths import node_prefix, plugin_pyenv
 
 from ._installers.base import InstalledState, PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller
 from ._installers.pip_target import PipTargetInstaller
 from .errors import PluginBusyError, classify_error
-from .registry import PLUGIN_SPECS
+from .registry import build_plugin_specs
 from .spec import InstallComponent, PluginSpec
-
-# Where each plugin's login/auth state lives — a plain file-existence probe
-# is all the frontend needs (a "log in" CTA vs. not), so we do not shell out
-# to either CLI's own auth-status command.
-_LOGIN_MARKERS: dict[str, tuple[str, str]] = {
-    "claude_code": (".claude", ".credentials.json"),
-    "codex_cli": (".codex", "auth.json"),
-}
-
 
 @dataclass
 class PluginStatus:
@@ -56,13 +47,25 @@ class PluginService:
     """Orchestrates install/detect/uninstall across a plugin's components."""
 
     def __init__(self, specs: dict[str, PluginSpec] | None = None) -> None:
-        self._specs = specs if specs is not None else PLUGIN_SPECS
+        # Derived on FIRST USE, not at construction: the route module builds
+        # its process-level singleton at import, before the plugin platform
+        # has booted, and the framework registry (whose slot builtin.turn
+        # declares at boot) does not exist yet then. Every request comes
+        # after boot, so the first request sees the complete registry.
+        self._given_specs = specs
+        self._specs_cache: dict[str, PluginSpec] | None = None
         self._locks: dict[str, asyncio.Lock] = {}
         self._busy: set[str] = set()
         self._installers: dict[str, PluginInstaller] = {
             "pip": PipTargetInstaller(),
             "npm": NpmPrefixInstaller(),
         }
+
+    @property
+    def _specs(self) -> dict[str, PluginSpec]:
+        if self._specs_cache is None:
+            self._specs_cache = self._given_specs if self._given_specs is not None else build_plugin_specs()
+        return self._specs_cache
 
     def _spec(self, plugin_id: str) -> PluginSpec:
         try:
@@ -78,7 +81,11 @@ class PluginService:
         return lock
 
     def _logged_in(self, plugin_id: str) -> bool:
-        marker = _LOGIN_MARKERS.get(plugin_id)
+        # Where the plugin's login/auth state lives is the framework's own
+        # ``FrameworkMeta.login_marker``; a plain file-existence probe is all
+        # the frontend needs (a "log in" CTA vs. not), so we do not shell out
+        # to the CLI's auth-status command.
+        marker = self._specs[plugin_id].login_marker if plugin_id in self._specs else None
         if marker is None:
             return False
         subdir, filename = marker

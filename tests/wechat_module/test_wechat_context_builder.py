@@ -14,10 +14,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.wechat_module.wechat_context_builder import (
+from narranexus_plugins.wechat_module.wechat_context_builder import (
     WeChatContextBuilder,
 )
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 
 class _TableAwareDB:

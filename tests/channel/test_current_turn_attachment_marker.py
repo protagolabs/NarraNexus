@@ -14,7 +14,7 @@ Fix location: ``context_runtime.build_input_for_framework`` augments
 the LLM-facing current-turn user message with markers synthesised via
 ``Attachment.markers_from_dicts`` — while leaving
 ``ctx_data.input_content`` (the string persisted by
-``ChatModule.hook_persist_turn`` and echoed to the frontend chat
+``ChatModule.persist_turn`` and echoed to the frontend chat
 panel) untouched. Same seam covers WS chat and every IM channel: they
 already stash attachments in ``trigger_extra_data["attachments"]``.
 
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.schema.attachment_schema import (
+from narranexus.platform.schema.attachment_schema import (
     Attachment,
     AttachmentCategory,
 )
@@ -56,7 +56,7 @@ def _att_dict(file_id: str = "att_1d31e04a") -> dict:
 
 def test_markers_from_dicts_renders_one_marker_per_valid_entry(monkeypatch):
     """Two well-formed dicts → two marker lines, in input order."""
-    from xyz_agent_context.utils import attachment_storage as storage_mod
+    from narranexus.platform.utils import attachment_storage as storage_mod
 
     monkeypatch.setattr(
         storage_mod,
@@ -94,7 +94,7 @@ def test_markers_from_dicts_skips_malformed_entry_with_warning(
     be logged (silent drops recreate the "agent claims no file"
     incident this whole fix addresses)."""
     import logging
-    from xyz_agent_context.utils import attachment_storage as storage_mod
+    from narranexus.platform.utils import attachment_storage as storage_mod
 
     monkeypatch.setattr(
         storage_mod,
@@ -134,7 +134,7 @@ def test_markers_from_dicts_routes_path_via_owner_user_id(monkeypatch):
     ``resolve_attachment_path(agent_id, owner_user_id, file_id)`` — the
     IM sender's user_id would resolve to a different workspace and the
     agent's Read tool would 404. Locks the owner-vs-sender routing."""
-    from xyz_agent_context.utils import attachment_storage as storage_mod
+    from narranexus.platform.utils import attachment_storage as storage_mod
 
     captured: dict = {}
 
@@ -177,7 +177,7 @@ async def test_build_input_for_framework_augments_current_turn_only(
     """
     from pathlib import Path
 
-    from xyz_agent_context.utils import attachment_storage as storage_mod
+    from narranexus.platform.utils import attachment_storage as storage_mod
 
     monkeypatch.setattr(
         storage_mod,
@@ -203,7 +203,7 @@ async def test_build_input_for_framework_augments_current_turn_only(
         working_source="chat",
     )
 
-    from xyz_agent_context.context_runtime.context_runtime import (
+    from narranexus.platform.context_runtime.context_runtime import (
         ContextRuntime,
     )
 
@@ -226,7 +226,7 @@ async def test_build_input_for_framework_augments_current_turn_only(
         agent_id="agent_x", user_id="user_owner", database_client=db_client
     )
 
-    final_messages, _mcp_servers, _disallowed, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp_servers, _disallowed, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="you are an agent",
         active_instances=[],

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-31
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 面板与导航来自 `SETTINGS_SECTIONS` 注册表
+
+分区组件拆到 `settings/sections.tsx`，由 `settings/registerBuiltinSections.ts` 在本 chunk 注册；
+`sortedSettingsSections(opts, useRegistryEntries(SETTINGS_SECTIONS))` 承担 desktopOnly/cloudHidden 过滤
+并订阅晚注册；`?tab=` 首帧读取与 `neverDefault`
+回退逻辑不变。既有 nav/deep-link 测试原样通过。
 
 ## 2026-08-28 — 新增 `plugins` nav 项（[[PluginsSettings]]）
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
     is_agent_description_unset,
 )

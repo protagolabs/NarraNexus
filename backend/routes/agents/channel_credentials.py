@@ -40,7 +40,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 # serialisation) — adding a channel is one registry line in channel_store.py,
 # never an edit here. Backend importing the agent package is the allowed
 # one-way hop (铁律 #21).
-from xyz_agent_context.module.data_access.channel_store import (
+from narranexus.platform.module_system.data_access.channel_store import (
     SUPPORTED_CHANNELS,
     DirectStore as ChannelDirectStore,
 )

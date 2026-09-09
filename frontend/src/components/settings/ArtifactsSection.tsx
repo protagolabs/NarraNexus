@@ -19,9 +19,10 @@ import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/compon
 import { useConfigStore } from '@/stores';
 import { artifactsApi } from '@/services/artifactsApi';
 import type { Artifact } from '@/types/artifact';
-import { KIND_REGISTRY } from '@/components/artifacts/kindRegistry';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 export default function ArtifactsSection() {
+  void useRegistryEntries(ARTIFACT_KINDS);
   const { t } = useTranslation();
   // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
   const { notifyError, dialog: noticeDialog } = useNotice();
@@ -178,7 +179,7 @@ export default function ArtifactsSection() {
               />
               <span className="flex-1 truncate" title={a.title}>{a.title}</span>
               <span className="text-xs text-[var(--text-secondary)] w-20 text-right">
-                {KIND_REGISTRY[a.kind]?.label ?? a.kind}
+                {ARTIFACT_KINDS.get(a.kind)?.label ?? a.kind}
               </span>
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
                 {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}

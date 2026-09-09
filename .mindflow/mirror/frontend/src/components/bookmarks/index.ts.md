@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — barrel 只再导出 `BuiltinTabId` 类型
+
+`BUILTIN_TAB_IDS` 常量与注册表派生的 `builtinTabIds()` 同名异义，barrel 里并列会误导；常量由测试与 `platform/builtin.ts`
+直接从 `./builtinTabIds` 取。
+
+## 2026-09-07 — 再导出 `BUILTIN_TAB_IDS` / `BuiltinTabId`
+
+供壳内置侧标窄类型。
 
 ## 2026-09-04 — 不再导出 `visibleCategories`（见 [[tabs]] 同日条）
 

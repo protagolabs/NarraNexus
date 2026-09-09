@@ -64,8 +64,8 @@ def test_the_team_frame_is_not_owner_visible():
     standing in for one: the agent calls `message_team` itself, so the name
     asserted below is the name that actually appears in the turn's trace.
     """
-    import xyz_agent_context.message_bus  # noqa: F401 — registers the handler
-    from xyz_agent_context.channel.message_source_handler import (
+    import narranexus.platform.message_bus  # noqa: F401 — registers the handler
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
     )
 
@@ -103,10 +103,10 @@ def test_a_returned_fatal_counts_even_though_nothing_was_raised():
     frames, so the loop never throws. A gate reading only "did it raise" lets
     them through — and for a team room that means posting whatever streamed
     before the failure, unmarked, in front of everyone."""
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
         _turn_hit_a_fatal,
     )
-    from xyz_agent_context.schema import ErrorMessage
+    from narranexus.platform.schema import ErrorMessage
 
     frame = ErrorMessage(
         error_message="provider key expired",
@@ -120,10 +120,10 @@ def test_a_returned_fatal_counts_even_though_nothing_was_raised():
 def test_a_recoverable_hiccup_is_not_a_failed_turn():
     """The loop absorbed it and went on to answer. Calling this a failure both
     discards the real reply and announces a breakdown that did not happen."""
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
         _turn_hit_a_fatal,
     )
-    from xyz_agent_context.schema import ErrorMessage
+    from narranexus.platform.schema import ErrorMessage
 
     frame = ErrorMessage(
         error_message="429 from provider, retried",
@@ -135,7 +135,7 @@ def test_a_recoverable_hiccup_is_not_a_failed_turn():
 
 
 def test_a_raised_failure_still_counts():
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (  # noqa: E501
         _turn_hit_a_fatal,
     )
 
@@ -149,7 +149,7 @@ def test_a_recoverable_error_does_not_make_the_run_look_failed():
     "did this turn produce usable output" has to read. Conflating them is what
     put a failure notice next to a correct answer.
     """
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+    from narranexus.platform.agent_runtime.run_collector import RunCollection, RunError
 
     recoverable = RunCollection(
         output_text="here is your answer",
@@ -164,7 +164,7 @@ def test_a_recoverable_error_does_not_make_the_run_look_failed():
 def test_an_unlabelled_error_is_treated_as_fatal():
     """The safe direction: presenting a possibly-empty turn as a success is the
     more harmful mistake."""
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+    from narranexus.platform.agent_runtime.run_collector import RunCollection, RunError
 
     unlabelled = RunCollection(
         output_text="", tool_calls=[], raw_items=[],
@@ -179,7 +179,7 @@ def test_a_recovered_turn_is_not_fatal():
     helper-LLM fallback, which produced a real reply. Calling it fatal throws
     that reply away and puts a failure notice in its place — the user is
     entitled to the answer that was produced for them."""
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+    from narranexus.platform.agent_runtime.run_collector import RunCollection, RunError
 
     c = RunCollection(
         output_text="the fallback answer", tool_calls=[], raw_items=[],
@@ -193,7 +193,7 @@ def test_a_recovered_turn_is_not_fatal():
 def test_a_turn_that_already_spoke_is_not_fatal():
     """`recovered_after_reply`: the agent replied, THEN something broke. The
     reply happened; the badge is for the unfinished remainder."""
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+    from narranexus.platform.agent_runtime.run_collector import RunCollection, RunError
 
     c = RunCollection(
         output_text="here you go", tool_calls=[], raw_items=[],
@@ -205,7 +205,7 @@ def test_a_turn_that_already_spoke_is_not_fatal():
 
 
 def test_only_fatal_and_unlabelled_count_as_fatal():
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection, RunError
+    from narranexus.platform.agent_runtime.run_collector import RunCollection, RunError
 
     for sev, expected in [
         ("fatal", True), ("", True),
@@ -227,7 +227,7 @@ def test_only_fatal_and_unlabelled_count_as_fatal():
 # assert. These drive the collector.
 
 async def _collect(frames):
-    from xyz_agent_context.agent_runtime.run_collector import collect_run
+    from narranexus.platform.agent_runtime.run_collector import collect_run
 
     class _Runtime:
         def run(self, **_kw):
@@ -243,7 +243,7 @@ async def _collect(frames):
 
 
 def _err(severity: str):
-    from xyz_agent_context.schema import ErrorMessage
+    from narranexus.platform.schema import ErrorMessage
 
     return ErrorMessage(
         error_message="boom", error_type="api_error", severity=severity,

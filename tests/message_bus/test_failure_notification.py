@@ -24,10 +24,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema.inbox_schema import InboxMessageType
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.schema.inbox_schema import InboxMessageType
 
 
 def _patch_db_factory(monkeypatch, db_client):
@@ -35,7 +35,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -254,7 +254,7 @@ async def test_cooldown_not_armed_when_inbox_write_fails(db_client, monkeypatch)
     bus = LocalMessageBus(backend=db_client._backend)
     trigger = MessageBusTrigger(bus=bus)
 
-    from xyz_agent_context.repository.inbox_repository import InboxRepository
+    from narranexus.platform.repository.inbox_repository import InboxRepository
 
     original_create = InboxRepository.create_message
     calls = {"n": 0}

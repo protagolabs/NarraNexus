@@ -59,10 +59,30 @@ _os.environ["NARRANEXUS_ONBOARDING_GUIDE_AGENT"] = "0"
 # NexusAgent is built — because the pool reads its size once and caches it.
 _os.environ["NEXUS_POWER_POOL_SIZE"] = "0"
 
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_plugin_home(tmp_path_factory):
+    """Every process that boots the plugin platform reads/writes ``~/.narranexus/plugins``
+    (registry.json, boot markers). Point it at a throwaway dir so tests never touch the
+    developer's real plugin tree or leave boot markers behind."""
+    import os
+
+    home = tmp_path_factory.mktemp("plugin_home")
+    previous = os.environ.get("NARRANEXUS_PLUGIN_HOME")
+    os.environ["NARRANEXUS_PLUGIN_HOME"] = str(home)
+    yield home
+    if previous is None:
+        os.environ.pop("NARRANEXUS_PLUGIN_HOME", None)
+    else:
+        os.environ["NARRANEXUS_PLUGIN_HOME"] = previous
+
+
+# The builtins are loaded into the process registries by the repo-root conftest.py
+# (it applies to tests/ and plugins/*/tests alike).
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_shared_db(tmp_path_factory):
@@ -74,7 +94,7 @@ def _isolate_shared_db(tmp_path_factory):
     """
     import os
 
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     db_path = tmp_path_factory.mktemp("shared_db") / "factory_isolated.db"
 
@@ -101,7 +121,7 @@ def _clear_cwd_owner_cache():
     process-wide dict shared by lark and narra — clear it around every
     test or a cached owner leaks ACROSS test modules, which surfaces as
     order-dependent "green alone, red in the full run" failures."""
-    from xyz_agent_context.module.data_access.workspace_cwd import _cwd_owner_cache
+    from narranexus.platform.module_system.data_access.workspace_cwd import _cwd_owner_cache
 
     _cwd_owner_cache.clear()
     yield
@@ -110,7 +130,7 @@ def _clear_cwd_owner_cache():
 
 def pytest_sessionfinish(session, exitstatus):
     """Close leaked factory clients so their worker threads let us exit."""
-    from xyz_agent_context.utils.db.db_factory import close_db_client
+    from narranexus.platform.utils.db.db_factory import close_db_client
 
     asyncio.run(close_db_client())
 
@@ -153,3 +173,15 @@ def _clear_health_cache():
     _reset()
     yield
     _reset()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _channel_credential_key_dir(tmp_path_factory):
+    """Channel credential secrets (channel_credentials.secret_json) are encrypted
+    with a per-install key; point the codec at a session temp dir so the suite
+    never touches the developer's real key file."""
+    from narranexus.platform.channel import credential_codec
+
+    credential_codec.use_key_dir(tmp_path_factory.mktemp("channel-keys"))
+    yield
+    credential_codec.use_key_dir(None)

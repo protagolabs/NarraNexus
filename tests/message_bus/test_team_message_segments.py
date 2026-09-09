@@ -25,7 +25,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 CHANNEL = "ch_1"
 
@@ -150,7 +150,7 @@ def test_the_bus_signature_appends_rather_than_inserts():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     params = list(inspect.signature(LocalMessageBus.send_message).parameters)
     assert params.index("segments") == len(params) - 1
@@ -186,7 +186,7 @@ def test_a_team_reply_carries_no_segments_and_that_is_correct():
     """
     import inspect
 
-    from xyz_agent_context.message_bus import team_posting
+    from narranexus.platform.message_bus import team_posting
 
     src = inspect.getsource(team_posting.post_team_reply)
 
@@ -201,7 +201,7 @@ async def test_the_route_passes_segments_to_the_panel(db_client):
     """A column the API does not return is a column the UI cannot render."""
     import inspect
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     src = inspect.getsource(mod)
     assert '"segments": m.segments' in src
@@ -224,9 +224,19 @@ def test_bus_messages_are_never_updated_in_place():
     """
     import pathlib
 
+    from tests._paths import iter_engine_py_files
+
     root = pathlib.Path(__file__).resolve().parents[2]
+    # Batch 6 moved the message-bus and teams packages out of src/ and
+    # backend/ into plugins/*/src — scanning only the old two roots would
+    # miss an in-place update written inside a plugin package entirely.
+    scanned = list(iter_engine_py_files())
+    assert len(scanned) >= 500, (
+        f"only {len(scanned)} engine files scanned — the engine source roots "
+        "shrank and this guard is scanning far less than the codebase"
+    )
     offenders = []
-    for path in list((root / "src").rglob("*.py")) + list((root / "backend").rglob("*.py")):
+    for path in scanned:
         text = path.read_text(encoding="utf-8", errors="ignore")
         if 'update("bus_messages"' in text or "update('bus_messages'" in text:
             offenders.append(str(path.relative_to(root)))
@@ -252,7 +262,7 @@ async def test_a_real_team_turn_stores_a_row_without_segments(db_client, monkeyp
     scrollback.
     """
     from ._team_turn import speak_in_room
-    from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+    from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
     await db_client.insert("bus_channels", {
         "channel_id": "ch_seg_room", "name": "R", "channel_type": "group",
@@ -298,10 +308,10 @@ def test_the_room_funnel_carries_everything_a_room_caller_can_send():
     """
     import inspect
 
-    from xyz_agent_context.message_bus.cloud_bus import CloudMessageBus
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.message_bus_service import MessageBusService
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.cloud_bus import CloudMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.message_bus_service import MessageBusService
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     # Not routed through the room funnel, and why:
     #   attachments        — the trigger never posts files; the user's uploads

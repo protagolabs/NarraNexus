@@ -61,7 +61,7 @@ def _write_fake_dist(pyenv_dir: Path, import_name: str, dist_prefix: str, versio
 @pytest.mark.asyncio
 async def test_install_invokes_pip_with_target_and_pinned_requirement(plugin_home, monkeypatch):
     from backend.integrations.plugins import _installers as installers_pkg  # noqa: F401
-    from xyz_agent_context.agent_framework.plugin_paths import pyenv_dir
+    from narranexus.platform.agent_framework.plugin_paths import pyenv_dir
 
     captured_cmd: list[str] = []
 

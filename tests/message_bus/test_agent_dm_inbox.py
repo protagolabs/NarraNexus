@@ -23,12 +23,12 @@ import json
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import (
+from narranexus.platform.channel.inbox_recorder import (
     InboxRecorder,
     agent_dm_thread_id,
 )
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 
@@ -47,12 +47,12 @@ def _patch_db(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
-    # ServiceAuditor resolves its db via `xyz_agent_context.utils.get_db_client`
+    # ServiceAuditor resolves its db via `narranexus.platform.utils.get_db_client`
     # (a separate binding from the db_factory one), so patch it too or the audit
     # rows would land in the real DB instead of the test one.
-    monkeypatch.setattr("xyz_agent_context.utils.get_db_client", _async_db)
+    monkeypatch.setattr("narranexus.platform.utils.get_db_client", _async_db)
 
 
 def _tools(db_client):
@@ -193,7 +193,7 @@ async def test_send_succeeds_even_if_audit_write_also_raises(db_client, monkeypa
 
     monkeypatch.setattr(InboxRecorder, "record_peer_message", _boom)
     monkeypatch.setattr(
-        "xyz_agent_context.services.service_audit.ServiceAuditor.event", _audit_boom
+        "narranexus.platform.services.service_audit.ServiceAuditor.event", _audit_boom
     )
 
     res = await captured["message_agent"](agent_id=A, to=B, text="delivered anyway")

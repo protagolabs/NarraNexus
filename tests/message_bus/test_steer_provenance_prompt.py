@@ -14,9 +14,9 @@ the model was never taught to read".
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.steer_channel import STEER_PROVENANCE_RULE
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.agent_runtime.steer_channel import STEER_PROVENANCE_RULE
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 def _team_prompt() -> str:

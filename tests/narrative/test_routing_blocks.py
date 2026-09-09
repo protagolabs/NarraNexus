@@ -33,8 +33,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from xyz_agent_context.narrative._narrative_impl import routing_blocks
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative._narrative_impl import routing_blocks
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeInfo,
     NarrativeType,

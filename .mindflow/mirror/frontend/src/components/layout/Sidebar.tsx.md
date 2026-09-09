@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -210,3 +210,5 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
 offers "log out", and a second hand-rolled half-logout is how cloud data bled
 into a later local session before. The sidebar still owns the confirm dialog and
 the `window.location.href` reload — only the wipe itself is shared.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

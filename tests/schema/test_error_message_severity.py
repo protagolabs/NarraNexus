@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from xyz_agent_context.schema import ErrorMessage
+from narranexus.platform.schema import ErrorMessage
 
 
 def test_default_severity_is_fatal():

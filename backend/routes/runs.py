@@ -25,12 +25,12 @@ from loguru import logger
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.agent_runtime.run_recorder import STATE_RUNNING
-from xyz_agent_context.repository.agent_repository import AgentRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.agent_runtime.run_recorder import STATE_RUNNING
+from narranexus.platform.repository.agent_repository import AgentRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.utils.timezone import utc_now
 
 router = APIRouter(tags=["runs"])
 
@@ -109,7 +109,7 @@ async def _post_stop_notice(db, channel_id: str, agent_id: str) -> None:
         ):
             return  # a peer DM is not an audience
 
-        from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+        from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
         bus = LocalMessageBus(backend=db._backend)
         # Posted AS the stopped agent so the transcript resolves its display
@@ -149,7 +149,7 @@ async def _pause_work_items(db, root_run_id: str) -> None:
     if not root_run_id:
         return  # a single-run stop that predates trees has nothing to park
     try:
-        from xyz_agent_context.repository.team_work_repository import (
+        from narranexus.platform.repository.team_work_repository import (
             TeamWorkItemRepository,
         )
 

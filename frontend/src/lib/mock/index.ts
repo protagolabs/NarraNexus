@@ -43,8 +43,7 @@ import type {
   CostResponse,
   DashboardResponse,
   ApiResponse,
-  LarkCredentialResponse,
-  LarkBindResponse,
+  ChannelCredentialView,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
 } from '@/types';
@@ -441,13 +440,20 @@ export const mockApi = {
   async useSubscription(): Promise<{ success: boolean; provider_ids?: string[] }> {
     return { success: true, provider_ids: [] };
   },
-  /* ─ Lark (stub) ─ */
-  async getLarkCredential(): Promise<LarkCredentialResponse> {
+  /* ─ Channels (stub): the generic /api/channels methods every channel config uses ─ */
+  async channelCredential(): Promise<ApiResponse & { data?: ChannelCredentialView | null }> {
     return ok({ success: true, data: null });
   },
-  async bindLarkBot(): Promise<LarkBindResponse> {
+  async channelBind(): Promise<ApiResponse> {
     return ok({ success: true });
   },
+  async channelUnbind(): Promise<ApiResponse> {
+    return ok({ success: true });
+  },
+  async channelSetActive(): Promise<ApiResponse & { enabled?: boolean }> {
+    return ok({ success: true });
+  },
+  /* ─ Lark OAuth (stub) ─ */
   async larkAuthLogin(): Promise<LarkAuthLoginResponse> {
     return ok({ success: true, data: {} });
   },
@@ -455,12 +461,6 @@ export const mockApi = {
     return ok({ success: true, data: {} });
   },
   async getLarkAuthStatus(): Promise<ApiResponse> {
-    return ok({ success: true });
-  },
-  async testLarkConnection(): Promise<ApiResponse> {
-    return ok({ success: true });
-  },
-  async unbindLarkBot(): Promise<ApiResponse> {
     return ok({ success: true });
   },
 };

@@ -3,7 +3,7 @@
  * @author: NetMind.AI
  * @date: 2026-07-21
  * @description: Frontend types mirroring the Agent Migration standardized JSON
- * contract (src/xyz_agent_context/schema/migration_schema.py) plus the
+ * contract (src/narranexus/platform/schema/migration_schema.py) plus the
  * ApplyResult returned by POST /api/migrate/apply.
  *
  * Kept in lock-step with the Python schema — the scanner's `/scan` output is

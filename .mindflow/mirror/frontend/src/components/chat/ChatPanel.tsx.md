@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 问候本地化抽到 `lib/bootstrapGreeting.ts`
+
+覆盖带名字的问候；去重逻辑在 `buildTimeline`。
 
 ## 2026-09-04 — `handleSubmit` 一次只跑一个
 
@@ -277,7 +281,7 @@ state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 a
 `MessageBubble` 调用一致 → 显示 agent 名字缩写。
 
 注：这条静态气泡只在 `historyMessages.length === 0`（首轮之前、还没有 chat 实例）时显示；
-用户首次交互后，问候语由后端持久化（`step_1` 开局 seed / `hook_persist_turn` 兜底，见
+用户首次交互后，问候语由后端持久化（`step_1` 开局 seed / `persist_turn` 兜底，见
 [[step_1_select_narrative]] / [[_chat_writes]]）成真实消息，走正常 timeline 渲染。发送时压进
 session 的那条 client 副本（`Date.now()-1`，无 event_id）靠 `buildTimeline.ts` 的
 `(role,content)+5min` 窗口去重 —— 后端 seed 的时间戳锚在 turn 起点满足其中的**时间**条件。
@@ -810,3 +814,7 @@ was already i18n'd; only ChatPanel's dialog was missed.
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-04 · mounts AgentCapabilitiesPanel (batch 5c)
+
+Opened from the header menu; state `agentCapsOpen`.

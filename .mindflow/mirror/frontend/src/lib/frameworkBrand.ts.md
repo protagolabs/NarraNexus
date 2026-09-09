@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/lib/frameworkBrand.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — `formatFrameworkFromList` prefers the live backend `display_name` (B6)
+
+New export `formatFrameworkFromList(framework, frameworks)`. `GET/POST /api/providers/agent-framework`'s
+`frameworks[]` entries now optionally carry their own `display_name`; this function prefers that
+over the static `AGENT_FRAMEWORKS.label` this module already centralized, falling back to
+`formatFramework` (unchanged) when the list is absent (not loaded yet) or has no entry for the
+id. This is the module's SECOND drift-prevention fix in its short life: `ProviderSummaryCard.tsx`
+had grown its own `FRAMEWORK_LABELS` hardcoded table and `TeamMemberAvatars.tsx` its own
+`formatFramework` — the latter disagreeing with this module's canonical labels on two of three
+names ("Codex" instead of "Codex CLI", "Nexus Power" instead of "NexusPower-beta"), exactly the
+class of bug this file's own docstring already warns about. Both now call
+`formatFrameworkFromList` instead (`TeamMemberAvatars.tsx` passes `undefined` for `frameworks`
+since it has no live list of its own, landing on the same static-then-title-case fallback chain
+it always used — only the SOURCE of that fallback changed, not its values, except where they
+were wrong).
 
 ## 2026-09-04 (评审三轮) — 标签不再自己列，转发自 `AGENT_FRAMEWORKS`
 

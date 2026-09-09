@@ -14,8 +14,8 @@
 
 from datetime import datetime, timezone
 
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.message_bus_trigger import (
     MessageBusTrigger,
 )
 

@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 注释同步
+
+注释里的 ChatModule 方法名改为能力契约词汇（`after_turn`），无行为变化。
 
 ## 2026-08-30 — `translateReconnectFrame` 带上独白档位（缺口已补）
 
@@ -164,7 +168,7 @@ stranded. TODO: 2026-05-26-auto-logout-on-expired-jwt.md.
 其中 `tsMs = Date.parse(raw.input_timestamp)`（后端给的是
 `events.created_at` 的 ISO）。
 
-为什么时间戳要这么精确：`ChatModule.hook_after_event_execution`
+为什么时间戳要这么精确：`ChatModule.after_turn`
 在 run 结束后会把 user 行持久化到 `agent_messages`，使用
 `user_ts = event.created_at.isoformat()`——和我们 inject 时用的是
 **同一个时间基准**。这样下一次拉 simple-chat-history 时，

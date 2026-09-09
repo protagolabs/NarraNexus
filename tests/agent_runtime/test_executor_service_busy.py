@@ -22,7 +22,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from xyz_agent_context.agent_runtime import executor_service as es
+from narranexus.platform.agent_runtime import executor_service as es
 
 
 @pytest.fixture(autouse=True)
@@ -191,7 +191,8 @@ def test_the_middleware_is_installed_on_the_real_app():
 
 def test_health_is_reachable_through_the_real_app_stack():
     """And the flag survives the real middleware stack, in the real shape the
-    broker probes: GET /health, 200, a ``busy`` key it can read."""
+    broker probes: GET /health, 200, a ``busy`` key it can read (the lifespan
+    boots into private registries — see conftest)."""
     with TestClient(es.app) as client:
         resp = client.get("/health")
 
@@ -227,7 +228,7 @@ async def test_the_watch_passthrough_bounds_its_read_gap(monkeypatch):
         url = type("U", (), {"query": ""})()
         headers: dict = {}
 
-    from xyz_agent_context.utils.office_watch import WATCH_PORT_MIN
+    from narranexus.platform.utils.office_watch import WATCH_PORT_MIN
 
     resp = await es.watch_passthrough(WATCH_PORT_MIN, "events", _Req())
 

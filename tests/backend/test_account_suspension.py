@@ -17,12 +17,12 @@ from fastapi.testclient import TestClient
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token, invalidate_account_state
 from backend.auth_errors import ACCOUNT_SUSPENDED, SESSION_DEAD_CODES
-from xyz_agent_context.repository.ban_audit_repository import (
+from narranexus.platform.repository.ban_audit_repository import (
     ACTION_REINSTATE,
     ACTION_SUSPEND,
     BanAuditRepository,
 )
-from xyz_agent_context.schema import UserStatus
+from narranexus.platform.schema import UserStatus
 
 
 # ------------------------------- enum ------------------------------------
@@ -38,7 +38,7 @@ def test_userstatus_has_banned():
 def test_all_surfaces_share_the_non_transacting_set():
     """The auth middleware, the admin suspend route, and the login route must
     gate on the SAME shared frozenset so they can never drift apart."""
-    from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
+    from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
     import backend.auth as auth_module
     import backend.routes.admin.suspend as suspend_module
 
@@ -145,7 +145,7 @@ def clear_state_cache():
 @pytest.fixture
 def wire_db(monkeypatch, db_client):
     """Point the middleware's lazy get_db_client at the in-memory test DB."""
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
 
     async def _ret():
         return db_client

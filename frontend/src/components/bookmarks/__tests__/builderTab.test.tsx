@@ -17,10 +17,11 @@
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor, within } from '@testing-library/react';
+import '@/platform/builtin'; // populates PANELS, which `allTabs()`/`visibleTabs()` derive the strip from
 import { useUIStore } from '@/stores/uiStore';
 import { useStudioStore } from '@/stores/studioStore';
 import { BookmarkPanelHost } from '../BookmarkPanelHost';
-import { ALL_TABS, visibleTabs } from '../tabs';
+import { allTabs, visibleTabs } from '../tabs';
 
 vi.mock('@/components/builder', () => ({
   BuilderConfigPanel: ({ agentId }: { agentId: string }) => (
@@ -59,7 +60,7 @@ describe('builder tab', () => {
   });
 
   test('is registered, so the drawer can label and switch to it', () => {
-    expect(ALL_TABS.some((t) => t.id === 'builder')).toBe(true);
+    expect(allTabs().some((t) => t.id === 'builder')).toBe(true);
   });
 
   test('is OFFERED only while the studio is open — one rule for every picker', () => {
@@ -73,8 +74,8 @@ describe('builder tab', () => {
     // Collapsed (drawer X, another tab) keeps the way back on offer.
     expect(visibleTabs(collapsed).some((t) => t.id === 'builder')).toBe(true);
     // Every other tab is unaffected either way.
-    expect(visibleTabs(never).length).toBe(ALL_TABS.length - 1);
-    expect(visibleTabs(open)).toEqual(ALL_TABS);
+    expect(visibleTabs(never).length).toBe(allTabs().length - 1);
+    expect(visibleTabs(open)).toEqual(allTabs());
   });
 
   test('does not mount the panel when the studio is shut (restored tab, deep link)', async () => {

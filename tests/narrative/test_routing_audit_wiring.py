@@ -21,9 +21,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.narrative_service import NarrativeService
-from xyz_agent_context.repository.narrative_routing_audit_repository import (
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.narrative_service import NarrativeService
+from narranexus.platform.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,
 )
 
@@ -41,7 +41,7 @@ def service(db_client, monkeypatch):
     # The retrieval tier reaches for the shared factory client in a few spots
     # (default-narrative bootstrap, participant query); point them at the test DB.
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         _const(db_client),
     )
     # Stub the LLM arbitration tier. Without this these tests make REAL
@@ -109,7 +109,7 @@ async def test_continuity_path_writes_an_audit_row(service, db_client, monkeypat
 
     class _AlwaysContinuous:
         async def detect(self, **kw):
-            from xyz_agent_context.narrative.models import ContinuityResult
+            from narranexus.platform.narrative.models import ContinuityResult
             return ContinuityResult(is_continuous=True, confidence=0.91, reason="same goal")
 
     monkeypatch.setattr(service, "_get_continuity_detector", lambda: _AlwaysContinuous())

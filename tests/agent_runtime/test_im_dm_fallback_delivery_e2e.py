@@ -36,11 +36,11 @@ import pytest
 import importlib
 
 step3 = importlib.import_module(
-    "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
 )
-from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import AgentTextDelta, ProgressMessage
+from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import AgentTextDelta, ProgressMessage
 
 WECHAT_TAG = {"channel": "wechat", "room_id": "wxid_peer", "agent_id": "agent_x"}
 REPLY_KWARGS = {"context_token": "tok-abc"}

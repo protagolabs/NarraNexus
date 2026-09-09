@@ -34,13 +34,13 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
     TurnResult,
 )
-from xyz_agent_context.message_bus.patrol import (
+from narranexus.platform.message_bus.patrol import (
     PATROL_INTERVAL_S,
     PATROL_MSG_TYPE,
     PATROL_STALLED_INTERVAL_S,
@@ -48,10 +48,10 @@ from xyz_agent_context.message_bus.patrol import (
     patrol_due_at,
     teams_due_for_patrol,
 )
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemStatus
-from xyz_agent_context.utils.db.schema_registry import TABLES
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_work_schema import WorkItemStatus
+from narranexus.platform.utils.db.schema_registry import TABLES
+from narranexus.platform.utils.timezone import utc_now
 
 
 CHANNEL = "ch_dunhuang"
@@ -95,7 +95,7 @@ def _db_factory(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _get_db
     )
 
 

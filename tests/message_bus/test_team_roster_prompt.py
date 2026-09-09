@@ -30,9 +30,9 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.utils.timezone import utc_now
 
 
 def _roster(**overrides):
@@ -193,7 +193,7 @@ async def test_the_roster_is_fetched_in_batches_not_per_member(db_client):
     "just one more lookup" inside the loop, and with a few dozen members the
     cost is invisible in tests and real in a poll cycle.
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     calls: list[str] = []
     bus = LocalMessageBus(backend=db_client._backend)
@@ -236,8 +236,8 @@ async def test_a_real_activity_row_reaches_the_prompt(db_client):
     """
     from datetime import timedelta
 
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     bus = LocalMessageBus(backend=db_client._backend)
     await db_client.insert("bus_channels", {

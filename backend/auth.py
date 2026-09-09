@@ -13,6 +13,8 @@ bypassed — no JWT required.
 
 from __future__ import annotations
 
+import re
+
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -22,7 +24,9 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
 
-from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
+from narranexus.kernel.deployment import is_cloud_mode as _kernel_is_cloud_mode
+
+from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
@@ -150,7 +154,7 @@ async def _resolve_manyfold_default_user_id() -> Optional[str]:
     path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
     of the frontend) keep working without 401.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
@@ -173,7 +177,7 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     """
     if not user_id.startswith("mf_"):
         return
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     existing = await db.get_one("users", {"user_id": user_id})
     if existing:
@@ -195,30 +199,15 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
-    Precedence (consistent with utils.deployment_mode, the canonical
-    resolver the rest of the codebase uses):
-      1. An explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") wins —
-         this is what lets a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud
-         local smoke run cloud semantics.
-      2. Else the legacy heuristic below.
-
-    SAFETY: with NO explicit env var, an unset / empty / sqlite DATABASE_URL
-    MUST default to local mode, not cloud. A packaged desktop app (Tauri
-    dmg) sets DATABASE_URL via Rust's std::env::set_var, which is NOT
-    thread-safe on macOS — the tokio-spawned Python subprocess may not see
-    it. If we defaulted to cloud here, the bundled backend would demand
-    NetMind login from users running the desktop app in its intended local
-    mode (the v0.1.0 dmg bug). The dmg does NOT set
-    NARRANEXUS_DEPLOYMENT_MODE, so step 1 never trips it into cloud.
+    Forwards to the kernel's single resolver (``narranexus.kernel.deployment``):
+    explicit ``NARRANEXUS_DEPLOYMENT_MODE`` wins, then the ``DATABASE_URL``
+    heuristic, then ``DB_HOST``. With NO explicit env var an unset / empty /
+    sqlite ``DATABASE_URL`` MUST resolve to local — a packaged desktop app
+    (Tauri dmg) sets ``DATABASE_URL`` via Rust's ``std::env::set_var``, which is
+    NOT thread-safe on macOS, so the bundled backend must never demand a
+    NetMind login because the variable failed to propagate (the v0.1.0 dmg bug).
     """
-    explicit = os.environ.get("NARRANEXUS_DEPLOYMENT_MODE", "").strip().lower()
-    if explicit in ("cloud", "local"):
-        return explicit == "cloud"
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url:
-        return not db_url.startswith("sqlite")
-    # Fallback: individual DB_HOST field means cloud deployment
-    return bool(os.environ.get("DB_HOST", ""))
+    return _kernel_is_cloud_mode()
 
 
 # =============================================================================
@@ -236,7 +225,7 @@ def _is_cloud_mode() -> bool:
 
 
 def _is_nx_service_bearer(auth_header: str) -> bool:
-    from xyz_agent_context.module import BEARER_AGENT_PREFIX
+    from narranexus.platform.module_system import BEARER_AGENT_PREFIX
 
     return auth_header.startswith(f"Bearer {BEARER_AGENT_PREFIX}")
 
@@ -251,8 +240,8 @@ def _verify_nx_service_bearer(request: "Request"):
     per-reason logging (0806 discipline: every reject must be diagnosable
     from server logs).
     """
-    from xyz_agent_context.module.identity.tokens import load_public_key_pem
-    from xyz_agent_context.module.identity.verify import verify_caller_identity
+    from narranexus.platform.module_system.identity.tokens import load_public_key_pem
+    from narranexus.platform.module_system.identity.verify import verify_caller_identity
 
     public_key = load_public_key_pem()
     if public_key is None:
@@ -317,22 +306,13 @@ async def get_current_user(request: Request) -> Optional[CurrentUser]:
         # Local mode: no JWT enforcement, extract user_id from request
         return None
 
-    # Cloud mode: require JWT
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
+    # Cloud mode: the bound authProviders plugin must name the user
+    from backend.auth_provider import auth_provider
 
-    token = auth_header[7:]
-    try:
-        payload = decode_token(token)
-        return CurrentUser(
-            user_id=payload["user_id"],
-            role=payload.get("role", "user"),
-        )
-    except jwt.ExpiredSignatureError:
-        raise AuthError(TOKEN_EXPIRED, "Token expired")
-    except jwt.InvalidTokenError:
-        raise AuthError(TOKEN_INVALID, "Invalid token")
+    identity = await auth_provider().authenticate(request)
+    if identity is None:
+        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
+    return CurrentUser(user_id=identity["user_id"], role=identity.get("role", "user"))
 
 
 def require_auth(request: Request) -> CurrentUser:
@@ -425,9 +405,54 @@ MARKETPLACE_PUBLIC_READ_PREFIXES = ("/api/marketplace/skills", "/api/marketplace
 
 
 def _is_marketplace_public_read(request: "Request") -> bool:
+    # path_under_prefix, not startswith: a prefix set is a set of PATH prefixes,
+    # and string matching is not segment matching (`/api/marketplace/skills`
+    # would otherwise open `/api/marketplace/skills-admin`). Same rule for every
+    # prefix set in this file.
     return request.method == "GET" and any(
-        request.url.path.startswith(p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
+        path_under_prefix(request.url.path, p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
     )
+
+
+# Prefixes plugin routers declared with ``auth="none"`` (RouterSpec). Filled by
+# ``backend.plugins_host.mount_plugin_routes`` at boot — the ONLY way a plugin
+# obtains an unauthenticated endpoint, and always explicit in its manifest
+# code. A set (not the tuple below) because it is populated at runtime.
+PLUGIN_EXEMPT_PREFIXES: set[str] = set()
+
+# Route prefixes plugin routers declared with ``quota_bypass=True`` (RouterSpec):
+# config-class endpoints a user whose free tier is exhausted must still reach
+# (the same reason QUOTA_BYPASS_PREFIXES exists). Filled at mount time.
+PLUGIN_QUOTA_BYPASS_PREFIXES: set[str] = set()
+
+
+def path_under_prefix(path: str, prefix: str) -> bool:
+    """True when ``path`` IS ``prefix`` or lies beneath it as a whole path segment.
+
+    String prefix matching is not segment matching: ``/api/x/acme.w`` used to
+    exempt ``/api/x/acme.w2/...`` and ``/api/x/p/webhook`` exempted
+    ``/api/x/p/webhook-admin``. Starlette routes by segment; auth must too.
+    """
+    base = prefix.rstrip("/")
+    return path == base or path.startswith(base + "/")
+
+# Inbound channel webhooks (plugin platform batch 4c): the external platform
+# has no session; the binding's webhook_secret is the auth, verified in the
+# handler (backend/routes/channels/generic.py). Exact shape only — every
+# other /api/channels/* route keeps the normal auth.
+_CHANNEL_WEBHOOK_RE = re.compile(r"^/api/channels/[^/]+/webhook/[^/]+$")
+
+
+def _is_channel_webhook_path(path: str) -> bool:
+    return bool(_CHANNEL_WEBHOOK_RE.match(path))
+
+
+def _is_plugin_exempt(path: str) -> bool:
+    return any(path_under_prefix(path, p) for p in PLUGIN_EXEMPT_PREFIXES) or _is_channel_webhook_path(path)
+
+
+def _is_plugin_quota_bypass(path: str) -> bool:
+    return any(path_under_prefix(path, p) for p in PLUGIN_QUOTA_BYPASS_PREFIXES)
 
 
 AUTH_EXEMPT_PREFIXES = (
@@ -441,7 +466,7 @@ AUTH_EXEMPT_PREFIXES = (
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
     # NetMind can't fetch (it has no JWT). See
     # backend/routes/transcription/public.py and
-    # src/xyz_agent_context/agent_framework/llm/transcription/url_signer.py.
+    # src/narranexus/platform/agent_framework/llm/transcription/url_signer.py.
     "/api/public/",
 )
 
@@ -565,8 +590,8 @@ async def _account_state(user_id: str) -> str:
         return cached[0]
 
     try:
-        from xyz_agent_context.repository.user_repository import UserRepository
-        from xyz_agent_context.utils.db.db_factory import get_db_client
+        from narranexus.platform.repository.user_repository import UserRepository
+        from narranexus.platform.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
         user = await UserRepository(db).get_user(user_id)
@@ -674,7 +699,7 @@ async def auth_middleware(request: Request, call_next):
             if user_id:
                 request.state.user_id = user_id
                 request.state.manyfold_authed = True
-                from xyz_agent_context.agent_framework.api_config import (
+                from narranexus.platform.agent_framework.api_config import (
                     set_current_user_id,
                 )
                 set_current_user_id(user_id)
@@ -703,9 +728,13 @@ async def auth_middleware(request: Request, call_next):
         if (
             local_path.startswith("/api/")
             and local_path not in AUTH_EXEMPT_PATHS
-            and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
+            and not any(path_under_prefix(local_path, p) for p in AUTH_EXEMPT_PREFIXES)
+            and not _is_plugin_exempt(local_path)
         ):
-            header_uid = request.headers.get("x-user-id")
+            from backend.auth_provider import auth_provider
+
+            identity = await auth_provider().authenticate(request)
+            header_uid = identity["user_id"] if identity else None
             if not header_uid and _is_marketplace_public_read(request):
                 # Anonymous marketplace read — proceed without identity;
                 # routes skip agent-scoped annotations.
@@ -725,7 +754,7 @@ async def auth_middleware(request: Request, call_next):
             request.state.user_id = header_uid
             # Mirror cloud mode: tag the cost-tracker ContextVar so usage
             # records get attributed to the right user even in local mode.
-            from xyz_agent_context.agent_framework.api_config import set_current_user_id
+            from narranexus.platform.agent_framework.api_config import set_current_user_id
             set_current_user_id(header_uid)
         response = await call_next(request)
         return response
@@ -733,7 +762,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Check exemptions
-    if path in AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
+    if path in AUTH_EXEMPT_PATHS or any(path_under_prefix(path, p) for p in AUTH_EXEMPT_PREFIXES) or _is_plugin_exempt(path):
         response = await call_next(request)
         return response
 
@@ -742,16 +771,8 @@ async def auth_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
 
-    # Require JWT
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        if _is_marketplace_public_read(request):
-            # Anonymous marketplace read (desktop clients have no cloud JWT).
-            return await call_next(request)
-        return auth_error_response(
-            TOKEN_MISSING, "Authentication required",
-            path=path, method=request.method,
-        )
+    has_bearer = auth_header.startswith("Bearer ")
 
     # ---- NarraNexus service identity (blueprint Q6) -----------------------
     # The mcp container's HttpStore forwards the executor→mcp identity
@@ -774,7 +795,7 @@ async def auth_middleware(request: Request, call_next):
     # gateway key (their LLM spend then fails) and, when armed, tearing down their
     # executor. Adding a gate here would put a per-request users-table read on the
     # hot internal path; deferring in-flight teardown to key-revoke keeps it off.
-    if _is_nx_service_bearer(auth_header):
+    if has_bearer and _is_nx_service_bearer(auth_header):
         identity = _verify_nx_service_bearer(request)
         if identity is None:
             return auth_error_response(
@@ -784,26 +805,44 @@ async def auth_middleware(request: Request, call_next):
         request.state.user_id = identity.user_id
         request.state.role = "user"
         request.state.nx_service_authed = True
-        from xyz_agent_context.agent_framework.api_config import set_current_user_id
+        from narranexus.platform.agent_framework.api_config import set_current_user_id
 
         set_current_user_id(identity.user_id)
         return await call_next(request)
 
-    token = auth_header[7:]
+    # ---- the bound authProviders plugin (kernel.auth) names the user -------
+    # builtin.auth.netmind decodes the NetMind JWT; a distribution may bind
+    # its own (SSO). The provider raises AuthError with the code to report.
+    # The provider decides whether a credential is present at all: a
+    # distribution binding a cookie / SSO / header provider must be reachable
+    # without a bearer (the old "Bearer or 401" gate ran first and made the
+    # seam impossible to exercise). ``None`` from the provider with no bearer
+    # is "no credential" (TOKEN_MISSING); with a bearer it is "bad credential".
+    from backend.auth_provider import auth_provider
+
+    token = auth_header[7:] if has_bearer else ""  # only a bearer's value belongs in the error log
     try:
-        payload = decode_token(token)
-        request.state.user_id = payload["user_id"]
-        request.state.role = payload.get("role", "user")
-    except jwt.ExpiredSignatureError:
+        identity = await auth_provider().authenticate(request)
+    except AuthError as exc:
         return auth_error_response(
-            TOKEN_EXPIRED, "Token expired",
-            path=path, method=request.method, token=token,
+            exc.code, str(exc.detail),
+            path=path, method=request.method, token=token, status_code=exc.status_code,
         )
-    except jwt.InvalidTokenError:
+    if identity is None:
+        if _is_marketplace_public_read(request):
+            # Anonymous marketplace read (desktop clients have no cloud JWT).
+            return await call_next(request)
+        if not has_bearer:
+            return auth_error_response(
+                TOKEN_MISSING, "Authentication required",
+                path=path, method=request.method,
+            )
         return auth_error_response(
             TOKEN_INVALID, "Invalid token",
             path=path, method=request.method, token=token,
         )
+    request.state.user_id = identity["user_id"]
+    request.state.role = identity.get("role", "user")
 
     # Account-state gate. The JWT is valid, but a still-valid token must not
     # keep working once the account it names has been suspended. This is a 403
@@ -832,15 +871,17 @@ async def auth_middleware(request: Request, call_next):
     # Safe/read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
     # EVERY path, since reads never spend anything. JWT auth above still
     # applies in both cases.
-    from xyz_agent_context.agent_framework.api_config import set_current_user_id
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.api_config import set_current_user_id
+    from narranexus.platform.agent_framework.providers.resolver import (
         ProviderResolverError,
     )
 
     set_current_user_id(request.state.user_id)
 
-    if request.method in SAFE_HTTP_METHODS or any(
-        path.startswith(p) for p in QUOTA_BYPASS_PREFIXES
+    if (
+        request.method in SAFE_HTTP_METHODS
+        or any(path_under_prefix(path, p) for p in QUOTA_BYPASS_PREFIXES)
+        or _is_plugin_quota_bypass(path)
     ):
         return await call_next(request)
 
@@ -950,7 +991,7 @@ async def ensure_local_default_user() -> str:
     Returns the user_id of an existing row when one is present, or
     creates 'local-default' and returns it. Idempotent.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     if row:

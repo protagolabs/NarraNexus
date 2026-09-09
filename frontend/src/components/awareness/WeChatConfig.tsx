@@ -40,7 +40,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { WeChatCredentialData } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();
@@ -66,7 +66,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getWeChatCredential(agentId);
+      const res = await api.channelCredential<WeChatCredentialData>('wechat', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -176,7 +176,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindWeChat(agentId);
+      const res = await api.channelUnbind('wechat', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -195,7 +195,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setWeChatActive(agentId, next);
+    const res = await api.channelSetActive('wechat', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();

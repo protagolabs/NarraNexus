@@ -54,6 +54,25 @@ export function formatFramework(framework?: string | null): string {
     .join(' ');
 }
 
+/**
+ * Human label for a framework id, preferring the LIVE `display_name` from
+ * `GET/POST /api/providers/agent-framework`'s `frameworks[]` (B6, 2026-09-07) over the static
+ * picker label — this is the ONE place a caller with that response in hand asks for a label,
+ * instead of growing a third hardcoded id→label table (`ProviderSummaryCard.tsx`'s
+ * `FRAMEWORK_LABELS` and `TeamMemberAvatars.tsx`'s own `formatFramework` both were exactly that,
+ * and both are now gone in favor of this). Falls back to `formatFramework` (the static
+ * picker-label-then-title-case chain) whenever the list is absent (not loaded yet, or the caller
+ * has no live data at all) or has no entry for this id.
+ */
+export function formatFrameworkFromList(
+  framework: string | null | undefined,
+  frameworks: Array<{ name: string; display_name?: string }> | undefined,
+): string {
+  if (!framework) return '—';
+  const live = frameworks?.find((f) => f.name === framework)?.display_name;
+  return live || formatFramework(framework);
+}
+
 /** Brand mark for a framework id; the generic Bot glyph when unknown or missing. */
 export function frameworkBrandIcon(framework?: string | null): BrandIconComponent {
   return (framework && FRAMEWORK_ICONS[framework]) || Bot;

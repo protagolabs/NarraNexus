@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/settings/PersonalizationSettings.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08（本地 E2E 实测）— 插件主题选择器
+
+`ui.themes` 注册表此前无任何 UI 消费方（`applyTheme` 零调用）：插件主题注册成功却选不到。现在在基础主题下方按需（有条目才出现）
+列出插件主题 + 「默认外观」，选择写 `themeStore.pluginTheme`；主题声明 `dark` 时同步切基础主题。应用逻辑在 `hooks/usePluginTheme.ts`。
 
 ## 2026-08-30 — 第三个控件：进度短讯（独白提级）开关
 

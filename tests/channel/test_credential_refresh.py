@@ -28,9 +28,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 
 @dataclass

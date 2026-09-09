@@ -6,9 +6,10 @@
  * screens. The recover action is injected so BOTH branches are asserted (the
  * load-bearing `if (chunk)` — not just the rendered copy).
  */
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RELOAD_GUARD_KEY } from '@/lib/chunkReload';
+import { onUiError, recentUiErrors, resetErrorSink } from '@/platform/errorSink';
 
 import { ChunkErrorBoundary } from '../ChunkErrorBoundary';
 
@@ -26,6 +27,9 @@ beforeEach(() => {
   // window.location.reload() (jsdom "Not implemented: navigation").
   window.sessionStorage.removeItem(RELOAD_GUARD_KEY);
 });
+
+// The sink is a module singleton shared by every test file: leave it clean.
+afterEach(() => resetErrorSink());
 
 function silenceConsole() {
   const e = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -63,6 +67,28 @@ describe('ChunkErrorBoundary', () => {
     render(<ChunkErrorBoundary recover={recover}><ChunkBoom /></ChunkErrorBoundary>);
     render(<ChunkErrorBoundary recover={recover}><ChunkBoom /></ChunkErrorBoundary>);
     expect(recover).toHaveBeenCalledTimes(1); // guard blocks the second
+    restore();
+  });
+
+  test('reports a stale-chunk crash to the error sink as kind "chunk"', () => {
+    const restore = silenceConsole();
+    const seen = vi.fn();
+    onUiError(seen);
+    render(<ChunkErrorBoundary recover={() => {}}><ChunkBoom /></ChunkErrorBoundary>);
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen.mock.calls[0][0].kind).toBe('chunk');
+    expect(seen.mock.calls[0][0].error.message).toMatch(/dynamically imported module/);
+    restore();
+  });
+
+  test('reports a real render bug to the error sink as kind "render", with the component stack', () => {
+    const restore = silenceConsole();
+    render(<ChunkErrorBoundary recover={() => {}}><RealBug /></ChunkErrorBoundary>);
+    const reports = recentUiErrors();
+    expect(reports).toHaveLength(1);
+    expect(reports[0].kind).toBe('render');
+    expect(reports[0].source).toBe('shell');
+    expect(reports[0].componentStack).toMatch(/RealBug/);
     restore();
   });
 

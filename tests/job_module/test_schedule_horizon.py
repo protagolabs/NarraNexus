@@ -16,10 +16,10 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.module.job_module._job_scheduling import past_schedule_horizon
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus, TriggerConfig
+from narranexus.platform.utils.job_scheduling import past_schedule_horizon
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.schema.job_schema import JobStatus, TriggerConfig
 
 
 # ── schema contract ──────────────────────────────────────────────────────────
@@ -360,7 +360,7 @@ async def test_rearm_cooling_one_off_ignores_horizon(db_client):
 
 @pytest.mark.asyncio
 async def test_ongoing_hook_reschedule_past_horizon_completes(db_client):
-    # The NORMAL ongoing path: hook_after_event_execution took over (status
+    # The NORMAL ongoing path: after_turn took over (status
     # moved off RUNNING) and rescheduled a fire that lands past end_at. The
     # horizon is not a call the LLM makes (it only judges end_condition), so
     # finalize must complete the job instead of "respecting" a fire the

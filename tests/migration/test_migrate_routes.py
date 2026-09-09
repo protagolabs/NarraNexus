@@ -112,7 +112,7 @@ def _identified_client() -> TestClient:
 def test_hurry_marks_the_import_and_is_local_only(monkeypatch):
     """POST /hurry is how the UI reaches an apply that is already writing: the
     apply keeps going but stops summarizing (see migration/hurry.py)."""
-    from xyz_agent_context.migration import hurry
+    from narranexus.platform.migration import hurry
 
     client = _identified_client()
     headers = {"X-User-Id": "u1"}

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 stub: false
 ---
 
@@ -30,3 +30,5 @@ ApiClient，让 UI 全链路可渲染。**契约**：方法集必须与 api.ts �
 
 - 桩返回值多为最小合法形态（如 `{ enabled: false }`），面板测试不要依赖
   mock 层的数据真实性——组件测试自带 vi.mock 的 api 层。
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

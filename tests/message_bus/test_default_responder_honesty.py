@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 ROSTER = [
@@ -81,7 +81,7 @@ def test_a_routed_message_explains_why_this_agent_got_it():
 async def test_the_route_records_the_choice_without_changing_it(db_client):
     """The stamp is bookkeeping. Delivery must behave exactly as before —
     getting this wrong means a team room that stops answering."""
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     bus = LocalMessageBus(backend=db_client._backend)
     await db_client.insert("bus_channels", {
@@ -103,7 +103,7 @@ async def test_the_route_records_the_choice_without_changing_it(db_client):
 
 @pytest.mark.asyncio
 async def test_an_ordinary_message_carries_no_stamp(db_client):
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     bus = LocalMessageBus(backend=db_client._backend)
     await db_client.insert("bus_channels", {

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.schema.turn_profile import TurnProfile
+from narranexus.platform.schema.turn_profile import TurnProfile
 
 
 def test_defaults_mean_no_behavior_change():
@@ -56,7 +56,7 @@ def test_invalid_prompt_mode_rejected():
 
 
 def test_fast_for_derives_name_from_working_source_enum():
-    from xyz_agent_context.schema.hook_schema import WorkingSource
+    from narranexus.platform.schema.hook_schema import WorkingSource
 
     p = TurnProfile.fast_for(WorkingSource.CHAT)
     assert p.name == "chat_fast"

@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
-from xyz_agent_context.schema.team_work_schema import WorkItemOrigin
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.schema.team_work_schema import WorkItemOrigin
 
 TEAM = "t_errand"
 CHANNEL = "ch_errand"
@@ -38,7 +38,7 @@ def client(db_client, monkeypatch):
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     async def _get_db():
         return db_client
@@ -134,7 +134,7 @@ async def test_an_attachment_only_hand_off_gets_a_title_that_says_so(
     is under test is the TITLE, and `_sanitized_attachment`'s own job (rebuild
     from server-side state, never trust the echo) has its own coverage.
     """
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     monkeypatch.setattr(
         mod, "_sanitized_attachment",
@@ -168,7 +168,7 @@ async def test_book_keeping_never_costs_the_user_their_message(
         raise RuntimeError("board is on fire")
 
     monkeypatch.setattr(
-        "xyz_agent_context.message_bus.errand.record_handoffs", _boom
+        "narranexus.platform.message_bus.errand.record_handoffs", _boom
     )
 
     r = _post(client, "@Bruno pull the Q3 numbers", mentions=[BRUNO])

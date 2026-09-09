@@ -24,8 +24,8 @@ that knows.
 """
 from __future__ import annotations
 
-from xyz_agent_context.message_bus.system_messages import SYSTEM_SENDER_LABEL
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus.platform.message_bus.system_messages import SYSTEM_SENDER_LABEL
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -77,7 +77,7 @@ def test_a_teammate_is_marked_as_one_in_the_known_agents_list():
     reaching for help has no way to tell "we are on the same team, this one is
     already in the room with me" from "a stranger I would have to DM cold".
     """
-    from xyz_agent_context.schema.context_schema import ContextData
+    from narranexus.platform.schema.context_schema import ContextData
 
     module = MessageBusModule.__new__(MessageBusModule)
     module.agent_id = "agent_me"
@@ -182,7 +182,7 @@ def test_the_block_does_not_confine_the_agent_to_the_trigger_channel():
     """The block teaches both verbs; the turn is not confined to one. It says so.
 
     2026-08-20 — capability follows the agent, not the trigger channel.
-    `get_disallowed_tools` no longer removes the non-default verb's schema, so
+    `disallowed_tools` no longer removes the non-default verb's schema, so
     the block must tell the agent it is not confined to the conversation that
     woke it. The old dead-end wording ("finish this turn; a fresh one will have
     that call") was the prose face of the drop the redesign removed; asserting
@@ -289,7 +289,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     """
     import inspect
 
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -297,7 +297,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # stop the branch being helpfully reinstated by the next reader.
     code = "\n".join(
         ln for ln in
-        inspect.getsource(MessageBusModule.hook_data_gathering).splitlines()
+        inspect.getsource(MessageBusModule.gather).splitlines()
         if not ln.lstrip().startswith("#")
     )
 
@@ -307,7 +307,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # Neither name has any other legitimate use in this method today.
     reinstated = (
         "the retired input-source-tag branch must not be reinstated; "
-        "see the comment at the end of hook_data_gathering"
+        "see the comment at the end of gather"
     )
     assert "input_content" not in code, reinstated
     assert "working_source" not in code, reinstated
@@ -319,7 +319,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # tag" as a step — the copy physically closest to the deleted code, and the
     # one this very test was written to make impossible. A guard that skips the
     # place the claim actually survived is not a guard.
-    raw = inspect.getsource(MessageBusModule.hook_data_gathering)
+    raw = inspect.getsource(MessageBusModule.gather)
     assert "prefix the input" not in raw
     # Paired with a POSITIVE, because the negative alone is one possessive away
     # from banning an honest historical sentence ("a step here used to prefix
@@ -335,7 +335,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # held: the prompt text has several negatives, this docstring has the two
     # above, the mirror is held by review. Re-adding the retracted line up there
     # would have left the suite green.
-    from xyz_agent_context.module.message_bus_module import message_bus_module as mod
+    from narranexus_plugins.message_bus_module import message_bus_module as mod
 
     assert "prefixed with [MessageBus" not in (mod.__doc__ or "")
 
@@ -348,7 +348,7 @@ def test_the_worked_example_is_the_tag_the_code_actually_emits():
     is never there and finds the CHANNEL in the position it was told holds an
     id. Generated from the same helper so the two cannot drift again.
     """
-    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         _bus_tag,
     )
 
@@ -376,7 +376,7 @@ def test_the_unread_header_does_not_repeat_the_retracted_promise():
     messages in. Fixing one copy and leaving the other is how a contradiction
     survives a PR that was written to remove it.
     """
-    from xyz_agent_context.schema.context_schema import ContextData
+    from narranexus.platform.schema.context_schema import ContextData
 
     module = MessageBusModule.__new__(MessageBusModule)
     module.agent_id = "agent_me"
@@ -401,7 +401,7 @@ def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
     could quietly turn the module's rule back into a lie — which is the exact
     failure mode this whole file exists to catch, one file over.
     """
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
     trigger = MessageBusTrigger.__new__(MessageBusTrigger)
     prompt = trigger._build_team_prompt(
@@ -428,7 +428,7 @@ def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
 
 
 def _unread_lines(rows: list[dict]) -> list[str]:
-    from xyz_agent_context.schema.context_schema import ContextData
+    from narranexus.platform.schema.context_schema import ContextData
 
     module = MessageBusModule.__new__(MessageBusModule)
     module.agent_id = "agent_me"
@@ -446,7 +446,7 @@ def test_a_platform_line_is_labelled_not_quoted_as_the_owner():
     sender is a PERSON and should be talked to like one. The type has to
     outrank the sender or the platform gets quoted as the human.
     """
-    from xyz_agent_context.message_bus.team_bulletin import BULLETIN_NOTICE_MSG_TYPE
+    from narranexus.platform.message_bus.team_bulletin import BULLETIN_NOTICE_MSG_TYPE
 
     line = next(
         ln for ln in _unread_lines([{
@@ -467,7 +467,7 @@ def test_a_room_marker_sender_does_not_become_a_phantom_teammate():
     reason: naming it invents a teammate the agent may then try to @mention
     back. The unread list was printing it raw.
     """
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 
     line = next(
         ln for ln in _unread_lines([{
@@ -589,9 +589,9 @@ def test_both_surfaces_name_a_platform_line_the_same_way():
     Sibling of `test_the_team_prompt_really_does_promise_what_the_static_rule_
     defers_to`: same class of promise, same reason nothing else can hold it.
     """
-    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
-    from xyz_agent_context.message_bus.schemas import BusMessage
+    from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+    from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
+    from narranexus.platform.message_bus.schemas import BusMessage
 
     trigger = MessageBusTrigger.__new__(MessageBusTrigger)
     prompt = trigger._build_team_prompt(

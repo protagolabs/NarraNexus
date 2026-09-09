@@ -8,7 +8,7 @@ auto_migrate; these tests pin the definitions so a refactor of
 schema_registry cannot silently drop them.
 """
 
-from xyz_agent_context.utils.db.schema_registry import TABLES
+from narranexus.platform.utils.db.schema_registry import TABLES
 
 
 def test_instance_artifacts_has_content_hash_column():

@@ -134,27 +134,20 @@ async def test_probe_budget_leaves_room_under_the_container_healthcheck_timeout(
 
 
 @pytest.mark.asyncio
-async def test_team_summary_failures_still_do_not_fail_the_probe(monkeypatch):
-    """The 2026-08-11 rule still holds: a single team with a bad provider key
-    must not fail the container. Only the database decides `status`."""
+async def test_health_reports_only_the_database(monkeypatch):
+    """Only the database decides `status`. The team-summary heartbeat used to
+    be read from app.state here, but the worker now runs in the workers
+    process (builtin.teams, backend.workers slot) and its heartbeat is its
+    `[team.summary] pass:` log line there — the backend can no longer see it,
+    and a block that reads state nothing sets is not a signal."""
 
     async def ok():
         return [{"1": 1}]
 
     _install(monkeypatch, ok)
-
-    class _W:
-        running = True
-        last_pass = {"rooms": 3, "summarised": 0, "failed": 2}
-
-    main.app.state.team_summary_worker = _W()
-    try:
-        body = await main.health()
-    finally:
-        del main.app.state.team_summary_worker
-
+    body = await main.health()
     assert body["status"] == "healthy"
-    assert body["team_summary"]["failed"] == 2
+    assert "team_summary" not in body
 
 
 @pytest.mark.asyncio
@@ -295,29 +288,6 @@ async def test_the_cache_window_stays_under_the_healthcheck_interval():
     assert main._HEALTH_CACHE_TTL_SEC < 30.0
 
 
-@pytest.mark.asyncio
-async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
-    """The cache covers the DB round-trip, not the whole response. Worker
-    liveness must not be frozen for 5s alongside it."""
-
-    async def ok():
-        return None
-
-    _install(monkeypatch, ok)
-
-    class _W:
-        running = True
-        last_pass = {"rooms": 1, "summarised": 0, "failed": 0}
-
-    main.app.state.team_summary_worker = _W()
-    try:
-        await main.health()                      # populates the cache
-        _W.last_pass = {"rooms": 9, "summarised": 4, "failed": 1}
-        body = await main.health()               # served from cache
-    finally:
-        del main.app.state.team_summary_worker
-
-    assert body["team_summary"]["rooms"] == 9, "worker counters were frozen by the cache"
 
 
 @pytest.mark.asyncio

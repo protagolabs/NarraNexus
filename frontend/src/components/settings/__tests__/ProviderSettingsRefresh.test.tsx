@@ -68,6 +68,8 @@ describe('ProviderSettings Sign-in tab gate', () => {
     // 2026-09-03 — first-run already owns that card), and the body must
     // fall through to it rather than render an empty modal.
     expect(screen.getByText('Custom')).toBeTruthy();
+    // The modal opens on the one-key tab (2026-09-08); Custom is one click away.
+    fireEvent.click(screen.getByText('Custom'));
     expect(screen.getByText('Protocol')).toBeTruthy();
   });
 

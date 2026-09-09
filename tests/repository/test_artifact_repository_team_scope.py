@@ -30,8 +30,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
 
 USER = "user_1"
 

@@ -8,7 +8,7 @@ stub: false
 
 The fat part of `get_raw` (pointer lookup, flat→nested workspace fallback,
 path-escape confinement, workspace-root single-file rule, media-type choice)
-moved to `xyz_agent_context/artifact/_artifact_impl/raw_access.py` — see
+moved to `narranexus/platform/artifact/_artifact_impl/raw_access.py` — see
 [[raw_access.py]]. The handler keeps exactly the HTTP concerns: token
 verification (`_artifact_token.verify`) and response headers (CSP via
 `_csp_for_html` / `_non_html_csp` / `_app_origin`, which all stay in this

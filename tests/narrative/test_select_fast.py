@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.narrative.narrative_service import NarrativeService
+from narranexus.platform.narrative.narrative_service import NarrativeService
 
 
 def _service_with_fakes(search_results, loaded):

@@ -30,10 +30,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _should_run_helper_llm_fallback,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     ErrorMessage,
     ProgressMessage,
     ProgressStatus,

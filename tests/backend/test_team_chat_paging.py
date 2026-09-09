@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
 CHANNEL = "ch_page"
 
@@ -168,7 +168,7 @@ def _client(monkeypatch, db, page_size: int):
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
 
-    from backend.routes import teams as mod
+    from narranexus_plugins.teams import routes as mod
 
     monkeypatch.setattr(mod, "PAGE_SIZE", page_size)
 

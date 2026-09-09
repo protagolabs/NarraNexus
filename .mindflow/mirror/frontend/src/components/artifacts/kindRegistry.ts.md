@@ -1,10 +1,25 @@
 ---
 code_file: frontend/src/components/artifacts/kindRegistry.ts
-last_verified: 2026-08-21
+last_verified: 2026-09-07
 stub: false
 ---
 
+## 2026-09-07（批 1 三轮复审移植）— 只剩内置表 + `downloadExtFor`
+
+`KIND_REGISTRY` 与 `registerArtifactKind`（自带注册栈）删除；本文件是 `BUILTIN_ARTIFACT_KINDS`（对 `BuiltinArtifactKind`
+穷举的 Record）+ `downloadExtFor`（改读 `ARTIFACT_KINDS.get`）。词表类型从 `platform/registries/artifactKinds.ts`
+re-export 以保留既有 import 路径。内置表由 `platform/builtin.ts` 注册进 `ARTIFACT_KINDS`（owner `builtin.ui`），
+消费方一律查注册表，不再直接读本表——插件 kind 与内置 kind 同一条路径解析。
+
 # kindRegistry.ts — kind 能力注册表(单一事实源)
+
+## 2026-09-03 — `registerArtifactKind`：插件可加渲染器
+
+`KIND_REGISTRY` 类型改为 `Record<BuiltinArtifactKind, KindDescriptor> & Partial<Record<string, KindDescriptor>>`
+：内置键仍穷举，任意字符串键读出来是 `KindDescriptor | undefined`，消费方必须 `?.`（原来的
+`Record<string, ...>` 让未知键假装总存在）。`registerArtifactKind` 每 kind 维护一个注册栈，内置描述符是
+隐式栈底：撤销函数只移除自己那一项，当前值取栈顶或内置——插件按任意顺序卸载都不会把别人的描述符
+打掉，也不会让已撤销的描述符"复活"（首版的 previous 快照法会）。测试 `registerArtifactKind` 三段。
 
 ## 2026-08-21 — `downloadExt` 变 optional + 新增 `downloadExtFor`(深圳复测 .bin bug)
 

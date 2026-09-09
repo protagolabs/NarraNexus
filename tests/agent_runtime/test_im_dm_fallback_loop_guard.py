@@ -21,7 +21,7 @@ import asyncio
 import pytest
 from loguru import logger
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     IM_DM_FALLBACK_BURST_LIMIT,
     _fallback_conversation_key,
     _record_fallback_delivery,
@@ -31,10 +31,10 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop impo
     SKIP_REASON_FALLBACK_RATE_LIMITED,
     reset_im_dm_fallback_history,
 )
-from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStatus
+from narranexus.platform.schema import ErrorMessage, ProgressMessage, ProgressStatus
 
 
-import xyz_agent_context.services.service_audit as audit_mod
+import narranexus.platform.services.service_audit as audit_mod
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ def _step3():
     import importlib
 
     return importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
     )
 
 
@@ -265,10 +265,10 @@ def test_pruning_keeps_a_conversation_that_is_still_inside_its_window():
 
 def test_the_prompt_permits_silence_and_the_runtime_now_honours_it():
     """Prompt half and runtime half must agree for an agent peer."""
-    from xyz_agent_context.channel.channel_prompts import (
+    from narranexus.platform.channel.channel_prompts import (
         COMMUNICATION_PROTOCOL_DIRECT,
     )
-    from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER
+    from narranexus.platform.schema.channel_tag import AGENT_PEER_MARKER
 
     # The prompt tells the model it may stay silent toward a machine...
     assert "### Breaking a Loop" in COMMUNICATION_PROTOCOL_DIRECT
@@ -302,9 +302,9 @@ def test_the_source_no_longer_claims_the_section_is_inert():
     warning is as misleading as a stale promise."""
     import inspect
 
-    from xyz_agent_context.channel import channel_prompts
+    from narranexus.platform.channel import channel_prompts
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         SKIP_REASON_AGENT_PEER,
         SKIP_REASON_FALLBACK_RATE_LIMITED,
     )
@@ -331,11 +331,11 @@ def test_the_source_no_longer_claims_the_section_is_inert():
 def test_the_flag_survives_the_envelope_hop():
     from types import SimpleNamespace
 
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         _channel_turn_envelope,
     )
-    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
-    from xyz_agent_context.schema.channel_tag import ChannelTag
+    from narranexus.platform.channel.channel_prompts import ROOM_TYPE_DIRECT
+    from narranexus.platform.schema.channel_tag import ChannelTag
 
     # Built through ChannelTag.to_dict() on purpose — hand-writing the dict
     # would let a key rename drift both sides together and pin nothing.
@@ -528,7 +528,7 @@ async def test_the_real_auditor_reports_its_outcome(monkeypatch):
     propagating it. Chain-level coverage against the real repository lives
     in ``tests/services/test_service_audit_write_outcome.py``.
     """
-    from xyz_agent_context.services.service_audit import ServiceAuditor
+    from narranexus.platform.services.service_audit import ServiceAuditor
 
     class _OkRepo:
         async def record(self, *a, **k):

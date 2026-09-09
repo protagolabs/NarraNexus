@@ -23,8 +23,8 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.integrations.netmind.identity_migration import execute_migration
 
 from ._admin_secret import require_admin_secret

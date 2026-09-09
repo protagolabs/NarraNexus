@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.mcp_repository import (
+from narranexus.platform.repository.mcp_repository import (
     MCPRepository,
     validate_mcp_sse_connection,
 )

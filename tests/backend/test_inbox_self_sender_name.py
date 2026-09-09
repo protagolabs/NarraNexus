@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 import backend.routes.inbox as inbox_mod
 from backend.routes.inbox import router as inbox_router
-from xyz_agent_context.channel.inbox_recorder import INBOUND, OUTBOUND
+from narranexus.platform.channel.inbox_recorder import INBOUND, OUTBOUND
 
 AGENT_ID = "agent_5588fd1f17e4"
 AGENT_NAME = "Daolai"

@@ -21,8 +21,8 @@ import asyncio
 import aiohttp
 import pytest
 
-from xyz_agent_context.agent_framework.loop.remote_driver import RemoteAgentLoopDriver
-from xyz_agent_context.agent_runtime.executor_protocol import build_steer_request
+from narranexus.platform.agent_framework.loop.remote_driver import RemoteAgentLoopDriver
+from narranexus.platform.agent_runtime.executor_protocol import build_steer_request
 
 
 def _driver():
@@ -133,7 +133,7 @@ async def _until(pred, timeout=1.0):
 
 
 def _cancel(token):
-    from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
+    from narranexus.platform.agent_framework.loop.cancellation_view import CancellationView
     return CancellationView(token)
 
 

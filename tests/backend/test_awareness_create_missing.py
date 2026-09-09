@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.routes.agents import awareness as aw
+from narranexus_plugins.awareness_module import routes as aw
 
 
 @pytest.fixture

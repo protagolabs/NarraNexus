@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.routes.teams import _wipe_team_data
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.schema.team_schema import Team
-from xyz_agent_context.utils.workspace_paths import team_shared_dir
+from narranexus_plugins.teams.routes import _wipe_team_data
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.schema.team_schema import Team
+from narranexus.platform.utils.workspace_paths import team_shared_dir
 
 OWNER = "user_t"
 TID = "team_abc"
@@ -56,7 +56,7 @@ async def _seed_file(db, file_id, *, team_id):
 async def test_clearing_files_also_clears_the_index(db_client, monkeypatch, tmp_path):
     """Rows that outlive their files are worse than no rows: the panel lists
     them, and the user only finds out when a download fails."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
     d = team_shared_dir(OWNER, TID, str(tmp_path))
     d.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,7 @@ async def test_clearing_files_also_clears_the_index(db_client, monkeypatch, tmp_
 async def test_clearing_files_removes_only_this_teams_index(db_client, monkeypatch, tmp_path):
     """Scope is the team, never the owner: another team's index and any
     private work belong to neither this folder nor this switch."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
 
     await _seed_file(db_client, "f1", team_id=TID)
@@ -99,7 +99,7 @@ async def test_clearing_files_removes_only_this_teams_index(db_client, monkeypat
 @pytest.mark.asyncio
 async def test_clearing_only_chat_leaves_the_workspace_alone(db_client, monkeypatch, tmp_path):
     """The two scopes are independent; wiping chat must not touch output."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
     await _seed_file(db_client, "f1", team_id=TID)
     await _seed_artifact(db_client, "art_team", team_id=TID)
@@ -116,7 +116,7 @@ async def test_clearing_only_chat_leaves_the_workspace_alone(db_client, monkeypa
 
 @pytest.mark.asyncio
 async def test_list_team_files_returns_only_that_team(db_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     await _seed_file(db_client, "nope", team_id=OTHER_TID)
@@ -127,7 +127,7 @@ async def test_list_team_files_returns_only_that_team(db_client):
 
 @pytest.mark.asyncio
 async def test_team_files_are_newest_first(db_client):
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "older", team_id=TID)
     await _seed_file(db_client, "newer", team_id=TID)
@@ -154,7 +154,7 @@ async def _seed_history(db, artifact_id, *, event_id, agent_id="agent_a"):
 
 @pytest.mark.asyncio
 async def test_turn_map_groups_artifacts_by_event(db_client):
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_artifact(db_client, "art_2", team_id=TID)
@@ -167,7 +167,7 @@ async def test_turn_map_groups_artifacts_by_event(db_client):
 @pytest.mark.asyncio
 async def test_turn_map_excludes_other_teams(db_client):
     """A chip must never point at another team's work."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_mine", team_id=TID)
     await _seed_artifact(db_client, "art_theirs", team_id=OTHER_TID)
@@ -179,7 +179,7 @@ async def test_turn_map_excludes_other_teams(db_client):
 
 @pytest.mark.asyncio
 async def test_turn_map_excludes_private_artifacts(db_client):
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_private", team_id=None)
     await _seed_history(db_client, "art_private", event_id="evt_a")
@@ -191,7 +191,7 @@ async def test_turn_map_excludes_private_artifacts(db_client):
 async def test_an_updating_turn_also_gets_a_chip(db_client):
     """Re-registration is how a teammate picks work up, so the turn that
     UPDATED an artifact is exactly the one worth surfacing."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_history(db_client, "art_1", event_id="evt_first")
@@ -209,7 +209,7 @@ async def test_an_updating_turn_also_gets_a_chip(db_client):
 async def test_rows_without_a_turn_are_skipped(db_client):
     """event_id is nullable — legacy rows and callers with no event in scope
     simply produce no chip rather than a bogus grouping."""
-    from backend.routes.teams import _team_artifact_turns
+    from narranexus_plugins.teams.routes import _team_artifact_turns
 
     await _seed_artifact(db_client, "art_1", team_id=TID)
     await _seed_history(db_client, "art_1", event_id=None)
@@ -240,7 +240,7 @@ async def test_deleting_a_team_takes_its_workspace_with_it(db_client, monkeypatc
     team that no longer exists, and the union joins team_members which the
     delete just emptied. Rows that nothing can ever read are the orphan case
     acceptance #7 is about."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
 
     await _seed_artifact(db_client, "art_team", team_id=TID)
@@ -268,7 +268,7 @@ async def test_deleting_a_team_takes_its_workspace_with_it(db_client, monkeypatc
 @pytest.mark.asyncio
 async def test_clearing_artifacts_alone_keeps_the_files(db_client, monkeypatch, tmp_path):
     """The scopes are independent in both directions."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
 
     await _seed_artifact(db_client, "art_team", team_id=TID)
@@ -295,7 +295,7 @@ async def test_file_timestamps_are_offset_aware(db_client):
     "8h ago" for a UTC+8 user. The artifacts half never had this because it
     goes through the Artifact model, whose parse_dt attaches UTC.
     """
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     rows = await _team_files(db_client, TID)
@@ -312,7 +312,7 @@ async def test_file_rows_do_not_leak_internal_columns(db_client):
     """`SELECT *` put id / owner_user_id / content_hash into the API shape.
     Owner-only, so not a disclosure — but the wire shape should be chosen, not
     inherited from the table."""
-    from backend.routes.teams import _team_files
+    from narranexus_plugins.teams.routes import _team_files
 
     await _seed_file(db_client, "f1", team_id=TID)
     row = (await _team_files(db_client, TID))[0]
@@ -343,7 +343,7 @@ async def test_clearing_files_now_takes_the_team_artifacts_with_it(
     db_client, monkeypatch, tmp_path
 ):
     """The content and the row live and die together now."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
     d = team_shared_dir(OWNER, TID, str(tmp_path))
     d.mkdir(parents=True, exist_ok=True)
@@ -368,7 +368,7 @@ async def test_clearing_files_still_spares_other_teams_and_private_work(
 ):
     """The cascade is scoped to this team's folder, which is the only content
     being removed."""
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
 
     await _seed_artifact(db_client, "art_team", team_id=TID)

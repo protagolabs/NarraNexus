@@ -19,7 +19,7 @@ Claude CLI（`cli_binary.py` 的设计原因:2.1.220 相比 SDK 自带的 2.1.56
   `NpmPrefixInstaller` 挂在 `self._installers["npm"]`;只有 `claude_code`
   这一个插件的 npm `InstallComponent` 会走到它（`codex_cli` 没有 npm
   component)。
-- **依赖谁**：`xyz_agent_context.agent_framework.plugin_paths` 的
+- **依赖谁**：`narranexus.platform.agent_framework.plugin_paths` 的
   `claude_cli_path` / `node_prefix`（落点单一真值)。
 
 ## 设计决策

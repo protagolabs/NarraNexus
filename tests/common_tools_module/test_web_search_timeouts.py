@@ -33,7 +33,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus_plugins.common_tools_module._common_tools_impl import (
     web_search as ws,
 )
 
@@ -246,10 +246,10 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
     (which spawns subprocesses) instead of ``search_many`` directly.
     We patch that single entry point to simulate a hang.
     """
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as tools,
     )
-    from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as factory
+    from narranexus_plugins.common_tools_module import _common_tools_mcp_tools as factory
 
     # Shrink the outer handler timeout so the test completes in a few
     # seconds instead of waiting out the production 110s cap. The
@@ -263,7 +263,7 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
 
     monkeypatch.setattr(tools, "_web_search_with_retry", _hang_forever)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
     tool_entries = await mcp.list_tools()
     ws_entry = next((t for t in tool_entries if t.name == "web_search"), None)
     assert ws_entry is not None, "web_search tool must be registered"

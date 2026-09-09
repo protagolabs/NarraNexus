@@ -24,7 +24,7 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.agent_runtime.run_recorder import (
+from narranexus.platform.agent_runtime.run_recorder import (
     RECORDING_DISABLED_ENV,
     RunRecorder,
     STATE_CANCELLED,
@@ -35,7 +35,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     recording_enabled,
     sweep_stale_runs,
 )
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.utils.timezone import utc_now
 
 
 def _step0_progress(event_id: str) -> dict:
@@ -316,7 +316,7 @@ async def test_tool_call_stamps_the_run_agent_stage(db_client):
     recorder derives it), not a hand-copied literal: a rename of
     PHASE_RUN_AGENT_TITLE that forgot to update the recorder would turn this
     red instead of silently reopening the flap bug."""
-    from xyz_agent_context.schema import (
+    from narranexus.platform.schema import (
         PHASE_RUN_AGENT_STEP,
         PHASE_RUN_AGENT_TITLE,
     )

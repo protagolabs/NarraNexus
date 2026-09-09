@@ -15,7 +15,7 @@ import pytest
 
 from tests.fake_db import FakeDB
 
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
 
 
 _FakeDB = FakeDB

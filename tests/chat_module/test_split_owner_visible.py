@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import ProgressMessage
-from xyz_agent_context.schema.runtime_message import ProgressStatus
+import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import ProgressMessage
+from narranexus.platform.schema.runtime_message import ProgressStatus
 
 
 def _module() -> ChatModule:

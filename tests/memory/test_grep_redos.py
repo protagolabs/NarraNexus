@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 
-from xyz_agent_context.memory._memory_impl.retrieval import (
+from narranexus.platform.memory._memory_impl.retrieval import (
     grep_filter,
     _GREP_PER_MATCH_TIMEOUT_S,
     _GREP_REQUEST_BUDGET_S,

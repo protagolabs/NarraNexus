@@ -38,6 +38,9 @@ import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
 import { RunStatChips } from './RunStatChips';
 import { hasRunStats } from '@/lib/runStats';
+import { MESSAGE_ACTIONS, MESSAGE_RENDERERS, rendererFor, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -266,7 +269,19 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   // full-width document, see the render below), so this is the user initial.
   const avatarLabel = (userId || 'U').slice(0, 1);
 
-  return (
+  // Plugin surfaces (batch 3d): a registered renderer that recognises this
+  // message owns its whole bubble; message actions join the hover strip.
+  const rendererEntries = useRegistryEntries(MESSAGE_RENDERERS);
+  const whenCtx = useWhenContext({ conversationKind: 'chat', agentId: agentId ?? null });
+  const messageActions = visibleSlotEntries(useRegistryEntries(MESSAGE_ACTIONS), whenCtx);
+  const renderer = rendererFor(rendererEntries, message);
+
+  // The shell's own bubble, as a lazily-invoked function rather than a JSX
+  // value: it is the PluginBoundary fallback below, and building this whole
+  // tree on every render just to discard it when a plugin renderer is
+  // healthy would be wasted work (and, before a plugin's first successful
+  // render, indistinguishable from "always render both").
+  const renderShellBubble = () => (
     <div
       className={cn(
         'group flex gap-3',
@@ -725,6 +740,23 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Download className="w-3 h-3" />
                 </button>
               )}
+              {messageActions.map((entry) => {
+                const Icon = entry.value.icon ?? Sparkles;
+                const label = entry.value.labelIsKey ? t(entry.value.label) : entry.value.label;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => void entry.value.run({ agentId: agentId ?? null, message })}
+                    className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                    title={label}
+                    aria-label={label}
+                    data-slot-action={entry.id}
+                  >
+                    <Icon className="w-3 h-3" />
+                  </button>
+                );
+              })}
             </>
           )}
           <span
@@ -744,6 +776,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         </div>
       </div>
     </div>
+  );
+
+  if (!renderer) return renderShellBubble();
+  const Renderer = renderer.component;
+  const rendererOwner = rendererEntries.find((e) => e.value === renderer)?.owner ?? 'shell';
+  return (
+    <PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>
+      <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />
+    </PluginBoundary>
   );
 }
 

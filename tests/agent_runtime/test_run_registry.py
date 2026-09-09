@@ -17,7 +17,7 @@ async API).
 
 import pytest
 
-from xyz_agent_context.agent_runtime.run_registry import RunRegistry
+from narranexus.platform.agent_runtime.run_registry import RunRegistry
 
 
 def test_register_then_live_run_returns_the_handle():

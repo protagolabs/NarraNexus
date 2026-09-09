@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.message_bus._bus_attachment_impl import (
+from narranexus.platform.message_bus._bus_attachment_impl import (
     build_bus_markers,
     load_bus_attachment_meta,
     resolve_and_stage_refs,
@@ -24,7 +24,7 @@ from xyz_agent_context.message_bus._bus_attachment_impl import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
-from xyz_agent_context.utils.workspace_paths import (
+from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
     team_shared_dir,
@@ -72,10 +72,10 @@ async def test_stage_workspace_path_hardlinks_into_shared(tmp_path):
 async def test_stage_by_attachment_file_id(tmp_path, monkeypatch):
     # att_ handles resolve through the sender's user_upload_files store, which
     # keys off settings.base_working_path — point it at tmp_path.
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
 
     monkeypatch.setattr(settings_mod.settings, "base_working_path", str(tmp_path))
-    from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
+    from narranexus.platform.utils.attachment_storage import store_uploaded_attachment
 
     file_id, _ = store_uploaded_attachment(
         AGENT,

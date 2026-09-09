@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 def _msg(message_id: str, from_agent: str, content: str = "你在干嘛？") -> BusMessage:
@@ -216,7 +216,7 @@ async def test_errand_continuation_follow_up_reads_as_being_asked():
     BUS_ERRAND_TURN_SOURCE, which must read as a question even when the
     recipient has errand rows of its own that would otherwise vote Owner
     Relay (rows chosen exactly so the stamp, not the fallback, decides)."""
-    from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
+    from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE
 
     t = _trigger(errand=FOUND)
     assert await t._incoming_is_reply_to_my_errand(
@@ -332,9 +332,9 @@ async def test_invoke_runtime_forwards_the_errand_scope(monkeypatch):
     answers unrelated peers, and marking their answers as questions is how the
     P1 reappeared one seat over (2026-08-03 review)."""
     from types import SimpleNamespace
-    from xyz_agent_context.agent_runtime.run_collector import RunCollection
+    from narranexus.platform.agent_runtime.run_collector import RunCollection
 
-    from xyz_agent_context.agent_runtime import client as rt_client
+    from narranexus.platform.agent_runtime import client as rt_client
 
     captured: dict = {}
 
@@ -377,10 +377,10 @@ async def test_sender_turn_source_round_trips_through_the_db():
     """Mocks cannot prove the column exists, is written, and comes back on the
     BusMessage the trigger reads. Without all three the classifier silently
     degrades to the fallback everywhere."""
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     backend = SQLiteBackend(":memory:")
     await backend.initialize()
@@ -409,7 +409,7 @@ async def test_sender_turn_source_round_trips_through_the_db():
 
         # Full conversation against real SQL (mocks can't catch a wrong
         # column name in _i_have_errand_in_channel):
-        from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
+        from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE
 
         channel_id = pending[0].channel_id
         # b answers from a peer-answering turn → a (whose chat-stamped
@@ -457,14 +457,14 @@ async def test_one_errand_turn_serving_two_peers_routes_both_correctly():
         3a. A follows up with B, same turn               → B answers the peer
         3b. A answers C, same turn                       → C relays to owner
     """
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-    from xyz_agent_context.module._mcp_identity import agent_id_headers
-    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.module_system._mcp_identity import agent_id_headers
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         _send_turn_source,
     )
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     from tests.message_bus.test_bus_send_stamp import injected
 

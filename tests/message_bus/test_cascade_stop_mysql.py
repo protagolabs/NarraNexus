@@ -34,13 +34,13 @@ from datetime import timedelta
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.agent_runtime.cancel_watcher import CancelWatcher
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.agent_runtime.cancel_watcher import CancelWatcher
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.timezone import utc_now
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 

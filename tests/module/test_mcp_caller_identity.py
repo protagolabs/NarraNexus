@@ -29,7 +29,7 @@ import contextlib
 
 import pytest
 
-from xyz_agent_context.module._mcp_identity import (
+from narranexus.platform.module_system._mcp_identity import (
     AGENT_ID_HEADER,
     BEARER_AGENT_PREFIX,
     agent_id_headers,
@@ -255,18 +255,19 @@ def test_base_module_wrapper_instruments_and_never_raises():
     """ModuleRunner serves via build_instrumented_mcp_server; a module with
     no server still returns None, and a broken instrumentation must not stop
     the module from being served."""
-    from xyz_agent_context.module.base import XYZBaseModule
+    from narranexus.platform.module_system.base import XYZBaseModule
 
     assert hasattr(XYZBaseModule, "build_instrumented_mcp_server")
 
     class NoServer(XYZBaseModule):
-        def get_config(self):
-            from xyz_agent_context.schema import ModuleConfig
+        @staticmethod
+        def get_config():
+            from narranexus.platform.schema import ModuleConfig
 
             return ModuleConfig(name="NoServer", priority=9, enabled=True,
                                 description="t", module_type="capability")
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
     m = NoServer(agent_id=REAL, user_id="u", database_client=None)
@@ -278,17 +279,18 @@ def test_broken_instrumentation_still_serves_the_module(monkeypatch):
     identity resolution is an improvement, not a precondition for serving. If
     installing it ever throws, the module must still be served (uninstrumented
     and loudly logged) rather than disappearing from the agent's toolset."""
-    from xyz_agent_context.module import base as base_mod
-    from xyz_agent_context.schema import ModuleConfig
+    from narranexus.platform.module_system import base as base_mod
+    from narranexus.platform.schema import ModuleConfig
 
     sentinel = object()
 
     class WithServer(base_mod.XYZBaseModule):
-        def get_config(self):
+        @staticmethod
+        def get_config():
             return ModuleConfig(name="WithServer", priority=9, enabled=True,
                                 description="t", module_type="capability")
 
-        async def get_mcp_config(self):
+        async def mcp_server(self):
             return None
 
         def create_mcp_server(self):
@@ -298,7 +300,7 @@ def test_broken_instrumentation_still_serves_the_module(monkeypatch):
         raise RuntimeError("instrumentation exploded")
 
     monkeypatch.setattr(
-        "xyz_agent_context.module._mcp_identity.install_caller_identity", boom
+        "narranexus.platform.module_system._mcp_identity.install_caller_identity", boom
     )
     m = WithServer(agent_id=REAL, user_id="u", database_client=None)
 
@@ -321,11 +323,11 @@ def test_every_registered_module_resolves_caller_identity():
     """
     import inspect as _inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from narranexus.platform.module_system import module_registry
 
     gaps: list[str] = []
     total = 0
-    for name, cls in sorted(MODULE_MAP.items()):
+    for name, cls in sorted(module_registry.items()):
         module = cls(agent_id=REAL, user_id="u", database_client=None)
         server = module.build_instrumented_mcp_server()
         if server is None:
@@ -352,7 +354,7 @@ def test_every_registered_module_resolves_caller_identity():
 
 
 def test_turn_source_read_from_the_explicit_header():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         TURN_SOURCE_HEADER,
         caller_turn_source,
     )
@@ -363,7 +365,7 @@ def test_turn_source_read_from_the_explicit_header():
 
 def test_turn_source_read_from_the_bearer_when_the_header_is_gone():
     """The codex reality: only the bearer arrives."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         BEARER_FIELD_SEP,
         caller_turn_source,
@@ -377,7 +379,7 @@ def test_turn_source_read_from_the_bearer_when_the_header_is_gone():
 
 
 def test_identity_unaffected_by_a_bearer_without_turn_source():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         caller_turn_source,
     )
@@ -388,7 +390,7 @@ def test_identity_unaffected_by_a_bearer_without_turn_source():
 
 
 def test_no_turn_source_anywhere_is_none_not_a_guess():
-    from xyz_agent_context.module._mcp_identity import caller_turn_source
+    from narranexus.platform.module_system._mcp_identity import caller_turn_source
 
     with injected({AGENT_ID_HEADER: REAL}):
         assert caller_turn_source() is None
@@ -400,7 +402,7 @@ def test_no_turn_source_anywhere_is_none_not_a_guess():
 
 
 def _bearer(*fields: str) -> str:
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         BEARER_FIELD_SEP,
     )
@@ -412,7 +414,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
     """The bug the shared parser exists to prevent: a hand-rolled
     ``split(SEP, 1)`` returned "<turn_source>~<next_field>" as the turn
     source, so adding a third field would silently poison the second."""
-    from xyz_agent_context.module._mcp_identity import caller_turn_source
+    from narranexus.platform.module_system._mcp_identity import caller_turn_source
 
     with injected({"Authorization": _bearer(REAL, "message_bus", "agent_peer1")}):
         assert caller_turn_source() == "message_bus"
@@ -435,7 +437,7 @@ def test_every_field_count_parses(count):
     swapped, which would decode a run id as a user id on the wire. Only
     asserting slot by slot can catch that.
     """
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELDS,
         caller_errand_scope,
         caller_event_id_from_request,
@@ -478,7 +480,7 @@ def test_every_field_count_parses(count):
 
 
 def _parse_bearer_for_test(auth: str):
-    from xyz_agent_context.module._mcp_identity import _parse_bearer
+    from narranexus.platform.module_system._mcp_identity import _parse_bearer
 
     return _parse_bearer(auth)
 
@@ -486,7 +488,7 @@ def _parse_bearer_for_test(auth: str):
 def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
     """A caller that knows its errand scope but not its turn source must not
     shift the scope one slot to the left."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         caller_errand_scope,
         caller_turn_source,
     )
@@ -497,7 +499,7 @@ def test_an_empty_middle_field_reads_as_unknown_not_as_a_shift():
 
 
 def test_extra_fields_are_dropped_not_appended_to_the_last_one():
-    from xyz_agent_context.module._mcp_identity import caller_errand_scope
+    from narranexus.platform.module_system._mcp_identity import caller_errand_scope
 
     with injected({
         "Authorization": _bearer(
@@ -509,7 +511,7 @@ def test_extra_fields_are_dropped_not_appended_to_the_last_one():
 
 def test_a_real_token_containing_the_marker_is_not_parsed():
     """Anchored, not substring: the parser must not slice up a real bearer."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         caller_errand_scope,
         caller_turn_source,
@@ -528,7 +530,7 @@ def test_root_run_id_round_trips_on_both_channels():
     cascade for every codex-backed agent — the exact hole the turn source had
     (PR #229 review). Iron rule #15: a first-class adapter is not a corner case.
     """
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         ROOT_RUN_ID_HEADER,
         agent_id_headers,
         caller_root_run_id,
@@ -553,7 +555,7 @@ def test_root_run_id_survives_an_empty_errand_scope():
     errand scope. If the empty middle fields collapsed, the root would be read
     as the errand peer and the cascade would select nothing.
     """
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         agent_id_headers,
         caller_errand_scope,
         caller_root_run_id,
@@ -569,7 +571,7 @@ def test_errand_scope_round_trips_on_both_channels():
     """agent_id_headers must emit the scope explicitly AND on the bearer —
     codex forwards nothing but the bearer, so a header-only fact is a hole
     (the same hole the turn source had)."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
         agent_id_headers,
@@ -591,7 +593,7 @@ def test_errand_scope_round_trips_on_both_channels():
 
 
 def test_no_errand_scope_emits_no_scope_headers_and_no_trailing_separators():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
@@ -611,7 +613,7 @@ def test_no_errand_scope_emits_no_scope_headers_and_no_trailing_separators():
 
 
 def test_agent_id_headers_carries_identity_token():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         IDENTITY_TOKEN_HEADER,
         agent_id_headers,
     )
@@ -623,7 +625,7 @@ def test_agent_id_headers_carries_identity_token():
 
 
 def test_agent_id_headers_without_token_is_unchanged():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         IDENTITY_TOKEN_HEADER,
         agent_id_headers,
     )
@@ -634,7 +636,7 @@ def test_agent_id_headers_without_token_is_unchanged():
 
 
 def test_stamp_identity_token_rebuilds_existing_headers():
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         _parse_bearer,
         agent_id_headers,
         stamp_identity_token,
@@ -656,7 +658,7 @@ def test_stamp_identity_token_rebuilds_existing_headers():
 
 
 def test_stamp_skips_headerless_and_foreign_specs():
-    from xyz_agent_context.module._mcp_identity import stamp_identity_token
+    from narranexus.platform.module_system._mcp_identity import stamp_identity_token
 
     servers = {
         "no_headers": {"url": "http://mcp:7801/sse"},
@@ -675,7 +677,7 @@ def test_stamp_preserves_every_bearer_fact():
     demote every team turn to private on that adapter). Driven by
     BEARER_FIELDS itself, so the NEXT appended field trips this test the
     moment stamp forgets to thread it."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELDS,
         _parse_bearer,
         agent_id_headers,

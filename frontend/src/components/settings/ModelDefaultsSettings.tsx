@@ -38,6 +38,7 @@ import {
   isFrameworkAvailable,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
+  type LiveFrameworkEntry,
 } from '@/lib/agentFramework';
 
 type AgentDraft = {
@@ -78,6 +79,12 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // plugins) — name→available, defaulted to available for any framework the
   // backend didn't mention (see lib/agentFramework frameworkAvailabilityMap).
   const [frameworkAvailability, setFrameworkAvailability] = useState<Record<string, boolean>>({});
+  // The live `frameworks[]` list itself (B6, 2026-09-07 final cut) — no longer
+  // just consulted for plugin-install availability: `providerBacksFramework`
+  // reads `protocol`/`oauth_source` straight off it and fails closed with no
+  // hardcoded fallback, so this must stay `undefined` (not `[]`) until a
+  // response actually lands.
+  const [liveFrameworks, setLiveFrameworks] = useState<LiveFrameworkEntry[] | undefined>(undefined);
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [install, setInstall] = useState<{ action: string; reason: string } | null>(null);
   const [frameworkSaving, setFrameworkSaving] = useState(false);
@@ -122,6 +129,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         setFramework(fwRes.data.framework);
         setProbe(fwRes.data.probe);
         setFrameworkAvailability(frameworkAvailabilityMap(fwRes.data.frameworks));
+        setLiveFrameworks(fwRes.data.frameworks);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
@@ -146,7 +154,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     (p) => !netmindOnly || isSlotBindableSource(p.source),
   );
   const agentProviders = bindableProviders.filter((p) =>
-    providerBacksFramework(p, framework),
+    providerBacksFramework(p, framework, liveFrameworks),
   );
   // Frameworks nothing bindable can drive are hidden rather than offered as a
   // dead end (a Claude Code Login alone can only ever run Claude Code).
@@ -154,7 +162,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // hides further — an uninstalled framework still needs to render so the
   // user can see it and go install it (disabled, not absent).
   const frameworkOptions = withFrameworkAvailability(
-    availableFrameworks(bindableProviders, framework),
+    availableFrameworks(bindableProviders, framework, liveFrameworks),
     frameworkAvailability,
   );
   const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;

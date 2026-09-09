@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import InboxRecorder, im_thread_id
+from narranexus.platform.channel.inbox_recorder import InboxRecorder, im_thread_id
 
 
 async def _write(db, *, original, response, chat_id="C_room", channel="wechat",

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-04
+last_verified: 2026-09-07
 stub: false
 ---
 
@@ -413,7 +413,7 @@ async def _ensure_codex_installed() -> dict:
 修法：route 层直接 import service 层的常量当 single source of truth：
 
 ```python
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
@@ -449,10 +449,10 @@ route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。
 
 - **被谁用**：`backend/main.py` — `include_router(providers_router, prefix="/api/providers")`；前端设置面板；`backend/auth.py` 的 `AUTH_EXEMPT_PATHS` 包含 `/api/providers/claude-status`
 - **依赖谁**：
-  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
-  - `xyz_agent_context.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
-  - `xyz_agent_context.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
-  - `xyz_agent_context.agent_framework.api_config` — 热重载配置（本地进程内）
+  - `UserProviderService`（来自 `narranexus.platform.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
+  - `narranexus.platform.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
+  - `narranexus.platform.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
+  - `narranexus.platform.agent_framework.api_config` — 热重载配置（本地进程内）
   - `EmbeddingMigrationService` — 嵌入向量重建
 
 ## 设计决策
@@ -542,3 +542,25 @@ add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增
 ## 2026-08-28 补(auto-review I-new-6) — _ensure_codex_installed 惰性 activate + 修失效指引
 
 `_ensure_codex_installed` 是插件包 import 的第 6 个站点,原来 import `codex_cli_bin` 前不 activate_pyenv,装完 Codex 不重启会 ImportError;且失效文案叫用户 'Run uv sync'(轻量版 run.sh 的 uv sync 明确不带 --extra plugins,永远装不上)。修:import 前 `plugin_paths.activate_pyenv()`;文案改指 Settings→Plugins(云端才提 uv sync --extra plugins);删 docstring 里 'hard dependency in pyproject.toml' 等 v2 时代过时前提。测试 test_agent_framework_plugin_gate::test_ensure_codex_installed_activates_plugin_pyenv_first 锁定。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+The four edge-triggered job re-arms fire `onDidChangeUserRunnability` (`backend/host_events.notify_user_runnability_changed`) instead of importing job_recovery.
+
+## 2026-09-04 · OAuth drivers from the registry (batch 6b.2)
+
+The codex_oauth / claude_oauth probes resolve their driver class with `get_driver_class` (503 when builtin.providers is disabled) instead of importing the driver modules.
+
+## 2026-09-07 — 框架接口全部注册表驱动（B6）
+
+_SUPPORTED_AGENT_FRAMEWORKS 常量换 _supported_agent_frameworks()；GET agent-framework 的 frameworks[] 每项带 display_name/protocol/oauth_source/available（前端 picker、providerBacksFramework 从此读，不再各自抄表）；_probe_agent_framework_auth 的 leg 1 按 meta.agent_protocols 匹配、leg 2 用 meta.oauth_source 同名的 OAuth driver 探测（无 oauth_source 的框架直接报『仅 API-key』），两段 codex/claude 分支合一；nexus_power 的安装门豁免不再按名字，改由 framework_installed 对无安装配方的框架返回 True。仍按名字判断的只剩 _ensure_codex_installed（codex wheel 内置二进制的复核，属于该插件的 belt-and-suspenders，fail-closed 门已覆盖）。
+
+## 2026-09-07（round-2 P2-I2 / P2-I8）— import moves + the 403 text is built, not literal
+
+`SLOT_REQUIRED_PROTOCOLS` now comes from `agent_framework.providers.framework_binding` (it left the
+schema layer with the two policy functions that read the framework registry).
+`FRAMEWORK_LOCKED_DETAIL` became `framework_locked_detail()`: the body names the frameworks the
+deployment actually allows instead of hardcoding "Claude Code or NexusPower". The route's existing
+`ValueError → 400` / `CloudPolicyViolation → 403` mapping is unchanged and is now what a binding to
+an uninstalled framework hits — it used to escape as a `RuntimeError` and 500 the whole provider
+page, i.e. the one page that can undo the binding.
