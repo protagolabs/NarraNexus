@@ -84,6 +84,8 @@ from narranexus.platform.utils import DatabaseClient, get_db_client, utc_now, fo
 
 # Repository
 from narranexus.platform.repository import JobRepository
+from narranexus.platform.repository.inbox_repository import InboxRepository
+from narranexus.platform.schema.inbox_schema import InboxMessageType, MessageSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 # Leaf shared util (the real-time circuit-breaker imports the same) — NOT a
 # cross-module dependency (binding rule #3). Reused so the Job layer recognises
@@ -1237,6 +1239,45 @@ The task was executed but produced no text output.
                 f"post it to {channel_id}: {type(e).__name__}: {e}"
             )
 
+    async def _notify_owner_job_paused(
+        self, job: JobModel, pause_reason: str, detail: str
+    ) -> None:
+        """Notify the job owner via inbox that a scheduled job has been
+        paused (B-17). Reuses the existing inbox notification mechanism
+        (same InboxRepository / InboxMessageType.SYSTEM_NOTICE pattern the
+        real-time agent circuit breaker already uses in
+        services/background_llm_alerts.alert_agent_paused) rather than
+        inventing a new channel. Best-effort: a notification failure must
+        never break the pause itself.
+        """
+        recipient = job.user_id
+        if not recipient:
+            return
+        try:
+            from narranexus.platform.agent_framework.llm.failure import redact_secrets
+
+            safe_detail = redact_secrets(detail) if detail else ""
+            content = (
+                f"Scheduled job \"{job.title}\" has been paused and will not "
+                f"run again automatically (reason: {pause_reason})."
+                + (f"\n\nDetail: {safe_detail}" if safe_detail else "")
+                + "\n\nResolve the underlying issue (top up / reconfigure the "
+                "provider for this Agent, or reduce spend if this is a "
+                "budget cap), then resume the job from the Jobs panel."
+            )
+            await InboxRepository(self.db).create_message(
+                user_id=recipient,
+                message_id=f"jobpause_{uuid4().hex[:16]}",
+                title=f"Job paused: {job.title}",
+                content=content,
+                message_type=InboxMessageType.SYSTEM_NOTICE,
+                source=MessageSource(type="job", id=job.job_id),
+            )
+        except Exception as e:  # noqa: BLE001 — notification is best-effort
+            logger.warning(
+                f"[job-pause] owner inbox notice failed for {job.job_id}: {e}"
+            )
+
     async def _finalize_job_execution(
         self,
         job: JobModel,
@@ -1302,6 +1343,12 @@ The task was executed but produced no text output.
                     f"Job {job.job_id} paused (provider/credentials unusable, "
                     f"reason={pause_reason}): "
                     f"{result.get('error_type') or result.get('error')}"
+                )
+                # B-17: the owner had no in-product signal that a scheduled
+                # job silently stopped running — only a Jobs-panel status
+                # they'd have to go look for.
+                await self._notify_owner_job_paused(
+                    job, pause_reason, result.get("error") or ""
                 )
                 return
 

@@ -18,6 +18,26 @@ last_verified: 2026-09-10
 「查看推理」与级联停止才追得到产出它的 run。锁：
 `test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
 
+## 2026-09-09 — B-17：job 因额度/凭据被暂停时通知 owner
+
+`_finalize_job_execution` 把 job 标成 `PAUSED_NO_QUOTA` 那一段，之前只有
+`logger.warning`——用户对「一个定时任务从此再也不跑了」**完全没有信号**，
+除非自己去 Jobs 面板翻。新增 `_notify_owner_job_paused`，复用既有的 inbox
+通知机制（跟 [[background_llm_alerts]] 的 `alert_agent_paused` 同一套
+`InboxRepository.create_message` + `InboxMessageType.SYSTEM_NOTICE` +
+`MessageSource` 写法，不是新造一条通道），在 `PAUSED_NO_QUOTA` 分支
+`logger.warning` 之后调用。收件人是 `job.user_id`（JobModel 的既有语义
+「接收 job 结果通知的那个人」）；`user_id` 缺失就直接跳过，不报错。
+
+**只覆盖 no_quota/auth 暂停，不覆盖 `repeated_failure` 终态 FAILED**——B-17
+的范围明确是「跟 B-12 组合：额度耗尽暂停时通知」，`repeated_failure` 是
+瞬时故障用尽退避配额后的另一条终态路径，语义不同（不是"额度耗尽"而是
+"这个 provider/网络一直不稳定"），未在本次范围内一并加通知。
+
+**best-effort，从不让通知失败拖垮暂停本身**：`InboxRepository.create_message`
+抛异常只记 `logger.warning`，job 该暂停照样暂停（测试
+`test_notification_failure_does_not_break_the_pause` 钉死这点）。
+
 ## 2026-09-09 — B-13：banned 用户不再自动跑 job
 
 **症状**：被封号用户的定时 job 每天照常触发，打出成堆 `Key is blocked` 401。根因是
