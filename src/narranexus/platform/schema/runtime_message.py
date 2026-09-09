@@ -323,6 +323,15 @@ class ErrorMessage(BaseRuntimeMessage):
     # "model_not_found") so the frontend can pick actionable "what you can do"
     # copy instead of a generic "turn failed". None for every other error.
     action_reason: Optional[str] = None
+    # Can the USER clear this error alone — wait out / upgrade a rate limit,
+    # re-login, top up — as opposed to a provider outage or a platform bug?
+    # True for auth_expired / config_actionable by construction, and for a
+    # driver-classified rate_limit / billing error (the claude driver stamps
+    # it on every response.error). None = the driver did not classify
+    # (codex / nexus_power today) — never a fabricated False. Lets the
+    # frontend / inbox tell "you can fix this" from "the platform broke"
+    # without parsing free-form provider text.
+    self_serviceable: Optional[bool] = None
 
 
 # error_type marker for credential/auth failures (codex OAuth token

@@ -1091,6 +1091,30 @@ def _fallback_skip_decision(
     return None, None, None
 
 
+def _raw_exception_error(
+    message: str,
+    skip_target_type: str,
+    severity: str,
+    action_reason: str | None,
+) -> ErrorMessage:
+    """The ``ErrorMessage`` for a raw-exception fallback skip, mirroring what
+    ``response_processor`` emits for the inline shape — including
+    ``self_serviceable``: True for ``config_actionable`` (by definition of
+    the class: only the user's own config clears it), None for
+    ``infra_transient`` (the platform-side control group — never a
+    fabricated verdict either way). Kept as its own function so the two
+    exits stay in step and can be pinned by one test."""
+    return ErrorMessage(
+        error_message=message,
+        error_type=skip_target_type,
+        severity=severity,
+        action_reason=action_reason,
+        self_serviceable=(
+            True if skip_target_type == SELF_SERVICEABLE_ERROR_TYPE else None
+        ),
+    )
+
+
 NO_REPLY_NEEDED_SENTINEL = "<<<NO_REPLY_NEEDED>>>"
 """What the helper emits when the turn genuinely warranted silence.
 
@@ -2290,11 +2314,8 @@ async def step_3_agent_loop(
             if _has_organic_reply(agent_loop_response, ctx.working_source or "")
             else "fatal"
         )
-        err = ErrorMessage(
-            error_message=message,
-            error_type=skip_target_type,
-            severity=severity,
-            action_reason=skip_reason_detail,
+        err = _raw_exception_error(
+            message, skip_target_type, severity, skip_reason_detail
         )
         agent_loop_response.append(err)
         yield err

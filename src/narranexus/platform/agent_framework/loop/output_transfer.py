@@ -18,6 +18,7 @@ from loguru import logger
 from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    cli_error_self_serviceable,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_MESSAGE_OUTPUT,
@@ -258,6 +259,9 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
                 "type": DATA_TYPE_ERROR,
                 "error_message": error_message,
                 "error_type": error_type,
+                # Can the user clear this alone (wait / upgrade / re-login /
+                # top up)? Keyed on the enum; see contracts.agent_events.
+                "self_serviceable": cli_error_self_serviceable(error_type),
             }
         }]
 

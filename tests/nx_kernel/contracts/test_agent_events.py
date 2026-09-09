@@ -26,7 +26,8 @@ def test_every_public_name_exists_and_the_legacy_module_is_gone():
         "ITEM_TYPE_TOOL_CALL_OUTPUT", "RawResponseData", "RawResponseEvent",
         "RunItem", "RunItemStreamEvent", "TYPE_RAW_RESPONSE_EVENT",
         "TYPE_RUN_ITEM_STREAM_EVENT", "USAGE_CACHE_CREATION_KEY",
-        "USAGE_CACHE_READ_KEYS", "raw_error_event", "raw_text_delta_event",
+        "USAGE_CACHE_READ_KEYS", "cli_error_self_serviceable",
+        "raw_error_event", "raw_text_delta_event",
     }
     for name in contract.__all__:
         assert hasattr(contract, name), name

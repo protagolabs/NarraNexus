@@ -31,6 +31,7 @@ from narranexus.platform.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
 from narranexus.contracts.agent_events import (
+    cli_error_self_serviceable,
     DATA_TYPE_DONE,
     DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,
@@ -399,6 +400,9 @@ def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
                 "The coding agent produced no output (0 messages)."
                 + _stderr_tail_detail(cli_stderr_lines)
             ),
+            # The adapter's own marker: a crashed / silent CLI is never
+            # something the user clears by waiting or paying.
+            "self_serviceable": cli_error_self_serviceable("no_output"),
         },
     }
 
@@ -462,6 +466,8 @@ def _inline_assistant_error_event(
             "type": DATA_TYPE_ERROR,
             "error_type": enum,
             "error_message": message + detail,
+            # Keyed on the enum, so it survives the detail folding above.
+            "self_serviceable": cli_error_self_serviceable(enum),
         },
     }
 

@@ -4,6 +4,15 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-09 — `response.error` 带 `self_serviceable`
+
+`_inline_assistant_error_event` / `_zero_output_error_event` 的 data 里新增布尔键，值由契约包
+`cli_error_self_serviceable(enum)` 给出（rate_limit / authentication_failed / billing_error → True；
+其余含 `no_output` → False）。按枚举判、不看正文（正文自 PR #379 起是 provider 原样文本）。
+第三个构造点在 [[output_transfer]]（无 stderr/正文可折叠时走的那条），口径一致。
+`response_processor` 把它带上 `ErrorMessage.self_serviceable` 出线。测试
+`tests/agent_framework/test_cli_error_self_serviceable.py`。
+
 ## 2026-09-09 — CLI 任务清单工具族（TaskCreate/Get/List/Update）每 run 关闭（GitHub #74）
 
 `TASK_LIST_TOOLS` 只含 **TaskCreate / TaskGet / TaskList / TaskUpdate**。从 2.1.56 二进制核过：

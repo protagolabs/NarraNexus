@@ -146,6 +146,14 @@ export interface ErrorMessage extends BaseMessage {
     | 'executor_oom'
     | 'executor_unreachable'
     | string;
+  /**
+   * Whether the USER can clear this error alone — wait out / upgrade a rate
+   * limit, re-login, top up — versus a provider outage or a platform bug.
+   * Stamped by the claude driver on every response.error and true by
+   * construction for auth_expired / config_actionable; undefined when the
+   * driver did not classify (codex / nexus_power), never a fabricated false.
+   */
+  self_serviceable?: boolean;
   traceback?: string;
 }
 
