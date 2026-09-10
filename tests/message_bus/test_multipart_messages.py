@@ -286,7 +286,21 @@ async def test_a_silent_recipient_wakes_the_sender_once_per_content(db_client, m
     notices = await db_client.get("bus_messages", {"channel_id": first.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
     assert len(notices) == 1, "the same silence must not wake the sender twice"
 
-    # A genuinely different question is a fresh silence and IS announced.
+    # A genuinely different question is a fresh silence and IS announced —
+    # once the per-(recipient, channel) window has passed (#389 I2: inside it,
+    # even a different question must not wake the sender again).
+    from datetime import timedelta
+
+    from narranexus.platform.message_bus.message_bus_trigger import FAILURE_NOTIFY_COOLDOWN_SECONDS
+    from narranexus.platform.repository.owner_notice_cooldown_repository import (
+        OwnerNoticeCooldownRepository,
+    )
+    from narranexus.platform.utils.timezone import utc_now
+
+    await OwnerNoticeCooldownRepository(db_client).arm(
+        B, first.channel_id, "no_reply_peer",
+        at=utc_now() - timedelta(seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS + 5),
+    )
     other = await _dm(db_client, tools, "different question entirely")
     await trigger._handle_channel_batch(B, other.channel_id, [other], other, channel_owner=A)
     notices = await db_client.get("bus_messages", {"channel_id": first.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
@@ -605,3 +619,46 @@ async def test_message_team_oversize_names_a_remedy_it_actually_has(db_client, m
     # And the peer verb still names the remedy it does have.
     out = await tools["message_agent"](agent_id=A, to=B, text="x" * (MAX_BUS_MESSAGE_BYTES + 1))
     assert "part_index/part_count" in out["error"] and out["error"] == out["receipt"]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_rephrased_question_after_a_silence_does_not_wake_the_sender_inside_the_window(db_client, monkeypatch):
+    """#389 I2: the fingerprint stops a verbatim resend; a REPHRASED one needs
+    the second bound — a (recipient, channel, no_reply_peer) window — or the
+    sender is woken every turn until its model gives up. The window expires
+    so a later real silence is announced again."""
+    from datetime import timedelta
+
+    from narranexus.platform.message_bus.message_bus_trigger import FAILURE_NOTIFY_COOLDOWN_SECONDS
+    from narranexus.platform.repository.owner_notice_cooldown_repository import (
+        OwnerNoticeCooldownRepository,
+    )
+    from narranexus.platform.utils.timezone import utc_now
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e"))
+
+    async def _notices(ch):
+        return await db_client.get("bus_messages", {"channel_id": ch, "msg_type": UNDELIVERED_MSG_TYPE})
+
+    first = await _dm(db_client, tools, "please draft the report")
+    await trigger._handle_channel_batch(B, first.channel_id, [first], first, channel_owner=A)
+    assert len(await _notices(first.channel_id)) == 1
+    rows = await db_client.get("owner_notice_cooldowns", {"agent_id": B, "category": "no_reply_peer"})
+    assert [r["target"] for r in rows] == [first.channel_id]
+
+    rephrased = await _dm(db_client, tools, "could you write up the report for me?")
+    await trigger._handle_channel_batch(B, rephrased.channel_id, [rephrased], rephrased, channel_owner=A)
+    assert len(await _notices(first.channel_id)) == 1, "a rephrasing inside the window must not wake the sender"
+
+    await OwnerNoticeCooldownRepository(db_client).arm(
+        B, first.channel_id, "no_reply_peer",
+        at=utc_now() - timedelta(seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS + 5),
+    )
+    later = await _dm(db_client, tools, "any news on the report?")
+    await trigger._handle_channel_batch(B, later.channel_id, [later], later, channel_owner=A)
+    assert len(await _notices(first.channel_id)) == 2

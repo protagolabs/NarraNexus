@@ -4153,6 +4153,37 @@ class MessageBusTrigger:
             and bool(sender)
             and not sender.startswith(USER_SENDER_PREFIX)
         )
+        # Two bounds, mirroring the drop path (#389 I2): the content
+        # fingerprint stops a verbatim resend, and a (recipient, channel)
+        # window under its OWN category — never the owner-inbox "no_reply"
+        # window, which would let "the owner was told" swallow "the sender
+        # was never woken" — stops a REPHRASED one from waking the sender
+        # every turn. Gated on the peer being an AGENT (a person's silence
+        # must not occupy the window), not on `wake_peer`: in a DM every row
+        # starts the other member's turn, mention or not, so an unmentioned
+        # notice on an errand-continuation batch wakes the peer just the same.
+        peer_is_agent = bool(sender) and not sender.startswith(USER_SENDER_PREFIX)
+        cooldowns = None
+        if peer_is_agent:
+            from narranexus.platform.repository.owner_notice_cooldown_repository import (
+                OwnerNoticeCooldownRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            try:
+                cooldowns = OwnerNoticeCooldownRepository(await get_db_client())
+                if await cooldowns.is_cooling(
+                    agent_id, channel_id, "no_reply_peer", FAILURE_NOTIFY_COOLDOWN_SECONDS
+                ):
+                    logger.info(
+                        f"[bus-resend] {agent_id} silent again towards {sender} in "
+                        f"{channel_id} inside the window; not waking it again"
+                    )
+                    await self._notify_undelivered_owner(agent_id, channel_id, sender)
+                    return
+            except Exception as e:  # noqa: BLE001 — fail open: one extra wake beats a hidden silence
+                logger.warning(f"[bus-resend] window read failed for {agent_id}: {e}")
+                cooldowns = None
         if await self._silence_already_announced(
             agent_id, channel_id, batch or [trigger_message]
         ):
@@ -4162,11 +4193,14 @@ class MessageBusTrigger:
             )
             await self._notify_undelivered_owner(agent_id, channel_id, sender)
             return
-        await announce_undelivered(
+        landed = await announce_undelivered(
             self._bus, channel_id, agent_id,
             mentions=[sender] if wake_peer else None,
             root_run_id=trigger_message.root_run_id or None,
         )
+        if landed and peer_is_agent and cooldowns is not None:
+            with contextlib.suppress(Exception):
+                await cooldowns.arm(agent_id, channel_id, "no_reply_peer")
         # A DM silence happens somewhere nobody is watching, so the owner only
         # ever learns of it here.
         await self._notify_undelivered_owner(agent_id, channel_id, sender)

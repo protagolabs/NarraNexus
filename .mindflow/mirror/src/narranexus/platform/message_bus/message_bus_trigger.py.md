@@ -4,6 +4,17 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 I2）— 静默唤醒补第二层界限：(收件方, channel, `no_reply_peer`) 窗口
+
+指纹只挡原文重发；发件方模型读到「对方没回」会**换个说法**再问——指纹不同、守卫不命中、再唤醒，
+每轮双方各烧一个 turn。现在与掉包路径对称：先查 `owner_notice_cooldowns` 的
+`(agent, channel, "no_reply_peer")` 窗口（**新类别**，不复用 owner 收件箱的 `"no_reply"`——共用会让
+「owner 已被告知」吞掉「发件方还没被唤醒过」），再查指纹；通知落地后 `arm`。闸门是「peer 是 agent」
+而非 `wake_peer`：DM 里任何一行都会起对方的 turn（mention 与否无关），errand-continuation 批次
+上那条不带 mention 的通知同样唤醒；人的沉默不占窗口。锁：
+`test_a_rephrased_question_after_a_silence_does_not_wake_the_sender_inside_the_window`；
+`..._wakes_the_sender_once_per_content` 的第三步改为先让窗口过期。
+
 ## 2026-09-10（review r3 M6）— drop 守卫读失败时既通知也不 arm
 
 两次 fail-open：表读不到 → 照样唤醒，且本轮不设窗（arm 大概率同样失败）；下一次能读的 poll
