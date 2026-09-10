@@ -49,7 +49,9 @@ class InstallResult:
     config_required: bool = False
     replaced_version: Optional[str] = None
     # ``failed`` only (multi-skill GitHub installs): the SKILL.md name of the
-    # root that was rejected and the ValueError text. ``skill`` is None then.
+    # root that was rejected and ``_failure_text(exc)`` — "<Class>: <msg>"
+    # capped at INSTALL_ERROR_MAX_CHARS (see the constant's note below); any
+    # exception class, not only gate ValueErrors. ``skill`` is None then.
     skill_name: Optional[str] = None
     error: Optional[str] = None
 

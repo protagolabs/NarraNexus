@@ -2292,7 +2292,11 @@ class ChannelTriggerBase(ABC):
             )
         details = dict(audit_details or {})
         details["replied"] = replied
-        details["error"] = (error_text or "")[:200]
+        # An audit row, so the audit cap. This text is the caller's
+        # already-formatted run error (the same one format_error_reply sent
+        # to the user); it deliberately does NOT go through safe_error_text,
+        # whose 32+ char rule would mask run / message ids.
+        details["error"] = (error_text or "")[:AUDIT_ERROR_MAX_CHARS]
         await self._audit(
             EVENT_MANAGED_INGRESS_PROCESSED,
             agent_id=agent_id,

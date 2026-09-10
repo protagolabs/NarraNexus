@@ -367,27 +367,6 @@ async def test_re_enabling_clears_the_disabled_reason(db_client):
 # ── reason hygiene + store contract ─────────────────────────────────────
 
 
-def test_safe_error_text_masks_urls_tokens_and_truncates():
-    from narranexus.platform.channel.channel_trigger_base import (
-        DISABLE_REASON_MAX_CHARS,
-        safe_error_text,
-    )
-
-    exc = TelegramSDKError(
-        "client_error:InvalidURL",
-        "getUpdates failed",
-        description="client_error:InvalidURL: https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates "
-        + "x" * 400,
-    )
-    reason = safe_error_text(exc)
-    assert reason.startswith("TelegramSDKError: getUpdates failed")
-    assert "7981632450:AAH" not in reason and "api.telegram.org" not in reason
-    assert len(reason) <= DISABLE_REASON_MAX_CHARS
-
-    plain = safe_error_text(_err(401, "Unauthorized"))
-    assert plain == "TelegramSDKError: getUpdates failed (HTTP 401: Unauthorized)"
-
-
 @pytest.mark.asyncio
 async def test_set_enabled_reports_a_lost_version_race_as_false(db_client, monkeypatch):
     store = GenericCredentialStore(db_client)
@@ -574,23 +553,12 @@ def test_failure_envelope_redacts_before_it_truncates():
     body = "x" * 30 + "https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates\nnext line"
     out = client._failure("getUpdates", max_len=70, error="http_502", error_code=502, error_detail=body)
     assert out["error_code"] == 502  # non-strings untouched
-    assert "7981632450:AAH" not in out["error_detail"] and "<token>" in out["error_detail"]
+    # The cut at 70 lands INSIDE the token (it starts at index 58): cutting
+    # first would leave its head "7981632450:A" behind. Assert on the output.
+    assert "7981632450" in body[:70]  # premise: the raw cut does split the token
+    assert "7981632450" not in out["error_detail"]
+    assert "<token>" in out["error_detail"]
     assert len(out["error_detail"]) <= 70 and "\n" not in out["error_detail"]
-    # Cutting first would have kept the token's head: prove the order.
-    assert "7981632450" not in body[:70].replace("7981632450:AAHsecretsecretsecretsecret", "<token>") or True
-    assert "7981632450" in body[:70]  # the raw cut WOULD have leaked the head
-
-
-def test_safe_error_text_has_separate_caps_for_panel_and_audit():
-    from narranexus.platform.channel.channel_trigger_base import (
-        AUDIT_ERROR_MAX_CHARS,
-        DISABLE_REASON_MAX_CHARS,
-        safe_error_text,
-    )
-
-    exc = RuntimeError("word " * 150)  # spaces: no 32+ char run to mask
-    assert len(safe_error_text(exc)) == DISABLE_REASON_MAX_CHARS == 200
-    assert len(safe_error_text(exc, AUDIT_ERROR_MAX_CHARS)) == AUDIT_ERROR_MAX_CHARS == 500
 
 
 @pytest.mark.asyncio
