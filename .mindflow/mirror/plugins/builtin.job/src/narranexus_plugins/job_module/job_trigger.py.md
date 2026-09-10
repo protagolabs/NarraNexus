@@ -18,6 +18,29 @@ last_verified: 2026-09-10
 「查看推理」与级联停止才追得到产出它的 run。锁：
 `test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
 
+## 2026-09-09 — B-14：每次调度前查日花费上限 + 传递单次 token 预算
+
+`_execute_job` 拿到执行锁之后、build prompt/调框架**之前**新增一步检查：
+`_daily_spend_cap_exceeded(exec_uid)` 读 `NARRANEXUS_JOB_DAILY_SPEND_CAP_USD`
+（0/未设=禁用，读的是环境变量，不是 pydantic Settings——跟
+`NARRANEXUS_ONBOARDING_GUIDE_AGENT` 等既有 `NARRANEXUS_*` 开关同一套
+`os.getenv` 读法）与 `_daily_spend_usd_for_user`（新增裸 SQL，
+`cost_records` 没有 repository，`SUM(total_cost_usd) WHERE user_id=%s AND
+created_at >= 今日UTC零点`）比较，超了就把 job 标成
+`JobStatus.PAUSED_SPEND_CAP` + `paused_reason="spend_cap"`，复用 B-17 的
+`_notify_owner_job_paused` 通知 owner，然后 **return，从不 build prompt
+也不调 `_run_agent`**——只挡下一次调度，跟既有 `PAUSED_NO_QUOTA` 同形，
+绝不打断正在跑的 run（铁律 #14）。
+
+`_run_agent` 里另加：`job.trigger_config.max_tokens_per_run`（若设置）
+塞进 `trigger_extra_data["max_tokens_per_run"]`，随 `run_and_collect(...)`
+一起传给执行框架——这是「run request contract 里第一个预算类输入」，纯粹
+透传，不在这层做任何强制执行（框架目前也没有消费它；见
+[[job_schema]] 的对应条目）。
+
+**Fail open**：`_daily_spend_cap_exceeded` 对 env 值解析失败或 DB 查询失败
+都返回 `False`（不暂停）——一次数据库抖动不该冻结全平台的 job。
+
 ## 2026-09-09 — B-17：job 因额度/凭据被暂停时通知 owner
 
 `_finalize_job_execution` 把 job 标成 `PAUSED_NO_QUOTA` 那一段，之前只有

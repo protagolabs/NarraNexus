@@ -58,6 +58,11 @@ class JobStatus(str, Enum):
     BLOCKED_FAILED = "blocked_failed"  # A prerequisite job FAILED and this job's
     # on_dependency_failure policy is "block". Re-armed if the prerequisite later
     # succeeds, or cleared by the user.
+    PAUSED_SPEND_CAP = "paused_spend_cap"  # Auto-paused: the executing user's
+    # daily spend (NARRANEXUS_JOB_DAILY_SPEND_CAP_USD) was already met/exceeded
+    # before this run started (B-14). NOT auto-resumed by any backstop — a spend
+    # cap is a deliberate ceiling, not a transient condition; only a manual
+    # resume (next day's spend naturally resets the check) brings it back.
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)
@@ -287,6 +292,20 @@ class TriggerConfig(BaseModel):
             run_at=datetime.now(_dt_tz.utc).replace(tzinfo=None),
             timezone="UTC",
         )
+
+    # === Per-run token budget (B-14, added 2026-09-09) ===
+    max_tokens_per_run: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional cap on total tokens (input+output) a single run of "
+            "this job may consume, passed to the executing framework as a "
+            "generic budget input. Guards against a heartbeat/ongoing job "
+            "whose context silently balloons run over run (seen: 1-7M input "
+            "tokens/run, ~$140/4 days on two jobs). None = no cap (default, "
+            "unchanged behavior)."
+        ),
+    )
 
     # === ONGOING Configuration (added 2026-01-21) ===
     end_condition: Optional[str] = Field(

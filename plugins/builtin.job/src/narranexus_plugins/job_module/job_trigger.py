@@ -102,7 +102,7 @@ from narranexus.platform.utils.job_scheduling import (
     past_schedule_horizon,
 )
 from zoneinfo import ZoneInfo
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 # Context builder (extracted: dependency outputs, social network, narrative, prompt assembly)
 from narranexus_plugins.job_module._job_context_builder import build_execution_prompt
@@ -255,6 +255,35 @@ def _compute_cooldown_seconds(consecutive_failures: int) -> int:
     n=1→60s, 2→120s, 3→240s, … capped at 3600s (1h)."""
     n = max(1, consecutive_failures)
     return min(_BACKOFF_BASE_SECONDS * (2 ** (n - 1)), _BACKOFF_CAP_SECONDS)
+
+
+# B-14: env-tunable daily spend circuit for scheduled/ongoing jobs. 0 (or
+# unset) = disabled — the default is a no-op so this never changes existing
+# behavior for anyone who hasn't opted in. Read fresh on every check (not a
+# module-level constant) so ops can tune it without a process restart.
+_JOB_DAILY_SPEND_CAP_ENV = "NARRANEXUS_JOB_DAILY_SPEND_CAP_USD"
+
+
+async def _daily_spend_usd_for_user(db, user_id: str) -> float:
+    """Sum `cost_records.total_cost_usd` for `user_id` since UTC midnight
+    today (B-14). Raw SQL — no repository exists for `cost_records` yet;
+    unquoted identifiers, dialect-portable (see
+    tests/job_module/test_job_daily_spend_cap.py's SQLite + MySQL twin).
+    """
+    day_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    query = """
+        SELECT COALESCE(SUM(total_cost_usd), 0) AS total
+        FROM cost_records
+        WHERE user_id = %s AND created_at >= %s
+    """
+    rows = await db.execute(query, params=(user_id, day_start), fetch=True)
+    if not rows:
+        return 0.0
+    row = rows[0]
+    val = row["total"] if isinstance(row, dict) else row[0]
+    return float(val or 0.0)
 
 
 class JobTrigger:
@@ -936,6 +965,26 @@ class JobTrigger:
                 logger.warning(f"Failed to acquire lock for job {job.job_id}, skipping")
                 return
 
+            # 1.4 Daily spend cap (B-14): checked BEFORE building the prompt
+            # or calling the framework — this only gates the NEXT scheduled
+            # start, exactly like the existing PAUSED_NO_QUOTA gate, and
+            # never interrupts a run already in flight (铁律 #14).
+            exec_uid = job.related_entity_id or job.user_id
+            if exec_uid and await self._daily_spend_cap_exceeded(exec_uid):
+                await self._get_job_repo().update_job(job.job_id, {
+                    "status": JobStatus.PAUSED_SPEND_CAP.value,
+                    "paused_reason": "spend_cap",
+                    "paused_at": utc_now(),
+                })
+                logger.warning(
+                    f"Job {job.job_id} paused: daily spend cap exceeded for {exec_uid}"
+                )
+                await self._notify_owner_job_paused(
+                    job, "spend_cap",
+                    "The daily spend cap for scheduled jobs has been reached.",
+                )
+                return
+
             # 1.5 Update associated Instance status (for ModulePoller detection)
             if job.instance_id:
                 await self._update_instance_for_execution(job.instance_id)
@@ -999,6 +1048,20 @@ class JobTrigger:
                 f"(related_entity_id={job.related_entity_id}, job.user_id={job.user_id})"
             )
 
+            # B-14: thread the job-level per-run token budget (if the owner
+            # set one) into the run request's generic extra-data bag — the
+            # first input of its kind in this contract. This is advisory
+            # information for the executing framework, not a force-stop: no
+            # framework here enforces it mid-loop yet, so it never kills a
+            # run in progress (铁律 #14). Guards a heartbeat/ongoing job
+            # whose context silently balloons run over run.
+            trigger_extra_data: Dict[str, Any] = {"trigger_id": f"job_{job.job_id}"}
+            max_tokens_per_run = (
+                job.trigger_config.max_tokens_per_run if job.trigger_config else None
+            )
+            if max_tokens_per_run:
+                trigger_extra_data["max_tokens_per_run"] = max_tokens_per_run
+
             collection = await client.run_and_collect(
                 agent_id=job.agent_id,
                 user_id=execution_user_id,
@@ -1006,7 +1069,7 @@ class JobTrigger:
                 working_source=WorkingSource.JOB,
                 job_instance_id=job.instance_id,
                 forced_narrative_id=job.narrative_id,
-                trigger_extra_data={"trigger_id": f"job_{job.job_id}"},
+                trigger_extra_data=trigger_extra_data,
             )
 
             # Error path (Bug 2): previously the trigger swallowed the
@@ -1238,6 +1301,35 @@ The task was executed but produced no text output.
                 f"[JobTrigger] job {job.job_id} produced a report but could not "
                 f"post it to {channel_id}: {type(e).__name__}: {e}"
             )
+
+    async def _daily_spend_cap_exceeded(self, user_id: str) -> bool:
+        """True when `user_id`'s spend today already meets/exceeds
+        NARRANEXUS_JOB_DAILY_SPEND_CAP_USD (B-14). 0/unset = disabled.
+
+        Fails OPEN (returns False) on a parse error or a DB lookup failure —
+        a transient DB hiccup here must not block every scheduled job in the
+        system, and the platform never becomes the interruption source for
+        its own bugs (铁律 #14/#15's spirit, applied to this new gate).
+        """
+        import os
+
+        cap_str = os.getenv(_JOB_DAILY_SPEND_CAP_ENV, "0")
+        try:
+            cap = float(cap_str)
+        except ValueError:
+            logger.warning(
+                f"[job-spend-cap] {_JOB_DAILY_SPEND_CAP_ENV}={cap_str!r} is not "
+                f"a number; treating as disabled"
+            )
+            return False
+        if cap <= 0:
+            return False
+        try:
+            spent = await _daily_spend_usd_for_user(self.db, user_id)
+        except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
+            logger.warning(f"[job-spend-cap] lookup failed for {user_id}: {e}")
+            return False
+        return spent >= cap
 
     async def _notify_owner_job_paused(
         self, job: JobModel, pause_reason: str, detail: str

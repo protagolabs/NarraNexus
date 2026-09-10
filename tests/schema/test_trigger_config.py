@@ -103,6 +103,27 @@ class TestTriggerConfigFromStoredDict:
         tc = TriggerConfig.from_stored_dict(None)
         assert tc.timezone is None
 
+
+class TestTriggerConfigMaxTokensPerRun:
+    """B-14: an optional per-run token budget, additive-only (defaults to
+    None = unchanged behavior)."""
+
+    def test_defaults_to_none(self):
+        tc = TriggerConfig(cron="0 8 * * *", timezone="UTC")
+        assert tc.max_tokens_per_run is None
+
+    def test_accepts_a_positive_value(self):
+        tc = TriggerConfig(cron="0 8 * * *", timezone="UTC", max_tokens_per_run=200_000)
+        assert tc.max_tokens_per_run == 200_000
+
+    def test_rejects_zero_or_negative(self):
+        with pytest.raises(ValidationError):
+            TriggerConfig(cron="0 8 * * *", timezone="UTC", max_tokens_per_run=0)
+        with pytest.raises(ValidationError):
+            TriggerConfig(cron="0 8 * * *", timezone="UTC", max_tokens_per_run=-1)
+
+
+class TestTriggerConfigConstructor:
     def test_constructor_still_rejects_missing_timezone(self):
         """The strict constructor is untouched — new/updated jobs still must
         supply timezone explicitly (regression guard for TestTriggerConfig
