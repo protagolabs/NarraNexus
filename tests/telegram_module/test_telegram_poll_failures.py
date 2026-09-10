@@ -17,7 +17,9 @@ Contract pinned here, with a fake HTTP layer (no network):
   - 401 -> permanent: connect raises, ``is_permanent_auth_failure`` says
     so, the base loop disables the credential ONCE with a readable
     ``disabled_reason``;
-  - 409 -> one ``deleteWebhook`` retry (a stale webhook), then permanent;
+  - 409 -> one ``deleteWebhook`` retry, then transient (rides the base
+    5s -> 120s backoff); NEVER disables the credential — the usual cause
+    is our own previous long-poll that Telegram has not released yet;
   - 5xx / transport errors -> transient, the base backoff keeps retrying.
 """
 from __future__ import annotations
@@ -157,7 +159,10 @@ class _FakeClient:
 
     def __init__(self, token: str, script: list):
         self.token = token
-        self.script = list(script)
+        # Shared across the instances one test creates: a reconnect must
+        # continue the scripted sequence, not replay it from the start
+        # (replaying a transient error forever would hang the loop test).
+        self.script = script
         self.delete_webhook_calls = 0
         _FakeClient.instances.append(self)
 
@@ -177,7 +182,8 @@ class _FakeClient:
 
 def _script(monkeypatch, script: list) -> None:
     _FakeClient.instances.clear()
-    monkeypatch.setattr(trigger_mod, "TelegramSDKClient", lambda token: _FakeClient(token, script))
+    shared = list(script)
+    monkeypatch.setattr(trigger_mod, "TelegramSDKClient", lambda token: _FakeClient(token, shared))
 
 
 def _err(status: int, description: str) -> TelegramSDKError:
@@ -358,10 +364,10 @@ async def test_re_enabling_clears_the_disabled_reason(db_client):
 # ── reason hygiene + store contract ─────────────────────────────────────
 
 
-def test_safe_disable_reason_masks_urls_tokens_and_truncates():
+def test_safe_error_text_masks_urls_tokens_and_truncates():
     from narranexus.platform.channel.channel_trigger_base import (
         DISABLE_REASON_MAX_CHARS,
-        safe_disable_reason,
+        safe_error_text,
     )
 
     exc = TelegramSDKError(
@@ -370,12 +376,12 @@ def test_safe_disable_reason_masks_urls_tokens_and_truncates():
         description="client_error:InvalidURL: https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates "
         + "x" * 400,
     )
-    reason = safe_disable_reason(exc)
+    reason = safe_error_text(exc)
     assert reason.startswith("TelegramSDKError: getUpdates failed")
     assert "7981632450:AAH" not in reason and "api.telegram.org" not in reason
     assert len(reason) <= DISABLE_REASON_MAX_CHARS
 
-    plain = safe_disable_reason(_err(401, "Unauthorized"))
+    plain = safe_error_text(_err(401, "Unauthorized"))
     assert plain == "TelegramSDKError: getUpdates failed (HTTP 401: Unauthorized)"
 
 
@@ -422,3 +428,42 @@ async def test_every_auto_disabling_channel_persists_the_reason(db_client, chann
 
     assert await mgr.set_enabled("agent_a", True) is True
     assert (await mgr.get("agent_a")).disabled_reason == ""
+
+
+class _AuditRecorder:
+    def __init__(self):
+        self.rows: list[tuple[str, dict]] = []
+
+    async def append(self, event_type: str, **kwargs) -> None:
+        self.rows.append((event_type, kwargs))
+
+
+@pytest.mark.asyncio
+async def test_audit_and_disable_reason_never_carry_the_request_url_or_token(db_client, monkeypatch):
+    # Review I1: the transport exception text (which can quote Telegram's
+    # request URL — the bot token is in its path) reaches the log line, the
+    # audit row's details.error and disabled_reason through ONE sanitiser.
+    store = GenericCredentialStore(db_client)
+    await store.upsert("telegram", "agent_a", {"bot_token": "7981632450:AAHsecretsecretsecretsecret", "bot_user_id": "1001"}, enabled=True)
+    poisoned = "https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates"
+    transient = TelegramSDKError(
+        "client_error:InvalidURL", "getUpdates failed", description=f"client_error:InvalidURL: {poisoned}"
+    )
+    permanent = TelegramSDKError(
+        "Unauthorized", "getUpdates failed", status=401, description=f"Unauthorized (url {poisoned})"
+    )
+    _script(monkeypatch, [transient, permanent])
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+    trigger._audit_repo = _AuditRecorder()
+    trigger.running = True
+    monkeypatch.setattr(trigger_mod.asyncio, "sleep", _no_sleep)
+
+    await trigger._subscribe_loop(_cred())
+
+    errors = [row[1]["details"]["error"] for row in trigger._audit_repo.rows if "error" in row[1].get("details", {})]
+    assert len(errors) == 2  # one transient disconnect, one permanent
+    for text in errors + [(await TelegramCredentialManager(db_client).get("agent_a")).disabled_reason]:
+        assert "api.telegram.org" not in text and "7981632450:AAH" not in text
+        assert "<url>" in text
+    assert errors[1].startswith("TelegramSDKError: getUpdates failed")

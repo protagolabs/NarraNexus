@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/awareness/ChannelActiveToggle.tsx
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -12,7 +12,8 @@ stub: false
 `channelActiveToggle.disabledReason`（"Disabled automatically: {{reason}}"，10 份 locale 同步，
 另 8 份此前根本没有 `channelActiveToggle` 段，一并补齐）。后端在重新启用时清空该字段，所以
 用户手动 disable 不会显示。Telegram / Slack / Discord / WeChat 四个面板都传 `credential.disabled_reason`
-（Lark 走自己的 `auth_status` 状态条，不接）。
+（Lark 走自己的 `auth_status` 状态条，不接；插件频道走 GenericChannelConfig 自己渲染同一键）。
+vitest `__tests__/channelActiveToggle.test.tsx` 钉住：inactive+reason 渲染 / active 不渲染 / inactive 但 reason 空不渲染。
 
 ## 为什么存在
 

@@ -12,7 +12,7 @@ last_verified: 2026-09-09
 自己上一条长轮询还没被 Telegram 释放（重启/滚动部署/退避重连后最长 30s），判永久会在一次普通重启时把
 全部 Telegram 绑定批量停掉（复审 C2）。`PERMANENT_POLL_STATUSES = {401}`：token 被撤才让基类
 只记一条 warning、一条审计、`disable_credential(credential, reason=…)` 后退出。
-`disable_credential` 把基类脱敏截断过的 reason 透传给 `TelegramCredentialManager.set_enabled(agent_id,
+`disable_credential` 把基类 `safe_error_text` 脱敏截断过的 reason 透传给 `TelegramCredentialManager.set_enabled(agent_id,
 False, reason=)` → 公开字段 `disabled_reason`，并用 `log_disable_outcome` 在写失败（返回 False）时打
 ERROR——否则死凭据会被无声重连。5xx / 传输错误 / 超时保持基类退避。测试：
 `tests/telegram_module/test_telegram_poll_failures.py`（假 HTTP 层；含"409 两次后 raise 且非永久"、

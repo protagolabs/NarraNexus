@@ -163,7 +163,11 @@ class InstallPipeline:
                             branch=branch,
                         )
                     )
-                except ValueError as exc:
+                except (ValueError, OSError) as exc:
+                    # ValueError = a gate said no (scan / deps / compat /
+                    # manifest); OSError = disk full / permissions while
+                    # landing this root. Both are per-skill: the siblings
+                    # already installed stay reported, this one is failed.
                     logger.warning(f"[skills] github install of '{skill_name}' from {canonical_url} rejected: {exc}")
                     results.append(InstallResult(status="failed", skill=None, skill_name=skill_name, error=str(exc)))
             return results

@@ -150,7 +150,7 @@ class WeChatCredentialManager:
         logger.info(f"[wechat:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` without deleting — the trigger uses this to stop
         reconnecting against a dead session (iLink getupdates ret!=0).
         ``reason`` lands in the public ``disabled_reason`` (cleared on enable)."""

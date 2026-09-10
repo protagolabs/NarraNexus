@@ -273,7 +273,7 @@ class TelegramCredentialManager:
         logger.info(f"[telegram:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` flag without deleting the row. See
         ``SlackCredentialManager.set_enabled`` for the rationale — used by
         the trigger to break out of a reconnect loop against a revoked

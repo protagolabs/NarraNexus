@@ -1,12 +1,12 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/_telegram_credential_manager.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
 
 ## 2026-09-09（复审 I1/I4）— 五频道同一口径
 
-`set_enabled(reason=)` 现在是 telegram/slack/discord/wechat/narramessenger 五个 manager 的共同形状，
+`set_enabled(*, reason=)`（keyword-only，与通用 store 同形，复审 M4）现在是 telegram/slack/discord/wechat/narramessenger 五个 manager 的共同形状，
 底下的通用 store 在 patch 版本竞争丢失时返回 False（不再抛）；trigger 侧对 False 打 ERROR。
 
 ## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28）

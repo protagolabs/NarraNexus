@@ -1298,7 +1298,7 @@ class SkillModule(XYZBaseModule):
         if len(roots) > self.MAX_SKILLS_PER_REPO:
             raise ValueError(
                 f"This package contains {len(roots)} skills; at most "
-                f"{self.MAX_SKILLS_PER_REPO} can be installed from one repository. "
+                f"{self.MAX_SKILLS_PER_REPO} can be installed from one repository or zip. "
                 "Install a fork or a subset that ships only the skills you need."
             )
         return roots
@@ -1307,7 +1307,10 @@ class SkillModule(XYZBaseModule):
         """The single skill root of a zip package (first of find_skill_roots).
 
         A zip is one skill by contract; when an archive happens to carry
-        several, the name-sorted first one wins deterministically.
+        several, the name-sorted first one wins deterministically — up to
+        MAX_SKILLS_PER_REPO, beyond which the whole archive is rejected
+        like a repository would be (the cap is on the package, not the
+        source).
         """
         roots = self.find_skill_roots(extract_dir)
         return roots[0] if roots else None

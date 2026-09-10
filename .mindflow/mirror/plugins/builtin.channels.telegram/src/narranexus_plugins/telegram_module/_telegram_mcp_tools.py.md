@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/_telegram_mcp_tools.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-09-10
 ---
+## 2026-09-10 — `tg_cli` 失败信封多带 `error_code` / `error_detail`（B-28）
+
+工具返回给 agent 的 JSON（不是 SDK 异常对象）：失败时仍是 `{"ok": false, "error": "<短码>"}`——`error`
+保持可分支的短码（Telegram description / `http_<status>` / `client_error:<Name>`）；新增 `error_code`
+（= HTTP 状态 / Telegram error_code，传输失败无此键）与 `error_detail`（非 JSON body 的 160 字符片段 /
+传输异常文本，只在这两种失败出现）。docstring 同步，agent 据此能区分 401/409/5xx。
+
 ## 2026-08-11 (PR-H) — 写侧(bind/unbind/status)迁入 seam
 
 bind/status/unbind 不再本地 `_get_manager`（已删）——bind→`seam.bind`（经各自 do_bind + owner-gated `/api/<ch>/bind` 路由）、unbind→`seam.unbind`、status 的 live-check→`seam.test_connection`（POST /test）。**tool 文件 get_mcp_db_client == 0，写路径不再需本地 db**。

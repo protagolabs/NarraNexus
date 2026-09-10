@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（复审 M2）— 逐 skill 隔离也覆盖 OSError
+
+安装循环 `except (ValueError, OSError)`：磁盘满/权限错误落在某个根时同样只标记该根 failed、已装的 sibling
+照常上报，不再整体抛出复刻"部分落盘 + 谎报整体失败"。仍不放宽到 `except Exception`。
 
 ## 2026-09-09 — `install_from_github` 返回 `List[InstallResult]`，逐 skill 隔离失败（GitHub #95，复审 C3）
 

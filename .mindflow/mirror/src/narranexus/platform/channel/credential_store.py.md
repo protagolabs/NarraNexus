@@ -13,6 +13,9 @@ stub: false
 "恢复 key 即可"变成"全员重绑"。现在 `patch` 直接读原始行：`secret_error` 非空且本次 patch 不带新的 secret
 字段时，`secret_json` 原样回写（逐字节相等），只有 re-bind 带来的新 secret 才允许替换；`enabled` / public /
 `version` 语义不变（version 仍自增，`list_active` 的一次性警告按 version 去重不受影响）。
+**已知边界（复审 M3）**：放行条件是"本次 patch 不带任何 secret 字段"；对双密钥频道（Slack bot_token+app_token）
+在密文不可读时若某次 patch 只带其中一个新密钥，会写出只含一个字段的新密文、另一个丢失——今天 bind 走
+`upsert` 全量值打不到，写下来是因为"只带部分 secret 的 patch"是合法调用形状。
 `set_enabled` 捕获 `patch` 的版本竞争 `RuntimeError` → `logger.error` + 返回 False，保持"永不抛、False =
 没做成"的旧契约（路由已有 False 分支；trigger 对 False 打 ERROR）。测试：
 `tests/channel/test_credential_store_unreadable.py::test_set_enabled_never_rewrites_an_unreadable_secret`、

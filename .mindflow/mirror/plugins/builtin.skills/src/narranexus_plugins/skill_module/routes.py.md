@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -10,7 +10,11 @@ stub: false
 单元素列表走同一段：成功项各一行 installed / already installed，失败项一行 `was NOT installed: <error>`，
 行间 `\n`，安全告警计数求和。**只有零成功才 400**（把全部失败行作为 detail）；有成功就 200，响应 `skill`
 字段（单 skill 形状）取第一个成功项——被拒的兄弟不能掩盖已落盘、已审计的 skill。前端只用 success + message
-并刷新列表，形状不变。
+并刷新列表，形状不变。**这段裁决放在 try 之外**（复审 round-2 C1）：try 里的 `except Exception` 会把 try 体内
+raise 的 HTTPException 改标成 500——第一版正是这样把零成功的 400 变成了 500。本文件其余 handler 都有
+`except HTTPException: raise`，install 是唯一没有的，改为不在 try 内 raise。路由级测试
+`tests/skill_module/test_install_route_multi_skill.py`（零成功 400 含全部失败行 / 部分成功 200 / 仓级 ValueError
+400 / 表单错误 400）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

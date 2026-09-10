@@ -259,7 +259,7 @@ class SlackCredentialManager:
         logger.info(f"[slack:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` flag without deleting the row. ``reason`` lands in
         the public ``disabled_reason`` (cleared on enable).
 

@@ -146,14 +146,15 @@ _REASON_URL = re.compile(r"https?://\S+")
 _REASON_SECRET = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|\b[A-Za-z0-9_-]{32,}\b")
 
 
-def safe_disable_reason(exc: BaseException) -> str:
-    """The readable, persistable cause for an automatic credential disable.
+def safe_error_text(exc: BaseException) -> str:
+    """The one sanitised rendering of a subscriber error.
 
     Exception type + message, with URLs and token-shaped runs masked and the
-    whole thing capped at DISABLE_REASON_MAX_CHARS. Every channel's
-    ``disable_credential`` receives this — never the raw ``str(exc)`` — so a
-    transport exception that quotes the request URL (Telegram's carries the
-    bot token in its path) can never land in ``disabled_reason``.
+    whole thing capped at DISABLE_REASON_MAX_CHARS. Used for the persisted
+    ``disabled_reason``, the subscriber log lines AND the audit row's
+    ``details.error`` — never the raw ``str(exc)`` — so a transport exception
+    that quotes the request URL (Telegram's carries the bot token in its
+    path) can reach none of the three sinks.
     """
     text = f"{type(exc).__name__}: {exc}".replace("\n", " ")
     text = _REASON_URL.sub("<url>", text)
@@ -496,7 +497,7 @@ class ChannelTriggerBase(ABC):
 
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
-    # ``reason`` is the sanitised cause (``safe_disable_reason``: exception
+    # ``reason`` is the sanitised cause (``safe_error_text``: exception
     # type + message, URLs/token-shaped runs masked, <=200 chars) the loop
     # hands over; every built-in channel persists it via
     # ``mgr.set_enabled(agent_id, False, reason=reason)`` so the owner's
@@ -1219,10 +1220,11 @@ class ChannelTriggerBase(ABC):
                 # the next reconcile cycle. User has to re-bind to wake
                 # the subscriber back up.
                 if self.is_permanent_auth_failure(e):
+                    error_text = safe_error_text(e)
                     logger.warning(
                         f"{type(self).__name__} permanent auth failure for "
                         f"agent={agent_id} app={app_id} after {ran:.1f}s: "
-                        f"{type(e).__name__}: {e} — disabling credential"
+                        f"{error_text} — disabling credential"
                     )
                     await self._audit(
                         EVENT_TRANSPORT_DISCONNECTED,
@@ -1230,14 +1232,12 @@ class ChannelTriggerBase(ABC):
                         app_id=app_id,
                         details={
                             "ran_seconds": ran,
-                            "error": f"{type(e).__name__}: {e}",
+                            "error": error_text,
                             "permanent": True,
                         },
                     )
                     try:
-                        await self.disable_credential(
-                            credential, reason=safe_disable_reason(e)
-                        )
+                        await self.disable_credential(credential, reason=error_text)
                     except Exception as disable_err:  # noqa: BLE001
                         logger.exception(
                             f"{type(self).__name__}: disable_credential raised "
@@ -1247,9 +1247,10 @@ class ChannelTriggerBase(ABC):
                 backoff = _compute_next_backoff(
                     current=backoff, ran_seconds=ran, max_backoff=max_backoff,
                 )
+                error_text = safe_error_text(e)
                 logger.exception(
                     f"{type(self).__name__} transport error for {app_id} "
-                    f"after {ran:.1f}s (next backoff {backoff}s): {e}"
+                    f"after {ran:.1f}s (next backoff {backoff}s): {error_text}"
                 )
                 await self._audit(
                     EVENT_TRANSPORT_DISCONNECTED,
@@ -1258,7 +1259,7 @@ class ChannelTriggerBase(ABC):
                     details={
                         "ran_seconds": ran,
                         "next_backoff_seconds": backoff,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": error_text,
                     },
                 )
             else:

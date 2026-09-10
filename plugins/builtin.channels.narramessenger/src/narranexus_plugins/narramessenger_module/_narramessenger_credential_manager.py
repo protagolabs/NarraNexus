@@ -231,7 +231,7 @@ class NarramessengerCredentialManager:
         """Every enabled binding (the trigger's subscriber set)."""
         return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]
 
-    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` without deleting the row (bundle-imported credentials
         land inactive). ``reason`` lands in the public ``disabled_reason``
         (cleared on enable)."""

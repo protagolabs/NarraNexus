@@ -239,7 +239,7 @@ class DiscordCredentialManager:
         logger.info(f"[discord:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool, reason: str = "") -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` without deleting the row. Used by the trigger to
         break out of a reconnect loop against a revoked token (Discord
         ``unauthorized``), mirroring Slack / Telegram. ``reason`` lands in

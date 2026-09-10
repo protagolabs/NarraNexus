@@ -142,6 +142,11 @@ export function GenericChannelConfig({ channel, onBindStateChange }: Props) {
           {t('awareness.generic.boundAs', { name: schema.display_name })}
           {credential.enabled ? '' : ` · ${t('awareness.generic.inactive')}`}
         </div>
+        {!credential.enabled && typeof credential.disabled_reason === 'string' && credential.disabled_reason !== '' && (
+          <div className="text-xs text-[var(--color-error)] break-words" data-testid="channel-disabled-reason">
+            {t('channelActiveToggle.disabledReason', { reason: credential.disabled_reason })}
+          </div>
+        )}
         {identity.length > 0 && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {identity.map((f) => (

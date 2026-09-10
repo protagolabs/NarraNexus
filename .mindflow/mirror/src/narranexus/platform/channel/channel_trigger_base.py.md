@@ -4,12 +4,14 @@ stub: false
 last_verified: 2026-09-09
 ---
 
-## 2026-09-09 — `disable_credential(credential, reason="")` + `safe_disable_reason`（B-28，复审 I1/I3/I4）
+## 2026-09-09 — `disable_credential(credential, reason="")` + `safe_error_text`（B-28，复审 I1/I3/I4）
 
-`_subscribe_loop` 的永久失败分支把 `safe_disable_reason(e)` 作为 `reason` 传给 `disable_credential`：
-异常类型 + 消息，URL（Telegram 的请求 URL 路径里就是 bot token）与 token 形状（`<digits>:<base64>`、JWT、
-32+ 位不透明串）统一打码，截断到 `DISABLE_REASON_MAX_CHARS=200`——脱敏由基类保证，不依赖各频道异常文本
-"碰巧"干净。**这是对所有子类的契约变更**：基类以关键字 `reason=` 调用，五个内置频道
+`_subscribe_loop` 的**四个出口**——永久分支的 warning 与审计 `details.error`、瞬时分支的 exception 日志与审计
+`details.error`——以及传给 `disable_credential` 的 `reason`，全部用同一个 `safe_error_text(e)`（复审 I1，
+原名 safe_disable_reason）：异常类型 + 消息，URL（Telegram 的请求 URL 路径里就是 bot token）与 token 形状
+（`<digits>:<base64>`、JWT、32+ 位不透明串）统一打码，截断到 `DISABLE_REASON_MAX_CHARS=200`——脱敏由基类
+保证覆盖 disabled_reason + 日志 + 审计三处 sink，不依赖各频道异常文本"碰巧"干净。审计 key 仍叫 `error`。
+测试 `test_audit_and_disable_reason_never_carry_the_request_url_or_token`。**这是对所有子类的契约变更**：基类以关键字 `reason=` 调用，五个内置频道
 （telegram/slack/discord/wechat/matrix）都已改签名并把 reason 持久化到 `disabled_reason`（各自 manager
 `set_enabled(reason=)`），第三方插件频道覆写 `disable_credential` 时必须接受 `reason`。新静态方法
 `log_disable_outcome(channel, agent_id, ok, reason)`：写成功 WARNING、写失败（store 返回 False）ERROR，
