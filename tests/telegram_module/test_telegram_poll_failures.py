@@ -25,6 +25,7 @@ Contract pinned here, with a fake HTTP layer (no network):
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 import aiohttp
@@ -170,6 +171,8 @@ class _FakeClient:
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
+        if callable(item):  # a real SDK call, so the traceback is production-shaped
+            return await item()
         return item
 
     async def delete_webhook(self) -> bool:
@@ -467,3 +470,77 @@ async def test_audit_and_disable_reason_never_carry_the_request_url_or_token(db_
         assert "api.telegram.org" not in text and "7981632450:AAH" not in text
         assert "<url>" in text
     assert errors[1].startswith("TelegramSDKError: getUpdates failed")
+
+
+@pytest.mark.asyncio
+async def test_transient_log_output_including_traceback_never_carries_the_bot_token(db_client, monkeypatch):
+    # Round-3 I1: safe_error_text cleans the formatted line, but
+    # logger.exception also renders the traceback, whose last line is the
+    # raw str(exc). The token must therefore be stripped at the SOURCE —
+    # TelegramSDKClient._redact — so the exception the base loop logs never
+    # contained it. Goes through the real SDK client, then captures loguru.
+    from loguru import logger as loguru_logger
+
+    token = "7981632450:AAHsecretsecretsecretsecret"
+    monkeypatch.setattr(
+        sdk_mod.aiohttp,
+        "ClientSession",
+        lambda *a, **k: _Session([aiohttp.InvalidURL(f"https://api.telegram.org/bot{token}/getUpdates")]),
+    )
+    real_client = TelegramSDKClient(token)
+    with pytest.raises(TelegramSDKError) as exc_info:
+        await real_client.get_updates()
+    real_exc = exc_info.value
+    assert token not in str(real_exc) and "<token>" in str(real_exc)
+    assert real_exc.__cause__ is None and real_exc.__context__ is None  # no aiohttp frame in the chain
+
+    store = GenericCredentialStore(db_client)
+    await store.upsert("telegram", "agent_a", {"bot_token": token, "bot_user_id": "1001"}, enabled=True)
+    monkeypatch.setattr(
+        sdk_mod.aiohttp,
+        "ClientSession",
+        lambda *a, **k: _Session([aiohttp.InvalidURL(f"https://api.telegram.org/bot{token}/getUpdates")]),
+    )
+    real_client = TelegramSDKClient(token)  # raised INSIDE the loop: production-shaped traceback
+    _script(monkeypatch, [real_client.get_updates])
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+    trigger._audit_repo = _AuditRecorder()
+    trigger.running = True
+
+    async def _stop_after_backoff(seconds, *_a, **_k):
+        if seconds >= 5:
+            trigger.running = False
+
+    monkeypatch.setattr(trigger_mod.asyncio, "sleep", _stop_after_backoff)
+    captured: list[str] = []
+    sink_id = loguru_logger.add(captured.append, level="DEBUG", backtrace=True, diagnose=True)
+    try:
+        await trigger._subscribe_loop(_cred())
+    finally:
+        loguru_logger.remove(sink_id)
+
+    full = "".join(captured)
+    assert "transport error" in full and "Traceback" in full  # the exception branch ran, with traceback
+    assert token not in full
+    assert not re.search(r"\b\d{6,}:[A-Za-z0-9_-]{20,}", full)
+    assert f"api.telegram.org/bot{token}" not in full
+
+
+@pytest.mark.asyncio
+async def test_download_file_network_error_is_redacted_too(monkeypatch):
+    token = "7981632450:AAHsecretsecretsecretsecret"
+    client, session = _sdk_with(monkeypatch, [_Resp(200, {"ok": True, "result": {"file_path": "photos/1.jpg"}})])
+
+    class _Get:
+        async def __aenter__(self):
+            raise aiohttp.InvalidURL(f"https://api.telegram.org/file/bot{token}/photos/1.jpg")
+
+        async def __aexit__(self, *_exc):
+            return None
+
+    session.get = lambda url: _Get()
+    client._bot_token = token
+    with pytest.raises(TelegramSDKError) as exc_info:
+        await client.download_file("f1")
+    assert token not in str(exc_info.value) and "<token>" in str(exc_info.value)

@@ -8,7 +8,7 @@ last_verified: 2026-09-10
 工具返回给 agent 的 JSON（不是 SDK 异常对象）：失败时仍是 `{"ok": false, "error": "<短码>"}`——`error`
 保持可分支的短码（Telegram description / `http_<status>` / `client_error:<Name>`）；新增 `error_code`
 （= HTTP 状态 / Telegram error_code，传输失败无此键）与 `error_detail`（非 JSON body 的 160 字符片段 /
-传输异常文本，只在这两种失败出现）。docstring 同步，agent 据此能区分 401/409/5xx。
+传输异常文本——bot token 已在 SDK `_redact` 抹成 `<token>`，只在这两种失败出现）。docstring 同步，agent 据此能区分 401/409/5xx。
 
 ## 2026-08-11 (PR-H) — 写侧(bind/unbind/status)迁入 seam
 

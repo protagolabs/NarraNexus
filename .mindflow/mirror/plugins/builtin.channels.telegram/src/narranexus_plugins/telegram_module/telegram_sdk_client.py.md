@@ -4,6 +4,16 @@ stub: false
 last_verified: 2026-09-09
 ---
 
+## 2026-09-10 — `_redact`：bot token 在来源处抹掉（复审 round-3 I1）
+
+请求 URL（`_API_BASE` / `_FILE_BASE`）路径里就是 bot token，aiohttp 的 `InvalidURL` 之类异常 `str(e)` 会原样引用
+URL。`api_call` 的 `ClientError` 分支、兜底分支的日志句、`download_file` 的网络错误分支现在都先过 `_redact`
+（token → `<token>`）再进信封 `error_detail` / `TelegramSDKError.description`；`download_file` 用 `from None` 切断
+异常链，避免原始 aiohttp 异常经 `__cause__` 被再次渲染。这样基类 `logger.exception` 打的 traceback 尾行、`tg_cli`
+回给 agent 的 JSON、`disabled_reason` 全部无 token；基类 `safe_error_text` 只是第二道兜底。测试：
+`test_transient_log_output_including_traceback_never_carries_the_bot_token`（走真 SDK + 捕获 loguru sink 全文）、
+`test_download_file_network_error_is_redacted_too`。
+
 ## 2026-09-09 — `TelegramSDKError` 带 HTTP status + description（B-28）
 
 dev 日志里 115 条裸 `getUpdates failed`（三个 agent）根本分不清是 token 被撤（401）、另一个

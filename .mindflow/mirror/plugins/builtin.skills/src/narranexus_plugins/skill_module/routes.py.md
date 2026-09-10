@@ -12,7 +12,7 @@ stub: false
 字段（单 skill 形状）取第一个成功项——被拒的兄弟不能掩盖已落盘、已审计的 skill。前端只用 success + message
 并刷新列表，形状不变。**这段裁决放在 try 之外**（复审 round-2 C1）：try 里的 `except Exception` 会把 try 体内
 raise 的 HTTPException 改标成 500——第一版正是这样把零成功的 400 变成了 500。本文件其余 handler 都有
-`except HTTPException: raise`，install 是唯一没有的，改为不在 try 内 raise。路由级测试
+`except HTTPException: raise`，install 是唯一没有的，改为不在 try 内 raise，并补上同样的 `except HTTPException: raise` 双保险（round-3 M1）。路由级测试
 `tests/skill_module/test_install_route_multi_skill.py`（零成功 400 含全部失败行 / 部分成功 200 / 仓级 ValueError
 400 / 表单错误 400）。
 

@@ -151,10 +151,13 @@ def safe_error_text(exc: BaseException) -> str:
 
     Exception type + message, with URLs and token-shaped runs masked and the
     whole thing capped at DISABLE_REASON_MAX_CHARS. Used for the persisted
-    ``disabled_reason``, the subscriber log lines AND the audit row's
-    ``details.error`` — never the raw ``str(exc)`` — so a transport exception
-    that quotes the request URL (Telegram's carries the bot token in its
-    path) can reach none of the three sinks.
+    ``disabled_reason``, the formatted subscriber log line and the audit
+    row's ``details.error`` — never the raw ``str(exc)``. It is a safety
+    net, not the only guard: the traceback ``logger.exception`` renders
+    still ends with the raw exception text, so a channel SDK must strip
+    its own secrets at the source (Telegram: ``TelegramSDKClient._redact``
+    removes the bot token from every aiohttp message before it becomes a
+    ``TelegramSDKError``). Masking here catches what an SDK missed.
     """
     text = f"{type(exc).__name__}: {exc}".replace("\n", " ")
     text = _REASON_URL.sub("<url>", text)

@@ -9,8 +9,11 @@ last_verified: 2026-09-09
 `_subscribe_loop` 的**四个出口**——永久分支的 warning 与审计 `details.error`、瞬时分支的 exception 日志与审计
 `details.error`——以及传给 `disable_credential` 的 `reason`，全部用同一个 `safe_error_text(e)`（复审 I1，
 原名 safe_disable_reason）：异常类型 + 消息，URL（Telegram 的请求 URL 路径里就是 bot token）与 token 形状
-（`<digits>:<base64>`、JWT、32+ 位不透明串）统一打码，截断到 `DISABLE_REASON_MAX_CHARS=200`——脱敏由基类
-保证覆盖 disabled_reason + 日志 + 审计三处 sink，不依赖各频道异常文本"碰巧"干净。审计 key 仍叫 `error`。
+（`<digits>:<base64>`、JWT、32+ 位不透明串）统一打码，截断到 `DISABLE_REASON_MAX_CHARS=200`——覆盖
+disabled_reason、**格式化的日志句**与审计 `details.error` 三处。**但 `logger.exception` 渲染的 traceback 尾行仍是
+原始 `str(exc)`**（复审 round-3 I1 实测），基类不能也不应改掉它（丢栈更难查），所以 `safe_error_text` 只是兜底网：
+密钥必须在来源处抹掉——Telegram SDK 的 `TelegramSDKClient._redact` 在 aiohttp 异常文本变成 `TelegramSDKError` 之前
+把 bot token 换成 `<token>`（信封 `error_detail`、`description`、`str()`、traceback 尾行一起干净）。审计 key 仍叫 `error`。
 测试 `test_audit_and_disable_reason_never_carry_the_request_url_or_token`。**这是对所有子类的契约变更**：基类以关键字 `reason=` 调用，五个内置频道
 （telegram/slack/discord/wechat/matrix）都已改签名并把 reason 持久化到 `disabled_reason`（各自 manager
 `set_enabled(reason=)`），第三方插件频道覆写 `disable_credential` 时必须接受 `reason`。新静态方法

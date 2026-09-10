@@ -378,6 +378,8 @@ async def install_skill(
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir)
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise _reject(str(e))
     except Exception as e:

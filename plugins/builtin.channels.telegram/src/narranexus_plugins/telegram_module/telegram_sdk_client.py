@@ -95,6 +95,19 @@ class TelegramSDKClient:
         """
         return f"{_API_BASE}{self._bot_token}"
 
+    def _redact(self, text: str) -> str:
+        """Strip the bot token from any text that came out of aiohttp.
+
+        Both request URLs (``_API_BASE`` / ``_FILE_BASE``) carry the token
+        in their path, and aiohttp exceptions such as ``InvalidURL`` quote
+        the URL in ``str(e)``. Everything built from an exception message
+        goes through here BEFORE it becomes an envelope field or a
+        ``TelegramSDKError`` description, so the token cannot reach
+        ``error_detail`` (agent-visible tg_cli JSON), ``str(exc)`` or the
+        traceback a caller's ``logger.exception`` renders.
+        """
+        return text.replace(self._bot_token, "<token>") if self._bot_token else text
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             # ``trust_env=True`` makes aiohttp honour the standard
@@ -171,11 +184,13 @@ class TelegramSDKClient:
             return {
                 "ok": False,
                 "error": f"client_error:{type(e).__name__}",
-                "error_detail": str(e),
+                "error_detail": self._redact(str(e)),
                 "method": method,
             }
         except Exception as e:  # pragma: no cover — defensive
-            logger.exception(f"[telegram] api_call({method}) unexpected error")
+            # Never an aiohttp error (all caught above), so the traceback
+            # cannot quote the request URL; the message is redacted anyway.
+            logger.exception(f"[telegram] api_call({method}) unexpected error: {self._redact(str(e))}")
             return {
                 "ok": False,
                 "error": f"client_exception:{type(e).__name__}",
@@ -372,6 +387,6 @@ class TelegramSDKClient:
             raise TelegramSDKError(
                 f"client_error:{type(e).__name__}",
                 "binary fetch network error",
-                description=f"client_error:{type(e).__name__}: {e}",
-            ) from e
+                description=f"client_error:{type(e).__name__}: {self._redact(str(e))}",
+            ) from None
         return data, file_path
