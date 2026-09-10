@@ -142,7 +142,7 @@ export function GenericChannelConfig({ channel, onBindStateChange }: Props) {
           {t('awareness.generic.boundAs', { name: schema.display_name })}
           {credential.enabled ? '' : ` · ${t('awareness.generic.inactive')}`}
         </div>
-        {!credential.enabled && typeof credential.disabled_reason === 'string' && credential.disabled_reason !== '' && (
+        {!credential.enabled && credential.disabled_reason && (
           <div className="text-xs text-[var(--color-error)] break-words" data-testid="channel-disabled-reason">
             {t('channelActiveToggle.disabledReason', { reason: credential.disabled_reason })}
           </div>

@@ -8,8 +8,8 @@ stub: false
 
 ## 2026-09-10 — 停用时显示 `disabled_reason`（B-28，复审 M1）
 
-插件频道/通用面板没有 ChannelActiveToggle，此前停用只显示 ` · inactive`；现在 `!enabled` 且凭据 public 值里
-`disabled_reason` 非空时，下面多一行 `channelActiveToggle.disabledReason`（同一 i18n 键，`data-testid=
+插件频道/通用面板没有 ChannelActiveToggle，此前停用只显示 ` · inactive`；现在 `!enabled` 且 `credential.disabled_reason`
+（`ChannelCredentialView` 已声明该可选字段）非空时，下面多一行 `channelActiveToggle.disabledReason`（同一 i18n 键，`data-testid=
 channel-disabled-reason`）。Narramessenger 面板没有启停 UI，本轮不接。
 
 ## Intent

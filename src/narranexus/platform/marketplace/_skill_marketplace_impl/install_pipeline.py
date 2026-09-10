@@ -163,11 +163,14 @@ class InstallPipeline:
                             branch=branch,
                         )
                     )
-                except (ValueError, OSError) as exc:
+                except Exception as exc:  # noqa: BLE001 — one root must never sink its siblings
                     # ValueError = a gate said no (scan / deps / compat /
-                    # manifest); OSError = disk full / permissions while
-                    # landing this root. Both are per-skill: the siblings
-                    # already installed stay reported, this one is failed.
+                    # manifest); OSError = disk full / permissions; anything
+                    # else = a bug inside this root's install. All per-skill:
+                    # the siblings already installed stay reported (disk is
+                    # truth, nothing rolls back), this one is failed. Repo-
+                    # level errors (fetch, layout, cap) are outside this loop
+                    # and still raise.
                     logger.warning(f"[skills] github install of '{skill_name}' from {canonical_url} rejected: {exc}")
                     results.append(InstallResult(status="failed", skill=None, skill_name=skill_name, error=str(exc)))
             return results

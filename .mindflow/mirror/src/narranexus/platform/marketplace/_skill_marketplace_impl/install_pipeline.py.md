@@ -4,6 +4,12 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #388 review M4）— 逐 skill 隔离覆盖任何异常
+
+安装循环改为 `except Exception`：某个根内部的 RuntimeError/KeyError 也只标记该根 failed，兄弟结果保留
+（磁盘是真相，不回滚）。仓级错误（fetch / 布局 / 超上限）在循环外仍直接 raise → 路由 400。
+测试 `test_github_multi_skill_repo_isolates_an_unexpected_exception`。
+
 ## 2026-09-10（复审 M2）— 逐 skill 隔离也覆盖 OSError
 
 安装循环 `except (ValueError, OSError)`：磁盘满/权限错误落在某个根时同样只标记该根 failed、已装的 sibling

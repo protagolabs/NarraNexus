@@ -108,6 +108,21 @@ class TelegramSDKClient:
         """
         return text.replace(self._bot_token, "<token>") if self._bot_token else text
 
+    def _failure(self, method: str, **fields: Any) -> dict[str, Any]:
+        """The ``{"ok": false, ...}`` envelope with every string field redacted.
+
+        One constructor for all failure paths so "envelope strings never
+        carry the bot token" holds structurally — a proxy's HTML error page
+        echoing the request URL (``error_detail``) is as covered as an
+        aiohttp exception message. Redaction happens BEFORE any caller-side
+        truncation: a token cut at a length boundary would otherwise leave
+        its first half behind.
+        """
+        out: dict[str, Any] = {"ok": False, "method": method}
+        for key, value in fields.items():
+            out[key] = self._redact(value) if isinstance(value, str) else value
+        return out
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             # ``trust_env=True`` makes aiohttp honour the standard
@@ -163,39 +178,27 @@ class TelegramSDKClient:
                 try:
                     data = await resp.json()
                 except (aiohttp.ContentTypeError, ValueError):
-                    snippet = (await resp.text())[:160].replace("\n", " ")
-                    return {
-                        "ok": False,
-                        "error": f"http_{resp.status}",
-                        "error_code": resp.status,
-                        "error_detail": snippet,
-                        "method": method,
-                    }
+                    # Redact the whole body first, then cut: proxies echo the
+                    # request URL (token in its path) in their error pages.
+                    snippet = self._redact(await resp.text())[:160].replace("\n", " ")
+                    return self._failure(
+                        method, error=f"http_{resp.status}", error_code=resp.status, error_detail=snippet
+                    )
                 if not data.get("ok"):
                     raw_code = data.get("error_code")
-                    return {
-                        "ok": False,
-                        "error": data.get("description", f"http_{resp.status}"),
-                        "error_code": raw_code if isinstance(raw_code, int) else resp.status,
-                        "method": method,
-                    }
+                    return self._failure(
+                        method,
+                        error=data.get("description", f"http_{resp.status}"),
+                        error_code=raw_code if isinstance(raw_code, int) else resp.status,
+                    )
                 return data
         except aiohttp.ClientError as e:
-            return {
-                "ok": False,
-                "error": f"client_error:{type(e).__name__}",
-                "error_detail": self._redact(str(e)),
-                "method": method,
-            }
+            return self._failure(method, error=f"client_error:{type(e).__name__}", error_detail=str(e))
         except Exception as e:  # pragma: no cover — defensive
             # Never an aiohttp error (all caught above), so the traceback
             # cannot quote the request URL; the message is redacted anyway.
             logger.exception(f"[telegram] api_call({method}) unexpected error: {self._redact(str(e))}")
-            return {
-                "ok": False,
-                "error": f"client_exception:{type(e).__name__}",
-                "method": method,
-            }
+            return self._failure(method, error=f"client_exception:{type(e).__name__}")
 
     # ------------------------------------------------------------------
     # Hot-path wrappers (raise on failure for caller-side ergonomics)

@@ -22,6 +22,8 @@ Mirrors the test scaffold from ``test_mock_channel_trigger_integration.py``
 """
 from __future__ import annotations
 
+import json
+
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
@@ -396,7 +398,11 @@ async def test_fetch_attachments_raise_degrades_gracefully(
 
     class _BrokenFetchTrigger(_FakeAttachmentTrigger):
         async def fetch_attachments(self, message, credential):  # type: ignore[override]
-            raise RuntimeError("simulated SDK failure")
+            # Quote a credential-bearing URL the way a download SDK might:
+            # the audit row must carry the sanitised text (PR #388 M6).
+            raise RuntimeError(
+                "simulated SDK failure fetching https://api.example.test/file/bot7981632450:AAHsecretsecretsecretsecret/x.pdf"
+            )
 
     captured: dict = {}
 
@@ -459,6 +465,11 @@ async def test_fetch_attachments_raise_degrades_gracefully(
         {"channel": "fake", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
     )
     assert len(fails) == 1
+    details = fails[0]["details"]
+    details = json.loads(details) if isinstance(details, str) else details
+    assert details["error"].startswith("RuntimeError: simulated SDK failure")
+    assert "7981632450:AAH" not in details["error"] and "api.example.test" not in details["error"]
+    assert "<url>" in details["error"]
 
 
 @pytest.mark.asyncio

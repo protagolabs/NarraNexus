@@ -1438,8 +1438,9 @@ class ChannelTriggerBase(ABC):
                     },
                 )
             except Exception as e:  # noqa: BLE001
+                error_text = safe_error_text(e)
                 logger.exception(
-                    f"{type(self).__name__} worker {worker_id} error: {e}"
+                    f"{type(self).__name__} worker {worker_id} error: {error_text}"
                 )
                 await self._audit(
                     EVENT_WORKER_ERROR,
@@ -1449,7 +1450,7 @@ class ChannelTriggerBase(ABC):
                     chat_id=message.chat_id,
                     details={
                         "worker_id": worker_id,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": error_text,
                     },
                 )
 
@@ -1555,9 +1556,9 @@ class ChannelTriggerBase(ABC):
         try:
             attachments = await self.fetch_attachments(message, credential)
         except Exception as e:  # noqa: BLE001
+            error_text = safe_error_text(e)
             logger.warning(
-                f"{type(self).__name__}[{app_id}] fetch_attachments raised: "
-                f"{type(e).__name__}: {e}"
+                f"{type(self).__name__}[{app_id}] fetch_attachments raised: {error_text}"
             )
             await self._audit(
                 EVENT_ATTACHMENT_FETCH_FAILED,
@@ -1566,7 +1567,7 @@ class ChannelTriggerBase(ABC):
                 app_id=app_id,
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
-                details={"error": f"{type(e).__name__}: {e}"},
+                details={"error": error_text},
             )
 
         async with self.processing_indicator(credential, message):
@@ -1596,7 +1597,7 @@ class ChannelTriggerBase(ABC):
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
                 details={
-                    "error": f"{type(e).__name__}: {e}",
+                    "error": safe_error_text(e),
                     "sender_name": sender_name,
                     "original_message": message.content[:500],
                     "agent_response": (output_text or "")[:500],

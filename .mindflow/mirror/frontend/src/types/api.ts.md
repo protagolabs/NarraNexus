@@ -1,12 +1,12 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
 ## 2026-09-09 — `*CredentialData.disabled_reason?`（B-28）
 
-Telegram / Slack / Discord / WeChat / Narramessenger 五个凭据类型都加了可选 `disabled_reason`（后端
+Telegram / Slack / Discord / WeChat / Narramessenger 五个凭据类型与泛型 `ChannelCredentialView` 都加了可选 `disabled_reason`（后端
 `to_public_dict` 新增的公开字段）；旧响应无此键时 UI 不显示原因。Lark 用自己的 `auth_status` 机制，不带。
 
 ## 2026-09-07 — `PluginChannelRow`

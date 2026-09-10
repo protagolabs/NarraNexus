@@ -1510,6 +1510,8 @@ export interface ChannelCredentialView {
   agent_id: string;
   enabled: boolean;
   external_id: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
   [field: string]: unknown;
 }
 

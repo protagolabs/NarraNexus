@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — `safe_error_text` 覆盖全部审计出口（PR #388 review M6）
+
+除 `_subscribe_loop` 的两个断连分支外，`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`（含其 warning 日志句）、
+`EVENT_INBOX_WRITE_FAILED` 的 `details.error` 也统一走 `safe_error_text(e)`（脱敏 + 200 字符截断，几 MB 的异常
+文本不会整条进审计表）；全文件不再有裸 `"error": f"{type(e).__name__}: {e}"` 的审计写入。其余仅进日志句的
+warning（DM 门、反应、managed ingress 等，不含传输层文本）未改。`logger.exception` 的 traceback 保持原样。
+测试：`tests/channel/test_attachment_fetch_pipeline.py::test_fetch_attachments_raise_degrades_gracefully`
+现在断言审计行不含 URL/token。
 
 ## 2026-09-09 — `disable_credential(credential, reason="")` + `safe_error_text`（B-28，复审 I1/I3/I4）
 

@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_sdk_client.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — 信封脱敏结构化（PR #388 review I1）
+
+非 JSON 响应分支的 `error_detail` 之前没过 `_redact`——经代理（`trust_env=True`）拿到的 407/502 HTML 页会回显
+含 token 的请求 URL，而 `tg_cli` 把信封原样给 agent。现在所有失败信封都由 `_failure(method, **fields)` 构造，
+字符串字段一律 `_redact`；非 JSON body **先整体 redact 再截 160 字符**（token 跨截断边界时前半截不会残留）。
+测试 `test_non_json_error_page_echoing_the_url_is_redacted_before_truncation`。
 
 ## 2026-09-10 — `_redact`：bot token 在来源处抹掉（复审 round-3 I1）
 

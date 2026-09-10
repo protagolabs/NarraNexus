@@ -331,3 +331,28 @@ async def test_github_multi_skill_repo_installs_same_repo_dependencies_first(db_
     results = await _pipeline(db_client).install_from_github("https://github.com/acme/chain")
 
     assert [(r.status, r.skill.name) for r in results] == [("installed", "beta"), ("installed", "alpha")]
+
+
+@pytest.mark.asyncio
+async def test_github_multi_skill_repo_isolates_an_unexpected_exception(db_client, workspace, monkeypatch):
+    # PR #388 review M4: a bug inside one root's install (not a ValueError /
+    # OSError) is still a per-skill failure; the siblings' results survive.
+    monkeypatch.setattr(SkillModule, "fetch_github_repo", _fake_multi_fetch({"alpha": {}, "boom": {}, "zeta": {}}))
+    pipeline = _pipeline(db_client)
+    real = pipeline._install_staged
+
+    async def _staged(skill_root, **kwargs):
+        if skill_root.name == "boom":
+            raise RuntimeError("audit repository exploded")
+        return await real(skill_root, **kwargs)
+
+    monkeypatch.setattr(pipeline, "_install_staged", _staged)
+
+    results = await pipeline.install_from_github("https://github.com/acme/mixed")
+
+    assert [(r.status, r.skill.name if r.skill else r.skill_name) for r in results] == [
+        ("installed", "alpha"),
+        ("failed", "boom"),
+        ("installed", "zeta"),
+    ]
+    assert "audit repository exploded" in results[1].error

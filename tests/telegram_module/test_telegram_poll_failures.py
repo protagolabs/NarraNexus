@@ -544,3 +544,24 @@ async def test_download_file_network_error_is_redacted_too(monkeypatch):
     with pytest.raises(TelegramSDKError) as exc_info:
         await client.download_file("f1")
     assert token not in str(exc_info.value) and "<token>" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_non_json_error_page_echoing_the_url_is_redacted_before_truncation(monkeypatch):
+    # PR #388 review I1: a proxy's 407/502 HTML page echoes the request URL
+    # (token in the path); the snippet is what tg_cli hands the agent. The
+    # token must be redacted BEFORE the 160-char cut, or its head survives.
+    token = "7981632450:AAHsecretsecretsecretsecret"
+    padding = "x" * 120  # the token straddles the 160-char boundary of the RAW page
+    page = f"<html>{padding}https://api.telegram.org/bot{token}/getUpdates blocked by proxy</html>"
+    client, _ = _sdk_with(monkeypatch, [_Resp(502, None, page), _Resp(407, None, page)])
+    client._bot_token = token
+
+    out = await client.api_call("getUpdates", {})
+    assert out["error"] == "http_502" and out["error_code"] == 502
+    assert token not in out["error_detail"] and "7981632450:AAH" not in out["error_detail"]
+    assert "<token>" in out["error_detail"] and len(out["error_detail"]) <= 160
+
+    with pytest.raises(TelegramSDKError) as exc_info:
+        await client.get_updates()
+    assert token not in str(exc_info.value) and "7981632450:AAH" not in str(exc_info.value)
