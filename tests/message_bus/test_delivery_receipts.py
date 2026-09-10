@@ -443,3 +443,21 @@ async def test_receipt_channel_comes_from_bus_get_message_and_survives_a_bus_tha
     assert out2["success"] is True and out2["receipt"]["status"] == RECEIPT_ACCEPTED
     row2 = await BusDeliveryReceiptRepository(db_client).get(out2["message_id"], B)
     assert row2 is not None and row2["channel_id"] == ""
+
+
+@pytest.mark.asyncio
+async def test_receipt_bookkeeping_failure_is_noted_not_hidden(db_client, monkeypatch):
+    """#389 M1: when the ledger write fails the send still reports accepted,
+    and says so in a `note` so the sender can tell it from a booked receipt."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, _ = _tools(db_client)
+
+    async def _boom(self, **_k):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setattr(BusDeliveryReceiptRepository, "upsert", _boom)
+    out = await tools["message_agent"](agent_id=A, to=B, text="hi")
+    assert out["success"] is True and out["receipt"]["status"] == RECEIPT_ACCEPTED
+    assert "note" in out["receipt"]

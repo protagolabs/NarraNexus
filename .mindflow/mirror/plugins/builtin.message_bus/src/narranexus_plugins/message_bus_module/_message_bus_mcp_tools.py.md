@@ -4,6 +4,12 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 M1/M7）— 回执记账失败带 `note`；owner 停止不产生回执
+
+`_book_receipt` 的 except 分支现在给回执加 `note: "receipt bookkeeping unavailable; the message
+was sent"`——docstring 早就承诺了「with a note」而代码没做。docstring 同时写明：`CancelledByUser`
+路径只 ack 不盖回执，发件方回执停在 `accepted`，那是 owner 的主动决定不是投递结果。
+
 ## 2026-09-10（PR #389 I1/M2）— 两个发送动词各自的超长出路；`error` 与 `receipt.reason` 同文
 
 `message_agent` 捕 `BusMessageTooLarge` → `oversize_reason(size, OVERSIZE_REMEDY_PARTS)`；

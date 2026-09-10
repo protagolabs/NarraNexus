@@ -1131,37 +1131,10 @@ class MessageBusTrigger:
                 # `relevant` comes back sorted by created_at with the held
                 # tail removed, so `relevant[-1]` below is both the trigger
                 # message and the ack high-water — and never past a held row.
-                truncated = len(messages) >= batch_limit
-                relevant, held = assemble_parts(relevant, batch_truncated=truncated)
-                if held and truncated and not relevant:
-                    # The group starts at the batch's edge and the batch is
-                    # cut: nothing can be acked to move the window, so read
-                    # the lane once more with a wider limit (review I2).
-                    batch_limit = PENDING_BATCH_LIMIT_WIDE
-                    messages = await self._bus.get_pending_messages(
-                        agent_id, channel_id=channel_id, limit=batch_limit
-                    )
-                    wide = [
-                        m for m in messages
-                        if self._should_process_message(m, agent_id, channel_type, channel_owner)
-                    ]
-                    truncated = len(messages) >= batch_limit
-                    relevant, held = assemble_parts(wide, batch_truncated=truncated)
-                    if held and truncated and not relevant:
-                        # Still cut at the WIDE limit and still nothing before
-                        # the group: this is the LAST read, so grace and
-                        # supersession rule on what is in view. The LIMIT is
-                        # per lane, not per group, so a legal group CAN be cut
-                        # here — when >= PENDING_BATCH_LIMIT_WIDE ordinary rows
-                        # sit between its parts (the write edge chains parts
-                        # past ordinary rows). Then a group already past its
-                        # grace is delivered as what is in view with a
-                        # missing-parts marker, and the rest follows as a
-                        # second fragment: an extra marker in an extreme
-                        # backlog, accepted over the alternative — holding the
-                        # lane forever (review r2 C2 / r3 I2). A young group
-                        # is still held by grace on this pass.
-                        relevant, held = assemble_parts(wide, batch_truncated=False)
+                relevant, held = await self._assemble_lane_batch(
+                    agent_id, channel_id, messages, relevant, batch_limit,
+                    channel_type, channel_owner,
+                )
                 if held:
                     logger.debug(
                         f"MessageBusTrigger: {channel_id} for {agent_id} — a "
@@ -1190,6 +1163,51 @@ class MessageBusTrigger:
                     f"{(agent_id, channel_id)}: {e}"
                 )
                 return False
+
+    async def _assemble_lane_batch(
+        self,
+        agent_id: str,
+        channel_id: str,
+        messages: List[BusMessage],
+        relevant: List[BusMessage],
+        batch_limit: int,
+        channel_type: str,
+        channel_owner: str,
+    ) -> Tuple[List[BusMessage], bool]:
+        """Collapse multipart groups in a lane batch — three explicit steps.
+
+        1. NARROW: assemble what the normal batch holds; a group cut by the
+           batch edge is held, never judged on partial evidence (review I2).
+        2. WIDE: if nothing before the group can move, re-read the lane with
+           `PENDING_BATCH_LIMIT_WIDE` and assemble again.
+        3. LAST VERDICT: if even the wide read is cut and still nothing can
+           move, assemble once more with ``batch_truncated=False`` so grace
+           and supersession rule on what is in view. The LIMIT is per lane,
+           so a legal group CAN be cut here when >= PENDING_BATCH_LIMIT_WIDE
+           ordinary rows sit between its parts; a group past its grace is
+           then delivered as what is in view with a missing-parts marker and
+           the rest follows as a second fragment — accepted over holding the
+           lane forever (review r2 C2 / r3 I2). A young group is still held.
+
+        Returns ``(deliverable, held)`` exactly as `multipart.assemble` does.
+        """
+        truncated = len(messages) >= batch_limit
+        relevant, held = assemble_parts(relevant, batch_truncated=truncated)
+        if not (held and truncated and not relevant):
+            return relevant, held
+        wide_limit = PENDING_BATCH_LIMIT_WIDE
+        wide_messages = await self._bus.get_pending_messages(
+            agent_id, channel_id=channel_id, limit=wide_limit
+        )
+        wide = [
+            m for m in wide_messages
+            if self._should_process_message(m, agent_id, channel_type, channel_owner)
+        ]
+        truncated = len(wide_messages) >= wide_limit
+        relevant, held = assemble_parts(wide, batch_truncated=truncated)
+        if held and truncated and not relevant:
+            relevant, held = assemble_parts(wide, batch_truncated=False)
+        return relevant, held
 
     async def _ack_steer_consumed(
         self,
@@ -4062,13 +4080,18 @@ class MessageBusTrigger:
         except Exception as e:  # noqa: BLE001 — fail open: one extra wake beats a hidden drop
             logger.warning(f"[bus-drop] guard read failed for {agent_id}: {e}")
             cooldowns = None
-        landed = await announce_processing_failure(
-            self._bus, channel_id, agent_id,
-            error=error, attempts=attempts, mentions=[sender],
-            root_run_id=trigger_message.root_run_id or None,
-        )
-        if landed and cooldowns is not None:
-            await cooldowns.arm(agent_id, channel_id, "peer_drop")
+        # Both awaits run inside the caller's `except` handler; an exception
+        # here would escape it (#389 M3). Best-effort like every notice.
+        try:
+            landed = await announce_processing_failure(
+                self._bus, channel_id, agent_id,
+                error=error, attempts=attempts, mentions=[sender],
+                root_run_id=trigger_message.root_run_id or None,
+            )
+            if landed and cooldowns is not None:
+                await cooldowns.arm(agent_id, channel_id, "peer_drop")
+        except Exception as e:  # noqa: BLE001 — a notice may never become the new failure
+            logger.warning(f"[bus-drop] could not wake {sender} in {channel_id}: {e}")
 
     async def _drop_already_announced(
         self, agent_id: str, channel_id: str, batch: List[BusMessage],

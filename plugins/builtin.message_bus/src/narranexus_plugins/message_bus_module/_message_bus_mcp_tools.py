@@ -224,7 +224,12 @@ async def _book_receipt(bus: Any, *, message_id: str, from_agent: str, to_agent:
 
     Runs AFTER the send succeeded, inside the tool's `try`, so like
     `_describe_agent` it must never invert the outcome: a receipt we could not
-    book degrades to ``accepted`` with a note, never to `success: false`.
+    book degrades to ``accepted`` with a ``note`` field, never to
+    `success: false`.
+
+    Not a receipt: the recipient's owner pressing stop. `CancelledByUser` acks
+    the message without stamping the ledger, so the sender's receipt stays
+    ``accepted`` — an owner's own decision, not a delivery outcome (#389 M7).
     """
     from narranexus.platform.utils.db.db_factory import get_db_client
 
@@ -260,9 +265,14 @@ async def _book_receipt(bus: Any, *, message_id: str, from_agent: str, to_agent:
         )
     except Exception as e:  # noqa: BLE001 — never invert a delivered send
         logger.warning(f"[bus-receipt] could not book receipt for {message_id}: {e}")
+        note = "receipt bookkeeping unavailable; the message was sent"
+    else:
+        note = None
     receipt = {"status": status, "message_id": message_id}
     if reason:
         receipt["reason"] = reason
+    if note:
+        receipt["note"] = note
     return receipt
 
 

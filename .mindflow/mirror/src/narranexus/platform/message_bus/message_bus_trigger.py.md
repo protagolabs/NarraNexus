@@ -4,12 +4,19 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 M3/M6）— drop 通知与 arm 包进 try；三段 assemble 抽成 `_assemble_lane_batch`
+
+`_wake_sender_on_drop` 的 `announce_processing_failure` + `arm` 原本在 `except` 处理块里裸 await，
+抛了会从 except 逃出去（最终被 `_process_lane` 兜住、只丢一行 `[bus-timing]`），现在自带 try。
+`_process_lane` 的「窄读 → 宽读 → 最后一次裁决」三段抽成 `_assemble_lane_batch(...)`，三步显式
+命名，行为不变（`test_multipart_messages.py` 全部用例钉着）。
+
 ## 2026-09-10（PR #389 I4）— 指纹口径只有一家：`_batch_fingerprint(batch)`
 
 返回 `(content_key, 本批全部行 id)`，`_stamp_receipts`（写）与 `_drop_already_announced` /
 `_silence_already_announced`（读）三处都调它；此前三处各自手写 `"\n".join`，任一处漂移就让两个
-防乒乓守卫同时静默失效而测试全绿（各测各的路径）。回退实证：让写入方改用 `"\n\n"` 拼接，
-指纹类测试全红。写入方仍是**每批一个**指纹（不进循环）。
+防乒乓守卫同时静默失效而测试全绿（各测各的路径）。回退实证：让写入方改用 `"|"` 拼接（`content_key`
+会归一空白，所以换行数量的漂移是看不见的），指纹类测试全红。写入方仍是**每批一个**指纹（不进循环）。
 
 ## 2026-09-10（PR #389 I2）— 静默唤醒补第二层界限：(收件方, channel, `no_reply_peer`) 窗口
 
