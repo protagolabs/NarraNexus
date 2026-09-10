@@ -3937,6 +3937,29 @@ class MessageBusTrigger:
             and (m.msg_type or "") not in PLATFORM_MSG_TYPES
         ]
 
+    @classmethod
+    def _batch_fingerprint(cls, batch: List[BusMessage]) -> Tuple[str, List[str]]:
+        """``(content_key, message_ids)`` for ONE batch — the single definition
+        the receipt writer and both resend guards share (#389 I4).
+
+        Writer and readers must agree byte for byte or the guards go silent
+        with every test still green (each test walks one path). The key is
+        the worthy messages' contents joined by a newline; the ids expand
+        every part row a merged message stands for. Empty key when nothing
+        in the batch is a peer message worth a receipt.
+        """
+        worthy = cls._receipt_worthy(batch)
+        if not worthy:
+            return "", []
+        from narranexus.platform.repository.bus_delivery_receipt_repository import (
+            content_key,
+        )
+
+        return (
+            content_key("\n".join(m.content for m in worthy)),
+            [mid for m in worthy for mid in (m.part_message_ids or [m.message_id])],
+        )
+
     async def _stamp_receipts(
         self,
         messages: List[BusMessage],
@@ -3962,12 +3985,13 @@ class MessageBusTrigger:
         try:
             from narranexus.platform.repository.bus_delivery_receipt_repository import (
                 BusDeliveryReceiptRepository,
-                content_key,
             )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
             repo = BusDeliveryReceiptRepository(await get_db_client())
-            key = content_key("\n".join(m.content for m in worthy))
+            # One fingerprint per BATCH (not per message): a resend of the
+            # same batch must match across batches.
+            key, _ids = self._batch_fingerprint(messages)
             for m in worthy:
                 for message_id in (m.part_message_ids or [m.message_id]):
                     await repo.upsert(
@@ -4061,20 +4085,17 @@ class MessageBusTrigger:
         """
         from narranexus.platform.repository.bus_delivery_receipt_repository import (
             BusDeliveryReceiptRepository,
-            content_key,
         )
         from narranexus.platform.utils.db.db_factory import get_db_client
 
-        worthy = self._receipt_worthy(batch)
-        if not worthy:
+        key, own_ids = self._batch_fingerprint(batch)
+        if not key:
             return False
         return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
             channel_id=channel_id, to_agent=agent_id,
-            key=content_key("\n".join(m.content for m in worthy)),
+            key=key,
             status=RECEIPT_DROPPED,
-            exclude_message_ids=[
-                mid for m in worthy for mid in (m.part_message_ids or [m.message_id])
-            ],
+            exclude_message_ids=own_ids,
             within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
         )
 
@@ -4212,23 +4233,20 @@ class MessageBusTrigger:
         channel, on an earlier message? Reads the receipt ledger; fails to
         False (announce) — a missed dedup costs one extra wake, a false one
         would hide a fresh silence."""
-        worthy = self._receipt_worthy(batch)
-        if not worthy:
+        key, own_ids = self._batch_fingerprint(batch)
+        if not key:
             return False
         try:
             from narranexus.platform.repository.bus_delivery_receipt_repository import (
                 BusDeliveryReceiptRepository,
-                content_key,
             )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
             return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
                 channel_id=channel_id, to_agent=agent_id,
-                key=content_key("\n".join(m.content for m in worthy)),
+                key=key,
                 status=RECEIPT_SILENT,
-                exclude_message_ids=[
-                    mid for m in worthy for mid in (m.part_message_ids or [m.message_id])
-                ],
+                exclude_message_ids=own_ids,
                 within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
             )
         except Exception as e:  # noqa: BLE001 — see docstring

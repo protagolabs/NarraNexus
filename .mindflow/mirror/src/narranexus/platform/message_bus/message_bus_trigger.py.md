@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 I4）— 指纹口径只有一家：`_batch_fingerprint(batch)`
+
+返回 `(content_key, 本批全部行 id)`，`_stamp_receipts`（写）与 `_drop_already_announced` /
+`_silence_already_announced`（读）三处都调它；此前三处各自手写 `"\n".join`，任一处漂移就让两个
+防乒乓守卫同时静默失效而测试全绿（各测各的路径）。回退实证：让写入方改用 `"\n\n"` 拼接，
+指纹类测试全红。写入方仍是**每批一个**指纹（不进循环）。
+
 ## 2026-09-10（PR #389 I2）— 静默唤醒补第二层界限：(收件方, channel, `no_reply_peer`) 窗口
 
 指纹只挡原文重发；发件方模型读到「对方没回」会**换个说法**再问——指纹不同、守卫不命中、再唤醒，
