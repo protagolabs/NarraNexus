@@ -80,8 +80,20 @@ from loguru import logger
 from narranexus.platform.module_system import XYZBaseModule, module_registry
 from narranexus.platform.module_system.base import mcp_mount_path, mcp_port
 
+#: How long shutdown waits for detached (`spawn`ed) work before cancelling it
+#: and closing the pool. Bounded so a wedged task cannot hold the process past
+#: the container's stop grace; the work is cancelled, never silently dropped.
+_BACKGROUND_DRAIN_SEC = 10.0
+
 # Utils
-from narranexus.platform.utils import DatabaseClient, close_db_client, get_db_client, get_db_client_sync
+from narranexus.platform.utils import (
+    DatabaseClient,
+    close_db_client,
+    drain_background_tasks,
+    get_db_client,
+    get_db_client_sync,
+    pending_background_tasks,
+)
 
 
 @contextlib.contextmanager
@@ -291,7 +303,7 @@ class ModuleRunner:
         # modules alike), so resolving modules before booting resolves nothing.
         # Registers declarative contributions (tools / mcp servers / skills);
         # user plugin code is not activated in this process.
-        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins, mark_host_healthy
+        from narranexus.platform.module_system.plugins_boot import boot_mcp_plugins
 
         boot_mcp_plugins()
 
@@ -303,6 +315,31 @@ class ModuleRunner:
 
         user = user_id or agent_id
 
+        # Everything past this point may have opened the pool; ONE finally
+        # releases it (see _release_host_resources) whichever way we leave —
+        # serve() returning, the "no MCP servers" early return, auto_migrate
+        # raising. The first version closed the pool only after serve(), so
+        # the two start-up failure exits still leaked it.
+        # The pool is opened OUTSIDE the try (a failed open has nothing to
+        # release) and migrated INSIDE it (a failed migration must still
+        # close what was just opened — the test that caught this had
+        # migrate raise inside the opener, leaving `db` unbound).
+        db = await self._open_pool_unless_seamed()
+        try:
+            if db is not None:
+                from narranexus.platform.utils.db.schema_registry import auto_migrate
+
+                # MCP runs as a separate process from the backend here, so it
+                # ensures the tables exist itself.
+                await auto_migrate(db._backend)
+                logger.info("Schema auto-migration complete")
+            await self._serve_host(agent_id, user, module_classes, db)
+        finally:
+            await self._release_host_resources(db)
+
+    @staticmethod
+    async def _open_pool_unless_seamed() -> Optional[DatabaseClient]:
+        """The pool this process owns (built on THIS loop), or None in seam/HttpStore mode."""
         if _seam_uses_backend():
             # Seam is HttpStore: every DB-touching tool forwards to the backend,
             # so this process needs no pool and must NOT run migrations (backend
@@ -310,18 +347,20 @@ class ModuleRunner:
             # Modules get database_client=None, exactly like the multi-process
             # path (_run_single_mcp) — that is what makes single-process cloud mcp
             # genuinely creds-free.
-            db = None
             logger.info("MCP async mode: seam=HttpStore → no DB pool, skipping auto_migrate")
-        else:
-            # SQLite / local dev: this runner DOES hold the pool. Build it on THIS
-            # loop (aiomysql binds Futures to the creating loop) and ensure tables
-            # exist (MCP runs as a separate process from the backend here).
-            db = await get_db_client()
-            from narranexus.platform.utils.db.schema_registry import auto_migrate
+            return None
+        # SQLite / local dev: this runner DOES hold the pool. Build it on THIS
+        # loop (aiomysql binds Futures to the creating loop).
+        return await get_db_client()
 
-            await auto_migrate(db._backend)
-            logger.info("Schema auto-migration complete")
-
+    async def _serve_host(
+        self,
+        agent_id: str,
+        user: str,
+        module_classes: List[Type[XYZBaseModule]],
+        db: Optional[DatabaseClient],
+    ) -> None:
+        """Build every module's server and serve them on ONE uvicorn host until stopped."""
         logger.info("Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
         logger.info(f"   User ID: {user}")
@@ -374,6 +413,8 @@ class ModuleRunner:
 
         logger.info(f"\n✅ MCP host running on port {port} ({len(instances)} module servers, single-process, single-loop)")
         # Serving: the mcp boot may now clear its marker and move the LKG.
+        from narranexus.platform.module_system.plugins_boot import mark_host_healthy
+
         mark_host_healthy("mcp")
 
         try:
@@ -386,20 +427,47 @@ class ModuleRunner:
                     loop.remove_signal_handler(sig)
                 except (NotImplementedError, ValueError):  # pragma: no cover
                     pass
-            if db is not None:
-                # This process opened the pool (`db`, above) on THIS loop —
-                # aiomysql binds its Futures to the creating loop, so it must
-                # also be the one to close it. Without this, returning here
-                # lets asyncio.run() tear the loop down with the pool still
-                # open; aiomysql's connections are then finalized by GC after
-                # the loop is already closed, logging "Event loop is closed"
-                # once per leaked connection (dev logs, 11x). Mirrors the
-                # shutdown convention run_worker_supervisor.py and
-                # run_channel_triggers.py already use for the same reason.
-                try:
-                    await close_db_client()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"[mcp] close_db_client failed: {e}")
+
+    @staticmethod
+    async def _release_host_resources(db: Optional[DatabaseClient]) -> None:
+        """Shutdown sequence, in the order the two sibling entrypoints use.
+
+        1. Join detached work FIRST. ``utils.background_tasks.spawn`` hands
+           out fire-and-forget tasks from inside tool calls (a hook can start
+           a whole run, the dataloader flushes batches, the narrative updater
+           writes) — anything still in flight when the pool closes hits
+           ``_backend=None``. Bounded (``_BACKGROUND_DRAIN_SEC``), then
+           cancelled and gathered: the same stop → cancel → gather shape as
+           ``run_worker_supervisor._drain_and_close`` — a wedged task must
+           not turn shutdown into a hang, and the process is exiting anyway.
+        2. Close the pool this process opened, on THIS loop — aiomysql binds
+           its Futures to the creating loop, so it must also be the one to
+           close it. Skipped in seam/HttpStore mode (``db is None``): nothing
+           was opened. Without this, ``asyncio.run()`` tore the loop down
+           with the pool open and aiomysql's connections were finalized by GC
+           afterwards, logging "Event loop is closed" once per connection
+           (dev logs, 11x).
+        3. Flush loguru's async sinks inside this loop scope, as both
+           siblings do — a sink flushed after the loop closes is a sink that
+           drops the last lines of the shutdown.
+        """
+        in_flight = pending_background_tasks()
+        if in_flight:
+            logger.info(f"[mcp] waiting for {len(in_flight)} background task(s) before closing the pool")
+            await drain_background_tasks(timeout=_BACKGROUND_DRAIN_SEC)
+            leftover = list(pending_background_tasks())
+            for task in leftover:
+                task.cancel()
+            if leftover:
+                await asyncio.gather(*leftover, return_exceptions=True)
+        if db is not None:
+            try:
+                await close_db_client()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[mcp] close_db_client failed: {e}")
+        flush = logger.complete()
+        if hasattr(flush, "__await__"):
+            await flush
 
     @staticmethod
     def _build_module_app(mcp_server: Any) -> Any:

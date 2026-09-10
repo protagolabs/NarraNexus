@@ -433,3 +433,99 @@ async def test_sigterm_does_not_close_a_pool_it_never_opened(monkeypatch, fake_u
     await fire_task
 
     assert close_calls["n"] == 0
+
+
+# ── every exit after the pool opens releases it (review I5), and detached ──
+# ── work is joined BEFORE the pool closes (review M5) ─────────────────────
+
+
+def _record_close(monkeypatch, log: list):
+    async def _fake_close_db_client():
+        log.append("closed")
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_no_servers_early_return_still_closes_the_pool(monkeypatch, fake_uvicorn):
+    """The first version closed the pool only in serve()'s finally; the
+    `if not instances: return` exit sits BEFORE that block and left the pool
+    open — the start-up-failure log (the one you most need to read) still got
+    the 11 "Event loop is closed" lines."""
+    runner = ModuleRunner()
+
+    class _NoServerModule:
+        def __init__(self, agent_id, user_id, database_client):
+            pass
+
+        def build_instrumented_mcp_server(self):
+            return None
+
+        async def mcp_server(self):
+            return None
+
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_NoServerModule])
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=[_NoServerModule]), timeout=5.0)
+
+    assert log == ["closed"]
+    assert fake_uvicorn.instances == [], "nothing to serve — no host must start"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_auto_migrate_still_closes_the_pool_and_propagates(monkeypatch, fake_uvicorn):
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+
+    async def _boom_migrate(_backend):
+        raise RuntimeError("DDL grant missing")
+
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    with pytest.raises(RuntimeError, match="DDL grant missing"):
+        await runner.run_mcp_servers_async(modules=modules)
+
+    assert log == ["closed"]
+
+
+@pytest.mark.asyncio
+async def test_detached_work_is_joined_before_the_pool_closes(monkeypatch, fake_uvicorn):
+    """`spawn`ed work (a hook starting a run, a dataloader flush) that is still
+    in flight when the pool closes hits `_backend=None`. The sibling
+    entrypoints stop their workers FIRST and close the pool LAST; this host
+    must keep the same order."""
+    from narranexus.platform.utils import spawn
+
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    async def _detached_work():
+        await asyncio.sleep(0.05)
+        log.append("task_done")
+
+    async def _spawn_then_stop():
+        for _ in range(500):
+            if len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        spawn(_detached_work(), name="test-detached-work")
+        fake_uvicorn.release.set()
+
+    stopper = asyncio.create_task(_spawn_then_stop())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await stopper
+
+    assert log == ["task_done", "closed"]
