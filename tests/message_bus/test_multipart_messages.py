@@ -526,3 +526,28 @@ async def test_a_part_count_over_the_cap_is_refused_on_part_one(db_client, monke
     assert await db_client.get("bus_messages", {"from_agent": A}) == []
     ok = await tools["message_agent"](agent_id=A, to=B, text="x", part_index=1, part_count=multipart.MAX_MESSAGE_PARTS)
     assert ok["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_silent_two_message_batch_still_wakes_the_sender_once(db_client, monkeypatch):
+    """The silence guard excludes every row of the CURRENT batch, so a
+    two-message batch does not suppress its own first wake (review r2 I1's
+    exclude-by-id trap, on the silence path)."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e"))
+
+    m1 = await _dm(db_client, tools, "first half")
+    m2 = await _dm(db_client, tools, "second half")
+    await trigger._handle_channel_batch(B, m1.channel_id, [m1, m2], m2, channel_owner=A)
+    notices = await db_client.get("bus_messages", {"channel_id": m1.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
+    assert len(notices) == 1
+    # The same pair again → recognised, not re-announced.
+    r1 = await _dm(db_client, tools, "first half")
+    r2 = await _dm(db_client, tools, "second half")
+    await trigger._handle_channel_batch(B, m1.channel_id, [r1, r2], r2, channel_owner=A)
+    notices = await db_client.get("bus_messages", {"channel_id": m1.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
+    assert len(notices) == 1

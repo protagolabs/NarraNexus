@@ -2131,7 +2131,7 @@ class MessageBusTrigger:
                 if not is_team:
                     await self._wake_sender_on_drop(
                         agent_id, channel_id, trigger_message,
-                        error=str(e), attempts=failure_count,
+                        error=str(e), attempts=failure_count, batch=messages,
                     )
 
         # One line per successful hop, grep-stable — emitted OUTSIDE the try
@@ -3980,7 +3980,7 @@ class MessageBusTrigger:
 
     async def _wake_sender_on_drop(
         self, agent_id: str, channel_id: str, trigger_message: BusMessage,
-        *, error: str, attempts: int,
+        *, error: str, attempts: int, batch: Optional[List[BusMessage]] = None,
     ) -> None:
         """The message is gone for good: say so where the SENDER will see it.
 
@@ -4018,7 +4018,9 @@ class MessageBusTrigger:
             cooldowns = OwnerNoticeCooldownRepository(db)
             if await cooldowns.is_cooling(
                 agent_id, channel_id, "peer_drop", FAILURE_NOTIFY_COOLDOWN_SECONDS
-            ) or await self._drop_already_announced(agent_id, channel_id, trigger_message):
+            ) or await self._drop_already_announced(
+                agent_id, channel_id, batch or [trigger_message]
+            ):
                 logger.info(
                     f"[bus-drop] {agent_id} dropped another message from {sender} "
                     f"in {channel_id} inside the window; not waking it again"
@@ -4036,24 +4038,34 @@ class MessageBusTrigger:
             await cooldowns.arm(agent_id, channel_id, "peer_drop")
 
     async def _drop_already_announced(
-        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        self, agent_id: str, channel_id: str, batch: List[BusMessage],
     ) -> bool:
         """Was this exact content already dropped by this recipient in this
-        channel within the window? Same fingerprint `_stamp_receipts` wrote."""
+        channel within the window, on an earlier message?
+
+        Fingerprints the WHOLE batch, the same way `_stamp_receipts` wrote it
+        (review r2 I1: keying on the trigger message alone never matched a
+        two-message batch's receipts, so this layer silently did nothing).
+        The current batch's own `dropped` rows — written just before this,
+        one per message (and per part) — are all excluded by id, or a
+        two-message batch would suppress its own first wake.
+        """
         from narranexus.platform.repository.bus_delivery_receipt_repository import (
             BusDeliveryReceiptRepository,
             content_key,
         )
         from narranexus.platform.utils.db.db_factory import get_db_client
 
-        worthy = self._receipt_worthy([trigger_message])
+        worthy = self._receipt_worthy(batch)
         if not worthy:
             return False
         return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
             channel_id=channel_id, to_agent=agent_id,
             key=content_key("\n".join(m.content for m in worthy)),
             status=RECEIPT_DROPPED,
-            exclude_message_id=trigger_message.message_id,
+            exclude_message_ids=[
+                mid for m in worthy for mid in (m.part_message_ids or [m.message_id])
+            ],
             within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
         )
 
@@ -4171,7 +4183,9 @@ class MessageBusTrigger:
                 channel_id=channel_id, to_agent=agent_id,
                 key=content_key("\n".join(m.content for m in worthy)),
                 status=RECEIPT_SILENT,
-                exclude_message_id=worthy[-1].message_id,
+                exclude_message_ids=[
+                    mid for m in worthy for mid in (m.part_message_ids or [m.message_id])
+                ],
                 within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
             )
         except Exception as e:  # noqa: BLE001 — see docstring

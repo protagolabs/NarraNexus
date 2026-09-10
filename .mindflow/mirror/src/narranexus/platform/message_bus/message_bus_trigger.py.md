@@ -4,6 +4,16 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-10（review r2 I1）— 掉包指纹层按整批算，并排除本批全部行
+
+`_drop_already_announced(agent_id, channel_id, batch)` 与 `_silence_already_announced` 同构：
+指纹 = `_receipt_worthy(batch)` 正文按 `\n` 拼接（与 `_stamp_receipts` 写入口径一致——此前
+只算 trigger 那一条，两条以上的批次永远查不到，第二层守卫形同虚设），`exclude_message_ids`
+= 本批每条（含分片每行）的 id——本批自己刚写的 dropped/silent 行必须全部排除，否则两条消息的
+批次会把自己的第一次唤醒压掉。`_wake_sender_on_drop` 多收 `batch=messages`。锁：
+`test_the_same_content_dropped_again_is_recognised_by_fingerprint`（两条批次、删冷却行）、
+`test_a_silent_two_message_batch_still_wakes_the_sender_once`。
+
 ## 2026-09-10（review r2 C2）— WIDE 重读是最后一次判定，不再无条件 hold
 
 `_process_lane`：wide 重读后若仍 `truncated and not relevant`，再以 `batch_truncated=False`

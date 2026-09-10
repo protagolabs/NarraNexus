@@ -38,7 +38,7 @@ Plain class (composite key, upsert + two reads); dialect-safe by construction â€
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from datetime import timedelta
 
@@ -119,11 +119,12 @@ class BusDeliveryReceiptRepository:
         to_agent: str,
         key: str,
         status: str,
-        exclude_message_id: str,
+        exclude_message_ids: Iterable[str],
         within_seconds: float,
     ) -> bool:
         """Did `to_agent` already reach `status` on this exact content in this
-        channel, on a DIFFERENT message, within the window?
+        channel, on a message OUTSIDE `exclude_message_ids` (the current
+        batch's own rows), within the window?
 
         The guard behind "wake the sender once, not every time" for both a
         silent turn (`silent`) and a dropped message (`dropped`). Windowed on
@@ -136,8 +137,9 @@ class BusDeliveryReceiptRepository:
             {"channel_id": channel_id, "to_agent": to_agent, "content_key": key},
         )
         floor = utc_now() - timedelta(seconds=within_seconds)
+        excluded = set(exclude_message_ids)
         for r in rows or []:
-            if r.get("status") != status or r.get("message_id") == exclude_message_id:
+            if r.get("status") != status or r.get("message_id") in excluded:
                 continue
             seen = coerce_utc(r.get("updated_at"))
             if seen is not None and seen >= floor:

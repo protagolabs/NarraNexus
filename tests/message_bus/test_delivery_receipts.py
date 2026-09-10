@@ -258,10 +258,14 @@ async def test_a_team_turn_writes_no_receipts(db_client, monkeypatch):
 
 
 async def _drop(trigger, db_client, tools, text):
-    msg = await _seed_dm_text(db_client, tools, text)
+    """Drop ONE message (three failures). `text` may be a list: then the
+    batch the recipient's turn consumed — and the receipts fingerprint —
+    span all of them, which is what the fingerprint layer must handle."""
+    texts = text if isinstance(text, list) else [text]
+    msgs = [await _seed_dm_text(db_client, tools, t) for t in texts]
     for _ in range(3):
-        await trigger._handle_channel_batch(B, msg.channel_id, [msg], msg, channel_owner=A)
-    return msg
+        await trigger._handle_channel_batch(B, msgs[-1].channel_id, msgs, msgs[-1], channel_owner=A)
+    return msgs[0]
 
 
 async def _seed_dm_text(db_client, tools, text):
@@ -329,13 +333,16 @@ async def test_the_same_content_dropped_again_is_recognised_by_fingerprint(db_cl
     trigger = MessageBusTrigger(bus=bus)
     monkeypatch.setattr(trigger, "_invoke_runtime", _boom("worker crashed"))
 
-    first = await _drop(trigger, db_client, tools, "build the site")
+    # A TWO-message batch: the receipts carry the batch fingerprint, so the
+    # guard must fingerprint the batch too (review r2 I1 — keyed on the
+    # trigger message alone it never matched, and only the cooldown row hid it).
+    first = await _drop(trigger, db_client, tools, ["build the site", "by friday"])
     await db_client.delete("owner_notice_cooldowns", {"agent_id": B})
-    await _drop(trigger, db_client, tools, "build  the site")
+    await _drop(trigger, db_client, tools, ["build  the site", "by friday"])
     assert len(await _failed_notices(db_client, first.channel_id)) == 1
     # Different content with no cooldown row → a fresh wake (the positive case).
     await db_client.delete("owner_notice_cooldowns", {"agent_id": B})
-    await _drop(trigger, db_client, tools, "something unrelated")
+    await _drop(trigger, db_client, tools, ["something unrelated", "by friday"])
     assert len(await _failed_notices(db_client, first.channel_id)) == 2
 
 

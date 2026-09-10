@@ -73,19 +73,19 @@ async def test_prior_outcome_matches_same_content_on_another_message_only(db_cli
 
     assert await _silent(
         channel_id="ch", to_agent="b", key=content_key("please build the site"),
-        exclude_message_id="m4",
+        exclude_message_ids=["m4"],
     ) is True
     # The very message that was silent is not a "prior" silence for itself.
     assert await _silent(
-        channel_id="ch", to_agent="b", key=key, exclude_message_id="m3"
+        channel_id="ch", to_agent="b", key=key, exclude_message_ids=["m3"]
     ) is False
     # Different content, another channel, another recipient → fresh.
     assert await _silent(
         channel_id="ch", to_agent="b", key=content_key("something else"),
-        exclude_message_id="m4",
+        exclude_message_ids=["m4"],
     ) is False
     assert await _silent(
-        channel_id="other", to_agent="b", key=key, exclude_message_id="m4"
+        channel_id="other", to_agent="b", key=key, exclude_message_ids=["m4"]
     ) is False
     # A non-silent receipt with the same content does not count.
     await repo.upsert(
@@ -93,7 +93,7 @@ async def test_prior_outcome_matches_same_content_on_another_message_only(db_cli
         status=RECEIPT_ACCEPTED, content_key=key,
     )
     assert await _silent(
-        channel_id="ch", to_agent="c", key=key, exclude_message_id="m6"
+        channel_id="ch", to_agent="c", key=key, exclude_message_ids=["m6"]
     ) is False
 
 
@@ -118,11 +118,11 @@ async def test_prior_outcome_expires_with_its_window(db_client, monkeypatch):
     )
     assert await repo.prior_outcome(
         channel_id="ch", to_agent="b", key=key, status=RECEIPT_SILENT,
-        exclude_message_id="new", within_seconds=3600,
+        exclude_message_ids=["new"], within_seconds=3600,
     ) is False
     assert await repo.prior_outcome(
         channel_id="ch", to_agent="b", key=key, status=RECEIPT_SILENT,
-        exclude_message_id="new", within_seconds=10_000,
+        exclude_message_ids=["new"], within_seconds=10_000,
     ) is True
 
 

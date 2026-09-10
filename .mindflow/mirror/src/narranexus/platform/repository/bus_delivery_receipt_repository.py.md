@@ -39,6 +39,11 @@ Web Developer 的 worker 早已在旧模块路径上 import 失败三次）。
 `prior_outcome`。（review M2：曾预留的 `for_sender` / `TERMINAL_FAILURE_STATUSES` 无调用方，按
 铁律 #2 删除，连同 `idx_bus_receipt_sender` 索引。）
 
+## 2026-09-10（review r2 I1）— `prior_outcome(exclude_message_ids=…)`
+
+排除项从单个 id 改为集合：调用方传本批全部 message_id（分片按行展开），因为回执是先按整批
+写、再问「之前有没有」，只排一条会让多条批次自我抑制。
+
 ## Retention
 
 `cleanup_older_than_days(days)`（2026-09-09，review I1）：按 `updated_at` 删旧回执——回执是投递时的事实，读它的窗口关了就是历史，否则表与 `bus_messages` 1:1 永远增长。由 trigger 每日 tick 调（`RECEIPT_RETENTION_DAYS`）。
