@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/admin/suspend.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 I2/I3/I4）— job 暂停改为最后一步、best-effort、按执行主体批量
+
+三条复审意见一次落地：
+- **I4 顺序**：原来 `update_user → 暂停 job → 写审计 → 清缓存`，暂停 job 中途抛错 → 请求 500，
+  但账户**已经 BANNED**、job 部分暂停、**审计一行没写**、中间件缓存没失效。现在顺序是
+  `update_user → 审计 → 清缓存 → 暂停 job`，暂停包在 `_pause_jobs_for_suspended_principal`
+  的 try/except 里（沿用 `_invalidate_cache` 的 best-effort 先例）：账户状态是真相源，审计与
+  缓存失效不能被 job 表的抖动带走；[[job_trigger]] 的 `_non_transacting_status` 逐 job 门是
+  持久兜底。**不静默**：`SuspendResponse` 新增 `jobs_paused: int` 与
+  `jobs_pause_error: Optional[str]`（additive，老调用方不受影响），日志也带上。
+- **I2 口径**：选行改成「会以该用户身份**执行**的 job」——
+  `JobRepository.pause_jobs_for_execution_principal`（[[job_repository]]），与 poller 的
+  `exec_uid = related_entity_id or user_id` 完全一致。owner 是被封者但 `related_entity_id`
+  是正常用户的 job **不**暂停（poller 会照跑，这里再标 banned 就是两个组件打架）。
+- **I3**：一条 UPDATE、返回 rowcount，不再有 500 行截断与 N 次往返。
+锁：`test_suspend_pauses_jobs_that_execute_as_the_suspended_user`、
+`test_suspend_leaves_jobs_that_execute_as_another_principal`、
+`test_suspend_pauses_more_than_five_hundred_jobs`、
+`test_suspend_survives_a_job_pause_failure_and_still_audits`。
 
 ## 2026-09-09 — B-13：suspend 同请求内暂停该用户的活跃 job
 
@@ -12,9 +32,9 @@ stub: false
 被封（B-13 的另一半修复，见 job_trigger 的 `_is_user_banned`）才会在下一次 poll
 周期停下——中间那段窗口纯属浪费重试。
 
-**修法**：`suspend_account` 在 `not already` 分支里，紧跟 `users.status` 写入之后
-调用新增的 `_pause_jobs_for_banned_user(db, user_id)`——同一个请求、同一次调用栈内
-完成，不等下一次 job poll。跳过终态 job（`completed`/`cancelled`/`failed`，反正不会
+**修法**（顺序与选行口径已于 2026-09-10 修订，见上一节）：`suspend_account` 在
+`not already` 时调用 `_pause_jobs_for_suspended_principal(db, user_id)`——同一个请求、
+同一次调用栈内完成，不等下一次 job poll。跳过终态 job（`completed`/`cancelled`/`failed`，反正不会
 再跑）和已经是 `paused_reason="banned"` 的 job（幂等）。用 `JobStatus.PAUSED` +
 `paused_reason="banned"`，不是新状态值——`paused_reason` 是自由字符串字段
 （`max_length=32`），加一个新取值是纯 additive 变更，不碰 schema。
@@ -58,7 +78,7 @@ stub: false
 
 **依赖谁**：
 - `narranexus.platform.repository.user_repository.UserRepository`：读用户、写 `users.status`。
-- `narranexus.platform.repository.job_repository.JobRepository`（2026-09-09 起）：suspend 成功后暂停该用户名下所有非终态 job（B-13）。
+- `narranexus.platform.repository.job_repository.JobRepository`（2026-09-09 起）：suspend 成功后暂停所有会以该用户身份执行的非终态 job（B-13，`pause_jobs_for_execution_principal`）。
 - `narranexus.platform.repository.ban_audit_repository.BanAuditRepository`（+ `ACTION_SUSPEND` / `ACTION_REINSTATE` 常量）：写审计行。
 - `narranexus.platform.schema.UserStatus` + `NON_TRANSACTING_USER_STATUSES`：状态枚举，以及三面共享的「不可交易」集合（`_SUSPENDED_STATES` 直接指向它，见下）。
 - `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与 [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。本模块仍保留 `from narranexus.platform.settings import settings` 的再导出，只是为了让测试可以通过 `mod.settings` 覆盖 secret（helper 读的是同一个 settings 单例对象）。

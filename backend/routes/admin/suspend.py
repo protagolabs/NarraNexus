@@ -40,7 +40,6 @@ from narranexus.platform.repository.ban_audit_repository import (
     BanAuditRepository,
 )
 from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES, UserStatus
-from narranexus.platform.schema.job_schema import JobStatus
 
 from ._admin_secret import require_admin_secret
 
@@ -52,38 +51,43 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # is a no-op success.
 _SUSPENDED_STATES = NON_TRANSACTING_USER_STATUSES
 
-# Job statuses a suspend must never touch: the job will never run again
-# regardless of the owner's account state, so overwriting a terminal status
-# with PAUSED would misreport why it stopped.
-_TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.FAILED)
+# paused_reason written on the jobs of a suspended account. The same literal
+# JobTrigger records when it catches a non-transacting principal itself
+# (it writes the account's actual status; this route only ever sets BANNED).
+_PAUSED_REASON_BANNED = UserStatus.BANNED.value
 
 
-async def _pause_jobs_for_banned_user(db, user_id: str) -> int:
-    """Pause every non-terminal job owned by `user_id` (B-13).
+async def _pause_jobs_for_suspended_principal(db, user_id: str) -> tuple[int, Optional[str]]:
+    """Best-effort: pause every non-terminal job that would EXECUTE as
+    `user_id` (B-13). Returns `(paused_count, error)`; never raises.
 
-    Called in the same request as the `users.status` flip so a banned
+    Runs in the same request as the `users.status` flip so a suspended
     account's scheduled jobs stop being enqueued immediately, instead of
-    waiting for the job poller's own (separate) ban check on its next cycle.
+    waiting for the job poller's own (separate) account check on its next
+    cycle. It is deliberately the LAST step and wrapped (review I4): the
+    account flip is the source of truth, the audit row and the cache
+    invalidation must not be lost to a job-table hiccup, and the poller's
+    per-job gate (`JobTrigger._non_transacting_status`) is the durable
+    backstop for anything this misses. The count / error are surfaced in
+    the response so a partial pause is never silent.
+
+    One batched UPDATE selected by execution principal
+    (`JobRepository.pause_jobs_for_execution_principal`, review I2/I3) —
+    the identity the run would use, which is what the poller judges too.
     `paused_reason="banned"` marks these as never auto-resumable — the only
     way back is `POST /api/admin/reinstate` (which does not itself resume
     jobs; a reinstated user's jobs are resumed the ordinary way, same as any
     other paused job).
     """
-    job_repo = JobRepository(db)
-    jobs = await job_repo.get_jobs_by_user(user_id, limit=500)
-    paused = 0
-    for job in jobs:
-        if job.status in _TERMINAL_JOB_STATUSES:
-            continue
-        if job.status == JobStatus.PAUSED and job.paused_reason == "banned":
-            continue
-        await job_repo.update_job(job.job_id, {
-            "status": JobStatus.PAUSED.value,
-            "paused_reason": "banned",
-            "paused_at": utc_now(),
-        })
-        paused += 1
-    return paused
+    try:
+        paused = await JobRepository(db).pause_jobs_for_execution_principal(
+            user_id, _PAUSED_REASON_BANNED, paused_at=utc_now()
+        )
+        return paused, None
+    except Exception as e:  # noqa: BLE001 — the poller gate is the durable backstop
+        err = f"{type(e).__name__}: {e}"
+        logger.warning(f"[suspend] job pause failed for {user_id}: {err}")
+        return 0, err
 
 
 class SuspendRequest(BaseModel):
@@ -99,6 +103,11 @@ class SuspendRequest(BaseModel):
 class SuspendResponse(BaseModel):
     suspended: bool
     already: bool
+    # B-13 / review I4: how many of the account's jobs this call paused, and
+    # why the pause step failed if it did (the account is suspended either
+    # way; the job poller re-checks account state on its own).
+    jobs_paused: int = 0
+    jobs_pause_error: Optional[str] = None
 
 
 class ReinstateRequest(BaseModel):
@@ -151,7 +160,6 @@ async def suspend_account(
         await user_repo.update_user(
             request.user_id, {"status": UserStatus.BANNED}
         )
-        await _pause_jobs_for_banned_user(db, request.user_id)
 
     # Audit every call (including the idempotent no-op) so the trail records
     # who asked and when, even when the state did not change. prev_status is the
@@ -166,11 +174,24 @@ async def suspend_account(
     )
     _invalidate_cache(request.user_id)
 
+    # Last, and best-effort (see the helper): audit + cache are already safe.
+    jobs_paused, jobs_pause_error = (0, None)
+    if not already:
+        jobs_paused, jobs_pause_error = await _pause_jobs_for_suspended_principal(
+            db, request.user_id
+        )
+
     logger.info(
         f"[suspend] user={request.user_id} already={already} "
-        f"actor={request.actor or '-'}"
+        f"jobs_paused={jobs_paused} actor={request.actor or '-'}"
+        + (f" jobs_pause_error={jobs_pause_error}" if jobs_pause_error else "")
     )
-    return SuspendResponse(suspended=True, already=already)
+    return SuspendResponse(
+        suspended=True,
+        already=already,
+        jobs_paused=jobs_paused,
+        jobs_pause_error=jobs_pause_error,
+    )
 
 
 @router.post("/reinstate", response_model=ReinstateResponse)

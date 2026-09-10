@@ -125,7 +125,9 @@ async def test_suspend_flips_status_and_writes_audit(db_client, monkeypatch):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"suspended": True, "already": False}
+    assert body == {
+        "suspended": True, "already": False, "jobs_paused": 0, "jobs_pause_error": None,
+    }
 
     row = await db_client.get_one("users", {"user_id": UID})
     assert row["status"] == "banned"
@@ -152,8 +154,12 @@ async def test_suspend_is_idempotent(db_client, monkeypatch):
         json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
     )
 
-    assert first.json() == {"suspended": True, "already": False}
-    assert second.json() == {"suspended": True, "already": True}
+    assert first.json() == {
+        "suspended": True, "already": False, "jobs_paused": 0, "jobs_pause_error": None,
+    }
+    assert second.json() == {
+        "suspended": True, "already": True, "jobs_paused": 0, "jobs_pause_error": None,
+    }
 
     row = await db_client.get_one("users", {"user_id": UID})
     assert row["status"] == "banned"
@@ -289,8 +295,8 @@ async def test_secret_not_configured_is_503(db_client, monkeypatch):
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 
 
-async def _seed_job(db_client, job_id, user_id, status="active"):
-    await db_client.insert("instance_jobs", {
+async def _seed_job(db_client, job_id, user_id, status="active", related_entity_id=None):
+    row = {
         "job_id": job_id,
         "instance_id": f"ins_{job_id}",
         "agent_id": "agent_1",
@@ -300,7 +306,10 @@ async def _seed_job(db_client, job_id, user_id, status="active"):
         "trigger_config": SCHEDULED_TRIGGER,
         "status": status,
         "notification_method": "inbox",
-    })
+    }
+    if related_entity_id:
+        row["related_entity_id"] = related_entity_id
+    await db_client.insert("instance_jobs", row)
 
 
 @pytest.mark.asyncio
@@ -316,6 +325,7 @@ async def test_suspend_pauses_the_users_active_jobs(db_client, monkeypatch):
     )
 
     assert resp.status_code == 200
+    assert resp.json()["jobs_paused"] == 2
     for job_id in ("job_1", "job_2"):
         row = await db_client.get_one("instance_jobs", {"job_id": job_id})
         assert row["status"] == "paused"
@@ -351,7 +361,107 @@ async def test_suspend_idempotent_second_call_leaves_already_paused_jobs(db_clie
     await _post(app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET})
     second = await _post(app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET})
 
-    assert second.json() == {"suspended": True, "already": True}
+    assert second.json() == {
+        "suspended": True, "already": True, "jobs_paused": 0, "jobs_pause_error": None,
+    }
     row = await db_client.get_one("instance_jobs", {"job_id": "job_1"})
     assert row["status"] == "paused"
     assert row["paused_reason"] == "banned"
+
+
+# ---- review I2: selection is by EXECUTION principal, same as the poller ----
+
+@pytest.mark.asyncio
+async def test_suspend_pauses_jobs_that_execute_as_the_suspended_user(db_client, monkeypatch):
+    """Owned by someone else, but `related_entity_id` = the suspended user:
+    the poller would refuse to run it as that principal, so suspend pauses it."""
+    await _seed_user(db_client)
+    await _seed_user(db_client, user_id="u_owner_ok")
+    await _seed_job(db_client, "job_delegated", "u_owner_ok", status="active", related_entity_id=UID)
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.json()["jobs_paused"] == 1
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_delegated"})
+    assert row["status"] == "paused"
+    assert row["paused_reason"] == "banned"
+
+
+@pytest.mark.asyncio
+async def test_suspend_leaves_jobs_that_execute_as_another_principal(db_client, monkeypatch):
+    """Owned by the suspended user but run as someone who may transact — the
+    poller judges the execution principal, so suspend must not contradict it."""
+    await _seed_user(db_client)
+    await _seed_user(db_client, user_id="u_principal_ok")
+    await _seed_job(db_client, "job_runs_as_other", UID, status="active", related_entity_id="u_principal_ok")
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.json()["jobs_paused"] == 0
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_runs_as_other"})
+    assert row["status"] == "active"
+
+
+# ---- review I3: no 500-row ceiling ----
+
+@pytest.mark.asyncio
+async def test_suspend_pauses_more_than_five_hundred_jobs(db_client, monkeypatch):
+    await _seed_user(db_client)
+    for i in range(520):
+        await _seed_job(db_client, f"job_bulk_{i}", UID, status="active")
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.json()["jobs_paused"] == 520
+    rows = await db_client.execute(
+        "SELECT COUNT(*) AS n FROM instance_jobs WHERE user_id = %s AND status = %s",
+        (UID, "active"), fetch=True,
+    )
+    assert rows[0]["n"] == 0
+
+
+# ---- review I4: the pause is best-effort and comes after audit + cache ----
+
+@pytest.mark.asyncio
+async def test_suspend_survives_a_job_pause_failure_and_still_audits(db_client, monkeypatch):
+    from narranexus.platform.repository.job_repository import JobRepository
+
+    await _seed_user(db_client)
+    await _seed_job(db_client, "job_1", UID, status="active")
+    app = _make_app(db_client, monkeypatch)
+
+    async def _boom(self, *args, **kwargs):
+        raise RuntimeError("instance_jobs unavailable")
+
+    monkeypatch.setattr(JobRepository, "pause_jobs_for_execution_principal", _boom)
+
+    resp = await _post(
+        app, "/api/admin/suspend",
+        json={"user_id": UID, "actor": "ops-bot"}, headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["suspended"] is True
+    assert body["jobs_paused"] == 0
+    assert "instance_jobs unavailable" in body["jobs_pause_error"]
+    # The account IS suspended and the audit row IS written.
+    row = await db_client.get_one("users", {"user_id": UID})
+    assert row["status"] == "banned"
+    audit = await db_client.get("ban_audit", {"user_id": UID})
+    assert [a["action"] for a in audit] == ["suspend"]
+    # The job is left for the poller's own account gate.
+    job = await db_client.get_one("instance_jobs", {"job_id": "job_1"})
+    assert job["status"] == "active"

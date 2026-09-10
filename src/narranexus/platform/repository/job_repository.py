@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from .base import BaseRepository
 from narranexus.platform.utils import utc_now
+from narranexus.platform.utils.timezone import to_datetime6_literal
 from narranexus.platform.schema.job_schema import (
     JobType,
     JobStatus,
@@ -464,6 +465,71 @@ class JobRepository(BaseRepository[JobModel]):
 
         serialized_updates["updated_at"] = utc_now()
         return await self.update(job_id, serialized_updates)
+
+    async def pause_jobs_for_execution_principal(
+        self,
+        user_id: str,
+        paused_reason: str,
+        paused_at: Optional[datetime] = None,
+    ) -> int:
+        """Pause, in ONE statement, every non-terminal job that would EXECUTE
+        as `user_id` (B-13 / review I2+I3). Returns the number of rows paused.
+
+        "Executes as" is the same predicate JobTrigger applies per job
+        (`exec_uid = related_entity_id or user_id`): a job whose
+        `related_entity_id` is this user, or one with no related_entity_id
+        whose owner is this user. A job merely OWNED by `user_id` but run as
+        someone else is left alone — the account that cannot transact is the
+        one whose identity the run would use, and the poller judges exactly
+        that identity, so the two halves of an account suspension can never
+        disagree about a job.
+
+        One UPDATE, no fetch-then-loop: the previous shape
+        (`get_jobs_by_user(limit=500)` + one `update_job` per row) silently
+        stopped at 500 — precisely the shape a job-spamming account takes —
+        and cost N round-trips inside an admin request.
+
+        Skips terminal jobs (they never run again; overwriting COMPLETED /
+        CANCELLED / FAILED with PAUSED would misreport why they stopped) and
+        jobs already paused for this very reason (keeps their original
+        `paused_at`; `COALESCE` so a paused row with a NULL reason is still
+        re-labelled rather than dropped by three-valued logic).
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders,
+        `COALESCE`); timestamps travel as DATETIME(6) literals so neither
+        backend depends on a driver-side datetime adapter. Twins:
+        tests/repository/test_job_repository_pause_principal.py + `_mysql`.
+        """
+        logger.debug(f"    → JobRepository.pause_jobs_for_execution_principal({user_id})")
+        stamp = to_datetime6_literal(paused_at or utc_now())
+        query = f"""
+            UPDATE {self.table_name}
+            SET status = %s, paused_reason = %s, paused_at = %s, updated_at = %s
+            WHERE (
+                related_entity_id = %s
+                OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
+            )
+            AND status NOT IN (%s, %s, %s)
+            AND NOT (status = %s AND COALESCE(paused_reason, '') = %s)
+        """
+        result = await self._db.execute(
+            query,
+            params=(
+                JobStatus.PAUSED.value,
+                paused_reason,
+                stamp,
+                stamp,
+                user_id,
+                user_id,
+                JobStatus.COMPLETED.value,
+                JobStatus.CANCELLED.value,
+                JobStatus.FAILED.value,
+                JobStatus.PAUSED.value,
+                paused_reason,
+            ),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
 
     async def update_job_status(
         self,

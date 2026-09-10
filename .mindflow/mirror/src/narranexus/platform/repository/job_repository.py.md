@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/repository/job_repository.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 I2/I3）— `pause_jobs_for_execution_principal`：一条 UPDATE，按执行主体选行
+
+admin suspend（[[suspend]]）原来 `get_jobs_by_user(user_id, limit=500)` 再逐条 `update_job`：
+(a) 只按 owner 选行，与 [[job_trigger]] 的 `exec_uid = related_entity_id or user_id` 口径相反——
+以被封号者身份执行、owner 正常的 job 不会被暂停，owner 被封、执行主体正常的 job 反而被标
+`banned`，两个组件对同一条 job 判断相反；(b) 静默截断 500（刷 job 的马甲正是超 500 的那种）
+且 N 次往返。新方法一条语句：
+`WHERE (related_entity_id = ? OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = ?))
+AND status NOT IN (三终态) AND NOT (status = 'paused' AND COALESCE(paused_reason,'') = ?)`，
+返回 rowcount。`COALESCE` 是必须的：`paused_reason` 为 NULL 时 `NOT (… AND NULL = ?)` 是三值逻辑的
+NULL，会把这行悄悄漏掉。已经因同一 reason 暂停的行跳过（保留原 `paused_at`）；`paused_at` /
+`updated_at` 用 `to_datetime6_literal` 字面量传参，两方言都不依赖驱动侧 datetime adapter。
+裸 SQL 配双方言：`tests/repository/test_job_repository_pause_principal.py`（含 520 行无上限、
+NULL reason 重贴标签、委托执行正反两例）+ `_mysql` twin（谓词 / COALESCE / 字面量 / rowcount）。
 
 ## 2026-09-09 — B-16：`create_job` 加 `status` 参数 + BLOCKED 纳入激活集合
 
