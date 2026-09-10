@@ -33,17 +33,11 @@ from typing import Optional
 from loguru import logger
 
 from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
     AuthType,
     ProviderProtocol,
     SlotName,
 )
-
-# Auth transports the Claude Code CLI treats as a claude.ai SUBSCRIPTION
-# (``fI()`` in the CLI): the only ones where the CLI skips its own 429 retry
-# (its predicate is ``status === 429 → !isSubscriber()``). One definition —
-# the claude driver's transient-retry gate and the concurrency cap below key
-# on the same set.
-SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset({"oauth", "oauth_token"})
 
 # The CLI's own knob for how many concurrency-safe tool calls of ONE
 # assistant message execute in parallel — parallel Read / Grep / Glob / MCP

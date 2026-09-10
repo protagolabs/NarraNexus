@@ -1,13 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/api_config.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
-## 2026-09-09 — `SUBSCRIPTION_AUTH_TYPES` + 订阅账号并行工具上限注入
+## 2026-09-09 — 订阅账号并行工具上限注入（`SUBSCRIPTION_AUTH_TYPES` 从 provider_schema import）
 
-- `SUBSCRIPTION_AUTH_TYPES = {oauth, oauth_token}` 落户本文件（CLI 判 `isSubscriber()` 的两种
-  运输层）：claude driver 的 transient-retry 门（原 sdk.py 私有副本已删）与下面的上限共用一份。
+- `SUBSCRIPTION_AUTH_TYPES = {oauth, oauth_token}`（CLI 判 `isSubscriber()` 的两种运输层）**不在本文件定义**：
+  2026-09-09 初版在这里硬写了一份、与 `framework_binding` 那份重复（二轮 review I3），2026-09-10 起唯一定义在
+  [[provider_schema]]（`AuthType` 旁），本文件与 claude driver 都从那里 import（sdk.py 私有副本已删）。
 - `CLI_MAX_TOOL_USE_CONCURRENCY_ENV = "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"`：CLI 自己的旋钮
   （`parseInt(env)||10`），限一条 assistant 消息内**所有并发安全工具调用**的并行度，sub-agent
   launch 是其中一类。`to_cli_env` 在 `CLAUDE_CODE_MAX_RETRIES` 旁边、**仅当 `auth_type ∈

@@ -29,11 +29,15 @@ import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
 from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
 from narranexus.platform.agent_framework.api_config import (
     CLI_MAX_TOOL_USE_CONCURRENCY_ENV,
-    SUBSCRIPTION_AUTH_TYPES,
     ClaudeConfig,
     CodexConfig,
     OpenAIConfig,
     set_user_config,
+)
+from narranexus.platform.agent_framework.providers import framework_binding
+from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
+    AuthType,
 )
 from narranexus.platform.settings import settings
 
@@ -77,7 +81,18 @@ def test_env_name_is_the_cli_knob():
 
 def test_subscription_set_is_the_cli_definition():
     assert SUBSCRIPTION_AUTH_TYPES == frozenset({"oauth", "oauth_token"})
+    assert SUBSCRIPTION_AUTH_TYPES == {AuthType.OAUTH.value, AuthType.OAUTH_TOKEN.value}
     assert "api_key" not in SUBSCRIPTION_AUTH_TYPES
+
+
+def test_subscription_set_has_exactly_one_definition():
+    """Every consumer keys on the same object: the binding rules re-export
+    the schema-level constant, and the driver / api_config import it."""
+    assert framework_binding.SUBSCRIPTION_AUTH_TYPES is SUBSCRIPTION_AUTH_TYPES
+    assert sdk_mod.SUBSCRIPTION_AUTH_TYPES is SUBSCRIPTION_AUTH_TYPES
+    from narranexus.platform.agent_framework import api_config
+
+    assert api_config.SUBSCRIPTION_AUTH_TYPES is SUBSCRIPTION_AUTH_TYPES
 
 
 def test_default_setting_is_a_bounded_positive_cap():
