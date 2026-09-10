@@ -45,7 +45,10 @@ from narranexus.contracts.agent_events import (
 from narranexus.platform.utils.logging import timed
 
 from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
-from narranexus.platform.agent_framework.api_config import claude_config
+from narranexus.platform.agent_framework.api_config import (
+    CLI_MAX_TOOL_USE_CONCURRENCY_ENV,
+    claude_config,
+)
 from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.platform.agent_framework.providers.model_catalog import resolve_cli_alias
 from narranexus.platform.agent_framework.adapters import build_tool_policy_guard
@@ -1138,6 +1141,15 @@ class ClaudeAgentSDK:
         # AFTER the skill env merge so no skill can switch the orphaned
         # task-list feature back on (fail-closed). See TASK_LIST_TOOLS.
         cli_env[CLI_ENABLE_TASKS_ENV] = "false"
+
+        # Same order, same reason, for the subscription parallel-tool cap:
+        # to_cli_env set it before the merge, and a skill env carrying
+        # CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=50 (or "") would have raised /
+        # erased it. One predicate (cli_tool_concurrency_cap) decides on both
+        # sites, so keyed auth still gets nothing injected here.
+        _tool_cap = claude_config.cli_tool_concurrency_cap()
+        if _tool_cap is not None:
+            cli_env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] = str(_tool_cap)
 
         # Observability (#1): log the provider the subprocess will ACTUALLY use
         # — the EFFECTIVE env after every override, not just the configured

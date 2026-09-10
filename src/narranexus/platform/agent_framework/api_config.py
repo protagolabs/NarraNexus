@@ -122,6 +122,33 @@ class ClaudeConfig:
             else settings.claude_cli_config_path
         )
 
+    def cli_tool_concurrency_cap(self) -> Optional[int]:
+        """The ``CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`` value for this auth,
+        or None when the CLI's own default must stand.
+
+        Bounded parallel tool execution for a claude.ai subscription: every
+        sub-agent launched from one message is a model loop against the same
+        quota and the CLI never retries a subscriber's 429, so an unbounded
+        fan-out is a 429 storm. Keyed auth keeps the CLI default — the CLI
+        retries 429s there itself and the cap would only slow every parallel
+        Read/Grep batch down. A CONCURRENCY cap (how many run at once — every
+        call still runs, later), never an iteration / time ceiling on the
+        loop (铁律 #14). 0 (or less) = keep the CLI default; the CLI reads
+        ``|| 10`` so "0" would mean the same, but we do not send it at all.
+        A PreToolUse-hook semaphore was rejected: a failed tool call has no
+        matching release, and one leaked permit would wedge every later launch.
+
+        ONE predicate, two call sites: ``to_cli_env`` (the settings →
+        CLAUDE_CODE_* seam) and the claude driver, which re-applies it after
+        the skill env merge (fail-closed, like CLAUDE_CODE_ENABLE_TASKS).
+        """
+        from narranexus.platform.settings import settings as _settings
+
+        cap = _settings.claude_max_tool_use_concurrency
+        if self.auth_type in SUBSCRIPTION_AUTH_TYPES and cap > 0:
+            return cap
+        return None
+
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.
 
@@ -193,19 +220,12 @@ class ClaudeConfig:
         env["API_TIMEOUT_MS"] = str(_settings.llm_api_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.llm_max_retries)
 
-        # Bounded parallel tool execution for a claude.ai subscription: every
-        # sub-agent launched from one message is a model loop against the same
-        # quota and the CLI never retries a subscriber's 429, so an unbounded
-        # fan-out is a 429 storm. Keyed auth keeps the CLI default — the CLI
-        # retries 429s there itself and the cap would only slow every parallel
-        # Read/Grep batch down. A CONCURRENCY cap (how many run at once — every
-        # call still runs, later), never an iteration / time ceiling on the
-        # loop (铁律 #14). 0 (or less) = keep the CLI default; the CLI reads
-        # ``|| 10`` so "0" would mean the same, but we do not send it at all.
-        # A PreToolUse-hook semaphore was rejected: a failed tool call has no
-        # matching release, and one leaked permit would wedge every later launch.
-        _tool_concurrency = int(_settings.claude_max_tool_use_concurrency)
-        if self.auth_type in SUBSCRIPTION_AUTH_TYPES and _tool_concurrency > 0:
+        # Bounded parallel tool execution for a claude.ai subscription (see
+        # cli_tool_concurrency_cap for the predicate). The claude driver
+        # re-applies the same value AFTER merging skill env, so a skill cannot
+        # raise or drop it.
+        _tool_concurrency = self.cli_tool_concurrency_cap()
+        if _tool_concurrency is not None:
             env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] = str(_tool_concurrency)
 
         # Isolate the subprocess from the host user's personal

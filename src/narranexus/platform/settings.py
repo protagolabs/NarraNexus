@@ -258,8 +258,12 @@ class Settings(BaseSettings):
     # (how many run at once — every call still runs, later), never an
     # iteration / time ceiling on the loop (铁律 #14). 0 = keep the CLI default.
     # Env: CLAUDE_MAX_TOOL_USE_CONCURRENCY. Same scope caveat as the retry
-    # knobs above (cloud executors take the code default).
-    claude_max_tool_use_concurrency: int = 4
+    # knobs above (cloud executors take the code default). The default 6 is a
+    # judgement call, not a measurement: below the CLI's 10 so a message that
+    # launches many sub-agents cannot burst the full ten, above the first cut
+    # of 4 so a parallel-read batch loses less. Tune via the env when data
+    # says otherwise.
+    claude_max_tool_use_concurrency: int = 6
     # How many times a Claude helper structured-output call re-prompts for
     # valid JSON before giving up. Prompt-engineered structured output (schema
     # in the prompt + client-side JSON extraction) sometimes returns prose /

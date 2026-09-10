@@ -22,7 +22,9 @@ stub: false
 KillShell）——它们读取/停止**本 run 内** `Bash(run_in_background)` 的命令，读者是模型自己，
 禁掉等于砍掉一个在用的能力（首轮 review C1 抓到的错归类）；`Task`（起 sub-agent）也不在。
 两层生效：`cli_env[CLAUDE_CODE_ENABLE_TASKS]="false"` 从源头关（schema 根本不建），且**放在
-`extra_env` 合并之后**，skill 注入的 env 改不回来（fail-closed）；四个名字同时进
+`extra_env` 合并之后**，skill 注入的 env 改不回来（fail-closed；2026-09-10 起订阅账号的并行工具上限
+`CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` 也在同一位置按 `claude_config.cli_tool_concurrency_cap()` 再落一次，
+同一判据、同一顺序，见 [[api_config]]）；四个名字同时进
 `disallowed_tools` 起始列表，CLI 若忽略 env 也暴露不出来。WebSearch 守卫与 kwargs 合并逻辑不变。
 `base_system_prompt` 末尾拼 `prompts.task_list_tools_notice(...)`：清单工具已禁、本 run 内
 后台命令照常、跨 run 的工作走 Job module；拼在 BASE prompt 上，冷启动与陈旧句柄冷重试共用。

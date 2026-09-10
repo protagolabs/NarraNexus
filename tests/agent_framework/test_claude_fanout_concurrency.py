@@ -17,11 +17,19 @@ its own 429s there, and the cap would only slow parallel reads down). This
 is a CONCURRENCY limit, never an iteration / time ceiling on the loop
 (binding rule #14): every call still runs, later.
 
+The cap is applied twice on purpose: once in ``to_cli_env`` and again in
+the driver AFTER the skill ``extra_env`` merge, so a skill cannot raise or
+erase it (fail-closed, the same order as CLAUDE_CODE_ENABLE_TASKS). The env
+name is a fact about the CLI binary and is checked there when it is present.
+
 Each test goes red when the injection is removed: the assertions are on the
 env the SDK options carry into the subprocess, driven through the real
 adapter so the seam is exercised where production uses it.
 """
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 import pytest
 
@@ -61,7 +69,7 @@ def _configure(auth_type: str) -> None:
     )
 
 
-async def _cli_env(auth_type: str) -> dict:
+async def _cli_env(auth_type: str, **kwargs) -> dict:
     _configure(auth_type)
     sdk = ClaudeAgentSDK(working_path="/tmp/ws-fanout")
     _ = [e async for e in sdk.agent_loop(
@@ -70,13 +78,32 @@ async def _cli_env(auth_type: str) -> dict:
             {"role": "user", "content": "fan out"},
         ],
         {},
+        **kwargs,
     )]
     (client,) = _StubClient.instances
     return client.options.env
 
 
+def _cli_binary() -> Path | None:
+    try:
+        import claude_agent_sdk
+    except ImportError:
+        return None
+    path = Path(os.path.dirname(claude_agent_sdk.__file__)) / "_bundled" / "claude"
+    return path if path.is_file() else None
+
+
 def test_env_name_is_the_cli_knob():
     assert CLI_MAX_TOOL_USE_CONCURRENCY_ENV == "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"
+
+
+def test_env_name_matches_the_bundled_cli_binary():
+    """The knob is a fact about the binary; a CLI rename would turn the cap
+    into a silent no-op, so check the name there when the binary is present."""
+    binary = _cli_binary()
+    if binary is None:
+        pytest.skip("claude-agent-sdk bundled binary not installed")
+    assert CLI_MAX_TOOL_USE_CONCURRENCY_ENV.encode() in binary.read_bytes()
 
 
 def test_subscription_set_is_the_cli_definition():
@@ -123,6 +150,32 @@ async def test_keyed_auth_keeps_the_cli_default(auth_type):
     auth, so nothing is injected and parallel tool batches stay at 10."""
     env = await _cli_env(auth_type)
     assert CLI_MAX_TOOL_USE_CONCURRENCY_ENV not in env
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("skill_value", ["50", ""])
+async def test_skill_env_cannot_raise_the_cap(monkeypatch, skill_value):
+    """Fail-closed: the cap is re-applied AFTER the skill extra_env merge, so
+    a skill env cannot raise it back to the CLI default or erase it."""
+    monkeypatch.setattr(settings, "claude_max_tool_use_concurrency", 3)
+    env = await _cli_env(
+        "oauth_token",
+        extra_env={CLI_MAX_TOOL_USE_CONCURRENCY_ENV: skill_value, "TAVILY_API_KEY": "t"},
+    )
+    assert env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] == "3"
+    assert env["TAVILY_API_KEY"] == "t"  # other skill env untouched
+
+
+@pytest.mark.asyncio
+async def test_skill_env_passes_through_for_keyed_auth(monkeypatch):
+    """Allowed case: keyed auth is not the cap's business. The re-apply must
+    not hard-set a value the platform never injects for that auth, so a
+    skill's own value survives untouched."""
+    monkeypatch.setattr(settings, "claude_max_tool_use_concurrency", 3)
+    env = await _cli_env(
+        "api_key", extra_env={CLI_MAX_TOOL_USE_CONCURRENCY_ENV: "8"}
+    )
+    assert env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] == "8"
 
 
 @pytest.mark.asyncio
