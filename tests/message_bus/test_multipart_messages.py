@@ -468,3 +468,61 @@ async def test_a_group_over_the_total_budget_is_refused_not_trimmed(db_client, m
     assert "two separate messages" in out["error"]
     rows = await db_client.get("bus_messages", {"from_agent": A})
     assert len(rows) == count - 1 and all(len(r["content"]) == per_part for r in rows)
+
+
+# ── review r2 C2: a lane can never deadlock on a stuck group ────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_stuck_group_behind_a_deep_backlog_does_not_deadlock_the_lane(db_client, monkeypatch):
+    """640 pending rows behind a two-part group whose sender died: the batch
+    is cut even at the WIDE limit, so `batch_truncated` alone would hold
+    forever. The last read lets grace decide, and the lane drains in two
+    polls instead of never."""
+    from narranexus.platform.message_bus import local_bus
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    calls = _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e", delivered=True))
+    monkeypatch.setattr(
+        "narranexus.platform.message_bus.message_bus_trigger.assemble_parts",
+        lambda msgs, **kw: multipart.assemble(msgs, grace_seconds=0, **kw),
+    )
+
+    ids = await _send_parts(tools, PARTS, upto=1)          # part 1/3, sender dies
+    channel_id = (await db_client.get_one("bus_messages", {"message_id": ids[0]}))["channel_id"]
+    for i in range(640):
+        await db_client.insert("bus_messages", {
+            "message_id": f"bulk_{i:04d}", "channel_id": channel_id, "from_agent": A,
+            "content": f"bulk {i}", "msg_type": "text",
+            "created_at": f"2030-01-01T00:{i // 60:02d}:{i % 60:02d}.{i:06d}",
+        })
+    assert len(await bus.get_pending_messages(B, channel_id=channel_id, limit=1000)) == 641
+
+    # First poll: the wide read delivers the stale group + 499 rows; the
+    # normal LIMIT then drains the remainder 50 at a time. Bounded, not never.
+    assert await trigger._process_lane(B, channel_id) is True
+    polls = 1
+    while await bus.get_pending_messages(B, channel_id=channel_id, limit=1000):
+        assert await trigger._process_lane(B, channel_id) is True
+        polls += 1
+        assert polls <= 5
+    assert "part(s) 2, 3 never arrived" in calls[0]["prompt"]
+    assert local_bus.PENDING_BATCH_LIMIT_WIDE > multipart.MAX_MESSAGE_PARTS * 4
+
+
+@pytest.mark.asyncio
+async def test_a_part_count_over_the_cap_is_refused_on_part_one(db_client, monkeypatch):
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, _ = _tools(db_client)
+    n = multipart.MAX_MESSAGE_PARTS + 1
+    out = await tools["message_agent"](agent_id=A, to=B, text="x", part_index=1, part_count=n)
+    assert out["success"] is False and "maximum of" in out["error"]
+    assert await db_client.get("bus_messages", {"from_agent": A}) == []
+    ok = await tools["message_agent"](agent_id=A, to=B, text="x", part_index=1, part_count=multipart.MAX_MESSAGE_PARTS)
+    assert ok["success"] is True

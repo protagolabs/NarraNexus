@@ -64,11 +64,19 @@ from narranexus.platform.utils.timezone import coerce_utc
 #: silently keep a prefix, and both lose the tail.
 MAX_BUS_MESSAGE_BYTES = 60_000
 
-#: The whole reassembled message's ceiling, in UTF-8 bytes — the ONE bound on
-#: a multipart group (there is no parts-count cap). Enforced at the write
-#: edge (`LocalMessageBus._resolve_part_group`): a part that would push its
-#: group past this is refused with "split into two separate messages", never
-#: trimmed. Sized so the recipient's turn gets a long deliverable, not a
+#: Upper bound on parts per message, validated at part 1 (a count over it is
+#: refused before anything is stored). Kept far below
+#: `local_bus.PENDING_BATCH_LIMIT_WIDE` so a whole group ALWAYS fits the
+#: lane's widest read — without this, 600 hundred-byte parts would be a legal
+#: group that no batch can ever see complete, and the lane would hold it
+#: forever (review r2 C2). The byte budget below is the other, independent
+#: bound; each refuses with its own reason.
+MAX_MESSAGE_PARTS = 40
+
+#: The whole reassembled message's ceiling, in UTF-8 bytes. Enforced at the
+#: write edge (`LocalMessageBus._resolve_part_group`): a part that would push
+#: its group past this is refused with "split into two separate messages",
+#: never trimmed. Sized so the recipient's turn gets a long deliverable, not a
 #: context-window overflow dressed up as a message: 200 KB is ~65k CJK or
 #: ~200k ASCII characters, well inside any current context after the prompt's
 #: own overhead.
@@ -85,6 +93,15 @@ _MISSING_MARKER = (
     "\n\n[platform: this message was sent in {count} parts; part(s) {missing} "
     "never arrived within {grace}s and the rest is delivered as-is]"
 )
+
+
+def too_many_parts_reason(count: int) -> str:
+    """The agent-readable refusal for a part_count over `MAX_MESSAGE_PARTS`."""
+    return (
+        f"part_count={count} exceeds the maximum of {MAX_MESSAGE_PARTS} parts "
+        f"per message. Nothing was sent. Use larger parts, or split the content "
+        f"into two separate messages."
+    )
 
 
 def group_budget_reason(stored: int, this_part: int) -> str:
@@ -217,8 +234,10 @@ def _ts(value) -> str:
 
 __all__ = [
     "MAX_BUS_MESSAGE_BYTES",
+    "MAX_MESSAGE_PARTS",
     "MAX_MULTIPART_TOTAL_BYTES",
     "group_budget_reason",
+    "too_many_parts_reason",
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
     "oversize_reason",

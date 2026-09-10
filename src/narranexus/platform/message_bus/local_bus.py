@@ -28,9 +28,11 @@ from narranexus.platform.channel.message_source_handler import (
 from narranexus.platform.message_bus.message_bus_service import MessageBusService
 from narranexus.platform.message_bus.multipart import (
     MAX_BUS_MESSAGE_BYTES,
+    MAX_MESSAGE_PARTS,
     MAX_MULTIPART_TOTAL_BYTES,
     group_budget_reason,
     oversize_reason,
+    too_many_parts_reason,
 )
 from narranexus.platform.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from narranexus.platform.utils.db.db_backend import DatabaseBackend
@@ -624,8 +626,10 @@ class LocalMessageBus(MessageBusService):
         be stored unplaceable: 1 <= index <= count, and a
         part > 1 must find the sender's most recent part in this channel to be
         exactly index-1 of the same count (the group is then that part's).
-        Also the ONE bound on a group: the parts already stored plus this one
-        (``size`` bytes) may not exceed ``MAX_MULTIPART_TOTAL_BYTES`` (review
+        Two independent bounds on a group, each with its own refusal:
+        ``part_count`` may not exceed ``MAX_MESSAGE_PARTS`` (checked on every
+        part, so part 1 already fails), and the parts already stored plus this
+        one (``size`` bytes) may not exceed ``MAX_MULTIPART_TOTAL_BYTES`` (review
         I7) — measured in bytes in Python, not with SQL LENGTH(), which counts
         characters on SQLite and bytes on MySQL. Raises ValueError with an
         agent-readable reason otherwise.
@@ -637,6 +641,10 @@ class LocalMessageBus(MessageBusService):
                 f"invalid part {part_index}/{part_count}: parts are numbered "
                 f"1..count, count >= 1"
             )
+        if part_count > MAX_MESSAGE_PARTS:
+            # Refused on part 1 already — the model must not send 40 parts
+            # before learning the 41st is impossible.
+            raise ValueError(too_many_parts_reason(part_count))
         if part_index == 1:
             if size > MAX_MULTIPART_TOTAL_BYTES:
                 raise ValueError(group_budget_reason(0, size))

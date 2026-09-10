@@ -1136,19 +1136,28 @@ class MessageBusTrigger:
                 if held and truncated and not relevant:
                     # The group starts at the batch's edge and the batch is
                     # cut: nothing can be acked to move the window, so read
-                    # the lane once more with a wider limit (review I2). Still
-                    # cut at the wide limit → held again; the grace verdict is
-                    # only reached once the group is fully in view.
+                    # the lane once more with a wider limit (review I2).
                     batch_limit = PENDING_BATCH_LIMIT_WIDE
                     messages = await self._bus.get_pending_messages(
                         agent_id, channel_id=channel_id, limit=batch_limit
                     )
-                    relevant = [
+                    wide = [
                         m for m in messages
                         if self._should_process_message(m, agent_id, channel_type, channel_owner)
                     ]
                     truncated = len(messages) >= batch_limit
-                    relevant, held = assemble_parts(relevant, batch_truncated=truncated)
+                    relevant, held = assemble_parts(wide, batch_truncated=truncated)
+                    if held and truncated and not relevant:
+                        # Still cut at the WIDE limit and still nothing before
+                        # the group: this is the last read, so let grace and
+                        # supersession rule on what is in view. The group's
+                        # head IS in view (it sits at the front) and
+                        # MAX_MESSAGE_PARTS < PENDING_BATCH_LIMIT_WIDE keeps a
+                        # legal group from ever being cut here, so the only
+                        # thing this can misjudge is a group that is already
+                        # over the cap — which the write edge refuses. Without
+                        # this the lane would hold forever (review r2 C2).
+                        relevant, held = assemble_parts(wide, batch_truncated=False)
                 if held:
                     logger.debug(
                         f"MessageBusTrigger: {channel_id} for {agent_id} — a "

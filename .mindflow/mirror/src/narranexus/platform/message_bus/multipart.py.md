@@ -43,6 +43,14 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
   最新一块，旧组永远续不上）→ 按到达的内容投递 + 明确标记缺哪几块。宁可标记也不静默
   丢（铁律 #16），不永远等（铁律 #14：平台不做打断源）。
 
+## 2026-09-10（review r2 C2）— 块数上限回来了：`MAX_MESSAGE_PARTS = 40`
+
+I7 删掉计数上限后，600 块 × 100 字节是合法的组，却没有任何一批（WIDE=500）装得下——
+`batch_truncated` 又是无条件 hold，车道永久死锁。计数上限必须远小于
+`PENDING_BATCH_LIMIT_WIDE`，在写入边 **part 1 就拒**（`too_many_parts_reason`），和字节预算
+并列、各自的拒绝文案。另一半在 [[message_bus_trigger]]：WIDE 重读仍被切且无从推进时，
+最后一次以 `batch_truncated=False` 裁决（组头一定在视野内）。
+
 ## 整组预算（review I7）
 
 `MAX_MULTIPART_TOTAL_BYTES = 200_000` 是多段消息的**唯一**主约束（块数不设上限）：写入边

@@ -4,6 +4,14 @@ last_verified: 2026-09-09
 stub: false
 ---
 
+## 2026-09-10（review r2 C2）— WIDE 重读是最后一次判定，不再无条件 hold
+
+`_process_lane`：wide 重读后若仍 `truncated and not relevant`，再以 `batch_truncated=False`
+调一次 `assemble_parts`，让 grace / 取代正常裁决。此前这条路径 `return False` 且不 ack 不通知，
+一个死掉的两块组 + ≥500 行积压就让车道永久空转（每轮 550 次逐行 poison 查询）。裁决安全的前提是
+`MAX_MESSAGE_PARTS(40) ≪ PENDING_BATCH_LIMIT_WIDE(500)`（[[multipart]]），合法组不可能被
+WIDE 切断。锁：`test_a_stuck_group_behind_a_deep_backlog_does_not_deadlock_the_lane`（641 行）。
+
 ## 2026-09-09（review I2）— 批次被 LIMIT 切断时不对组下结论
 
 `_process_lane` 显式传 `limit=PENDING_BATCH_LIMIT`，`len(messages) >= limit` 即视为「批次被切」，

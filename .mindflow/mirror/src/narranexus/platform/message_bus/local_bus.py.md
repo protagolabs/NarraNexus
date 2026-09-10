@@ -8,6 +8,10 @@ stub: false
 
 `_row_to_message` 的单行读回，供发送工具取刚写行的 channel_id。
 
+## 2026-09-10（review r2 C2）— `_resolve_part_group` 校验 `part_count <= MAX_MESSAGE_PARTS`
+
+每一块都查、所以 1/N 就拒（`too_many_parts_reason`），与字节预算并列。
+
 ## 2026-09-09（review I7/M6）— 组字节预算在 `_resolve_part_group` 执行；补索引
 
 块 ≥2 时再查一条 `SELECT content ... WHERE channel_id=? AND part_group=?`（MySQL 孪生已钉）
