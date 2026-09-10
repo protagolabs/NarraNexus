@@ -474,21 +474,36 @@ def _inline_assistant_error_event(
 
 
 # ---------------------------------------------------------------------------
-# CLI task-list tools — switched off on every run
+# CLI task-list tools — pinned off on every run (defence in depth)
 # ---------------------------------------------------------------------------
 # The bundled CLI (2.1.56 for SDK 0.1.43) ships a task LIST feature —
 # TaskCreate / TaskGet / TaskList / TaskUpdate — whose store lives only in
-# the CLI process. Nothing on the platform reads it, so work a model
-# "schedules" there is orphaned the moment the run ends (GitHub #74). The
-# platform's primitive for work that outlives a run is the Job module; the
-# prompt notice built from this tuple (prompts.task_list_tools_notice) says
-# so. Verified in the binary (2026-09-09): these four are the only tools
-# gated on ``isEnabled(){return T4()}`` where ``T4`` reads
-# CLAUDE_CODE_ENABLE_TASKS. NOT in this set, on purpose:
+# the CLI process; nothing on the platform reads it. The platform's
+# primitive for work that outlives a run is the Job module; the prompt
+# notice built from this tuple (prompts.task_list_tools_notice) says so.
+#
+# What the binary actually does (read 2026-09-09/10): the four tools are the
+# only ones gated on ``isEnabled(){return T4()}``, and
+#   T4() = ENABLE_TASKS env says off → false; env says on → true;
+#          not interactive → false; else true
+# where "not interactive" is ``--print`` / ``--init-only`` / ``--sdk-url`` /
+# ``!process.stdout.isTTY``. claude_agent_sdk spawns the CLI over pipes, so
+# T4() is ALREADY false on every platform run and these four tools have
+# never been offered to the model here. The env + disallow below therefore
+# change nothing today; they pin the gate against a CLI default flip or a
+# skill env that sets CLAUDE_CODE_ENABLE_TASKS=true (which the T4 order
+# above would honour). The in-run list the model DOES hold is TodoWrite
+# (``isEnabled(){return!T4()}``, the complement gate): a per-run planning
+# aid, also never read by the platform, and deliberately left enabled —
+# disabling it would change the model's own working style and remove the
+# progress view the frontend renders from it. The notice names it as
+# run-scoped instead.
+# NOT in this set, on purpose:
 #   * TaskOutput (aliases AgentOutputTool / BashOutputTool) and TaskStop
 #     (alias KillShell) — they read / stop a ``Bash(run_in_background)``
 #     command inside the SAME run; the model itself is their reader.
 #   * Task — the sub-agent launch, a platform-visible mechanism.
+#   * TodoWrite — see above.
 # Two layers: CLI_ENABLE_TASKS_ENV=false disables the family at the source
 # (schemas never built), and the names ride disallowed_tools as well so a
 # CLI that ignores the env still cannot expose them. Both propagate into
@@ -990,10 +1005,11 @@ class ClaudeAgentSDK:
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )
-        # Where background work goes on this platform (the CLI's own task
-        # tools are disallowed below). Constant bytes per run, appended to
-        # the BASE prompt so both the cold-start and the stale-handle cold
-        # retry (which re-assembles from the same base) carry it.
+        # Where work that outlives a run goes on this platform (the CLI's
+        # task-list family is pinned off below and its TodoWrite list is
+        # run-scoped). Constant bytes per run, appended to the BASE prompt
+        # so both the cold-start and the stale-handle cold retry (which
+        # re-assembles from the same base) carry it.
         base_system_prompt += task_list_tools_notice(TASK_LIST_TOOLS)
 
         # Reply-surface reminder — the platform's declared delivery tools for
@@ -1138,8 +1154,9 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
-        # AFTER the skill env merge so no skill can switch the orphaned
-        # task-list feature back on (fail-closed). See TASK_LIST_TOOLS.
+        # AFTER the skill env merge so no skill can switch the task-list
+        # feature on (fail-closed): the CLI honours an explicit "true" ahead
+        # of its headless default. See TASK_LIST_TOOLS.
         cli_env[CLI_ENABLE_TASKS_ENV] = "false"
 
         # Same order, same reason, for the subscription parallel-tool cap:
@@ -1184,7 +1201,8 @@ class ClaudeAgentSDK:
         )
 
         # The CLI's task-list family is never wired to the platform (see
-        # TASK_LIST_TOOLS) — disallowed on every run, every provider.
+        # TASK_LIST_TOOLS) — pinned off on every run, every provider, even
+        # though the headless spawn already leaves it disabled.
         disallowed_tools: list[str] = list(TASK_LIST_TOOLS)
         # Defense-in-depth: when the provider doesn't speak the server-tool
         # protocol, also disallow WebSearch at the CLI level. Hooks cover

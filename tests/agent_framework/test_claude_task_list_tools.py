@@ -2,26 +2,31 @@
 @file_name: test_claude_task_list_tools.py
 @date: 2026-09-09
 @description: The Claude Code CLI's task-LIST tools (TaskCreate / TaskGet /
-TaskList / TaskUpdate) are reachable from the model but wired to nothing on
-the platform: the list lives only inside the CLI process, so whatever the
-model queues there is orphaned the moment the run ends (GitHub #74). The
-adapter must switch the feature off on EVERY run (any provider, any auth) —
-CLAUDE_CODE_ENABLE_TASKS=false at the source plus the four names on
-disallowed_tools — and tell the model that work outliving the run goes
-through the Job module, while in-run background commands keep working.
+TaskList / TaskUpdate) are wired to nothing on the platform: the list lives
+only inside the CLI process. Under the SDK's headless (piped, non-TTY) spawn
+the CLI's own gate already leaves the family off, so this is defence in
+depth, not a behaviour change: the adapter pins the gate on EVERY run (any
+provider, any auth) — CLAUDE_CODE_ENABLE_TASKS=false AFTER the skill env
+merge (the CLI honours an explicit "true" ahead of its headless default)
+plus the four names on disallowed_tools — and tells the model that its
+in-run TodoWrite list is run-scoped too, that in-run background commands
+keep working, and that work outliving the run goes through the Job module.
+TodoWrite itself stays enabled (never disallowed).
 
 Which names belong to the family is a fact about the CLI binary, not about
 this file. The hand-written set below is checked against the bundled binary
 whenever it is present (``_cli_binary``): the four names must be there, and
 the two look-alikes that are NOT task-list tools — TaskOutput (the
-BashOutput/AgentOutput tool) and TaskStop (KillShell) — must be recognised
-as such. To re-verify by hand:
+BashOutput/AgentOutputTool tool) and TaskStop (KillShell) — must be recognised
+as such. To re-verify by hand (minified names as of 2.1.56):
 
     B=$(python -c "import claude_agent_sdk,os;print(os.path.dirname(claude_agent_sdk.__file__))")/_bundled/claude
-    grep -aoE 'isEnabled\(\)\{return T4\(\)\}' "$B" | wc -l   # the T4 (ENABLE_TASKS) gate
+    grep -aoF 'isEnabled(){return T4()}' "$B" | wc -l    # 8 = 4 tools x 2 copies
+    grep -aoF 'isEnabled(){return!T4()}' "$B" | wc -l    # 2 = TodoWrite (complement gate)
+    grep -ao 'function T4(){.\{0,160\}' "$B" | head -1   # env off→false, env on→true, !interactive→false
+    grep -ao 'function ZI(){.\{0,40\}' "$B" | head -1    # ZI = !isInteractive (--print/--sdk-url/!isTTY)
     grep -ao 'aliases:\["AgentOutputTool","BashOutputTool"\]' "$B"  # TaskOutput
     grep -ao 'aliases:\["KillShell"\]' "$B"                         # TaskStop
-    grep -aoE '.{60}CLAUDE_CODE_ENABLE_TASKS.{80}' "$B" | head -1   # T4 reads the env
 
 Each behavioural test goes red when the env injection / the disallow list /
 the prompt notice is removed. The WebSearch guard is asserted alongside so
@@ -53,6 +58,8 @@ from tests.agent_framework.test_claude_sdk_resume import ResultMessage, _StubCli
 _TASK_LIST_TOOLS = {"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"}
 # Same prefix, different feature: in-run background command tools.
 _IN_RUN_BACKGROUND_TOOLS = {"TaskOutput", "TaskStop"}
+# The model's own run-scoped checklist: named in the notice, never disabled.
+_RUN_SCOPED_CHECKLIST_TOOL = "TodoWrite"
 
 
 def _cli_binary() -> Path | None:
@@ -155,6 +162,7 @@ async def test_task_list_tools_disallowed_and_websearch_kept_without_server_tool
     disallowed = set(options.disallowed_tools)
     assert _TASK_LIST_TOOLS <= disallowed
     assert not (_IN_RUN_BACKGROUND_TOOLS & disallowed)
+    assert _RUN_SCOPED_CHECKLIST_TOOL not in disallowed
     # The pre-existing guard survives the family disallow (merge, not replace).
     assert "WebSearch" in disallowed
     assert len(options.disallowed_tools) == len(disallowed), "no duplicates"
@@ -204,6 +212,12 @@ async def test_system_prompt_points_cross_run_work_at_the_job_module():
     for tool in _IN_RUN_BACKGROUND_TOOLS:
         assert tool in notice  # named as STILL WORKING, never as disabled
     assert "still work" in notice
+    # Honest wording: the family is "not available" (the headless spawn
+    # never offered it), not "disabled"; the run-scoped list the model does
+    # hold is named as such.
+    assert "not available" in notice
+    assert "disabled" not in notice
+    assert _RUN_SCOPED_CHECKLIST_TOOL in notice
     assert "Job module" in notice
     assert "create_job" in notice
     # Exactly once: the notice rides the BASE prompt, never the history.
