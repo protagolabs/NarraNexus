@@ -4,6 +4,12 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10 — Path A 闸门改成两步（`should_skip` 读 + `try_begin_probe` 认领）
+
+与其他三个触发入口同一契约（[[circuit_breaker]] 2026-09-10）：`should_skip` 纯读放行后，
+在构造 `AgentRuntime` 之前再 `try_begin_probe(agent_id)`，被拒就不建 runtime。Path A 仍
+休眠，但契约必须一致，不能留一个用旧口径的入口。
+
 ## 2026-09-10（review r3 C1/I2）— 发现查询补 narrative-less 半边；对账只扫无 link 的 BLOCKED
 
 **C1**：`_find_completed_instances` 原来只有 `INNER JOIN instance_narrative_links ... link_type='active'`

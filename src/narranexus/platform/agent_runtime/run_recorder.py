@@ -229,6 +229,19 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
             logger.warning(
                 f"[run-sweep] failed to mark stale run {row.get('event_id')!r}: {e}"
             )
+            continue
+        # A lost run never reaches BackgroundRun._finalize, so its
+        # circuit-breaker settlement never happens either. If it was the
+        # agent's half-open probe, release the claim now (best-effort, no
+        # verdict on the credential) — otherwise the row stays PROBING and
+        # `try_begin_probe` keeps refusing every entry point while the
+        # (now dead) run's row still read as live.
+        if row.get("agent_id"):
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                release_probe,
+            )
+
+            await release_probe(row["agent_id"], db=db)
     if flipped:
         logger.info(f"[run-sweep] flipped {flipped} stale 'running' rows to 'failed'")
     return flipped

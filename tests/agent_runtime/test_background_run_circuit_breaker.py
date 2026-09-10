@@ -32,7 +32,7 @@ def _make_run() -> BackgroundRun:
 
 @pytest.fixture
 def spy(monkeypatch):
-    calls = {"failure": [], "success": []}
+    calls = {"failure": [], "success": [], "release": []}
 
     async def fake_failure(agent_id, error_type, error_message, db=None):
         calls["failure"].append((agent_id, error_type, error_message))
@@ -40,9 +40,14 @@ def spy(monkeypatch):
     async def fake_success(agent_id, db=None):
         calls["success"].append(agent_id)
 
+    async def fake_release(agent_id, db=None):
+        calls["release"].append(agent_id)
+        return True
+
     import narranexus.platform.agent_framework.loop.circuit_breaker as cb
     monkeypatch.setattr(cb, "record_failure", fake_failure)
     monkeypatch.setattr(cb, "record_success", fake_success)
+    monkeypatch.setattr(cb, "release_probe", fake_release)
     return calls
 
 
@@ -103,3 +108,16 @@ async def test_breaker_error_never_propagates(monkeypatch):
     run.recorder.last_error_message = "x"
     # Must NOT raise — the breaker is an observer.
     await run._record_circuit_breaker()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_run_releases_a_probe_without_touching_the_streak(spy):
+    """A user-cancelled turn is not the agent's fault (no failure, no
+    success) — but if it was the half-open probe, the claim is released so
+    the row does not sit PROBING until its grant expires."""
+    run = _make_run()
+    run.state = STATE_CANCELLED
+    await run._record_circuit_breaker()
+    assert spy["failure"] == []
+    assert spy["success"] == []
+    assert spy["release"] == ["ag_1"]

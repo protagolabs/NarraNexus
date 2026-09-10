@@ -557,7 +557,10 @@ class BackgroundRun:
             mapping never counts a fatal turn as a success if a future
             caller sets the state without that conversion.
           * STATE_COMPLETED without a fatal error → record_success (resets).
-          * STATE_CANCELLED → no change (user stopped it; not the agent's fault).
+          * STATE_CANCELLED → no streak change (user stopped it; not the
+            agent's fault) — but a cancelled half-open PROBE is released
+            back to PAUSED (release_probe), or the row would sit PROBING,
+            refusing every entry point, until its grant expired.
 
         Wrapped whole in try/except: the breaker is an observer and must never
         break turn finalization (incident lesson #3's corollary). Lazy import
@@ -571,11 +574,13 @@ class BackgroundRun:
         is_success = (
             self.state == STATE_COMPLETED and not self.recorder.had_fatal_error
         )
-        if not (is_failure or is_success):
-            return  # cancelled or otherwise — leave breaker state untouched
         try:
             from narranexus.platform.agent_framework.loop import circuit_breaker as cb
-            if is_failure:
+            if not (is_failure or is_success):
+                # Cancelled: the streak is untouched, but a probe that never
+                # reported must not stay claimed.
+                await cb.release_probe(self.agent_id)
+            elif is_failure:
                 await cb.record_failure(
                     self.agent_id,
                     self.recorder.last_error_type,

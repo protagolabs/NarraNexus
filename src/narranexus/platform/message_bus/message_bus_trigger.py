@@ -1047,7 +1047,10 @@ class MessageBusTrigger:
         # burst on resume. That's intended — dropping/ack'ing messages for a
         # temporarily-broken agent would be silent data loss; the backlog
         # converges once the owner reconfigures and the breaker re-arms.
-        from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            should_skip,
+            try_begin_probe,
+        )
         cb_skip, cb_reason = await should_skip(agent_id)
         if cb_skip:
             logger.debug(
@@ -1149,6 +1152,20 @@ class MessageBusTrigger:
                     latest = max(relevant, key=lambda m: str(m.created_at))
                     await self._bus.ack_processed(
                         agent_id, channel_id, latest.created_at
+                    )
+                    return False
+
+                # Half-open probe claim (circuit_breaker.try_begin_probe):
+                # only HERE, after every ack-and-return branch above, so the
+                # bus poller cannot burn the agent's single probe grant on a
+                # batch it was never going to run. A refusal leaves the
+                # relevant messages queued (no ack) exactly like the
+                # should_skip gate at the top.
+                cb_allowed, cb_reason = await try_begin_probe(agent_id)
+                if not cb_allowed:
+                    logger.debug(
+                        f"MessageBusTrigger: not starting turn for {agent_id} "
+                        f"(circuit-breaker: {cb_reason})"
                     )
                     return False
 
@@ -2590,6 +2607,21 @@ class MessageBusTrigger:
         if not await may_patrol_speak(db, team_id):
             logger.info(
                 f"[patrol] speech cap reached for {team_id}; skipping the sweep"
+            )
+            return
+
+        # The sweep's should_skip ran in `_dispatch_patrols`; the half-open
+        # probe itself is claimed here, past the speech cap, so a capped
+        # sweep never consumes the lead's single probe grant. The cursor
+        # still moves (the caller's `finally`), so a refused lead is not a
+        # hot candidate.
+        from narranexus.platform.agent_framework.loop.circuit_breaker import try_begin_probe
+
+        cb_allowed, cb_reason = await try_begin_probe(lead_agent_id)
+        if not cb_allowed:
+            logger.info(
+                f"[patrol] not starting sweep for {lead_agent_id} "
+                f"(circuit-breaker: {cb_reason})"
             )
             return
 

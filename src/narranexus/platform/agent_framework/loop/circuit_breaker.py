@@ -79,13 +79,19 @@ AUTH_QUOTA_PAUSE_THRESHOLD = 3
 # PAUSE_HALF_OPEN_CAP_SECONDS.
 PAUSE_HALF_OPEN_BASE_SECONDS = 300  # 5 minutes
 PAUSE_HALF_OPEN_CAP_SECONDS = 6 * 3600  # 6 hours
+# Doublings after which the cap is guaranteed to win: ceil(log2(cap / base)).
+_HALF_OPEN_MAX_DOUBLINGS = (PAUSE_HALF_OPEN_CAP_SECONDS // PAUSE_HALF_OPEN_BASE_SECONDS).bit_length()
 
-# How long a claimed probe grant is honored before it is considered
-# abandoned (the turn crashed without ever calling record_success /
-# record_failure) and can be re-claimed. Independent of the pause delay
-# above — this only guards against a jammed PROBING row, not against
-# hammering a dead credential.
-PROBE_GRANT_SECONDS = 300  # 5 minutes — generous for one real-time turn
+# How long a claimed probe grant is honored on the WALL CLOCK before the row
+# is even considered for re-claim. This is NOT a turn-length ceiling (binding
+# rule #14 forbids one): a stale grant is re-claimable only when, in addition,
+# the agent has NO live run (``_agent_has_live_run`` — heartbeat-fresh
+# ``events`` row, the same liveness rule ``run_recorder.sweep_stale_runs``
+# uses). A probe turn that runs for hours keeps its grant for hours. The
+# timer therefore only bounds the window between "claimed" and "the run row
+# exists" (a crash in between leaves no heartbeat to consult), which is
+# seconds — 5 minutes is generous for THAT, not for a turn.
+PROBE_GRANT_SECONDS = 300
 
 # Neither TRANSIENT nor BUSINESS ever pauses; after this many consecutive we
 # raise an alert so a chronically-failing agent isn't invisible. For TRANSIENT
@@ -209,6 +215,9 @@ def _compute_half_open_delay_seconds(consecutive_failure_count: int) -> int:
     that has already proven dead 3 times).
     """
     trips_over_threshold = max(0, consecutive_failure_count - AUTH_QUOTA_PAUSE_THRESHOLD)
+    # Clamp the EXPONENT before raising: past the point where the cap wins,
+    # 2**n would only build an ever-larger int for min() to discard.
+    trips_over_threshold = min(trips_over_threshold, _HALF_OPEN_MAX_DOUBLINGS)
     return min(
         PAUSE_HALF_OPEN_BASE_SECONDS * (2 ** trips_over_threshold),
         PAUSE_HALF_OPEN_CAP_SECONDS,
@@ -308,54 +317,113 @@ async def record_failure(
 
     Callers MUST treat this as best-effort (wrap in try/except) — a breaker
     write must never break turn finalization.
+
+    A failure recorded while the row is PROBING is the half-open probe's
+    OUTCOME and is settled by probe semantics (GitHub #117 review), never as
+    an ordinary new failure:
+
+      * auth/quota → the credential is still dead: re-PAUSE, streak +1, so
+        the half-open delay doubles (``_compute_half_open_delay_seconds``).
+      * anything else (transient blip, our own bug) → the probe proved
+        NOTHING about the credential: stay PAUSED with the streak, category
+        and paused_reason UNCHANGED and the SAME half-open delay re-armed.
+        Before this rule a probe landing on a network hiccup went through the
+        normal category-change reset (count=1 → COOLING 60s), dismantling a
+        pause that had proven the key dead three times — back to the
+        fast-retry loop the breaker exists to stop. The streak is NOT
+        advanced on purpose (binding rule #15): a blip must not push the
+        owner's delay toward the 6h cap.
+      * the ``_BREAKER_EXEMPTIONS`` classes normally
+        leave the breaker untouched, but a PROBING row must still be
+        settled or it would hang until the grant expires — same "no verdict"
+        re-arm as the non-auth case.
     """
+    db = db or await get_db_client()
+    repo = AgentCircuitBreakerRepository(db)
+    row = await repo.get(agent_id)
+    was_probing = row is not None and row.cb_status == CbStatus.PROBING.value
+
+    # Exempt failure classes (see _BREAKER_EXEMPTIONS) never advance the
+    # breaker — but a PROBING row must still be settled (no verdict).
     exemption = breaker_exemption(error_type, error_message)
     if exemption is not None:
         logger.debug(
             f"[agent-cb] agent {agent_id} {exemption} failure "
             f"({error_type}) — breaker not advanced"
         )
+        if was_probing:
+            await _rearm_pause_without_verdict(repo, row, f"{exemption} failure")
         return
 
-    db = db or await get_db_client()
-    repo = AgentCircuitBreakerRepository(db)
     category = classify_agent_error(error_type, error_message)
-
-    row = await repo.get(agent_id)
     prev_count = row.consecutive_failure_count if row else 0
     prev_category = row.failure_category if row else None  # stored as str value
 
-    # Same-category streak: a category change resets the counter so an
-    # unrelated blip can't dilute an auth/quota streak toward its threshold.
-    count = prev_count + 1 if prev_category == category.value else 1
+    if was_probing and category not in PAUSING_CATEGORIES:
+        await _rearm_pause_without_verdict(
+            repo, row, f"{category.value} failure", last_error=error_message
+        )
+        return
+
+    if was_probing:
+        # The probe failed for the reason it was paused: continue THAT streak.
+        # The original category/reason is kept even if this turn classified
+        # as the other pausing category (auth vs quota) — the pause is one
+        # escalation ladder, not two.
+        count = prev_count + 1
+        if prev_category in (ErrorCategory.AUTH.value, ErrorCategory.QUOTA.value):
+            category = ErrorCategory(prev_category)
+    else:
+        # Same-category streak: a category change resets the counter so an
+        # unrelated blip can't dilute an auth/quota streak toward its
+        # threshold.
+        count = prev_count + 1 if prev_category == category.value else 1
 
     now = utc_now()
-    cooldown_secs = compute_cooldown_seconds(count)
-    updates: dict = {
-        "consecutive_failure_count": count,
-        "failure_category": category.value,
-        "last_error": redact_secrets(error_message),
-        "cooldown_until": now + timedelta(seconds=cooldown_secs),
-    }
-
     is_pause = category in PAUSING_CATEGORIES and count >= AUTH_QUOTA_PAUSE_THRESHOLD
     if is_pause:
-        updates["cb_status"] = CbStatus.PAUSED.value
-        updates["paused_reason"] = category.value  # auth | quota
-        updates["paused_at"] = now
-        # Half-open gate, NOT the COOLING backoff above — overwrite it.
-        # should_skip reads this same field to decide when a probe may pass.
-        updates["cooldown_until"] = now + timedelta(
-            seconds=_compute_half_open_delay_seconds(count)
-        )
+        updates: dict = {
+            "consecutive_failure_count": count,
+            "failure_category": category.value,
+            "last_error": redact_secrets(error_message),
+            "cb_status": CbStatus.PAUSED.value,
+            "paused_reason": category.value,  # auth | quota
+            "paused_at": now,
+            # The half-open gate — NOT the COOLING backoff (only computed in
+            # the else branch). should_skip / try_begin_probe read this same
+            # field to decide when a probe may pass.
+            "cooldown_until": now + timedelta(
+                seconds=_compute_half_open_delay_seconds(count)
+            ),
+            # A fresh pause has no live claim: the next probe is claimed
+            # against NULL (see AgentCircuitBreakerRepository.try_claim_probe).
+            "probe_token": None,
+        }
     else:
-        updates["cb_status"] = CbStatus.COOLING.value
-        updates["paused_reason"] = None
-        updates["paused_at"] = None
+        updates = {
+            "consecutive_failure_count": count,
+            "failure_category": category.value,
+            "last_error": redact_secrets(error_message),
+            "cooldown_until": now + timedelta(seconds=compute_cooldown_seconds(count)),
+            "cb_status": CbStatus.COOLING.value,
+            "paused_reason": None,
+            "paused_at": None,
+            "probe_token": None,
+        }
 
     await repo.upsert_state(agent_id, updates)
 
     if is_pause:
+        if was_probing:
+            # The owner was alerted when the pause first tripped; a failed
+            # probe is that same outage continuing, not a new event — one
+            # log line, no repeat alert every 5min..6h.
+            logger.warning(
+                f"[agent-cb] agent {agent_id} half-open probe FAILED "
+                f"({category.value}); re-PAUSED, streak={count}, next probe "
+                f"in {_compute_half_open_delay_seconds(count)}s"
+            )
+            return
         owner = await _resolve_owner(db, agent_id)
         await alert_agent_paused(
             agent_id=agent_id,
@@ -389,6 +457,58 @@ async def record_failure(
             )
 
 
+async def _rearm_pause_without_verdict(
+    repo: AgentCircuitBreakerRepository,
+    row,
+    why: str,
+    *,
+    last_error: Optional[str] = None,
+) -> None:
+    """A PROBING row whose probe ended WITHOUT a verdict on the credential
+    (non-auth failure, exempt failure, user cancel, lost run) goes back to
+    PAUSED exactly as it was — same streak, category and paused_reason —
+    with the same half-open delay re-armed from now. Nothing is learned, so
+    nothing escalates and nobody is re-alerted."""
+    count = row.consecutive_failure_count
+    updates: dict = {
+        "cb_status": CbStatus.PAUSED.value,
+        "cooldown_until": utc_now()
+        + timedelta(seconds=_compute_half_open_delay_seconds(count)),
+        "probe_token": None,
+    }
+    if last_error is not None:
+        updates["last_error"] = redact_secrets(last_error)
+    await repo.upsert_state(row.agent_id, updates)
+    logger.info(
+        f"[agent-cb] agent {row.agent_id} half-open probe ended without a "
+        f"verdict ({why}); re-PAUSED with the same delay "
+        f"({_compute_half_open_delay_seconds(count)}s), streak={count}"
+    )
+
+
+async def release_probe(agent_id: str, db=None) -> bool:
+    """Settle a PROBING row whose probe turn will never report an outcome —
+    the user cancelled it (``background_run`` leaves CANCELLED turns out of
+    the breaker) or the driving process died (``run_recorder.sweep_stale_runs``
+    flipped the run). Without this the row would sit PROBING, refusing every
+    entry point, until the grant expired AND no live run remained.
+
+    No-op (returns False) unless the row is PROBING. Best-effort by contract:
+    never raises.
+    """
+    try:
+        db = db or await get_db_client()
+        repo = AgentCircuitBreakerRepository(db)
+        row = await repo.get(agent_id)
+        if row is None or row.cb_status != CbStatus.PROBING.value:
+            return False
+        await _rearm_pause_without_verdict(repo, row, "probe turn never settled")
+        return True
+    except Exception as e:  # noqa: BLE001 — observer never breaks the observed
+        logger.warning(f"[agent-cb] release_probe({agent_id}) failed: {e}")
+        return False
+
+
 async def record_success(agent_id: str, db=None) -> None:
     """Record a successful turn — clears any failure streak / pause.
 
@@ -401,47 +521,49 @@ async def record_success(agent_id: str, db=None) -> None:
         return
     if row.cb_status == CbStatus.ACTIVE.value and row.consecutive_failure_count == 0:
         return  # already clean — skip a pointless write
+    if row.cb_status == CbStatus.PROBING.value:
+        logger.info(
+            f"[agent-cb] agent {agent_id} half-open probe SUCCEEDED; "
+            f"breaker closed (was paused:{row.paused_reason})"
+        )
     await repo.upsert_state(agent_id, _CLEAN_STATE)
 
 
-async def _try_claim_half_open_probe(
-    repo: AgentCircuitBreakerRepository, agent_id: str, from_status: str
-) -> bool:
-    """Attempt to flip ``from_status`` (PAUSED or a stale PROBING) into
-    PROBING, granting exactly this caller the single half-open probe turn.
-
-    Both callers of this helper have already confirmed ``cooldown_until``
-    has elapsed on the row THEY read; the actual concurrency guard is the
-    equality-filtered CAS in ``try_claim_probe`` — a concurrent should_skip
-    racing on the same expired row can still lose there even though it also
-    passed the timestamp check, since only one UPDATE can match
-    ``cb_status=from_status`` before the other's write lands.
-    """
-    grant_until = utc_now() + timedelta(seconds=PROBE_GRANT_SECONDS)
-    return await repo.try_claim_probe(agent_id, from_status, grant_until)
+def _elapsed(value: Optional[datetime]) -> bool:
+    """Whether a stored deadline has passed. A NULL deadline counts as
+    elapsed — the gate fails safe toward "let the claim decide" rather than
+    leaving a row nobody can ever probe or re-claim."""
+    until = _as_aware_utc(value)
+    return until is None or until <= utc_now()
 
 
 async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
     """Should the given agent's next real-time turn be skipped?
 
+    PURE READ — never writes. Every trigger entry point asks this first as a
+    cheap pre-filter; the scarce half-open probe is claimed separately by
+    ``try_begin_probe`` at the exact point a turn is about to start. The two
+    are split on purpose (GitHub #117 review): when the claim lived here,
+    any caller that asked and then did NOT run a turn burned the single
+    probe grant. ``message_bus_trigger._process_lane`` asks before several
+    ack-and-return branches (IM-prefix skip, the @mention filter, rate
+    limiting), so in an active team room the 3s bus poller reliably won the
+    probe and threw it away, and the user's own message then got a
+    misleading "cooling down" frame for the whole grant window.
+
     Returns ``(skip, reason)``. FAIL-OPEN: any read error returns
     ``(False, None)`` — a breaker glitch must never block a healthy turn.
 
-    Lazy expiry: a COOLING row whose ``cooldown_until`` has elapsed is
-    ALLOWED through; the retry then either succeeds (→ reset) or fails
-    (→ re-backoff).
-
-    Half-open (GitHub #117): a PAUSED row is no longer a dead end. Once its
-    ``cooldown_until`` (the half-open delay, see ``_compute_half_open_delay_
-    seconds``) elapses, exactly ONE caller may claim the probe turn — the
-    CAS in ``try_claim_probe`` is what keeps two concurrent callers from
-    both getting through (the loser's UPDATE affects 0 rows because the
-    winner already flipped ``cb_status`` to PROBING). The claiming turn then
-    runs like any other; ``record_success``/``record_failure`` resolve
-    PROBING back to ACTIVE or PAUSED (with a longer delay) same as before. A
-    PROBING row whose own grant has expired (the claiming turn crashed
-    without recording an outcome) is itself re-claimable — the breaker never
-    jams open waiting for a turn that will never report back.
+      * PAUSED, half-open delay not elapsed → skip ``paused:<reason>``.
+      * PAUSED, delay elapsed → ``(False, None)``: the window MAY be open;
+        the caller proceeds and ``try_begin_probe`` decides for real.
+      * PROBING, grant still live → skip ``probing`` (someone holds the
+        probe).
+      * PROBING, grant expired → ``(False, None)``: possibly abandoned;
+        ``try_begin_probe`` re-claims it only if no live run exists.
+      * COOLING → skip until ``cooldown_until``; lazy expiry after that (no
+        claim needed — several turns passing once a cooldown elapses was the
+        accepted behavior long before #117).
     """
     try:
         db = db or await get_db_client()
@@ -450,21 +572,15 @@ async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
         if row is None:
             return (False, None)
         if row.cb_status == CbStatus.PAUSED.value:
-            until = _as_aware_utc(row.cooldown_until)
-            if until is not None and until <= utc_now():
-                if await _try_claim_half_open_probe(repo, agent_id, CbStatus.PAUSED.value):
-                    return (False, None)  # this turn IS the probe
+            if _elapsed(row.cooldown_until):
+                return (False, None)
             return (True, f"paused:{row.paused_reason or 'unknown'}")
         if row.cb_status == CbStatus.PROBING.value:
-            until = _as_aware_utc(row.cooldown_until)
-            if until is not None and until <= utc_now():
-                # Prior probe never reported back — self-heal by re-claiming.
-                if await _try_claim_half_open_probe(repo, agent_id, CbStatus.PROBING.value):
-                    return (False, None)
+            if _elapsed(row.cooldown_until):
+                return (False, None)
             return (True, "probing")
         if row.cb_status == CbStatus.COOLING.value:
-            until = _as_aware_utc(row.cooldown_until)
-            if until is not None and until > utc_now():
+            if not _elapsed(row.cooldown_until):
                 return (True, "cooling")
         return (False, None)
     except Exception as e:  # noqa: BLE001 — fail open, never block a turn
@@ -481,10 +597,13 @@ async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
     half-open ``probing``). Same fail-open contract as ``should_skip``: an
     unreadable row reads as not held.
 
-    Exists because ``should_skip`` is the TURN gate and is free to carry side
-    effects (claiming a half-open probe, GitHub #117); a send-side pre-flight
-    such as the bus receipt must never consume what only a turn may consume.
-    Deliberately small: it reads the row and classifies, nothing else.
+    Exists because the turn path may CONSUME the half-open probe
+    (``try_begin_probe``, GitHub #117); a send-side pre-flight such as the bus
+    receipt must never consume what only a turn may consume. Note the one
+    deliberate divergence from ``should_skip``: an expired-PAUSED row reads as
+    held here ("paused:<reason>") while ``should_skip`` lets exactly one turn
+    through to try the probe. Deliberately small: it reads the row and
+    classifies, nothing else.
     """
     try:
         # The raw row, not the entity: the entity's enum would REJECT a status
@@ -507,6 +626,88 @@ async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
     except Exception as e:  # noqa: BLE001 — fail open, same as should_skip
         logger.warning(f"[agent-cb] peek_skip read failed for {agent_id}: {e}")
         return (False, None)
+
+
+async def try_begin_probe(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
+    """Claim the half-open probe for a turn that is about to START.
+
+    The ONLY writer of PROBING. Call it after every "ack and don't run a
+    turn" branch has already returned, immediately before the turn is
+    created. Returns ``(allowed, reason)`` with the same reason vocabulary as
+    ``should_skip``: ``(True, None)`` means run the turn; ``(False, reason)``
+    means treat it exactly like a skip (leave pending work un-acked).
+
+    FAIL-OPEN on READ errors and for rows that gate nothing (no row, ACTIVE,
+    COOLING — COOLING's lazy expiry is ``should_skip``'s call, not repeated
+    here). The CAS WRITE is the exception: a write error counts as "did not
+    win" (fail-CLOSED, ``(False, "probing")``), because letting a known-dead
+    agent through whenever the database is unhealthy is the wrong failure
+    direction — and it is logged distinctly from the read fail-open so the
+    two are never confused on-call.
+
+    Losers of the race — the common case under concurrency — get
+    ``"probing"``, i.e. the "try again shortly" copy, not "go re-login":
+    another turn is testing the credential right now.
+
+    PROBING with an expired grant is re-claimable ONLY when the agent has no
+    heartbeat-fresh running row (binding rule #14: a probe turn may run for
+    hours; the grant timer alone would double-probe it).
+    """
+    try:
+        db = db or await get_db_client()
+        repo = AgentCircuitBreakerRepository(db)
+        row = await repo.get(agent_id)
+        if row is None:
+            return (True, None)
+        if row.cb_status == CbStatus.PAUSED.value:
+            if not _elapsed(row.cooldown_until):
+                return (False, f"paused:{row.paused_reason or 'unknown'}")
+            from_status = CbStatus.PAUSED.value
+        elif row.cb_status == CbStatus.PROBING.value:
+            if not _elapsed(row.cooldown_until):
+                return (False, "probing")
+            if await _agent_has_live_run(db, agent_id):
+                # The grant timer ran out but the probe is still running
+                # (long turn) — it will settle itself; do not double-probe.
+                return (False, "probing")
+            from_status = CbStatus.PROBING.value
+        else:
+            return (True, None)  # ACTIVE / COOLING — nothing to claim
+    except Exception as e:  # noqa: BLE001 — fail open on READ, never block a turn
+        logger.warning(f"[agent-cb] try_begin_probe read failed for {agent_id}: {e}")
+        return (True, None)
+
+    grant_until = utc_now() + timedelta(seconds=PROBE_GRANT_SECONDS)
+    try:
+        token = await repo.try_claim_probe(
+            agent_id, from_status, row.probe_token, grant_until
+        )
+    except Exception as e:  # noqa: BLE001 — a failed WRITE is "did not win"
+        logger.warning(
+            f"[agent-cb] try_begin_probe CAS write failed for {agent_id}; "
+            f"treating as not claimed (fail-closed): {e}"
+        )
+        return (False, "probing")
+    if token is None:
+        return (False, "probing")
+    logger.info(
+        f"[agent-cb] agent {agent_id} half-open probe claimed "
+        f"(from={from_status}, paused:{row.paused_reason}, streak="
+        f"{row.consecutive_failure_count}, grant_until={grant_until.isoformat()})"
+    )
+    return (True, None)
+
+
+async def _agent_has_live_run(db, agent_id: str) -> bool:
+    """Whether the agent has a 'running' events row with a fresh heartbeat —
+    the one cross-process liveness rule (``run_recorder.run_is_live``)."""
+    from narranexus.platform.agent_runtime.run_recorder import (
+        STATE_RUNNING,
+        run_is_live,
+    )
+
+    rows = await db.get("events", filters={"agent_id": agent_id, "state": STATE_RUNNING})
+    return any(run_is_live(r) for r in rows or [])
 
 
 async def reset_agent(agent_id: str, db=None) -> None:
@@ -578,4 +779,5 @@ _CLEAN_STATE: dict = {
     "cooldown_until": None,
     "paused_reason": None,
     "paused_at": None,
+    "probe_token": None,
 }

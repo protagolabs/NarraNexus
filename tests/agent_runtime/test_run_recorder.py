@@ -495,3 +495,45 @@ async def test_first_live_run_id_raises_on_an_unreadable_db():
 
     with pytest.raises(RuntimeError):
         await first_live_run_id(_Broken(), "u_test")
+
+
+@pytest.mark.asyncio
+async def test_sweep_releases_the_lost_runs_half_open_probe(db_client):
+    """A run lost mid-flight never reaches BackgroundRun._finalize, so its
+    breaker settlement never happens. The sweep releases a PROBING row for
+    that agent (back to PAUSED, same delay) — and leaves a row that is not
+    PROBING alone."""
+    from datetime import timedelta as _td
+
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+
+    repo = AgentCircuitBreakerRepository(db_client)
+    await repo.upsert_state("agent_lost", {
+        "cb_status": CbStatus.PROBING.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": ErrorCategory.AUTH.value,
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now() + _td(minutes=4),
+        "probe_token": "lost-probe",
+    })
+    await repo.upsert_state("agent_cooling", {
+        "cb_status": CbStatus.COOLING.value,
+        "consecutive_failure_count": 1,
+        "cooldown_until": utc_now() + _td(minutes=1),
+    })
+    stale = utc_now() - _td(seconds=600)
+    await _seed_events_row(db_client, "evt_lost_probe", agent_id="agent_lost",
+                           state="running", started_at=stale, last_event_at=stale)
+    await _seed_events_row(db_client, "evt_lost_cool", agent_id="agent_cooling",
+                           state="running", started_at=stale, last_event_at=stale)
+
+    assert await sweep_stale_runs(db_client) == 2
+
+    probe = await repo.get("agent_lost")
+    assert probe.cb_status == CbStatus.PAUSED.value
+    assert probe.probe_token is None
+    assert probe.consecutive_failure_count == 3
+    assert (await repo.get("agent_cooling")).cb_status == CbStatus.COOLING.value

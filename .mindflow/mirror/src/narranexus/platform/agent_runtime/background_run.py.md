@@ -15,6 +15,13 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 `_record_circuit_breaker` 的「STATE_COMPLETED 且 had_fatal_error」分支从 `drive()` 已不可达（state 在它
 之前就转成 FAILED）；保留为防御并在 docstring 写明。熔断结果不变（这类 run 以前也记 failure）。
 
+## 2026-09-10 — CANCELLED 的 turn 归还半开探测名额
+
+`_record_circuit_breaker` 对 CANCELLED 仍不记成功/失败（用户主动停，不是 agent 的错），
+但改为调 [[circuit_breaker]] 的 `release_probe(agent_id)`：若这个 turn 恰是半开探测，
+行从 PROBING 回到 PAUSED（同样延迟重新起算），否则 no-op。不加这条，被取消的探测会让行
+卡在 PROBING、所有入口都被拒，直到 grant 过期且没有存活 run。
+
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
 
 `BackgroundRun.__init__` 加 `steering: Optional[Any] = None`(存 `self._steering`),`drive()` 把它原样传给 `runtime.run(steering=...)`。用途:owner 单聊的 WS(见 [[websocket.py]])建一个 `SteerChannel` 递进来;运行中 owner 再发一句,`_listen_for_control` push 进这个 channel,loop 在下个 step 边界 drain,折进**同一 turn** 而不是起新 run。None → 现状不变(无运行中注入)。与 bus 同一 steering 接缝、同一个 `AgentRuntime.run` 穿到 loop 的对象。

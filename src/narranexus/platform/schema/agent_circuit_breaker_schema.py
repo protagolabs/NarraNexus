@@ -93,6 +93,13 @@ class AgentCircuitBreaker(BaseModel):
     cooldown_until: Optional[datetime] = None
     paused_reason: Optional[PausedReason] = None
     paused_at: Optional[datetime] = None
+    # The half-open probe claim's real compare-and-swap key (2026-09-09,
+    # GitHub #117 review C2). NULL when there is no live claim; a fresh random
+    # value on every successful claim, reset to NULL whenever the row is
+    # written back to ACTIVE/COOLING/PAUSED. See
+    # ``AgentCircuitBreakerRepository.try_claim_probe`` for why cb_status
+    # alone cannot be the CAS key on the stale-PROBING self-heal branch.
+    probe_token: Optional[str] = None
     last_error: Optional[str] = None  # already redacted before it lands here
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

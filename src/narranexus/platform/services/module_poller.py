@@ -622,12 +622,25 @@ class ModulePoller:
             # active — so this gate is defensive: if Path A is ever switched
             # on, a broken agent (dead key / quota) won't be re-triggered here
             # either. Fail-open on read error.
-            from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                should_skip,
+                try_begin_probe,
+            )
             cb_skip, cb_reason = await should_skip(agent_id)
             if cb_skip:
                 logger.info(
                     f"ModulePoller: skipping callback for instance {instance_id} "
                     f"— agent {agent_id} circuit-breaker open ({cb_reason})"
+                )
+                return
+            # Claim the half-open probe right before the runtime is built —
+            # the same two-step every entry point uses (should_skip is a pure
+            # read; only the turn that actually starts may take the probe).
+            cb_allowed, cb_reason = await try_begin_probe(agent_id)
+            if not cb_allowed:
+                logger.info(
+                    f"ModulePoller: not starting callback for instance {instance_id} "
+                    f"— agent {agent_id} circuit-breaker ({cb_reason})"
                 )
                 return
 

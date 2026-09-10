@@ -142,6 +142,17 @@ channel：对 B 沉默与对 C 沉默是两件事，通知正文本来就点名 
 重发；多容器各自为政。窗口读失败 **fail-open 照样通知**（重复比漏发便宜），
 `arm` 仍只在收件箱写成功之后。锁：`test_failure_notification.py` 新增
 per-channel 与「换一个 trigger 实例仍被压制」两条。
+## 2026-09-10 — 半开探测认领下移到真正起 turn 的那一点
+
+[[circuit_breaker]] 的 `should_skip` 现在是纯读；探测名额由 `try_begin_probe` 认领。
+上一版把认领放在 `should_skip` 里时，`_process_lane` 后面的 IM 前缀 ack、@mention 过滤
+ack、限流 ack 三条"不跑 turn 就返回"的路径会把 3 秒一轮的 poller 变成探测名额的头号
+浪费者（群聊房间里 @mention 过滤是常态路径）。现在两处认领点：`_process_lane` 在限流
+检查之后、`_handle_channel_batch` 之前；`_patrol_body` 在 speech cap 之后、拼 prompt 之前
+（sweep 的 `should_skip` 仍在 `_dispatch_patrols`）。被拒与 skip 同义：消息不 ack、留队；
+patrol 走 `finally` 的 `mark_patrolled`，不会变成热候选。
+`test_mention_filtered_batch_does_not_claim_the_probe` / `test_refused_probe_leaves_relevant_batch_queued`
+钉住"过滤路径不认领、被拒不 ack"。
 
 ## 2026-09-07 — 两处消费方跟着注册表视图走
 

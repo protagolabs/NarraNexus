@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/schema/agent_circuit_breaker_schema.py
-last_verified: 2026-07-13
+last_verified: 2026-09-10
 stub: false
 ---
 # agent_circuit_breaker_schema.py — 实时层 Agent 熔断器数据模型
@@ -25,6 +25,18 @@ Pydantic 定义，落在**独立表** `instance_agent_circuit_breaker`（键 age
 `ErrorCategory` 四类**都在用**：TRANSIENT 是**正面识别**的 provider 侧瞬时错（通知 owner），
 `BUSINESS` 是真正的残余桶（我们的 bug / 永久客户端错 / 认不出的），持续失败时**只报平台方、
 不发 owner**——把"我们的 bug"和"用户 provider 侧的问题"分开，避免拿自己的缺陷去骚扰用户。
+
+## 2026-09-10 — 状态机加 PROBING（半开）与 `probe_token`
+
+`CbStatus` 四态：ACTIVE → COOLING（退避）→ PAUSED（auth/quota 连续 3 次）→ **PROBING**
+（半开：PAUSED 的延迟到期后恰好一个 turn 被放行去探测）→ 成功回 ACTIVE / 失败回 PAUSED
+（延迟翻倍）。PROBING 只可能源自 auth/quota 的 PAUSE，所以 `PausedReason` 仍只有
+`auth`/`quota` 两个值，这段不变。
+
+`cooldown_until` 一列三义：COOLING 的退避到期、PAUSED 的半开延迟到期、PROBING 的探测
+grant 到期——服务层按 `cb_status` 解释它，别再往这列上叠第四种含义。新增 `probe_token`
+（nullable）专门做认领的 compare-and-swap 键：每次成功认领写新随机值，写回其他任何状态时
+置 NULL；它不表达业务状态，只保证"认领前后值不同"。
 
 ## Gotcha
 

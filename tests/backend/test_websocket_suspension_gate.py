@@ -120,3 +120,39 @@ async def test_active_user_ws_passes_the_gate(
     assert frame.get("error_code") != ACCOUNT_SUSPENDED
     # ...and it reached the circuit-breaker gate just past the account check.
     assert frame["error_type"] == "agent_circuit_open"
+
+
+@pytest.mark.asyncio
+async def test_ws_claims_the_half_open_probe_before_recording_the_run(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch
+):
+    """should_skip is a pure read; the probe is claimed by try_begin_probe
+    right before the run is recorded. A lost claim answers with the
+    "probing" frame and nothing about the run is recorded."""
+    await _seed(wire_db, "alice", status="active")
+
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _open(_agent_id):
+        return False, None
+
+    async def _lost(_agent_id):
+        return False, "probing"
+
+    recorded = []
+
+    async def _spy_record(**kw):
+        recorded.append(kw)
+
+    monkeypatch.setattr(cb_mod, "should_skip", _open)
+    monkeypatch.setattr(cb_mod, "try_begin_probe", _lost)
+    monkeypatch.setattr(ws_mod, "_record_message_accepted", _spy_record)
+
+    client = TestClient(_build_app())
+    with client.websocket_connect("/ws/agent/run") as ws:
+        ws.send_json(_first_message("alice"))
+        frame = ws.receive_json()
+
+    assert frame["error_type"] == "agent_circuit_open"
+    assert frame["cb_reason"] == "probing"
+    assert recorded == []

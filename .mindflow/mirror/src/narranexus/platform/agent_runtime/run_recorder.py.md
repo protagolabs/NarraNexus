@@ -17,6 +17,14 @@ stub: false
 测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
 （failed 保留、cancelled 不写）。
 
+## 2026-09-10 — `sweep_stale_runs` 翻掉丢失 run 时顺带释放半开探测
+
+进程死亡的 run 永远走不到 `BackgroundRun._finalize`，熔断器结算也就不会发生。现在每翻一
+行（failed 或 cancelled）都对该 `agent_id` 调 [[circuit_breaker]] 的 `release_probe`
+（best-effort，只对 PROBING 行生效）。这也是 `try_begin_probe` 能用"events 里有心跳新鲜的
+running 行"当作"探测还活着"的前提：活性规则两边共用 `run_is_live`，丢失的 run 在
+~RUN_STALE_AFTER_S + 一个 sweep 周期内既翻状态又归还名额。
+
 ## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
 
 followups #1 折入本单。此前这条回放路（recorder → [[broadcaster]] →

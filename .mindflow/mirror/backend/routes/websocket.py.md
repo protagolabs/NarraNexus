@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — fresh-run 路径两步熔断门：`should_skip`（纯读）+ `try_begin_probe`（认领）
+
+[[circuit_breaker]] 把半开探测的认领从 `should_skip` 里拆出来后，WS 在 `should_skip`
+放行之后、`_record_message_accepted` 之前再调 `try_begin_probe(agent_id)`；被拒
+（`(False, "probing")`，另一个 turn 正持有/刚抢到探测）就发同一种 `agent_circuit_open`
+帧（probing → cooling 文案）并关 socket，run 不记录、不创建。认领点放在这里是因为
+它是 WS 路径上"turn 一定会起"的最后一道门。`test_ws_claims_the_half_open_probe_before_recording_the_run`
+钉住"被拒即不记录"。
 
 ## 2026-09-09 — `_circuit_open_frame` 补上 `should_skip` 的第四个原因 `probing`
 

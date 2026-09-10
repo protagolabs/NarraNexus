@@ -12,6 +12,8 @@ insert-or-update that stamps ``updated_at``.
 
 from __future__ import annotations
 
+import secrets
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -20,6 +22,12 @@ from narranexus.platform.schema import AgentCircuitBreaker, CbStatus
 from narranexus.platform.utils.timezone import utc_now
 
 from .base import BaseRepository
+
+
+def _generate_probe_token() -> str:
+    """A short random value, unique enough to serve as a compare-and-swap
+    key (not a security token — never compared against untrusted input)."""
+    return secrets.token_hex(16)
 
 
 class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
@@ -55,33 +63,56 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
         return [self._row_to_entity(r) for r in rows if r]
 
     async def try_claim_probe(
-        self, agent_id: str, from_status: str, grant_until: Any
-    ) -> bool:
+        self,
+        agent_id: str,
+        from_status: str,
+        expected_probe_token: Optional[str],
+        grant_until: datetime,
+    ) -> Optional[str]:
         """Atomically transition ``from_status`` -> PROBING, granting the
         caller the single half-open probe turn.
 
-        Equality-filtered ``UPDATE ... WHERE agent_id=? AND cb_status=?`` is
-        the compare-and-swap: only the caller whose write actually matches
-        the current ``cb_status`` flips it, so concurrent callers racing the
-        same expired PAUSED row can never both win. ``grant_until`` re-stamps
-        ``cooldown_until`` as the probe's own expiry — if the winning turn
-        crashes without recording an outcome (record_success/record_failure
-        never runs), a later ``should_skip`` sees a stale PROBING row and can
-        re-claim it via the same call (``from_status=PROBING``), so a dead
-        probe self-heals instead of jamming the breaker open forever.
+        The compare-and-swap key is ``probe_token``, not ``cb_status`` alone.
+        Filtering on ``cb_status=from_status`` is a CAS only while the write
+        changes that column: the first PAUSED->PROBING claim does, but the
+        stale-PROBING self-heal re-claims FROM "probing" TO "probing", so a
+        status-only filter kept matching for every later racer and each one
+        "won". ``probe_token`` is a fresh random value on every successful
+        claim and NULL whenever the row is written back to PAUSED / COOLING /
+        ACTIVE, so it always differs before vs. after a real claim, on both
+        branches.
 
-        Returns True iff this call won the race (rowcount > 0).
+        ``expected_probe_token`` is whatever the caller most recently READ:
+        None for a fresh pause (the filter becomes ``probe_token IS NULL``),
+        the row's current token for a stale-PROBING reclaim. ``grant_until``
+        re-stamps ``cooldown_until`` as the probe's own expiry.
+
+        Dialect note: aiomysql's rowcount counts CHANGED rows, not matched
+        ones. That is fine here because ``probe_token`` is always new, but it
+        means a "just update cb_status" simplification would silently never
+        win on MySQL for the probing->probing branch — the MySQL twin
+        (``tests/agent_framework/test_agent_circuit_breaker_probe_mysql.py``)
+        pins this.
+
+        Returns the NEW probe_token this caller now owns if it won the race,
+        or None if it lost.
         """
+        new_token = _generate_probe_token()
         rowcount = await self._db.update(
             self.table_name,
-            {"agent_id": agent_id, "cb_status": from_status},
+            {
+                "agent_id": agent_id,
+                "cb_status": from_status,
+                "probe_token": expected_probe_token,
+            },
             {
                 "cb_status": CbStatus.PROBING.value,
+                "probe_token": new_token,
                 "cooldown_until": grant_until,
                 "updated_at": utc_now(),
             },
         )
-        return rowcount > 0
+        return new_token if rowcount > 0 else None
 
     async def find_paused(self) -> List[AgentCircuitBreaker]:
         """All agents currently in PAUSED state (any reason)."""

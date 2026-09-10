@@ -589,6 +589,18 @@ _register(
             Column("paused_reason", "TEXT", "VARCHAR(32)"),
             Column("paused_at", "TEXT", "DATETIME(6)"),
             Column("last_error", "TEXT", "TEXT"),  # already redacted at write time
+            # 2026-09-09 (GitHub #117 review, C2): the half-open probe claim's
+            # real compare-and-swap key. Equality-filtering on cb_status alone
+            # is not a CAS when the claim's own WRITE value equals the FROM
+            # value (the stale-PROBING self-heal branch writes cb_status=
+            # "probing" while reading cb_status=="probing" — the filter is
+            # unconditionally true after the first writer, so every later
+            # racer also matches). probe_token changes on every successful
+            # claim (fresh random value) and is reset to NULL whenever the row
+            # is written back to PAUSED/ACTIVE/COOLING, so it is always a
+            # value that differs before vs. after a real claim — additive,
+            # nullable, no backfill needed.
+            Column("probe_token", "TEXT", "VARCHAR(64)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

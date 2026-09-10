@@ -240,12 +240,12 @@ def _fresh_run_drive_kwargs(
 
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
     """Build the WS error frame shown when the Agent circuit-breaker skips a
-    fresh run. ``cb_reason`` is ``should_skip``'s reason
-    ("paused:auth" / "paused:quota" / "cooling" / "probing"). Pure —
+    fresh run. ``cb_reason`` is the reason ``should_skip`` / ``try_begin_probe``
+    returned ("paused:auth" / "paused:quota" / "cooling" / "probing"). Pure —
     unit-tested.
 
-    "probing" (GitHub #117 half-open) means a rejected CONCURRENT request
-    while another turn already claimed the single probe slot — not a hard
+    "probing" (GitHub #117 half-open) means another turn holds — or just won
+    — the single probe slot, so this request lost the race: not a hard
     pause, so it falls through to the same "try again shortly" copy as
     cooling rather than telling the user to go re-authenticate."""
     reason = cb_reason or ""
@@ -1025,9 +1025,21 @@ async def websocket_agent_run(websocket: WebSocket):
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            should_skip,
+            try_begin_probe,
+        )
         cb_skip, cb_reason = await should_skip(request.agent_id)
         if cb_skip:
+            await websocket.send_json(_circuit_open_frame(cb_reason))
+            await websocket.close()
+            return
+        # The half-open probe is claimed HERE — the last gate before the run
+        # is recorded and created — never inside should_skip, so an entry
+        # point that asks and then does not run a turn cannot burn the single
+        # probe grant. A lost race answers with the "probing" copy.
+        cb_allowed, cb_reason = await try_begin_probe(request.agent_id)
+        if not cb_allowed:
             await websocket.send_json(_circuit_open_frame(cb_reason))
             await websocket.close()
             return

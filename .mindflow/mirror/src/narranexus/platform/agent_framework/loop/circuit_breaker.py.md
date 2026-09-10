@@ -16,42 +16,72 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
+## 2026-09-10 — 半开机制第二轮：读判断与认领分离、probe_token CAS、探测按探测语义结算
+
+两轮预审（GitHub #117 修复分支）把上一版半开机制打回，三个根问题及本轮的定案：
+
+**1. `should_skip` 恢复纯读，认领单独放在 `try_begin_probe`。** 上一版在
+`should_skip` 里做 CAS 认领，而 bus 的 `_process_lane` 在 `should_skip` 之后还有
+IM 前缀 ack、@mention 过滤 ack、限流 ack 三条"不跑 turn 就返回"的路径——群聊房间里
+@mention 过滤是常态路径，3 秒一轮的 poller 几乎必然先抢到探测名额再白白扔掉，行卡在
+PROBING 整个 grant 期，真人用户拿到的是误导性的 "cooling down" 帧。现在
+`should_skip` 只读不写（PAUSED 且半开延迟已到 / PROBING 且 grant 已过期 → 返回
+`(False, None)` 表示"窗口可能开着，继续往认领点走"），四个入口
+（[[websocket.py]] fresh-run、[[message_bus_trigger]] 的 `_process_lane` 与
+`_patrol_body`、[[module_poller]] Path A）各自在**真正要起 turn 的那一点**再调
+`try_begin_probe(agent_id) -> (allowed, reason)`；被拒（`(False, "probing")`）与
+skip 同义——bus 不 ack、WS 发 probing 帧、poller 不建 runtime。任何未来新入口都要走
+这个两步契约。PR #389 在本文件末尾追加只读 `peek_skip`，与"`should_skip` 纯读"完全兼容。
+
+**2. CAS 键是新增列 `probe_token`，不是 `cb_status`。** 等值过滤
+`cb_status=from_status` 只在写入值≠读到值时才是 CAS；stale-PROBING 自愈是
+probing→probing，过滤条件对所有后来者恒真——上一版 mirror 里"CAS 本身保证只有一个
+turn 通过"是**错误声明，本轮撤回**（真 MySQL 与 SQLite 实测 N 个并发全放行）。
+`try_claim_probe(agent_id, from_status, expected_probe_token, grant_until)` 现在按
+`probe_token`（读到的值，首次认领为 NULL → `IS NULL`）做等值过滤、写入新随机值；行写回
+PAUSED/COOLING/ACTIVE 时一律置 NULL。列走 `schema_registry` additive 注册（双方言、
+nullable、无回填）。并发证明用 `asyncio.gather`（顺序调用证明不了任何东西）：
+`test_concurrent_claims_on_open_window_let_exactly_one_through`、
+`test_concurrent_reclaims_of_stale_probing_let_exactly_one_through`，并配真 MySQL twin
+`test_agent_circuit_breaker_probe_mysql.py`（aiomysql rowcount=CHANGED 行、`IS NULL`
+首次认领两处方言敏感点）。把过滤里的 `probe_token` 拿掉，这四条在两种方言上都变红。
+
+**3. 探测结果按探测语义结算（`record_failure` 看到行是 PROBING）。**
+auth/quota 失败 → 沿用原 streak（+1、保留原 `paused_reason`/`failure_category`，即使这
+次分类成另一个 pausing 类别）、重新 PAUSED、半开延迟翻倍、**不再重复告警 owner**（同一场
+故障的延续，不是新事件）。transient/business 失败 → 什么也没证明：保持 PAUSED、streak/
+类别/reason 全部不变、同样长度的延迟重新起算（`_rearm_pause_without_verdict`）——上一版
+会走类别切换重置逻辑把 PAUSED 降级成 60s COOLING 循环，正是熔断器要消灭的重触发风暴；
+且**故意不 +1**（铁律 #15：网络抖动不能把 owner 推向 6h 上限）。顶部两个豁免（自助类、
+executor-infra）保留"不动 streak"，但 PROBING 行同样要结算回 PAUSED，否则挂到 grant 过期。
+
+**grant 不是 turn 时长上限（铁律 #14）。** `PROBE_GRANT_SECONDS`(5min) 只界定"认领
+到 run 行存在"这段窗口；stale-PROBING 重认领额外要求 `_agent_has_live_run` 为假（events
+里没有心跳新鲜的 running 行——与 `run_recorder.sweep_stale_runs` 同一条活性规则）。跑
+几小时的探测 turn 不会被第二个探测叠上。探测永远不结算的三个口子由 `release_probe`
+兜住：用户取消（[[background_run]] CANCELLED 分支）、进程死亡（[[run_recorder]]
+`sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。
+
+**其他**：CAS 写失败按"没抢到"处理（`(False, "probing")`，fail-closed，日志文案与读失败的
+fail-open 区分）；`cooldown_until` 为 NULL 视为已到期（fail-safe 向探测倾斜，避免永远
+探不到的行）；认领成功 / 探测成功 / 探测失败各打一条 `[agent-cb]` 日志；
+`_compute_half_open_delay_seconds` 先夹指数再取幂；`_CLEAN_STATE` 含 `probe_token=None`。
+`cooldown_until` 仍承载三种语义（COOLING 到期 / PAUSED 半开延迟 / PROBING grant 到期），
+`probe_token` 只承担 CAS 键，不再往这列上叠第四种含义。
+
 ## 2026-09-09 — 半开（half-open）：PAUSED 不再是死胡同（GitHub #117）
 
 **症状**：`should_skip` 原逻辑里 PAUSED 只能靠 `reset_agent`(手动) /
-`reset_for_owner`(换 key 自动恢复) 解除，本身**永不按时间过期**——如果两条
-恢复路径都没触发（比如 owner 没有走 `/providers` 相关端点去重新配置，或
-`get_claude_status`/`test_provider` 判定 provider 已恢复但没人调用
-`reset_for_owner`），agent 会**永久卡死**在 PAUSED，即使底层凭据早已修好。
+`reset_for_owner`(换 key 自动恢复) 解除，本身**永不按时间过期**——agent 会永久卡死在
+PAUSED，即使底层凭据早已修好。
 
 **修复**：`CbStatus` 新增 `PROBING`——半开态。`record_failure` 进入 PAUSED 分支时，
-`cooldown_until` 改写成半开延迟（`_compute_half_open_delay_seconds`，基于
-`consecutive_failure_count`：首次 PAUSE 用 `PAUSE_HALF_OPEN_BASE_SECONDS`(5min)，
-每多一次同类失败（含探测失败后的再次 PAUSE）翻倍，封顶
-`PAUSE_HALF_OPEN_CAP_SECONDS`(6h)——不复用 `compute_cooldown_seconds` 的 COOLING
-退避表，两者服务的场景不同）。`should_skip` 在 PAUSED 且 `cooldown_until` 已过时，
-调用新的 `AgentCircuitBreakerRepository.try_claim_probe`（`UPDATE ... WHERE
-agent_id=? AND cb_status='paused'` 的等值 CAS）尝试把状态翻成 PROBING；赢的那个
-调用者拿到 `(False, None)`（这个 turn 就是探测），其余并发调用者原样看到
-`(True, "paused:...")`——**CAS 本身**保证只有一个 turn 通过，不依赖任何应用层加锁。
-探测 turn 走完照常调 `record_success`（→ ACTIVE）或 `record_failure`（→ 重新
-PAUSED，因 `consecutive_failure_count` 又 +1，半开延迟翻倍）。
-
-PROBING 也有自愈：`try_claim_probe` 每次都重写 `cooldown_until` 为
-`utc_now()+PROBE_GRANT_SECONDS`(5min)，如果拿到探测名额的那个 turn 崩溃、从没调用
-`record_success`/`record_failure`（best-effort 包裹失败），下一次 `should_skip`
-看到 PROBING 且 grant 已过期会用同一个 CAS（`from_status=PROBING`）重新认领——
-不会永久卡死在 PROBING。`reset_for_owner` 现在也把 PROBING 纳入候选集（PROBING
-只可能源自 auth/quota 的 PAUSE，语义上跟 PAUSED 一样"永远可清"）。
-
-测试（`tests/agent_framework/test_agent_circuit_breaker.py`）：
-`test_paused_before_timeout_stays_skipped`、
-`test_paused_after_timeout_allows_exactly_one_probe`、
-`test_second_concurrent_request_during_half_open_still_skipped`（并发只放一个）、
-`test_half_open_probe_success_closes_breaker`、
-`test_half_open_probe_failure_repauses_with_longer_timeout`（延迟翻倍）、
-`test_probing_row_with_expired_grant_self_heals`、
-`test_probing_row_with_live_grant_stays_skipped`。
+`cooldown_until` 改写成半开延迟（`_compute_half_open_delay_seconds`，首次 PAUSE 用
+`PAUSE_HALF_OPEN_BASE_SECONDS`(5min)，每多一次同类失败翻倍，封顶
+`PAUSE_HALF_OPEN_CAP_SECONDS`(6h)）。延迟到期后恰好一个 turn 作为探测放行；探测成功 →
+ACTIVE，失败 → 重新 PAUSED、延迟翻倍。`reset_for_owner` 把 PROBING 纳入候选集。认领与
+结算的细节以 2026-09-10 条为准（本条的"CAS 在 should_skip 里、按 cb_status 过滤"两点已被
+撤回）。
 
 ## 2026-07-30 — `_is_out_of_credit` 改为成员判定
 
@@ -156,17 +186,20 @@ CAS 领取 half-open 探针，GitHub #117）。bus 发送工具的回执预检�
 owner 修不了）→ **只报平台方**（内部审计 + loud log），**绝不发 owner**。每段连击一次
 （成功即清零）。
 
-`record_success` 清零；`should_skip` 是**fail-open** 的读闸门（读错→放行，绝不因熔断器
-故障挡住健康 turn）：PAUSED 且半开延迟未到→skip，半开延迟已到→用等值 CAS
-（`try_claim_probe`）抢唯一一次探测 turn（赢家放行，其余仍 skip）；PROBING→skip（除非
-探测 grant 也过期，同样的 CAS 可重新认领，见 2026-09-09 条）；COOLING 且
-`cooldown_until>now`→skip，冷却到期→惰性放行。`reset_agent`（手动）/`reset_for_owner`
-（换 key 自动恢复，清 PAUSED/PROBING + auth/quota 的 cooling 连击，不动 transient 冷却）。
+`record_success` 清零；`should_skip` 是**纯读、fail-open** 的预过滤闸门（读错→放行）：
+PAUSED 且半开延迟未到→skip，已到→`(False, None)` 让调用方走向认领；PROBING 且 grant 未过
+→skip("probing")，已过→同样放行去认领；COOLING 且 `cooldown_until>now`→skip，到期→惰性
+放行。`try_begin_probe` 是唯一写 PROBING 的地方（`probe_token` CAS），只在 turn 真正要
+起的那一点调用。`reset_agent`（手动）/`reset_for_owner`（换 key 自动恢复，清
+PAUSED/PROBING + auth/quota 的 cooling 连击，不动 transient 冷却）。`release_probe` 供
+取消/丢失的探测 turn 归还名额。
 
 ## 上下游关系
 
-被 `agent_runtime/background_run._record_circuit_breaker`（记账）、`backend/routes/websocket.py`
-+ `message_bus/message_bus_trigger.py` + `services/module_poller.py`（should_skip 闸门）、
+被 `agent_runtime/background_run._record_circuit_breaker`（记账 + 取消时 `release_probe`）、
+`agent_runtime/run_recorder.sweep_stale_runs`（丢失 run 时 `release_probe`）、
+`backend/routes/websocket.py` + `message_bus/message_bus_trigger.py` +
+`services/module_poller.py`（`should_skip` 读闸门 + `try_begin_probe` 认领）、
 `backend/routes/providers.py`（reset_for_owner 自动恢复）、`backend/routes/agents/circuit_breaker.py`
 （reset_agent 手动）调用。分类复用 `llm.failure.is_credential_error` +
 `response_processor._is_auth_failure`；告警复用 `services/background_llm_alerts`。
