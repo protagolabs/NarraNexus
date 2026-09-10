@@ -146,14 +146,39 @@ def group_budget_reason(stored: int, this_part: int) -> str:
     )
 
 
-def oversize_reason(size: int) -> str:
-    """The agent-readable refusal for one row over `MAX_BUS_MESSAGE_BYTES`."""
+#: The remedies a caller appends to the oversize FACT. The fact is the bus's;
+#: the way out depends on who is asking (review #389 I1): the peer DM tool has
+#: part_index/part_count, the team-room tool does not, and a person typing in
+#: the team chat has neither.
+OVERSIZE_REMEDY_PARTS = (
+    "Send it in ordered parts with part_index/part_count — each part under "
+    "the limit — and the recipient receives it joined back into one message."
+)
+OVERSIZE_REMEDY_TEAM = (
+    "Split it across several message_team calls, each under the limit."
+)
+OVERSIZE_REMEDY_HUMAN = "The message is too long; please split it and send it in pieces."
+
+
+class BusMessageTooLarge(ValueError):
+    """One row's content exceeds `MAX_BUS_MESSAGE_BYTES`. Raised by the write
+    edge with the FACT only; each sender adds the remedy it actually has."""
+
+    def __init__(self, size: int):
+        self.size = size
+        super().__init__(oversize_fact(size))
+
+
+def oversize_fact(size: int) -> str:
     return (
         f"`text` is {size} bytes; one message holds at most "
-        f"{MAX_BUS_MESSAGE_BYTES}. Nothing was sent. Send it in ordered parts "
-        f"with part_index/part_count — each part under the limit — and the "
-        f"recipient receives it joined back into one message."
+        f"{MAX_BUS_MESSAGE_BYTES}. Nothing was sent."
     )
+
+
+def oversize_reason(size: int, remedy: str = OVERSIZE_REMEDY_PARTS) -> str:
+    """The refusal a caller shows: the bus's fact plus that caller's remedy."""
+    return f"{oversize_fact(size)} {remedy}"
 
 
 def _age_seconds(created_at, now: datetime) -> float:
@@ -260,6 +285,10 @@ def assemble(
 
 
 __all__ = [
+    "OVERSIZE_REMEDY_HUMAN",
+    "OVERSIZE_REMEDY_PARTS",
+    "OVERSIZE_REMEDY_TEAM",
+    "BusMessageTooLarge",
     "MAX_BUS_MESSAGE_BYTES",
     "MAX_MESSAGE_PARTS",
     "MAX_MULTIPART_TOTAL_BYTES",
@@ -267,6 +296,7 @@ __all__ = [
     "too_many_parts_reason",
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
+    "oversize_fact",
     "oversize_reason",
     "split_for_bus",
 ]

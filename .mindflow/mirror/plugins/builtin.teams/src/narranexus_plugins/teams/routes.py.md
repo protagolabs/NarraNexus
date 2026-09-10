@@ -4,6 +4,11 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 I1）— 400 文案面向人
+
+`oversize_reason(bytes, OVERSIZE_REMEDY_HUMAN)`：事实 + 「消息过长，请拆分后发送」，不再提
+part_index/part_count。
+
 ## 2026-09-10（review r2 I2）— `send_team_chat` 超长返回 400
 
 bus 写入边（[[local_bus]]）对超过 `MAX_BUS_MESSAGE_BYTES` 的行抛 `ValueError`，这是用户手打

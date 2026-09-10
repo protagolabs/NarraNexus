@@ -8,6 +8,10 @@ stub: false
 
 `_row_to_message` 的单行读回，供发送工具取刚写行的 channel_id。
 
+## 2026-09-10（PR #389 I1）— 超长改抛 `BusMessageTooLarge`（只带事实）
+
+`ValueError` 子类、携带 `size`；出路文案由各调用方补（见 [[multipart]]）。
+
 ## 2026-09-10（review r2 M3）— `canonical_ts` 定义移到 [[schemas]]，本文件 re-export
 
 ## 2026-09-10（review r2 C2）— `_resolve_part_group` 校验 `part_count <= MAX_MESSAGE_PARTS`

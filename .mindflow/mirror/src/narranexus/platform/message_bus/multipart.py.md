@@ -48,6 +48,14 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
 `_ts` 副本删除。前置条件：`message_team` 不得先于 lane 级饥饿方案加上分片参数，
 `test_team_message_segments` 的豁免集合是现在唯一的闸。
 
+## 2026-09-10（PR #389 I1）— 超长拒绝拆成「事实」+「出路」
+
+写入边只说事实（`BusMessageTooLarge(size)`，`oversize_fact`），出路由调用方按自己真有的手段拼：
+`message_agent` → `OVERSIZE_REMEDY_PARTS`（它有 part_*）；`message_team` → `OVERSIZE_REMEDY_TEAM`
+（拆成多次调用——它没有 part_*，此前那句「用 part_index/part_count」会诱导一次 unknown-argument
+的重试环）；team 聊天 HTTP 路由 → `OVERSIZE_REMEDY_HUMAN`（面向人）。`oversize_reason(size, remedy)`
+负责拼接。
+
 ## 2026-09-10（review r2 C2）— 块数上限回来了：`MAX_MESSAGE_PARTS = 40`
 
 I7 删掉计数上限后，600 块 × 100 字节是合法的组，却没有任何一批（WIDE=500）装得下——

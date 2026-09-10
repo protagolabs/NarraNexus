@@ -33,6 +33,7 @@ from narranexus.platform.repository.user_repository import UserRepository
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
 from narranexus.platform.message_bus.multipart import (
     MAX_BUS_MESSAGE_BYTES,
+    OVERSIZE_REMEDY_HUMAN,
     oversize_reason,
 )
 from narranexus.platform.message_bus.attachments import (
@@ -311,7 +312,11 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     # ValueError surface as a 500 — the one user-typed path onto the bus.
     content_bytes = len((payload.content or "").strip().encode("utf-8"))
     if content_bytes > MAX_BUS_MESSAGE_BYTES:
-        raise HTTPException(status_code=400, detail=oversize_reason(content_bytes))
+        # A person is on the other end: the fact plus a human remedy, not the
+        # peer tool's part_index/part_count (#389 I1).
+        raise HTTPException(
+            status_code=400, detail=oversize_reason(content_bytes, OVERSIZE_REMEDY_HUMAN)
+        )
 
     db = await get_db_client()
     team_repo = TeamRepository(db)

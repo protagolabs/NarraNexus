@@ -4,6 +4,12 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 I1/M2）— 两个发送动词各自的超长出路；`error` 与 `receipt.reason` 同文
+
+`message_agent` 捕 `BusMessageTooLarge` → `oversize_reason(size, OVERSIZE_REMEDY_PARTS)`；
+`message_team` → `OVERSIZE_REMEDY_TEAM`（它没有 part_*）。`message_agent` 失败分支的 `error`
+不再是原文 `str(e)`，与 `receipt.reason` 同一份脱敏文本（相邻字段不能绕过脱敏，M2）。
+
 ## 2026-09-10（review r3 M3）— `message_agent` 向模型公布三条上限
 
 docstring 点名 `MAX_BUS_MESSAGE_BYTES` / `MAX_MESSAGE_PARTS` / `MAX_MULTIPART_TOTAL_BYTES`，

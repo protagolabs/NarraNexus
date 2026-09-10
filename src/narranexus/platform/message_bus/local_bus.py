@@ -30,8 +30,8 @@ from narranexus.platform.message_bus.multipart import (
     MAX_BUS_MESSAGE_BYTES,
     MAX_MESSAGE_PARTS,
     MAX_MULTIPART_TOTAL_BYTES,
+    BusMessageTooLarge,
     group_budget_reason,
-    oversize_reason,
     too_many_parts_reason,
 )
 from narranexus.platform.message_bus.schemas import (
@@ -235,8 +235,10 @@ class LocalMessageBus(MessageBusService):
         size = len((content or "").encode("utf-8"))
         if size > MAX_BUS_MESSAGE_BYTES:
             # Every writer, not one tool: `message_team` and the platform's own
-            # lines reach this insert too (review I4). Refused, never cut.
-            raise ValueError(oversize_reason(size))
+            # lines reach this insert too (review I4). Refused, never cut. The
+            # exception carries the FACT; the remedy is the caller's (a peer
+            # tool has parts, a room tool and a person do not — #389 I1).
+            raise BusMessageTooLarge(size)
         msg_id = _generate_id("msg")
         part_group = await self._resolve_part_group(
             from_agent, to_channel, msg_id, part_index, part_count, size

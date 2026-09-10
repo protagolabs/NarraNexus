@@ -25,6 +25,10 @@ from narranexus.platform.message_bus.multipart import (
     MAX_BUS_MESSAGE_BYTES,
     MAX_MESSAGE_PARTS,
     MAX_MULTIPART_TOTAL_BYTES,
+    OVERSIZE_REMEDY_PARTS,
+    OVERSIZE_REMEDY_TEAM,
+    BusMessageTooLarge,
+    oversize_reason,
 )
 from narranexus.platform.repository.bus_delivery_receipt_repository import (
     RECEIPT_ACCEPTED,
@@ -511,11 +515,18 @@ def register_message_bus_mcp_tools(
             )
             return out
         except Exception as e:
-            reason = redact_secrets(str(e))
+            # The write edge states the oversize FACT; this verb has parts, so
+            # that is the remedy it names (#389 I1). `error` carries the same
+            # redacted text as the receipt — one field must not undo the other.
+            error = (
+                oversize_reason(e.size, OVERSIZE_REMEDY_PARTS)
+                if isinstance(e, BusMessageTooLarge)
+                else redact_secrets(str(e))
+            )
             return {
                 "success": False,
-                "error": str(e),
-                "receipt": {"status": RECEIPT_FAILED, "reason": reason},
+                "error": error,
+                "receipt": {"status": RECEIPT_FAILED, "reason": error},
             }
 
     @mcp.tool()
@@ -625,6 +636,9 @@ def register_message_bus_mcp_tools(
                 root_run_id=caller_root_run_id(),
             )
             return {"success": True, **result}
+        except BusMessageTooLarge as e:
+            # No part_* on this verb: the remedy is several calls (#389 I1).
+            return {"success": False, "error": oversize_reason(e.size, OVERSIZE_REMEDY_TEAM)}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

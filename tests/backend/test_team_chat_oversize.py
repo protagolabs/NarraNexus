@@ -37,7 +37,9 @@ async def test_send_team_chat_refuses_an_oversize_message_with_400(db_client, mo
 
     r = client.post("/api/teams/t1/chat/messages", json={"content": "x" * (MAX_BUS_MESSAGE_BYTES + 1)})
     assert r.status_code == 400, r.text
-    assert "part_index/part_count" in r.json()["detail"]
+    # A person is on this end: no tool parameters in the advice (#389 I1).
+    detail = r.json()["detail"]
+    assert "part_index" not in detail and "too long" in detail
     assert await db_client.get("bus_messages", {}) == []
 
     # Whitespace does not count (the route strips before sending), and the

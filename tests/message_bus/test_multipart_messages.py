@@ -437,9 +437,14 @@ async def test_oversize_is_refused_at_the_write_edge_for_every_sender(db_client)
     the model cannot read, never a silently kept prefix."""
     bus = LocalMessageBus(backend=db_client._backend)
     await db_client.insert("bus_channels", {"channel_id": "room", "name": "room", "channel_type": "group", "created_by": "team_x"})
-    with pytest.raises(ValueError) as exc:
+    from narranexus.platform.message_bus.multipart import BusMessageTooLarge
+
+    with pytest.raises(BusMessageTooLarge) as exc:
         await bus.send_message("agent_x", "room", "x" * (MAX_BUS_MESSAGE_BYTES + 1))
-    assert "part_index/part_count" in str(exc.value)
+    # The write edge states the FACT only; the remedy belongs to the caller
+    # (#389 I1) — a room poster must not be told to use a parameter it lacks.
+    assert "Nothing was sent" in str(exc.value)
+    assert "part_index" not in str(exc.value) and exc.value.size == MAX_BUS_MESSAGE_BYTES + 1
     assert await db_client.get("bus_messages", {"channel_id": "room"}) == []
     # Multi-byte text is measured in BYTES, not characters.
     with pytest.raises(ValueError):
@@ -578,3 +583,25 @@ async def test_a_young_group_behind_a_deep_backlog_is_still_held_at_the_lane(db_
     assert await trigger._process_lane(B, channel_id) is False
     assert calls == []
     assert len(await bus.get_pending_messages(B, channel_id=channel_id, limit=1000)) == 641
+
+
+@pytest.mark.asyncio
+async def test_message_team_oversize_names_a_remedy_it_actually_has(db_client, monkeypatch):
+    """`message_team` has no part_* parameters, so its refusal must not point
+    at them (#389 I1) — following that advice would be an unknown-argument
+    call, and a retry loop the platform lit itself."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, _ = _tools(db_client)
+    created = await tools["create_team"](agent_id=A, name="Desk", members=B)
+    assert created["success"] is True, created
+
+    out = await tools["message_team"](agent_id=A, team_id=created["team_id"], text="x" * (MAX_BUS_MESSAGE_BYTES + 1))
+
+    assert out["success"] is False
+    assert "part_index" not in out["error"]
+    assert "message_team" in out["error"] and "Nothing was sent" in out["error"]
+    # And the peer verb still names the remedy it does have.
+    out = await tools["message_agent"](agent_id=A, to=B, text="x" * (MAX_BUS_MESSAGE_BYTES + 1))
+    assert "part_index/part_count" in out["error"] and out["error"] == out["receipt"]["reason"]
