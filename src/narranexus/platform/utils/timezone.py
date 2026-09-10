@@ -94,6 +94,17 @@ def to_user_timezone(dt, user_tz: str = DEFAULT_TIMEZONE) -> Optional[datetime]:
     """
     if dt is None:
         return None
+    if not isinstance(dt, (datetime, str)):
+        # A type error is not a formatting failure. The except-branch below
+        # exists for a datetime that cannot be converted; letting a dict or
+        # a list fall into it returned `str(dict)` — a Python repr that
+        # every caller then served as a "formatted timestamp" (a whole
+        # `model_dump()` was fed here once; the bulletin panel rendered
+        # blank rows and only a warning line said why). Loud, at the call
+        # site, with the offending type named.
+        raise TypeError(
+            f"format_for_api expects datetime | str | None, got {type(dt).__name__}"
+        )
 
     try:
         # SQLite returns timestamps as strings — parse them first
@@ -132,9 +143,24 @@ def format_for_api(dt) -> Optional[str]:
     Returns:
         ISO 8601 format string (with Z suffix), e.g., "2025-01-15T14:30:00Z"
         Returns None if input is None
+
+    Raises:
+        TypeError: for anything that is not a datetime, a str or None (a
+            dict, a list, a whole model dump) — never silently `str()`-ed.
     """
     if dt is None:
         return None
+    if not isinstance(dt, (datetime, str)):
+        # A type error is not a formatting failure. The except-branch below
+        # exists for a datetime that cannot be converted; letting a dict or
+        # a list fall into it returned `str(dict)` — a Python repr that
+        # every caller then served as a "formatted timestamp" (a whole
+        # `model_dump()` was fed here once; the bulletin panel rendered
+        # blank rows and only a warning line said why). Loud, at the call
+        # site, with the offending type named.
+        raise TypeError(
+            f"format_for_api expects datetime | str | None, got {type(dt).__name__}"
+        )
 
     try:
         # SQLite returns timestamps as strings — parse them first
