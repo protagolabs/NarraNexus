@@ -132,42 +132,102 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 
 # Step 3: Install Python dependencies directly into standalone Python
 #
-# NON-editable install through UV (`uv sync --no-editable` — never plain pip).
+# FROM THE LOCK (`uv export --locked` -> `uv pip install -r`), never from the
+# pyproject version ranges.
+#
+# 2026-09-10 incident: this step used to be a plain `uv pip install
+# "$PROJECT_ROOT"`, which RE-RESOLVES every dependency from the ranges in
+# pyproject.toml and IGNORES uv.lock — the dmg shipped whatever PyPI happened
+# to hold on build day. That day it held `mcp` 2.2.0 (the lock says 1.24.0),
+# which renamed `streamablehttp_client` -> `streamable_http_client` and deleted
+# `mcp.client.websocket`; utils/mcp_executor.py imports both, so EVERY sidecar
+# service died at import ("ImportError: cannot import name
+# 'streamablehttp_client'") and the app could not start. Diffing the two
+# resolutions that day: 99 of 176 packages differed from the lock — starlette
+# 0.50->1.6, anthropic 0.72->1.4, fastmcp 2.14->4.0, openai, pydantic-core,
+# fastapi. The dmg was running a dependency graph nobody had ever tested.
+# Cloud images were never affected: docker/Dockerfile.manyfold goes through
+# `uv sync --frozen`. This was the only path in the repo that RE-RESOLVED from
+# the ranges AND handed the result to users — run.sh and deploy-cloud.sh do read
+# the lock, though their `uv sync` may refresh it, and run.sh's venv-rebuild
+# fallback (`uv pip install -e` without --no-deps) does re-resolve, into a local
+# dev venv only.
 #
 # uv, not pip: this project's dependency list names 30 workspace members
 # (narranexus-contracts, narranexus-sdk, 28 narranexus-plugin-*) that exist
 # only in this repo and are resolved through `[tool.uv.sources]` — a uv-only
 # table. pip ignores it, looks the names up on PyPI, and the build dies with
-# "No matching distribution found for narranexus-contracts". Every other
-# install path in the repo (CI, Dockerfile.manyfold, run.sh) already uses uv;
-# tests/backend/test_plugins_extra_lockstep.py keeps this one classified.
+# "No matching distribution found for narranexus-contracts".
+# tests/release/test_desktop_build_uses_lock.py keeps this path classified.
 #
-# Editable installs drop a `.pth` / `__editable__` file into site-packages whose
-# contents are the ABSOLUTE path to the build machine's source tree
-# (e.g. /Users/builder/NarraNexus/src). When the dmg is installed on another
-# machine at /Applications/NarraNexus.app/Contents/..., that path no longer
-# exists and every `import narranexus` / `import backend` blows up
-# with ModuleNotFoundError. We saw this on fresh-machine installs.
-#
-# A wheel install copies the real files into site-packages, so the bundle is
+# `--no-editable` (on the export): editable installs drop a `.pth` /
+# `__editable__` file into site-packages whose contents are the ABSOLUTE path
+# to the build machine's source tree (e.g. /Users/builder/NarraNexus/src). When
+# the dmg is installed on another machine at /Applications/NarraNexus.app/...,
+# that path no longer exists and every `import narranexus` / `import backend`
+# blows up with ModuleNotFoundError. We saw this on fresh-machine installs. A
+# wheel install copies the real files into site-packages, so the bundle is
 # fully relocatable — move the .app anywhere and the imports still resolve.
-echo ""
-echo "--- Step 3: Installing Python dependencies ---"
-# `uv pip install --python`, not `uv sync`: sync manages the PROJECT's own
-# `.venv`, while the bundle needs the packages inside the standalone
-# interpreter under Resources/python. `--no-editable` keeps the relocatable
-# property described above. NO `--extra plugins`: the desktop build stays the
-# LIGHT one — the coding-agent SDKs (~186 MB claude-agent-sdk) are installed on
-# demand by the Settings → Plugins installer, not baked into the bundle.
+#
+# `--no-dev`, and NO `--extra plugins`: the desktop build stays the LIGHT one —
+# the coding-agent SDKs (~186 MB claude-agent-sdk) are installed on demand by
+# the Settings -> Plugins installer, not baked into the bundle.
+# tests/backend/test_plugins_extra_lockstep.py classifies that choice.
 #
 # UV_HTTP_TIMEOUT: ride through transient network stalls instead of hanging
 # forever on one wedged socket. Output streamed (not `| tail`) so a stall is
 # visible in the log rather than silent.
-UV_HTTP_TIMEOUT=30 uv pip install \
+echo ""
+echo "--- Step 3: Installing Python dependencies (from uv.lock) ---"
+# `.XXXXXX` template: BSD mktemp(1) treats `-t` as a prefix, GNU requires the
+# Xs — spelling both keeps this runnable off a macOS runner too.
+REQ_TXT="$(mktemp -t narranexus-desktop-req.XXXXXX)"
+trap 'rm -f "${REQ_TXT:-}"' EXIT
+# `--locked`, NOT `--frozen`. The two are easy to mix up and only one of them
+# gives us what this step needs: `--frozen` means "do not update the lock
+# before exporting", which SILENTLY exports a lock that is out of date with
+# pyproject.toml; `--locked` asserts the lock would not change and exits
+# non-zero when it would. So the day someone adds a dependency and forgets
+# `uv lock`, this build fails here instead of shipping a bundle missing that
+# dependency — a different trigger for the same user-visible ImportError.
+# (verify_release_artifacts.sh deliberately uses `--frozen` for the opposite
+# reason: it only wants to PARSE the lock, and must not fail on lock-format
+# skew between a local uv and CI's.)
+# The workspace members are emitted as paths RELATIVE to the export directory,
+# so both commands run from $PROJECT_ROOT.
+(cd "$PROJECT_ROOT" && uv export \
+    --locked --no-dev --no-editable \
+    --format requirements-txt \
+    -o "$REQ_TXT")
+echo "  lock exported: $(grep -c '^[a-zA-Z0-9.]' "$REQ_TXT") requirement lines"
+(cd "$PROJECT_ROOT" && UV_HTTP_TIMEOUT=30 uv pip install \
     --python "$PYTHON_DIR/bin/python3" \
-    --no-cache --no-editable \
-    "$PROJECT_ROOT"
+    --no-cache \
+    -r "$REQ_TXT")
 echo "Python dependencies installed"
+
+# Step 3.1: Import smoke test of the interpreter we just populated.
+#
+# The 2026-09-10 mcp-2.x breakage described above was a pure ImportError — the
+# wheels installed fine, the build went green, the dmg was signed, notarized,
+# shipped, and only died when a USER double-clicked the app and every sidecar
+# exited at startup. The build never once tried to import the code it was
+# packaging. It does now: bundle_import_smoke.py imports every sidecar
+# entrypoint from state.rs with the bundled interpreter and fails the
+# build on ANY exception — a dependency that jumped a major usually surfaces as
+# TypeError/AttributeError, not ImportError. It can afford to be that strict
+# because it first points HOME, the plugin home, DATABASE_URL and NARRA_SURFACE
+# at a scratch dir, so the verdict does not depend on the build machine (see
+# bundle_import_smoke.py). Cheap (seconds) and it fails exactly where the
+# failure was invisible before.
+echo ""
+echo "--- Step 3.1: Bundle import smoke test ---"
+# Invoked by PATH, not as `-m`: `python <path>` puts only the SCRIPT's directory
+# on sys.path, so the cwd is irrelevant and the imports resolve against the
+# bundle's site-packages — which is the whole point. Switching this to
+# `-m scripts.release.bundle_import_smoke` would put the cwd on sys.path and,
+# from $PROJECT_ROOT, verify the SOURCE tree instead of the bundle.
+"$PYTHON_DIR/bin/python3" "$PROJECT_ROOT/scripts/release/bundle_import_smoke.py"
 
 # Step 3.5: Bundle Node.js + CLI runtime dependencies.
 #
@@ -182,8 +242,9 @@ echo "Python dependencies installed"
 #   to PATH for every spawned Python service (so the plugin `npm install` works).
 #
 # Claude Code itself is NOT bundled anymore — it is an optional plugin. Keeping
-# claude-agent-sdk (its ~186 MB bundled CLI) and openai-codex out of the base
-# `pip install .` below is the bulk of the local slim-down.
+# claude-agent-sdk (its ~186 MB bundled CLI) and openai-codex out of step 3's
+# install above (they live in the `plugins` extra, which it does not export) is
+# the bulk of the local slim-down.
 #
 # Bundle layout:
 #   resources/nodejs/
