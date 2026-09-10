@@ -146,3 +146,91 @@ async def test_unknown_completed_instance_is_a_noop(db_client):
     )
 
     assert newly_activated == []
+
+
+# ── review I10: periodic reconciliation for edges the poller never saw ────────
+
+@pytest.mark.asyncio
+async def test_reconcile_activates_a_blocked_instance_whose_dependency_finished_unseen(db_client):
+    """/api/jobs/complex creates jobs one at a time: the upstream can complete
+    BEFORE the downstream's BLOCKED row exists, so no completion event ever
+    unblocks it. The reconciliation must."""
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+
+    assert await handler.reconcile_blocked_instances() == ["job_b"]
+    b = await InstanceRepository(db_client).get_by_instance_id("job_b")
+    assert b.status == InstanceStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_leaves_a_blocked_instance_with_a_live_dependency(db_client):
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.ACTIVE)
+    await _seed_instance(db_client, "job_c", status=InstanceStatus.FAILED)
+    await _seed_instance(
+        db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a", "job_c"],
+    )
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+
+    assert await handler.reconcile_blocked_instances() == []
+    b = await InstanceRepository(db_client).get_by_instance_id("job_b")
+    assert b.status == InstanceStatus.BLOCKED.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_leaves_a_blocked_instance_with_no_dependencies(db_client):
+    """Nothing to wait for is an anomaly the scan cannot explain — never
+    auto-run it."""
+    await _seed_instance(db_client, "job_orphan", status=InstanceStatus.BLOCKED)
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+
+    assert await handler.reconcile_blocked_instances() == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_is_scoped_to_the_handlers_agent(db_client):
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await InstanceRepository(db_client).create_instance(ModuleInstanceRecord(
+        instance_id="job_other", module_class="JobModule", agent_id="agent_other",
+        status=InstanceStatus.BLOCKED, dependencies=["job_a"],
+    ))
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+
+    assert await handler.reconcile_blocked_instances() == []
+
+
+@pytest.mark.asyncio
+async def test_both_paths_share_the_activation_hook(db_client, monkeypatch):
+    """M3: the event path and the reconciliation call ONE activation tail,
+    which notifies the owning module (JobModule re-arms the job there)."""
+    from narranexus.platform.module_system import module_registry
+
+    seen = []
+
+    class _FakeModule:
+        @classmethod
+        async def on_instance_activated(cls, instance_id, db):
+            seen.append(instance_id)
+
+    monkeypatch.setattr(module_registry, "get", lambda name: _FakeModule if name == "JobModule" else None)
+
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.ACTIVE)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await _seed_instance(db_client, "job_c", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_d", status=InstanceStatus.BLOCKED, dependencies=["job_c"])
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+    await handler.handle_completion_no_narrative(instance_id="job_a", new_status=InstanceStatus.COMPLETED)
+    await handler.reconcile_blocked_instances()
+
+    assert sorted(seen) == ["job_b", "job_d"]

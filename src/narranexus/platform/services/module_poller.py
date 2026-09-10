@@ -78,6 +78,15 @@ from narranexus.platform.repository import (
 # L2 observability — see services/service_audit.py
 from narranexus.platform.services.service_audit import ServiceAuditor
 
+# Dependency activation is edge-triggered (a completion the poller SEES). The
+# reconciliation below is the backstop for the edges it cannot see — an
+# upstream that finished before its dependent's BLOCKED row was written, or
+# a completion lost to a restart / a failed callback — and runs at this low
+# cadence, not every 5-second cycle (review I10). Bounded per pass so it can
+# never turn into a full-table walk inside the poll loop.
+_BLOCKED_RECONCILE_INTERVAL_S = 900  # 15 minutes
+_BLOCKED_RECONCILE_BATCH = 200
+
 
 @dataclass
 class CompletedInstanceInfo:
@@ -136,6 +145,9 @@ class ModulePoller:
         self._processing_instances: Set[str] = set()  # instance_ids currently being processed
         self._workers: List[asyncio.Task] = []
         self._poller_task: Optional[asyncio.Task] = None
+
+        # When the BLOCKED-instance reconciliation last ran (see _poll_and_enqueue).
+        self._last_blocked_reconcile: Optional[datetime] = None
 
         # L2 observability — stale heartbeat reveals a wedged poll loop
         # that L1 "process alive" cannot catch (incident lesson #4).
@@ -318,6 +330,14 @@ class ModulePoller:
         logger.debug(f"Polling for completed instances at {datetime.now()}")
 
         try:
+            # 0. Low-cadence backstop: BLOCKED instances whose dependencies
+            # already finished without this poller ever seeing the edge.
+            now = datetime.now()
+            last = self._last_blocked_reconcile
+            if last is None or (now - last).total_seconds() >= _BLOCKED_RECONCILE_INTERVAL_S:
+                self._last_blocked_reconcile = now
+                await self._reconcile_blocked_instances()
+
             # 1. Query instances with status changes
             completed_instances = await self._find_completed_instances()
 
@@ -340,6 +360,43 @@ class ModulePoller:
 
         except Exception as e:
             logger.exception(f"Error in poll_and_enqueue: {e}")
+
+    async def _reconcile_blocked_instances(self) -> int:
+        """Activate BLOCKED instances whose dependencies are all terminal but
+        that no completion event ever unblocked (review I10).
+
+        Reads one bounded batch of BLOCKED rows (oldest first), groups them by
+        agent and hands each group to `InstanceHandler.reconcile_blocked_instances`
+        — the SAME predicate and activation hook the event path uses, so this
+        cannot drift into a second definition of "dependencies satisfied".
+        Returns the number of instances activated. Never raises into the loop.
+        """
+        try:
+            rows = await self._get_instance_repo().find(
+                filters={"status": InstanceStatus.BLOCKED.value},
+                limit=_BLOCKED_RECONCILE_BATCH,
+                order_by="created_at ASC",
+            )
+            if not rows:
+                return 0
+            agent_ids = sorted({r.agent_id for r in rows})
+
+            from narranexus.platform.narrative import InstanceHandler
+
+            activated = 0
+            for agent_id in agent_ids:
+                handler = InstanceHandler(agent_id=agent_id)
+                handler.set_database_client(self.db)
+                activated += len(await handler.reconcile_blocked_instances())
+            if activated:
+                logger.warning(
+                    f"[blocked-reconcile] activated {activated} instance(s) across "
+                    f"{len(agent_ids)} agent(s) whose dependencies had already finished"
+                )
+            return activated
+        except Exception as e:  # noqa: BLE001 — a backstop must never wedge the poll loop
+            logger.exception(f"Error reconciling BLOCKED instances: {e}")
+            return 0
 
     async def _find_completed_instances(self) -> List[CompletedInstanceInfo]:
         """

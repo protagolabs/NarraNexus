@@ -1,8 +1,33 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/instance_handler.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 I10 + M3/M4/M5）— `reconcile_blocked_instances` 周期对账 + 激活尾巴只写一份
+
+**为什么要对账**：依赖激活是纯边缘触发——只有 [[module_poller]] **看见**一次完成事件才会跑
+`handle_completion_no_narrative`。两种情况让 BLOCKED 永久卡死：`/api/jobs/complex` 逐条建 job
+（上游用 `TriggerConfig.immediate()` 立刻开跑），上游可能在下游那条 BLOCKED 行写入**之前**就完成，
+完成扫描时找不到任何可激活的依赖方；以及任何丢失的完成事件（poller 重启、
+`_process_completed_instance` 抛错）从不重放。B-16 之前这类 job 至少会（错误地）跑起来，之后它
+彻底不跑且没人报告。新方法 `reconcile_blocked_instances()`：本 agent 全部 BLOCKED，依赖全部终态
+就激活；由 [[module_poller]] 每 15 分钟、每批最多 200 行调用。BLOCKED 但 `dependencies` 为空的
+实例**不动**只告警——那是本扫描解释不了的异常，不是该自动开跑的东西。
+
+**判据与激活尾巴只有一份**（M3）：`_activate_resolved(blocked, repo, db)` 是「依赖全终态则激活」的
+唯一实现，事件路径与对账都走它；`_activate_and_notify(instance_id, module_class, db)` 是
+BLOCKED→ACTIVE + `module_registry.get(...).on_instance_activated` 的唯一尾巴，`handle_completion`
+（narrative 路径）的那段 ~40 行重复也改成调它。事件路径与对账的差别只剩候选集：前者只看
+`dependencies` 含刚完成实例的 BLOCKED（事件只说明这一件事），后者看本 agent 全部 BLOCKED。
+M4：依赖一次 `get_by_ids` 批量取，不再 N×M 次 `get_by_instance_id`。M5：状态读法统一为
+`getattr(dep.status, "value", dep.status)`。
+
+锁：`test_reconcile_activates_a_blocked_instance_whose_dependency_finished_unseen`、
+`test_reconcile_leaves_a_blocked_instance_with_a_live_dependency`、
+`test_reconcile_leaves_a_blocked_instance_with_no_dependencies`、
+`test_reconcile_is_scoped_to_the_handlers_agent`、`test_both_paths_share_the_activation_hook`
+（事件路径与对账都触发 `on_instance_activated`）。
 
 ## 2026-09-09 — B-16：新增 `handle_completion_no_narrative`（依赖解析不再强制要 narrative）
 

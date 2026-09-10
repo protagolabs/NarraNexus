@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/services/module_poller.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 I10）— `_reconcile_blocked_instances`：15 分钟一次的 BLOCKED 对账
+
+`_poll_and_enqueue` 开头加低频 backstop（`_BLOCKED_RECONCILE_INTERVAL_S = 900`，与
+[[job_trigger]] 的 no-quota backstop 同节奏；`_last_blocked_reconcile` 记上次时间）：取一批
+BLOCKED 实例（`_BLOCKED_RECONCILE_BATCH = 200`，按 `created_at` 最老优先，绝不在 poll 循环里拉全表），
+按 `agent_id` 分组，逐组交给 [[instance_handler]] 的 `reconcile_blocked_instances`——判据与激活钩子
+都是事件路径那一份，这里不另写「依赖是否满足」。为什么放在本服务而不是 job_trigger：本文件是
+依赖链推进的唯一驱动者（`_process_completed_instance` 是 `handle_completion*` 的唯一调用点），
+对账属于同一职责；job_trigger 只管到期执行。激活后 `JobModule.on_instance_activated` 把 job 的
+`next_run_time` 设成 now，JobTrigger 下个周期照常捞走。任何异常只记日志，绝不 wedge 循环。
+锁：`test_poll_cycle_reconciles_a_blocked_instance_whose_dependency_finished_unseen`、
+`test_reconcile_backstop_is_rate_limited`、`test_reconcile_groups_by_agent_and_counts`。
 
 ## 2026-09-09 — B-16：`_process_completed_instance` 按 narrative_id 有无分叉
 

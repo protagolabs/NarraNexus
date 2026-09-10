@@ -96,3 +96,57 @@ async def test_narrative_id_present_still_uses_the_narrative_scoped_path(db_clie
 
     assert called.get("narrative_id") == "nar_1"
     assert "no_narrative_called" not in called
+
+
+# ── review I10: the poll loop runs the BLOCKED reconciliation backstop ────────
+
+@pytest.mark.asyncio
+async def test_poll_cycle_reconciles_a_blocked_instance_whose_dependency_finished_unseen(db_client):
+    """No completion event for job_a ever reaches the poller (it finished
+    before job_b's BLOCKED row existed, or the event was lost to a restart).
+    The first poll cycle's backstop must still unblock job_b."""
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+
+    poller = ModulePoller(database_client=db_client)
+    await poller._poll_and_enqueue()
+
+    row = await InstanceRepository(db_client).get_by_instance_id("job_b")
+    assert row.status == InstanceStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_backstop_is_rate_limited(db_client):
+    """It runs on the first cycle and then not again until the interval has
+    elapsed — never on every 5-second poll."""
+    poller = ModulePoller(database_client=db_client)
+    await poller._poll_and_enqueue()
+    first_stamp = poller._last_blocked_reconcile
+    assert first_stamp is not None
+
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await poller._poll_and_enqueue()
+
+    assert poller._last_blocked_reconcile == first_stamp
+    row = await InstanceRepository(db_client).get_by_instance_id("job_b")
+    assert row.status == InstanceStatus.BLOCKED.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_groups_by_agent_and_counts(db_client):
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    repo = InstanceRepository(db_client)
+    await repo.create_instance(ModuleInstanceRecord(
+        instance_id="other_dep", module_class="JobModule", agent_id="agent_2",
+        status=InstanceStatus.FAILED, dependencies=[],
+    ))
+    await repo.create_instance(ModuleInstanceRecord(
+        instance_id="other_blocked", module_class="JobModule", agent_id="agent_2",
+        status=InstanceStatus.BLOCKED, dependencies=["other_dep"],
+    ))
+
+    poller = ModulePoller(database_client=db_client)
+    assert await poller._reconcile_blocked_instances() == 2
+    assert (await repo.get_by_instance_id("other_blocked")).status == InstanceStatus.ACTIVE.value
