@@ -300,7 +300,7 @@ async def test_attachment_meta_sidecar_roundtrip(tmp_path):
     assert load_bus_attachment_meta(OWNER, f"{OWNER}/_shared/bus_files/x/none.txt", base=str(tmp_path)) is None
 
 
-# ── bus_share_to_team resolving a team-chat (shared bus area) attachment id ──
+# ── team_share_file resolving a team-chat (shared bus area) attachment id ──
 #
 # `att_...` ids come in two flavours that look identical (same prefix, same
 # format — both minted by `generate_file_id`): one lives in the SENDING

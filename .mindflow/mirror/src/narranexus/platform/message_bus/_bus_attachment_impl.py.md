@@ -12,7 +12,7 @@ stub: false
 形状完全相同——区分不了「这是我自己传的」还是「这是团队群里别人（人类上传或另一个
 agent 已 stage 过）传的」，唯一的办法就是两边都探一遍。
 
-之前的行为：`bus_share_to_team` 转发一个团队群聊里的 `att_` 附件（人类在群里直接上传、
+之前的行为：`team_share_file`（工具名；2026-08-19 条目记过的 `bus_*` 旧名早已退役，第一版又写回了旧名）转发一个团队群聊里的 `att_` 附件（人类在群里直接上传、
 或另一个 agent 已经 stage 进这个团队的文件）到另一个团队时，`resolve_attachment_path`
 在发送 agent 自己的 upload 目录里必然找不到，函数直接返回 `None`，ref 静默解析失败——
 调用方 `resolve_and_stage_refs` / `stage_path_into_team` 都把 `None` 当作「这条 ref 跳过」，
@@ -21,6 +21,17 @@ agent 已 stage 过）传的」，唯一的办法就是两边都探一遍。
 修法：`is_valid_file_id(ref)` 命中后，先探 `resolve_attachment_path`（发送方自己的
 store，最常见路径，保持不变），**miss 时**再探 `resolve_shared_file_by_id(owner_user_id,
 ref, base)`。顺序很重要——发送方自己的 upload 优先，共享区只是兜底，不反过来。
+
+**信任边界（复审 M4/M5，有意为之、记录在此）**：`resolve_shared_file_by_id(owner_user_id, ref, base)`
+只用 `bus_files_dir(user_id)` 拼根、`file_id` 已过 `^att_[a-z0-9]{8}$`，结构性禁闭在
+`{base}/{user_id}/_shared/bus_files` 内；`owner_user_id` 由工具从 `agents.created_by` 查出、
+`agent_id` 被注入身份强制覆盖，模型操纵不了——**跨用户不可能**。同 owner 内确有扩面：共享区按
+用户扁平（不按 team 分区），所以 agent A 现在能按 id 解析到它从未加入的团队群里人类上传的
+文件、再经 `team_share_file` 转进它所在的团队。但 `utils/workspace_paths.py::turn_accessible_roots`
+早已把整棵 `bus_files` 树无条件授予每个回合（注释明写 "user-wide by design"），这只是省掉了
+"先 Read 再按工作区相对路径附上"一步，不是新的读取原语。工具 docstring（`message_agent` /
+`team_share_file`）同批改成与实现一致（原来写"只能分享你实际拥有的文件"）。真正收口属于共享区
+按 team 分区的改造，记 todo。
 
 ## 2026-08-19 — 文档指针刷新
 
@@ -108,7 +119,7 @@ claude `bypassPermissions`）。**本地与云端同一条码路**，不分叉�
 ## 上下游
 
 - **被谁调用**：`_message_bus_mcp_tools.py`（`message_team` / `message_agent`
-  的 `attachment_refs` → `resolve_and_stage_refs`；`bus_share_to_team` → `stage_path_into_team`）；
+  的 `attachment_refs` → `resolve_and_stage_refs`；`team_share_file` → `stage_path_into_team`）；
   `message_bus_trigger.py` 两个 prompt builder → `build_bus_markers`。
 - **依赖谁**：`attachment_storage`（file_id 解析 + `generate_file_id`）、`workspace_paths`
   （`agent_workspace_path` / `bus_files_dir` / `team_shared_dir`）、`file_safety`
@@ -154,4 +165,4 @@ not guessed here.
   （与 attachment_storage 同规约）。MCP 工具里 owner 由 `agents.created_by` 反查，不信任 LLM。
 - 共享区**无 `_index.json`**：DB 里的 attachment dict 就是索引，rel_path 直接可解析。
 - team 共享区写入必须走服务端工具：cloud 沙箱下 agent 只能写自己 workspace，`_shared`
-  对 agent 是 read-only，所以 `bus_share_to_team` 由（非沙箱的）MCP server 进程代写。
+  对 agent 是 read-only，所以 `team_share_file` 由（非沙箱的）MCP server 进程代写。

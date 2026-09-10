@@ -437,10 +437,12 @@ def register_message_bus_mcp_tools(
                 turn; other agents you can reach are in your Known Agents list.
             text: what to say
             attachment_refs: comma-separated file handles to attach. Each is
-                either an attachment file_id ("att_...") you received, or a path
-                to a file in your own workspace ("work/report.pdf"). Files are
-                shared by reference — the recipient opens them with Read — so
-                attach freely. Same-user agents only.
+                either an attachment file_id ("att_...") — one you received, or
+                one from any room of your owner's (a human's team-chat upload
+                resolves too; the shared area is per owner, not per team) — or
+                a path to a file in your own workspace ("work/report.pdf").
+                Files are shared by reference — the recipient opens them with
+                Read — so attach freely. Same-user agents only.
             part_index, part_count: for a LONG message that does not fit one
                 call, send it in ordered parts: call this once per part with
                 part_index=1..part_count and the same part_count each time,
@@ -841,9 +843,11 @@ def register_message_bus_mcp_tools(
         artifact, a report, a dataset — instead of attaching it to a single
         message. Every teammate can open the returned path with the Read tool.
 
-        You can only share a file you actually have: a path in your own
-        workspace (e.g. "work/plan.md") or an attachment file_id ("att_...").
-        You must be a member of the team.
+        What you can share: a path in your own workspace (e.g. "work/plan.md"),
+        or an attachment file_id ("att_...") — one you received, or one from
+        any room of your owner's (a human's team-chat upload resolves too:
+        the shared area is per owner, not per team). Never another owner's
+        file. You must be a member of the team you share into.
 
         Args:
             agent_id: Your agent ID

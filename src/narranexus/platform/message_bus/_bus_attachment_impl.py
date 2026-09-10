@@ -98,8 +98,15 @@ def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, b
       ``generate_file_id``, so a team-chat attachment a human uploaded
       directly (or one another agent already staged) is indistinguishable
       from the sender's own upload by shape alone — only the fallback tells
-      them apart. Without it, `bus_share_to_team` re-sharing a team-chat
+      them apart. Without it, `team_share_file` re-sharing a team-chat
       attachment into another team silently resolved to nothing (#122).
+      Boundary of the fallback: `resolve_shared_file_by_id` is scoped to
+      `owner_user_id`'s own root and the id has already passed the `att_`
+      format check, so it can reach any file in THIS owner's shared area
+      (any of the owner's rooms, teams included) and never another owner's.
+      That is the same user-wide grant `turn_accessible_roots` already
+      gives every turn on the whole `bus_files` tree; the fallback removes
+      a Read-then-attach detour, not a partition.
     - anything else → a path relative to the sender's workspace, validated to
       stay inside that workspace (rejects ``../`` escapes and absolute paths).
     """
