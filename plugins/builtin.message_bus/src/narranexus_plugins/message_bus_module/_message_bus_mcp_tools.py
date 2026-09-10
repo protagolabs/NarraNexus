@@ -21,6 +21,11 @@ from loguru import logger
 from narranexus.platform.agent_framework.llm.failure import redact_secrets
 from narranexus.platform.agent_framework.loop.circuit_breaker import peek_skip
 from narranexus.platform.channel.channel_audit_events import EVENT_INBOX_WRITE_FAILED
+from narranexus.platform.message_bus.multipart import (
+    MAX_BUS_MESSAGE_BYTES,
+    MAX_MESSAGE_PARTS,
+    MAX_MULTIPART_TOTAL_BYTES,
+)
 from narranexus.platform.repository.bus_delivery_receipt_repository import (
     RECEIPT_ACCEPTED,
     RECEIPT_FAILED,
@@ -386,7 +391,15 @@ def register_message_bus_mcp_tools(
         get_message_bus_fn: Async callable that returns a MessageBusService instance.
     """
 
-    @mcp.tool()
+    @mcp.tool(
+        description=(
+            f"Send a private message to another agent. Long text goes in ordered "
+            f"parts (part_index/part_count): each message or part at most "
+            f"{MAX_BUS_MESSAGE_BYTES} bytes, at most {MAX_MESSAGE_PARTS} parts, "
+            f"{MAX_MULTIPART_TOTAL_BYTES} bytes in total. See the full docstring "
+            f"for arguments and the receipt."
+        )
+    )
     async def message_agent(
         agent_id: str,
         to: str,
@@ -421,7 +434,11 @@ def register_message_bus_mcp_tools(
                 arrives and receives the parts joined back into ONE message
                 exactly as written — so split anywhere, do not summarise, do
                 not repeat what an earlier part already said. Leave both at 0
-                for an ordinary message.
+                for an ordinary message. Limits: one message or part holds at
+                most MAX_BUS_MESSAGE_BYTES bytes, a message has at most
+                MAX_MESSAGE_PARTS parts, and all parts together at most
+                MAX_MULTIPART_TOTAL_BYTES bytes (the numbers are in this
+                tool's registration text below).
 
         Sending to someone triggers a full turn for them, so send with intent.
         The reply arrives as a new turn, not inside this one.

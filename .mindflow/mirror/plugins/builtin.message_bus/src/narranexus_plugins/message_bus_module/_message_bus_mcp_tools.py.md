@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 M3）— `message_agent` 向模型公布三条上限
+
+docstring 点名 `MAX_BUS_MESSAGE_BYTES` / `MAX_MESSAGE_PARTS` / `MAX_MULTIPART_TOTAL_BYTES`，
+数字经 `@mcp.tool(description=…)` 从 [[multipart]] 的常量格式化进注册文本——不再写第二份数字。
+模型在生成 210 KB 之前就知道发不出去，而不是靠被拒才知道。
 
 ## 2026-09-10（review r2 C1）— `_book_receipt(bus, …)` 真的经 `bus.get_message` 取 channel
 

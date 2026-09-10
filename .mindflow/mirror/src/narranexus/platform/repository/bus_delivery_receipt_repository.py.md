@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/repository/bus_delivery_receipt_repository.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 

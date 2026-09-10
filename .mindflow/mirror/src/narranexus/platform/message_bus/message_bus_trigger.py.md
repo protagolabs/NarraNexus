@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 M6）— drop 守卫读失败时既通知也不 arm
+
+两次 fail-open：表读不到 → 照样唤醒，且本轮不设窗（arm 大概率同样失败）；下一次能读的 poll
+重新建窗。写进 `_wake_sender_on_drop` docstring。
 
 ## 2026-09-10（review r2 I1）— 掉包指纹层按整批算，并排除本批全部行
 
@@ -18,9 +23,12 @@ stub: false
 
 `_process_lane`：wide 重读后若仍 `truncated and not relevant`，再以 `batch_truncated=False`
 调一次 `assemble_parts`，让 grace / 取代正常裁决。此前这条路径 `return False` 且不 ack 不通知，
-一个死掉的两块组 + ≥500 行积压就让车道永久空转（每轮 550 次逐行 poison 查询）。裁决安全的前提是
-`MAX_MESSAGE_PARTS(40) ≪ PENDING_BATCH_LIMIT_WIDE(500)`（[[multipart]]），合法组不可能被
-WIDE 切断。锁：`test_a_stuck_group_behind_a_deep_backlog_does_not_deadlock_the_lane`（641 行）。
+一个死掉的两块组 + ≥500 行积压就让车道永久空转（每轮 550 次逐行 poison 查询）。**WIDE 是最后一次判定**，不再无条件 hold。
+LIMIT 属于整条 lane 而不是组：合法组在**两块之间没有 ≥500 行普通消息插入**时不会被 WIDE 切断
+（写入边沿「同 sender 最近一块」链接、跳过普通行，所以普通行可以合法地夹在两块之间）；真被
+切断时宁可按 grace 裁决——已过 grace 的组按视野内的块投出并打 missing 标记、其余块随后作为
+第二个残片再投——也不永久 hold；年轻的组这一趟仍被 grace 扣住（r3 M2 锁）。代价=极端积压下
+可能多打一次 missing 标记（r3 I2）。锁：`test_a_stuck_group_behind_a_deep_backlog_does_not_deadlock_the_lane`（641 行）。
 
 ## 2026-09-09（review I2）— 批次被 LIMIT 切断时不对组下结论
 

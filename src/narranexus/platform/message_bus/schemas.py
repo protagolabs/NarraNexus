@@ -32,6 +32,11 @@ def canonical_ts(value) -> str:
     'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
     every real ``created_at``, making every message look unprocessed forever.
     That cost us a re-trigger loop once; it gets exactly one home.
+
+    ``value`` must not be None: ``bus_messages.created_at`` is NOT NULL, and a
+    hand-built ``BusMessage`` without one would stringify to ``"None"`` — which
+    sorts ABOVE every real timestamp and, written as an ack high-water, would
+    silence the lane for good.
     """
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
 

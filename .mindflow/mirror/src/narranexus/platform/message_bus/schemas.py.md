@@ -3,6 +3,12 @@ code_file: src/narranexus/platform/message_bus/schemas.py
 last_verified: 2026-09-10
 stub: false
 ---
+## 2026-09-10（review r3 M1）— `canonical_ts` 入参不得为 None
+
+multipart 原副本 `str(value or "")` 把 None 排最前，本函数 `str(value)` 会把 None 排成 `"None"`
+（最后）——若写成 ack 高水位，lane 永久静默。今天不可达（`bus_messages.created_at` NOT NULL），
+docstring 写明前提。
+
 ## 2026-09-10（review r2 M3）— `canonical_ts` 搬到这里，唯一的家
 
 原在 [[local_bus]]（docstring 记着一次 `"T"` vs `" "` 排序引发的重触发事故，明写「it gets exactly

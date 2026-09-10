@@ -551,3 +551,30 @@ async def test_a_silent_two_message_batch_still_wakes_the_sender_once(db_client,
     await trigger._handle_channel_batch(B, m1.channel_id, [r1, r2], r2, channel_owner=A)
     notices = await db_client.get("bus_messages", {"channel_id": m1.channel_id, "msg_type": UNDELIVERED_MSG_TYPE})
     assert len(notices) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_young_group_behind_a_deep_backlog_is_still_held_at_the_lane(db_client, monkeypatch):
+    """The dangerous half of the deadlock fix (review r3 M2): WIDE is the last
+    read, but a group that JUST arrived must still be held by grace — no
+    fragment, nothing delivered, `_process_lane` returns False. No
+    grace monkeypatch here; real clock, real 600 s window."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+    trigger = MessageBusTrigger(bus=bus)
+    calls = _capturing_runtime(monkeypatch, trigger, TurnResult(text="", event_id="e", delivered=True))
+
+    ids = await _send_parts(tools, PARTS, upto=1)          # part 1/3, seconds ago
+    channel_id = (await db_client.get_one("bus_messages", {"message_id": ids[0]}))["channel_id"]
+    for i in range(640):
+        await db_client.insert("bus_messages", {
+            "message_id": f"bulk_{i:04d}", "channel_id": channel_id, "from_agent": A,
+            "content": f"bulk {i}", "msg_type": "text",
+            "created_at": f"2030-01-01T00:{i // 60:02d}:{i % 60:02d}.{i:06d}",
+        })
+
+    assert await trigger._process_lane(B, channel_id) is False
+    assert calls == []
+    assert len(await bus.get_pending_messages(B, channel_id=channel_id, limit=1000)) == 641

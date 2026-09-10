@@ -1149,14 +1149,18 @@ class MessageBusTrigger:
                     relevant, held = assemble_parts(wide, batch_truncated=truncated)
                     if held and truncated and not relevant:
                         # Still cut at the WIDE limit and still nothing before
-                        # the group: this is the last read, so let grace and
-                        # supersession rule on what is in view. The group's
-                        # head IS in view (it sits at the front) and
-                        # MAX_MESSAGE_PARTS < PENDING_BATCH_LIMIT_WIDE keeps a
-                        # legal group from ever being cut here, so the only
-                        # thing this can misjudge is a group that is already
-                        # over the cap — which the write edge refuses. Without
-                        # this the lane would hold forever (review r2 C2).
+                        # the group: this is the LAST read, so grace and
+                        # supersession rule on what is in view. The LIMIT is
+                        # per lane, not per group, so a legal group CAN be cut
+                        # here — when >= PENDING_BATCH_LIMIT_WIDE ordinary rows
+                        # sit between its parts (the write edge chains parts
+                        # past ordinary rows). Then a group already past its
+                        # grace is delivered as what is in view with a
+                        # missing-parts marker, and the rest follows as a
+                        # second fragment: an extra marker in an extreme
+                        # backlog, accepted over the alternative — holding the
+                        # lane forever (review r2 C2 / r3 I2). A young group
+                        # is still held by grace on this pass.
                         relevant, held = assemble_parts(wide, batch_truncated=False)
                 if held:
                     logger.debug(
@@ -3992,6 +3996,11 @@ class MessageBusTrigger:
         failure (labelled by `system_messages.trigger_label`) and it can retry,
         route around, or tell its user. Only when the sender is an agent: a
         person's message has no turn to wake, and the owner inbox is theirs.
+
+        When the guard itself cannot be read the wake goes out (fail-open) AND
+        no window is armed — a second fail-open, accepted because an
+        unreadable table would refuse the arm too; the next readable poll
+        re-establishes the window.
         """
         sender = trigger_message.from_agent or ""
         if not sender or sender.startswith(USER_SENDER_PREFIX):

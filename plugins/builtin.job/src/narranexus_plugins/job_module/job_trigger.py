@@ -1119,8 +1119,23 @@ The task was executed but produced no text output.
             # "same sender's latest part" chain contiguous (the agent's own
             # message_team posts are ordinary rows and do not break it). Past
             # the whole-message budget the room is TOLD, never left silent.
+            #
+            # Two costs of parts landing in a TEAM room, accepted (r3 M4): the
+            # transcript renders a report as N raw part rows (the frontend
+            # does not read the part columns), and if an origin channel's
+            # owner is an agent, that agent's lane is held up to the grace
+            # should this coroutine die between parts. No member turn is
+            # started by the parts themselves (no mentions).
+            # Known gap (r3 M5): two >60 KB reports from the SAME agent into
+            # the SAME room at the same instant would interleave their part
+            # chains and the write edge would refuse the second's part 2 —
+            # caught below as a logged error. Rare enough not to lock here.
             body_bytes = len(content.encode("utf-8"))
             if body_bytes > MAX_MULTIPART_TOTAL_BYTES:
+                # Posted as the AGENT (not a PLATFORM_MSG_TYPES line) on
+                # purpose: it must carry this run's event_id / root_run_id so
+                # "view reasoning & tools" and cascade stop still reach the run
+                # that produced the too-long report (r3 M7).
                 pieces = [
                     f"[platform] This job's report is {body_bytes} bytes, over the "
                     f"{MAX_MULTIPART_TOTAL_BYTES}-byte limit for one message, so it "
