@@ -18,7 +18,11 @@ json_schema rung sends. These tests pin (a) that rewrite for EVERY model the
 codebase passes as ``output_type`` (discovered by scanning the source tree,
 so a new helper model is covered without editing this file) and (b) that the
 client really sends ``strict: true`` with the rewritten schema — the contract
-is only real if both halves hold.
+is only real if both halves hold — and (c) that a schema the strict rewrite
+REJECTS (an open object: a ``dict[str, ...]`` field) does not break the call:
+the rung is skipped for that output type and the ladder degrades to
+``json_object`` exactly as a provider 400 would make it, with the other
+output types on the same model untouched.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from agents.exceptions import UserError
 from pydantic import BaseModel, Field
 
 from narranexus.platform.agent_framework.adapters import openai_agents as mod
@@ -162,9 +167,11 @@ def _fake_response(content: str):
 def _clean_capability_cache():
     mod._response_format_capability.clear()
     mod._structured_output_blocklist.clear()
+    mod._strict_rewrite_unsupported.clear()
     yield
     mod._response_format_capability.clear()
     mod._structured_output_blocklist.clear()
+    mod._strict_rewrite_unsupported.clear()
 
 
 @pytest.mark.asyncio
@@ -244,3 +251,91 @@ async def test_parse_stays_lenient_to_extra_keys_on_lower_rungs():
     assert result.final_output.is_continuous is False
     rf = client.chat.completions.create.call_args.kwargs["response_format"]
     assert rf == {"type": "json_object"}
+
+
+# ── (c) a schema the strict rewrite rejects degrades, never raises ────────
+
+
+class _OpenObjectOutput(BaseModel):
+    """Not in the repo's helper set on purpose (a third-party / agent-written
+    plugin shape): a ``dict`` field is an open object, which OpenAI strict
+    mode cannot express."""
+    verdict: bool
+    attributes: dict[str, str] = Field(default_factory=dict)
+
+
+def test_open_object_schema_is_rejected_by_the_strict_rewrite():
+    """Documents the failure mode the ladder must absorb: the rewrite is a
+    LOCAL exception, not a provider 400."""
+    with pytest.raises(UserError):
+        build_strict_json_schema(_OpenObjectOutput)
+
+
+@pytest.mark.asyncio
+async def test_rejected_strict_schema_degrades_to_json_object(monkeypatch):
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_fake_response('{"verdict": true, "attributes": {"k": "v"}}')
+    )
+    audits: list[tuple[str, dict]] = []
+
+    async def _audit(event_type, detail):
+        audits.append((event_type, detail))
+
+    monkeypatch.setattr(mod, "_audit_framework_downgrade", _audit)
+    sdk = OpenAIAgentsSDK()
+    result = await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=_OpenObjectOutput, max_tokens=200,
+    )
+    assert result.final_output.verdict is True
+    assert result.final_output.attributes == {"k": "v"}
+
+    # Exactly one request went out, on the json_object rung: the strict rung
+    # was skipped locally, not sent and rejected.
+    (call,) = client.chat.completions.create.call_args_list
+    assert call.kwargs["response_format"] == {"type": "json_object"}
+    assert mod._last_llm_call_info.get()["response_format"] == "json_object"
+    # Audited like any other self-downgrade.
+    assert [a[0] for a in audits] == ["strict_schema_rewrite_rejected"]
+    assert audits[0][1]["output_type"] == "_OpenObjectOutput"
+    assert audits[0][1]["level"] == "json_schema"
+    # Cached on the output TYPE: a second call does not rebuild / re-audit.
+    await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=_OpenObjectOutput, max_tokens=200,
+    )
+    assert len(audits) == 1
+    assert client.chat.completions.create.call_args.kwargs["response_format"] == {
+        "type": "json_object"
+    }
+
+
+@pytest.mark.asyncio
+async def test_rejected_output_type_does_not_demote_the_model_for_others():
+    """The skip is per output type. After an open-object model degraded on
+    gpt-5.4-mini, a strict-compatible model on the SAME provider/model still
+    gets the json_schema rung — the capability cache must not be touched."""
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_fake_response('{"verdict": false, "attributes": {}}')
+    )
+    sdk = OpenAIAgentsSDK()
+    await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=_OpenObjectOutput, max_tokens=200,
+    )
+    assert "json_schema" in mod._allowed_levels(mod._capability_key("gpt-5.4-mini"))
+
+    client.chat.completions.create = AsyncMock(
+        return_value=_fake_response(
+            '{"is_continuous": true, "confidence": 0.9, "reason": "same topic"}'
+        )
+    )
+    await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=ContinuityOutput, max_tokens=200,
+    )
+    rf = client.chat.completions.create.call_args.kwargs["response_format"]
+    assert rf["type"] == "json_schema"
+    assert rf["json_schema"]["strict"] is True

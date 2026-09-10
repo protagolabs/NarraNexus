@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/adapters/openai_agents.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -24,9 +24,27 @@ ImportError）。**只有 `json_schema` 档发它**；system prompt 里的 schem
 
 覆盖面：`tests/agent_framework/test_helper_strict_schema.py` 扫 `src/` 与 `plugins/*/src/`
 里所有 `output_type=<Model>` 调用点（当前 16 个模型），逐个断言 strict 合规；再用假 client
-断言实际发出的 `response_format` 是 `strict: true` + 改写后的 schema。第三方插件经 `llm_function`
-传进来的模型不在扫描面内：`dict[str, Any]` 字段改写后仍是开放对象，strict 会 400，但报文含
-`response_format` 会被 `_is_response_format_unsupported_error` 命中优雅降到 `json_object`，不会炸。
+断言实际发出的 `response_format` 是 `strict: true` + 改写后的 schema。
+
+**改写会抛、不是 400（2026-09-10 二轮 review C1）**：`ensure_strict_json_schema` 对已带
+`additionalProperties` 的对象节点（`dict[str, ...]` 字段、`extra="allow"`）直接
+`raise agents.exceptions.UserError`——本地构造期异常，不是 provider 拒绝，`_is_response_format_unsupported_error`
+认不出它。初版把 `build_strict_json_schema` 写在阶梯 list 的构建处（任何 try 之外），这类模型会在
+发出第一个请求前就把整次 helper 调用炸掉，`json_object` / 纯 prompt 两档根本走不到。仓内 16 个模型
+今天都干净，爆炸面是第三方 / marketplace / agent 自写插件经 `llm_function(output_type=...)` 传进来的
+模型。现在阶梯的每一档是**延迟构造**（`(level, build_extra)`），`build_extra()` 在循环内自己的
+try 里调：抛了就把该 `output_type` 记进 `_strict_rewrite_unsupported`（**按类型缓存**，不是按
+`(base_url, model)`——失败是 schema 自身的性质，若记到模型能力集上，其余 16 个合规模型在同一模型上
+会一起被降到 `json_object`，正是 08-25 修复要够到的那档）、`logger.warning` + 审计事件
+`strict_schema_rewrite_rejected`（走既有 `_audit_framework_downgrade` 通道，不静默），然后 `continue`
+到 `json_object`。`_do_call` 那个 try 保持只处理网络/provider 错误，没有放宽。测试
+`test_rejected_strict_schema_degrades_to_json_object`（只发一次请求、落 `json_object`、审计一次、二次调用
+不重建）与 `test_rejected_output_type_does_not_demote_the_model_for_others`（同模型上 `ContinuityOutput`
+仍走 `json_schema`）钉住；把 try 去掉即红。
+
+`from agents.strict_schema import ensure_strict_json_schema` 挪进 `build_strict_json_schema` 函数体
+（二轮 review M2）：模块级 import 把整个 `agents` 包（~190 模块、实测 0.8s）拉进每个加载本适配器的进程
+（backend / MCP module server / worker），而本文件其余 `from agents import ...` 本来就都是调用期导入。
 
 ## 2026-09-07（批 1 三轮复审移植）— 空 slot 的旧行为如实记录
 
