@@ -932,6 +932,8 @@
       "loggedIn": "Выполнен вход",
       "loggedInAs": "как",
       "notLoggedIn": "Вход не выполнен",
+      "sessionExpired": "Сессия истекла",
+      "sessionExpiredHint": "Сессия CLI истекла — войдите снова выше, чтобы продолжить использовать этого провайдера.",
       "cliNotInstalled": "CLI не установлен",
       "expires": "· истекает {{date}}",
       "reLoggingInCountdown": "Повторный вход... осталось {{time}} (проверьте браузер)",

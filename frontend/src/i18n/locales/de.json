@@ -928,6 +928,8 @@
       "loggedIn": "Angemeldet",
       "loggedInAs": "als",
       "notLoggedIn": "Nicht angemeldet",
+      "sessionExpired": "Sitzung abgelaufen",
+      "sessionExpiredHint": "Die CLI-Sitzung ist abgelaufen – melde dich oben erneut an, um diesen Anbieter weiter zu nutzen.",
       "cliNotInstalled": "CLI nicht installiert",
       "expires": "· läuft ab am {{date}}",
       "reLoggingInCountdown": "Erneute Anmeldung... noch {{time}} (im Browser prüfen)",

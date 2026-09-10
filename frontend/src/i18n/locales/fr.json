@@ -928,6 +928,8 @@
       "loggedIn": "Connecté",
       "loggedInAs": "en tant que",
       "notLoggedIn": "Non connecté",
+      "sessionExpired": "Session expirée",
+      "sessionExpiredHint": "La session CLI a expiré — reconnectez-vous ci-dessus pour continuer à utiliser ce fournisseur.",
       "cliNotInstalled": "CLI non installé",
       "expires": "· expire le {{date}}",
       "reLoggingInCountdown": "Reconnexion... {{time}} restant (vérifiez le navigateur)",

@@ -927,6 +927,8 @@
       "loggedIn": "로그인됨",
       "loggedInAs": "계정:",
       "notLoggedIn": "로그인되지 않음",
+      "sessionExpired": "세션이 만료됨",
+      "sessionExpiredHint": "CLI 세션이 만료되었습니다. 이 제공자를 계속 사용하려면 위에서 다시 로그인하세요.",
       "cliNotInstalled": "CLI가 설치되지 않음",
       "expires": "· 만료 {{date}}",
       "reLoggingInCountdown": "다시 로그인 중... {{time}} 남음 (브라우저 확인)",

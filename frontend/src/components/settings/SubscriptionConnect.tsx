@@ -57,6 +57,12 @@ function formatCountdown(totalSeconds: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
+/** Numeric expiries at or above this are epoch MILLISECONDS, below it epoch
+ * seconds. The SAME constant as backend/routes/providers.py's
+ * EPOCH_MS_THRESHOLD: the backend decides `expired` with it and this file
+ * renders the date with it — two values would read a token two ways. */
+const EPOCH_MS_THRESHOLD = 1e11;
+
 /** Best-effort render of whatever expiry value the CLI handed us.
  *
  * The Claude Code CLI shifts schemas across minor versions: some builds
@@ -70,7 +76,7 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
   const n = Number(trimmed);
   let d: Date | null = null;
   if (Number.isFinite(n) && n > 0) {
-    d = new Date(n < 1e12 ? n * 1000 : n);
+    d = new Date(n < EPOCH_MS_THRESHOLD ? n * 1000 : n);
   } else {
     const t = Date.parse(trimmed);
     if (!Number.isNaN(t)) d = new Date(t);
@@ -82,21 +88,32 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
 type CliStatus = CliStatusPayload;
 
 /** Status dot + identity line + optional expiry — shared by both cards.
- * One shape on purpose: editing the status line means editing it once. */
+ * One shape on purpose: editing the status line means editing it once.
+ *
+ * Three states, not two: an EXPIRED session is not "never logged in". The
+ * backend forces `logged_in` false for it, so a two-state line showed the
+ * never-logged-in copy and hid the very details the user needs to fix it
+ * (which account, when it expired). Expired keeps the identity and date. */
 function CliStatusLine({ status }: { status: CliStatus }) {
   const { t } = useTranslation();
+  const expired = status.expired === true;
+  const identity = status.email
+    ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{status.email}</span></>
+    : null;
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap" data-testid="cli-status-line">
       <span className={cn('inline-block w-2 h-2 rounded-full',
         status.logged_in ? 'bg-[var(--color-success)]' :
-        status.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+        status.cli_installed || expired ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
       )} />
       <span className="text-sm text-[var(--text-secondary)]">
         {status.logged_in
-          ? <>{t('settings.provider.loggedIn')}{status.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{status.email}</span></> : null}</>
-          : status.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
+          ? <>{t('settings.provider.loggedIn')}{identity}</>
+          : expired
+            ? <>{t('settings.provider.sessionExpired')}{identity}</>
+            : status.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
       </span>
-      {status.logged_in && status.expires_at && (
+      {(status.logged_in || expired) && status.expires_at && (
         <span className="text-xs text-[var(--text-tertiary)]">
           {t('settings.provider.expires', { date: formatExpiresAt(status.expires_at) })}
         </span>
@@ -113,6 +130,7 @@ function ProviderRecordRow({
   added,
   addedLabel,
   loggedIn,
+  sessionExpired = false,
   onAdd,
   addLabel,
   addingLabel,
@@ -122,6 +140,11 @@ function ProviderRecordRow({
   added: boolean;
   addedLabel: string;
   loggedIn: boolean;
+  /** The record exists but the CLI session behind it has expired: the
+   * "✓ added" line alone would contradict the status line above it, so
+   * the re-login hint rides underneath. False when the record runs on a
+   * transport the CLI session does not back (the setup-token card). */
+  sessionExpired?: boolean;
   onAdd: () => void;
   addLabel: string;
   addingLabel: string;
@@ -130,12 +153,20 @@ function ProviderRecordRow({
   adding: boolean;
   loginHint: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="pt-2 border-t border-[var(--border-subtle)]">
       {added ? (
-        <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-          <span>{'✓'}</span>
-          <span>{addedLabel}</span>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+            <span>{'✓'}</span>
+            <span>{addedLabel}</span>
+          </div>
+          {sessionExpired && (
+            <p className="text-sm text-[var(--color-warning)]" data-testid="provider-session-expired-hint">
+              {t('settings.provider.sessionExpiredHint')}
+            </p>
+          )}
         </div>
       ) : loggedIn ? (
         <button onClick={onAdd} disabled={adding}
@@ -430,6 +461,9 @@ export function SubscriptionConnect({
                 ? 'settings.provider.setupTokenConnected'
                 : 'settings.provider.addedAsProvider')}
               loggedIn={claudePayload.logged_in}
+              // The setup-token transport bypasses the CLI session, so its
+              // expiry says nothing about a token-connected record.
+              sessionExpired={claudePayload.expired === true && !claudeTokenConnected}
               onAdd={handleAddClaudeOAuth}
               addLabel={t('settings.provider.addAsProvider')}
               addingLabel={t('settings.provider.addingProvider')}
@@ -524,6 +558,7 @@ export function SubscriptionConnect({
               added={hasCodex}
               addedLabel={t('settings.provider.codexAddedAsProvider')}
               loggedIn={codexPayload.logged_in}
+              sessionExpired={codexPayload.expired === true}
               onAdd={handleAddCodexOAuth}
               addLabel={t('settings.provider.addAsProvider')}
               addingLabel={t('settings.provider.addingProvider')}
