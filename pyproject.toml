@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "narranexus"
-version = "1.21.2"
+version = "1.21.3"
 description = "NarraNexus engine: kernel + platform + backend host (plugins, contracts and the SDK are workspace packages)"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -43,29 +43,42 @@ dependencies = [
     "narranexus-plugin-nexus-plugins-module",
     "narranexus-plugin-skills",
     "narranexus-plugin-social-network",
-    "anthropic>=0.72.0",
-    "openai>=2.7.1",
-    "openai-agents>=0.19.1",
-    "mcp[cli]>=1.20.0",
-    "loguru>=0.7.3",
-    "pydantic>=2.12.3",
-    "pydantic-settings>=2.0.0",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "sse-starlette>=2.2.0",
-    "croniter>=6.0.0",
+    # Every third-party requirement below carries an UPPER BOUND at the next
+    # major ABOVE THE LOCKED VERSION (0.x packages: `<1`) — hence `numpy<3`
+    # against a `>=1.26.0` floor, not `<2`: the bound tracks what we actually
+    # ship, not what the floor once allowed. uv.lock is the real protection — every image
+    # and script installs through it — but the bound is the second line of
+    # defence for the moments the lock is not in play: a `uv lock` refresh, a
+    # `uv add`, or an install path that slips past it. On 2026-09-10 exactly
+    # that happened: the desktop build resolved from these ranges instead of
+    # the lock and picked up `mcp` 2.2.0, whose renamed `streamablehttp_client`
+    # killed every service in the shipped dmg (see scripts/release/
+    # build-desktop.sh step 3). `regex` is deliberately left unbounded — it is
+    # CalVer (2026.x), so a "major" bump carries no API meaning.
+    # tests/release/test_dependency_upper_bounds.py keeps this classified.
+    "anthropic>=0.72.0,<1",
+    "openai>=2.7.1,<3",
+    "openai-agents>=0.19.1,<1",
+    "mcp[cli]>=1.20.0,<2",
+    "loguru>=0.7.3,<1",
+    "pydantic>=2.12.3,<3",
+    "pydantic-settings>=2.0.0,<3",
+    "fastapi>=0.115.0,<1",
+    "uvicorn[standard]>=0.32.0,<1",
+    "sse-starlette>=2.2.0,<4",
+    "croniter>=6.0.0,<7",
     # Timeout-capable regex engine for grep_memory over untrusted (LLM-supplied)
     # patterns — stdlib `re` is uninterruptible, so a ReDoS pattern would wedge
     # the shared API loop. Was already present transitively; now a direct dep
     # because retrieval.grep_filter imports it explicitly.
     "regex>=2024.0.0",
-    "aiomysql>=0.3.2",
+    "aiomysql>=0.3.2,<1",
     # Floor raised from 0.20.0 on 2026-08-17: db_backend_sqlite monkeypatches
     # aiosqlite internals (the module-level `core._connection_worker_thread`
     # and `Connection._thread`), and setting an attribute that upstream has
     # renamed away SUCCEEDS SILENTLY — the hardening would degrade to a no-op
     # and the 5-minute lock class would come back green. uv.lock pins 0.22.1.
-    "aiosqlite>=0.22.1",
+    "aiosqlite>=0.22.1,<1",
     # A RUNTIME dep, not a test one (2026-08-17): `skill_module.py` imports yaml
     # unconditionally at module scope. Before this line it was in the graph only
     # transitively, so the day the resolver stopped routing it here the
@@ -73,10 +86,10 @@ dependencies = [
     # pointing at pyyaml rather than at the missing declaration. Which packages
     # supply it transitively is a property of the resolution, not of our need for
     # it, so they are deliberately not named here. Same reasoning as `regex`.
-    "pyyaml>=6.0",
-    "google-genai>=1.0.0",
-    "fastmcp>=2.14.1",
-    "numpy>=1.26.0",
+    "pyyaml>=6.0,<7",
+    "google-genai>=1.0.0,<2",
+    "fastmcp>=2.14.1,<3",
+    "numpy>=1.26.0,<3",
     # libmagic content-based MIME sniffing for uploaded/ingested bytes
     # (utils/mime_sniff.py tier 1). Without it the sniffer falls back to the
     # spoofable file extension / client Content-Type — a WAV renamed .png
@@ -86,29 +99,29 @@ dependencies = [
     # docker/Dockerfile.python (the dev/prod backend/mcp/workers image). Until
     # that companion deploy change ships, cloud sniffing degrades to the
     # extension (and logs a one-time warning — see mime_sniff._warn_libmagic_missing_once).
-    "python-magic>=0.4.27",
-    "httpx[socks]",
-    "bcrypt>=5.0.0",
+    "python-magic>=0.4.27,<1",
+    "httpx[socks]>=0.28.1,<1",
+    "bcrypt>=5.0.0,<6",
     # Fernet encryption for skill env_config secrets (skill marketplace).
-    "cryptography>=42.0.0",
+    "cryptography>=42.0.0,<47",
     # S3 artifact storage for the skill marketplace. boto3 is imported ONLY
     # inside _skill_marketplace_impl/artifact_store.py (swap-friendly).
-    "boto3>=1.34.0",
-    "pyjwt>=2.10.1",
+    "boto3>=1.34.0,<2",
+    "pyjwt>=2.10.1,<3",
     "lark-oapi>=1.4.0,<2.0.0",
-    "slack-sdk>=3.27.0",
-    "discord.py>=2.4.0",
+    "slack-sdk>=3.27.0,<4",
+    "discord.py>=2.4.0,<3",
     # matrix-nio — Matrix client library for NarraMessenger MatrixTrigger
     # (replaces polling long-poll on the message plane). Pinned to the
     # non-`[e2e]` variant on purpose: matrix.netmind.chat rooms are
     # confirmed plaintext by default (2026-07-02 probe), so we skip
     # libolm and its native-C build burden. If encryption ever gets
     # turned on server-side, switch to `matrix-nio[e2e]`.
-    "matrix-nio>=0.25.0",
-    "aiohttp>=3.9.0",
-    "ddgs>=9.0.0",
-    "websockets>=15.0.1",
-    "tiktoken>=0.13.0",
+    "matrix-nio>=0.25.0,<1",
+    "aiohttp>=3.9.0,<4",
+    "ddgs>=9.0.0,<10",
+    "websockets>=15.0.1,<16",
+    "tiktoken>=0.13.0,<1",
     # Floor at the newest STABLE release rather than an ancient one: with
     # a low floor the resolver is free to wander onto a pre-release above
     # it, which is how 1.95.0.dev3 got locked.
@@ -214,16 +227,26 @@ narranexus-plugin-social-network = { workspace = true }
 prerelease = "if-necessary-or-explicit"
 
 [dependency-groups]
+# Bounded like the runtime dependencies above, and for the same reason: CI runs
+# `uv sync --dev` (see .github/workflows/ci.yml), so a new major of pytest /
+# ruff / pyright can walk into a job whose lock was refreshed. Being a tool
+# rather than a shipped dependency does not make the break cheaper — it makes
+# it look like the PR's fault.
 dev = [
-    "hatchling>=1.27.0",
-    "pillow>=12.2.0",
-    "psutil>=7.2.2",
-    "import-linter>=2.0",
-    "griffe>=1.5",
-    "pyright>=1.1.390",
-    "pytest>=9.0.1",
-    "pytest-asyncio>=1.3.0",
-    "ruff>=0.8.0",
+    # Imported directly by tests/release/test_dependency_upper_bounds.py to
+    # parse requirement specifiers. It was only ever present as a transitive
+    # dep of pytest — which is exactly the "relies on an incidental
+    # resolution" shape this PR exists to remove.
+    "packaging>=25.0,<26",
+    "hatchling>=1.27.0,<2",
+    "pillow>=12.2.0,<13",
+    "psutil>=7.2.2,<8",
+    "import-linter>=2.0,<3",
+    "griffe>=1.5,<3",
+    "pyright>=1.1.390,<2",
+    "pytest>=9.0.1,<10",
+    "pytest-asyncio>=1.3.0,<2",
+    "ruff>=0.8.0,<1",
 ]
 
 [tool.ruff]

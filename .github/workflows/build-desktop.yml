@@ -30,6 +30,16 @@ jobs:
         # only through `[tool.uv.sources]`, a uv-only table. Without this step
         # the script dies at "uv: command not found".
         uses: astral-sh/setup-uv@v4
+        # Pinned. Step 3 of build-desktop.sh runs `uv export --locked`, which
+        # asserts uv.lock would not change — so which uv runs is part of the
+        # build contract, not an implementation detail. An unpinned setup-uv
+        # that one day bumps the lock format would fail this job AFTER the tag
+        # is pushed, which is the most expensive place to find out. Keep in
+        # lockstep with ci.yml. The cloud images are a separate question and
+        # not covered by this pin: they install through `uv sync --frozen`,
+        # which no `--locked` assertion rides on.
+        with:
+          version: "0.12.12"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
