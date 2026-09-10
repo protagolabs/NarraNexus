@@ -151,9 +151,10 @@ def _topological_sort_job_complex(
     is created before its dependents, or `(None, error)` naming the cycle
     when the graph isn't a DAG.
 
-    Assumes every `depends_on` entry is a known task_key — the caller
-    validates that separately before this runs; an unknown task_key is
-    ignored here (not double-reported).
+    Assumes every `depends_on` entry is a known task_key AND that task_keys
+    are unique — the caller validates both before this runs (a duplicate
+    would silently collapse in `by_key` and drop a job; an unknown task_key
+    is ignored here, not double-reported).
     """
     from collections import deque
 
@@ -506,10 +507,13 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     and run jobs under another user's agent).
 
     Workflow:
-    1. Validate dependencies (ensure all task_keys referenced in depends_on exist)
-    2. Topological sort to determine creation order
+    1. Validate the request graph: task_keys unique (400), every depends_on
+       entry names a job in the list (success=False)
+    2. Topological sort to determine creation order (cycle -> 400)
     3. Batch create Jobs, mapping task_key to actual job_id
-    4. Root Jobs (no dependencies) set to ACTIVE, dependent Jobs set to PENDING
+    4. Root Jobs (no dependencies) are created PENDING and fire immediately;
+       dependent Jobs are created BLOCKED and are re-armed by the dependency
+       chain once their prerequisites reach a terminal state (B-16)
 
     Dependency relationships are stored in the depends_on field within payload
     """
@@ -521,8 +525,21 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     user_id = await current_user_id(request)
 
     try:
-        # 1. Validate dependencies
-        task_keys = {job.task_key for job in body.jobs}
+        # 1. Validate the request graph. A duplicate task_key is a 400 like a
+        # cycle (review I9): the topological sort keys jobs by task_key, so a
+        # repeated key would silently keep only the last job and report
+        # success with one job_id fewer — the quiet failure mode is worse
+        # than the pre-sort behaviour it replaced. Unknown dependencies keep
+        # their historical `200 success=False` envelope (the frontend reads
+        # `error` from that body); structural request errors are 400.
+        seen: set[str] = set()
+        duplicates = sorted({j.task_key for j in body.jobs if j.task_key in seen or seen.add(j.task_key)})
+        if duplicates:
+            raise HTTPException(
+                status_code=400,
+                detail=f"duplicate task_key(s) in job list: {', '.join(duplicates)}",
+            )
+        task_keys = seen
         for job in body.jobs:
             for dep in job.depends_on:
                 if dep not in task_keys:

@@ -1,8 +1,24 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/routes.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 I9/M2）— 重复 `task_key` → 400；docstring 步骤 4 改成真实状态
+
+B-16 的 Kahn 排序按 `task_key` 建字典：请求里两条 job 用同一个 `task_key`（LLM 批量生成时完全
+可能），改动前两条都会建，改动后字典只留最后一条——接口回 `success=True`、`job_ids` 少一个，
+用户丢一个任务且没有任何报错，是本批引入的静默回归。现在校验步骤先查唯一性，重复则
+`HTTPException(400, "duplicate task_key(s) in job list: …")`，走既有的 `except HTTPException: raise`。
+
+**两种错误形态并存、为什么不统一**：cycle 与 duplicate 是「请求结构本身不合法」→ 400（与 B-16
+的 cycle 对齐）；「`depends_on` 指向不存在的 task_key」保持历史的 `200 success=False + error`——
+那是前端 `CreateJobComplexResponse.error` 已经在读的契约（`types/jobComplex.ts`），本轮不改
+既有消费面。`_topological_sort_job_complex` docstring 明写「调用方保证 task_key 唯一」。
+M2：`create_job_complex` docstring 第 4 步从「root ACTIVE / dependent PENDING」改成真实的
+「root PENDING 立即触发 / dependent BLOCKED 等依赖链」。
+锁：`test_duplicate_task_key_is_rejected_with_400`（且 `calls == []`，一个都不建）、
+`test_unique_task_keys_create_every_job`。
 
 ## 2026-09-09 — B-16：`create_job_complex` 建前先 Kahn 排序 + 环检测
 

@@ -110,3 +110,37 @@ def test_dependency_cycle_returns_400_naming_task_keys(app_and_calls):
     assert "a" in detail and "b" in detail
     # Nothing gets created when the graph can't be sorted.
     assert calls == []
+
+
+def test_duplicate_task_key_is_rejected_with_400(app_and_calls):
+    """review I9: the topological sort keys jobs by task_key, so a repeated
+    key would silently keep only the LAST job and answer success with one
+    job_id fewer. Structural request errors are 400, like a cycle."""
+    client, calls = app_and_calls
+    jobs = [
+        {"task_key": "a", "title": "first a", "depends_on": []},
+        {"task_key": "b", "title": "b", "depends_on": ["a"]},
+        {"task_key": "a", "title": "second a", "depends_on": []},
+    ]
+
+    resp = _post(client, jobs)
+
+    assert resp.status_code == 400
+    assert "duplicate task_key" in resp.json()["detail"]
+    assert "a" in resp.json()["detail"]
+    assert calls == []
+
+
+def test_unique_task_keys_create_every_job(app_and_calls):
+    client, calls = app_and_calls
+    jobs = [
+        {"task_key": "a", "title": "a", "depends_on": []},
+        {"task_key": "b", "title": "b", "depends_on": ["a"]},
+        {"task_key": "c", "title": "c", "depends_on": []},
+    ]
+
+    resp = _post(client, jobs)
+
+    assert resp.status_code == 200
+    assert resp.json()["jobs_created"] == 3
+    assert sorted(calls) == ["a", "b", "c"]
