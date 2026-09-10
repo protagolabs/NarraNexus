@@ -23,6 +23,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.contracts.agent_events import (
+    _SELF_SERVICEABLE_CLI_ERROR_TYPES,
     CLI_ERROR_TYPES,
     cli_error_self_serviceable,
 )
@@ -67,10 +68,36 @@ def test_cli_error_self_serviceable(error_type, expected):
     assert cli_error_self_serviceable(error_type) is expected
 
 
+# The expected classification is written out here, independently of the
+# module's own set: a test that iterates the set under test is a tautology.
+_EXPECTED_CLASSIFICATION = {
+    "rate_limit": True,
+    "authentication_failed": True,
+    "billing_error": True,
+    "invalid_request": False,
+    "server_error": False,
+    "unknown": False,
+}
+
+
 def test_every_cli_enum_is_classified_explicitly():
-    """A new CLI enum must be placed on purpose, never fall through."""
-    for enum in CLI_ERROR_TYPES:
-        assert isinstance(cli_error_self_serviceable(enum), bool)
+    """A new CLI enum must be placed on purpose, never fall through: the
+    full CLI_ERROR_TYPES set must equal this hand-written map (an enum added
+    to the contract without a row here goes red), and the True side must be
+    exactly the three the user can clear alone."""
+    assert {e: cli_error_self_serviceable(e) for e in CLI_ERROR_TYPES} == _EXPECTED_CLASSIFICATION
+    assert {e for e in CLI_ERROR_TYPES if cli_error_self_serviceable(e)} == {
+        "rate_limit", "authentication_failed", "billing_error",
+    }
+
+
+def test_self_serviceable_set_is_a_subset_of_the_cli_enums():
+    """A typo in the set ("rate_limits") would classify nothing and fail
+    nothing without this: every member must be a real CLI enum."""
+    assert _SELF_SERVICEABLE_CLI_ERROR_TYPES <= CLI_ERROR_TYPES
+    assert _SELF_SERVICEABLE_CLI_ERROR_TYPES == {
+        "rate_limit", "authentication_failed", "billing_error",
+    }
 
 
 # ── adapter event builders ───────────────────────────────────────────────
