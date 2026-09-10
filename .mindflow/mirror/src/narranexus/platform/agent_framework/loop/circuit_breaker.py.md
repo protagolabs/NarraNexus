@@ -60,7 +60,10 @@ executor-infra）保留"不动 streak"，但 PROBING 行同样要结算回 PAUSE
 里没有心跳新鲜的 running 行——与 `run_recorder.sweep_stale_runs` 同一条活性规则）。跑
 几小时的探测 turn 不会被第二个探测叠上。探测永远不结算的三个口子由 `release_probe`
 兜住：用户取消（[[background_run]] CANCELLED 分支）、进程死亡（[[run_recorder]]
-`sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。
+`sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。`release_probe` **只在该 agent 没有存活
+run 时才归还**（同一条 `_agent_has_live_run` 活性规则；两个调用方都先把自己的 events 行
+finalize/翻掉再调）——否则一个被取消的普通 turn 会把另一个仍在跑的探测 turn 的名额还回去，
+放第二个探测进来。`test_release_probe_leaves_another_live_runs_claim_alone` 钉住。
 
 **`reset_for_owner` 的 provider 维度**：`reset_for_owner(user_id, provider_id=None)`。
 带 `provider_id` 时只清有效 `agent` slot 绑在该 provider 上的 agent（`agent_slots` 覆盖

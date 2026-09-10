@@ -697,6 +697,35 @@ async def test_release_probe_settles_only_probing_rows(db_client):
     assert await release_probe("rel_missing", db=db_client) is False
 
 
+@pytest.mark.asyncio
+async def test_release_probe_leaves_another_live_runs_claim_alone(db_client):
+    """A cancelled/lost turn must not return a claim that belongs to a
+    DIFFERENT, still-live probe turn of the same agent: with a heartbeat-
+    fresh running row present the call is a no-op and the row stays
+    PROBING; once that run is gone the claim is released."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "rel_live"
+    await repo.upsert_state(aid, _paused_row(cb_status=CbStatus.PROBING.value, probe_token="live"))
+    await db_client.insert("events", {
+        "event_id": "evt_rel_live",
+        "agent_id": aid,
+        "user_id": "u",
+        "trigger": "chat",
+        "trigger_source": "websocket",
+        "state": "running",
+        "started_at": utc_now() - timedelta(minutes=10),
+        "last_event_at": utc_now(),  # fresh heartbeat: the probe is running
+    })
+    assert await release_probe(aid, db=db_client) is False
+    row = await repo.get(aid)
+    assert row.cb_status == CbStatus.PROBING.value
+    assert row.probe_token == "live"
+
+    await db_client.update("events", {"event_id": "evt_rel_live"}, {"state": "failed"})
+    assert await release_probe(aid, db=db_client) is True
+    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+
+
 def test_half_open_delay_doubles_then_caps():
     assert cb._compute_half_open_delay_seconds(AUTH_QUOTA_PAUSE_THRESHOLD) == PAUSE_HALF_OPEN_BASE_SECONDS
     assert cb._compute_half_open_delay_seconds(AUTH_QUOTA_PAUSE_THRESHOLD + 1) == PAUSE_HALF_OPEN_BASE_SECONDS * 2

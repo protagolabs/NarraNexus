@@ -19,7 +19,9 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 
 `_record_circuit_breaker` 对 CANCELLED 仍不记成功/失败（用户主动停，不是 agent 的错），
 但改为调 [[circuit_breaker]] 的 `release_probe(agent_id)`：若这个 turn 恰是半开探测，
-行从 PROBING 回到 PAUSED（同样延迟重新起算），否则 no-op。不加这条，被取消的探测会让行
+行从 PROBING 回到 PAUSED（同样延迟重新起算），否则 no-op；且只在该 agent 没有别的存活
+run 时归还（`recorder.finalize` 先于这一步写终态行，所以本 run 自己不算存活）——被取消的
+普通 turn 不能把仍在跑的探测 turn 的名额还回去。不加这条，被取消的探测会让行
 卡在 PROBING、所有入口都被拒，直到 grant 过期且没有存活 run。
 
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)

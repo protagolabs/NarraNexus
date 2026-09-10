@@ -205,6 +205,10 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
     ~RUN_STALE_AFTER_S + one sweep interval, regardless of which process
     restarts when.
     """
+    # Lazy: the breaker imports agent_runtime modules itself; a module-level
+    # import here would close that cycle.
+    from narranexus.platform.agent_framework.loop.circuit_breaker import release_probe
+
     flipped = 0
     try:
         running_rows = await db.get("events", {"state": STATE_RUNNING})
@@ -237,10 +241,6 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
         # `try_begin_probe` keeps refusing every entry point while the
         # (now dead) run's row still read as live.
         if row.get("agent_id"):
-            from narranexus.platform.agent_framework.loop.circuit_breaker import (
-                release_probe,
-            )
-
             await release_probe(row["agent_id"], db=db)
     if flipped:
         logger.info(f"[run-sweep] flipped {flipped} stale 'running' rows to 'failed'")

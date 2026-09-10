@@ -21,7 +21,8 @@ stub: false
 
 进程死亡的 run 永远走不到 `BackgroundRun._finalize`，熔断器结算也就不会发生。现在每翻一
 行（failed 或 cancelled）都对该 `agent_id` 调 [[circuit_breaker]] 的 `release_probe`
-（best-effort，只对 PROBING 行生效）。这也是 `try_begin_probe` 能用"events 里有心跳新鲜的
+（best-effort，只对 PROBING 行生效，且只在该 agent 已无存活 run 时归还——本 sweep 先翻
+状态再调，所以刚翻掉的这一行不再算存活；若同 agent 另有心跳新鲜的 run，名额是它的，不动）。这也是 `try_begin_probe` 能用"events 里有心跳新鲜的
 running 行"当作"探测还活着"的前提：活性规则两边共用 `run_is_live`，丢失的 run 在
 ~RUN_STALE_AFTER_S + 一个 sweep 周期内既翻状态又归还名额。
 

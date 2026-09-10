@@ -19,7 +19,9 @@ stub: false
   跑在什么上）+ `POST /{provider_id}/test` 成功（带 `provider_id`）。
 - `reset_for_owner(uid, provider_id=...)`（[[circuit_breaker]]）按 agent 的有效 `agent`
   slot 绑定收窄：`agent_slots` 覆盖优先、否则 `user_slots` 默认；绑在别的 provider 上的
-  agent 不动——测通 A 对跑在 B 上的 agent 没有任何信息量。
+  agent 不动——测通 A 对跑在 B 上的 agent 没有任何信息量。既无 `agent_slots` 也无
+  `user_slots` 绑定的 agent 永远不会被 `POST /{id}/test` 恢复（它绑的 provider 未知）；
+  这类 agent 由 add-provider / set-slot 走的不带 provider_id 全量路径恢复。
 
 `tests/backend/test_providers_circuit_breaker_resume.py`：test 成功 → `("alice","p1")`；
 失败不恢复；两个 status 端点 `logged_in=True` 时**不**恢复（原来钉住相反行为的 4 条测试

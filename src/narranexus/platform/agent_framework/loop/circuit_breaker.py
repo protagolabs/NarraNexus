@@ -493,7 +493,11 @@ async def release_probe(agent_id: str, db=None) -> bool:
     flipped the run). Without this the row would sit PROBING, refusing every
     entry point, until the grant expired AND no live run remained.
 
-    No-op (returns False) unless the row is PROBING. Best-effort by contract:
+    No-op (returns False) unless the row is PROBING AND the agent has no
+    heartbeat-fresh running row: the claim may belong to a different, still
+    live turn than the one being settled (both callers finalize / flip
+    their own events row before calling), and returning another run's
+    claim would let a second probe in behind it. Best-effort by contract:
     never raises.
     """
     try:
@@ -502,6 +506,8 @@ async def release_probe(agent_id: str, db=None) -> bool:
         row = await repo.get(agent_id)
         if row is None or row.cb_status != CbStatus.PROBING.value:
             return False
+        if await _agent_has_live_run(db, agent_id):
+            return False  # the claim is another live run's — leave it
         await _rearm_pause_without_verdict(repo, row, "probe turn never settled")
         return True
     except Exception as e:  # noqa: BLE001 — observer never breaks the observed
