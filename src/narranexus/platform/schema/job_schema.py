@@ -70,6 +70,27 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"    # Cancelled (reserved)
 
 
+# Statuses of a job that is scheduled, in flight, or will run again on its
+# own with no owner action: pending / active / running / blocked (waiting on a
+# dependency that will complete) / cooling (backoff, re-armed by the clock).
+# The duplicate-title check, the similar-title confirmation gate, the
+# per-narrative "existing jobs" loads and the "what jobs do I have" summary
+# in JobRepository all read this ONE tuple: a status missing here is
+# invisible to those surfaces, so a user re-asking for the same thing gets a
+# second job (review I5 — BLOCKED had exactly that gap the moment B-16 made
+# it reachable). The paused family is deliberately absent (an owner or
+# platform decision is pending; a resume re-derives its schedule), as are the
+# terminals. This is NOT the due-poll set: get_due_jobs() must stay
+# PENDING/ACTIVE only — that restriction is the B-16 fix itself.
+LIVE_JOB_STATUSES: tuple[JobStatus, ...] = (
+    JobStatus.PENDING,
+    JobStatus.ACTIVE,
+    JobStatus.RUNNING,
+    JobStatus.BLOCKED,
+    JobStatus.COOLING,
+)
+
+
 class JobOrigin:
     """Surfaces a job can be asked for on, and report back to.
 

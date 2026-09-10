@@ -23,6 +23,7 @@ from .base import BaseRepository
 from narranexus.platform.utils import utc_now
 from narranexus.platform.utils.timezone import to_datetime6_literal
 from narranexus.platform.schema.job_schema import (
+    LIVE_JOB_STATUSES,
     JobType,
     JobStatus,
     JobModel,
@@ -55,6 +56,12 @@ class JobRepository(BaseRepository[JobModel]):
 
     # JSON fields (2026-01-21: added monitored_job_ids)
     _json_fields = {"trigger_config", "process", "monitored_job_ids"}
+
+    # `status IN (...)` over LIVE_JOB_STATUSES (job_schema) — one clause for the
+    # four "live jobs" reads below so they can never disagree about which
+    # statuses count (review I5). Placeholders + params, never inlined literals.
+    _LIVE_STATUS_SQL = "status IN (" + ", ".join("%s" for _ in LIVE_JOB_STATUSES) + ")"
+    _LIVE_STATUS_PARAMS = tuple(s.value for s in LIVE_JOB_STATUSES)
 
     # =========================================================================
     # Basic CRUD
@@ -332,10 +339,13 @@ class JobRepository(BaseRepository[JobModel]):
         title: str
     ) -> Optional[JobModel]:
         """
-        Find an active Job by title (for duplicate detection)
+        Find a live Job by title (for duplicate detection)
 
-        Only searches for Jobs with PENDING and ACTIVE status, avoiding conflicts
-        with completed/failed Jobs.
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling) — every job that will run again on its own — so a repeated
+        request for the same title never creates a second job behind one
+        that is merely waiting on a dependency, retrying, or mid-run.
+        Terminal and paused jobs are not matches (review I5).
 
         Args:
             agent_id: Agent ID
@@ -352,12 +362,14 @@ class JobRepository(BaseRepository[JobModel]):
             WHERE agent_id = %s
               AND user_id = %s
               AND title = %s
-              AND status IN ('pending', 'active')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT 1
         """
 
-        rows = await self._db.execute(query, params=(agent_id, user_id, title), fetch=True)
+        rows = await self._db.execute(
+            query, params=(agent_id, user_id, title, *self._LIVE_STATUS_PARAMS), fetch=True
+        )
         if rows:
             return self._row_to_entity(rows[0])
         return None
@@ -368,9 +380,10 @@ class JobRepository(BaseRepository[JobModel]):
         limit: int = 100
     ) -> List[JobModel]:
         """
-        Get all active Jobs under a Narrative (for semantic deduplication)
+        Get all live Jobs under a Narrative (for semantic deduplication)
 
-        Only searches for non-terminal Jobs (pending, active, running).
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling); see job_schema for why the paused family is excluded.
 
         Args:
             narrative_id: Narrative ID
@@ -384,12 +397,14 @@ class JobRepository(BaseRepository[JobModel]):
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE narrative_id = %s
-              AND status IN ('pending', 'active', 'running')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT %s
         """
 
-        rows = await self._db.execute(query, params=(narrative_id, limit), fetch=True)
+        rows = await self._db.execute(
+            query, params=(narrative_id, *self._LIVE_STATUS_PARAMS, limit), fetch=True
+        )
         return [self._row_to_entity(row) for row in rows]
 
     async def get_active_jobs_by_agent(
@@ -399,9 +414,10 @@ class JobRepository(BaseRepository[JobModel]):
         user_id: Optional[str] = None
     ) -> List[JobModel]:
         """
-        Get all active Jobs under an Agent (for semantic deduplication)
+        Get all live Jobs under an Agent (for semantic deduplication)
 
-        Only searches for non-terminal Jobs (pending, active, running).
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling); see job_schema for why the paused family is excluded.
 
         Args:
             agent_id: Agent ID
@@ -420,11 +436,15 @@ class JobRepository(BaseRepository[JobModel]):
             SELECT * FROM {self.table_name}
             WHERE agent_id = %s
               {user_clause}
-              AND status IN ('pending', 'active', 'running')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT %s
         """
-        params = (agent_id, user_id, limit) if user_id is not None else (agent_id, limit)
+        params = (
+            (agent_id, user_id, *self._LIVE_STATUS_PARAMS, limit)
+            if user_id is not None
+            else (agent_id, *self._LIVE_STATUS_PARAMS, limit)
+        )
 
         rows = await self._db.execute(query, params=params, fetch=True)
         return [self._row_to_entity(row) for row in rows]
@@ -1386,7 +1406,11 @@ class JobRepository(BaseRepository[JobModel]):
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Get active task summary
+        Get live task summary ("what jobs do I have" for the agent prompt)
+
+        Covers LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling) so a dependency-blocked or retrying job is reported, not
+        silently omitted (review I5).
 
         Args:
             agent_id: Agent ID
@@ -1402,14 +1426,14 @@ class JobRepository(BaseRepository[JobModel]):
             SELECT job_id, title, next_run_time, job_type, status
             FROM {self.table_name}
             WHERE agent_id = %s AND user_id = %s
-            AND status IN (%s, %s)
+            AND {self._LIVE_STATUS_SQL}
             ORDER BY next_run_time ASC
             LIMIT %s
         """
 
         results = await self._db.execute(
             query,
-            params=(agent_id, user_id, JobStatus.PENDING.value, JobStatus.ACTIVE.value, limit),
+            params=(agent_id, user_id, *self._LIVE_STATUS_PARAMS, limit),
             fetch=True
         )
 

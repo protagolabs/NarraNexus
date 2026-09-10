@@ -20,6 +20,15 @@ from uuid import uuid4
 
 from loguru import logger
 from narranexus.platform.utils import utc_now
+from narranexus.platform.schema.job_schema import JobStatus
+
+# How the duplicate-title reply describes the job it found (LIVE_JOB_STATUSES
+# members that are NOT simply scheduled). Anything else reads "is active".
+_EXISTING_JOB_STATE_NOTES: Dict[JobStatus, str] = {
+    JobStatus.BLOCKED: "is waiting on its dependencies before it can run",
+    JobStatus.COOLING: "is backing off after a transient failure and will retry",
+    JobStatus.RUNNING: "is running right now",
+}
 
 if TYPE_CHECKING:
     from narranexus.platform.utils import DatabaseClient
@@ -135,16 +144,23 @@ class JobInstanceService:
                             "error": "Only Narrative creator can create Job in this Narrative"
                         }
 
-            # 0.5. Duplicate detection: check if an active Job with the same title already exists
+            # 0.5. Duplicate detection: a LIVE job (LIVE_JOB_STATUSES) with the
+            # same title already exists. The message names the job's actual
+            # state: a BLOCKED match is waiting on its dependencies, not
+            # scheduled — "already exists and is active" would tell the user
+            # a task is on the calendar when it is not (review I5).
             job_repo = JobRepository(self.db)
             existing_job = await job_repo.find_active_by_title(agent_id, user_id, title)
             if existing_job:
-                logger.info(f"Found existing active job with same title: {existing_job.job_id}")
+                logger.info(f"Found existing live job with same title: {existing_job.job_id}")
+                state_note = _EXISTING_JOB_STATE_NOTES.get(
+                    existing_job.status, "is active"
+                )
                 return {
                     "success": True,
                     "job_id": existing_job.job_id,
                     "instance_id": existing_job.instance_id,
-                    "message": f"Job '{title}' already exists and is active. Returning existing job.",
+                    "message": f"Job '{title}' already exists and {state_note}. Returning existing job.",
                     "is_existing": True  # Mark this as an existing Job, not newly created
                 }
 

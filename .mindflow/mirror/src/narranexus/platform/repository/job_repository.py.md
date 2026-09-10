@@ -4,6 +4,18 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r1 I5）— 四个「活跃 job」读改用 `LIVE_JOB_STATUSES`
+
+`find_active_by_title` / `get_active_jobs_by_narrative` / `get_active_jobs_by_agent` /
+`get_active_jobs_summary` 原来各写一份状态字面量列表（两份 `('pending','active')`、两份带
+`running`），B-16 之后 BLOCKED 从这四处全部漏掉，COOLING 从来就漏。现在四处都拼
+`_LIVE_STATUS_SQL`（`status IN (%s, …)`，占位符数量随 [[job_schema]] 的 `LIVE_JOB_STATUSES`
+生成）+ `_LIVE_STATUS_PARAMS`——集合只在 schema 定义一次，SQL 里不再有裸字面量。
+`get_due_jobs` / `try_acquire_job` / `update_next_run_time_by_instance` 的状态集合**不**改：
+到期扫描只认 PENDING/ACTIVE 是 B-16 的修复本体。
+锁：`tests/repository/test_job_repository_live_statuses.py`（每个 live 状态可见、每个非 live 状态
+不可见、四个读结果集一致、`get_due_jobs` 不受影响）+ `_mysql` twin（含 `user_clause` 两种分支）。
+
 ## 2026-09-10（review r1 I2/I3）— `pause_jobs_for_execution_principal`：一条 UPDATE，按执行主体选行
 
 admin suspend（[[suspend]]）原来 `get_jobs_by_user(user_id, limit=500)` 再逐条 `update_job`：

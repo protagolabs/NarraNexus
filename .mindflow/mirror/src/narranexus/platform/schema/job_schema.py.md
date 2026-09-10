@@ -4,6 +4,18 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r1 I5）— `LIVE_JOB_STATUSES`：「会自己再跑」的状态集合只定义一次
+
+B-16 让 `BLOCKED` 第一次真正可达，而 [[job_repository]] 四个「活跃 job」查询（同名重复检测 /
+相似标题确认门 / 按 narrative 列既有 job / agent prompt 的「我有哪些 job」）各自手写
+`('pending','active'[,'running'])`——一条等依赖的 job 对 LLM 完全隐形，用户再说一遍同样的需求就
+直接建出第二条。`COOLING` 有同样的洞（退避中、会自己重试，却不算「已有」）。现在
+`LIVE_JOB_STATUSES = (pending, active, running, blocked, cooling)` 是这四处唯一的真源：语义是
+「已排期 / 在跑 / 无需 owner 动作就会再跑」。paused 三态刻意不在（等 owner 或平台决策，恢复时
+重算排期）；终态不在；**`get_due_jobs()` 不用它**——到期扫描必须只选 PENDING/ACTIVE，那正是 B-16
+的修复本体（`test_due_poll_is_untouched_by_the_live_set` 钉住）。
+`find_active_by_title` 顺带纳入 `running`：一条正在跑的 job 被重复下单时返回既有 job 而不是再建一条。
+
 ## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 的真实恢复语义
 
 上一节首版写的「不被任何 backstop 自动拉活、只能手动恢复」两句都不成立——那时它既不在

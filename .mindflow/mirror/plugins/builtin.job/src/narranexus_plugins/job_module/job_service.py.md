@@ -1,7 +1,15 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_service.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（review r1 I5）— 同名重复命中时按真实状态措辞
+
+`find_active_by_title` 现在也会命中 BLOCKED / COOLING / RUNNING 的 job（见 [[job_repository]]），
+而旧文案一律说「already exists and is active」——用户对一条等依赖的 job 重复下单，会以为任务已经
+排上日程。`_EXISTING_JOB_STATE_NOTES` 按状态给出实话（等依赖 / 退避重试中 / 正在跑），其他状态
+仍是「is active」。`is_existing=True` 的返回形状不变。
+锁：`test_exact_title_match_on_a_blocked_job_says_it_is_waiting`。
 
 ## 2026-09-09 — B-16：Job 自己的 status 要跟 instance 的 initial_status 对齐
 
