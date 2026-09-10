@@ -1,0 +1,33 @@
+---
+code_file: scripts/release/bundle_import_smoke.py
+last_verified: 2026-09-10
+stub: false
+---
+
+# scripts/release/bundle_import_smoke.py — 打包产物的导入冒烟
+
+## 为什么存在
+
+2026-09-10 之前，DMG 构建从头到尾没有一次 import 过自己打进去的代码：wheel 装完就签名、公证、发布，直到用户双击 .app 才发现每个 sidecar 都在 import 阶段就退出（mcp 2.x 改名 `streamablehttp_client`）。构建全绿，用户全红。这个脚本就是那道缺失的门：用**打包用的那个解释器**，把 `state.rs` 拉起的四个进程的**全部可导入入口**都 import 一遍——注意"进程数 ≠ 入口数"，`-m uvicorn backend.main:app` 这种形态有两个可导入的半边（runner 和 target），所以入口是 5 个不是 4 个。
+
+另外单列了一组 `LAZY_RUNTIME_IMPORTS`（uvloop / httptools / websockets）：uvicorn 把协议与事件循环实现当成**导入路径字符串**存着，到 `Config.load()` 才 `import_from_string`，所以 `import uvicorn` 之后这三个根本不在 `sys.modules` 里。其中 `websockets` 最要命——它是本项目的直接依赖，但全仓 `src/ backend/ plugins/ packages/` 没有任何地方 import 它，唯一的消费方就是 uvicorn 的 `websockets_impl`；它在 bundle 里坏掉不会抛异常，只会让服务端对每个 upgrade 请求打一行 "Unsupported upgrade request"，桌面版聊天的 WS 全线不通，而构建是绿的。
+
+## 上下游
+
+- **调用方**：`scripts/release/build-desktop.sh` step 3.1，紧跟依赖安装之后（早于 Node/签名/公证，失败越早越省时间）。
+- **事实来源**：`ENTRYPOINTS` 是 `tauri/src-tauri/src/state.rs` 的 `bundled_services()` 的镜像；两者一致性由 `tests/release/test_desktop_build_uses_lock.py::test_smoke_entrypoints_match_state_rs` 守住。
+- **`LAZY_RUNTIME_IMPORTS` 也有可执行守门**：`test_smoke_checks_uvicorns_lazily_resolved_deps` 断言 `websockets` 必须在名单里，并且**同一个循环**要同时迭代两个元组——拆成两个循环、把 lazy 那组降级成警告，是削弱这道门最自然的方式（"uvloop 挂了只是性能回退"很容易说服人），所以断言盯的是"共用同一条判死路径"，不是"两个名字各自出现过"。
+
+## 设计决策
+
+- **任何异常都判死，不只是 ImportError**。第一版只判 ImportError，理由是"别让构建机的环境问题误伤"。这个取舍是错的：跨 major 的破坏在 import 期多数**不是** ImportError——starlette/fastapi 是签名变化的 TypeError、属性没了的 AttributeError，pydantic 是 PydanticUserError，builtin 插件加载失败是 loader 直接 raise。9/10 真正漂移进 DMG 的四个包里，只有 mcp 恰好以 ImportError 现身，四分之一的覆盖率。
+- 能这么严，是因为**先把有状态的东西全指到临时目录**（HOME / `NARRANEXUS_PLUGIN_HOME` / `DATABASE_URL` / `NARRA_SURFACE`）。`backend.main` 在 import 期就建 FastAPI app 并加载 builtin 插件，会读 home、插件树和数据库；不隔离的话结果取决于谁在构建，那才是"环境误伤"的真正来源。隔离之后结果是确定的，于是不需要任何白名单。
+- 曾考虑真启动 sqlite_proxy 探端口，更贴近现实但要拖进数据库与端口依赖；导入这一层已经覆盖了历史上真实发生过的故障形态，先取这个性价比。
+
+## 平台前提
+
+假定 POSIX bundle（我们只出 macOS dmg）。这一条只对 `uvloop` 有意义：它在 uv.lock 里是**有条件依赖**（非 win32/cygwin、非 PyPy），所以在 Windows bundle 上它本就该缺席，而这个脚本会因此判死。真要出那种 bundle，应该按平台**缩名单**，不是把异常吞掉——吞掉等于顺手把 httptools 和 websockets 的覆盖也一起丢了。
+
+## 新人易踩
+
+- 在 `state.rs` 加一个新服务却不加到 `ENTRYPOINTS`，测试会红——那不是测试烦人，是那个服务的依赖图确实没人验过。
