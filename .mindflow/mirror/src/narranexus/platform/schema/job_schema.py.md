@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/schema/job_schema.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -17,9 +17,9 @@ stub: false
   （禁止给 agent_loop 加硬性次数/时长上限）；有没有真正执行这个预算，取决
   于执行框架自己（nexus_power/claude 目前都还没有消费这个字段，是留好的
   接口，不是已启用的强制上限）。
-- `JobStatus.PAUSED_SPEND_CAP = "paused_spend_cap"`——用户当日花费（读
-  `cost_records`）在下一次调度开始**之前**已达/超过
-  `NARRANEXUS_JOB_DAILY_SPEND_CAP_USD` 时暂停 job。跟 `PAUSED_NO_QUOTA` 不
+- `JobStatus.PAUSED_SPEND_CAP = "paused_spend_cap"`——用户当日**全部** LLM 花费（读
+  `cost_records`，不止 job；「当日」按 job 冻结时区，见 [[job_trigger]] 2026-09-10 条）在
+  下一次调度开始**之前**已达/超过 `NARRANEXUS_USER_DAILY_SPEND_CAP_USD` 时暂停 job。跟 `PAUSED_NO_QUOTA` 不
   是一回事：不被任何 backstop 自动拉活（花费上限是有意的天花板，不是瞬时
   条件），恢复只能靠手动或等次日花费自然清零重新判定。纯字符串枚举值新增，
   不碰 `instance_jobs.status` 列的类型/宽度，additive。

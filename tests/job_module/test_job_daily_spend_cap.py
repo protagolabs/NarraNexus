@@ -4,9 +4,10 @@
 @date: 2026-09-09
 @description: B-14 — user-level daily spend circuit for scheduled/ongoing
 jobs. A user burned ~$140 in 4 days on two 2h heartbeat jobs under
-nexus_power (1-7M input tokens/run). NARRANEXUS_JOB_DAILY_SPEND_CAP_USD
+nexus_power (1-7M input tokens/run). NARRANEXUS_USER_DAILY_SPEND_CAP_USD
 (0/unset = disabled) gates the NEXT scheduled start — it never interrupts a
-run already in flight.
+run already in flight. The cap counts the user's WHOLE LLM spend for the
+day (review I6), and "day" is the job's frozen timezone, not UTC.
 """
 from __future__ import annotations
 
@@ -16,13 +17,20 @@ import pytest
 
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus
+import narranexus_plugins.job_module.job_trigger as trigger_mod
 from narranexus_plugins.job_module.job_trigger import (
     JobTrigger,
     _daily_spend_usd_for_user,
+    local_day_start_utc,
 )
 
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
-ENV_VAR = "NARRANEXUS_JOB_DAILY_SPEND_CAP_USD"
+ENV_VAR = "NARRANEXUS_USER_DAILY_SPEND_CAP_USD"
+
+# 20:00Z — 04:00 next day in Asia/Shanghai (UTC+8), 16:00 same day in
+# America/New_York (UTC-4 in September). Chosen so the three zones disagree
+# about which UTC instant "today" started at.
+FIXED_NOW = datetime(2026, 9, 10, 20, 0, 0, tzinfo=dt_tz.utc)
 
 
 async def _insert_job(db, job_id, user_id="user_1", status="active"):
@@ -76,6 +84,55 @@ async def test_sums_only_todays_records_for_the_user(db_client):
 @pytest.mark.asyncio
 async def test_no_records_returns_zero(db_client):
     assert await _daily_spend_usd_for_user(db_client, "user_nobody") == 0.0
+
+
+# ── "today" is the job's local day, not the UTC day (review I6) ─────────────
+
+def test_local_day_start_follows_the_given_timezone():
+    assert local_day_start_utc("UTC", FIXED_NOW) == datetime(2026, 9, 10, 0, 0, tzinfo=dt_tz.utc)
+    # 04:00 on the 11th locally -> local midnight of the 11th = 16:00Z on the 10th.
+    assert local_day_start_utc("Asia/Shanghai", FIXED_NOW) == datetime(2026, 9, 10, 16, 0, tzinfo=dt_tz.utc)
+    # 16:00 on the 10th locally -> local midnight of the 10th = 04:00Z on the 10th.
+    assert local_day_start_utc("America/New_York", FIXED_NOW) == datetime(2026, 9, 10, 4, 0, tzinfo=dt_tz.utc)
+
+
+def test_local_day_start_falls_back_to_utc_for_an_unknown_zone():
+    assert local_day_start_utc("Not/AZone", FIXED_NOW) == local_day_start_utc("UTC", FIXED_NOW)
+
+
+@pytest.mark.asyncio
+async def test_sums_from_the_local_midnight_of_the_jobs_timezone(db_client):
+    """A record at 15:59Z is still "today" in UTC but "yesterday" in
+    Asia/Shanghai (local midnight = 16:00Z); one at 16:01Z is today in both."""
+    before_local_midnight = datetime(2026, 9, 10, 15, 59, tzinfo=dt_tz.utc)
+    after_local_midnight = datetime(2026, 9, 10, 16, 1, tzinfo=dt_tz.utc)
+    await _insert_cost_record(db_client, "user_1", 1.0, created_at=before_local_midnight)
+    await _insert_cost_record(db_client, "user_1", 2.0, created_at=after_local_midnight)
+    # SQLite keeps `created_at` as text in TWO shapes: ISO `T` form for
+    # explicit datetime writes (the two above) and space-separated form from
+    # the column default. Both shapes on the boundary date must be judged by
+    # their instant, not by string order (`T` sorts after the space).
+    await _insert_cost_record(db_client, "user_1", 3.0, created_at="2026-09-10 16:30:00")
+    await _insert_cost_record(db_client, "user_1", 7.0, created_at="2026-09-10 15:30:00")
+
+    shanghai = await _daily_spend_usd_for_user(db_client, "user_1", "Asia/Shanghai", now=FIXED_NOW)
+    utc = await _daily_spend_usd_for_user(db_client, "user_1", "UTC", now=FIXED_NOW)
+
+    assert shanghai == pytest.approx(5.0)
+    assert utc == pytest.approx(13.0)
+
+
+@pytest.mark.asyncio
+async def test_default_timestamp_rows_are_counted(db_client):
+    """cost_tracker never writes created_at — the column default fills it
+    (SQLite: `datetime('now')`, space-separated UTC text). The cutoff must
+    compare correctly against that shape, not only against ISO 'T' writes."""
+    await db_client.insert("cost_records", {
+        "agent_id": "agent_1", "call_type": "agent_loop", "model": "m",
+        "input_tokens": 1, "output_tokens": 1, "total_cost_usd": 4.0,
+        "user_id": "user_default_ts",
+    })
+    assert await _daily_spend_usd_for_user(db_client, "user_default_ts", "UTC") == pytest.approx(4.0)
 
 
 # ── cap gate + pause wiring ──────────────────────────────────────────────────
@@ -146,3 +203,55 @@ async def test_execute_job_runs_normally_under_cap(db_client, monkeypatch):
     assert called.get("ran") is True
     row = await db_client.get_one("instance_jobs", {"job_id": "job_under_cap"})
     assert row["status"] != JobStatus.PAUSED_SPEND_CAP.value
+
+
+@pytest.mark.asyncio
+async def test_execute_job_judges_today_in_the_jobs_timezone(db_client, monkeypatch):
+    """Job frozen to Asia/Shanghai; spend booked at 15:30Z — inside the UTC
+    day but before local midnight (16:00Z). Under a UTC day boundary the cap
+    would already be hit and the job paused; under the job's own day it has
+    spent nothing yet and must run."""
+    monkeypatch.setenv(ENV_VAR, "1")
+    monkeypatch.setattr(trigger_mod, "utc_now", lambda: FIXED_NOW)
+    await _insert_cost_record(
+        db_client, "user_1", 5.0, created_at=datetime(2026, 9, 10, 15, 30, tzinfo=dt_tz.utc)
+    )
+    await _insert_job(db_client, "job_tz_runs")
+    job = await JobRepository(db_client).get_job("job_tz_runs")
+    trigger = JobTrigger(database_client=db_client)
+    called = {}
+
+    async def _fake_run_agent(job_arg, prompt):
+        called["ran"] = True
+        return {"success": True, "output": "ok", "event_id": None}
+
+    monkeypatch.setattr(trigger, "_run_agent", _fake_run_agent)
+
+    await trigger._execute_job(job)
+
+    assert called.get("ran") is True
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_tz_runs"})
+    assert row["status"] != JobStatus.PAUSED_SPEND_CAP.value
+
+
+@pytest.mark.asyncio
+async def test_execute_job_pauses_when_spend_is_inside_the_local_day(db_client, monkeypatch):
+    """Same job, spend booked at 16:30Z — after Asia/Shanghai's local
+    midnight — so it counts and the cap trips."""
+    monkeypatch.setenv(ENV_VAR, "1")
+    monkeypatch.setattr(trigger_mod, "utc_now", lambda: FIXED_NOW)
+    await _insert_cost_record(
+        db_client, "user_1", 5.0, created_at=datetime(2026, 9, 10, 16, 30, tzinfo=dt_tz.utc)
+    )
+    await _insert_job(db_client, "job_tz_paused")
+    job = await JobRepository(db_client).get_job("job_tz_paused")
+    trigger = JobTrigger(database_client=db_client)
+
+    async def _boom(*a, **k):
+        raise AssertionError("must not call the framework once the cap is exceeded")
+    monkeypatch.setattr(trigger, "_run_agent", _boom)
+
+    await trigger._execute_job(job)
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_tz_paused"})
+    assert row["status"] == JobStatus.PAUSED_SPEND_CAP.value

@@ -59,7 +59,7 @@ class JobStatus(str, Enum):
     # on_dependency_failure policy is "block". Re-armed if the prerequisite later
     # succeeds, or cleared by the user.
     PAUSED_SPEND_CAP = "paused_spend_cap"  # Auto-paused: the executing user's
-    # daily spend (NARRANEXUS_JOB_DAILY_SPEND_CAP_USD) was already met/exceeded
+    # daily spend (NARRANEXUS_USER_DAILY_SPEND_CAP_USD) was already met/exceeded
     # before this run started (B-14). NOT auto-resumed by any backstop — a spend
     # cap is a deliberate ceiling, not a transient condition; only a manual
     # resume (next day's spend naturally resets the check) brings it back.

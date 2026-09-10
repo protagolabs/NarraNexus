@@ -61,6 +61,7 @@ Usage:
 
 import asyncio
 import argparse
+import os
 from typing import List, Optional, Dict, Any, Set
 from uuid import uuid4
 
@@ -81,6 +82,7 @@ from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
 # Utils
 from narranexus.platform.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
+from narranexus.platform.utils.timezone import coerce_utc
 
 # Repository
 from narranexus.platform.repository import JobRepository
@@ -257,33 +259,86 @@ def _compute_cooldown_seconds(consecutive_failures: int) -> int:
     return min(_BACKOFF_BASE_SECONDS * (2 ** (n - 1)), _BACKOFF_CAP_SECONDS)
 
 
-# B-14: env-tunable daily spend circuit for scheduled/ongoing jobs. 0 (or
-# unset) = disabled — the default is a no-op so this never changes existing
-# behavior for anyone who hasn't opted in. Read fresh on every check (not a
-# module-level constant) so ops can tune it without a process restart.
-_JOB_DAILY_SPEND_CAP_ENV = "NARRANEXUS_JOB_DAILY_SPEND_CAP_USD"
+# B-14: env-tunable daily spend circuit, evaluated before each scheduled
+# start. It counts the executing USER's ENTIRE LLM spend for the local day —
+# every `cost_records` row attributed to that user (interactive chat, memory
+# consolidation, helper calls, other jobs), not only job runs. `cost_records`
+# carries no job attribution, and the ceiling means "this user is done
+# spending for today", which is a property of the user, not of one job —
+# hence USER in the name. 0 (or unset) = disabled: the default is a no-op so
+# this never changes existing behavior for anyone who hasn't opted in. Read
+# fresh on every check (not a module-level constant) so ops can tune it
+# without a process restart.
+_USER_DAILY_SPEND_CAP_ENV = "NARRANEXUS_USER_DAILY_SPEND_CAP_USD"
 
 
-async def _daily_spend_usd_for_user(db, user_id: str) -> float:
-    """Sum `cost_records.total_cost_usd` for `user_id` since UTC midnight
-    today (B-14). Raw SQL — no repository exists for `cost_records` yet;
-    unquoted identifiers, dialect-portable (see
-    tests/job_module/test_job_daily_spend_cap.py's SQLite + MySQL twin).
+def local_day_start_utc(tz_name: str, now: Optional[datetime] = None) -> datetime:
+    """Midnight of the CURRENT local day in `tz_name`, as an aware UTC instant.
+
+    "Today" for the spend cap is the job's own frozen timezone (the same
+    `trigger_config.timezone` every other time judgement in this file uses),
+    never UTC: a UTC-based day would reset a UTC+8 user's budget at 08:00
+    local and straddle two calendar days. An unknown zone name falls back to
+    UTC (loudly) rather than failing the whole cap check.
     """
-    day_start = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:  # noqa: BLE001 — ZoneInfoNotFoundError / KeyError / bad type
+        logger.warning(f"[spend-cap] unknown timezone {tz_name!r}; using UTC for the day boundary")
+        tz = timezone.utc
+    now_local = (now or utc_now()).astimezone(tz)
+    return now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+async def _daily_spend_usd_for_user(
+    db, user_id: str, tz_name: str = "UTC", now: Optional[datetime] = None
+) -> float:
+    """Sum `cost_records.total_cost_usd` for `user_id` since the start of the
+    current local day in `tz_name` (B-14 / review I6).
+
+    Raw SQL — no repository exists for `cost_records` yet; unquoted
+    identifiers, dialect-portable (tests/job_module/test_job_daily_spend_cap.py
+    + its `_mysql` twin).
+
+    The SQL only PRE-FILTERS (one full day of margin before the boundary);
+    the exact `>= local midnight` cut is applied in Python on the parsed
+    timestamps. SQLite stores `created_at` as text in two shapes — the column
+    default `datetime('now')` writes `YYYY-MM-DD HH:MM:SS`, explicit writes
+    land as ISO `YYYY-MM-DDTHH:MM:SS+00:00` — and those two do not order
+    correctly against each other within one date (`T` > space), so no single
+    string cutoff can be exact on the boundary date. A day of margin makes
+    the string comparison only ever include EXTRA rows, never drop a valid
+    one; the Python step (`coerce_utc`, which reads both shapes and MySQL's
+    native DATETIME) discards the surplus. The cutoff travels as a
+    `YYYY-MM-DD HH:MM:SS` string rather than a datetime object: passing a
+    datetime relied on CPython's default sqlite3 adapter, deprecated since
+    3.12 (review M6).
+
+    ASSUMES the DB session clock is UTC: `cost_records.created_at` is filled by
+    the column default (`datetime('now')` on SQLite — always UTC;
+    `CURRENT_TIMESTAMP(6)` on MySQL — the SESSION time zone). A MySQL session
+    not in UTC shifts this whole window by the offset. The MySQL twin asserts
+    `NOW() = UTC_TIMESTAMP()` so a mis-configured server fails there, not in
+    production arithmetic.
+
+    `now` exists for tests to pin the day boundary; production callers leave
+    it None.
+    """
+    day_start = local_day_start_utc(tz_name, now)
+    prefilter = (day_start - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     query = """
-        SELECT COALESCE(SUM(total_cost_usd), 0) AS total
+        SELECT total_cost_usd, created_at
         FROM cost_records
         WHERE user_id = %s AND created_at >= %s
     """
-    rows = await db.execute(query, params=(user_id, day_start), fetch=True)
-    if not rows:
-        return 0.0
-    row = rows[0]
-    val = row["total"] if isinstance(row, dict) else row[0]
-    return float(val or 0.0)
+    rows = await db.execute(query, params=(user_id, prefilter), fetch=True)
+    total = 0.0
+    for row in rows or ():
+        stamp = coerce_utc(row.get("created_at"))
+        if stamp is None or stamp < day_start:
+            continue
+        total += float(row.get("total_cost_usd") or 0.0)
+    return total
 
 
 class JobTrigger:
@@ -968,9 +1023,11 @@ class JobTrigger:
             # 1.4 Daily spend cap (B-14): checked BEFORE building the prompt
             # or calling the framework — this only gates the NEXT scheduled
             # start, exactly like the existing PAUSED_NO_QUOTA gate, and
-            # never interrupts a run already in flight (铁律 #14).
+            # never interrupts a run already in flight (铁律 #14). "Today" is
+            # the job's frozen timezone — the same one the prompt below uses.
             exec_uid = job.related_entity_id or job.user_id
-            if exec_uid and await self._daily_spend_cap_exceeded(exec_uid):
+            user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+            if exec_uid and await self._daily_spend_cap_exceeded(exec_uid, user_tz):
                 await self._get_job_repo().update_job(job.job_id, {
                     "status": JobStatus.PAUSED_SPEND_CAP.value,
                     "paused_reason": "spend_cap",
@@ -992,7 +1049,6 @@ class JobTrigger:
             # 2. Build execution Prompt (including dependency Job outputs)
             # Use job's own timezone (frozen at creation); do NOT read users.timezone
             # which may have changed since the job was scheduled.
-            user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
             prompt = await build_execution_prompt(self.db, job, user_tz)
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
@@ -1302,30 +1358,30 @@ The task was executed but produced no text output.
                 f"post it to {channel_id}: {type(e).__name__}: {e}"
             )
 
-    async def _daily_spend_cap_exceeded(self, user_id: str) -> bool:
-        """True when `user_id`'s spend today already meets/exceeds
-        NARRANEXUS_JOB_DAILY_SPEND_CAP_USD (B-14). 0/unset = disabled.
+    async def _daily_spend_cap_exceeded(self, user_id: str, tz_name: str = "UTC") -> bool:
+        """True when `user_id`'s total LLM spend for the current local day
+        (in `tz_name`) already meets/exceeds NARRANEXUS_USER_DAILY_SPEND_CAP_USD
+        (B-14). 0/unset = disabled. See `_daily_spend_usd_for_user` for what
+        is counted and which day boundary applies.
 
         Fails OPEN (returns False) on a parse error or a DB lookup failure —
         a transient DB hiccup here must not block every scheduled job in the
         system, and the platform never becomes the interruption source for
         its own bugs (铁律 #14/#15's spirit, applied to this new gate).
         """
-        import os
-
-        cap_str = os.getenv(_JOB_DAILY_SPEND_CAP_ENV, "0")
+        cap_str = os.getenv(_USER_DAILY_SPEND_CAP_ENV, "0")
         try:
             cap = float(cap_str)
         except ValueError:
             logger.warning(
-                f"[job-spend-cap] {_JOB_DAILY_SPEND_CAP_ENV}={cap_str!r} is not "
+                f"[job-spend-cap] {_USER_DAILY_SPEND_CAP_ENV}={cap_str!r} is not "
                 f"a number; treating as disabled"
             )
             return False
         if cap <= 0:
             return False
         try:
-            spent = await _daily_spend_usd_for_user(self.db, user_id)
+            spent = await _daily_spend_usd_for_user(self.db, user_id, tz_name)
         except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
             logger.warning(f"[job-spend-cap] lookup failed for {user_id}: {e}")
             return False

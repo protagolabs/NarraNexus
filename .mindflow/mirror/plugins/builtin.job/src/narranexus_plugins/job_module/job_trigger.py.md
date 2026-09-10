@@ -18,15 +18,45 @@ last_verified: 2026-09-10
 「查看推理」与级联停止才追得到产出它的 run。锁：
 `test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
 
+## 2026-09-10（review r1 I6/M6/M7）— 花费上限改成「用户当日全部花费」+ 以 job 时区算「今天」
+
+复审指出三处口径漂移，全部落在 `_daily_spend_usd_for_user` / `_daily_spend_cap_exceeded`：
+
+- **统计的是用户全部 LLM 花费，不止 job**。`cost_records` 没有 job 归因列，交互聊天、
+  memory consolidation、helper 调用、别的 job 全部计入同一个用户的当日总额。这是这个闸的
+  真实语义（「这个用户今天花够了」是用户属性，不是某条 job 的属性），所以 env 从
+  `NARRANEXUS_JOB_DAILY_SPEND_CAP_USD` 改名 **`NARRANEXUS_USER_DAILY_SPEND_CAP_USD`**，
+  `.env.example` 明写「统计该用户当日全部花费」。不做 `call_type` 过滤：job run 与
+  interactive run 写的 `call_type` 相同，过滤不出「只算 job」。
+- **「今天」= job 冻结时区（`trigger_config.timezone`）的当地零点转 UTC**，与本文件其他
+  时间判定同一口径（`_execute_job` 里就是同一个 `user_tz`）。此前用 UTC 零点：UTC+8 用户
+  的额度在当地上午 8 点重置，一个「日上限」横跨两个自然日。`local_day_start_utc(tz, now)`
+  是这条口径的唯一实现（未知时区回退 UTC 并告警，不让整个闸失效）；`now` 参数只给测试钉边界。
+- **SQL 只做预过滤，精确边界在 Python 判**。SQLite 里 `created_at` 文本有两种形状：列默认
+  `datetime('now')` 写空格形 `YYYY-MM-DD HH:MM:SS`，显式写入落 ISO `T` 形——同一天内 `T` 排在
+  空格之后，任何单一字符串 cutoff 在边界日都不可能精确。于是 SQL 用「零点前一整天」的
+  `YYYY-MM-DD HH:MM:SS` 字符串预过滤（只会多捞、绝不漏），再用 `coerce_utc`（两种形状 +
+  MySQL 原生 DATETIME 都能读）逐行按瞬时比较。改传字符串也顺手关掉了 M6 指出的
+  CPython 3.12 起 deprecated 的默认 datetime adapter 依赖。
+- **前提：DB 会话时钟 = UTC**。`created_at` 由列默认填（SQLite `datetime('now')` 恒 UTC；
+  MySQL `CURRENT_TIMESTAMP(6)` 取 SESSION 时区）。MySQL twin
+  `test_db_session_clock_is_utc` 断言 `NOW() = UTC_TIMESTAMP()`，会话不是 UTC 就在测试里红，
+  不在生产里静默偏移。
+- M7：`import os` 挪到模块顶部。
+
+锁：`test_local_day_start_follows_the_given_timezone`（三个时区三个零点）、
+`test_sums_from_the_local_midnight_of_the_jobs_timezone`（同一天里 ISO 形 + 空格形各一前一后，
+上海口径 5.0 / UTC 口径 13.0）、`test_execute_job_judges_today_in_the_jobs_timezone`（15:30Z 的
+花费在 UTC 口径下已触顶、在上海口径下未触顶 → job 照跑）+ MySQL 同款三条。
+
 ## 2026-09-09 — B-14：每次调度前查日花费上限 + 传递单次 token 预算
 
 `_execute_job` 拿到执行锁之后、build prompt/调框架**之前**新增一步检查：
-`_daily_spend_cap_exceeded(exec_uid)` 读 `NARRANEXUS_JOB_DAILY_SPEND_CAP_USD`
+`_daily_spend_cap_exceeded(exec_uid, user_tz)` 读 `NARRANEXUS_USER_DAILY_SPEND_CAP_USD`
 （0/未设=禁用，读的是环境变量，不是 pydantic Settings——跟
 `NARRANEXUS_ONBOARDING_GUIDE_AGENT` 等既有 `NARRANEXUS_*` 开关同一套
 `os.getenv` 读法）与 `_daily_spend_usd_for_user`（新增裸 SQL，
-`cost_records` 没有 repository，`SUM(total_cost_usd) WHERE user_id=%s AND
-created_at >= 今日UTC零点`）比较，超了就把 job 标成
+`cost_records` 没有 repository；口径见上一节）比较，超了就把 job 标成
 `JobStatus.PAUSED_SPEND_CAP` + `paused_reason="spend_cap"`，复用 B-17 的
 `_notify_owner_job_paused` 通知 owner，然后 **return，从不 build prompt
 也不调 `_run_agent`**——只挡下一次调度，跟既有 `PAUSED_NO_QUOTA` 同形，
