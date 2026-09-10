@@ -104,6 +104,37 @@ class TestTriggerConfigFromStoredDict:
         assert tc.timezone is None
 
 
+class TestTimeBearingFieldsSingleList:
+    """review I11: the validator and from_stored_dict read ONE ClassVar, so a
+    new time-bearing field cannot be learned by the write side alone."""
+
+    SAMPLE = {"run_at": "2026-09-01T08:00:00", "cron": "0 8 * * *",
+              "interval_seconds": 3600, "end_at": "2026-12-31T00:00:00"}
+
+    def test_every_time_bearing_field_is_covered(self):
+        assert set(TriggerConfig.TIME_BEARING_FIELDS) == set(self.SAMPLE)
+
+    @pytest.mark.parametrize("field", TriggerConfig.TIME_BEARING_FIELDS)
+    def test_constructor_requires_timezone_for_each_field(self, field):
+        with pytest.raises(ValidationError):
+            TriggerConfig(**{field: self.SAMPLE[field]})
+
+    @pytest.mark.parametrize("field", TriggerConfig.TIME_BEARING_FIELDS)
+    def test_from_stored_dict_defaults_timezone_for_each_field(self, field):
+        tc = TriggerConfig.from_stored_dict({field: self.SAMPLE[field]})
+        assert tc.timezone == "UTC"
+
+    def test_explicit_empty_timezone_is_not_repaired(self):
+        """review M1: '' is a present-but-bad value — the IANA validator must
+        reject it; only an ABSENT (missing / None) timezone is defaulted."""
+        with pytest.raises(ValidationError):
+            TriggerConfig.from_stored_dict({"cron": "0 8 * * *", "timezone": ""})
+
+    def test_explicit_none_timezone_is_treated_as_absent(self):
+        tc = TriggerConfig.from_stored_dict({"cron": "0 8 * * *", "timezone": None})
+        assert tc.timezone == "UTC"
+
+
 class TestTriggerConfigConstructor:
     def test_constructor_still_rejects_missing_timezone(self):
         """The strict constructor is untouched — new/updated jobs still must

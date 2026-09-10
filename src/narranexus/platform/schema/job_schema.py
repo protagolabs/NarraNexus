@@ -188,6 +188,15 @@ class TriggerConfig(BaseModel):
     # Upper limit 90 days = 7776000 seconds, prevents LLM from generating unreasonably large values
     MAX_INTERVAL_SECONDS: ClassVar[int] = 7_776_000
 
+    # The fields whose presence makes `timezone` mandatory. ONE list, read by
+    # both the write-side validator (`timezone_required_for_time_bearing_triggers`)
+    # and the read-side `from_stored_dict` (review I11): the B-15 incident was
+    # exactly "the validator learned a field, the reader did not", which only
+    # blows up on old production rows. A new time-bearing field is added HERE
+    # and both paths follow. `job_recovery` derives its reschedule-editable
+    # set from this tuple as well.
+    TIME_BEARING_FIELDS: ClassVar[tuple[str, ...]] = ("run_at", "cron", "interval_seconds", "end_at")
+
     interval_seconds: Optional[int] = Field(
         default=None,
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
@@ -260,11 +269,8 @@ class TriggerConfig(BaseModel):
     @model_validator(mode="after")
     def timezone_required_for_time_bearing_triggers(self) -> "TriggerConfig":
         """Require timezone whenever any time-bearing field is set."""
-        has_time_field = (
-            self.run_at is not None
-            or self.cron is not None
-            or self.interval_seconds is not None
-            or self.end_at is not None
+        has_time_field = any(
+            getattr(self, f) is not None for f in self.TIME_BEARING_FIELDS
         )
         if has_time_field and self.timezone is None:
             raise ValueError(
@@ -287,15 +293,15 @@ class TriggerConfig(BaseModel):
         must not write the defaulted value back to the row; a legacy row
         that never recorded its author's real timezone should stay
         unannotated in storage, not be silently rewritten with a guess.
-        An explicit-but-invalid timezone (e.g. 'CST') still raises: this only
-        fills in an ABSENT value, it never repairs a bad one.
+        An explicit-but-invalid timezone (e.g. 'CST', or an empty string)
+        still raises: this only fills in an ABSENT value (key missing or
+        None), it never repairs a bad one (review M1).
         """
         data = dict(data or {})
         has_time_field = any(
-            data.get(f) is not None
-            for f in ("run_at", "cron", "interval_seconds", "end_at")
+            data.get(f) is not None for f in cls.TIME_BEARING_FIELDS
         )
-        if has_time_field and not data.get("timezone"):
+        if has_time_field and data.get("timezone") is None:
             data["timezone"] = "UTC"
         return cls(**data)
 

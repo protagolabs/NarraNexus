@@ -4,6 +4,14 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r1 I11）— `_TIME_FIELDS` → `_RESCHEDULE_FIELDS`，从 `TriggerConfig.TIME_BEARING_FIELDS` 派生
+
+不再手抄一份时间字段清单：`_RESCHEDULE_FIELDS = TIME_BEARING_FIELDS − {end_at} + {timezone}`。
+语义是「reschedule 可编辑的字段」而非「time-bearing 字段」：`timezone` 本身不带时间但随之
+一起编辑；`end_at` 是排期的**边界**（"跑到哪天"）不是触发规则，UI 的 `RescheduleBody` 也没有
+它的编辑器，刻意排除（[[JobExpandedDetail.tsx]] 的 mirror 早记录了这一点）。行为零变化，只是
+清单不再会与 schema 漂移。锁：`test_reschedule_fields_derive_from_the_time_bearing_list`。
+
 ## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 进 `_RESUMABLE_STATUSES`
 
 `resume_job` 接受 `paused_spend_cap`：用户在 Jobs 面板手动恢复被日花费上限暂停的 job。

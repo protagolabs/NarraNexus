@@ -4,6 +4,20 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r1 I11/M1）— `TriggerConfig.TIME_BEARING_FIELDS` 唯一清单；空串 timezone 不再被「修好」
+
+「哪些字段算 time-bearing」此前有三份副本：写侧 validator 的四个 `is not None`、
+`from_stored_dict` 的元组、[[job_recovery]] 的 `_TIME_FIELDS`。B-15 修的正是「写侧学了新字段、
+读侧没跟上」在老数据上炸——留三份副本等于预约第二次。现在 `TIME_BEARING_FIELDS: ClassVar`
+（与 `MAX_INTERVAL_SECONDS` 同款公开 ClassVar）是唯一清单：validator 用 `getattr`、
+`from_stored_dict` 用 `data.get` 遍历同一个元组；job_recovery 的可编辑集合从它派生（去掉
+`end_at`、加 `timezone`，差异写在那边注释里）。
+M1：`from_stored_dict` 的缺失判定从 `not data.get("timezone")` 改成 `is None`——显式 `timezone: ""`
+是「存在但坏」的值，该由 `timezone_must_be_iana` 报错，而不是被悄悄换成 UTC（与 docstring
+「only fills in an ABSENT value, never repairs a bad one」一致）。
+锁：`TestTimeBearingFieldsSingleList`（对 ClassVar 每个字段参数化：构造器必须要 timezone、
+`from_stored_dict` 必须补 UTC；空串必炸；显式 None 视为缺失）。
+
 ## 2026-09-10（review r1 I5）— `LIVE_JOB_STATUSES`：「会自己再跑」的状态集合只定义一次
 
 B-16 让 `BLOCKED` 第一次真正可达，而 [[job_repository]] 四个「活跃 job」查询（同名重复检测 /
@@ -205,5 +219,5 @@ MCP 工具 schema（`_job_mcp_tools.TriggerConfigArg.end_at: NotRequired[str]`
 行 + 第 4 节可选字段，教模型"用户给了有界时长就用 end_at，别指望自己记得
 暂停"）、agent 侧 job 摘要（`until {end_at}`）、前端 `TriggerConfig` 类型
 与 Jobs 详情（`jobs.expanded.endAt`）。JobScheduleEditDialog 有意不加——
-`reschedule_job` 的 `_TIME_FIELDS` 不含 end_at，传了会被静默忽略。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
+`reschedule_job` 的 `_RESCHEDULE_FIELDS`（2026-09-10 前叫 `_TIME_FIELDS`）不含 end_at，传了会被静默忽略。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
 不触碰铁律 #14——ONGOING 的 max_iterations 是既有先例。

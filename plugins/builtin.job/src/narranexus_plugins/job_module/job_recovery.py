@@ -143,9 +143,16 @@ _NON_EDITABLE_STATUSES = (
     JobStatus.RUNNING,
     JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.FAILED,
 )
-# Only the time-bearing trigger fields are user-editable via reschedule; the
+# The fields a reschedule may touch: the time-bearing trigger fields (derived
+# from TriggerConfig.TIME_BEARING_FIELDS — one list, review I11) plus
+# `timezone`, which is not time-bearing itself but travels with them. `end_at`
+# is deliberately left out: it is the schedule's HORIZON ("runs until date
+# X"), not its fire rule, has no editor in the UI (RescheduleBody), and the
+# Jobs detail mirror documents that it is not reschedule-editable. The
 # ONGOING semantics fields (end_condition / max_iterations) are out of scope.
-_TIME_FIELDS = ("run_at", "cron", "interval_seconds", "timezone")
+_RESCHEDULE_FIELDS = tuple(
+    f for f in TriggerConfig.TIME_BEARING_FIELDS if f != "end_at"
+) + ("timezone",)
 
 
 async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
@@ -178,7 +185,7 @@ async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
         return False, f"cannot reschedule from status={job.status.value}"
 
     merged = job.trigger_config.model_dump()
-    for k in _TIME_FIELDS:
+    for k in _RESCHEDULE_FIELDS:
         if k in new_fields:
             merged[k] = new_fields[k]
 

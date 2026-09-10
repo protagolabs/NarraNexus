@@ -71,4 +71,4 @@ MCP schema/instructions 不教 end_at、trigger 也忽略，所以它本不该�
 类型来自 `types/api.ts` 的 `TriggerConfig.end_at?`（与后端 schema 对齐）；
 i18n `jobs.expanded.endAt` 十个 locale 全量（该块历史上就是全量翻译的，
 与 onboarding.* 只有 en/zh 的口径不同）。编辑对话框有意不加该字段
-（reschedule_job 的 _TIME_FIELDS 不含它，传了会被静默忽略）。
+（reschedule_job 的 _RESCHEDULE_FIELDS——2026-09-10 前叫 _TIME_FIELDS——不含它，传了会被静默忽略）。
