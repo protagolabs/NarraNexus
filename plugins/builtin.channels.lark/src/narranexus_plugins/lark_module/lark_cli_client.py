@@ -544,9 +544,12 @@ class LarkCLIClient:
         """``+shortcuts`` of ``lark-cli <domain>``, read from its ``--help``
         page once per (executable, domain) for the process. Same executable /
         env / cwd as the failing call so the probe sees the identical CLI,
-        and never a longer wait than that call. A failed probe is not
-        cached: the next unknown-subcommand hit retries it. The probe runs
-        with ``translate_unknown=False`` — the recursion guard."""
+        and never a longer wait than that call. A SUCCESSFUL probe is cached
+        whatever it yielded — including an empty tuple (a domain without
+        +shortcuts) — so a domain that has none does not cost a spawn on
+        every hallucinated call; a FAILED probe is not cached: the next
+        unknown-subcommand hit retries it. The probe runs with
+        ``translate_unknown=False`` — the recursion guard."""
         key = (executable, domain)
         cached = _SHORTCUT_CACHE.get(key)
         if cached is not None:
@@ -568,8 +571,16 @@ class LarkCLIClient:
         data = probe.get("data")
         text = data.get("raw_output", "") if isinstance(data, dict) else ""
         shortcuts = _parse_help_shortcuts(text)
-        if shortcuts:
-            _SHORTCUT_CACHE[key] = shortcuts
+        if not shortcuts:
+            # Either the domain has no +shortcuts, or the help page did not
+            # reach us as text (e.g. it parsed as JSON and carries no
+            # raw_output). Say so once — the empty result is cached below.
+            logger.warning(
+                f"[lark-cli] `{domain} --help` yielded no +shortcuts "
+                f"(help text {len(text)} chars); the unknown-subcommand "
+                f"error will carry no list for this domain"
+            )
+        _SHORTCUT_CACHE[key] = shortcuts
         return shortcuts
 
     # =========================================================================

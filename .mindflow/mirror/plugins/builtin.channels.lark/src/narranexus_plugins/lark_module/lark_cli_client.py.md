@@ -1,7 +1,7 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
 ## 2026-09-09 — 未知 +shortcut 翻译成「该域合法 shortcut 列表」
 
@@ -9,9 +9,12 @@ Agent 会编造不存在的 +shortcut（`docs +get`、`calendar +events-list`）
 `unknown subcommand "+get" for "lark-cli docs"` + 「去跑 --help」的提示（rc=2，JSON 信封
 `error.type=validation / subtype=invalid_argument / params[].reason="unknown subcommand"`），
 agent 拿到后只能再盲猜一次。`_exec_lark_cli` 在非零退出分支识别这个形状
-（`_unknown_subcommand`：正文正则 + params reason 交叉核对），用**同一 executable / env / cwd**
+（`_unknown_subcommand`：正文正则 + params reason 交叉核对——params 存在但 reason 不是 `unknown subcommand`
+的无关错误不翻译，测试有负例），用**同一 executable / env / cwd**
 跑一次 `lark-cli <domain> --help`（`_domain_shortcuts`，按 `(executable, domain)` 缓存于
-`_SHORTCUT_CACHE`——per-agent `LARK_CLI_BIN` 或本地原地升级 CLI 不会拿到过期列表；失败不缓存
+`_SHORTCUT_CACHE`——per-agent `LARK_CLI_BIN` 或本地原地升级 CLI 不会拿到过期列表；**探测成功就缓存，
+含空元组**（该域没有 +shortcut、或 help 走了 JSON 没有 `raw_output`：2026-09-10 二轮 review Minor 1/M4，
+之前空结果不缓存 = 每次盲猜都多 spawn 一次探测，且静默；现在空结果打一条 warning 并缓存）；探测**失败**不缓存
 下次重试；超时取 `min(触发调用的 timeout, 15s)`；探测本身以 `translate_unknown=False` 调
 `_exec_lark_cli`——**递归守卫**：若某 CLI 对 `--help` 也回同形状错误，不加守卫就是无界递归，
 测试用 `broken` 域钉住「恰好两次 spawn、返回 ()」），`_parse_help_shortcuts` 只取 `Available Commands:` 块里以 `+` 开头的行

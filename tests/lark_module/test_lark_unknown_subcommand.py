@@ -64,6 +64,10 @@ FAKE_CLI = textwrap.dedent(
     domain, sub = args[0], args[1]
     if len(args) == 2 and args[1] == "--help" and domain != "broken":
         counter.write_text(str(int(counter.read_text() or 0) + 1) if counter.exists() else "1")
+        if domain == "bare":
+            # A domain with raw resources but no +shortcuts.
+            sys.stdout.write("Available Commands:\\n  bare.things  list, get\\n\\nFlags:\\n  -h, --help\\n")
+            sys.exit(0)
         sys.stdout.write(Path(sys.argv[0]).with_name("docs_help.txt").read_text())
         sys.exit(0)
     if sub == "+scope-fail":
@@ -72,7 +76,7 @@ FAKE_CLI = textwrap.dedent(
         sys.exit(1)
     # "broken" answers even --help with the unknown-subcommand envelope: the
     # shape that would recurse without the probe guard.
-    if domain == "broken" or (sub.startswith("+") and sub not in ("+create", "+fetch", "+search", "+update")):
+    if domain in ("broken", "bare") or (sub.startswith("+") and sub not in ("+create", "+fetch", "+search", "+update")):
         # Like the real CLI (1.0.86): validation errors go to STDERR, rc=2.
         sys.stderr.write(json.dumps({"ok": False, "error": {
             "type": "validation", "subtype": "invalid_argument",
@@ -151,6 +155,21 @@ async def test_probe_that_fails_the_same_way_does_not_recurse(fake_cli):
 
 
 @pytest.mark.asyncio
+async def test_successful_empty_probe_is_cached(fake_cli):
+    """A domain whose --help lists no +shortcuts: the probe SUCCEEDED, so
+    its (empty) answer is cached and the next hallucinated call costs no
+    second probe. Contrast with the failed probe above, which is retried."""
+    result = await _run(["bare", "+anything"])
+    assert result["success"] is False
+    assert "could not be read" in result["error"]
+    assert result["error_data"]["shortcuts_unavailable"] is True
+    assert _help_calls(fake_cli) == 1
+
+    await _run(["bare", "+again"])
+    assert _help_calls(fake_cli) == 1  # cached, not re-probed
+
+
+@pytest.mark.asyncio
 async def test_cache_is_keyed_by_executable(fake_cli, monkeypatch):
     await _run(["docs", "+get"])
     assert _help_calls(fake_cli) == 1
@@ -203,3 +222,14 @@ def test_unknown_subcommand_detector():
     assert mod._unknown_subcommand(err) == ("docs", "+get")
     assert mod._unknown_subcommand({"message": "missing_scope: x"}) is None
     assert mod._unknown_subcommand({}) is None
+    # Message text alone is not enough when structured params disagree: an
+    # unrelated error that merely quotes those words must not be translated.
+    assert mod._unknown_subcommand({
+        "message": 'unknown subcommand "+get" for "lark-cli docs"',
+        "params": [{"name": "body", "reason": "other"}],
+    }) is None
+    # ...while a params list that does carry the reason (or no params at
+    # all, as older CLIs emit) matches.
+    assert mod._unknown_subcommand({
+        "message": 'unknown subcommand "+get" for "lark-cli docs"',
+    }) == ("docs", "+get")
