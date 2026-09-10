@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/failure.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 M4）— `forbidden` 的误报面写成决定
+
+`forbidden` 是表里唯一不算凭据词的词，为 403 正文「Forbidden」而留；沙箱策略拒绝也会命中，
+代价是 owner 提示指错方向、绝不影响重试/投递。`test_forbidden_is_an_accepted_false_positive_surface`
+把取舍钉住。
 
 ## 2026-09-09（review C4）— 边界从 `\b` 改成「字母边界」
 

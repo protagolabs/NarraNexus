@@ -49,6 +49,11 @@ _CREDENTIAL_ERROR_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"(?<![A-Za-z])credential",
         r"(?<![A-Za-z])unauthori[sz]ed(?![A-Za-z])",
         r"(?<![A-Za-z])authenticat",
+        # "forbidden" is the one word here that is not a credential term by
+        # itself (a sandbox may say "write to /etc is forbidden"). Kept because
+        # the 403 body is "Forbidden" far more often than not; the accepted
+        # false positive is an owner hint pointing at credentials for a
+        # policy refusal — a wrong hint, never a wrong retry/delivery decision.
         r"(?<![A-Za-z])forbidden(?![A-Za-z])",
         r"(?<![A-Za-z])invalid[ _-](?:api[ _-])?(?:key|token)(?![A-Za-z])",
         # 401 / 403 as a whole number, and not the number in a token count.

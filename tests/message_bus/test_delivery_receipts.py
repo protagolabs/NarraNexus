@@ -365,10 +365,13 @@ async def test_pre_flight_never_calls_the_turn_gate(db_client, monkeypatch):
         {"agent_id": B, "cb_status": "probing", "paused_reason": "auth"},
     )
 
-    async def _forbidden(*_a, **_k):
-        raise AssertionError("should_skip must not be called from the send tool")
+    # The tool binds `peek_skip` at import time, so patching `cb.should_skip`
+    # would prove nothing. The real guard: the tool module never imports the
+    # turn gate at all.
+    import narranexus_plugins.message_bus_module._message_bus_mcp_tools as tool_mod
 
-    monkeypatch.setattr(cb, "should_skip", _forbidden)
+    assert not hasattr(tool_mod, "should_skip")
+    assert hasattr(tool_mod, "peek_skip") and tool_mod.peek_skip is cb.peek_skip
     tools, _ = _tools(db_client)
 
     out = await tools["message_agent"](agent_id=A, to=B, text="hi")

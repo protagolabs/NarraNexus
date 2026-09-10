@@ -39,6 +39,15 @@ part). On the recipient side the trigger calls `assemble` on a lane's batch:
   #14: the platform is never the interruption source), and a silent gap would
   be the content loss iron rule #16 forbids.
 
+PRECONDITION — DM lanes only, for now. `send_message(part_index=…)` is on the
+protocol, but the only sender that uses it towards agents is `message_agent`
+(a DM), plus the job-report fallback posting parts back to back. In a team
+room a member's half-arrived group would make everything after it wait with
+it (the ack invariant above), i.e. one member's slow model stalls the room
+for up to the grace. Do not add the part fields to `message_team` before lane
+starvation is solved at the lane level; `test_team_message_segments`'s exempt
+set is the guard that currently keeps them off the room tool.
+
 A lane batch is a LIMIT over the whole lane, not over one group, so a group
 can be cut off by the batch edge. The caller says so (``batch_truncated``) and
 an incomplete group in a truncated batch is then always HELD — never judged
@@ -52,7 +61,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.schemas import BusMessage, canonical_ts
 from narranexus.platform.utils.timezone import coerce_utc
 
 #: One bus row's content ceiling, in UTF-8 bytes — under the column's MySQL
@@ -231,28 +240,23 @@ def assemble(
     held_from: Optional[str] = None
     if held_groups:
         held_from = min(
-            _ts(m.created_at) for m in messages if m.part_group in held_groups
+            canonical_ts(m.created_at) for m in messages if m.part_group in held_groups
         )
 
     out: List[BusMessage] = []
     emitted: set = set()
     for m in messages:
-        if held_from is not None and _ts(m.created_at) >= held_from:
+        if held_from is not None and canonical_ts(m.created_at) >= held_from:
             continue
         if not m.part_group:
             out.append(m)
         elif m.part_group in merged and m.part_group not in emitted:
             emitted.add(m.part_group)
             whole = merged[m.part_group]
-            if held_from is None or _ts(whole.created_at) < held_from:
+            if held_from is None or canonical_ts(whole.created_at) < held_from:
                 out.append(whole)
-    out.sort(key=lambda m: _ts(m.created_at))
+    out.sort(key=lambda m: canonical_ts(m.created_at))
     return out, held_from is not None
-
-
-def _ts(value) -> str:
-    """Cursor-comparable timestamp text (the bus's own convention)."""
-    return value.isoformat() if hasattr(value, "isoformat") else str(value or "")
 
 
 __all__ = [

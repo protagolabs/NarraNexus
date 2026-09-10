@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/message_bus/schemas.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+## 2026-09-10（review r2 M3）— `canonical_ts` 搬到这里，唯一的家
+
+原在 [[local_bus]]（docstring 记着一次 `"T"` vs `" "` 排序引发的重触发事故，明写「it gets exactly
+one home」），[[multipart]] 曾逐字复制了一份 `_ts`。方向上 multipart 不能反向 import local_bus，
+所以搬到两边都依赖的 schemas；local_bus 继续 re-export（trigger 仍从 local_bus import）。
+
 ## 2026-09-09 — BusMessage.part_index / part_count / part_group
 
 分片消息的三列（可空；普通消息全 None），随 `_row_to_message` 进出。`part_group` 是

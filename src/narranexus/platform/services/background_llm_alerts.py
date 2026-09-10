@@ -58,7 +58,14 @@ ALERT_COOLDOWN_SECONDS = 1800
 
 
 async def _cooling(db, agent_id: str, target: str, category: str) -> bool:
-    """Is a notice for this key still inside its window? Fails OPEN."""
+    """Is a notice for this key still inside its window? Fails OPEN.
+
+    The failure shape this trades for: the old process-local map deduplicated
+    no matter what the DB did; this one loses dedup for as long as the table
+    cannot be read. Self-limiting in practice — the inbox write that follows
+    hits the same DB and fails too — and the wrong side to err on would be
+    silencing a real credential failure behind an unreadable window.
+    """
     try:
         return await OwnerNoticeCooldownRepository(db).is_cooling(
             agent_id, target, category, ALERT_COOLDOWN_SECONDS

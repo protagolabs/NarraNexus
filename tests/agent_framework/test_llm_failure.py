@@ -123,3 +123,12 @@ def test_redact_truncates_long_bodies():
     out = redact_secrets("x" * 5000, max_len=500)
     assert len(out) <= 500 + len("... [truncated]")
     assert out.endswith("... [truncated]")
+
+
+def test_forbidden_is_an_accepted_false_positive_surface():
+    """Documented trade-off (review r2 M4): "forbidden" alone reads as a
+    credential failure because a 403 body is usually just "Forbidden". A
+    sandbox policy refusal therefore also classifies — the cost is a wrong
+    owner HINT, never a wrong retry or delivery decision. Pinned so the
+    trade-off is a decision, not an accident."""
+    assert is_credential_error("write to /etc is forbidden by policy") is True

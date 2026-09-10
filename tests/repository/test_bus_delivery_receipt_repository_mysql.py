@@ -3,7 +3,7 @@
 @date: 2026-09-09
 @description: Real-MySQL twin for BusDeliveryReceiptRepository — the composite
 key upsert (update-then-insert), the nullable reason/content_key columns and
-the `prior_silence` filter on the real dialect. Enable with
+the `prior_outcome` filter on the real dialect. Enable with
 NARRANEXUS_MYSQL_TEST_URL; skipped otherwise.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(
     not mysql_configured(),
     reason=skip_reason(
         "that bus_delivery_receipts' composite-key upsert, nullable columns and "
-        "the prior_silence filter behave on the real MySQL dialect"
+        "the prior_outcome filter behave on the real MySQL dialect"
     ),
 )
 
@@ -53,7 +53,7 @@ async def mysql_client():
 
 
 @pytest.mark.asyncio
-async def test_upsert_roundtrip_and_prior_silence(mysql_client):
+async def test_upsert_roundtrip_and_prior_outcome(mysql_client):
     repo = BusDeliveryReceiptRepository(mysql_client)
     await repo.upsert(message_id="r1", to_agent=TO, channel_id=CH, from_agent=SENDER, status=RECEIPT_ACCEPTED)
     row = await repo.get("r1", TO)

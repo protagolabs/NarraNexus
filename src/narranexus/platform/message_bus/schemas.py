@@ -23,6 +23,19 @@ from pydantic import BaseModel
 Timestamp = Union[str, datetime]
 
 
+def canonical_ts(value) -> str:
+    """A cursor-comparable ISO-8601 string.
+
+    Both cursors are TEXT and compared lexicographically, while the sqlite
+    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
+    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
+    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
+    every real ``created_at``, making every message look unprocessed forever.
+    That cost us a re-trigger loop once; it gets exactly one home.
+    """
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 class BusMessage(BaseModel):
     """A message sent within a MessageBus channel."""
 

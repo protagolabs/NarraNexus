@@ -1,12 +1,14 @@
 ---
 code_file: src/narranexus/platform/message_bus/local_bus.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
 ## 2026-09-09（review M1）— `get_message(message_id)`
 
 `_row_to_message` 的单行读回，供发送工具取刚写行的 channel_id。
+
+## 2026-09-10（review r2 M3）— `canonical_ts` 定义移到 [[schemas]]，本文件 re-export
 
 ## 2026-09-10（review r2 C2）— `_resolve_part_group` 校验 `part_count <= MAX_MESSAGE_PARTS`
 

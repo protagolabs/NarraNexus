@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/services/background_llm_alerts.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 M5）— `_cooling` docstring 写明 fail-open 的代价
+
+表读不到时 dedup 暂失（旧进程内 dict 不会）；自限于随后的收件箱写也会挂，且宁可重复也不静音。
 
 ## 2026-09-09（review I5）— 三处进程内冷却迁到 `owner_notice_cooldowns`
 

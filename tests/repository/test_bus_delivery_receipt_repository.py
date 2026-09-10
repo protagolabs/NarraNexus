@@ -4,7 +4,7 @@
 @description: BusDeliveryReceiptRepository — the per-(message, recipient)
 delivery ledger. Covers the upsert life-cycle (insert then in-place update),
 the partial update contract, the sender's view, and the resend-loop guard's
-`prior_silence` question (same content elsewhere = yes; same message = no;
+`prior_outcome` question (same content elsewhere = yes; same message = no;
 different content = no).
 """
 
@@ -144,18 +144,3 @@ async def test_cleanup_removes_only_stale_receipts(db_client):
     assert await repo.get("fresh", "b") is not None
 
 
-@pytest.mark.asyncio
-async def test_cleanup_older_than_days_prunes_by_updated_at(db_client):
-    from datetime import timedelta
-
-    from narranexus.platform.utils.timezone import utc_now
-
-    repo = BusDeliveryReceiptRepository(db_client)
-    for mid in ("stale", "fresh"):
-        await repo.upsert(message_id=mid, to_agent="b", channel_id="ch", from_agent="a", status=RECEIPT_ACCEPTED)
-    await db_client.update(
-        BusDeliveryReceiptRepository.TABLE, {"message_id": "stale", "to_agent": "b"},
-        {"updated_at": utc_now() - timedelta(days=40)},
-    )
-    assert await repo.cleanup_older_than_days(30) == 1
-    assert [r["message_id"] for r in await db_client.get(BusDeliveryReceiptRepository.TABLE, {"to_agent": "b"})] == ["fresh"]

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/message_bus/multipart.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -42,6 +42,11 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
 - **不完整但过期或被取代**（同 sender 在本 channel 又开了更新的组——写入边只会延续
   最新一块，旧组永远续不上）→ 按到达的内容投递 + 明确标记缺哪几块。宁可标记也不静默
   丢（铁律 #16），不永远等（铁律 #14：平台不做打断源）。
+
+## 2026-09-10（review r2 M3/M8）— 用 [[schemas]] 的 `canonical_ts`；模块 docstring 写明「目前只对 DM 成立」
+
+`_ts` 副本删除。前置条件：`message_team` 不得先于 lane 级饥饿方案加上分片参数，
+`test_team_message_segments` 的豁免集合是现在唯一的闸。
 
 ## 2026-09-10（review r2 C2）— 块数上限回来了：`MAX_MESSAGE_PARTS = 40`
 

@@ -34,7 +34,12 @@ from narranexus.platform.message_bus.multipart import (
     oversize_reason,
     too_many_parts_reason,
 )
-from narranexus.platform.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
+from narranexus.platform.message_bus.schemas import (
+    BusAgentInfo,
+    BusChannelMember,
+    BusMessage,
+    canonical_ts,
+)
 from narranexus.platform.utils.db.db_backend import DatabaseBackend
 
 
@@ -51,19 +56,6 @@ def _generate_id(prefix: str) -> str:
 #: `PENDING_BATCH_LIMIT_WIDE` when nothing before the group can be delivered.
 PENDING_BATCH_LIMIT = 50
 PENDING_BATCH_LIMIT_WIDE = 500
-
-
-def canonical_ts(value) -> str:
-    """A cursor-comparable ISO-8601 string.
-
-    Both cursors are TEXT and compared lexicographically, while the sqlite
-    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
-    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
-    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
-    every real ``created_at``, making every message look unprocessed forever.
-    That cost us a re-trigger loop once; it gets exactly one home.
-    """
-    return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
 def _now_iso() -> str:
