@@ -137,6 +137,40 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 CHANNEL_SILENT_SENTINEL = "(stayed silent)"
 
 
+# Upstream error text that reaches a credential row (and from there the
+# owner's panel, which has no fold) is trimmed to this many characters.
+DISABLE_REASON_MAX_CHARS = 200
+# The audit table's ``details.error`` keeps more: it is the post-mortem
+# source of truth, and sits next to ``original_message`` /
+# ``agent_response`` which are already cut at 500. Panel width and audit
+# depth are different trade-offs, hence two names.
+AUDIT_ERROR_MAX_CHARS = 500
+_REASON_URL = re.compile(r"https?://\S+")
+# Bot tokens (Telegram ``<digits>:<base64>``), JWTs and long opaque
+# secrets — anything a transport exception string could echo.
+_REASON_SECRET = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|\b[A-Za-z0-9_-]{32,}\b")
+
+
+def safe_error_text(exc: BaseException, max_chars: int = DISABLE_REASON_MAX_CHARS) -> str:
+    """The one sanitised rendering of a subscriber error.
+
+    Exception type + message, with URLs and token-shaped runs masked and the
+    whole thing capped at ``max_chars`` (DISABLE_REASON_MAX_CHARS for the
+    credential row, AUDIT_ERROR_MAX_CHARS for audit rows). Used for the persisted
+    ``disabled_reason``, the formatted subscriber log line and the audit
+    row's ``details.error`` — never the raw ``str(exc)``. It is a safety
+    net, not the only guard: the traceback ``logger.exception`` renders
+    still ends with the raw exception text, so a channel SDK must strip
+    its own secrets at the source (Telegram: ``TelegramSDKClient._redact``
+    removes the bot token from every aiohttp message before it becomes a
+    ``TelegramSDKError``). Masking here catches what an SDK missed.
+    """
+    text = f"{type(exc).__name__}: {exc}".replace("\n", " ")
+    text = _REASON_URL.sub("<url>", text)
+    text = _REASON_SECRET.sub("<redacted>", text)
+    return text[:max_chars]
+
+
 def _compute_next_backoff(
     current: int,
     ran_seconds: float,
@@ -472,10 +506,28 @@ class ChannelTriggerBase(ABC):
 
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
-    # Subclass implementations typically call ``mgr.set_enabled(agent_id,
-    # False)``. Default is a no-op for safety.
-    async def disable_credential(self, credential: Any) -> None:
+    # ``reason`` is the sanitised cause (``safe_error_text``: exception
+    # type + message, URLs/token-shaped runs masked, <=200 chars) the loop
+    # hands over; every built-in channel persists it via
+    # ``mgr.set_enabled(agent_id, False, reason=reason)`` so the owner's
+    # panel can say WHY the channel went inactive, and logs an error when
+    # the store reports the flip did not happen (a still-enabled dead
+    # credential would be reconnected forever). Default is a no-op for
+    # safety. This is a contract change for every subclass (2026-09-09):
+    # the loop calls it with ``reason=`` as a keyword.
+    async def disable_credential(self, credential: Any, reason: str = "") -> None:
         return None
+
+    @staticmethod
+    def log_disable_outcome(channel: str, agent_id: str, ok: bool, reason: str) -> None:
+        """One line per automatic disable; ERROR when the row flip failed."""
+        if ok:
+            logger.warning(f"[{channel}:{agent_id}] credential disabled: {reason}")
+        else:
+            logger.error(
+                f"[{channel}:{agent_id}] credential could NOT be disabled "
+                f"(row missing or write lost) — it will be reconnected: {reason}"
+            )
 
     # Override hook — async context manager wrapping the actual
     # ``_build_and_run_agent`` call. Subclasses MAY use this to drive a
@@ -1177,10 +1229,11 @@ class ChannelTriggerBase(ABC):
                 # the next reconcile cycle. User has to re-bind to wake
                 # the subscriber back up.
                 if self.is_permanent_auth_failure(e):
+                    error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                     logger.warning(
                         f"{type(self).__name__} permanent auth failure for "
                         f"agent={agent_id} app={app_id} after {ran:.1f}s: "
-                        f"{type(e).__name__}: {e} — disabling credential"
+                        f"{error_text} — disabling credential"
                     )
                     await self._audit(
                         EVENT_TRANSPORT_DISCONNECTED,
@@ -1188,12 +1241,13 @@ class ChannelTriggerBase(ABC):
                         app_id=app_id,
                         details={
                             "ran_seconds": ran,
-                            "error": f"{type(e).__name__}: {e}",
+                            "error": error_text,
                             "permanent": True,
                         },
                     )
                     try:
-                        await self.disable_credential(credential)
+                        # The credential row renders in the panel: shorter cap.
+                        await self.disable_credential(credential, reason=safe_error_text(e))
                     except Exception as disable_err:  # noqa: BLE001
                         logger.exception(
                             f"{type(self).__name__}: disable_credential raised "
@@ -1203,9 +1257,10 @@ class ChannelTriggerBase(ABC):
                 backoff = _compute_next_backoff(
                     current=backoff, ran_seconds=ran, max_backoff=max_backoff,
                 )
+                error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                 logger.exception(
                     f"{type(self).__name__} transport error for {app_id} "
-                    f"after {ran:.1f}s (next backoff {backoff}s): {e}"
+                    f"after {ran:.1f}s (next backoff {backoff}s): {error_text}"
                 )
                 await self._audit(
                     EVENT_TRANSPORT_DISCONNECTED,
@@ -1214,7 +1269,7 @@ class ChannelTriggerBase(ABC):
                     details={
                         "ran_seconds": ran,
                         "next_backoff_seconds": backoff,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": error_text,
                     },
                 )
             else:
@@ -1390,8 +1445,9 @@ class ChannelTriggerBase(ABC):
                     },
                 )
             except Exception as e:  # noqa: BLE001
+                error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                 logger.exception(
-                    f"{type(self).__name__} worker {worker_id} error: {e}"
+                    f"{type(self).__name__} worker {worker_id} error: {error_text}"
                 )
                 await self._audit(
                     EVENT_WORKER_ERROR,
@@ -1401,7 +1457,7 @@ class ChannelTriggerBase(ABC):
                     chat_id=message.chat_id,
                     details={
                         "worker_id": worker_id,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": error_text,
                     },
                 )
 
@@ -1507,9 +1563,9 @@ class ChannelTriggerBase(ABC):
         try:
             attachments = await self.fetch_attachments(message, credential)
         except Exception as e:  # noqa: BLE001
+            error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
             logger.warning(
-                f"{type(self).__name__}[{app_id}] fetch_attachments raised: "
-                f"{type(e).__name__}: {e}"
+                f"{type(self).__name__}[{app_id}] fetch_attachments raised: {error_text}"
             )
             await self._audit(
                 EVENT_ATTACHMENT_FETCH_FAILED,
@@ -1518,7 +1574,7 @@ class ChannelTriggerBase(ABC):
                 app_id=app_id,
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
-                details={"error": f"{type(e).__name__}: {e}"},
+                details={"error": error_text},
             )
 
         async with self.processing_indicator(credential, message):
@@ -1548,7 +1604,7 @@ class ChannelTriggerBase(ABC):
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
                 details={
-                    "error": f"{type(e).__name__}: {e}",
+                    "error": safe_error_text(e, AUDIT_ERROR_MAX_CHARS),
                     "sender_name": sender_name,
                     "original_message": message.content[:500],
                     "agent_response": (output_text or "")[:500],
@@ -2236,7 +2292,11 @@ class ChannelTriggerBase(ABC):
             )
         details = dict(audit_details or {})
         details["replied"] = replied
-        details["error"] = (error_text or "")[:200]
+        # An audit row, so the audit cap. This text is the caller's
+        # already-formatted run error (the same one format_error_reply sent
+        # to the user); it deliberately does NOT go through safe_error_text,
+        # whose 32+ char rule would mask run / message ids.
+        details["error"] = (error_text or "")[:AUDIT_ERROR_MAX_CHARS]
         await self._audit(
             EVENT_MANAGED_INGRESS_PROCESSED,
             agent_id=agent_id,

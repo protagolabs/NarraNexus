@@ -1,7 +1,20 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/_skill_mcp_tools.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `skill_install` 逐 skill 汇报成功与失败；`skill_list_required_env` 区分"没装"（复审 C3/M5）
+
+`service.install_from_url` 返回列表（多 skill 仓，被拒项 `status="failed"`）：每个结果一行
+（installed / already installed / `was NOT installed: <error>`），`\n` 连接（与 routes 同口径）；
+marketplace id 路径包成单元素列表走同一段。`skill_list_required_env` 在 `get_skill_requirements` 返回 None
+（该 agent 没装这个 skill）时答 "is not installed for this agent"，不再把拼错名字答成"无需配置"。
+
+## 2026-09-09 — `skill_list_required_env` 不再只看 meta（GitHub #115）
+
+工具本身没改逻辑，但它依赖的 `SkillModule.get_skill_requirements` 现在与 UI 同源
+（frontmatter ∪ body 扫描 ∪ study 写入的 meta），所以没 study 过的 skill 也能正确列出
+SKILL.md 里声明/提到的变量；返回值恒为 `{"env": [...], "bins": [...]}`。
 
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
 

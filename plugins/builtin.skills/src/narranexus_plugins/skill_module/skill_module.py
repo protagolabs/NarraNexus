@@ -606,28 +606,11 @@ class SkillModule(XYZBaseModule):
         skills = []
         for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
             if skill_path.is_dir() and not skill_path.name.startswith("."):
-                skill_md = skill_path / "SKILL.md"
-                if skill_md.exists():
-                    info = self._parse_skill_md(skill_md)
-                    skills.append(info)
-                else:
-                    # Directory without SKILL.md (may be a skill auto-created by agent)
-                    # Still list it, using directory name as the name
-                    meta_data = self._load_meta_dict(skill_path / ".skill_meta.json")
-
-                    info = SkillInfo(
-                        name=skill_path.name,
-                        description=meta_data.get("description", "(No SKILL.md found)"),
-                        path=str(skill_path),
-                        builtin=bool(meta_data.get("builtin", False)),
-                        source_url=meta_data.get("source_url"),
-                        installed_at=meta_data.get("installed_at"),
-                        study_status=meta_data.get("study_status"),
-                        study_result=meta_data.get("study_result"),
-                        study_error=meta_data.get("study_error"),
-                        studied_at=meta_data.get("studied_at"),
-                    )
-                    skills.append(info)
+                # A directory without SKILL.md (e.g. auto-created by the
+                # agent) is still listed: _parse_skill_md falls back to the
+                # directory name + whatever .skill_meta.json carries
+                # (description, study state, studied requirements).
+                skills.append(self._parse_skill_md(skill_path / "SKILL.md"))
 
         return skills
 
@@ -709,7 +692,10 @@ class SkillModule(XYZBaseModule):
         env_config = meta_data.get("env_config", {})
 
         try:
-            content = skill_md.read_text(encoding="utf-8")
+            # A directory without SKILL.md (agent-created, or meta written
+            # before the manifest landed) is the meta-only fallback below,
+            # not a parse failure worth a warning.
+            content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else ""
             if content.startswith("---"):
                 parts = content.split("---", 2)
                 if len(parts) >= 3:
@@ -782,9 +768,13 @@ class SkillModule(XYZBaseModule):
             requires_env, env_config
         )
 
+        # A SKILL.md that exists but has no parseable frontmatter keeps the
+        # long-standing empty description; only a directory WITHOUT a
+        # SKILL.md borrows the meta description (or the placeholder).
+        description = "" if skill_md.exists() else (meta_data.get("description") or "(No SKILL.md found)")
         return SkillInfo(
             name=skill_dir.name,
-            description="",
+            description=description,
             path=str(skill_dir),
             builtin=builtin,
             source_url=source_url,
@@ -981,10 +971,30 @@ class SkillModule(XYZBaseModule):
         except Exception as e:
             logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
 
-    def get_skill_requirements(self, skill_name: str) -> dict:
-        """Get the requirements dict from .skill_meta.json"""
-        meta_data = self._read_skill_meta(skill_name)
-        return meta_data.get("requires", {})
+    def get_skill_requirements(self, skill_name: str) -> Optional[dict]:
+        """Resolve a skill's runtime requirements — ``{"env": [...], "bins": [...]}``,
+        or None when no such skill is installed (a caller must not read
+        "unknown skill" as "nothing to configure").
+
+        This is the ONE resolver behind every "what does this skill need"
+        surface: the Skills panel / routes read ``SkillInfo.requires_env``
+        from ``_parse_skill_md`` and the ``skill_list_required_env`` MCP
+        tool calls this method, which delegates to the same parser. It used
+        to read only ``.skill_meta.json["requires"]`` — a field the study
+        step writes — so an installed-but-never-studied skill answered the
+        agent "no required environment variables" while the UI listed the
+        vars declared in the SKILL.md frontmatter / mentioned in its body
+        (GitHub #115). Frontmatter, body scan (fallback) and studied meta are
+        unioned exactly as the UI shows them.
+        """
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if skill_dir is None:
+            return None
+        info = self._parse_skill_md(skill_dir / "SKILL.md")
+        return {
+            "env": list(info.requires_env or []),
+            "bins": list(info.requires_bins or []),
+        }
 
     def get_skill_env_config(self, skill_name: str) -> dict:
         """Get env_config from .skill_meta.json (var_name -> base64-encoded value)"""
@@ -1193,9 +1203,7 @@ class SkillModule(XYZBaseModule):
         skill_root = self._find_skill_root(dest_dir)
         if not skill_root:
             raise ValueError(
-                "Invalid skill package: SKILL.md not found. "
-                "Place SKILL.md at the zip root, or inside a single "
-                "top-level subfolder (e.g. my-skill/SKILL.md)."
+                f"Invalid skill package: SKILL.md not found. {self.SKILL_LAYOUT_HINT}"
             )
         return skill_root
 
@@ -1240,21 +1248,72 @@ class SkillModule(XYZBaseModule):
         logger.info(f"Installed skill '{info.name}' to {target_dir} (source={source_type})")
         return info
 
-    def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
-        """Find the directory containing SKILL.md in the extracted directory
+    # Layouts every install source (zip / GitHub clone) understands. One
+    # message, quoted by both rejection paths, so the user always learns
+    # where SKILL.md is expected.
+    SKILL_LAYOUT_HINT = (
+        "Place SKILL.md at the root, inside a single subfolder "
+        "(<name>/SKILL.md), or one per skill under skills/<name>/SKILL.md."
+    )
 
-        Name-sorted (R4d): an archive with several candidate subdirectories
-        must resolve to the same root on every machine, not to whatever
-        readdir happened to yield first.
+    # A repository is installed whole; this caps how many skills one URL
+    # (user- or agent-supplied — `skill_install` is an MCP tool) can drop
+    # into a workspace in one request. Larger repos need a fork / subset.
+    MAX_SKILLS_PER_REPO = 20
+
+    def find_skill_roots(self, staged_dir: Path) -> List[Path]:
+        """Every skill directory inside a staged package or clone, name-sorted.
+
+        Shared by the zip and GitHub paths (GitHub #95: the clone path used
+        to hardcode ``<clone>/SKILL.md`` while zip already looked one level
+        down). Accepted layouts:
+
+        - ``SKILL.md`` at the root -> that single skill (nothing else is
+          searched; a root manifest owns the whole tree);
+        - ``<name>/SKILL.md`` for any top-level directory -> one skill each;
+        - ``skills/<name>/SKILL.md`` (the agent-skills / plugin repo layout)
+          -> one skill each.
+
+        Dot-directories (``.git``, ``.github``) are skipped. Name-sorted
+        (R4d) so a multi-skill repo resolves to the same order on every
+        machine, not to whatever readdir happened to yield first. More than
+        MAX_SKILLS_PER_REPO roots is a ValueError (before anything is
+        installed).
         """
-        if (extract_dir / "SKILL.md").exists():
-            return extract_dir
+        if not staged_dir.is_dir():
+            return []
+        if (staged_dir / "SKILL.md").exists():
+            return [staged_dir]
 
-        for subdir in sorted(extract_dir.iterdir(), key=lambda p: p.name):
-            if subdir.is_dir() and (subdir / "SKILL.md").exists():
-                return subdir
+        roots: List[Path] = []
+        for subdir in sorted(staged_dir.iterdir(), key=lambda p: p.name):
+            if not subdir.is_dir() or subdir.name.startswith("."):
+                continue
+            if (subdir / "SKILL.md").exists():
+                roots.append(subdir)
+            elif subdir.name == "skills":
+                for nested in sorted(subdir.iterdir(), key=lambda p: p.name):
+                    if nested.is_dir() and not nested.name.startswith(".") and (nested / "SKILL.md").exists():
+                        roots.append(nested)
+        if len(roots) > self.MAX_SKILLS_PER_REPO:
+            raise ValueError(
+                f"This package contains {len(roots)} skills; at most "
+                f"{self.MAX_SKILLS_PER_REPO} can be installed from one repository or zip. "
+                "Install a fork or a subset that ships only the skills you need."
+            )
+        return roots
 
-        return None
+    def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
+        """The single skill root of a zip package (first of find_skill_roots).
+
+        A zip is one skill by contract; when an archive happens to carry
+        several, the name-sorted first one wins deterministically — up to
+        MAX_SKILLS_PER_REPO, beyond which the whole archive is rejected
+        like a repository would be (the cap is on the package, not the
+        source).
+        """
+        roots = self.find_skill_roots(extract_dir)
+        return roots[0] if roots else None
 
     def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
         """Extract a skill archive while rejecting zip-slip style paths."""
@@ -1299,9 +1358,9 @@ class SkillModule(XYZBaseModule):
                 with zip_ref.open(member) as src, open(destination, "wb") as dst:
                     shutil.copyfileobj(src, dst)
 
-    def install_from_github(self, url: str, branch: str = "main") -> SkillInfo:
+    def install_from_github(self, url: str, branch: str = "main") -> List[SkillInfo]:
         """
-        Install Skill from GitHub
+        Install every skill a GitHub repository ships.
 
         Args:
             url: GitHub repository URL, supported formats:
@@ -1310,25 +1369,32 @@ class SkillModule(XYZBaseModule):
             branch: Branch name, defaults to main
 
         Returns:
-            Successfully installed SkillInfo
+            The installed SkillInfo list — one entry for a single-skill repo
+            (root or nested SKILL.md), one per skill for a multi-skill repo
+            (see find_skill_roots for the accepted layouts). Never empty:
+            a repo without any SKILL.md raises ValueError.
         """
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
-        # Clone to temp directory, then commit via the shared tail
+        # Clone to temp directory, then commit each root via the shared tail
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            skill_root, canonical_url = self.fetch_github_repo(url, branch, temp_dir)
-            return self.install_from_dir(skill_root, source_type="github", source_url=canonical_url)
+            skill_roots, canonical_url = self.fetch_github_repo(url, branch, temp_dir)
+            return [
+                self.install_from_dir(root, source_type="github", source_url=canonical_url)
+                for root in skill_roots
+            ]
         finally:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def fetch_github_repo(self, url: str, branch: str, dest_dir: Path) -> tuple[Path, str]:
+    def fetch_github_repo(self, url: str, branch: str, dest_dir: Path) -> tuple[List[Path], str]:
         """Validate a GitHub URL and shallow-clone it into dest_dir.
 
         Public so the InstallPipeline can stage a repo, security-scan it, and
-        only then commit it. Returns (skill_root, canonical_url).
+        only then commit it. Returns (skill_roots, canonical_url) where
+        skill_roots is the non-empty, name-sorted list from find_skill_roots.
         """
         # Parse URL (supports shorthand format)
         if url.startswith("github:"):
@@ -1353,16 +1419,18 @@ class SkillModule(XYZBaseModule):
         except subprocess.CalledProcessError as e:
             raise ValueError(f"Failed to clone {url}: {e.stderr}")
 
-        skill_md = dest_dir / "SKILL.md"
-        if not skill_md.exists():
-            raise ValueError(f"Invalid skill: SKILL.md not found in {url}")
-
         # Remove .git directory (version control not needed)
         git_dir = dest_dir / ".git"
         if git_dir.exists():
             shutil.rmtree(git_dir)
 
-        return dest_dir, url
+        skill_roots = self.find_skill_roots(dest_dir)
+        if not skill_roots:
+            raise ValueError(
+                f"Invalid skill: no SKILL.md found in {url} (branch {branch}). "
+                f"{self.SKILL_LAYOUT_HINT}"
+            )
+        return skill_roots, url
 
     @staticmethod
     def _dir_is_builtin(skill_dir: Path) -> bool:

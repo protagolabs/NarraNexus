@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/_slack_credential_manager.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28 I1）
+
+凭据 dataclass 新增 `disabled_reason`（默认 ""）进 public dict / `_cred_from_raw`；`set_enabled(agent_id,
+enabled, reason="")` 透传给通用 store：禁用时写原因、启用时清空。trigger 命中永久失败时写入，面板显示。
 
 ## Why it exists
 

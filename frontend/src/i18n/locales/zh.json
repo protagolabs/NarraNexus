@@ -6,7 +6,8 @@
     "active": "已启用",
     "inactive": "已停用",
     "enable": "启用",
-    "disable": "停用"
+    "disable": "停用",
+    "disabledReason": "已被系统自动停用：{{reason}}"
   },
   "sidebar": {
     "chats": "对话",

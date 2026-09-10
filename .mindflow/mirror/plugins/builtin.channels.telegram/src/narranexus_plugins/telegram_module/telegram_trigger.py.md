@@ -1,8 +1,22 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — 401 永久停用并写原因；409 只给一次 deleteWebhook 重试后交退避（B-28，复审 C2 改口径）
+
+以前 409 Conflict 在 `connect()` 里被当作"webhook 还没删"无限 deleteWebhook+1s 重试，日志每秒一条。
+现在每一段连续 409 只给一次 deleteWebhook+重试（针对 stale webhook 变体），紧接着再 409 就 raise 给
+基类指数退避（5s→120s）重连；成功一次 getUpdates 后预算重置。**409 故意不算永久**：最常见成因是我们
+自己上一条长轮询还没被 Telegram 释放（重启/滚动部署/退避重连后最长 30s），判永久会在一次普通重启时把
+全部 Telegram 绑定批量停掉（复审 C2）。`PERMANENT_POLL_STATUSES = {401}`：token 被撤才让基类
+只记一条 warning、一条审计、`disable_credential(credential, reason=…)` 后退出。
+`disable_credential` 把基类 `safe_error_text` 脱敏截断过的 reason 透传给 `TelegramCredentialManager.set_enabled(agent_id,
+False, reason=)` → 公开字段 `disabled_reason`，并用 `log_disable_outcome` 在写失败（返回 False）时打
+ERROR——否则死凭据会被无声重连。5xx / 传输错误 / 超时保持基类退避。测试：
+`tests/telegram_module/test_telegram_poll_failures.py`（假 HTTP 层；含"409 两次后 raise 且非永久"、
+"重试预算随成功重置"、"基类对 409 退避重连不停用"三条与"401 落库"端到端）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

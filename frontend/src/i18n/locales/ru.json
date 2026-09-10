@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "Активно",
+    "inactive": "Неактивно",
+    "enable": "Включить",
+    "disable": "Отключить",
+    "disabledReason": "Отключено автоматически: {{reason}}"
+  },
   "language": {
     "name": "Язык"
   },
