@@ -1329,14 +1329,19 @@ class SkillModule(XYZBaseModule):
 
         try:
             zip_ref_cm = zipfile.ZipFile(zip_file_path, "r")
-        except zipfile.BadZipFile as e:
-            # Not a valid zip at all (corrupted upload, wrong file type).
-            # Every other rejection in this method raises ValueError, which
-            # the install route maps to a 400 (`except ValueError: raise
-            # _reject(...)`). BadZipFile is a plain Exception, not a
-            # ValueError, so left unconverted it fell through to the route's
-            # generic `except Exception` branch and surfaced as an opaque
-            # 500 instead of a 400 telling the user their upload isn't a zip.
+        except (zipfile.BadZipFile, OSError) as e:
+            # Not a valid zip at all (corrupted upload, wrong file type), or
+            # not an openable file (a directory, an unreadable path). Every
+            # other rejection in this method raises ValueError, which the
+            # install route maps to a 400 (`except ValueError: raise
+            # _reject(...)`). BadZipFile and OSError are plain Exceptions,
+            # not ValueErrors, so left unconverted they fell through to the
+            # route's generic `except Exception` branch and surfaced as an
+            # opaque 500. OSError is caught on the OPEN only — the same
+            # shape as bundle/security.validate_skill_archive_path, whose
+            # comment records that catching BadZipFile alone let those
+            # escape; an OSError from a read inside the `with` below is a
+            # genuine server fault and must stay one.
             raise ValueError(f"Invalid skill package: not a valid zip file ({e}).") from e
 
         with zip_ref_cm as zip_ref:

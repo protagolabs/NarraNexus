@@ -40,6 +40,7 @@ description 取 meta 或 "(No SKILL.md found)"），`_scan_workspace_skills` 的
 `tests/skill_module/test_skill_required_env_single_source.py`。
 
 ## 2026-09-09 — `_extract_zip_safely` 把 `BadZipFile` 转成 `ValueError`（B-30，#113）
+## 2026-09-09 — `_extract_zip_safely` 把 `BadZipFile`/`OSError` 转成 `ValueError`（B-30，#113；复审 I7/I8 修订）
 
 `zipfile.ZipFile(zip_file_path, "r")` 打不开一个非 zip 文件时抛的是
 `zipfile.BadZipFile`，不是这个方法其余每一处拒绝都用的 `ValueError`。
@@ -48,15 +49,24 @@ _reject(...)` 映射 400，其余异常落进 `except Exception` 变成一个不
 可读信息的 500——症状恰好是「上传坏 zip 返回 500」（GitHub #113）。
 
 这条路径没有走 `bundle/security.validate_skill_archive_bytes` 那道准入门
-（`backend/routes/bundle.py` 的 `/export` 路由才走那道门，早就在导出侧把
-同一个 `BadZipFile` 转成了 `ValueError`）——`install_from_zip` → 
-`extract_skill_package` → `_extract_zip_safely` 直接打开文件，没有前置校验，
-所以这里必须自己接住。修法：`zipfile.ZipFile(...)` 单独包一层
-`try/except zipfile.BadZipFile`，转成同一种 `ValueError`。全仓扫过其余
-`zipfile.ZipFile(` 调用点：`bundle/security.py` 的两个校验函数
-(`validate_skill_archive_bytes/path`) 已经做了同样的转换；`extract_zip_safely`
-/`scan_zip_for_sensitive` 的调用方（`bundle/importer.py`、`bundle/builder.py`）
-都在这两个校验函数之后才会碰到字节，所以到它们手上时已经保证是合法 zip。
+（`backend/routes/bundle.py` 的 `/export` 路由才走那道门），`install_from_zip` →
+`extract_skill_package` → `_extract_zip_safely` 直接打开文件，没有前置校验，所以这里
+必须自己接住。修法：`zipfile.ZipFile(...)` 单独包一层 `except (BadZipFile, OSError)`，
+转成同一种 `ValueError`。第一版只抓 `BadZipFile`；复审指出它抄的先例
+`validate_skill_archive_path` 的注释明写"只抓 BadZipFile 让 OSError 漏过去"是修过一次的
+坑——路径是目录（`IsADirectoryError`）、不可读、磁盘问题都是 `OSError`。**只包 open 那一行**：
+`with` 块内 `zip_ref.read()` 的 OSError 是真服务端故障，不能谎报成 400。
+
+### `zipfile.ZipFile(` 全仓扫描表（复审 I8 补全；口径 = `git grep -n "zipfile.ZipFile(" -- src/ plugins/ backend/`）
+
+| 位置 | 处理 |
+|---|---|
+| `plugins/builtin.skills/.../skill_module.py::_extract_zip_safely` | 本条目转换（BadZipFile + OSError → ValueError） |
+| `src/narranexus/platform/bundle/security.py` `validate_skill_archive_bytes/path` | 早已转换 → ValueError |
+| `src/narranexus/platform/bundle/security.py` `scan_zip_for_sensitive` / `extract_zip_safely` | 在上两个校验之后才碰字节，已保证是合法 zip |
+| `src/narranexus/kernel/plugins/install/sources.py::extract_zip` | **同批转换** BadZipFile → `SourceError`（同文件其余拒绝全是 SourceError，安装管线按它分类；此前坏的 release `backend.zip` 以裸 BadZipFile 报给用户） |
+| `backend/routes/admin/logs.py::_tail_lines`（`.log.zip` 轮转日志） | 未转换，admin-only 且只读自家轮转文件；风险接受，记录在此 |
+| `bundle/builder.py`、`bundle/skill_backup.py`、`marketplace/_skill_marketplace_seed.py` | 写模式（`"w"`），N/A |
 
 ## 2026-09-07 — `SKILL_METADATA_KEYS` 改从 `narranexus.contracts.openclaw` 取
 

@@ -116,6 +116,19 @@ def test_invalid_zip_payload_raises_valueerror_not_a_bare_exception(skill_module
     assert "zip" in msg.lower()
 
 
+def test_a_directory_instead_of_a_zip_raises_valueerror_not_oserror(skill_module, tmp_path):
+    """`zipfile.ZipFile` on a path that is not an openable file raises
+    OSError (IsADirectoryError here), not BadZipFile. The precedent this
+    conversion copies (`bundle/security.validate_skill_archive_path`)
+    records that catching BadZipFile alone let exactly these escape as a
+    500; the open must convert both."""
+    not_a_file = tmp_path / "a-directory.zip"
+    not_a_file.mkdir()
+    with pytest.raises(ValueError) as exc_info:
+        skill_module.install_skill(not_a_file)
+    assert "zip" in str(exc_info.value).lower()
+
+
 # -------- happy path: zip with SKILL.md installs cleanly ---------------
 
 
