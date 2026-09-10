@@ -605,7 +605,14 @@ case "${1:-}" in
       echo -e "${RED}narranexus still not importable. Rebuilding venv from scratch...${R}"
       rm -rf "$SCRIPT_DIR/.venv"
       $UV_CLEAN_ENV uv sync || { echo -e "${RED}uv sync failed.${R}"; exit 1; }
-      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" || {
+      # `--no-deps`, like the non-fallback path above: without it this
+      # re-resolves every dependency from the pyproject ranges instead of
+      # leaving the graph `uv sync` just installed from the lock. Harmless in
+      # practice (the lock's versions all satisfy the floors, so uv changes
+      # nothing), but it is the same shape as the 2026-09-10 dmg bug and there
+      # is no reason for the two branches to differ.
+      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --no-deps --reinstall \
+        --python "$SCRIPT_DIR/.venv/bin/python3" || {
         echo -e "${RED}editable install failed after rebuild. Manual fix needed:${R}"
         echo "  rm -rf .venv && uv sync && uv pip install -e ."
         exit 1

@@ -32,11 +32,12 @@ half of this lockstep; they live in a separate repo and are guarded on that side
 """
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests._shell_commands import command_lines
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -64,31 +65,33 @@ def _is_command_file(rel: str) -> bool:
     return rel.endswith((".sh", ".yml", ".yaml")) or name.startswith("Dockerfile") or name == "Makefile"
 
 
-def _command_lines(path: Path, needles: tuple[str, ...]) -> list[str]:
-    """Logical lines that RUN one of ``needles`` (backslash continuations joined),
-    excluding comments and echo/printf string lines that merely mention it."""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    joined = re.sub(r"\\\n", " ", text)  # fold shell / Dockerfile line continuations
-    out = []
-    for line in joined.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(("echo", "printf", '"', "'", "@echo")):
-            continue
-        if any(n in stripped for n in needles):
-            out.append(stripped)
-    return out
-
-
 def _uv_sync_command_lines(path: Path) -> list[str]:
     """Only the `uv sync` lines — the ones the `--extra plugins` rule is about."""
-    return _command_lines(path, ("uv sync",))
+    return command_lines(path, "uv sync")
 
 
 def _uv_install_command_lines(path: Path) -> list[str]:
-    """Every line that installs this project with uv, sync or pip alike."""
-    return _command_lines(path, ("uv sync", "uv pip install"))
+    """Every line that installs this project with uv, sync or pip alike.
+
+    Deliberately does NOT include `uv export`: this is what
+    `test_every_uv_install_file_is_classified` enumerates over, and
+    verify_release_artifacts.sh runs an export purely to PARSE the lock — it
+    installs nothing and belongs in neither the cloud nor the local list.
+    """
+    return command_lines(path, "uv sync", "uv pip install")
+
+
+def _uv_light_build_lines(path: Path) -> list[str]:
+    """Lines that decide WHAT a local build installs.
+
+    Since 2026-09-10 the desktop build materializes uv.lock first, so the extras
+    selection (no `--extra plugins`) and the dev-group exclusion (`--no-dev`)
+    live on the `uv export` line, not on the install. A needle set that only
+    knows `uv sync` / `uv pip install` cannot see them, and the one assertion
+    keeping claude-agent-sdk out of the dmg would pass over an export that pulls
+    it in.
+    """
+    return command_lines(path, "uv sync", "uv pip install", "uv export")
 
 
 def _all_files_running_uv_sync() -> dict[str, list[str]]:
@@ -141,7 +144,7 @@ def test_cloud_sync_pulls_plugins_extra(rel):
 
 @pytest.mark.parametrize("rel", sorted(_LOCAL_SYNC_FILES))
 def test_local_sync_stays_light(rel):
-    lines = _uv_install_command_lines(_REPO / rel)
+    lines = _uv_light_build_lines(_REPO / rel)
     assert lines, f"{rel} no longer installs with uv — update this guard (renamed?)"
     for line in lines:
         assert "--extra plugins" not in line, (
@@ -161,13 +164,19 @@ def test_desktop_build_installs_through_uv():
     path = _REPO / _DESKTOP_BUILD
     installs = _uv_install_command_lines(path)
     assert installs, f"{_DESKTOP_BUILD} no longer installs the project — update this guard"
-    assert any("--no-editable" in line for line in installs), (
+    # `--no-editable` moved onto the `uv export` line on 2026-09-10, when step 3
+    # started materializing uv.lock into a requirements file and installing THAT
+    # (see tests/release/test_desktop_build_uses_lock.py). The property being
+    # guarded is unchanged — the bundle must never carry an editable install —
+    # so accept the flag on either command of the pair.
+    lock_driven = command_lines(path, "uv export")
+    assert any("--no-editable" in line for line in installs + lock_driven), (
         f"{_DESKTOP_BUILD}: the bundled install must stay NON-editable — an editable "
         f"install bakes the build machine's absolute source path into the .app:\n    "
-        + "\n    ".join(installs)
+        + "\n    ".join(installs + lock_driven)
     )
     pip_installs = [
-        line for line in _command_lines(path, ("pip install",))
+        line for line in command_lines(path, "pip install")
         if "uv pip install" not in line
     ]
     assert not pip_installs, (
