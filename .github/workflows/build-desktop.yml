@@ -190,10 +190,11 @@ jobs:
       # /Users/runner/work/..., the import smoke on this runner was green, and
       # every user's app died with `No module named 'narranexus.contracts'`.
       # So: copy the final, signed .app out, move the whole checkout out of the
-      # way, and then run it — the import smoke from the app's own copy of the
-      # project, and the first sidecar (sqlite_proxy) launched the way state.rs
-      # launches it, until it binds its port. Any dependency on the build
+      # way, and bring the app's four sidecars up exactly as state.rs does, in
+      # its order — sqlite_proxy (:8100), backend (:8000, and /docs must answer
+      # 200), mcp (:7801), workers (must stay alive). Any dependency on the build
       # machine's filesystem, in whatever form, fails here — before either upload.
+      # Plain variables, no arrays/eval: the runner's /bin/bash may be 3.2.
       - name: Verify the shipped app starts without the source tree
         run: |
           set -euo pipefail
@@ -203,42 +204,112 @@ jobs:
           rm -rf "$VERIFY" && mkdir -p "$VERIFY/home"
           ditto "$APP_SRC" "$VERIFY/NarraNexus.app"
 
-          # Hide the checkout. Restored on EXIT whatever happens — later steps
-          # (and the post-job cleanup) need it back.
+          # Hide the checkout; on EXIT stop every sidecar and put it back —
+          # later steps (and the post-job cleanup) need it.
           HIDDEN="$GITHUB_WORKSPACE.hidden-for-verify"
-          restore() { if [ -d "$HIDDEN" ]; then mv "$HIDDEN" "$GITHUB_WORKSPACE"; fi; }
-          trap restore EXIT
+          PIDS=""
+          restore() {
+            for p in $PIDS; do kill "$p" 2>/dev/null || true; done
+            sleep 2
+            for p in $PIDS; do kill -9 "$p" 2>/dev/null || true; done
+            if [ -d "$HIDDEN" ]; then mv "$HIDDEN" "$GITHUB_WORKSPACE"; fi
+            # The uncompressed .app copy is large; drop it here, AFTER any
+            # failure branch has already printed its log.
+            rm -rf "$VERIFY"
+          }
+          # INT/TERM too: a cancelled job or step timeout sends TERM, and a bare
+          # EXIT trap would leave the checkout renamed.
+          trap restore EXIT INT TERM
           cd "$RUNNER_TEMP"
           mv "$GITHUB_WORKSPACE" "$HIDDEN"
 
           RES="$VERIFY/NarraNexus.app/Contents/Resources/resources"
           PY="$RES/python/bin/python3"
           PROJ="$RES/project"
+          # A Finder-launched .app inherits launchd's near-empty environment, so
+          # nothing that selects a deployment mode may leak in from this runner:
+          # with NARRANEXUS_DEPLOYMENT_MODE or DB_HOST set, backend decides it is
+          # cloud and refuses to start without a JWT_SECRET — a failure no user
+          # would ever see. Then the environment lib.rs + process_manager.rs
+          # give every sidecar.
+          unset NARRANEXUS_DEPLOYMENT_MODE DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME JWT_SECRET
+          export HOME="$VERIFY/home" NARRA_SURFACE=desktop \
+                 DATABASE_URL="sqlite:///$VERIFY/verify.db" \
+                 SQLITE_PROXY_URL=http://localhost:8100 SQLITE_PROXY_PORT=8100
 
           echo "--- import smoke, run from the relocated app, checkout hidden ---"
-          HOME="$VERIFY/home" "$PY" "$PROJ/scripts/release/bundle_import_smoke.py"
+          "$PY" "$PROJ/scripts/release/bundle_import_smoke.py"
 
-          echo "--- launch sqlite_proxy as state.rs does, wait for :8100 ---"
-          LOG="$VERIFY/sqlite_proxy.log"
-          ( cd "$PROJ" && HOME="$VERIFY/home" NARRA_SURFACE=desktop \
-              DATABASE_URL="sqlite:///$VERIFY/verify.db" SQLITE_PROXY_PORT=8100 \
-              SQLITE_PROXY_URL=http://localhost:8100 \
-              exec "$PY" -m narranexus.platform.utils.db.sqlite_proxy_server ) >"$LOG" 2>&1 &
-          PROXY_PID=$!
-          up=0
-          for _ in $(seq 1 45); do
-            if nc -z 127.0.0.1 8100 2>/dev/null; then up=1; break; fi
-            kill -0 "$PROXY_PID" 2>/dev/null || break
-            sleep 1
+          fail() {
+            echo "--- $1 log ---"; cat "$VERIFY/$1.log" || true
+            echo "::error::$2"; exit 1
+          }
+          launch() {  # launch <name> <command...>   (cwd = project, like state.rs)
+            name="$1"; shift
+            ( cd "$PROJ" && exec "$@" ) >"$VERIFY/$name.log" 2>&1 &
+            LAST_PID=$!
+            PIDS="$PIDS $LAST_PID"
+          }
+          port_free() {  # port_free <name> <port> — refuse to test on a taken port
+            if nc -z 127.0.0.1 "$2" 2>/dev/null; then
+              echo "::error:::$2 is already in use before $1 starts — an open port afterwards would prove nothing"
+              exit 1
+            fi
+          }
+          wait_port() {  # wait_port <name> <port> <pid>
+            for _ in $(seq 1 90); do
+              if nc -z 127.0.0.1 "$2" 2>/dev/null; then
+                # The port being open is only evidence if OUR process is the one
+                # holding it: a sidecar that died on "address already in use"
+                # leaves someone else's listener answering.
+                sleep 2
+                kill -0 "$3" 2>/dev/null || fail "$1" "$1 exited right after :$2 opened"
+                return 0
+              fi
+              kill -0 "$3" 2>/dev/null || fail "$1" "$1 exited before binding :$2"
+              sleep 1
+            done
+            fail "$1" "$1 did not bind :$2 within 90s"
+          }
+          for pair in sqlite_proxy:8100 backend:8000 mcp:7801 workers:47831; do
+            port_free "${pair%%:*}" "${pair##*:}"
           done
-          kill "$PROXY_PID" 2>/dev/null || true
-          wait "$PROXY_PID" 2>/dev/null || true
-          if [ "$up" != 1 ]; then
-            echo "--- sqlite_proxy log ---"; cat "$LOG"
-            echo "::error::sqlite_proxy did not bind :8100 from the relocated app with the checkout hidden"
-            exit 1
-          fi
-          echo "sqlite_proxy bound :8100 from the relocated app — the bundle does not depend on the build machine."
+
+          echo "--- 1/4 sqlite_proxy ---"
+          launch sqlite_proxy "$PY" -m narranexus.platform.utils.db.sqlite_proxy_server
+          wait_port sqlite_proxy 8100 "$LAST_PID"
+
+          echo "--- 2/4 backend ---"
+          launch backend env DASHBOARD_BIND_HOST=127.0.0.1 "$PY" -m uvicorn backend.main:app \
+            --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60
+          wait_port backend 8000 "$LAST_PID"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:8000/docs || true)"
+          [ "$code" = "200" ] || fail backend "backend /docs answered $code, expected 200"
+
+          echo "--- 3/4 mcp ---"
+          launch mcp "$PY" src/narranexus/platform/module_system/module_runner.py mcp
+          wait_port mcp 7801 "$LAST_PID"
+
+          echo "--- 4/4 workers ---"
+          # The supervisor serves its channel health endpoint once every worker
+          # has started, so that — not a fixed sleep — is the readiness signal.
+          launch workers "$PY" -m narranexus.platform.module_system.run_worker_supervisor
+          WORKERS_PID="$LAST_PID"
+          wait_port workers 47831 "$WORKERS_PID"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:47831/healthz || true)"
+          [ "$code" = "200" ] || fail workers "workers /healthz answered $code, expected 200"
+          sleep 10
+          kill -0 "$WORKERS_PID" 2>/dev/null || fail workers "workers exited after reporting healthy"
+
+          # Every sidecar still up, and none of them hit the failure class this
+          # step exists for anywhere in its output.
+          for name in sqlite_proxy backend mcp workers; do
+            if grep -qE "ModuleNotFoundError|ImportError|cannot import name" "$VERIFY/$name.log"; then
+              fail "$name" "$name logged an import failure"
+            fi
+          done
+          for p in $PIDS; do kill -0 "$p" 2>/dev/null || { echo "::error::a sidecar (pid $p) died during verification"; exit 1; }; done
+          echo "All four sidecars came up from the relocated app with the checkout hidden."
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |

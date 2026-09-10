@@ -375,15 +375,72 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
         f"every upload (build={build}, verify={verify}, uploads={uploads})"
     )
 
-    run = str(steps[verify].get("run", ""))
+    step = steps[verify]
+    # A gate this expensive (it runs after notarization) is exactly the one a
+    # "just get the release out" edit would soften. Neither of the two quiet
+    # ways to do that — without deleting the step — is allowed.
+    assert not step.get("continue-on-error"), (
+        "the relocated-app verification is the only gate that sees what a user "
+        "sees; continue-on-error turns it into a log line"
+    )
+    assert "if" not in step, (
+        "the relocated-app verification must run on every desktop build — a "
+        "condition here is how it gets disabled without being deleted"
+    )
+
+    run = str(step.get("run", ""))
     # The three things that make it a real check rather than a re-run of the
     # build-machine smoke: the checkout is moved away, the app's OWN copy of
     # the smoke script runs, and a sidecar is actually launched until it binds.
     assert 'mv "$GITHUB_WORKSPACE"' in run, "the step no longer hides the checkout"
-    assert "trap restore EXIT" in run, "the checkout must be restored whatever happens"
+    assert "trap restore EXIT INT TERM" in run, (
+        "the checkout must be restored whatever happens, including a cancelled job"
+    )
+    assert "unset NARRANEXUS_DEPLOYMENT_MODE" in run, (
+        "the step must scrub deployment-mode env the way a Finder launch does, or a "
+        "runner-side variable decides whether backend thinks it is in the cloud"
+    )
     assert "$PROJ/scripts/release/bundle_import_smoke.py" in run, (
         "the smoke must run from the relocated app's project copy"
     )
-    assert "narranexus.platform.utils.db.sqlite_proxy_server" in run and "8100" in run, (
-        "the step must launch sqlite_proxy and wait for its port"
+    # All four sidecars, not just the first: an import check proves a module
+    # loads, not that the service it belongs to comes up. Launch targets are
+    # read from state.rs's bundled_services() via the same reader the lockstep
+    # test uses, so a new service there that is not launched here goes red.
+    for target in _state_rs_launch_targets():
+        assert target in run, (
+            f"the relocated-app step does not launch {target!r}, which state.rs's "
+            "bundled_services() starts — that service's startup is unverified"
+        )
+    for port in ("8100", "8000", "7801", "47831"):
+        assert port in run, f"the step no longer waits for :{port}"
+    assert "/docs" in run, "backend must be probed over HTTP, not only for an open port"
+    assert "/healthz" in run, (
+        "workers must be gated on its health endpoint, not a fixed sleep"
     )
+    # An open port proves nothing if someone else already held it: the step
+    # must refuse to test on a taken port and confirm its own process is alive.
+    assert "port_free" in run and "already in use" in run, (
+        "the step must check each port is free before launching"
+    )
+
+
+def _state_rs_launch_targets() -> list[str]:
+    """What each bundled_services() entry actually hands the interpreter.
+
+    `-m <module>` → the module; a `.py` path → the path; `-m uvicorn <app>` →
+    the ASGI target. These are the strings the workflow must launch.
+    """
+    text = STATE_RS.read_text(encoding="utf-8")
+    body = text[text.index("fn bundled_services"):text.index("fn dev_services")]
+    targets: list[str] = []
+    for block in _args_blocks(body):
+        literals = re.findall(r'"([^"]*)"', block)
+        if "uvicorn" in literals:
+            targets += [lit for lit in literals if re.fullmatch(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", lit)]
+        elif "-m" in literals:
+            targets.append(literals[literals.index("-m") + 1])
+        else:
+            targets += [lit for lit in literals if lit.endswith(".py")]
+    assert targets, "no launch targets parsed from state.rs — update this reader"
+    return targets

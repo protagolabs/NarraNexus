@@ -95,40 +95,49 @@ def _non_relocatable_installs() -> list[str]:
     `No module named 'narranexus.contracts'`. So check the install itself:
     no editable distributions, and no path hook leading out of this bundle.
     """
-    # purelib only: on the macOS python-build-standalone interpreter we bundle,
-    # platlib is the same directory. A Windows/Linux bundle would need both.
-    purelib = Path(sysconfig.get_paths()["purelib"])
-    prefix = Path(sys.prefix).resolve()
+    # purelib AND platlib: identical on the macOS python-build-standalone we
+    # bundle today, but an interpreter where they diverge must not let an
+    # editable install hide in the one we did not look at. A set, so the common
+    # case scans once.
+    paths = sysconfig.get_paths()
+    site_dirs = sorted({Path(paths["purelib"]), Path(paths["platlib"])})
     problems: list[str] = []
-    for direct_url in sorted(purelib.glob("*.dist-info/direct_url.json")):
-        try:
-            info = json.loads(direct_url.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if (info.get("dir_info") or {}).get("editable"):
-            problems.append(f"{direct_url.parent.name}: editable install of {info.get('url')}")
-    for pth in sorted(purelib.glob("*.pth")):
-        if pth.name.startswith(("_editable_impl_", "__editable__")):
-            problems.append(f"{pth.name}: editable-install hook")
-            continue
-        try:
-            content = pth.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            # Fail closed, but say which file and why rather than a traceback.
-            problems.append(f"{pth.name}: unreadable ({exc})")
-            continue
-        for raw in content.splitlines():
-            # `site` executes lines starting with `import` + space OR tab; those
-            # are code, not paths (setuptools ships one). Everything else is a
-            # directory `site` appends to sys.path.
-            if raw.startswith(("import ", "import\t")):
+    for site_dir in site_dirs:
+        for direct_url in sorted(site_dir.glob("*.dist-info/direct_url.json")):
+            try:
+                info = json.loads(direct_url.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
                 continue
-            line = raw.strip()
-            if not line or line.startswith("#"):
+            if (info.get("dir_info") or {}).get("editable"):
+                where = direct_url.parent.relative_to(site_dir)
+                problems.append(f"{where}: editable install of {info.get('url')}")
+        for pth in sorted(site_dir.glob("*.pth")):
+            where = pth.relative_to(site_dir)
+            if pth.name.startswith(("_editable_impl_", "__editable__")):
+                problems.append(f"{where}: editable-install hook")
                 continue
-            target = Path(line)
-            if target.is_absolute() and not target.resolve().is_relative_to(prefix):
-                problems.append(f"{pth.name}: adds {line} to sys.path, outside the bundle")
+            try:
+                content = pth.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                # Fail closed, but say which file and why rather than a traceback.
+                problems.append(f"{where}: unreadable ({exc})")
+                continue
+            for raw in content.splitlines():
+                # `site` executes lines starting with `import` + space OR tab;
+                # those are code, not paths (setuptools ships one). Everything
+                # else is a directory `site` appends to sys.path.
+                if raw.startswith(("import ", "import\t")):
+                    continue
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # ANY absolute path is non-relocatable, including one that lies
+                # inside this interpreter today: on the build machine
+                # .../resources/python/... is "inside", and after the app moves
+                # to /Applications that same path no longer exists. Legitimate
+                # .pth entries are relative to site-packages.
+                if Path(line).is_absolute():
+                    problems.append(f"{where}: adds absolute path {line} to sys.path")
     return problems
 
 
