@@ -2048,6 +2048,7 @@
       "running": "Läuft",
       "paused": "Pausiert",
       "pausedNoQuota": "Kein Kontingent",
+      "pausedSpendCap": "Ausgabenlimit",
       "cooling": "Wiederholung",
       "blocked": "Blockiert",
       "blockedFailed": "Abh. fehlgeschlagen",

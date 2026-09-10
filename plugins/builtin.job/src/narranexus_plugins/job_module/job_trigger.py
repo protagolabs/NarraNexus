@@ -600,6 +600,11 @@ class JobTrigger:
             if last is None or (now_ts - last).total_seconds() >= _NO_QUOTA_BACKSTOP_INTERVAL_S:
                 self._last_no_quota_backstop = now_ts
                 await self._resume_eligible_no_quota_jobs()
+                # Same cadence: a job parked by the daily spend cap comes back
+                # on its own once the user's local day rolls over (spend back
+                # under the cap) or ops lower/disable the cap — the cap is a
+                # per-day ceiling, not a permanent stop (review C1).
+                await self._resume_spend_capped_jobs()
                 # Same cadence: self-heal "active but unschedulable" zombies —
                 # an ACTIVE scheduled/ongoing job left with a NULL next_run_time
                 # is never picked by get_due_jobs (NULL is never <= now), so it
@@ -758,6 +763,74 @@ class JobTrigger:
             return resumed
         except Exception as e:
             logger.exception(f"Error resuming PAUSED_NO_QUOTA jobs: {e}")
+            return 0
+
+    async def _resume_spend_capped_jobs(self) -> int:
+        """Flip PAUSED_SPEND_CAP jobs back to ACTIVE once the executing user's
+        spend for the CURRENT local day is under the cap again (review C1).
+
+        The cap is a per-day ceiling: the same predicate that paused the job
+        (`_daily_spend_cap_exceeded`, judged in the job's own timezone) is
+        re-evaluated, so a job resumes exactly when a fresh start would have
+        been allowed — the next local day, or as soon as ops lower/disable
+        the cap. Deliberately NOT folded into `_resume_eligible_no_quota_jobs`
+        / `rearm_user_no_quota_jobs`: those recover on provider readiness
+        (login / provider save edges), which says nothing about spend and
+        would revive a still-over-cap job into an immediate re-pause loop.
+
+        Resumes schedule FORWARD (`compute_next_run` from now): a heartbeat
+        job paused for a day must not replay the fires it missed. A recurring
+        job whose next fire would land past its end_at horizon completes
+        instead (same rule as the other re-arm paths).
+        """
+        try:
+            repo = self._get_job_repo()
+            paused = await repo.get_jobs_by_status(JobStatus.PAUSED_SPEND_CAP)
+            if not paused:
+                return 0
+            resumed = 0
+            for job in paused:
+                exec_uid = job.related_entity_id or job.user_id
+                user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                if exec_uid and await self._daily_spend_cap_exceeded(exec_uid, user_tz):
+                    continue
+                next_run = compute_next_run(
+                    job_type=job.job_type,
+                    trigger_config=job.trigger_config,
+                    last_run_utc=utc_now(),
+                )
+                if next_run and job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+                    job.trigger_config, next_run.utc
+                ):
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.COMPLETED.value,
+                        "paused_reason": None,
+                        "paused_at": None,
+                    })
+                    await repo.clear_next_run(job.job_id)
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id} completed instead of resumed "
+                        f"(PAUSED_SPEND_CAP resume past end_at horizon)"
+                    )
+                    continue
+                if next_run:
+                    await repo.update_next_run(job.job_id, next_run)
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.ACTIVE.value,
+                    "paused_reason": None,
+                    "paused_at": None,
+                })
+                resumed += 1
+                logger.info(
+                    f"Job {job.job_id} resumed from PAUSED_SPEND_CAP (user={exec_uid})"
+                )
+            if resumed:
+                logger.info(f"Resumed {resumed} job(s) from PAUSED_SPEND_CAP")
+            return resumed
+        except Exception as e:
+            logger.exception(f"Error resuming PAUSED_SPEND_CAP jobs: {e}")
             return 0
 
     async def _rearm_cooled_jobs(self) -> int:
@@ -1038,7 +1111,9 @@ class JobTrigger:
                 )
                 await self._notify_owner_job_paused(
                     job, "spend_cap",
-                    "The daily spend cap for scheduled jobs has been reached.",
+                    "Your total LLM spend for today has reached the daily cap. "
+                    "This job resumes automatically once the next day starts "
+                    "(in the job's timezone) and spend is back under the cap.",
                 )
                 return
 

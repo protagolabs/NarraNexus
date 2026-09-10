@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_recovery.py
-last_verified: 2026-07-30
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 进 `_RESUMABLE_STATUSES`
+
+`resume_job` 接受 `paused_spend_cap`：用户在 Jobs 面板手动恢复被日花费上限暂停的 job。
+早恢复无害——下一次调度开始时 [[job_trigger]] 会再判一次 cap，仍超标就再暂停；自动路径
+（当地次日 / cap 关闭）是 job_trigger 的 `_resume_spend_capped_jobs`。`_NON_EDITABLE_STATUSES`
+的注释顺手把可编辑清单补全（含 blocked / paused_spend_cap）。
+锁：`tests/backend/test_job_pause_resume.py::test_resume_paused_spend_cap_job`。
 
 ## 2026-07-30 — reschedule_job (edit execution time)
 

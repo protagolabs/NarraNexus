@@ -1,7 +1,12 @@
 ---
 code_file: frontend/src/lib/jobsPanelModel.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — `paused_spend_cap` 进 attention 与 `STATUS_ORDER`
+
+被日花费上限暂停的 job 需要人看一眼（要么等次日自动恢复，要么手动 Resume），归 attention 段，
+排在 `paused_no_quota` 之后。`STATUS_ORDER` 从 11 到 12（测试同步）。
 
 ## 2026-09-03 (评审修订) — `afterDeps` 只在一处构造
 

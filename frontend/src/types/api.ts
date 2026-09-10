@@ -15,7 +15,7 @@ export interface ApiResponse {
 }
 
 // Job types
-export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
+export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'paused_spend_cap' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
 
 // Mirrors backend TriggerConfig (schema/job_schema.py); the list endpoint
@@ -733,7 +733,7 @@ export interface JobProgress {
   estimated_pct?: number | null;
 }
 
-export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed' | 'cooling' | 'paused_no_quota' | 'blocked_failed';
+export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed' | 'cooling' | 'paused_no_quota' | 'blocked_failed' | 'paused_spend_cap';
 
 export interface SessionInfoResp {
   session_id: string;
@@ -785,6 +785,7 @@ export interface QueueCounts {
   cooling: number;
   paused_no_quota: number;
   blocked_failed: number;
+  paused_spend_cap: number;
   total: number;
 }
 

@@ -32,6 +32,7 @@ const VISUALS: Record<JobStatus, StatusVisual> = {
   failed:          { color: 'var(--color-error)',   hollow: false, labelKey: 'jobs.status.failed' },
   blocked_failed:  { color: 'var(--color-error)',   hollow: false, labelKey: 'jobs.status.blockedFailed' },
   paused_no_quota: { color: 'var(--color-warning)', hollow: false, labelKey: 'jobs.status.pausedNoQuota' },
+  paused_spend_cap: { color: 'var(--color-warning)', hollow: false, labelKey: 'jobs.status.pausedSpendCap' },
   running:         { color: 'var(--color-warning)', hollow: false, labelKey: 'jobs.status.running' },
   // "Active" = the Module instance is alive but no script is executing. Ink
   // rather than a semantic color: it is normal, not noteworthy.

@@ -2047,6 +2047,7 @@
       "running": "稼働中",
       "paused": "一時停止中",
       "pausedNoQuota": "クォータなし",
+      "pausedSpendCap": "支出上限",
       "cooling": "再試行中",
       "blocked": "ブロック中",
       "blockedFailed": "依存が失敗",

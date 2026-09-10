@@ -3,6 +3,31 @@ code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py
 last_verified: 2026-09-10
 ---
 
+## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 每日自愈：`_resume_spend_capped_jobs`
+
+首版把花费封顶的 job 标成 `PAUSED_SPEND_CAP` 之后**没有任何路径能把它拉回来**：不在
+`_RESUMABLE_STATUSES`，不被任何 backstop 扫描，`get_due_jobs()` 也永远捞不到它——一个
+「日上限」变成了永久停服。现在 `_poll_and_enqueue` 的 900s backstop 段（紧跟
+`_resume_eligible_no_quota_jobs`）多跑一个 `_resume_spend_capped_jobs()`：扫
+`PAUSED_SPEND_CAP`，对每条 job 用**同一个** `_daily_spend_cap_exceeded(exec_uid, job时区)`
+重判（先算花费再翻状态；I6 的「今天」口径已定，暂停与恢复用同一个「今天」），未超就
+`compute_next_run(last_run_utc=now)` 向前推 + 翻 ACTIVE + 清 `paused_reason/paused_at`。
+于是 job 恰好在「一次全新启动本来就会被放行」的时刻恢复：用户当地次日零点之后，或 ops
+调低/关掉 cap 之后（cap=0 → 谓词恒 False → 全部恢复）。
+
+**为什么不并进 `_resume_eligible_no_quota_jobs` / `rearm_user_no_quota_jobs`**：那两条按
+provider readiness（登录/存 provider 的 edge）恢复，与花费无关，会在仍然超标时把 job 拉活，
+下一次 poll 又原地暂停——正是 `_EDGE_ONLY_RESUME_REASONS` 注释在防的重试风暴。
+
+恢复向前推而不是补跑：一条停了一天的 2 小时心跳 job 恢复瞬间不能补 12 次。next fire 落在
+`end_at` 之外的周期 job 直接 COMPLETED（与 `_rearm_cooled_jobs` / `_heal_unscheduled_active_jobs`
+同一条规则）。手动恢复也通了：[[job_recovery]] 的 `_RESUMABLE_STATUSES` 与前端 `canResume`
+同批加入该状态。spend_cap 的 inbox 文案改成说实话（次日自动恢复）。
+
+锁：`test_backstop_resumes_a_spend_capped_job_once_under_the_cap`（含 next_run 必须在未来）、
+`test_backstop_keeps_the_job_paused_while_still_over_the_cap`、
+`test_backstop_resumes_when_ops_disable_the_cap`、`test_poll_cycle_runs_the_spend_cap_backstop`（接线）。
+
 ## 2026-09-10（review r2 I2）— 超长报告分片投递，超预算则明说，绝不静默丢
 
 `_deliver_to_origin`：bus 写入边拒绝超 `MAX_BUS_MESSAGE_BYTES` 的行后，这里原本只剩

@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/dashboard/_helpers.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 C1）— `_LIVE_JOB_STATES` + `paused_spend_cap`；`_QUEUED_JOB_STATES` 派生
+
+2026-06-01 注释里记录的 `paused_no_quota` 隐形缺口，`paused_spend_cap` 又踩了一遍：新状态没进
+WHERE，看板计数与 pending 列表把这类 job 直接滤掉。现在加入，并新增
+`_QUEUED_JOB_STATES = _LIVE_JOB_STATES - running` 供 [[routes.py]] 的两个逐状态循环派生——
+routes.py 原来手抄两份状态元组，改成只认这里一份。
+`tests/backend/test_dashboard_live_job_states.py` 钉死「`_LIVE_JOB_STATES` == 所有 JobStatus
+去掉 completed/cancelled」以及 [[_schema.py]] 的 `QueueCounts` 字段 / `queue_status` Literal
+与之对齐；`test_fetch_jobs_surfaces_a_spend_capped_job` 直接查库验证。
 
 # dashboard/_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 

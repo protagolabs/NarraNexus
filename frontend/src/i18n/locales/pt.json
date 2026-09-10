@@ -2048,6 +2048,7 @@
       "running": "Em execução",
       "paused": "Pausada",
       "pausedNoQuota": "Sem cota",
+      "pausedSpendCap": "Limite de gasto",
       "cooling": "Tentando novamente",
       "blocked": "Bloqueada",
       "blockedFailed": "Dep. com falha",

@@ -2056,6 +2056,7 @@
       "running": "قيد التشغيل",
       "paused": "متوقفة مؤقتًا",
       "pausedNoQuota": "لا توجد حصة",
+      "pausedSpendCap": "حد الإنفاق",
       "cooling": "إعادة المحاولة",
       "blocked": "محظورة",
       "blockedFailed": "فشلت التبعية",

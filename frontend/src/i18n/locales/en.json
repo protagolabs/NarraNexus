@@ -2507,6 +2507,7 @@
       "running": "Running",
       "paused": "Paused",
       "pausedNoQuota": "No quota",
+      "pausedSpendCap": "Spend cap",
       "cooling": "Retrying",
       "blocked": "Blocked",
       "blockedFailed": "Dep failed",

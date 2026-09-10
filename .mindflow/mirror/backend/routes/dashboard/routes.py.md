@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 C1）— 逐状态循环改为派生自 `_LIVE_JOB_STATES`
+
+`queue_counts` 与 `pending_jobs_items` 原来各自手抄一份状态元组（与 [[_helpers.py]] 的
+`_LIVE_JOB_STATES` 三份副本），加 `paused_spend_cap` 时又漏。现在分别遍历
+`_LIVE_JOB_STATES` / `_QUEUED_JOB_STATES`（后者 = 前者去掉 running），状态集合只在 _helpers
+定义一次；[[_schema.py]] 的响应模型仍需手动同步，由 `test_dashboard_live_job_states.py` 把关。
 
 ## 2026-09-07 — `_resolve_viewer` / `_assert_agent_visible` 转公开（批 6c，G2-I1）
 

@@ -59,10 +59,12 @@ class JobStatus(str, Enum):
     # on_dependency_failure policy is "block". Re-armed if the prerequisite later
     # succeeds, or cleared by the user.
     PAUSED_SPEND_CAP = "paused_spend_cap"  # Auto-paused: the executing user's
-    # daily spend (NARRANEXUS_USER_DAILY_SPEND_CAP_USD) was already met/exceeded
-    # before this run started (B-14). NOT auto-resumed by any backstop — a spend
-    # cap is a deliberate ceiling, not a transient condition; only a manual
-    # resume (next day's spend naturally resets the check) brings it back.
+    # total LLM spend for the current local day (NARRANEXUS_USER_DAILY_SPEND_CAP_USD,
+    # judged in the job's own timezone) was already met/exceeded before this
+    # run started (B-14). Auto-resumed by JobTrigger's 15-minute backstop
+    # (`_resume_spend_capped_jobs`) once spend is under the cap again — i.e.
+    # the next local day, or when ops lower/disable the cap — and manually
+    # resumable from the Jobs panel like the other paused states.
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)

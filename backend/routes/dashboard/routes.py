@@ -26,6 +26,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from backend.auth import resolve_current_user_id
 from backend.routes.dashboard._helpers import (
+    _LIVE_JOB_STATES,
+    _QUEUED_JOB_STATES,
     bucket_count,
     build_action_line,
     build_recent_events_resp,
@@ -132,19 +134,14 @@ async def agents_status(request: Request, response: Response):
         action_line = build_action_line(run_state)
 
         # v2.1.1: queue counts (every live state, no overlap — see fetch_jobs)
-        queue_counts = {
-            s: len(per_state.get(s, []))
-            for s in ("running", "active", "pending", "blocked", "paused", "failed",
-                      "cooling", "paused_no_quota", "blocked_failed")
-        }
+        queue_counts = {s: len(per_state.get(s, [])) for s in _LIVE_JOB_STATES}
         queue_counts["total"] = sum(queue_counts.values())
 
         # v2.1.1: pending_jobs surfaces every non-running live state with
         # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
         seen_job_ids: set[str] = set()
-        for qstate in ("pending", "active", "blocked", "paused", "failed",
-                       "cooling", "paused_no_quota", "blocked_failed"):
+        for qstate in _QUEUED_JOB_STATES:
             for j in per_state.get(qstate, []):
                 if j["job_id"] in seen_job_ids:
                     continue  # belt-and-suspenders dedup

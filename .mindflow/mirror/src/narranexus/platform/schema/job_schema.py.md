@@ -4,6 +4,19 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 的真实恢复语义
+
+上一节首版写的「不被任何 backstop 自动拉活、只能手动恢复」两句都不成立——那时它既不在
+`_RESUMABLE_STATUSES` 也没有任何扫描，是彻底的死路。现在的真实行为（注释同步改）：
+[[job_trigger]] 的 15 分钟 backstop `_resume_spend_capped_jobs` 在用户当地次日（或 cap
+被调低/关闭）自动恢复；[[job_recovery]] 的 `resume_job` 也接受它（Jobs 面板 Resume 按钮）。
+新增枚举值的**全部消费面**这次一起登记：前端 `JobStatus` / `JobQueueStatus` / `QueueCounts`
+（[[api.ts]]）、[[jobStatusVisuals.ts]] `VISUALS`、[[jobsPanelModel.ts]] `ATTENTION_STATUSES` +
+`STATUS_ORDER`、[[JobsPanel.tsx]] `canResume`、看板 [[_helpers.py]] `_LIVE_JOB_STATES` /
+[[_schema.py]] `QueueCounts` + `queue_status` Literal、10 份 locale 的 `jobs.status.pausedSpendCap`。
+`tests/backend/test_dashboard_live_job_states.py` 把「`_LIVE_JOB_STATES` = 全部非终态 JobStatus」
+钉死，下一个新状态漏登记会在那里红。
+
 ## 2026-09-10（review r1 I7）— 撤掉 `max_tokens_per_run`
 
 B-14 首版给 `TriggerConfig` 加过 `max_tokens_per_run: Optional[int]`，

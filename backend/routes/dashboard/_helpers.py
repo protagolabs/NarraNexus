@@ -275,10 +275,19 @@ async def fetch_last_activity(agent_ids: list[str]) -> dict[str, str | None]:
 # 2026-06-01: include the resilience states (cooling / paused_no_quota /
 # blocked_failed) so the dashboard surfaces them instead of silently dropping
 # them at the WHERE filter (paused_no_quota was already an invisible gap).
+# 2026-09-10: + paused_spend_cap — the same gap, one status later. Every
+# JobStatus except the two silent terminals (completed / cancelled) belongs
+# here; tests/backend/test_dashboard_live_job_states.py pins that so the next
+# status cannot fall through the WHERE again. routes.py derives its two
+# per-state loops from this tuple; _schema.py's Literal / QueueCounts and the
+# frontend JobQueueStatus / QueueCounts must be extended by hand.
 _LIVE_JOB_STATES = (
     "running", "active", "pending", "blocked", "paused", "failed",
-    "cooling", "paused_no_quota", "blocked_failed",
+    "cooling", "paused_no_quota", "blocked_failed", "paused_spend_cap",
 )
+# Everything above except "running": the queue-position states routes.py
+# surfaces as pending_jobs, in emission order.
+_QUEUED_JOB_STATES = tuple(s for s in _LIVE_JOB_STATES if s != "running")
 
 
 async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:

@@ -255,3 +255,70 @@ async def test_execute_job_pauses_when_spend_is_inside_the_local_day(db_client, 
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_tz_paused"})
     assert row["status"] == JobStatus.PAUSED_SPEND_CAP.value
+
+
+# ── C1: the cap is a per-day ceiling — the backstop brings the job back ─────
+
+async def _insert_capped_job(db, job_id, user_id="user_1"):
+    await _insert_job(db, job_id, user_id=user_id, status=JobStatus.PAUSED_SPEND_CAP.value)
+    await db.update("instance_jobs", {"job_id": job_id}, {
+        "paused_reason": "spend_cap", "paused_at": FIXED_NOW,
+    })
+
+
+@pytest.mark.asyncio
+async def test_backstop_resumes_a_spend_capped_job_once_under_the_cap(db_client, monkeypatch):
+    monkeypatch.setenv(ENV_VAR, "100")
+    await _insert_cost_record(db_client, "user_1", 5.0)
+    await _insert_capped_job(db_client, "job_resume")
+    trigger = JobTrigger(database_client=db_client)
+
+    resumed = await trigger._resume_spend_capped_jobs()
+
+    assert resumed == 1
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_resume"})
+    assert row["status"] == JobStatus.ACTIVE.value
+    assert row["paused_reason"] is None
+    # Schedule goes FORWARD from now — the stale 2020 next_run must not replay.
+    assert row["next_run_time"] > datetime.now(dt_tz.utc)
+
+
+@pytest.mark.asyncio
+async def test_backstop_keeps_the_job_paused_while_still_over_the_cap(db_client, monkeypatch):
+    monkeypatch.setenv(ENV_VAR, "1")
+    await _insert_cost_record(db_client, "user_1", 5.0)
+    await _insert_capped_job(db_client, "job_still_over")
+    trigger = JobTrigger(database_client=db_client)
+
+    resumed = await trigger._resume_spend_capped_jobs()
+
+    assert resumed == 0
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_still_over"})
+    assert row["status"] == JobStatus.PAUSED_SPEND_CAP.value
+    assert row["paused_reason"] == "spend_cap"
+
+
+@pytest.mark.asyncio
+async def test_backstop_resumes_when_ops_disable_the_cap(db_client, monkeypatch):
+    monkeypatch.delenv(ENV_VAR, raising=False)
+    await _insert_cost_record(db_client, "user_1", 99999.0)
+    await _insert_capped_job(db_client, "job_cap_off")
+    trigger = JobTrigger(database_client=db_client)
+
+    assert await trigger._resume_spend_capped_jobs() == 1
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_cap_off"})
+    assert row["status"] == JobStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_poll_cycle_runs_the_spend_cap_backstop(db_client, monkeypatch):
+    """Wiring: the first poll cycle (backstop due) revives a capped job whose
+    user is under the cap, without anyone touching the Jobs panel."""
+    monkeypatch.setenv(ENV_VAR, "100")
+    await _insert_capped_job(db_client, "job_via_poll")
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._poll_and_enqueue()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_via_poll"})
+    assert row["status"] == JobStatus.ACTIVE.value

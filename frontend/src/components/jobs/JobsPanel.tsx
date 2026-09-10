@@ -186,7 +186,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   };
 
   const canResume = (status: string) => {
-    return ['paused', 'paused_no_quota', 'cooling', 'blocked_failed'].includes(status);
+    return ['paused', 'paused_no_quota', 'paused_spend_cap', 'cooling', 'blocked_failed'].includes(status);
   };
 
   const canPause = (status: string) => {

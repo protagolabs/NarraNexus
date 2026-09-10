@@ -82,7 +82,7 @@ async def rearm_user_no_quota_jobs(user_id: str, db) -> int:
 
 
 _RESUMABLE_STATUSES = (
-    JobStatus.PAUSED, JobStatus.PAUSED_NO_QUOTA,
+    JobStatus.PAUSED, JobStatus.PAUSED_NO_QUOTA, JobStatus.PAUSED_SPEND_CAP,
     JobStatus.COOLING, JobStatus.BLOCKED_FAILED,
 )
 
@@ -107,9 +107,11 @@ async def pause_job(job_id: str, db) -> tuple[bool, str]:
 
 
 async def resume_job(job_id: str, db) -> tuple[bool, str]:
-    """Resume a paused / no-quota / cooling / dependency-blocked-failed job:
-    recompute next_run from now, clear backoff/pause state, flip to ACTIVE. If
-    the underlying blocker is still unresolved the next run simply re-pauses."""
+    """Resume a paused / no-quota / spend-capped / cooling /
+    dependency-blocked-failed job: recompute next_run from now, clear
+    backoff/pause state, flip to ACTIVE. If the underlying blocker is still
+    unresolved the next run simply re-pauses (a spend-capped job re-pauses
+    at its next start until the user's local day rolls over)."""
     repo = JobRepository(db)
     job = await repo.get_job(job_id)
     if not job:
@@ -134,8 +136,8 @@ async def resume_job(job_id: str, db) -> tuple[bool, str]:
 
 # A reschedule may touch any editable job EXCEPT one that is mid-execution
 # (running) or already terminal (completed/cancelled/failed). Everything else —
-# active / pending / paused / paused_no_quota / cooling / blocked_failed — is
-# a legitimate edit target; the status is left untouched (a paused job stays
+# active / pending / paused / paused_no_quota / paused_spend_cap / cooling /
+# blocked / blocked_failed — is a legitimate edit target; the status is left untouched (a paused job stays
 # paused, and its later resume re-derives next_run from the new rule anyway).
 _NON_EDITABLE_STATUSES = (
     JobStatus.RUNNING,
