@@ -18,6 +18,10 @@ stub: false
 - **事实来源**：`ENTRYPOINTS` 是 `tauri/src-tauri/src/state.rs` 的 `bundled_services()` 的镜像；两者一致性由 `tests/release/test_desktop_build_uses_lock.py::test_smoke_entrypoints_match_state_rs` 守住。
 - **`LAZY_RUNTIME_IMPORTS` 也有可执行守门**：`test_smoke_checks_uvicorns_lazily_resolved_deps` 断言 `websockets` 必须在名单里，并且**同一个循环**要同时迭代两个元组——拆成两个循环、把 lazy 那组降级成警告，是削弱这道门最自然的方式（"uvloop 挂了只是性能回退"很容易说服人），所以断言盯的是"共用同一条判死路径"，不是"两个名字各自出现过"。
 
+## 先查"可迁移"，再查导入（v1.21.3 教训）
+
+导入检查有一个它自己无法察觉的盲区：它跑在**构建机**上。v1.21.3 的 30 个 workspace 包全被装成 editable，每个都是一个指向 `/Users/runner/work/...` 的 `.pth`——在构建机上这些目录存在，所以 8 项导入全绿；在用户机器上不存在，于是 `No module named 'narranexus.contracts'`。所以 `main()` 第一件事是 `_non_relocatable_installs()`：任何 `direct_url.json` 标了 `editable`、任何 `_editable_impl_*` / `__editable__*` 钩子、任何把 bundle 之外的绝对路径加进 `sys.path` 的 `.pth`，都直接判死。这类问题无法靠"导入成功"证伪，只能看安装本身。
+
 ## 设计决策
 
 - **任何异常都判死，不只是 ImportError**。第一版只判 ImportError，理由是"别让构建机的环境问题误伤"。这个取舍是错的：跨 major 的破坏在 import 期多数**不是** ImportError——starlette/fastapi 是签名变化的 TypeError、属性没了的 AttributeError，pydantic 是 PydanticUserError，builtin 插件加载失败是 loader 直接 raise。9/10 真正漂移进 DMG 的四个包里，只有 mcp 恰好以 ImportError 现身，四分之一的覆盖率。

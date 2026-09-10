@@ -20,12 +20,18 @@ step 3 曾经是 `uv pip install "$PROJECT_ROOT"`——它按 pyproject 的**区
 
 ## 其它已固化的决定（都各自付过学费）
 
-- **非 editable**：editable 会把构建机的绝对源码路径写进 site-packages，装到别人机器上全线 ModuleNotFoundError。
+- **非 editable——`--no-editable` 必须写在 `uv pip install` 上，不只是 `uv export` 上**：editable 会把构建机的绝对源码路径写进 site-packages，装到别人机器上全线 ModuleNotFoundError。v1.21.3 就栽在这：#390 把 flag 只挪到了 export 上，但 export 把 30 个 workspace 成员写成裸相对路径，`uv pip install -r` 照样把它们装成 editable（31 个 `_editable_impl_*.pth` 指向 `/Users/runner/work/...`），用户一打开就 `No module named 'narranexus.contracts'`。而构建和冒烟全绿——因为它们跑在构建机上，那些路径恰好存在。所以 step 3.1 现在先查安装本身是否可迁移（见 `bundle_import_smoke.py.md`），导入检查放在其后。
 - **不带 `--extra plugins`**：桌面版是轻量版，claude-agent-sdk（~186 MB）由 Settings → Plugins 按需装；分类见 `tests/backend/test_plugins_extra_lockstep.py`。
 - **CI 里的 uv 也钉版本**（`.github/workflows/build-desktop.yml` / `ci.yml` 的 `setup-uv` 带 `version:`）。`--locked` 断言的是"这个 uv 导出的 lock 一个字节都不变"，所以 uv 版本本身进了构建契约：不钉的话，哪天 setup-uv 装到一个会抬 lock 格式的新 uv，这一步会在**打完 tag 之后**红，是最贵的失败位置。
 - **Python / Node 下载都校验 SHA-256**，且期望值写死在脚本里——不许把"下完再算"的哈希贴回来。
 - **bundle 的 npm 依赖钉死在 `scripts/desktop-bundle/package-lock.json`**，用 `npm ci` 装。
 - **step 3.1 导入冒烟**：见 `bundle_import_smoke.py.md`。
+
+## 唯一"看得见用户所见"的检查在工作流里，不在这个脚本里
+
+这个脚本里的所有门禁（包括 step 3.1 冒烟）都跑在构建机上，而构建机上源码 checkout 恰好存在——任何偷偷依赖它的 bundle 都能全绿通过，v1.21.3 就是这样发出去的。所以 `.github/workflows/build-desktop.yml` 在构建之后、两次上传之前加了一步 "Verify the shipped app starts without the source tree"：把最终签名好的 .app `ditto` 出来，把整个 `$GITHUB_WORKSPACE` 挪走（`trap` 保证恢复），然后用 app 自带的 Python 跑 app 里那份冒烟脚本，再按 state.rs 的方式真正拉起 sqlite_proxy 直到绑上 :8100。不管依赖构建机文件系统的是 `.pth`、shebang、还是以后的什么新形态，都会在这里现形。本地 `build-desktop.sh` 不做这一步（没法在自己的 checkout 里把 checkout 藏起来）。
+
+另：bundle 的 `python/bin/*` 里 49 个控制台脚本（`narranexus`、`uvicorn`、`mcp`…）的 shebang 仍写死构建机路径。当前无害——启动器只把 Node 目录加进 PATH，运行时代码也不按名字调用它们（2026-09-10 核过）——但哪天有人把 `python/bin` 加进 PATH 或 shell 出去调这些命令，就会在用户机器上失败；上面那步验证只覆盖被实际执行到的路径。
 
 ## 已知仍在漂移的面
 

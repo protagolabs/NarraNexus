@@ -75,6 +75,14 @@ def test_step3_installs_from_the_exported_requirements() -> None:
     installs = command_lines(SCRIPT, "uv pip install")
     assert installs, "build-desktop.sh no longer installs the project — update this guard"
     for line in installs:
+        # On the install, not just the export (v1.21.3): the export writes the
+        # workspace members as bare paths and `uv pip install -r` installs those
+        # editable unless the INSTALL says otherwise.
+        assert "--no-editable" in line, (
+            "the install itself must carry --no-editable; without it the 30 "
+            "workspace members become `.pth` hooks into the build machine's source "
+            f"tree and the shipped app cannot import them:\n    {line}"
+        )
         assert re.search(r"(^|\s)(-r\s|--requirements?[=\s])", line), (
             "the bundled install must read the exported requirements file; installing "
             f"the project directly re-resolves from the pyproject ranges:\n    {line}"
@@ -305,4 +313,77 @@ def test_smoke_checks_uvicorns_lazily_resolved_deps() -> None:
         "no single loop iterates both ENTRYPOINTS and LAZY_RUNTIME_IMPORTS — the "
         "two must share one fatal path, or the lazy group can be quietly demoted "
         f"to a warning (loops found: {[sorted(n) for n in per_loop if n]})"
+    )
+
+
+def test_smoke_checks_the_bundle_is_relocatable() -> None:
+    """The smoke script must check the INSTALL, not only the imports.
+
+    Import checks run on the build machine, where an editable install's `.pth`
+    target exists — so they pass on a bundle that cannot work anywhere else.
+    That is exactly how v1.21.3 shipped: green build, green smoke, and
+    `No module named 'narranexus.contracts'` on every user's Mac. The
+    relocatability check has to exist AND run before the imports.
+    """
+    tree = ast.parse(SMOKE.read_text(encoding="utf-8"))
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    assert "_non_relocatable_installs" in functions, (
+        "bundle_import_smoke.py lost its relocatability check — an editable/"
+        "non-relocatable bundle would pass the import smoke on the build machine"
+    )
+    main = functions.get("main")
+    assert main is not None, "bundle_import_smoke.py has no main()"
+    called = {
+        n.func.id for n in ast.walk(main)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "_non_relocatable_installs" in called, (
+        "main() no longer calls _non_relocatable_installs — the check exists but "
+        "never runs, which is the same as not having it"
+    )
+
+
+def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
+    """The release workflow must run the FINAL app with the checkout hidden, before uploading.
+
+    Every other gate here runs on the build machine, where the source tree
+    exists — v1.21.3 passed all of them and still died on every user's Mac,
+    because its bundle leaned on /Users/runner/work/... through editable `.pth`
+    hooks. The only check that sees what a user sees is one that removes the
+    checkout and then launches the app; it has to sit before both uploads, or a
+    broken bundle is published first and found second.
+    """
+    import yaml  # pyyaml is a runtime dependency (pyproject.toml)
+
+    workflow = yaml.safe_load(
+        (REPO / ".github/workflows/build-desktop.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["build-macos"]["steps"]
+    names = [str(step.get("name", "")) for step in steps]
+
+    def index_of(fragment: str) -> int:
+        hits = [i for i, name in enumerate(names) if fragment in name]
+        assert hits, f"no workflow step named like {fragment!r}: {names}"
+        return hits[0]
+
+    verify = index_of("without the source tree")
+    build = index_of("Build, sign, notarize")
+    uploads = [i for i, name in enumerate(names) if name.startswith("Upload")]
+    assert uploads, "no upload steps found — update this guard"
+    assert build < verify < min(uploads), (
+        "the relocated-app verification must run after the build and before "
+        f"every upload (build={build}, verify={verify}, uploads={uploads})"
+    )
+
+    run = str(steps[verify].get("run", ""))
+    # The three things that make it a real check rather than a re-run of the
+    # build-machine smoke: the checkout is moved away, the app's OWN copy of
+    # the smoke script runs, and a sidecar is actually launched until it binds.
+    assert 'mv "$GITHUB_WORKSPACE"' in run, "the step no longer hides the checkout"
+    assert "trap restore EXIT" in run, "the checkout must be restored whatever happens"
+    assert "$PROJ/scripts/release/bundle_import_smoke.py" in run, (
+        "the smoke must run from the relocated app's project copy"
+    )
+    assert "narranexus.platform.utils.db.sqlite_proxy_server" in run and "8100" in run, (
+        "the step must launch sqlite_proxy and wait for its port"
     )

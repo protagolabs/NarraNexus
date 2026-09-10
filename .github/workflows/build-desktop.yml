@@ -183,6 +183,63 @@ jobs:
           NETMIND_KEY_API_BASE: ${{ vars.NETMIND_KEY_API_BASE }}
           NETMIND_INFERENCE_BASE: ${{ vars.NETMIND_INFERENCE_BASE }}
 
+      # The only check that sees what a USER sees. Everything before this runs
+      # on the build machine, where the source checkout exists — so a bundle that
+      # silently depends on that checkout passes every earlier gate. v1.21.3 did
+      # exactly that: its workspace packages were editable `.pth` hooks into
+      # /Users/runner/work/..., the import smoke on this runner was green, and
+      # every user's app died with `No module named 'narranexus.contracts'`.
+      # So: copy the final, signed .app out, move the whole checkout out of the
+      # way, and then run it — the import smoke from the app's own copy of the
+      # project, and the first sidecar (sqlite_proxy) launched the way state.rs
+      # launches it, until it binds its port. Any dependency on the build
+      # machine's filesystem, in whatever form, fails here — before either upload.
+      - name: Verify the shipped app starts without the source tree
+        run: |
+          set -euo pipefail
+          APP_SRC="$GITHUB_WORKSPACE/tauri/src-tauri/target/release/bundle/macos/NarraNexus.app"
+          [ -d "$APP_SRC" ] || { echo "::error::NarraNexus.app not found at $APP_SRC"; exit 1; }
+          VERIFY="$RUNNER_TEMP/relocated"
+          rm -rf "$VERIFY" && mkdir -p "$VERIFY/home"
+          ditto "$APP_SRC" "$VERIFY/NarraNexus.app"
+
+          # Hide the checkout. Restored on EXIT whatever happens — later steps
+          # (and the post-job cleanup) need it back.
+          HIDDEN="$GITHUB_WORKSPACE.hidden-for-verify"
+          restore() { if [ -d "$HIDDEN" ]; then mv "$HIDDEN" "$GITHUB_WORKSPACE"; fi; }
+          trap restore EXIT
+          cd "$RUNNER_TEMP"
+          mv "$GITHUB_WORKSPACE" "$HIDDEN"
+
+          RES="$VERIFY/NarraNexus.app/Contents/Resources/resources"
+          PY="$RES/python/bin/python3"
+          PROJ="$RES/project"
+
+          echo "--- import smoke, run from the relocated app, checkout hidden ---"
+          HOME="$VERIFY/home" "$PY" "$PROJ/scripts/release/bundle_import_smoke.py"
+
+          echo "--- launch sqlite_proxy as state.rs does, wait for :8100 ---"
+          LOG="$VERIFY/sqlite_proxy.log"
+          ( cd "$PROJ" && HOME="$VERIFY/home" NARRA_SURFACE=desktop \
+              DATABASE_URL="sqlite:///$VERIFY/verify.db" SQLITE_PROXY_PORT=8100 \
+              SQLITE_PROXY_URL=http://localhost:8100 \
+              exec "$PY" -m narranexus.platform.utils.db.sqlite_proxy_server ) >"$LOG" 2>&1 &
+          PROXY_PID=$!
+          up=0
+          for _ in $(seq 1 45); do
+            if nc -z 127.0.0.1 8100 2>/dev/null; then up=1; break; fi
+            kill -0 "$PROXY_PID" 2>/dev/null || break
+            sleep 1
+          done
+          kill "$PROXY_PID" 2>/dev/null || true
+          wait "$PROXY_PID" 2>/dev/null || true
+          if [ "$up" != 1 ]; then
+            echo "--- sqlite_proxy log ---"; cat "$LOG"
+            echo "::error::sqlite_proxy did not bind :8100 from the relocated app with the checkout hidden"
+            exit 1
+          fi
+          echo "sqlite_proxy bound :8100 from the relocated app — the bundle does not depend on the build machine."
+
       - name: Normalize artifact filenames (stable name across versions)
         run: |
           set -euo pipefail
