@@ -552,7 +552,7 @@ async def test_non_json_error_page_echoing_the_url_is_redacted_before_truncation
     # (token in the path); the snippet is what tg_cli hands the agent. The
     # token must be redacted BEFORE the 160-char cut, or its head survives.
     token = "7981632450:AAHsecretsecretsecretsecret"
-    padding = "x" * 120  # the token straddles the 160-char boundary of the RAW page
+    padding = "x" * 100  # in the RAW page the token straddles the 160-char boundary
     page = f"<html>{padding}https://api.telegram.org/bot{token}/getUpdates blocked by proxy</html>"
     client, _ = _sdk_with(monkeypatch, [_Resp(502, None, page), _Resp(407, None, page)])
     client._bot_token = token
