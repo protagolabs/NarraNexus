@@ -87,6 +87,9 @@ from narranexus.platform.utils.timezone import coerce_utc
 # Repository
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.repository.inbox_repository import InboxRepository
+from narranexus.platform.repository.owner_notice_cooldown_repository import (
+    OwnerNoticeCooldownRepository,
+)
 from narranexus.platform.schema.inbox_schema import InboxMessageType, MessageSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 # Leaf shared util (the real-time circuit-breaker imports the same) — NOT a
@@ -250,6 +253,28 @@ _IN_RUN_STOPS = (
 # backstop for missed edges, so it runs at this low interval instead of every
 # 60s cycle (high-frequency scanning was the oscillation amplifier).
 _NO_QUOTA_BACKSTOP_INTERVAL_S = 900  # 15 minutes
+
+
+# B-17 / review I8: one "job paused" inbox notice per (agent, job, reason)
+# per this window. A PAUSED_NO_QUOTA job whose reason readiness CAN observe
+# (auth / no_quota) is re-armed by the 15-minute backstop, fires, fails
+# identically and pauses again — without a window that is one inbox row per
+# schedule tick, forever. The window is keyed on the REASON too, so a change
+# of reason (no_quota -> auth) is a new fact and notifies immediately. Lives
+# in `owner_notice_cooldowns` (OwnerNoticeCooldownRepository) so a process
+# restart does not re-notify. MUST stay far below the bus's
+# NOTICE_COOLDOWN_RETENTION_DAYS (2 days) — its daily sweep deletes rows older
+# than that, and a window longer than the sweep would re-open mid-flight
+# (tests/job_module/test_job_pause_inbox_notification.py pins the ratio).
+_PAUSE_NOTICE_COOLDOWN_SECONDS = 6 * 3600
+_PAUSE_NOTICE_CATEGORY_PREFIX = "job_paused:"
+
+
+def _pause_notice_category(pause_reason: str) -> str:
+    """`owner_notice_cooldowns.category` for a pause notice: prefix + reason.
+    The column is VARCHAR(32); every reason `_finalize_job_execution` /
+    `_execute_job` can produce fits (longest: `insufficient_balance`, 31)."""
+    return f"{_PAUSE_NOTICE_CATEGORY_PREFIX}{pause_reason}"
 
 
 def _compute_cooldown_seconds(consecutive_failures: int) -> int:
@@ -1458,10 +1483,29 @@ The task was executed but produced no text output.
         services/background_llm_alerts.alert_agent_paused) rather than
         inventing a new channel. Best-effort: a notification failure must
         never break the pause itself.
+
+        De-duplicated per (agent, job, reason) over
+        `_PAUSE_NOTICE_COOLDOWN_SECONDS` via `owner_notice_cooldowns`
+        (review I8). The cooldown read fails OPEN — an unreadable window
+        must not silence a real pause — and the window is armed only after
+        the inbox write succeeded, so a failed write does not open a window
+        with nothing behind it (same shape as background_llm_alerts).
         """
         recipient = job.user_id
         if not recipient:
             return
+        category = _pause_notice_category(pause_reason)
+        try:
+            if await OwnerNoticeCooldownRepository(self.db).is_cooling(
+                job.agent_id, job.job_id, category, _PAUSE_NOTICE_COOLDOWN_SECONDS
+            ):
+                logger.info(
+                    f"[job-pause] owner notice for {job.job_id} ({pause_reason}) "
+                    f"still inside its cooldown window; not re-sent"
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — a duplicate notice beats a silent window
+            logger.warning(f"[job-pause] cooldown read failed for {job.job_id}: {e}")
         try:
             from narranexus.platform.agent_framework.llm.failure import redact_secrets
 
@@ -1486,6 +1530,11 @@ The task was executed but produced no text output.
             logger.warning(
                 f"[job-pause] owner inbox notice failed for {job.job_id}: {e}"
             )
+            return
+        try:
+            await OwnerNoticeCooldownRepository(self.db).arm(job.agent_id, job.job_id, category)
+        except Exception as e:  # noqa: BLE001 — best-effort; a duplicate later is the cheap failure
+            logger.warning(f"[job-pause] cooldown arm failed for {job.job_id}: {e}")
 
     async def _finalize_job_execution(
         self,

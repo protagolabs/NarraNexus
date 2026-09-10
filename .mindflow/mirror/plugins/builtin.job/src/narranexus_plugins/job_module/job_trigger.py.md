@@ -93,6 +93,28 @@ provider readiness（登录/存 provider 的 edge）恢复，与花费无关，�
 **Fail open**：`_daily_spend_cap_exceeded` 对 env 值解析失败或 DB 查询失败
 都返回 `False`（不暂停）——一次数据库抖动不该冻结全平台的 job。
 
+## 2026-09-10（review r1 I8）— pause 通知过 `owner_notice_cooldowns` 冷却
+
+首版 `_notify_owner_job_paused` 无条件发 inbox：auth / no_quota 这两类 `paused_reason`
+不在 `_EDGE_ONLY_RESUME_REASONS`，15 分钟 backstop 只要静态 readiness 说「配置完整」就把 job
+翻回 ACTIVE → 到点跑 → 同样 401 → 再暂停 → **再发一封**——一个 key 还在但已失效的用户，
+按 job 调度频率无限期刷收件箱。现在用 PR #389 引入的 `OwnerNoticeCooldownRepository`
+（键 `(agent_id, target=job_id, category="job_paused:<reason>")`）做去重：
+- 窗口 `_PAUSE_NOTICE_COOLDOWN_SECONDS = 6h`，常量在本文件（窗口是 writer 的事，表只记时间）。
+  **必须远小于** bus 侧 `NOTICE_COOLDOWN_RETENTION_DAYS`（2 天）——那条每日 sweep 删更老的行，
+  窗口逼近它就会被中途重开；测试 `test_pause_notice_window_stays_well_inside_the_cooldown_retention`
+  钉住比例。
+- category 带 reason：`no_quota → auth` 是新事实，立刻再通知；同 reason 在窗口内不重发。
+  列宽 VARCHAR(32)，`_pause_notice_category` 对所有可能的 reason（auth / no_quota / spend_cap /
+  五个 self-serviceable）都 ≤ 32，参数化测试逐个钉住。
+- 冷却读失败 **fail open**（宁可重复也不静默），窗口只在 inbox 写成功之后 `arm`（写失败不开空窗）。
+  与 [[background_llm_alerts]] 同形。
+- C1 之后 spend_cap 也成了周期性事件（每天一次），同样过这条冷却。
+
+锁：`test_repeated_pause_for_the_same_reason_notifies_once`、`test_a_different_pause_reason_notifies_again`、
+`test_notifies_again_once_the_window_has_expired`、`test_window_is_not_armed_when_the_inbox_write_fails`、
+`test_cooldown_read_failure_still_notifies`。
+
 ## 2026-09-09 — B-17：job 因额度/凭据被暂停时通知 owner
 
 `_finalize_job_execution` 把 job 标成 `PAUSED_NO_QUOTA` 那一段，之前只有
