@@ -1182,7 +1182,7 @@ def _expiry_is_past(raw: object) -> bool:
         )
         if isinstance(raw, (int, float)) or is_numeric_str:
             ts = float(raw)  # type: ignore[arg-type]
-            if ts > EPOCH_MS_THRESHOLD:  # milliseconds, not seconds
+            if ts >= EPOCH_MS_THRESHOLD:  # milliseconds, not seconds (same boundary as the frontend)
                 ts /= 1000.0
             return ts < datetime.now(timezone.utc).timestamp()
         if isinstance(raw, str):

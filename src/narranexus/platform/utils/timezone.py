@@ -103,7 +103,7 @@ def to_user_timezone(dt, user_tz: str = DEFAULT_TIMEZONE) -> Optional[datetime]:
         # blank rows and only a warning line said why). Loud, at the call
         # site, with the offending type named.
         raise TypeError(
-            f"format_for_api expects datetime | str | None, got {type(dt).__name__}"
+            f"to_user_timezone expects datetime | str | None, got {type(dt).__name__}"
         )
 
     try:

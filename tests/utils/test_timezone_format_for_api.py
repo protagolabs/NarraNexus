@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from narranexus.platform.utils.timezone import format_for_api
+from narranexus.platform.utils.timezone import format_for_api, to_user_timezone
 
 
 def test_datetime_and_sqlite_string_still_format_to_z_suffixed_iso():
@@ -36,3 +36,11 @@ def test_an_unparseable_string_is_returned_as_is():
 def test_a_non_datetime_raises_type_error_instead_of_returning_its_repr(bad):
     with pytest.raises(TypeError, match="format_for_api expects"):
         format_for_api(bad)
+
+
+@pytest.mark.parametrize("bad", [{"ts": "x"}, ["2025-01-15"], 1736951400])
+def test_to_user_timezone_raises_type_error_under_its_own_name(bad):
+    """The same guard lives on the other entry point and names itself, so a
+    traceback from the agent-prompt path points at the function that raised."""
+    with pytest.raises(TypeError, match="to_user_timezone expects"):
+        to_user_timezone(bad, "UTC")

@@ -1,10 +1,14 @@
 ---
 code_file: src/narranexus/platform/utils/timezone.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 
 ## 2026-09-09 — `format_for_api` 对非 datetime/str 抛 `TypeError`（B-18 根因，复审 I3）
+
+同批把同一守卫落到 `to_user_timezone`（`format_for_api` 不是唯一入口：`format_timestamp_for_agent` /
+`format_time_for_user` 走的是这条门），两处异常文案各自具名，追栈时不会指向错的函数；
+`tests/utils/test_timezone_format_for_api.py` 对两个入口分别钉住。
 
 B-18 的表象是公告栏路由把整个 `entry.model_dump()` 喂给了 `format_for_api`；根因在这里：
 函数的 except 分支把**类型错误**（dict 上取 `.tzinfo` 的 `AttributeError`）当成"格式化失败"，
