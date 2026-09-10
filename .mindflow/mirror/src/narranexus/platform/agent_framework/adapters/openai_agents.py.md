@@ -33,7 +33,9 @@ ImportError）。**只有 `json_schema` 档发它**；system prompt 里的 schem
 发出第一个请求前就把整次 helper 调用炸掉，`json_object` / 纯 prompt 两档根本走不到。仓内 16 个模型
 今天都干净，爆炸面是第三方 / marketplace / agent 自写插件经 `llm_function(output_type=...)` 传进来的
 模型。现在阶梯的每一档是**延迟构造**（`(level, build_extra)`），`build_extra()` 在循环内自己的
-try 里调：抛了就把该 `output_type` 记进 `_strict_rewrite_unsupported`（**按类型缓存**，不是按
+try 里调：抛了就把该 `output_type` 记进 `_strict_rewrite_unsupported`（**按类型的限定名缓存**，键是
+`module.qualname` 字符串而非类对象，免得插件按次造模型时集合无界增长并把类钉在内存里；且只有
+`json_schema` 档的失败才入缓存，将来别的档位自带构造逻辑时不会顺手把 strict 档关掉；不是按
 `(base_url, model)`——失败是 schema 自身的性质，若记到模型能力集上，其余 16 个合规模型在同一模型上
 会一起被降到 `json_object`，正是 08-25 修复要够到的那档）、`logger.warning` + 审计事件
 `strict_schema_rewrite_rejected`（走既有 `_audit_framework_downgrade` 通道，不静默），然后 `continue`

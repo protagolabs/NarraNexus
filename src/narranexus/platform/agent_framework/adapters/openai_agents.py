@@ -256,7 +256,14 @@ def build_strict_json_schema(output_type: Type[BaseModel]) -> dict:
 # schema alone, so caching it on the model's capability set would demote every
 # other output type on that model to json_object — undoing the rung the
 # 2026-08-25 fix exists to reach. Process-local, like the capability cache.
-_strict_rewrite_unsupported: set[type] = set()
+# Keyed by the type's qualified name (not the class object) so a plugin that
+# builds throwaway output models per call cannot grow the set without bound
+# or pin those classes in memory.
+_strict_rewrite_unsupported: set[str] = set()
+
+
+def _strict_rewrite_key(output_type: type) -> str:
+    return f"{output_type.__module__}.{output_type.__qualname__}"
 
 
 def _allowed_levels(key: tuple[str, str]) -> set[str]:
@@ -728,7 +735,7 @@ class OpenAIAgentsSDK:
             ladder: list[tuple[str, Callable[[], dict]]] = []
             if (
                 "json_schema" in allowed
-                and output_type not in _strict_rewrite_unsupported
+                and _strict_rewrite_key(output_type) not in _strict_rewrite_unsupported
             ):
                 ladder.append(("json_schema", _json_schema_extra))
             if "json_object" in allowed:
@@ -739,9 +746,14 @@ class OpenAIAgentsSDK:
                     extra = build_extra()
                 except Exception as e:
                     # Local rejection of the schema (no request was sent).
-                    # Cached per output type, audited like a provider
-                    # downgrade, then on to the next rung.
-                    _strict_rewrite_unsupported.add(output_type)
+                    # Only the strict rung is cached per output type (a
+                    # future rung with its own builder must not switch the
+                    # strict rung off); audited like a provider downgrade,
+                    # then on to the next rung.
+                    if level == "json_schema":
+                        _strict_rewrite_unsupported.add(
+                            _strict_rewrite_key(output_type)
+                        )
                     logger.warning(
                         f"[StructuredFallback] {level} rung skipped for "
                         f"{output_type.__name__}: strict schema rewrite "
