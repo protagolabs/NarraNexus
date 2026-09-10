@@ -4,7 +4,7 @@ stub: false
 last_verified: 2026-09-09
 ---
 
-## 2026-09-09 — 三条 OAuth 路由补上外层 except（B-31，#118 遗留）
+## 2026-09-09 — 三条 OAuth 路由挂 `structured_envelope`（B-31，#118；复审 C1/I2）
 
 三条路由（login/complete/status）此前对「预期失败」（ownership 拒绝、未绑定 bot）已经
 统一返回 `{"success": False, "error": ...}`，但没有任何一层兜住**意外**异常——
@@ -13,12 +13,15 @@ subprocess 调用、CLI JSON 解析里的下一个 bug，都会直接穿透路�
 不出 `error` 字段，用户看到的是一片空白或乱码（#120 那次具体的 NameError 早已在 CLI 层
 修掉，但这层什么都没接住，下一个类似 bug 换个位置照样能穿透）。
 
-修法：三条函数体各包一层 `try/except Exception`，落回同一种
-`{"success": False, "error": str(e)}` 信封——不是新发明一种错误形状，是把这个文件已经
-在用的形状补到「意外」这条分支上。全仓扫过 telegram/discord/slack 的绑定路由：它们没有
-自己的路由文件，都走 `backend/routes/channels/generic.py` 的 `/{channel}/bind`，那条路由
-有一模一样的缺口，同批一起补（保留 `_descriptor` 的 404 和 `CredentialConflict` 的 409
-这两条已定型的类型化异常，只兜「其余一切」）。
+第一版给三条函数体各手抄了一层裸 `try/except Exception`，复审判 Critical：
+`_verify_agent_ownership`（= `_ownership.check_owned`）在 owner 查询失败时**故意**抛 503
+让 db 宕机成为可告警的 5xx，裸 except 把它吞成 200——正是 `_ownership.py` 注释写死要防
+的事；`AuthError` 也是 HTTPException，401/403 同样被吞。另外 `str(e)` 原样回客户端会泄露
+驱动异常里的 RDS 主机名。现在三条路由改挂共享装饰器
+`@structured_envelope("lark")`（[[../../../../../../src/narranexus/platform/utils/route_envelope.py]]）：
+HTTPException 原样再抛，其余异常落成固定文案 + `trace_id` 的信封。与 generic.py 六个动词
+同一份实现，不再两种写法。`tests/lark_module/test_auth_error_handling.py` 钉住三件事：
+crash→信封且不含异常文本、503/401 不降级（直调 + 真 TestClient 上线）、两次 crash 两个 id。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

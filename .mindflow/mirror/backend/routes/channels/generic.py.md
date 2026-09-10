@@ -30,10 +30,21 @@ The **source address** comes from `backend/routes/_client_ip.py::client_ip`, nev
 
 The middleware wiring is tested end to end in `tests/backend/test_channel_webhook_middleware.py` with the REAL `auth_middleware` and cloud mode forced — a hand-rolled identity middleware cannot tell "exempt by design" from "never behind auth at all".
 
-## 2026-09-09 — `channel_bind` gets an outer fallback (B-31 sweep, #118)
+## 2026-09-09 — 六个动词共用 `structured_envelope`（B-31 sweep，#118；复审 C1/I1/I2）
 
-Every EXPECTED failure on this route already returns `{"success": False, "error": ...}` at 200 (`check_owned`'s deliberate contract), and the two typed rejections (`_descriptor`'s unknown-channel 404, `CredentialConflict`'s 409) already had their own handling. Nothing caught anything BEYOND those — an unrelated bug anywhere in the body (the manager-backed `DirectStore.bind` call, `GenericCredentialStore.upsert` itself) propagated straight out of the route, and Starlette's default `ServerErrorMiddleware` turned it into a plain-text `"Internal Server Error"` 500 the frontend cannot parse an `error` field out of.
+每个预期失败在这些动词上都已经是 `{"success": False, "error": ...}` @200（`check_owned` 的
+刻意契约），两个类型化拒绝（`_descriptor` 的 404、`CredentialConflict` 的 409）也各有归宿。
+没人兜的是**意外**异常：`DirectStore.bind/test_connection`、`GenericCredentialStore.upsert/
+get_public/get/unbind/set_enabled` 里任何一个 bug 都穿透路由，Starlette 默认错误中间件把它
+变成纯文本 500，前端解析不出 `error`。telegram/discord/slack 没有自己的 bind 路由，全走这
+里——所以这个文件才是「其它 channel 绑定路由」的真正扫描目标。
 
-This is the same gap fixed the same day on the Lark OAuth routes (`lark_module/routes.py`) — telegram/discord/slack have no bespoke bind route of their own, they all bind through THIS one, so this file is the actual sweep target for "the other channel bind routes."
-
-Fix: wrap the body in `try: ... except HTTPException: raise; except Exception: return {"success": False, "error": str(e)}`. The `except HTTPException: raise` re-raise is load-bearing — a bare `except Exception` would also catch the 404/409 HTTPExceptions and silently downgrade them to a 200 envelope, changing their status code.
+第一版只给 `/bind` 手抄了一份 try/except；复审指出同文件另外 5 条同契约动词（schema /
+credential / test / unbind / set-active）原样留着缺口，`channel_test` 里真去打外部平台的
+`DirectStore.test_connection` 恰恰是最可能炸的一条。现在六条统一挂
+`@structured_envelope("channels")`（实现与两条规则见 [[../../../src/narranexus/platform/utils/route_envelope.py]]）：
+`HTTPException` 原样再抛（404/409/503 状态码不变），客户端只拿固定文案 + `trace_id`，不再
+拿 `str(e)`。**`channel_webhook` 刻意不套**：它是无鉴权入站端点，401/404/429 由状态码本身
+承载语义，包成 200 会让投递方以为送达、还开枚举 oracle——`test_the_webhook_is_deliberately_
+not_enveloped` 钉住。`test_a_failed_ownership_lookup_stays_a_503_on_every_verb` 钉住 503 在
+五个动词上都不被降级。
