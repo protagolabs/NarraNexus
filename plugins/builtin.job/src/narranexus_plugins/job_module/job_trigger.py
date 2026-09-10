@@ -1104,20 +1104,6 @@ class JobTrigger:
                 f"(related_entity_id={job.related_entity_id}, job.user_id={job.user_id})"
             )
 
-            # B-14: thread the job-level per-run token budget (if the owner
-            # set one) into the run request's generic extra-data bag — the
-            # first input of its kind in this contract. This is advisory
-            # information for the executing framework, not a force-stop: no
-            # framework here enforces it mid-loop yet, so it never kills a
-            # run in progress (铁律 #14). Guards a heartbeat/ongoing job
-            # whose context silently balloons run over run.
-            trigger_extra_data: Dict[str, Any] = {"trigger_id": f"job_{job.job_id}"}
-            max_tokens_per_run = (
-                job.trigger_config.max_tokens_per_run if job.trigger_config else None
-            )
-            if max_tokens_per_run:
-                trigger_extra_data["max_tokens_per_run"] = max_tokens_per_run
-
             collection = await client.run_and_collect(
                 agent_id=job.agent_id,
                 user_id=execution_user_id,
@@ -1125,7 +1111,7 @@ class JobTrigger:
                 working_source=WorkingSource.JOB,
                 job_instance_id=job.instance_id,
                 forced_narrative_id=job.narrative_id,
-                trigger_extra_data=trigger_extra_data,
+                trigger_extra_data={"trigger_id": f"job_{job.job_id}"},
             )
 
             # Error path (Bug 2): previously the trigger swallowed the

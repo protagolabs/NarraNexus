@@ -293,20 +293,6 @@ class TriggerConfig(BaseModel):
             timezone="UTC",
         )
 
-    # === Per-run token budget (B-14, added 2026-09-09) ===
-    max_tokens_per_run: Optional[int] = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Optional cap on total tokens (input+output) a single run of "
-            "this job may consume, passed to the executing framework as a "
-            "generic budget input. Guards against a heartbeat/ongoing job "
-            "whose context silently balloons run over run (seen: 1-7M input "
-            "tokens/run, ~$140/4 days on two jobs). None = no cap (default, "
-            "unchanged behavior)."
-        ),
-    )
-
     # === ONGOING Configuration (added 2026-01-21) ===
     end_condition: Optional[str] = Field(
         default=None,

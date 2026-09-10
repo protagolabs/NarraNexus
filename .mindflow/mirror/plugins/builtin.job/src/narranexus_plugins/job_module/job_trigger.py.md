@@ -49,7 +49,7 @@ last_verified: 2026-09-10
 上海口径 5.0 / UTC 口径 13.0）、`test_execute_job_judges_today_in_the_jobs_timezone`（15:30Z 的
 花费在 UTC 口径下已触顶、在上海口径下未触顶 → job 照跑）+ MySQL 同款三条。
 
-## 2026-09-09 — B-14：每次调度前查日花费上限 + 传递单次 token 预算
+## 2026-09-09 — B-14：每次调度前查日花费上限
 
 `_execute_job` 拿到执行锁之后、build prompt/调框架**之前**新增一步检查：
 `_daily_spend_cap_exceeded(exec_uid, user_tz)` 读 `NARRANEXUS_USER_DAILY_SPEND_CAP_USD`
@@ -62,11 +62,8 @@ last_verified: 2026-09-10
 也不调 `_run_agent`**——只挡下一次调度，跟既有 `PAUSED_NO_QUOTA` 同形，
 绝不打断正在跑的 run（铁律 #14）。
 
-`_run_agent` 里另加：`job.trigger_config.max_tokens_per_run`（若设置）
-塞进 `trigger_extra_data["max_tokens_per_run"]`，随 `run_and_collect(...)`
-一起传给执行框架——这是「run request contract 里第一个预算类输入」，纯粹
-透传，不在这层做任何强制执行（框架目前也没有消费它；见
-[[job_schema]] 的对应条目）。
+（首版还把 `trigger_config.max_tokens_per_run` 透传进 `trigger_extra_data`；
+复审 I7 查明没有任何消费方，已连同 schema 字段一起删除，见 [[job_schema]]。）
 
 **Fail open**：`_daily_spend_cap_exceeded` 对 env 值解析失败或 DB 查询失败
 都返回 `False`（不暂停）——一次数据库抖动不该冻结全平台的 job。

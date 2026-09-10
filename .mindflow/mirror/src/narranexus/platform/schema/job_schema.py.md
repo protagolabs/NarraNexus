@@ -4,19 +4,24 @@ last_verified: 2026-09-10
 stub: false
 ---
 
-## 2026-09-09 — B-14：`max_tokens_per_run` + `JobStatus.PAUSED_SPEND_CAP`
+## 2026-09-10（review r1 I7）— 撤掉 `max_tokens_per_run`
+
+B-14 首版给 `TriggerConfig` 加过 `max_tokens_per_run: Optional[int]`，
+[[job_trigger]] 把它塞进 `trigger_extra_data` 透传。复审查明它是**死字段**：
+`trigger_extra_data` 的全部消费方（`openai_compat` / `manyfold/sync` /
+`websocket`）没有一个读它，也没有任何 route / MCP 工具 / 前端能设置它——但
+Field description 写着「cap on total tokens … Guards against …」，读到的人
+（包括通过自由 dict 写 `trigger_config` 的 LLM）会以为花费被限住了。而真要
+「兑现」它就得给 agent_loop 加硬上限，直接撞铁律 #14——这个接口永远无法兑现，
+却要永远维护（YAGNI / 铁律 #2）。整个字段连同它的三条测试一并删除；B-14 的
+花费闸（`PAUSED_SPEND_CAP`）本身是完整、独立成立的，不受影响。
+
+## 2026-09-09 — B-14：`JobStatus.PAUSED_SPEND_CAP`
 
 一个用户在两个 2 小时心跳 `ongoing` job 上 4 天烧了约 $140（单次运行
-1-7M input tokens）——job 层此前对「单次运行到底能用多少 token / 一天到底
-花了多少钱」完全没有上限。additive-only 两处新增：
+1-7M input tokens）——job 层此前对「一天到底花了多少钱」完全没有上限。
+additive-only 新增：
 
-- `TriggerConfig.max_tokens_per_run: Optional[int]`（`gt=0`，默认 `None`）——
-  job 级可选的单次运行 token 预算。写路径原样传给执行框架（见
-  [[job_trigger]] 的 `trigger_extra_data`），**只是把预算作为通用输入传下去
-  的契约扩展**，本文件不做也不能做「超了就砍断 loop」——那会撞铁律 #14
-  （禁止给 agent_loop 加硬性次数/时长上限）；有没有真正执行这个预算，取决
-  于执行框架自己（nexus_power/claude 目前都还没有消费这个字段，是留好的
-  接口，不是已启用的强制上限）。
 - `JobStatus.PAUSED_SPEND_CAP = "paused_spend_cap"`——用户当日**全部** LLM 花费（读
   `cost_records`，不止 job；「当日」按 job 冻结时区，见 [[job_trigger]] 2026-09-10 条）在
   下一次调度开始**之前**已达/超过 `NARRANEXUS_USER_DAILY_SPEND_CAP_USD` 时暂停 job。跟 `PAUSED_NO_QUOTA` 不
