@@ -13,5 +13,6 @@ export { useAgentImported } from './useAgentImported';
 export { useAgentImport, type AgentImportController } from './useAgentImport';
 export { useBookmarkSignals } from './useBookmarkSignals';
 export { useFastMode } from './useFastMode';
+export { useCircuitBannerAutoClear } from './useCircuitBannerAutoClear';
 export { useDismissOnOutside } from './useDismissOnOutside';
 export { useStudioLifecycle } from './useStudioLifecycle';

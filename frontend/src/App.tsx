@@ -7,7 +7,7 @@ import { useState, useEffect, useSyncExternalStore, lazy, Suspense } from 'react
 import { useTranslation } from 'react-i18next';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
-import { usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
+import { useCircuitBannerAutoClear, usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
@@ -22,10 +22,6 @@ import {
   shouldShowExpiryWarning,
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
-import {
-  CIRCUIT_BREAKER_POLL_INTERVAL_MS,
-  shouldClearCircuitBanner,
-} from '@/services/wsCircuitOpen';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { PAGES, useRegistryEntries } from '@/platform/registries';
 import { pageRouteElements } from '@/platform/pageRoutes';
@@ -373,37 +369,23 @@ function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId: string; reason: string }>).detail;
-      if (detail?.agentId) setCircuitOpen(detail);
+      if (!detail?.agentId) return;
+      // Same agent + same reason → keep the existing state object. Every
+      // rejected turn fires this event; a fresh object per retry would
+      // re-render and re-key everything hanging off the banner for nothing.
+      setCircuitOpen((prev) =>
+        prev && prev.agentId === detail.agentId && prev.reason === detail.reason ? prev : detail,
+      );
     };
     window.addEventListener('narranexus:agent-circuit-open', handler);
     return () => window.removeEventListener('narranexus:agent-circuit-open', handler);
   }, []);
   // GitHub #117: the banner above is purely event-driven — it never re-checks
-  // reality, so it stays up even after the agent self-heals (the backend's
-  // half-open probe succeeding, or the owner fixing the key from another tab).
-  // While a "paused" banner is showing, poll the existing per-agent status
-  // endpoint (already wired via api.getAgentCircuitBreaker — no new API
-  // surface) and close the banner once the breaker is no longer paused.
-  useEffect(() => {
-    if (!circuitOpen || !circuitOpen.reason.startsWith('paused')) return;
-    let cancelled = false;
-    const pollStatus = async () => {
-      try {
-        const status = await api.getAgentCircuitBreaker(circuitOpen.agentId);
-        if (!cancelled && shouldClearCircuitBanner(status.cb_status)) {
-          setCircuitOpen(null);
-        }
-      } catch {
-        // Best-effort re-check — leave the banner as-is on a transient
-        // status-fetch failure; the next interval tick will retry.
-      }
-    };
-    const id = window.setInterval(pollStatus, CIRCUIT_BREAKER_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [circuitOpen]);
+  // reality, so it stays up even after the agent self-heals. While a "paused"
+  // banner is showing (and the user is logged in), poll the existing
+  // per-agent status endpoint and close the banner once the breaker is no
+  // longer paused. See hooks/useCircuitBannerAutoClear for the contract.
+  useCircuitBannerAutoClear(circuitOpen, setCircuitOpen, isLoggedIn);
   const handleResumeAgent = async () => {
     if (!circuitOpen || resuming) return;
     setResuming(true);

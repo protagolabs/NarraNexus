@@ -54,6 +54,12 @@ describe('shouldClearCircuitBanner', () => {
   it('clears the banner for cooling too (no longer paused)', () => {
     expect(shouldClearCircuitBanner('cooling')).toBe(true);
   });
+
+  it('keeps the banner while a half-open probe is still in flight', () => {
+    // The verdict is unknown and the next message would still be refused;
+    // closing now only to re-open on a failed probe would flap.
+    expect(shouldClearCircuitBanner('probing')).toBe(false);
+  });
 });
 
 describe('dispatchAgentCircuitOpen', () => {

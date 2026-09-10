@@ -21,9 +21,9 @@
  * left a stale "paused" banner up until the user manually dismissed or
  * retried. App.tsx now polls GET /api/agents/{id}/circuit-breaker (an
  * existing, already-wired endpoint — see agents_circuit_breaker.py) while
- * the banner is showing a "paused" reason, and `shouldClearCircuitBanner`
- * is the pure decision of whether that fresh status means the banner is
- * stale and should close itself.
+ * the banner is showing a "paused" reason (hooks/useCircuitBannerAutoClear),
+ * and `shouldClearCircuitBanner` is the pure decision of whether that fresh
+ * status means the banner is stale and should close itself.
  */
 
 export interface MaybeCircuitOpenFrame {
@@ -58,9 +58,14 @@ export function circuitOpenReason(message: unknown): string {
 export const CIRCUIT_BREAKER_POLL_INTERVAL_MS = 30_000;
 
 /** True when a freshly-fetched `cb_status` means the "paused" banner is
- * stale and should close itself — anything other than still-paused. */
+ * stale and should close itself: the breaker is back to `active` (the probe
+ * succeeded / the owner fixed the key) or merely `cooling` (a short, self-
+ * expiring backoff the banner copy already distinguishes). `probing` does
+ * NOT clear it — a probe is in flight and its verdict is unknown; the user's
+ * next message would still be refused, and closing the banner now only to
+ * re-open it on a failed probe reads as flapping. */
 export function shouldClearCircuitBanner(cbStatus: string): boolean {
-  return cbStatus !== 'paused';
+  return cbStatus === 'active' || cbStatus === 'cooling';
 }
 
 /**

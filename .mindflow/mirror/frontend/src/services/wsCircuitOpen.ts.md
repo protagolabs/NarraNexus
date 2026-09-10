@@ -1,14 +1,15 @@
 ---
 code_file: frontend/src/services/wsCircuitOpen.ts
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 # wsCircuitOpen.ts — 检测 WS "熔断器打开" 帧 + 横幅自愈判定
 
 ## 为什么存在
 
-后端 fresh-run 闸门在 Agent 被熔断（paused/cooling）时发一帧
-`{type:'error', error_type:'agent_circuit_open', cb_reason:'paused:auth'|'paused:quota'|'cooling'}`
+后端 fresh-run 闸门在 Agent 被熔断（paused/cooling，或半开探测被别的 turn 持有/抢到时
+的 probing）发一帧
+`{type:'error', error_type:'agent_circuit_open', cb_reason:'paused:auth'|'paused:quota'|'cooling'|'probing'}`
 并关闭 socket。若无处理，用户只看到一个红气泡。这个 helper 让 wsManager 识别该帧并派发
 app 级事件，App.tsx 弹出带"Resume"按钮的横幅——与 auth-expired 路径（wsAuthError.ts）对称。
 
@@ -22,7 +23,7 @@ app 级事件，App.tsx 弹出带"Resume"按钮的横幅——与 auth-expired �
 `isCircuitOpenMessage` / `circuitOpenReason` 被 `wsManager.run()` 的 onmessage 调用；
 `dispatchAgentCircuitOpen` 派发 `narranexus:agent-circuit-open`（detail: {agentId, reason}），
 App.tsx 监听后渲染横幅，其 Resume 按钮调 `api.resetAgentCircuitBreaker`；`shouldClearCircuitBanner`
-被 App.tsx 新增的轮询 `useEffect`（`api.getAgentCircuitBreaker`）调用，判定为真则清空横幅 state。
+被 `hooks/useCircuitBannerAutoClear`（轮询 `api.getAgentCircuitBreaker`）调用，判定为真则清空横幅 state。
 
 ## 设计决策
 
@@ -31,5 +32,7 @@ App.tsx 监听后渲染横幅，其 Resume 按钮调 `api.resetAgentCircuitBreak
 
 轮询复用**已有**的 `GET /{agent_id}/circuit-breaker` 端点（`agents_circuit_breaker.py`,
 之前有实现但零调用方）——刻意不新开后端接口，只是给一个已存在却从未被消费的端点接上第一个
-调用方。`shouldClearCircuitBanner` 判定刻意宽松（非 `paused` 即清）：`cooling` 也清是因为
-横幅文案本就区分 paused/cooling 两种措辞，轮询只关心"还需不需要挂着"而不重新分类原因。
+调用方。`shouldClearCircuitBanner`：`active`/`cooling` 清（`cooling` 也清是因为横幅文案本就
+区分 paused/cooling 两种措辞，轮询只关心"还需不需要挂着"），`probing` **不清**（2026-09-10）：
+探测还没出结果，用户下一条消息仍会被拒，此刻关掉、探测失败再弹只会像在抖动。
+`cb_reason` 的 `probing` 与 `types/api.ts` 的 `CircuitBreakerStatus` 同步纳入取值集合。
