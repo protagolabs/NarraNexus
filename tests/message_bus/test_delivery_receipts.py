@@ -411,3 +411,32 @@ async def test_the_daily_sweep_prunes_receipts_and_cooldowns(db_client, monkeypa
     assert await db_client.get("owner_notice_cooldowns", {"agent_id": B}) == []
     # And the sweep threshold sits above the longest window this trigger uses.
     assert mbt.NOTICE_COOLDOWN_RETENTION_DAYS * 86400 > mbt.FAILURE_NOTIFY_COOLDOWN_SECONDS
+
+
+# ── review r2 C1: the receipt reads the sent row through the bus protocol ──
+
+
+@pytest.mark.asyncio
+async def test_receipt_channel_comes_from_bus_get_message_and_survives_a_bus_that_cannot_answer(
+    db_client, monkeypatch
+):
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A)
+    await _agent(db_client, B)
+    tools, bus = _tools(db_client)
+
+    out = await tools["message_agent"](agent_id=A, to=B, text="hi")
+    row = await BusDeliveryReceiptRepository(db_client).get(out["message_id"], B)
+    sent = await bus.get_message(out["message_id"])
+    assert row["channel_id"] == sent.channel_id != ""
+
+    # A bus whose read-back is not implemented (the cloud stub): the receipt
+    # is still booked and still accepted, only its channel is unknown.
+    async def _not_implemented(_message_id):
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    monkeypatch.setattr(bus, "get_message", _not_implemented)
+    out2 = await tools["message_agent"](agent_id=A, to=B, text="hi again")
+    assert out2["success"] is True and out2["receipt"]["status"] == RECEIPT_ACCEPTED
+    row2 = await BusDeliveryReceiptRepository(db_client).get(out2["message_id"], B)
+    assert row2 is not None and row2["channel_id"] == ""

@@ -4,9 +4,12 @@ last_verified: 2026-09-09
 stub: false
 ---
 
-## 2026-09-09（review M1）— `_book_receipt` 经 `bus.get_message` 取 channel
+## 2026-09-10（review r2 C1）— `_book_receipt(bus, …)` 真的经 `bus.get_message` 取 channel
 
-不再直读 `bus_messages`；协议新方法见 [[message_bus_service]]。
+round-1 M1 只加了协议方法、mirror 先写了「已接线」而工具没改（谎报，r2 C1）。现在
+`_book_receipt` 多收 `bus`，`sent = await bus.get_message(msg_id)`；读回失败（cloud 桩
+`NotImplementedError`）只让 `channel_id=""`，回执照常落库、仍 `accepted`——never-invert 契约
+不破。锁：`test_receipt_channel_comes_from_bus_get_message_and_survives_a_bus_that_cannot_answer`。
 
 ## 2026-09-09（review I4）— 超长检查移到写入边
 

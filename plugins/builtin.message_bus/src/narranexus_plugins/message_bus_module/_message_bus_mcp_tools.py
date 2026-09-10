@@ -202,7 +202,7 @@ async def _record_peer_dm_inbox(
             )
 
 
-async def _book_receipt(*, message_id: str, from_agent: str, to_agent: str) -> dict:
+async def _book_receipt(bus: Any, *, message_id: str, from_agent: str, to_agent: str) -> dict:
     """The sender-facing receipt for a DM that was just queued. Never raises.
 
     "Send success" used to mean "row inserted" and nothing more — the sender
@@ -234,11 +234,19 @@ async def _book_receipt(*, message_id: str, from_agent: str, to_agent: str) -> d
                 f"message is queued and runs once that clears"
             )
         # The channel is the DM the bus found or opened for this pair; the
-        # sent row is the one place that already knows which.
-        sent = await db.get_one("bus_messages", {"message_id": message_id})
+        # sent row is the one place that already knows which. Read through the
+        # bus protocol (`get_message`), never the table. A bus that cannot
+        # answer (the cloud stub raises NotImplementedError) costs the receipt
+        # its channel, not its existence — same never-invert contract.
+        channel_id = ""
+        try:
+            sent = await bus.get_message(message_id)
+            channel_id = (sent.channel_id if sent else "") or ""
+        except Exception as e:  # noqa: BLE001 — see above
+            logger.warning(f"[bus-receipt] could not read back {message_id}: {e}")
         await BusDeliveryReceiptRepository(db).upsert(
             message_id=message_id, to_agent=to_agent,
-            channel_id=(sent or {}).get("channel_id") or "",
+            channel_id=channel_id,
             from_agent=from_agent, status=status, reason=reason,
         )
     except Exception as e:  # noqa: BLE001 — never invert a delivered send
@@ -482,7 +490,7 @@ def register_message_bus_mcp_tools(
                         f"recipient is not woken until part {int(part_count)} arrives"
                     )
             out["receipt"] = await _book_receipt(
-                message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
+                bus, message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
             )
             return out
         except Exception as e:
