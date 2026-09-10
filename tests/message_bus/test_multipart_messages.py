@@ -662,3 +662,22 @@ async def test_a_rephrased_question_after_a_silence_does_not_wake_the_sender_ins
     later = await _dm(db_client, tools, "any news on the report?")
     await trigger._handle_channel_batch(B, later.channel_id, [later], later, channel_owner=A)
     assert len(await _notices(first.channel_id)) == 2
+
+
+def test_assemble_holds_a_complete_group_that_straddles_the_held_boundary():
+    """#389 I5: G is complete but its last part lies past the held boundary set
+    by H. Delivering X and acking past G.part1 would bury part 1 under the
+    cursor forever; G must join the held set and the boundary must move to
+    G.part1, so only rows before it go out."""
+    now = datetime.now(timezone.utc)
+    t = lambda s: (now - timedelta(seconds=s)).isoformat()  # noqa: E731
+    batch = [
+        _msg("before", "z", "earlier", t(50)),
+        _msg("g1", "a", "AB", t(40), part_index=1, part_count=2, part_group="g1"),
+        _msg("x", "z", "between", t(30)),
+        _msg("h1", "b", "HH", t(20), part_index=1, part_count=2, part_group="h1"),   # incomplete, young
+        _msg("g2", "a", "CD", t(10), part_index=2, part_count=2, part_group="g1"),
+    ]
+    out, held = multipart.assemble(batch, now=now)
+    assert held is True
+    assert [m.message_id for m in out] == ["before"]   # not "x": it lies past G.part1

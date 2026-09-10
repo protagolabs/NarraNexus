@@ -217,6 +217,10 @@ def assemble(
 ) -> Tuple[List[BusMessage], bool]:
     """Collapse part rows in a lane batch into whole messages.
 
+    ``messages`` must be in ``created_at`` ascending order (the pending
+    query's order): "the sender's newest group" is read off the last group
+    seen while walking the batch.
+
     ``batch_truncated`` — the caller's batch filled its LIMIT, so parts may
     exist beyond its edge: an incomplete group is then held regardless of
     age or supersession (a verdict on partial evidence would deliver a
@@ -262,11 +266,33 @@ def assemble(
                 continue
         merged[group_id] = _merge(parts, missing=missing, grace=grace_seconds)
 
+    # The held boundary. A COMPLETE group whose first part lies before it but
+    # whose last part lies after it cannot be delivered (its merged row would
+    # sit past the ack high-water) — and must not be dropped either: its first
+    # part would then fall below the cursor and the group would come back
+    # headless next poll (#389 I5). So such a group joins the held set and
+    # the boundary moves down to its first part; repeat until stable (the
+    # set only grows, the boundary only moves down, groups are finite).
     held_from: Optional[str] = None
-    if held_groups:
-        held_from = min(
-            canonical_ts(m.created_at) for m in messages if m.part_group in held_groups
+    while True:
+        held_from = (
+            min(canonical_ts(m.created_at) for m in messages if m.part_group in held_groups)
+            if held_groups else None
         )
+        if held_from is None:
+            break
+        straddling = {
+            gid for gid, whole in merged.items()
+            if gid not in held_groups
+            and canonical_ts(whole.created_at) >= held_from
+            and any(
+                canonical_ts(m.created_at) < held_from
+                for m in messages if m.part_group == gid
+            )
+        }
+        if not straddling:
+            break
+        held_groups |= straddling
 
     out: List[BusMessage] = []
     emitted: set = set()
@@ -277,9 +303,7 @@ def assemble(
             out.append(m)
         elif m.part_group in merged and m.part_group not in emitted:
             emitted.add(m.part_group)
-            whole = merged[m.part_group]
-            if held_from is None or canonical_ts(whole.created_at) < held_from:
-                out.append(whole)
+            out.append(merged[m.part_group])
     out.sort(key=lambda m: canonical_ts(m.created_at))
     return out, held_from is not None
 

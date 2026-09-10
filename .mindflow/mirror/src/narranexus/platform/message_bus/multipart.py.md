@@ -48,6 +48,15 @@ part 1，组丢失。组之前的照常投递（不再整批陪跑 600s）。三
 `_ts` 副本删除。前置条件：`message_team` 不得先于 lane 级饥饿方案加上分片参数，
 `test_team_message_segments` 的豁免集合是现在唯一的闸。
 
+## 2026-09-10（PR #389 I5/M4）— 跨越 hold 边界的完整组也进 held 集合
+
+第三类组：完整、首块在 `held_from` 之前、末块在之后。此前输出过滤会把它整组排除却不把
+`held_from` 压到它的首块——中间的普通行投递并 ack 后，首块落到游标之下，下一轮变成无头组、
+过 grace 后带假「part 1 never arrived」投出。现在这类组并入 `held_groups` 并重算 `held_from`，
+不动点迭代到稳定（集合只增、边界只降）。前置条件写进 docstring：`messages` 须按 `created_at`
+升序（「发件方最新的组」取自遍历中最后见到的组）。锁：
+`test_assemble_holds_a_complete_group_that_straddles_the_held_boundary`。
+
 ## 2026-09-10（PR #389 I1）— 超长拒绝拆成「事实」+「出路」
 
 写入边只说事实（`BusMessageTooLarge(size)`，`oversize_fact`），出路由调用方按自己真有的手段拼：
