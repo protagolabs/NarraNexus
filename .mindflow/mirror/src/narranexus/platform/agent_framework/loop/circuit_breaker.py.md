@@ -31,7 +31,7 @@ PROBING 整个 grant 期，真人用户拿到的是误导性的 "cooling down" �
 `_patrol_body`、[[module_poller]] Path A）各自在**真正要起 turn 的那一点**再调
 `try_begin_probe(agent_id) -> (allowed, reason)`；被拒（`(False, "probing")`）与
 skip 同义——bus 不 ack、WS 发 probing 帧、poller 不建 runtime。任何未来新入口都要走
-这个两步契约。PR #389 在本文件末尾追加只读 `peek_skip`，与"`should_skip` 纯读"完全兼容。
+这个两步契约。PR #389 的只读 `peek_skip`（回执预检用）与之并存，见其条目。
 
 **2. CAS 键是新增列 `probe_token`，不是 `cb_status`。** 等值过滤
 `cb_status=from_status` 只在写入值≠读到值时才是 CAS；stale-PROBING 自愈是
@@ -141,29 +141,19 @@ provider 打垮"的 DoS 风险,熔断器本就不该管。
 `forbidden` 回到「只影响分类」的作用域（见 [[failure.py]]）；严格版留给控制流。顺序不变：
 TRANSIENT 仍先于 AUTH。
 
-## 2026-09-09（review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
+## 2026-09-09（PR #389 review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
 
-`should_skip` 是 **turn 闸门**，允许有副作用（G4 分支 `fix/auth-breaker-half-open` 把它改成
-CAS 领取 half-open 探针，GitHub #117）。bus 发送工具的回执预检（[[_message_bus_mcp_tools]]
-`_book_receipt`）只想「看一眼」，用 `should_skip` 会替收件方吃掉唯一的探针、还回一句
-`accepted`。`peek_skip` 读**原始行**（不经实体：实体的枚举会拒绝本构建不认识的状态，而
-「未知状态」恰恰要判成 held），ACTIVE → 不 held；COOLING 未到期 → held（到期视作可跑）；
-PAUSED → `paused:<reason>`；其它任何状态（含未来的 `probing`）→ held 并原样回状态名。
-fail-open 同 `should_skip`。**与 G4 的耦合**：两分支都改本文件，G4 不动 `peek_skip`、本分支不动
-`should_skip`，合并应为纯追加；合并后 `peek_skip` 对 `probing` 的映射即刻生效。
-锁：`test_agent_circuit_breaker.py` 末尾两条；调用侧 `test_delivery_receipts.py::test_pre_flight_never_calls_the_turn_gate`
-把 `should_skip` 打成 AssertionError 钉住「预检绝不调 turn 闸门」。
+bus 发送工具的回执预检（[[_message_bus_mcp_tools]] `_book_receipt`）只想知道「收件方现在
+跑不跑」，绝不能替收件方消耗唯一的半开探针。`peek_skip` 只读原始行（不走实体：实体的枚举
+会**拒绝**本构建不认识的状态，而「未知状态」恰是这里要判成 held 的那种）：ACTIVE → 不 held；
+COOLING 未到期 → held、已到期 → 不 held（下一真 turn 会放行，读侧不改状态）；PAUSED →
+`paused:<reason>`（含半开延迟已过的行——预检不是 turn，不替 turn 去试探针）；其余任何状态
+（含 `probing`）→ held、原因=状态名。fail-open 与 `should_skip` 一致。
 
-## 2026-09-09（review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
-
-`should_skip` 是 **turn 闸门**，允许有副作用（fix/auth-breaker-half-open 分支正把它改成
-CAS 领取 half-open 探针，GitHub #117）。bus 发送工具的回执预检（[[_message_bus_mcp_tools]]
-`_book_receipt`）只想知道「收件方现在跑不跑」，若调 `should_skip` 会把 B 唯一的探针吃掉、
-还回一句骗人的 accepted。`peek_skip` 只读原始行（不走实体：实体的枚举会**拒绝**本构建不认识
-的状态，而「未知状态」恰是这里要判成 held 的那种）：ACTIVE → 不 held；COOLING 未到期 → held、
-已到期 → 不 held（下一真 turn 会放行，读侧不改状态）；PAUSED → `paused:<reason>`；其余任何
-状态（含未来的 `probing`）→ held、原因=状态名。fail-open 与 `should_skip` 一致。刻意很小，
-与 G4 合并时不冲突。锁：`test_agent_circuit_breaker.py::test_peek_skip_*`、
+与 2026-09-10 条的关系（两分支合并后的口径）：`should_skip` 现在也是纯读，探针只由
+`try_begin_probe` 在 turn 起点消耗；`peek_skip` 与 `should_skip` 的唯一差别是对"半开延迟
+已过的 PAUSED 行"的读法——前者读作 held（预检不会起 turn），后者返回 `(False, None)` 让
+调用方去 `try_begin_probe`。锁：`test_agent_circuit_breaker.py::test_peek_skip_*`、
 `test_delivery_receipts.py::test_pre_flight_never_calls_the_turn_gate`（monkeypatch
 `should_skip` 为必炸）。
 

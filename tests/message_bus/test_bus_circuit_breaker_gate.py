@@ -17,12 +17,13 @@ it never runs. A refused claim leaves the batch queued.
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
 import narranexus.platform.agent_framework.loop.circuit_breaker as cb
 from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
 
 
 class _SpyBus:
@@ -41,8 +42,23 @@ class _SpyBus:
         self.acks.append((agent_id, channel_id, created_at))
 
 
-def _msg(from_agent="peer", mentions=None, created_at="2026-09-09T00:00:00"):
-    return SimpleNamespace(from_agent=from_agent, mentions=mentions, created_at=created_at)
+_SEQ = iter(range(1, 10_000))
+
+
+def _msg(from_agent="peer", mentions=None, created_at=None, **parts):
+    """A real BusMessage (the production type): the lane runs multipart
+    assembly on the batch, which reads the part_* fields — a thinner double
+    would hide exactly that step."""
+    n = next(_SEQ)
+    return BusMessage(
+        message_id=f"m_{n}",
+        channel_id="ch_room",
+        from_agent=from_agent,
+        content=f"hello {n}",
+        mentions=mentions,
+        created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        **parts,
+    )
 
 
 def _trigger(bus, channel_type="group", channel_owner="owner"):
@@ -159,3 +175,22 @@ async def test_granted_probe_runs_the_relevant_batch(monkeypatch):
 
     assert probe_calls == ["ag_paused"]
     assert len(t.batches) == 1
+
+
+@pytest.mark.asyncio
+async def test_held_multipart_batch_does_not_claim_the_probe(monkeypatch):
+    """A long message still arriving in parts holds the lane (no ack, no
+    turn) — and the hold branch sits BEFORE the claim, so the poller does
+    not burn the probe on a fragment it will not run."""
+    async def fake_skip(agent_id, db=None):
+        return (False, None)
+    monkeypatch.setattr(cb, "should_skip", fake_skip)
+    probe_calls = _probe_spy(monkeypatch)
+
+    bus = _SpyBus([_msg(mentions=["ag_paused"], part_index=1, part_count=2, part_group="grp_1")])
+    t = _trigger(bus)
+    assert await t._process_lane("ag_paused", "ch_room") is False
+
+    assert bus.acks == []  # held, not acked
+    assert probe_calls == []  # grant untouched
+    assert t.batches == []
