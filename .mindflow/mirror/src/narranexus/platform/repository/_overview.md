@@ -1,6 +1,6 @@
 ---
 code_dir: src/narranexus/platform/repository/
-last_verified: 2026-04-10
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -31,6 +31,8 @@ No business logic lives here. No imports from `module/`, `agent_runtime/`, or `n
 | `rag_store_repository.py` | `instance_rag_store` | `rag_store_schema.RAGStoreModel` |
 | `mcp_repository.py` | `mcp_urls` | `entity_schema.MCPUrl` |
 | `embedding_store_repository.py` | `embeddings_store` | raw dict (no entity class) |
+| `owner_notice_cooldown_repository.py` | `owner_notice_cooldowns` | raw dict (composite key, two verbs — see its md) |
+| `bus_delivery_receipt_repository.py` | `bus_delivery_receipts` | raw dict (composite key upsert — see its md) |
 
 ## Recurring patterns and gotchas
 

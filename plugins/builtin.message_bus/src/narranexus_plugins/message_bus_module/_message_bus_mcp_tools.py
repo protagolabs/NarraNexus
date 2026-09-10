@@ -18,7 +18,24 @@ from typing import Any, Callable, List, Optional
 
 from loguru import logger
 
+from narranexus.platform.agent_framework.llm.failure import redact_secrets
+from narranexus.platform.agent_framework.loop.circuit_breaker import peek_skip
 from narranexus.platform.channel.channel_audit_events import EVENT_INBOX_WRITE_FAILED
+from narranexus.platform.message_bus.multipart import (
+    MAX_BUS_MESSAGE_BYTES,
+    MAX_MESSAGE_PARTS,
+    MAX_MULTIPART_TOTAL_BYTES,
+    OVERSIZE_REMEDY_PARTS,
+    OVERSIZE_REMEDY_TEAM,
+    BusMessageTooLarge,
+    oversize_reason,
+)
+from narranexus.platform.repository.bus_delivery_receipt_repository import (
+    RECEIPT_ACCEPTED,
+    RECEIPT_FAILED,
+    RECEIPT_HELD,
+    BusDeliveryReceiptRepository,
+)
 from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 
@@ -194,6 +211,71 @@ async def _record_peer_dm_inbox(
             )
 
 
+async def _book_receipt(bus: Any, *, message_id: str, from_agent: str, to_agent: str) -> dict:
+    """The sender-facing receipt for a DM that was just queued. Never raises.
+
+    "Send success" used to mean "row inserted" and nothing more — the sender
+    then told its user work was under way while the recipient's worker was
+    crashing on the message (upstream NetMindAI-Open/NarraNexus#106). The
+    pre-flight here asks the one thing knowable at send time: is the
+    recipient able to RUN at all? A circuit-breaker PAUSED / COOLING recipient
+    leaves its queue untouched until it recovers (the trigger's skip-gate), so
+    the honest answer is ``held``, with the reason, not ``accepted``.
+
+    Runs AFTER the send succeeded, inside the tool's `try`, so like
+    `_describe_agent` it must never invert the outcome: a receipt we could not
+    book degrades to ``accepted`` with a ``note`` field, never to
+    `success: false`.
+
+    Not a receipt: the recipient's owner pressing stop. `CancelledByUser` acks
+    the message without stamping the ledger, so the sender's receipt stays
+    ``accepted`` — an owner's own decision, not a delivery outcome (#389 M7).
+    """
+    from narranexus.platform.utils.db.db_factory import get_db_client
+
+    status, reason = RECEIPT_ACCEPTED, None
+    try:
+        db = await get_db_client()
+        # `peek_skip`, never `should_skip`: the latter is the TURN gate and may
+        # claim the recipient's one half-open probe (GitHub #117) — a send-side
+        # look must not consume it, or every DM to a paused agent would eat
+        # its recovery. Read-only, fail-open by contract.
+        held, why = await peek_skip(to_agent, db=db)
+        if held:
+            status = RECEIPT_HELD
+            reason = (
+                f"the recipient is not running turns right now ({why}); the "
+                f"message is queued and runs once that clears"
+            )
+        # The channel is the DM the bus found or opened for this pair; the
+        # sent row is the one place that already knows which. Read through the
+        # bus protocol (`get_message`), never the table. A bus that cannot
+        # answer (the cloud stub raises NotImplementedError) costs the receipt
+        # its channel, not its existence — same never-invert contract.
+        channel_id = ""
+        try:
+            sent = await bus.get_message(message_id)
+            channel_id = (sent.channel_id if sent else "") or ""
+        except Exception as e:  # noqa: BLE001 — see above
+            logger.warning(f"[bus-receipt] could not read back {message_id}: {e}")
+        await BusDeliveryReceiptRepository(db).upsert(
+            message_id=message_id, to_agent=to_agent,
+            channel_id=channel_id,
+            from_agent=from_agent, status=status, reason=reason,
+        )
+    except Exception as e:  # noqa: BLE001 — never invert a delivered send
+        logger.warning(f"[bus-receipt] could not book receipt for {message_id}: {e}")
+        note = "receipt bookkeeping unavailable; the message was sent"
+    else:
+        note = None
+    receipt = {"status": status, "message_id": message_id}
+    if reason:
+        receipt["reason"] = reason
+    if note:
+        receipt["note"] = note
+    return receipt
+
+
 async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
     """Resolve + stage attachment_refs for a sending agent into the shared bus
     area. Returns [] when there are no refs or the owner can't be resolved."""
@@ -323,12 +405,22 @@ def register_message_bus_mcp_tools(
         get_message_bus_fn: Async callable that returns a MessageBusService instance.
     """
 
-    @mcp.tool()
+    @mcp.tool(
+        description=(
+            f"Send a private message to another agent. Long text goes in ordered "
+            f"parts (part_index/part_count): each message or part at most "
+            f"{MAX_BUS_MESSAGE_BYTES} bytes, at most {MAX_MESSAGE_PARTS} parts, "
+            f"{MAX_MULTIPART_TOTAL_BYTES} bytes in total. See the full docstring "
+            f"for arguments and the receipt."
+        )
+    )
     async def message_agent(
         agent_id: str,
         to: str,
         text: str,
         attachment_refs: str = "",
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> dict:
         """
         Send a private message to another agent.
@@ -349,14 +441,33 @@ def register_message_bus_mcp_tools(
                 to a file in your own workspace ("work/report.pdf"). Files are
                 shared by reference — the recipient opens them with Read — so
                 attach freely. Same-user agents only.
+            part_index, part_count: for a LONG message that does not fit one
+                call, send it in ordered parts: call this once per part with
+                part_index=1..part_count and the same part_count each time,
+                in order. The recipient is not woken until the last part
+                arrives and receives the parts joined back into ONE message
+                exactly as written — so split anywhere, do not summarise, do
+                not repeat what an earlier part already said. Leave both at 0
+                for an ordinary message. Limits: one message or part holds at
+                most MAX_BUS_MESSAGE_BYTES bytes, a message has at most
+                MAX_MESSAGE_PARTS parts, and all parts together at most
+                MAX_MULTIPART_TOTAL_BYTES bytes (the numbers are in this
+                tool's registration text below).
 
         Sending to someone triggers a full turn for them, so send with intent.
         The reply arrives as a new turn, not inside this one.
 
         Returns:
-            {"success": true, "message_id": ..., "sent_to": "<name> (<id>)"}
+            {"success": true, "message_id": ..., "sent_to": "<name> (<id>)",
+             "receipt": {"status": "accepted" | "held", "reason": ...}}
             The recipient is echoed back so a mistake is visible in the same
-            turn instead of surfacing as a confused answer later.
+            turn instead of surfacing as a confused answer later. `receipt`
+            says whether the recipient can run it: "accepted" means it will be
+            picked up; "held" means it is queued but the recipient is not
+            running turns right now (reason given) — do not tell anyone the
+            work is under way on the strength of a held message. If the
+            recipient later fails on it or never replies, a platform notice
+            arrives in this conversation.
         """
         bus = await get_message_bus_fn()
         if bus is None:
@@ -370,7 +481,6 @@ def register_message_bus_mcp_tools(
         empty = _reject_empty_text(text)
         if empty is not None:
             return empty
-
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
             msg_id = await bus.send_to_agent(
@@ -378,6 +488,8 @@ def register_message_bus_mcp_tools(
                 to_agent=to.strip(),
                 content=text,
                 attachments=attachments or None,
+                part_index=int(part_index or 0),
+                part_count=int(part_count or 0),
                 sender_turn_source=_send_turn_source(to_agent=to.strip()),
                 # Carry this turn's trigger tree onto the message: the run this
                 # wakes has no other way to learn which tree it continues, and a
@@ -395,14 +507,37 @@ def register_message_bus_mcp_tools(
             # send site, because this is the only place that holds the text the
             # peer actually received; never raises (see the helper's docstring).
             await _record_peer_dm_inbox(agent_id, to.strip(), text, attachments)
-            return {
+            out = {
                 "success": True,
                 "message_id": msg_id,
                 "sent_to": await _describe_agent(to.strip()),
                 "attached": len(attachments),
             }
+            if part_count:
+                out["part"] = f"{int(part_index)}/{int(part_count)}"
+                if int(part_index) < int(part_count):
+                    out["note"] = (
+                        f"part {int(part_index)}/{int(part_count)} stored; the "
+                        f"recipient is not woken until part {int(part_count)} arrives"
+                    )
+            out["receipt"] = await _book_receipt(
+                bus, message_id=msg_id, from_agent=agent_id, to_agent=to.strip(),
+            )
+            return out
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            # The write edge states the oversize FACT; this verb has parts, so
+            # that is the remedy it names (#389 I1). `error` carries the same
+            # redacted text as the receipt — one field must not undo the other.
+            error = (
+                oversize_reason(e.size, OVERSIZE_REMEDY_PARTS)
+                if isinstance(e, BusMessageTooLarge)
+                else redact_secrets(str(e))
+            )
+            return {
+                "success": False,
+                "error": error,
+                "receipt": {"status": RECEIPT_FAILED, "reason": error},
+            }
 
     @mcp.tool()
     async def message_team(
@@ -511,6 +646,9 @@ def register_message_bus_mcp_tools(
                 root_run_id=caller_root_run_id(),
             )
             return {"success": True, **result}
+        except BusMessageTooLarge as e:
+            # No part_* on this verb: the remedy is several calls (#389 I1).
+            return {"success": False, "error": oversize_reason(e.size, OVERSIZE_REMEDY_TEAM)}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

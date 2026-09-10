@@ -1,8 +1,52 @@
 ---
 code_file: src/narranexus/platform/message_bus/local_bus.py
-last_verified: 2026-08-18
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09（review M1）— `get_message(message_id)`
+
+`_row_to_message` 的单行读回，供发送工具取刚写行的 channel_id。
+
+## 2026-09-10（PR #389 I1）— 超长改抛 `BusMessageTooLarge`（只带事实）
+
+`ValueError` 子类、携带 `size`；出路文案由各调用方补（见 [[multipart]]）。
+
+## 2026-09-10（review r2 M3）— `canonical_ts` 定义移到 [[schemas]]，本文件 re-export
+
+## 2026-09-10（review r2 C2）— `_resolve_part_group` 校验 `part_count <= MAX_MESSAGE_PARTS`
+
+每一块都查、所以 1/N 就拒（`too_many_parts_reason`），与字节预算并列。
+
+## 2026-09-09（review I7/M6）— 组字节预算在 `_resolve_part_group` 执行；补索引
+
+块 ≥2 时再查一条 `SELECT content ... WHERE channel_id=? AND part_group=?`（MySQL 孪生已钉）
+累加字节，超 `MAX_MULTIPART_TOTAL_BYTES` 拒绝；1/n 自身超预算也拒。（计数上限
+`MAX_MESSAGE_PARTS` 在 r2 C2 恢复，见上。）`bus_messages` 新增 `idx_bus_msg_sender_time (channel_id, from_agent, created_at)`
+服务「发件方最近一块」查询，长寿命 DM 不再全表扫。
+
+## 2026-09-09（review I4/M4）— 单行超长在 `send_message` 写入边拒绝
+
+`MAX_BUS_MESSAGE_BYTES`（定义在 [[multipart]]，60_000，低于 MySQL TEXT 65,535）现在在
+`send_message` 入口按 UTF-8 字节判、`ValueError(oversize_reason(size))` 拒绝——`message_agent`
+/ `message_team` / 平台自己写的行全部经过这一处；工具层不再各自检查（原只装在 `message_agent`）。
+平台通知最长 ~450 字符，远在上限之下。multipart 符号改为模块顶部 import（无循环依赖）。
+
+## 2026-09-09（review I2）— `PENDING_BATCH_LIMIT` / `PENDING_BATCH_LIMIT_WIDE` 成为具名常量
+
+`get_pending_messages` 的默认 limit 从字面 50 改为 `PENDING_BATCH_LIMIT`，另有
+`PENDING_BATCH_LIMIT_WIDE=500` 供 trigger 在多段组被批次边缘切断且无法推进时二次读取。
+LIMIT 语义不变（整条 lane 最老 N 行）。
+
+## 2026-09-09 — 分片消息：`part_index/part_count` 与 `_resolve_part_group`
+
+`send_message` / `send_to_agent` 末尾加 **keyword-only** 的 `part_index` / `part_count`
+（`*` 之后，位置调用方不可能被重绑；`test_team_message_segments` 的签名钉子改成断言
+`segments` 是最后一个 positional 参数）。写入前 `_resolve_part_group` 解析组：1/n 用自己的
+msg_id 开组；i/n（i>1）查同 sender 同 channel **最近一块**（新 raw SQL，MySQL 孪生
+`test_multipart_mysql.py`），必须是 i-1/n，否则 `ValueError` 拒绝——放不进组的碎片不落库。
+三个可空列 `part_index/part_count/part_group` 经 `_row_to_message` 回到 `BusMessage`。
+重组在收件侧 [[multipart]]。
 
 ## 2026-08-17 — `send_message` 顺手叫醒轮询循环（跨进程）
 

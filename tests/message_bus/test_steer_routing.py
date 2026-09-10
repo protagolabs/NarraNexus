@@ -584,3 +584,43 @@ async def test_ack_processed_only_moves_forward():
     # The cursor stayed at B — the backward ack was a no-op, nothing resurfaced.
     remaining = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
     assert remaining == []
+
+
+@pytest.mark.asyncio
+async def test_the_daily_tick_also_sweeps_the_two_bus_ledgers(monkeypatch):
+    """2026-09-09: receipts and owner-notice cooldowns are swept on the same
+    tick, with retentions far above their 30-minute read windows."""
+    import narranexus.platform.message_bus.message_bus_trigger as mbt
+    from narranexus.platform.repository.bus_delivery_receipt_repository import (
+        BusDeliveryReceiptRepository,
+    )
+    from narranexus.platform.repository.owner_notice_cooldown_repository import (
+        OwnerNoticeCooldownRepository,
+    )
+
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    calls: list = []
+
+    async def _steer(self, days, orphan_days=7):
+        return 0
+
+    async def _receipts(self, days):
+        calls.append(("receipts", days))
+        return 0
+
+    async def _cooldowns(self, days):
+        calls.append(("cooldowns", days))
+        return 0
+
+    monkeypatch.setattr(SteerInboxRepository, "cleanup_older_than_days", _steer)
+    monkeypatch.setattr(BusDeliveryReceiptRepository, "cleanup_older_than_days", _receipts)
+    monkeypatch.setattr(OwnerNoticeCooldownRepository, "cleanup_older_than_days", _cooldowns)
+
+    await t._maybe_run_steer_cleanup()
+    assert calls == [
+        ("receipts", mbt.RECEIPT_RETENTION_DAYS),
+        ("cooldowns", mbt.NOTICE_COOLDOWN_RETENTION_DAYS),
+    ]
+    assert mbt.NOTICE_COOLDOWN_RETENTION_DAYS * 86400 > mbt.FAILURE_NOTIFY_COOLDOWN_SECONDS * 10
+    assert mbt.RECEIPT_RETENTION_DAYS * 86400 > mbt.FAILURE_NOTIFY_COOLDOWN_SECONDS * 10

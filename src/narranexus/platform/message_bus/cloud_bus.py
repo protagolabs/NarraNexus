@@ -48,6 +48,9 @@ class CloudMessageBus(MessageBusService):
         # and a parameter added in the middle silently rebinds every one of
         # them. Pinned by test_team_message_segments.
         segments: Optional[List[dict]] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -59,6 +62,9 @@ class CloudMessageBus(MessageBusService):
     async def get_recent_messages(
         self, channel_id: str, limit: int = 20
     ) -> List[BusMessage]:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def get_message(self, message_id: str) -> Optional[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def get_messages_before(
@@ -84,6 +90,9 @@ class CloudMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         event_id: Optional[str] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

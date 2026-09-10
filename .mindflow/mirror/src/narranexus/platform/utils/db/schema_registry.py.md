@@ -1,8 +1,33 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09（review M6）— `bus_messages` 加索引 `idx_bus_msg_sender_time`
+
+`(channel_id, from_agent, created_at)`，服务 [[local_bus]] `_resolve_part_group` 的「发件方最近
+一块」与组内行查询。additive。
+
+## 2026-09-09 — `bus_messages` 加三列 `part_index / part_count / part_group`（additive，可空）
+
+长消息分片（[[multipart]]）。不改 `content` 的 TEXT 类型：`auto_migrate` 不做列加宽，
+而且真正的截断点是发件方模型的输出预算而不是 64 KiB；单行上限由发送工具按字节明确拒绝
+（`MAX_BUS_MESSAGE_BYTES`），超了就走分片，永不截断。
+
+## 2026-09-09 — `bus_delivery_receipts` 表（26c，additive）
+
+(message_id, to_agent) 复合主键；status / reason(已脱敏) / attempts / content_key +
+一个索引（重发/掉包判定 `channel_id, to_agent, content_key`；曾有的发件方视图索引随
+无调用方的 `for_sender` 一起删除，review M2）。bus 的「发送成功≠开始处理」（上游 #106）由这张表补上收件方一侧的账。
+读写方 [[bus_delivery_receipt_repository]]。
+
+## 2026-09-09 — `owner_notice_cooldowns` 表（26b，additive）
+
+(agent_id, target, category) 复合主键 + `last_notified_at DATETIME(6)`。把
+[[message_bus_trigger]] 的 owner 通知冷却窗从进程内 dict 搬进库：重启不忘、多容器一致、
+按 channel 而不是按类别塌缩。读写方 [[owner_notice_cooldown_repository]]；窗口长度仍是
+写入方的常量，表只记上次写入时间。
 
 ## 2026-09-08（本地 E2E 实测）— `register_table(spec, owner)` 的 owner 改为可位置传参
 

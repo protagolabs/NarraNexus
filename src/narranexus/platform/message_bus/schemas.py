@@ -23,6 +23,24 @@ from pydantic import BaseModel
 Timestamp = Union[str, datetime]
 
 
+def canonical_ts(value) -> str:
+    """A cursor-comparable ISO-8601 string.
+
+    Both cursors are TEXT and compared lexicographically, while the sqlite
+    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
+    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
+    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
+    every real ``created_at``, making every message look unprocessed forever.
+    That cost us a re-trigger loop once; it gets exactly one home.
+
+    ``value`` must not be None: ``bus_messages.created_at`` is NOT NULL, and a
+    hand-built ``BusMessage`` without one would stringify to ``"None"`` — which
+    sorts ABOVE every real timestamp and, written as an ack high-water, would
+    silence the lane for good.
+    """
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 class BusMessage(BaseModel):
     """A message sent within a MessageBus channel."""
 
@@ -63,6 +81,19 @@ class BusMessage(BaseModel):
     # this message wakes up inherits it, which is how a cascade stop reaches
     # past an agent→agent hop. None for user messages and legacy rows.
     root_run_id: Optional[str] = None
+    # A long message sent in ordered parts: 1-based index and total, and the
+    # group id (the first part's message_id) tying the parts together. All
+    # None on an ordinary single-row message. The trigger holds an incomplete
+    # group back and hands the turn ONE reassembled message (multipart.py).
+    part_index: Optional[int] = None
+    part_count: Optional[int] = None
+    part_group: Optional[str] = None
+    # When this message is the REASSEMBLY of several stored rows (a long
+    # message sent in ordered parts), the ids of every row it stands for, in
+    # order. None for an ordinary single-row message. Not a column: it exists
+    # only on the in-memory message the trigger hands to a turn, so that
+    # per-row bookkeeping (delivery receipts) can reach every part.
+    part_message_ids: Optional[List[str]] = None
     created_at: Any = None
 
 

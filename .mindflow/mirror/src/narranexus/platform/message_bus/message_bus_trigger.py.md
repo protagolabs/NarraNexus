@@ -1,8 +1,147 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #389 M3/M6）— drop 通知与 arm 包进 try；三段 assemble 抽成 `_assemble_lane_batch`
+
+`_wake_sender_on_drop` 的 `announce_processing_failure` + `arm` 原本在 `except` 处理块里裸 await，
+抛了会从 except 逃出去（最终被 `_process_lane` 兜住、只丢一行 `[bus-timing]`），现在自带 try。
+`_process_lane` 的「窄读 → 宽读 → 最后一次裁决」三段抽成 `_assemble_lane_batch(...)`，三步显式
+命名，行为不变（`test_multipart_messages.py` 全部用例钉着）。
+
+## 2026-09-10（PR #389 I4）— 指纹口径只有一家：`_batch_fingerprint(batch)`
+
+返回 `(content_key, 本批全部行 id)`，`_stamp_receipts`（写）与 `_drop_already_announced` /
+`_silence_already_announced`（读）三处都调它；此前三处各自手写 `"\n".join`，任一处漂移就让两个
+防乒乓守卫同时静默失效而测试全绿（各测各的路径）。回退实证：让写入方改用 `"|"` 拼接（`content_key`
+会归一空白，所以换行数量的漂移是看不见的），指纹类测试全红。写入方仍是**每批一个**指纹（不进循环）。
+
+## 2026-09-10（PR #389 I2）— 静默唤醒补第二层界限：(收件方, channel, `no_reply_peer`) 窗口
+
+指纹只挡原文重发；发件方模型读到「对方没回」会**换个说法**再问——指纹不同、守卫不命中、再唤醒，
+每轮双方各烧一个 turn。现在与掉包路径对称：先查 `owner_notice_cooldowns` 的
+`(agent, channel, "no_reply_peer")` 窗口（**新类别**，不复用 owner 收件箱的 `"no_reply"`——共用会让
+「owner 已被告知」吞掉「发件方还没被唤醒过」），再查指纹；通知落地后 `arm`。闸门是「peer 是 agent」
+而非 `wake_peer`：DM 里任何一行都会起对方的 turn（mention 与否无关），errand-continuation 批次
+上那条不带 mention 的通知同样唤醒；人的沉默不占窗口。锁：
+`test_a_rephrased_question_after_a_silence_does_not_wake_the_sender_inside_the_window`；
+`..._wakes_the_sender_once_per_content` 的第三步改为先让窗口过期。
+
+## 2026-09-10（review r3 M6）— drop 守卫读失败时既通知也不 arm
+
+两次 fail-open：表读不到 → 照样唤醒，且本轮不设窗（arm 大概率同样失败）；下一次能读的 poll
+重新建窗。写进 `_wake_sender_on_drop` docstring。
+
+## 2026-09-10（review r2 I1）— 掉包指纹层按整批算，并排除本批全部行
+
+`_drop_already_announced(agent_id, channel_id, batch)` 与 `_silence_already_announced` 同构：
+指纹 = `_receipt_worthy(batch)` 正文按 `\n` 拼接（与 `_stamp_receipts` 写入口径一致——此前
+只算 trigger 那一条，两条以上的批次永远查不到，第二层守卫形同虚设），`exclude_message_ids`
+= 本批每条（含分片每行）的 id——本批自己刚写的 dropped/silent 行必须全部排除，否则两条消息的
+批次会把自己的第一次唤醒压掉。`_wake_sender_on_drop` 多收 `batch=messages`。锁：
+`test_the_same_content_dropped_again_is_recognised_by_fingerprint`（两条批次、删冷却行）、
+`test_a_silent_two_message_batch_still_wakes_the_sender_once`。
+
+## 2026-09-10（review r2 C2）— WIDE 重读是最后一次判定，不再无条件 hold
+
+`_process_lane`：wide 重读后若仍 `truncated and not relevant`，再以 `batch_truncated=False`
+调一次 `assemble_parts`，让 grace / 取代正常裁决。此前这条路径 `return False` 且不 ack 不通知，
+一个死掉的两块组 + ≥500 行积压就让车道永久空转（每轮 550 次逐行 poison 查询）。**WIDE 是最后一次判定**，不再无条件 hold。
+LIMIT 属于整条 lane 而不是组：合法组在**两块之间没有 ≥500 行普通消息插入**时不会被 WIDE 切断
+（写入边沿「同 sender 最近一块」链接、跳过普通行，所以普通行可以合法地夹在两块之间）；真被
+切断时宁可按 grace 裁决——已过 grace 的组按视野内的块投出并打 missing 标记、其余块随后作为
+第二个残片再投——也不永久 hold；年轻的组这一趟仍被 grace 扣住（r3 M2 锁）。代价=极端积压下
+可能多打一次 missing 标记（r3 I2）。锁：`test_a_stuck_group_behind_a_deep_backlog_does_not_deadlock_the_lane`（641 行）。
+
+## 2026-09-09（review I2）— 批次被 LIMIT 切断时不对组下结论
+
+`_process_lane` 显式传 `limit=PENDING_BATCH_LIMIT`，`len(messages) >= limit` 即视为「批次被切」，
+`assemble_parts(..., batch_truncated=True)` 对不完整组只 hold；若 hold 后 deliverable 为空
+（组顶在批次开头、无从推进），改用 `PENDING_BATCH_LIMIT_WIDE`(500) 重读一次再判。原注释
+「MAX_MESSAGE_PARTS < 50 保证整组在一批里」是假的（LIMIT 是整条 lane 的），已删。
+锁：`test_a_group_cut_by_the_batch_limit_is_delivered_whole`（把 LIMIT 打成 2）。
+
+## 2026-09-09（review I3/I6）— hold 只扣未完成的组及其后续，ack 高水位=已投递最新行
+
+`_process_lane` 里 `assemble_parts` 改回 `(deliverable, held)`：`deliverable` 已按时间排序并去掉
+被扣的尾部，`relevant[-1]` 同时是触发消息与 ack 高水位，永远不会越过被扣的行；组之前的无关
+消息立刻投递，不再整批陪跑 600s。空 deliverable 才 `return False`。不变式与理由见 [[multipart]]。
+
+## 2026-09-09（review I1）— 两张新账本挂进每日 retention tick
+
+`_maybe_run_steer_cleanup` 同一 tick 顺带清 `bus_delivery_receipts`（`RECEIPT_RETENTION_DAYS=30`）
+与 `owner_notice_cooldowns`（`NOTICE_COOLDOWN_RETENTION_DAYS=2`），各自独立 try。两个阈值都远
+大于它们服务的 30 分钟窗口——扫进活窗口等于重新打开它（B-20.3 反向复发），
+`test_steer_routing.py::test_the_daily_tick_also_sweeps_the_two_bus_ledgers` 钉了这层关系。
+
+## 2026-09-09（review C2）— 掉包唤醒发件方加窗口：同一 (收件方, channel) 每窗一次
+
+`_wake_sender_on_drop` 之前没有任何上限：通知唤醒 A → A 换措辞重发 → B 再崩 3 次再 drop →
+再唤醒——B 坏一天这条 DM 就几千轮（8/17 Liam 乒乓的形状，这次由平台点火）。现在两层守卫、
+共用 `FAILURE_NOTIFY_COOLDOWN_SECONDS` 一个常量：① 回执账本 `prior_outcome(status=dropped)`
+——同 channel 同收件方对**同样内容**（`content_key`）窗口内已 drop 过；② `owner_notice_cooldowns`
+按 (收件方 agent, channel, `"peer_drop"`) 的窗口，兜住换措辞。通知真的落地才 `arm`；守卫读
+失败 fail-open（多唤醒一次比藏掉一次便宜）。窗口而不是永久：B 修好又坏必须重新告警。
+`_silence_already_announced` 同步改走带窗口的 `prior_outcome(status=silent)`（review I1 的
+「永久压制」也由此消失）。锁：`test_delivery_receipts.py` 末尾两条（每窗一次 + 指纹层独立生效）。
+
+## 2026-09-09（review C3）— 分片消息的失败按**每一行**记
+
+`_handle_channel_batch` 的 except 分支对 `trigger_message.part_message_ids or [message_id]`
+逐行 `record_failure`。合成消息的身份是第 1 块，而 `get_pending_messages` 的 poison 过滤是
+按行的：只记第 1 块 → 第 1 块被滤掉、2..N 留在队列变成无头组 → hold 满 grace → 当碎片投递
+并谎称「part 1 never arrived」→ 再崩。`dropped` 判定仍读第 1 块的计数（每块计数相同，
+求和会让阈值提前 N 倍）。锁：`test_multipart_messages.py::test_a_merged_message_that_poisons_leaves_no_part_behind`。
+
+## 2026-09-09 — 分片消息在车道入口重组；同一沉默只唤醒发件方一次（8/31 A2A 长消息复盘）
+
+**重组**：`_process_lane` 在 mention 过滤之后、限流之前调 [[multipart]] `assemble`：组还没
+到齐且年轻 → 直接 `return False`（不 ack，最后一块的 wake bump 会把车道拉回来）；到齐 →
+turn 收到**一条**合成消息（`_build_prompt` / `build_bus_anchor` 都只见一条）。这是 8/31
+「收件方 turn 是空的」的根：wake 在第 1 块上就起了 turn。
+
+**重发守卫**（`_announce_undelivered_turn`，仅 DM 分支）：undelivered 通知本身是 DM 里的一条
+消息，会起发件方下一轮；模型读到「没回复」就原样再发，得到同样的沉默、同样的通知——
+乒乓。现在通知前先问 `_silence_already_announced`：收件方是否已在本 channel 对**同样内容**
+（`content_key`，来自 `_stamp_receipts` 写进回执的指纹）在另一条 message 上沉默过。是 →
+只写回执 + owner 收件箱通知（有冷却），**不贴通知、不 @**，发件方不会被第三次唤醒。
+守卫读失败 fail-to-False（多唤醒一次比藏掉一次真沉默便宜）。`batch` 参数把整批传给它，
+指纹口径与 `_stamp_receipts` 一致（peer 正文按 `\n` 拼接）。
+锁：`test_multipart_messages.py`（12k 往返 / hold / 取代 / 过期标记 / 一次唤醒）。
+
+## 2026-09-09 — 投递回执 + 被丢弃的消息回写给发件方（上游 #106 第 2/4 子项）
+
+DM 车道（`not is_team`）在 turn 结束时把结果写进 `bus_delivery_receipts`
+（`_stamp_receipts`，[[bus_delivery_receipt_repository]]）：有工具触达→`processed`；
+只有 owner 文字（走 `_write_to_inbox`）→`relayed`；`reached_nobody`→`silent`；抛异常→
+`failed`（attempts=失败计数、reason 已脱敏）；到 `POISON_FAILURE_THRESHOLD`→`dropped`。
+团队房不写回执：发件方本来就盯着房间。人（`usr_` 前缀）与平台行不算「等回执的发件方」
+（`_receipt_worthy`）。回执写入 best-effort 永不抛——账本不能把已投递的一轮变成失败。
+
+**丢弃时唤醒发件方**（`_wake_sender_on_drop`）：此前 poison 阈值只走
+`_notify_permanent_failure` 写收件方 owner 收件箱；发件 agent 毫无信号，就是 #106
+「PM 说开工了、Web Developer 已经崩了三次」的形状。现在同时调 [[delivery_notice]]
+`announce_processing_failure`：在该 DM 里贴一条 `system_delivery_failed` 并 @ 发件方，
+让它下一轮开在失败上。仅当发件方是 agent（人没有 turn 可唤醒）且触发消息不是平台行
+（不对通告发通告）。`_stamp_receipts` 同时写 `content_key`（本批 peer 正文的指纹），
+是下一条 commit 里「同一沉默只唤醒一次」的依据。锁：`test_delivery_receipts.py`。
+
+## 2026-09-09 — owner 通知冷却窗持久化，键改为 (agent, channel, category)
+
+`_notify_owner` 的 `cooldown_key: str` 参数换成 `cooldown_category: str`，窗口不再是
+`self._notify_cooldown` 进程内 dict（已删），而是查/写 `owner_notice_cooldowns`
+（[[owner_notice_cooldown_repository]]），`target=channel_id`。两处调用方随之变化：
+永久失败通知 `cooldown_category=category`（`provider_credential` / `generic`），
+「没回复」通知 `cooldown_category="no_reply"`——后者原先刻意按 agent 不按 peer，现在按
+channel：对 B 沉默与对 C 沉默是两件事，通知正文本来就点名 channel。
+
+为什么要动（上游 #106 交接失联复盘的第三子项）：旧 key `agent:category` 让 channel A
+上一次永久失败把 channel B 上无关失败的通知按掉 30 分钟；重启把窗口全忘、下一轮 poll
+重发；多容器各自为政。窗口读失败 **fail-open 照样通知**（重复比漏发便宜），
+`arm` 仍只在收件箱写成功之后。锁：`test_failure_notification.py` 新增
+per-channel 与「换一个 trigger 实例仍被压制」两条。
 
 ## 2026-09-07 — 两处消费方跟着注册表视图走
 

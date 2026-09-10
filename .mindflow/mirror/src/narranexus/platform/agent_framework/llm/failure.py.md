@@ -1,8 +1,65 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/failure.py
-last_verified: 2026-08-01
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #389 I3）— 拆成严格 `is_credential_error` 与宽松 `is_auth_like_error`
+
+r1 把 `forbidden` 从熔断器的局部特判提升进了共享谓词，而共享谓词还驱动**控制流**：
+`frameworks_claude_code/sdk.py` 的 resume 失败路径 `if yielded_any or is_credential_error(e): raise`
+会跳过本可成功的 cold retry；`background_llm_alerts` / bus owner 提示 / narrative updater /
+turn reflect 也据此决定要不要通知。现在 `forbidden` 只在 `is_auth_like_error`（宽松）里，
+`classify_agent_error` 用宽松版（漏判 403 的代价是 owner 可修的错被归成 platform-only），其余六处
+继续用严格版。`40[13]` 边界改为 `(?<![\w.])…(?![\w.])`：`HTTP403` / `x403y` / `id_401_abc` 不再命中，
+`code=401` / `(401)` / 顶格 `403 Forbidden` 仍命中。锁：`test_forbidden_is_auth_like_but_not_a_credential_error`、
+`test_status_codes_glued_to_identifiers_are_not_credential`、
+`test_agent_circuit_breaker.py::test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker`。
+
+## 2026-09-10（review r2 M4）— `forbidden` 的误报面写成决定
+
+`forbidden` 是表里唯一不算凭据词的词，为 403 正文「Forbidden」而留；沙箱策略拒绝也会命中，
+代价是 owner 提示指错方向、绝不影响重试/投递。`test_forbidden_is_an_accepted_false_positive_surface`
+把取舍钉住。
+
+## 2026-09-09（review C4）— 边界从 `\b` 改成「字母边界」
+
+`_` 是 `\w`，`\bapi[ _-]?key\b` / `\bauthentication\b` 在被下划线或字母粘连时全部失效：
+裸类名 `AuthenticationError`（circuit_breaker / trigger 传的就是字符串）、`authentication_failed`、
+`api_key_invalid`、`x_api_key`、`APIKeyError`、`api_keys` 九条真实串从 True 掉成 False，
+`background_llm_alerts` 的 owner 通知会整条消失。改为 `(?<![A-Za-z])` 前置边界、
+`authenticat` 前缀式、`api[ _-]?key` 不设尾边界（`APIKeyError` / `api_keys` 都要中）。
+负例（provider_resolver / provider temporarily unavailable / 403 tokens）重跑仍 False；
+九条串全部进 `test_status_codes_and_token_phrases_are_credential` 参数表。
+
+## 2026-09-09（review C4）— 词边界从 `\b` 改成「字母边界」
+
+`\b` 把 `_` 算进 `\w`，于是 `x_api_key` / `api_key_invalid` / `authentication_failed` /
+裸类名 `AuthenticationError`（`is_credential_error(et)` 传的就是类名字符串）全部从 True
+掉成 False——`background_llm_alerts` 的 owner 通知会因此整条消失。改成
+`(?<![A-Za-z])` / `(?![A-Za-z])`（api key 尾部不设边界：`api_keys` / `APIKeyError` 都要中），
+`authentication` 改成前缀 `authenticat`。九条真实串进了 `test_llm_failure.py` 正例表；
+`provider_resolver` / `provider temporarily unavailable` / `generated 403 tokens` 负例仍红线。
+
+## 2026-09-09 — `is_credential_error` 改锚定匹配：裸子串 "provider" 退出
+
+`CREDENTIAL_ERROR_MARKERS` 子串表换成 `_CREDENTIAL_ERROR_PATTERNS`（带词边界的正则）
++ `_CREDENTIAL_ERROR_TYPES`（SDK 自带的鉴权异常**类名**：`AuthenticationError` /
+`PermissionDeniedError` 等；传异常实例时先按类名判）。触发事件：上游
+NetMindAI-Open/NarraNexus#106 —— Web Developer worker 因旧模块路径
+`...provider_resolver` import 失败，错误串里有 "provider"，于是被裸子串扫进凭据类，
+owner 收到「去检查 Provider 设置」的误诊。规则变化三条：
+
+- **子系统名不是凭据词**。"provider" 单独出现不再算；只认凭据词（api key /
+  credential / unauthorized / authentication / forbidden / invalid api token）。
+- **状态码按整数匹配**：`40[13]` 前后不能是数字，且后面不跟 `tokens` ——
+  "generated 403 tokens" 不再命中（之前 `" 403"` 子串会中）。"403 Forbidden" 顶格也能中
+  （旧表要求前面有空格或括号，[[circuit_breaker.py]] 为此单独补过 `forbidden` 子串，
+  现已删掉那句、统一回本函数）。
+- **新增 `invalid_token` / `Invalid API token` 形态**（NetMind 403 的原文）。
+
+只影响 owner 提示文案 + 审计分类，不改重试/投递行为（与此前一致）。锁：
+`tests/agent_framework/test_llm_failure.py` 的 provider 假阳性参数组 + 类名判定用例。
 
 ## 2026-07-30 — 免费额度用完拆成自己的 reason + `OUT_OF_CREDIT_REASONS`
 
@@ -69,8 +126,9 @@ reason 不再悄悄掉出这两道防线的机制，并有测试断言这层关�
 表里有 `401` 没有 `403`，有 `invalid api key` 而报文写的是 `api token`；
 `classify_self_serviceable` 也没有对应 reason。于是这一轮被判 `recoverable`，
 helper-LLM 兜底编了一条像样的回复，用户看到 agent 承诺干活却什么都没发生。
-注意 [[circuit_breaker.py]] 早就通过 `is_credential_error` 的 `" 403"/"(403"` +
-`forbidden` 把 403 归到 AUTH 了——漏的只有**面向用户那条消息**的路径。
+注意 [[circuit_breaker.py]] 早就通过 `is_credential_error` 的 403 状态码匹配（当时是
+`" 403"/"(403"` 子串 + 它自己补的 `forbidden`；2026-09-09 起统一为本文件的锚定正则）
+把 403 归到 AUTH 了——漏的只有**面向用户那条消息**的路径。
 
 marker 收窄纪律（和 `"402 payment"` 同源，但这次是被测试抓住的）：一开始写成
 `("403", "token")` 的 AND 组，被
@@ -168,8 +226,9 @@ fatal，还让熔断器早退跳过（见 [[loop/circuit_breaker.py]]），可�
 直接把 401 静默吞掉。2026-07 事故——平台 OpenAI key 过期，长记忆退化约两周无告警——
 的根因之一就是这套判断没有被复用。本文件把它收敛成单一真源。
 
-- `is_credential_error(err)`：对**原始**错误串做粗粒度子串匹配（`CREDENTIAL_ERROR_MARKERS`）。
-  只用于决定 owner 提示文案 + 审计分类，绝不改变重试/投递行为。接受 str 或异常。
+- `is_credential_error(err)`：对**原始**错误串做锚定正则匹配（`_CREDENTIAL_ERROR_PATTERNS`），
+  异常实例先按类名（`_CREDENTIAL_ERROR_TYPES`）判。只用于决定 owner 提示文案 + 审计分类，
+  绝不改变重试/投递行为。接受 str 或异常。
 - `redact_secrets(text, max_len)`：给**要展示**的错误串脱敏（`sk-...` / `key=...` /
   `Bearer ...`）并截断。不是安全边界，只覆盖 SDK 常见回显形态。
 

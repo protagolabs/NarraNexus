@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/services/background_llm_alerts.py
-last_verified: 2026-08-25
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 M5）— `_cooling` docstring 写明 fail-open 的代价
+
+表读不到时 dedup 暂失（旧进程内 dict 不会）；自限于随后的收件箱写也会挂，且宁可重复也不静音。
+
+## 2026-09-09（review I5）— 三处进程内冷却迁到 `owner_notice_cooldowns`
+
+`_notify_cooldown` dict / `reset_alert_state()` / `time.monotonic` 全部删除；三个通知面
+（后台 LLM 凭据失败、熔断 paused、transient 连击）改走
+[[owner_notice_cooldown_repository]]：`_cooling(db, agent, target, category)` 读、
+`_arm` 在收件箱写成功后写。`target` = `source_id or agent_id`（同一 agent 两个 narrative
+各自失败是两件事），category 沿用 `provider_credential`/`generic`，熔断面用 `cb:<reason>` /
+`cb:transient`。同 B-20.3 的三个理由：重启不再重发、多进程一致、粒度按来源。
+**fail-open**：窗口读不到就通知（observer never breaks observed），`_arm` 失败只 warning。
+测试改用真 `db_client`（收件箱/审计仍 fake），新增「跨实例仍压制」与「库挂了照样通知」。
 
 ## 2026-08-25 — source 标签枚举补全（行为未变）
 

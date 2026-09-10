@@ -27,12 +27,6 @@ def _fake_narrative():
     return types.SimpleNamespace(id="nar_1", agent_id="agt_1")
 
 
-@pytest.fixture(autouse=True)
-def _reset():
-    alerts.reset_alert_state()
-    yield
-
-
 @pytest.mark.asyncio
 async def test_injects_owner_creds_before_llm_call(monkeypatch):
     order = []

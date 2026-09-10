@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_service.py
-last_verified: 2026-08-18
+last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09（review M1）— 协议加 `get_message(message_id)`
+
+单条按 id 读回。发送工具记回执要知道 bus 给这对 agent 找到/新开的 DM 是哪个 channel，
+刚写的行是唯一知道的地方；此前工具直接 `db.get_one("bus_messages")`，现在走协议方法。
+`LocalMessageBus` 实现，`CloudMessageBus` 仍 `NotImplementedError`。
+
+## 2026-09-09 — `send_message` / `send_to_agent` 增加 keyword-only `part_index/part_count`
+
+长消息分片契约（[[multipart]]）。放在 `*` 之后：既有位置调用方不可能被重绑，也不必再
+往「附加在最后」的注释上加名字。`_post_to_room` 漏斗**不**承接（房间行是平台自己的一句话，
+永远不是片段），`test_team_message_segments` 的漂移测试把两者列入豁免并写明理由。
+
 ## 2026-08-14 — `segments` 参数 + `get_messages_before`
 
 `send_message` 增加 `segments`（独白/回复的分界，见 [[schemas.py]]），**追加在最后**并

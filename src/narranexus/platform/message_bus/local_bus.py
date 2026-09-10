@@ -26,7 +26,20 @@ from narranexus.platform.channel.message_source_handler import (
     im_channel_prefixes,
 )
 from narranexus.platform.message_bus.message_bus_service import MessageBusService
-from narranexus.platform.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
+from narranexus.platform.message_bus.multipart import (
+    MAX_BUS_MESSAGE_BYTES,
+    MAX_MESSAGE_PARTS,
+    MAX_MULTIPART_TOTAL_BYTES,
+    BusMessageTooLarge,
+    group_budget_reason,
+    too_many_parts_reason,
+)
+from narranexus.platform.message_bus.schemas import (
+    BusAgentInfo,
+    BusChannelMember,
+    BusMessage,
+    canonical_ts,
+)
 from narranexus.platform.utils.db.db_backend import DatabaseBackend
 
 
@@ -35,17 +48,14 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
-def canonical_ts(value) -> str:
-    """A cursor-comparable ISO-8601 string.
-
-    Both cursors are TEXT and compared lexicographically, while the sqlite
-    backend auto-parses ``*_at`` columns into ``datetime`` on read. A datetime
-    stringified the default way becomes ``"YYYY-MM-DD HH:MM:SS"`` — space, no
-    'T' — and since 'T' (0x54) sorts above ' ' (0x20) such a cursor sits BELOW
-    every real ``created_at``, making every message look unprocessed forever.
-    That cost us a re-trigger loop once; it gets exactly one home.
-    """
-    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+#: One lane's pending batch. A LIMIT, not a page: the poll loop takes the
+#: oldest N unprocessed rows of ONE channel, acks what it delivered, and comes
+#: back for the rest. A batch that fills the limit may therefore be cut in the
+#: middle of a multipart group — the trigger asks `multipart.assemble` to hold
+#: such a group rather than judge it stale on partial evidence, and widens to
+#: `PENDING_BATCH_LIMIT_WIDE` when nothing before the group can be delivered.
+PENDING_BATCH_LIMIT = 50
+PENDING_BATCH_LIMIT_WIDE = 500
 
 
 def _now_iso() -> str:
@@ -166,6 +176,9 @@ class LocalMessageBus(MessageBusService):
             sender_turn_source=row.get("sender_turn_source"),
             routed_by=row.get("routed_by"),
             root_run_id=row.get("root_run_id"),
+            part_index=row.get("part_index") or None,
+            part_count=row.get("part_count") or None,
+            part_group=row.get("part_group") or None,
             created_at=row.get("created_at"),
         )
 
@@ -187,8 +200,19 @@ class LocalMessageBus(MessageBusService):
         # and a parameter added in the middle silently rebinds every one of
         # them. Pinned by test_team_message_segments.
         segments: Optional[List[dict]] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
+
+        ``part_index`` / ``part_count`` (both 0 = an ordinary message) mark ONE
+        part of a long message sent in order. Part 1 opens a group whose id is
+        its own message_id; every later part must follow the previous index
+        from the same sender in the same channel with the same count, or the
+        send is refused (a part that cannot be placed would be delivered as a
+        fragment). The recipient's trigger holds the group back until the last
+        part lands and hands the turn one reassembled message — see multipart.py.
 
         ``sender_turn_source`` records WHICH KIND of turn produced this
         message ("chat"/"job"/… = the sender was running an errand for its
@@ -208,7 +232,17 @@ class LocalMessageBus(MessageBusService):
         breaks at every agent→agent hop and a cascade stop leaves the branch
         beyond the hop running.
         """
+        size = len((content or "").encode("utf-8"))
+        if size > MAX_BUS_MESSAGE_BYTES:
+            # Every writer, not one tool: `message_team` and the platform's own
+            # lines reach this insert too (review I4). Refused, never cut. The
+            # exception carries the FACT; the remedy is the caller's (a peer
+            # tool has parts, a room tool and a person do not — #389 I1).
+            raise BusMessageTooLarge(size)
         msg_id = _generate_id("msg")
+        part_group = await self._resolve_part_group(
+            from_agent, to_channel, msg_id, part_index, part_count, size
+        )
         # A message carrying files is tagged "multimodal" so UI / search can
         # distinguish it; pure text stays "text".
         if attachments and msg_type == "text":
@@ -229,6 +263,9 @@ class LocalMessageBus(MessageBusService):
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
             "routed_by": routed_by,
+            "part_index": part_index or None,
+            "part_count": part_count or None,
+            "part_group": part_group,
             "created_at": _now_iso(),
         })
         # Nudge the poll loop — the ONE place this can live.
@@ -301,6 +338,10 @@ class LocalMessageBus(MessageBusService):
             (channel_id,),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
+
+    async def get_message(self, message_id: str) -> Optional[BusMessage]:
+        row = await self._db.get_one("bus_messages", {"message_id": message_id})
+        return self._row_to_message(row) if row else None
 
     async def get_messages_before(
         self, channel_id: str, before: str, limit: int = 50
@@ -569,6 +610,71 @@ class LocalMessageBus(MessageBusService):
                 {"last_read_at": latest_ts},
             )
 
+    async def _resolve_part_group(
+        self, from_agent: str, channel_id: str, msg_id: str,
+        part_index: int, part_count: int, size: int,
+    ) -> Optional[str]:
+        """The group id a part belongs to, or None for an ordinary message.
+
+        Validates the part contract at the write edge so a fragment can never
+        be stored unplaceable: 1 <= index <= count, and a
+        part > 1 must find the sender's most recent part in this channel to be
+        exactly index-1 of the same count (the group is then that part's).
+        Two independent bounds on a group, each with its own refusal:
+        ``part_count`` may not exceed ``MAX_MESSAGE_PARTS`` (checked on every
+        part, so part 1 already fails), and the parts already stored plus this
+        one (``size`` bytes) may not exceed ``MAX_MULTIPART_TOTAL_BYTES`` (review
+        I7) — measured in bytes in Python, not with SQL LENGTH(), which counts
+        characters on SQLite and bytes on MySQL. Raises ValueError with an
+        agent-readable reason otherwise.
+        """
+        if not part_index and not part_count:
+            return None
+        if part_count < 1 or part_index < 1 or part_index > part_count:
+            raise ValueError(
+                f"invalid part {part_index}/{part_count}: parts are numbered "
+                f"1..count, count >= 1"
+            )
+        if part_count > MAX_MESSAGE_PARTS:
+            # Refused on part 1 already — the model must not send 40 parts
+            # before learning the 41st is impossible.
+            raise ValueError(too_many_parts_reason(part_count))
+        if part_index == 1:
+            if size > MAX_MULTIPART_TOTAL_BYTES:
+                raise ValueError(group_budget_reason(0, size))
+            return msg_id
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT part_index, part_count, part_group FROM bus_messages "
+            f"WHERE channel_id = {ph} AND from_agent = {ph} "
+            f"AND part_group IS NOT NULL "
+            f"ORDER BY created_at DESC LIMIT 1",
+            (channel_id, from_agent),
+        )
+        prev = rows[0] if rows else None
+        if (
+            prev is None
+            or int(prev.get("part_count") or 0) != part_count
+            or int(prev.get("part_index") or 0) != part_index - 1
+        ):
+            have = (
+                f"{prev.get('part_index')}/{prev.get('part_count')}" if prev else "none"
+            )
+            raise ValueError(
+                f"part {part_index}/{part_count} does not follow the previous "
+                f"part (last stored: {have}); send parts in order, starting at "
+                f"1/{part_count}"
+            )
+        stored = await self._db.execute(
+            f"SELECT content FROM bus_messages WHERE channel_id = {ph} "
+            f"AND part_group = {ph}",
+            (channel_id, prev["part_group"]),
+        )
+        stored_bytes = sum(len((r.get("content") or "").encode("utf-8")) for r in stored)
+        if stored_bytes + size > MAX_MULTIPART_TOTAL_BYTES:
+            raise ValueError(group_budget_reason(stored_bytes, size))
+        return prev["part_group"]
+
     async def send_to_agent(
         self,
         from_agent: str,
@@ -579,6 +685,9 @@ class LocalMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         event_id: Optional[str] = None,
+        *,
+        part_index: int = 0,
+        part_count: int = 0,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -635,6 +744,8 @@ class LocalMessageBus(MessageBusService):
             sender_turn_source=sender_turn_source,
             root_run_id=root_run_id,
             event_id=event_id,
+            part_index=part_index,
+            part_count=part_count,
         )
 
     # ===== Channel Management =====
@@ -790,7 +901,7 @@ class LocalMessageBus(MessageBusService):
     async def get_pending_messages(
         self,
         agent_id: str,
-        limit: int = 50,
+        limit: int = PENDING_BATCH_LIMIT,
         channel_id: Optional[str] = None,
     ) -> List[BusMessage]:
         """

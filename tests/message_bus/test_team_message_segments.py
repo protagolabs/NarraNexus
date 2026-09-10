@@ -152,8 +152,15 @@ def test_the_bus_signature_appends_rather_than_inserts():
 
     from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
-    params = list(inspect.signature(LocalMessageBus.send_message).parameters)
-    assert params.index("segments") == len(params) - 1
+    sig = inspect.signature(LocalMessageBus.send_message)
+    positional = [
+        name for name, p in sig.parameters.items()
+        if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ]
+    # `segments` closes the positional list; anything after it must be
+    # keyword-only (`*`), which by construction cannot rebind a positional
+    # caller — the multipart fields (2026-09-09) are the first such.
+    assert positional[-1] == "segments"
 
 
 # ── the wiring, end to end ──────────────────────────────────────────────────
@@ -322,7 +329,13 @@ def test_the_room_funnel_carries_everything_a_room_caller_can_send():
     #                        sends; a room reply's lineage rides the trigger.
     #   routed_by          — records why `mentions` holds what it does, and the
     #                        funnel's callers compute mentions themselves.
-    exempt = {"attachments", "sender_turn_source", "root_run_id", "routed_by"}
+    #   part_index /       — a long message sent in parts is a PEER send made
+    #   part_count           by a model that hit its output budget; a room post
+    #                        is the platform's own line and never a fragment.
+    exempt = {
+        "attachments", "sender_turn_source", "root_run_id", "routed_by",
+        "part_index", "part_count",
+    }
 
     # Anchored on the PROTOCOL, not on one implementation: `_post_to_room` calls
     # `self._bus.send_message`, and the bus in production is whichever one the

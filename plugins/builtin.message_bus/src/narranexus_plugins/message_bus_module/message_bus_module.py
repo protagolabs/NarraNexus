@@ -621,6 +621,10 @@ class MessageBusModule(XYZBaseModule):
             room_labels = ctx_data.extra_data.get("bus_room_labels") or {}
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
                 content = (m.get("content") or "")[:200]
+                # One row of a multipart message: say so, or a preview of part
+                # 2 reads as a message that starts mid-sentence.
+                if m.get("part_count"):
+                    content = f"(part {m.get('part_index')}/{m.get('part_count')}) {content}"
                 # `msg_type` is carried so platform lines are labelled rather
                 # than quoted as a member. This list has no type filter (and
                 # neither does the unread predicate), so patrol lines, stop and

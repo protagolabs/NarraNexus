@@ -43,16 +43,20 @@ from narranexus.platform.message_bus._bus_activity import (
     is_stalled,
 )
 from narranexus.platform.message_bus.local_bus import (
+    PENDING_BATCH_LIMIT,
+    PENDING_BATCH_LIMIT_WIDE,
     POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
     _as_utc,
     canonical_ts,
 )
 from narranexus.platform.message_bus.delivery_notice import (
+    announce_processing_failure,
     UNDELIVERED_MSG_TYPE,
     announce_delivery_failure,
     announce_undelivered,
 )
+from narranexus.platform.message_bus.multipart import assemble as assemble_parts
 from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
@@ -65,6 +69,13 @@ from narranexus.platform.message_bus.system_messages import (
     trigger_label as _platform_trigger_label,
 )
 from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.repository.bus_delivery_receipt_repository import (
+    RECEIPT_DROPPED,
+    RECEIPT_FAILED,
+    RECEIPT_PROCESSED,
+    RECEIPT_RELAYED,
+    RECEIPT_SILENT,
+)
 from narranexus.platform.channel.message_source_handler import (
     im_channel_prefixes,
 )
@@ -128,6 +139,15 @@ STEER_RETENTION_DAYS = 3
 STEER_ORPHAN_DAYS = 7
 STEER_CLEANUP_INTERVAL_S = 24 * 3600
 
+#: Retention for the two 2026-09-09 ledgers this trigger is the production
+#: writer of, swept on the same daily tick. Both bounds sit far above every
+#: window that reads the rows: the receipt guards and the owner-notice
+#: cooldowns are FAILURE_NOTIFY_COOLDOWN_SECONDS (30 min) wide, so a sweep can
+#: never reach into a live window — which would re-open it and bring back the
+#: duplicate notice B-20.3 removed.
+RECEIPT_RETENTION_DAYS = 30
+NOTICE_COOLDOWN_RETENTION_DAYS = 2
+
 # How often the poll loop checks the cross-process wake signal while it sleeps.
 # Bounds the added latency of a send made outside this process; 0.5s keeps that
 # under a second while costing two single-row reads per second.
@@ -173,10 +193,12 @@ TEAM_BOARD_MAX_ITEMS = 15
 # owner gets when that happens.
 POISON_FAILURE_THRESHOLD = _POISON_FAILURE_THRESHOLD
 
-# De-dup window for permanent-failure inbox notices, keyed per
-# (agent_id, error_category). Same window as the rate limiter — a batch of
-# messages failing for one root cause (e.g. a broken provider key) should
-# not write one inbox row per message.
+# De-dup window for owner-facing inbox notices, keyed per
+# (agent_id, channel_id, category) and PERSISTED (`owner_notice_cooldowns`,
+# see `_notify_owner`). Same window as the rate limiter — a batch of messages
+# failing for one root cause (e.g. a broken provider key) should not write one
+# inbox row per message. Per channel, not per agent: a hand-off that broke on
+# channel A must not silence the notice about an unrelated failure on B.
 FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 
 # Credential-error classification and secret redaction moved to the shared
@@ -327,11 +349,6 @@ class MessageBusTrigger:
         # wait behind the agent's team-A turn. Unbounded (agent×channel keys, no
         # cleanup): bounded in practice by the roster, like `_in_flight`.
         self._lane_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
-        # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
-        # for a given cooldown key. Shared by both notifiers so a burst of
-        # failures sharing one root cause writes at most one inbox row per
-        # `FAILURE_NOTIFY_COOLDOWN_SECONDS`. See `_notify_owner`.
-        self._notify_cooldown: Dict[str, float] = {}
         # In-flight dispatches, LANE (agent_id, channel_id) -> _InFlight. The
         # poll loop spawns these and does NOT await them (see `_poll_cycle`), so
         # this is both the "don't dispatch the same LANE twice" guard and the
@@ -1053,8 +1070,9 @@ class MessageBusTrigger:
                 # SQL so the LIMIT falls on THIS room's backlog — not the agent's
                 # whole cross-channel backlog filtered to empty in Python, which
                 # starves a busy agent's other rooms and burns a slot each poll.
+                batch_limit = PENDING_BATCH_LIMIT
                 messages = await self._bus.get_pending_messages(
-                    agent_id, channel_id=channel_id
+                    agent_id, channel_id=channel_id, limit=batch_limit
                 )
                 if not messages:
                     return False
@@ -1105,6 +1123,27 @@ class MessageBusTrigger:
                     )
                     return False
 
+                # A long message sent in parts: hold the lane until the last
+                # part lands (no ack — the part's own wake bump brings the loop
+                # back), then hand the turn ONE reassembled message. Before
+                # this, the wake on part 1 started the turn on a fragment and
+                # the later parts read as replies to that answer (multipart.py).
+                # `relevant` comes back sorted by created_at with the held
+                # tail removed, so `relevant[-1]` below is both the trigger
+                # message and the ack high-water — and never past a held row.
+                relevant, held = await self._assemble_lane_batch(
+                    agent_id, channel_id, messages, relevant, batch_limit,
+                    channel_type, channel_owner,
+                )
+                if held:
+                    logger.debug(
+                        f"MessageBusTrigger: {channel_id} for {agent_id} — a "
+                        f"multipart message is still arriving; "
+                        f"{len(relevant)} earlier message(s) go ahead"
+                    )
+                if not relevant:
+                    return False
+
                 # Rate limiting
                 if not self._check_rate_limit(agent_id, channel_id):
                     latest = max(relevant, key=lambda m: str(m.created_at))
@@ -1124,6 +1163,51 @@ class MessageBusTrigger:
                     f"{(agent_id, channel_id)}: {e}"
                 )
                 return False
+
+    async def _assemble_lane_batch(
+        self,
+        agent_id: str,
+        channel_id: str,
+        messages: List[BusMessage],
+        relevant: List[BusMessage],
+        batch_limit: int,
+        channel_type: str,
+        channel_owner: str,
+    ) -> Tuple[List[BusMessage], bool]:
+        """Collapse multipart groups in a lane batch — three explicit steps.
+
+        1. NARROW: assemble what the normal batch holds; a group cut by the
+           batch edge is held, never judged on partial evidence (review I2).
+        2. WIDE: if nothing before the group can move, re-read the lane with
+           `PENDING_BATCH_LIMIT_WIDE` and assemble again.
+        3. LAST VERDICT: if even the wide read is cut and still nothing can
+           move, assemble once more with ``batch_truncated=False`` so grace
+           and supersession rule on what is in view. The LIMIT is per lane,
+           so a legal group CAN be cut here when >= PENDING_BATCH_LIMIT_WIDE
+           ordinary rows sit between its parts; a group past its grace is
+           then delivered as what is in view with a missing-parts marker and
+           the rest follows as a second fragment — accepted over holding the
+           lane forever (review r2 C2 / r3 I2). A young group is still held.
+
+        Returns ``(deliverable, held)`` exactly as `multipart.assemble` does.
+        """
+        truncated = len(messages) >= batch_limit
+        relevant, held = assemble_parts(relevant, batch_truncated=truncated)
+        if not (held and truncated and not relevant):
+            return relevant, held
+        wide_limit = PENDING_BATCH_LIMIT_WIDE
+        wide_messages = await self._bus.get_pending_messages(
+            agent_id, channel_id=channel_id, limit=wide_limit
+        )
+        wide = [
+            m for m in wide_messages
+            if self._should_process_message(m, agent_id, channel_type, channel_owner)
+        ]
+        truncated = len(wide_messages) >= wide_limit
+        relevant, held = assemble_parts(wide, batch_truncated=truncated)
+        if held and truncated and not relevant:
+            relevant, held = assemble_parts(wide, batch_truncated=False)
+        return relevant, held
 
     async def _ack_steer_consumed(
         self,
@@ -1361,10 +1445,11 @@ class MessageBusTrigger:
             flight.steer_cycles_in_flight -= 1
 
     async def _maybe_run_steer_cleanup(self) -> None:
-        """Reclaim old steer_inbox rows — startup + once a day. This trigger is
-        the table's only production writer, so it owns the retention tick (else
-        the table is write-only and grows forever). Gated on monotonic time;
-        best-effort — a cleanup failure never touches the poll loop."""
+        """Reclaim old steer_inbox rows, delivery receipts and owner-notice
+        cooldowns — startup + once a day. This trigger is each table's only
+        production writer, so it owns the retention tick (else the tables are
+        write-only and grow forever). Gated on monotonic time; best-effort — a
+        cleanup failure never touches the poll loop."""
         now = time.monotonic()
         if now - self._last_steer_cleanup_monotonic < STEER_CLEANUP_INTERVAL_S:
             return
@@ -1375,13 +1460,37 @@ class MessageBusTrigger:
             )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
-            deleted = await SteerInboxRepository(
-                await get_db_client()
-            ).cleanup_older_than_days(STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS)
+            db = await get_db_client()
+            deleted = await SteerInboxRepository(db).cleanup_older_than_days(
+                STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS
+            )
             if deleted:
                 logger.info(f"[steer-inbox] retention swept {deleted} rows")
         except Exception as e:  # noqa: BLE001 — retention never breaks the loop
             logger.warning(f"[steer-inbox] retention sweep failed: {type(e).__name__}: {e}")
+        # The same tick sweeps the two ledgers this trigger writes (2026-09-09):
+        # each is best-effort on its own so one failing sweep never starves
+        # the others.
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+            )
+            from narranexus.platform.repository.owner_notice_cooldown_repository import (
+                OwnerNoticeCooldownRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            swept = await BusDeliveryReceiptRepository(db).cleanup_older_than_days(
+                RECEIPT_RETENTION_DAYS
+            )
+            swept += await OwnerNoticeCooldownRepository(db).cleanup_older_than_days(
+                NOTICE_COOLDOWN_RETENTION_DAYS
+            )
+            if swept:
+                logger.info(f"[bus-ledgers] retention swept {swept} rows")
+        except Exception as e:  # noqa: BLE001 — retention never breaks the loop
+            logger.warning(f"[bus-ledgers] retention sweep failed: {type(e).__name__}: {e}")
 
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent
@@ -1933,6 +2042,13 @@ class MessageBusTrigger:
                     await self._write_to_inbox(
                         agent_id, channel_id, trigger_message, turn.text
                     )
+                    # The sender's receipt: its message was acted on, but the
+                    # action was a relay to OUR owner, not a reply to it. A
+                    # peer that also got a tool reply reads `processed`.
+                    await self._stamp_receipts(
+                        messages, agent_id, channel_id,
+                        RECEIPT_PROCESSED if turn.delivered else RECEIPT_RELAYED,
+                    )
             elif turn.reached_nobody:
                 # `reached_nobody` IS "no text and no tool reached anyone", so
                 # the only thing this channel gets is the platform's own line
@@ -1941,6 +2057,18 @@ class MessageBusTrigger:
                 await self._announce_undelivered_turn(
                     agent_id, channel_id, trigger_message,
                     is_team=is_team, errand_continuation=errand_continuation,
+                    batch=messages,
+                )
+                if not is_team:
+                    await self._stamp_receipts(
+                        messages, agent_id, channel_id, RECEIPT_SILENT
+                    )
+            elif not is_team:
+                # No owner-facing text, but a tool reached someone: the peer
+                # was answered (or a third party was), which is the receipt
+                # the sender is waiting on.
+                await self._stamp_receipts(
+                    messages, agent_id, channel_id, RECEIPT_PROCESSED
                 )
 
             # A reply that never got out is not a completed hop: [bus-timing]
@@ -1988,24 +2116,45 @@ class MessageBusTrigger:
                 f"MessageBusTrigger: failed to process channel {channel_id} "
                 f"for agent {agent_id}: {e}"
             )
-            # Record failure for the trigger message
-            await self._bus.record_failure(
-                message_id=trigger_message.message_id,
-                agent_id=agent_id,
-                error=str(e),
-            )
+            # Record the failure on EVERY row the trigger message stands for.
+            # A reassembled multipart message carries part 1's identity, and
+            # the poison filter in `get_pending_messages` is per ROW: counting
+            # on part 1 alone dropped it and left parts 2..N pending as a
+            # headless group — held for the grace, delivered as a fragment
+            # claiming part 1 "never arrived", crashed again (review C3).
+            for message_id in (trigger_message.part_message_ids or [trigger_message.message_id]):
+                await self._bus.record_failure(
+                    message_id=message_id,
+                    agent_id=agent_id,
+                    error=str(e),
+                )
             # Once this message crosses the poison threshold,
             # `get_pending_messages` will filter it out forever (local_bus.py)
-            # — this is the one chance to tell the owner it happened.
+            # — this is the one chance to tell the owner it happened. Read from
+            # part 1 (= the message's own id): every part carries the same
+            # count, so summing them would trip the threshold N times early.
             failure_count = await self._bus.get_failure_count(
                 trigger_message.message_id, agent_id
             )
-            if failure_count >= POISON_FAILURE_THRESHOLD:
+            dropped = failure_count >= POISON_FAILURE_THRESHOLD
+            if not is_team:
+                await self._stamp_receipts(
+                    messages, agent_id, channel_id,
+                    RECEIPT_DROPPED if dropped else RECEIPT_FAILED,
+                    reason=self._redact_error_for_owner(str(e)),
+                    attempts=failure_count,
+                )
+            if dropped:
                 await self._notify_permanent_failure(
                     agent_id=agent_id,
                     channel_id=channel_id,
                     error=str(e),
                 )
+                if not is_team:
+                    await self._wake_sender_on_drop(
+                        agent_id, channel_id, trigger_message,
+                        error=str(e), attempts=failure_count, batch=messages,
+                    )
 
         # One line per successful hop, grep-stable — emitted OUTSIDE the try
         # so observation code can never turn an already-delivered-and-acked
@@ -2067,9 +2216,10 @@ class MessageBusTrigger:
         source_type: str,
         channel_id: str,
         message_id_prefix: str,
-        cooldown_key: str,
+        cooldown_category: str,
     ) -> bool:
-        """Write a SYSTEM_NOTICE to the owner's inbox, de-duplicated per key.
+        """Write a SYSTEM_NOTICE to the owner's inbox, de-duplicated per
+        (agent, channel, category).
 
         The one shared path for owner-facing system notices (permanent-failure
         and no-reply-delivered). Resolves the owner, writes via
@@ -2078,20 +2228,37 @@ class MessageBusTrigger:
         Returns True when a row was written, False when the cooldown suppressed
         it, the owner could not be resolved, or the write failed.
 
+        The window lives in `owner_notice_cooldowns` (OwnerNoticeCooldownRepository),
+        not in this process: the in-process dict it replaced forgot every open
+        window on restart (re-notifying on the first poll after each deploy),
+        gave every trigger container its own answer, and was keyed on
+        `agent:category` alone — so a permanent failure on one channel silenced
+        the notice for an unrelated one on another for the whole window.
+
         The cooldown is armed ONLY after a successful inbox write — arming it
         up-front would let one transient write failure (DB blip, etc.) silently
         suppress the real notification for the rest of the cooldown window
         (the exact trap the original `_notify_permanent_failure` docstring
-        recorded). In-memory, per-process: a restart resets it, an accepted
-        tradeoff shared with `_rate_counters`.
+        recorded). An unreadable window fails OPEN (notify): a duplicate notice
+        is the cheaper mistake than a permanently missing one.
         """
-        last_notified = self._notify_cooldown.get(cooldown_key)
-        now = time.monotonic()
-        if (
-            last_notified is not None
-            and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
-        ):
-            return False
+        from narranexus.platform.repository.owner_notice_cooldown_repository import (
+            OwnerNoticeCooldownRepository,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        try:
+            cooldowns = OwnerNoticeCooldownRepository(await get_db_client())
+            if await cooldowns.is_cooling(
+                agent_id, channel_id, cooldown_category,
+                FAILURE_NOTIFY_COOLDOWN_SECONDS,
+            ):
+                return False
+        except Exception as e:  # noqa: BLE001 — fail open, see docstring
+            logger.warning(
+                f"MessageBusTrigger: cooldown read failed for {agent_id}/"
+                f"{channel_id}/{cooldown_category}, notifying anyway: {e}"
+            )
 
         try:
             owner_user_id = await self._get_agent_owner(agent_id)
@@ -2110,7 +2277,6 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from narranexus.platform.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             await InboxRepository(db).create_message(
@@ -2122,7 +2288,9 @@ class MessageBusTrigger:
                 source=MessageSource(type=source_type, id=channel_id),
             )
             # Arm the cooldown only now that the write actually succeeded.
-            self._notify_cooldown[cooldown_key] = now
+            await OwnerNoticeCooldownRepository(db).arm(
+                agent_id, channel_id, cooldown_category
+            )
             logger.warning(
                 f"MessageBusTrigger: notified owner {owner_user_id} "
                 f"({source_type}) for agent {agent_id} in channel {channel_id}"
@@ -2148,9 +2316,10 @@ class MessageBusTrigger:
         after 3 failures the message just vanishes from
         `get_pending_messages` forever with zero owner-facing signal.
 
-        De-duplicated per (agent_id, error category) via `_notify_owner`, so a
-        burst of messages failing for one root cause writes at most one inbox
-        row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+        De-duplicated per (agent_id, channel_id, error category) via
+        `_notify_owner`, so a burst of messages failing for one root cause on
+        one channel writes at most one inbox row per
+        `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
         """
         category = self._classify_error(error)
         if category == "provider_credential":
@@ -2180,7 +2349,7 @@ class MessageBusTrigger:
             source_type="message_bus_failure",
             channel_id=channel_id,
             message_id_prefix="busfail_",
-            cooldown_key=f"{agent_id}:{category}",
+            cooldown_category=category,
         )
 
     async def _team_roster(self, channel_id: str) -> List[dict]:
@@ -3774,11 +3943,194 @@ class MessageBusTrigger:
             agent_id, channel_id, trigger_message, turn.text
         )
 
+    @staticmethod
+    def _receipt_worthy(messages: List[BusMessage]) -> List[BusMessage]:
+        """The messages in a batch a SENDER is waiting on a receipt for: peer
+        agents' own messages. A person's message has no agent turn behind it,
+        and a platform line is nobody's question."""
+        return [
+            m for m in messages
+            if m.from_agent
+            and not m.from_agent.startswith(USER_SENDER_PREFIX)
+            and (m.msg_type or "") not in PLATFORM_MSG_TYPES
+        ]
+
+    @classmethod
+    def _batch_fingerprint(cls, batch: List[BusMessage]) -> Tuple[str, List[str]]:
+        """``(content_key, message_ids)`` for ONE batch — the single definition
+        the receipt writer and both resend guards share (#389 I4).
+
+        Writer and readers must agree byte for byte or the guards go silent
+        with every test still green (each test walks one path). The key is
+        the worthy messages' contents joined by a newline; the ids expand
+        every part row a merged message stands for. Empty key when nothing
+        in the batch is a peer message worth a receipt.
+        """
+        worthy = cls._receipt_worthy(batch)
+        if not worthy:
+            return "", []
+        from narranexus.platform.repository.bus_delivery_receipt_repository import (
+            content_key,
+        )
+
+        return (
+            content_key("\n".join(m.content for m in worthy)),
+            [mid for m in worthy for mid in (m.part_message_ids or [m.message_id])],
+        )
+
+    async def _stamp_receipts(
+        self,
+        messages: List[BusMessage],
+        agent_id: str,
+        channel_id: str,
+        status: str,
+        *,
+        reason: Optional[str] = None,
+        attempts: Optional[int] = None,
+    ) -> None:
+        """Write what became of this batch at this recipient into
+        `bus_delivery_receipts` — one row per message, upserted. Best-effort,
+        never raises: a ledger write must not turn a delivered turn into a
+        recorded failure. `reason` arrives already redacted.
+
+        DM lanes only (the callers gate on `not is_team`): a team room's
+        senders are watching the room itself, and a receipt per mention per
+        member would be a write per turn nobody reads.
+        """
+        worthy = self._receipt_worthy(messages)
+        if not worthy:
+            return
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            repo = BusDeliveryReceiptRepository(await get_db_client())
+            # One fingerprint per BATCH (not per message): a resend of the
+            # same batch must match across batches.
+            key, _ids = self._batch_fingerprint(messages)
+            for m in worthy:
+                for message_id in (m.part_message_ids or [m.message_id]):
+                    await repo.upsert(
+                        message_id=message_id, to_agent=agent_id,
+                        channel_id=channel_id, from_agent=m.from_agent,
+                        status=status, reason=reason, attempts=attempts,
+                        content_key=key,
+                    )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.warning(
+                f"[bus-receipt] could not stamp {status} for {agent_id} in "
+                f"{channel_id}: {e}"
+            )
+
+    async def _wake_sender_on_drop(
+        self, agent_id: str, channel_id: str, trigger_message: BusMessage,
+        *, error: str, attempts: int, batch: Optional[List[BusMessage]] = None,
+    ) -> None:
+        """The message is gone for good: say so where the SENDER will see it.
+
+        `_notify_permanent_failure` tells the recipient's owner. The sender —
+        another agent, mid-errand, that has just told its own user the work
+        is under way — was told nothing (upstream NetMindAI-Open/NarraNexus#106),
+        and kept waiting. This posts a `system_delivery_failed` line into the
+        conversation with the sender mentioned, so its next turn opens on the
+        failure (labelled by `system_messages.trigger_label`) and it can retry,
+        route around, or tell its user. Only when the sender is an agent: a
+        person's message has no turn to wake, and the owner inbox is theirs.
+
+        When the guard itself cannot be read the wake goes out (fail-open) AND
+        no window is armed — a second fail-open, accepted because an
+        unreadable table would refuse the arm too; the next readable poll
+        re-establishes the window.
+        """
+        sender = trigger_message.from_agent or ""
+        if not sender or sender.startswith(USER_SENDER_PREFIX):
+            return
+        if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
+            return
+        # Windowed, two layers, never a loop (review C2): the notice wakes the
+        # sender, a model that reads "could not process" resends or rephrases,
+        # the recipient drops that too — and without a bound this DM would
+        # run thousands of rounds a day while the recipient stays broken (the
+        # 2026-08-17 Liam ping-pong, lit by the platform itself). The receipt
+        # ledger recognises the SAME content dropped again; the cooldown row
+        # (recipient, channel, "peer_drop") bounds rephrasings. Both share
+        # FAILURE_NOTIFY_COOLDOWN_SECONDS so the recipient's owner notice and
+        # the sender's wake expire together, and a recipient fixed-then-broken
+        # again is reported anew.
+        from narranexus.platform.repository.owner_notice_cooldown_repository import (
+            OwnerNoticeCooldownRepository,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        try:
+            db = await get_db_client()
+            cooldowns = OwnerNoticeCooldownRepository(db)
+            if await cooldowns.is_cooling(
+                agent_id, channel_id, "peer_drop", FAILURE_NOTIFY_COOLDOWN_SECONDS
+            ) or await self._drop_already_announced(
+                agent_id, channel_id, batch or [trigger_message]
+            ):
+                logger.info(
+                    f"[bus-drop] {agent_id} dropped another message from {sender} "
+                    f"in {channel_id} inside the window; not waking it again"
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — fail open: one extra wake beats a hidden drop
+            logger.warning(f"[bus-drop] guard read failed for {agent_id}: {e}")
+            cooldowns = None
+        # Both awaits run inside the caller's `except` handler; an exception
+        # here would escape it (#389 M3). Best-effort like every notice.
+        try:
+            landed = await announce_processing_failure(
+                self._bus, channel_id, agent_id,
+                error=error, attempts=attempts, mentions=[sender],
+                root_run_id=trigger_message.root_run_id or None,
+            )
+            if landed and cooldowns is not None:
+                await cooldowns.arm(agent_id, channel_id, "peer_drop")
+        except Exception as e:  # noqa: BLE001 — a notice may never become the new failure
+            logger.warning(f"[bus-drop] could not wake {sender} in {channel_id}: {e}")
+
+    async def _drop_already_announced(
+        self, agent_id: str, channel_id: str, batch: List[BusMessage],
+    ) -> bool:
+        """Was this exact content already dropped by this recipient in this
+        channel within the window, on an earlier message?
+
+        Fingerprints the WHOLE batch, the same way `_stamp_receipts` wrote it
+        (review r2 I1: keying on the trigger message alone never matched a
+        two-message batch's receipts, so this layer silently did nothing).
+        The current batch's own `dropped` rows — written just before this,
+        one per message (and per part) — are all excluded by id, or a
+        two-message batch would suppress its own first wake.
+        """
+        from narranexus.platform.repository.bus_delivery_receipt_repository import (
+            BusDeliveryReceiptRepository,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        key, own_ids = self._batch_fingerprint(batch)
+        if not key:
+            return False
+        return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
+            channel_id=channel_id, to_agent=agent_id,
+            key=key,
+            status=RECEIPT_DROPPED,
+            exclude_message_ids=own_ids,
+            within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
+        )
+
     async def _announce_undelivered_turn(
         self, agent_id: str, channel_id: str, trigger_message: BusMessage,
         *, is_team: bool, errand_continuation: bool,
+        batch: Optional[List[BusMessage]] = None,
     ) -> None:
         """The turn ran and reached nobody. Make that visible.
+
+        ``batch`` is what the turn was built from; on a DM it decides whether
+        the asking peer is woken (see the resend guard below).
 
         WHO is left waiting decides who gets woken, and the two surfaces
         differ:
@@ -3805,6 +4157,16 @@ class MessageBusTrigger:
         asked and got nothing". Platform-initiated turns have no one waiting on
         an answer, so their silence is not a silence we owe the user an
         explanation for.
+
+        And never wakes the asker TWICE for the same question (2026-09-09).
+        The notice is itself a message in a DM, so it starts the asker's next
+        turn; a model that reads "ended without replying" and simply sends the
+        same text again gets the same silence, which gets the same notice —
+        the 8/31 ping-pong. The receipt ledger remembers the content
+        fingerprint of every batch this agent went silent on
+        (`_stamp_receipts` → `content_key`), so a silence on a RESEND is
+        recorded but posts nothing: the asker's owner already has the inbox
+        notice, and the asker is not woken into round three.
         """
         if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
             return
@@ -3835,14 +4197,84 @@ class MessageBusTrigger:
             and bool(sender)
             and not sender.startswith(USER_SENDER_PREFIX)
         )
-        await announce_undelivered(
+        # Two bounds, mirroring the drop path (#389 I2): the content
+        # fingerprint stops a verbatim resend, and a (recipient, channel)
+        # window under its OWN category — never the owner-inbox "no_reply"
+        # window, which would let "the owner was told" swallow "the sender
+        # was never woken" — stops a REPHRASED one from waking the sender
+        # every turn. Gated on the peer being an AGENT (a person's silence
+        # must not occupy the window), not on `wake_peer`: in a DM every row
+        # starts the other member's turn, mention or not, so an unmentioned
+        # notice on an errand-continuation batch wakes the peer just the same.
+        peer_is_agent = bool(sender) and not sender.startswith(USER_SENDER_PREFIX)
+        cooldowns = None
+        if peer_is_agent:
+            from narranexus.platform.repository.owner_notice_cooldown_repository import (
+                OwnerNoticeCooldownRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            try:
+                cooldowns = OwnerNoticeCooldownRepository(await get_db_client())
+                if await cooldowns.is_cooling(
+                    agent_id, channel_id, "no_reply_peer", FAILURE_NOTIFY_COOLDOWN_SECONDS
+                ):
+                    logger.info(
+                        f"[bus-resend] {agent_id} silent again towards {sender} in "
+                        f"{channel_id} inside the window; not waking it again"
+                    )
+                    await self._notify_undelivered_owner(agent_id, channel_id, sender)
+                    return
+            except Exception as e:  # noqa: BLE001 — fail open: one extra wake beats a hidden silence
+                logger.warning(f"[bus-resend] window read failed for {agent_id}: {e}")
+                cooldowns = None
+        if await self._silence_already_announced(
+            agent_id, channel_id, batch or [trigger_message]
+        ):
+            logger.info(
+                f"[bus-resend] {agent_id} silent again on the same content in "
+                f"{channel_id}; not waking {sender or 'the sender'} a second time"
+            )
+            await self._notify_undelivered_owner(agent_id, channel_id, sender)
+            return
+        landed = await announce_undelivered(
             self._bus, channel_id, agent_id,
             mentions=[sender] if wake_peer else None,
             root_run_id=trigger_message.root_run_id or None,
         )
+        if landed and peer_is_agent and cooldowns is not None:
+            with contextlib.suppress(Exception):
+                await cooldowns.arm(agent_id, channel_id, "no_reply_peer")
         # A DM silence happens somewhere nobody is watching, so the owner only
         # ever learns of it here.
         await self._notify_undelivered_owner(agent_id, channel_id, sender)
+
+    async def _silence_already_announced(
+        self, agent_id: str, channel_id: str, batch: List[BusMessage],
+    ) -> bool:
+        """Has this agent already gone silent on exactly this content, in this
+        channel, on an earlier message? Reads the receipt ledger; fails to
+        False (announce) — a missed dedup costs one extra wake, a false one
+        would hide a fresh silence."""
+        key, own_ids = self._batch_fingerprint(batch)
+        if not key:
+            return False
+        try:
+            from narranexus.platform.repository.bus_delivery_receipt_repository import (
+                BusDeliveryReceiptRepository,
+            )
+            from narranexus.platform.utils.db.db_factory import get_db_client
+
+            return await BusDeliveryReceiptRepository(await get_db_client()).prior_outcome(
+                channel_id=channel_id, to_agent=agent_id,
+                key=key,
+                status=RECEIPT_SILENT,
+                exclude_message_ids=own_ids,
+                within_seconds=FAILURE_NOTIFY_COOLDOWN_SECONDS,
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.warning(f"[bus-resend] guard read failed for {agent_id}: {e}")
+            return False
 
     async def _notify_undelivered_owner(
         self, agent_id: str, channel_id: str, sender: str,
@@ -3853,10 +4285,12 @@ class MessageBusTrigger:
         title and MESSAGE_BUS type say "your agent relayed something from a
         peer", which is the opposite of what happened here.
 
-        Cooldown keyed per agent (not per agent+peer): the fix is "look at what
-        this agent keeps doing", not "look at this one message", so a busy A2A
+        Cooldown keyed per (agent, channel) with category `no_reply`, not per
+        message: the fix is "look at what this agent keeps doing", so a busy A2A
         channel where the agent goes quiet every turn must not flood the inbox
-        with one identically-titled row per incoming message.
+        with one identically-titled row per incoming message. Per channel rather
+        than per agent since 2026-09-09: silence towards peer B is a different
+        fact from silence towards peer C, and the notice names the channel.
         """
         await self._notify_owner(
             agent_id,
@@ -3872,7 +4306,7 @@ class MessageBusTrigger:
             source_type="message_bus_no_reply",
             channel_id=channel_id,
             message_id_prefix="busnorep_",
-            cooldown_key=f"{agent_id}:no_reply",
+            cooldown_category="no_reply",
         )
 
     async def _write_to_inbox(
