@@ -42,7 +42,7 @@ from loguru import logger
 
 from narranexus.platform.agent_framework.llm.failure import (
     classify_self_serviceable,
-    is_credential_error,
+    is_auth_like_error,
     redact_secrets,
 )
 from narranexus.platform.agent_runtime.response_processor import _is_auth_failure
@@ -165,8 +165,11 @@ def classify_agent_error(
         return ErrorCategory.TRANSIENT
     if (
         _is_auth_failure(et, msg)
-        or is_credential_error(et)
-        or is_credential_error(msg)
+        # The loose predicate: "forbidden" counts here, where the cost of a
+        # miss is an owner-actionable 403 filed as platform-only. It stays out
+        # of the strict `is_credential_error` used by control flow (#389 I3).
+        or is_auth_like_error(et)
+        or is_auth_like_error(msg)
     ):
         return ErrorCategory.AUTH
     return ErrorCategory.BUSINESS

@@ -443,3 +443,10 @@ async def test_peek_skip_fails_open():
             raise RuntimeError("db down")
 
     assert await peek_skip("x", db=_Dead()) == (False, None)
+
+
+def test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker():
+    """#389 I3: "forbidden" moved out of the strict `is_credential_error` into
+    the loose `is_auth_like_error`; the breaker must keep using the loose one
+    or an owner-actionable 403 with no status digits files as BUSINESS."""
+    assert classify_agent_error("X", "request forbidden by upstream policy") == ErrorCategory.AUTH

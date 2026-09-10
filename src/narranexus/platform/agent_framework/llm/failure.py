@@ -49,15 +49,11 @@ _CREDENTIAL_ERROR_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"(?<![A-Za-z])credential",
         r"(?<![A-Za-z])unauthori[sz]ed(?![A-Za-z])",
         r"(?<![A-Za-z])authenticat",
-        # "forbidden" is the one word here that is not a credential term by
-        # itself (a sandbox may say "write to /etc is forbidden"). Kept because
-        # the 403 body is "Forbidden" far more often than not; the accepted
-        # false positive is an owner hint pointing at credentials for a
-        # policy refusal — a wrong hint, never a wrong retry/delivery decision.
-        r"(?<![A-Za-z])forbidden(?![A-Za-z])",
         r"(?<![A-Za-z])invalid[ _-](?:api[ _-])?(?:key|token)(?![A-Za-z])",
-        # 401 / 403 as a whole number, and not the number in a token count.
-        r"(?<![\d.])40[13](?![\d.])(?!\s*tokens?\b)",
+        # 401 / 403 as a whole token: not glued to letters/digits/underscore
+        # (`HTTP403`, `x403y`, a token count) — `code=401`, `(401)`, `HTTP 403`
+        # and a leading `403 Forbidden` still count.
+        r"(?<![\w.])40[13](?![\w.])(?!\s*tokens?\b)",
     )
 )
 
@@ -96,8 +92,22 @@ _SECRET_BEARER_PATTERN = re.compile(
 )
 
 
+# "forbidden" alone is NOT a credential term (a sandbox says "write to /etc is
+# forbidden"), but a 403 body is "Forbidden" far more often than not. It is a
+# useful signal for CLASSIFYING a failed turn (circuit breaker: AUTH vs
+# BUSINESS, where the cost of a miss is an owner-actionable failure filed as
+# platform-only) and a harmful one for CONTROL FLOW (the Claude CLI resume
+# path re-raises on a credential error and skips its cold retry — #389 I3).
+# So it lives in the loose predicate only.
+_AUTH_LIKE_EXTRA_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![A-Za-z])forbidden(?![A-Za-z])", re.IGNORECASE),
+)
+
+
 def is_credential_error(error: Union[str, BaseException, None]) -> bool:
-    """True when ``error`` looks like a provider auth/credential failure.
+    """True when ``error`` looks like a provider auth/credential failure —
+    the STRICT predicate, safe for control flow (skip a retry, write an
+    owner notice, pick a hint).
 
     Accepts a string or an exception. An exception is classified by its class
     name first (``_CREDENTIAL_ERROR_TYPES``), then by ``str(exc)`` against the
@@ -112,6 +122,19 @@ def is_credential_error(error: Union[str, BaseException, None]) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in _CREDENTIAL_ERROR_PATTERNS)
+
+
+def is_auth_like_error(error: Union[str, BaseException, None]) -> bool:
+    """The LOOSE predicate: ``is_credential_error`` plus wording that is
+    usually — not always — an auth refusal (``forbidden``). For classifying a
+    failed turn only (``circuit_breaker.classify_agent_error``); never for
+    deciding whether to retry or to notify."""
+    if is_credential_error(error):
+        return True
+    if error is None:
+        return False
+    text = str(error)
+    return bool(text) and any(p.search(text) for p in _AUTH_LIKE_EXTRA_PATTERNS)
 
 
 # --------------------------------------------------------------------------

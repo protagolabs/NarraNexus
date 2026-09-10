@@ -51,6 +51,11 @@ provider 打垮"的 DoS 风险,熔断器本就不该管。
 新 run、message bus 轮询、module poller 一遍遍重触发。本服务复用 Job 层的分类/退避，
 在每个实时触发入口设"跳过闸门"，并在 turn 结束时记账。
 
+## 2026-09-10（PR #389 I3）— AUTH 判定改用宽松的 `is_auth_like_error`
+
+`forbidden` 回到「只影响分类」的作用域（见 [[failure.py]]）；严格版留给控制流。顺序不变：
+TRANSIENT 仍先于 AUTH。
+
 ## 2026-09-09（review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
 
 `should_skip` 是 **turn 闸门**，允许有副作用（G4 分支 `fix/auth-breaker-half-open` 把它改成

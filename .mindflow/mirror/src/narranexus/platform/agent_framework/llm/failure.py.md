@@ -4,6 +4,18 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #389 I3）— 拆成严格 `is_credential_error` 与宽松 `is_auth_like_error`
+
+r1 把 `forbidden` 从熔断器的局部特判提升进了共享谓词，而共享谓词还驱动**控制流**：
+`frameworks_claude_code/sdk.py` 的 resume 失败路径 `if yielded_any or is_credential_error(e): raise`
+会跳过本可成功的 cold retry；`background_llm_alerts` / bus owner 提示 / narrative updater /
+turn reflect 也据此决定要不要通知。现在 `forbidden` 只在 `is_auth_like_error`（宽松）里，
+`classify_agent_error` 用宽松版（漏判 403 的代价是 owner 可修的错被归成 platform-only），其余六处
+继续用严格版。`40[13]` 边界改为 `(?<![\w.])…(?![\w.])`：`HTTP403` / `x403y` / `id_401_abc` 不再命中，
+`code=401` / `(401)` / 顶格 `403 Forbidden` 仍命中。锁：`test_forbidden_is_auth_like_but_not_a_credential_error`、
+`test_status_codes_glued_to_identifiers_are_not_credential`、
+`test_agent_circuit_breaker.py::test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker`。
+
 ## 2026-09-10（review r2 M4）— `forbidden` 的误报面写成决定
 
 `forbidden` 是表里唯一不算凭据词的词，为 403 正文「Forbidden」而留；沙箱策略拒绝也会命中，

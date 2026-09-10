@@ -8,6 +8,7 @@ secret redaction used by every background LLM failure path.
 import pytest
 
 from narranexus.platform.agent_framework.llm.failure import (
+    is_auth_like_error,
     is_credential_error,
     redact_secrets,
 )
@@ -125,10 +126,18 @@ def test_redact_truncates_long_bodies():
     assert out.endswith("... [truncated]")
 
 
-def test_forbidden_is_an_accepted_false_positive_surface():
-    """Documented trade-off (review r2 M4): "forbidden" alone reads as a
-    credential failure because a 403 body is usually just "Forbidden". A
-    sandbox policy refusal therefore also classifies — the cost is a wrong
-    owner HINT, never a wrong retry or delivery decision. Pinned so the
-    trade-off is a decision, not an accident."""
-    assert is_credential_error("write to /etc is forbidden by policy") is True
+def test_forbidden_is_auth_like_but_not_a_credential_error():
+    """#389 I3: "forbidden" classifies a failed turn as AUTH (loose predicate)
+    but must not drive control flow — the Claude CLI resume path skips its
+    cold retry on `is_credential_error`, and a sandbox policy refusal is not
+    a dead credential."""
+    assert is_auth_like_error("write to /etc is forbidden by policy") is True
+    assert is_credential_error("write to /etc is forbidden by policy") is False
+    # A real 403 still classifies strictly, via the status code.
+    assert is_credential_error("HTTP 403 Forbidden") is True
+
+
+@pytest.mark.parametrize("error", ["HTTP403 from upstream", "x403y", "id_401_abc", "req401"])
+def test_status_codes_glued_to_identifiers_are_not_credential(error):
+    assert is_credential_error(error) is False
+    assert is_auth_like_error(error) is False
