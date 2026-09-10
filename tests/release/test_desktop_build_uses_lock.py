@@ -438,9 +438,32 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
             f"{signal_name} must restore the checkout AND exit — a handler that returns "
             "lets the script run on after the checkout was put back"
         )
-    assert "the relocated app failed the import smoke" in run, (
-        "the relocated-app smoke needs an explicit failure path, not only `set -e` — "
-        "it is the one command that reproduces v1.21.3 directly"
+    # The explicit failure path must actually EXIT: `|| { echo ...; }` without
+    # it keeps the message and quietly turns the smoke into "log and continue"
+    # (the `||` already exempts the command from `set -e`).
+    assert re.search(r"failed the import smoke[^\n]*exit 1", run), (
+        "the relocated-app smoke needs an explicit failure path that exits, not only "
+        "`set -e` — it is the one command that reproduces v1.21.3 directly"
+    )
+    # The log scan must see caught-and-logged import failures too (the supervisor
+    # and plugin hooks log only the message: `cannot import name ...`,
+    # `No module named ...`), and must iterate the launched sidecars rather than
+    # a third hand-kept list of names.
+    for message in ("cannot import name ", "No module named "):
+        assert message in run, f"the log scan no longer catches logged {message!r} failures"
+    assert 'name="${entry##*:}"' in run and "for name in sqlite_proxy" not in run, (
+        "the log scan must iterate $PIDS, so a new sidecar's log is scanned without "
+        "anyone remembering to add it"
+    )
+    # DEBUG probes excluded (litellm logs an optional-module miss at DEBUG on
+    # every start), and no `grep -v ... | grep -q`: under pipefail an early
+    # match SIGPIPEs the first grep and the pipeline reads as "no match".
+    assert ":DEBUG" in run, "the log scan must skip DEBUG-level optional-feature probes"
+    # Code lines only: the step's own comment explains why it does NOT use
+    # that shape, and a guard that matches its own warning never passes.
+    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
+    assert not re.search(r"grep[^\n|]*\|\s*grep -q", code), (
+        "a `grep ... | grep -q` scan can report a real match as clean under pipefail"
     )
     assert 'export PATH="$RES/nodejs/bin' in run and "/usr/bin:/bin:/usr/sbin:/sbin" in run, (
         "the sidecars must get a Finder launch's PATH (bundled node dirs + launchd's "
