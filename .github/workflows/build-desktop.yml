@@ -342,19 +342,30 @@ jobs:
           # a warning that merely names them must not fail a build.
           # DEBUG-level lines are excluded: they are optional-feature probes, not
           # failures (litellm logs `Unable to import GenericAPILogger ... No
-          # module named 'litellm_enterprise'` at DEBUG on every start). The two
-          # shapes we fail on never carry a DEBUG level: caught ones are logged at
-          # WARNING/ERROR, uncaught ones print the bare exception line.
+          # module named 'litellm_enterprise'` at DEBUG on every start). Three
+          # DEBUG spellings reach these logs: litellm's `LiteLLM:DEBUG:`,
+          # loguru's `| DEBUG |`, and stdlib basicConfig's `DEBUG:name:msg`.
+          # The two shapes we fail on never carry a DEBUG level: caught ones are
+          # logged at WARNING/ERROR, uncaught ones print the bare exception line.
           # One awk, not `grep -v | grep -q`: under pipefail a grep -q that
           # matches early SIGPIPEs the grep before it, and the pipeline reports
           # FAILURE — i.e. a real match would read as "clean".
           # Iterates $PIDS (launch order, names attached) rather than a
           # hand-kept list, so a new sidecar's log is scanned automatically.
+          # awk's exit code has THREE meanings here, kept apart: 0 = a failure
+          # line was found, 1 = clean, anything else = awk itself did not run
+          # (parse error, unreadable file). Folding the last into "clean" would
+          # make this the one gate whose green does not prove it ran — and the
+          # release runs macOS's BWK awk, which no local test exercises.
           for entry in $PIDS; do
             name="${entry##*:}"
-            if awk '!/:DEBUG|\| DEBUG / && /^(ModuleNotFoundError|ImportError): |cannot import name |No module named / { hit = 1 } END { exit !hit }' "$VERIFY/$name.log"; then
-              fail "$name" "$name raised or logged an import failure"
-            fi
+            rc=0
+            awk '!/:DEBUG|\| DEBUG |^DEBUG:/ && /^(ModuleNotFoundError|ImportError): |cannot import name |No module named / { hit = 1 } END { exit !hit }' "$VERIFY/$name.log" || rc=$?
+            case "$rc" in
+              0) fail "$name" "$name raised or logged an import failure" ;;
+              1) ;;
+              *) fail "$name" "the log scan itself failed on $name.log (awk exit $rc) — this gate did not run" ;;
+            esac
           done
           echo "All four sidecars came up from the relocated app with the checkout hidden."
 

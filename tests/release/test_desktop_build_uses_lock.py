@@ -413,6 +413,25 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
         f"every upload (build={build}, verify={verify}, uploads={uploads})"
     )
 
+    # The comments and mirror promise the sidecar logs survive a failure; the
+    # step that makes that true must exist, run only on failure, come right
+    # after the verification, and point at where the verification writes them.
+    collect = index_of("sidecar logs (on failure)")
+    assert collect == verify + 1, (
+        f"the log-collection step must directly follow the verification "
+        f"(verify={verify}, collect={collect})"
+    )
+    collect_step = steps[collect]
+    assert str(collect_step.get("if", "")).replace(" ", "") == "failure()", (
+        "the log-collection step must run only when the verification failed"
+    )
+    assert "upload-artifact" in str(collect_step.get("uses", "")), (
+        "the log-collection step must upload the logs as an artifact"
+    )
+    assert "relocated/*.log" in str((collect_step.get("with") or {}).get("path", "")), (
+        "the log-collection step must upload the verification's sidecar logs"
+    )
+
     step = steps[verify]
     # A gate this expensive (it runs after notarization) is exactly the one a
     # "just get the release out" edit would soften. Neither of the two quiet
@@ -445,25 +464,31 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
         "the relocated-app smoke needs an explicit failure path that exits, not only "
         "`set -e` — it is the one command that reproduces v1.21.3 directly"
     )
-    # The log scan must see caught-and-logged import failures too (the supervisor
-    # and plugin hooks log only the message: `cannot import name ...`,
-    # `No module named ...`), and must iterate the launched sidecars rather than
-    # a third hand-kept list of names.
+    # Everything about the log scan is asserted on CODE lines only. The step's
+    # own comments quote these very strings (`cannot import name ...`, the
+    # grep|grep -q it avoids), and a guard satisfied by the comment explaining
+    # it is not a guard: deleting the pattern from the awk would stay green.
+    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
+    # Caught-and-logged import failures too (the supervisor and plugin hooks
+    # log only the message), iterating the launched sidecars, not a hand-kept
+    # third list of names.
     for message in ("cannot import name ", "No module named "):
-        assert message in run, f"the log scan no longer catches logged {message!r} failures"
-    assert 'name="${entry##*:}"' in run and "for name in sqlite_proxy" not in run, (
+        assert message in code, f"the log scan no longer catches logged {message!r} failures"
+    assert 'name="${entry##*:}"' in code and "for name in sqlite_proxy" not in code, (
         "the log scan must iterate $PIDS, so a new sidecar's log is scanned without "
         "anyone remembering to add it"
     )
-    # DEBUG probes excluded (litellm logs an optional-module miss at DEBUG on
-    # every start), and no `grep -v ... | grep -q`: under pipefail an early
-    # match SIGPIPEs the first grep and the pipeline reads as "no match".
-    assert ":DEBUG" in run, "the log scan must skip DEBUG-level optional-feature probes"
-    # Code lines only: the step's own comment explains why it does NOT use
-    # that shape, and a guard that matches its own warning never passes.
-    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
+    # DEBUG probes excluded in all three spellings that reach these logs.
+    for spelling in (":DEBUG", "| DEBUG ", "^DEBUG:"):
+        assert spelling in code, f"the log scan no longer skips {spelling!r} DEBUG lines"
+    # No `grep -v ... | grep -q`: under pipefail an early match SIGPIPEs the
+    # first grep and the pipeline reads as "no match".
     assert not re.search(r"grep[^\n|]*\|\s*grep -q", code), (
         "a `grep ... | grep -q` scan can report a real match as clean under pipefail"
+    )
+    # awk's own failure must not read as "clean".
+    assert re.search(r"\*\)\s*fail [^\n]*this gate did not run", code), (
+        "an awk that fails to run (exit 2) must fail the step, not pass as clean"
     )
     assert 'export PATH="$RES/nodejs/bin' in run and "/usr/bin:/bin:/usr/sbin:/sbin" in run, (
         "the sidecars must get a Finder launch's PATH (bundled node dirs + launchd's "
