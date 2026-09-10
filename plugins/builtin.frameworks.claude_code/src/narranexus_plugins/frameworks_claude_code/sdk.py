@@ -23,7 +23,7 @@ from contextlib import aclosing, suppress
 from pathlib import Path
 
 from loguru import logger
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable
 
 from narranexus.platform.agent_framework import plugin_paths
 
@@ -155,8 +155,12 @@ def _read_keychain_blob() -> str | None:
 
 
 def _stage_blob_newest_wins(
-    config_dir: str | Path, blob: str, *, sourced_from: str
-) -> None:
+    config_dir: str | Path,
+    blob: str,
+    *,
+    sourced_from: str,
+    before_replace: Callable[[], None] | None = None,
+) -> bool:
     """Atomically stage ``blob`` as ``.credentials.json`` (0600) in the isolated
     dir, newest-wins by the token's own ``claudeAiOauth.expiresAt``.
 
@@ -168,6 +172,14 @@ def _stage_blob_newest_wins(
     the source copy → keep it, and never re-inject an already-consumed refresh
     token, the logout #76's newest-wins avoids). An unparseable ``blob``
     (no ``expiresAt``) never clobbers a good staged file.
+
+    ``before_replace`` runs when this is a genuine ROTATION — a staged copy
+    existed and lost the comparison (or was unreadable/corrupt) — immediately
+    before the new file lands. It is the ONE place the "is the source newer"
+    decision is made, so the caller's rotation side effect can never drift
+    from the staging rule. A first-ever stage is not a rotation.
+
+    Returns True when a file was written.
     """
     import os
 
@@ -175,6 +187,7 @@ def _stage_blob_newest_wins(
     dest = dest_dir / ".credentials.json"
     new_exp = _oauth_expires_at(blob)
 
+    rotation = False
     if dest.is_file():
         try:
             staged_blob = dest.read_text(encoding="utf-8")
@@ -185,7 +198,11 @@ def _stage_blob_newest_wins(
             # Keep the staged copy unless the source is strictly newer.
             # Unparseable source (new_exp is None) → never clobber a good file.
             if new_exp is None or (staged_exp is not None and staged_exp >= new_exp):
-                return
+                return False
+        rotation = True
+
+    if rotation and before_replace is not None:
+        before_replace()
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
@@ -201,72 +218,75 @@ def _stage_blob_newest_wins(
         f"[ClaudeAgentSDK] staged Claude OAuth credential (source: {sourced_from}) "
         f"→ {dest} (0600)"
     )
+    return True
 
 
-def _read_staged_credentials(config_dir: str | Path) -> str | None:
-    """Best-effort read of the already-staged ``.credentials.json`` blob, or
-    None when it's absent / unreadable. NEVER logs the returned blob."""
-    dest = Path(config_dir) / ".credentials.json"
-    if not dest.is_file():
-        return None
-    try:
-        return dest.read_text(encoding="utf-8")
-    except OSError:
-        return None
+def _is_platform_owned_config_dir(config_dir: str | Path) -> bool:
+    """Fail-closed ownership check before anything in ``config_dir`` is
+    deleted: it must resolve to exactly the platform's own isolated OAuth
+    dir (``settings.claude_oauth_config_path``) and must never be the home
+    dir or the user's real ``~/.claude``. The setting is env-overridable
+    (``CLAUDE_OAUTH_CONFIG_PATH``) and historically DID point at ``~/.claude``
+    — a misconfigured box must lose nothing.
 
-
-def _should_reset_isolated_config_dir(
-    existing_blob: str | None, new_blob: str
-) -> bool:
-    """Should the isolated CONFIG_DIR be wiped before staging ``new_blob``?
-
-    Pure decision, no filesystem/Keychain I/O — kept separate from the
-    action (``shutil.rmtree``) so this can be unit-tested without touching
-    the real macOS Keychain.
-
-    Why this exists (GitHub #117 investigation): on macOS, Claude Code
-    imports the staged ``.credentials.json`` into a config-dir-namespaced
-    Keychain entry the FIRST time it runs against that ``CLAUDE_CONFIG_DIR``,
-    then only ever reads that entry — overwriting the staged file afterward
-    (what ``_stage_blob_newest_wins`` already does) has no effect on a CLI
-    that already completed its one-shot import for this exact directory.
-    A dead/rotated host credential therefore keeps failing forever even
-    after the owner fixes it, because the isolated CLI is stuck on its own
-    frozen copy from the FIRST import.
-
-    We cannot safely target that Keychain entry directly — its service name
-    is an undocumented CLI implementation detail, and guessing wrong risks
-    touching an unrelated Keychain item. What we DO fully own is the
-    isolated CONFIG_DIR itself: wiping it before staging a genuinely
-    ROTATED host credential removes whatever state the CLI cached there
-    (including its own one-shot-import bookkeeping), forcing a fresh import
-    on the next spawn — using the file we are about to write.
-
-    Only fires on a genuine rotation (source strictly newer than the
-    previously staged copy, or the staged copy being unparseable) so a
-    same-content re-stage or a no-op newest-wins skip doesn't churn the
-    directory on every spawn.
+    ``resolve()`` on both sides, never string-prefix comparison (symlinks,
+    ``..``).
     """
-    if existing_blob is None:
-        return False  # nothing staged yet — first stage, nothing stale to clear
-    new_exp = _oauth_expires_at(new_blob)
-    if new_exp is None:
-        return False  # unparseable source — never act on it (matches newest-wins)
-    old_exp = _oauth_expires_at(existing_blob)
-    if old_exp is None:
-        return True  # staged copy is corrupt/unreadable — force a clean re-import
-    return new_exp > old_exp
+    from narranexus.platform.settings import settings
+
+    try:
+        resolved = Path(config_dir).resolve()
+        owned = Path(settings.claude_oauth_config_path).resolve()
+        home = Path.home().resolve()
+    except OSError:
+        return False
+    if resolved != owned:
+        return False
+    return resolved not in (home, home / ".claude")
 
 
-def _reset_isolated_config_dir(config_dir: str | Path) -> None:
-    """Wipe the isolated CONFIG_DIR so the next spawn starts genuinely fresh
-    (see ``_should_reset_isolated_config_dir`` for why). Best-effort —
-    a failed rmtree just means the stale entry might survive one more spawn;
-    it must never block staging the new credential."""
-    import shutil
+def _clear_cli_bookkeeping(config_dir: str | Path) -> None:
+    """On a genuine credential rotation, remove the isolated CLI's own
+    top-level state files so its next spawn treats the dir as never seen
+    (see ``_stage_claude_oauth_credentials`` for why) — and NOTHING else.
 
-    with suppress(OSError):
-        shutil.rmtree(config_dir)
+    The dir is shared by every concurrent OAuth turn on this host, so this
+    is deliberately not an ``rmtree``:
+      * every DIRECTORY is kept — ``projects/`` holds the transcripts that
+        in-flight turns (this one included: ``prepare_transcript`` runs
+        before staging) are resuming from; ``shell-snapshots/`` etc. are read
+        by running CLIs;
+      * ``.credentials.json`` and its in-flight ``.credentials.json.*.tmp``
+        stagers are kept — a turn that just staged and has not spawned yet
+        must not lose its credential (that failure would be counted by the
+        very circuit breaker this feature exists to un-jam);
+      * only top-level regular files (``.claude.json`` and siblings) go.
+    Guarded by ``_is_platform_owned_config_dir``: outside the platform's own
+    dir it logs and deletes nothing. Best-effort — a leftover file only
+    means the stale import might survive one more spawn.
+    """
+    if not _is_platform_owned_config_dir(config_dir):
+        logger.warning(
+            f"[ClaudeAgentSDK] refusing to clear CLI state in {config_dir}: "
+            "not the platform-owned isolated OAuth config dir"
+        )
+        return
+    root = Path(config_dir)
+    if not root.is_dir():
+        return
+    removed = 0
+    for entry in root.iterdir():
+        if entry.name.startswith(".credentials.json"):
+            continue
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        with suppress(OSError):
+            entry.unlink()
+            removed += 1
+    logger.info(
+        f"[ClaudeAgentSDK] credential rotation: cleared {removed} CLI state "
+        f"file(s) in the isolated OAuth config dir (directories kept)"
+    )
 
 
 def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
@@ -329,15 +349,20 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
         # file instead). darwin-ONLY: on Linux/cloud there is no Keychain.
         kc_blob = _read_keychain_blob()
         if kc_blob is not None:
-            # GitHub #117: if this is a genuine rotation, wipe whatever the
-            # isolated CLI cached for this exact dir (its one-shot Keychain
-            # import included) BEFORE staging — otherwise the file below
-            # would land but the CLI keeps reading its already-imported,
-            # now-stale copy forever. See _should_reset_isolated_config_dir.
-            existing = _read_staged_credentials(config_dir)
-            if _should_reset_isolated_config_dir(existing, kc_blob):
-                _reset_isolated_config_dir(config_dir)
-            _stage_blob_newest_wins(config_dir, kc_blob, sourced_from="macOS Keychain")
+            # GitHub #117: on a genuine rotation, clear the isolated CLI's
+            # own state files for this dir (its one-shot Keychain-import
+            # bookkeeping included) right before the new file lands —
+            # otherwise the file would land but the CLI keeps reading its
+            # already-imported, now-stale copy forever. The rotation
+            # decision is the staging comparison itself (one rule), and the
+            # clear never touches transcripts, other directories, or the
+            # credential file. See _clear_cli_bookkeeping.
+            _stage_blob_newest_wins(
+                config_dir,
+                kc_blob,
+                sourced_from="macOS Keychain",
+                before_replace=lambda: _clear_cli_bookkeeping(config_dir),
+            )
             return
 
     if source is None or not source.is_file():

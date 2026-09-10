@@ -4,45 +4,49 @@ last_verified: 2026-09-10
 stub: false
 ---
 
-## 2026-09-09 — macOS 一次性 Keychain 导入：轮换时清空隔离目录（GitHub #117 调查项）
+## 2026-09-10 — 轮换清理改为"最小集合 + 路径归属守卫"，撤回 rmtree（GitHub #117 预审 C3/I3/I7/I8）
 
-**背景**（不是新故障，是给 2026-07-23 incident 的遗留缺口补一刀）：macOS 上
-`claude` CLI 第一次针对某个 `CLAUDE_CONFIG_DIR` 启动时,会把我们暂存的
-`.credentials.json` **一次性导入**成一个按该目录命名空间化的 Keychain 条目,
-此后**只读那个条目、再也不读文件**——`_stage_blob_newest_wins` 后续每次刷新
-`.credentials.json` 都是在写一个隔离 CLI 已经不看的地方。2026-07-23 那次事故
-选择的正解是绕过整条路径的 `oauth_token`(env 注入,零 Keychain);但仍在用
-`oauth`(host-CLI 托管)卡的用户,凭据轮换后 agent 会永久卡死——即使 owner 重新
-`claude login`、Keychain 里已经是新 token,隔离 CLI 依旧读它自己冻结的旧一次性
-导入,认证永远失败,[[circuit_breaker]] 的熔断器也就永远重新 PAUSE。
+**背景**（2026-09-09 条的动机不变）：macOS 上 `claude` CLI 第一次针对某个
+`CLAUDE_CONFIG_DIR` 启动时,会把我们暂存的 `.credentials.json` 一次性导入成按目录命名
+空间化的 Keychain 条目,此后只读那个条目;凭据轮换后隔离 CLI 会永远读旧导入,认证永远
+失败,[[circuit_breaker]] 永远重新 PAUSE。那个 Keychain 条目的 service name 是 CLI 内部
+细节,不猜、不删。
 
-**做不到的事**:那个命名空间化 Keychain 条目的 service name 是 CLI 内部实现
-细节、未文档化;猜一个名字去 `security delete-generic-password` 有猜错、删掉
-不相关条目的风险——不做。
+**上一版的两个错误**（本轮撤回）：(1) `shutil.rmtree(config_dir)`——这个目录是
+**进程级共享**的（`settings.claude_oauth_config_path`,所有 oauth turn 共用),
+`prepare_transcript` 每个 turn 都往 `<dir>/projects/<cwd-slug>/<session>.jsonl` 写 CLI 要
+`--resume` 的 transcript,而且本 turn 自己的 `prepare_transcript` 就在 staging **之前**
+——整目录删除会抹掉并发 turn（乃至本 turn）的 transcript、抽走刚 stage 好还没 spawn 的
+凭据（恰好被熔断器记成一次 auth 失败,自伤闭环）。(2) 删除前零校验:`Settings` 无
+`env_prefix`,`CLAUDE_OAUTH_CONFIG_PATH` 一行就能把它指回用户真实的 `~/.claude`,历史上它
+就指过那里。
 
-**能安全做的事**:隔离 `CLAUDE_CONFIG_DIR` 整个目录是平台**完全自己拥有**的
-文件系统状态。新增 `_should_reset_isolated_config_dir(existing_blob, new_blob)`
-——纯判定函数,不碰任何 I/O,靠比较 `_oauth_expires_at` 判断是不是"真轮换"
-(源比已暂存的严格更新,或已暂存副本本身已损坏);新增
-`_reset_isolated_config_dir(config_dir)`——`shutil.rmtree`(best-effort,
-`suppress(OSError)`)。`_stage_claude_oauth_credentials` 的 darwin 分支在调用
-`_stage_blob_newest_wins` **之前**先读已暂存的 blob、跑判定,命中就整目录
-删除——把隔离 CLI 在这个目录下积累的任何内部状态(包括它自己的一次性导入
-记录)一并清空,逼它在下次 spawn 时把这次写入的新文件当全新目录重新导入。
+**现在**：
+- `_clear_cli_bookkeeping(config_dir)` 只删**顶层普通文件**（`.claude.json` 及其兄弟）:
+  所有目录保留（`projects/` transcript、`shell-snapshots/` 等在跑的 CLI 要读）,
+  `.credentials.json` 与并发 stager 的 `.credentials.json.*.tmp` 保留,symlink 不碰。
+- `_is_platform_owned_config_dir` fail-closed 守卫:`resolve()` 后必须**恰好等于**
+  `settings.claude_oauth_config_path`（同样 resolve）,且不等于 `~` / `~/.claude`;不满足只
+  warn、什么都不删（staging 本身照常进行,只拒绝破坏性一步）。用 resolve 而非字符串前缀。
+- "是不是真轮换"只在 `_stage_blob_newest_wins` 里判一次（I7）:它多了 `before_replace`
+  钩子,仅当**已有 staged 文件且比较判定要覆盖**（源严格更新,或 staged 损坏/不可读）时、
+  在写入前调用;首次 stage 不是轮换。darwin 分支把 `_clear_cli_bookkeeping` 挂在这个钩子
+  上,`_should_reset_isolated_config_dir` / `_read_staged_credentials` / `_reset_isolated_config_dir`
+  三个函数删除（两份 newest-wins 真理并成一份,凭据文件也只读一次）。
 
-**为什么不是每次都清**:同内容重复暂存(newest-wins 本就是 no-op)或源没变
-新时不清——否则每次 spawn 都会强制隔离 CLI 重新做一次性导入,徒增开销且没有
-必要。只在检测到"真的轮换了"时才动手。
-
-**已知局限**(诚实记录,而非声称已解决 #117 的 Keychain 分支):这是基于"隔离
-CLI 的一次性导入状态就活在它自己被给的 CONFIG_DIR 里,删目录会让它下次重新
-读文件"这个推断——没有真实 macOS 机器验证 CLI 内部行为,只能验证"我们自己
-拥有的目录确实被正确清空、且没有轮换时不会误清"。测试相应地只覆盖判定逻辑
-+ 目录清空动作,不模拟真实 Keychain(`tests/agent_framework/
-test_claude_config_isolation.py`:`test_should_reset_*` 五条纯判定测试、
-`test_stage_darwin_wipes_stale_config_dir_state_on_rotation` /
-`test_stage_darwin_keeps_config_dir_when_keychain_not_rotated` 两条集成测试,
-用一个占位文件模拟"CLI 内部状态"来断言清空/保留行为)。
+**已知局限**（诚实记录）：仍基于"隔离 CLI 的一次性导入记录活在它自己的 CONFIG_DIR 顶层
+文件里"这个推断,没有真实 macOS 验证 CLI 内部行为。若 CLI 的判定其实只看 Keychain 条目
+（按目录路径命名空间）,那么删顶层文件不会触发重导入——那种情况下正解是给轮换开一个新的
+CONFIG_DIR 路径而不是清理旧目录;本轮没有做（需要把 `cli_config_dir` 变成按轮换派生的
+路径,并解决旧目录退休的删除风险）。测试覆盖的是我们能验证的部分:
+`tests/agent_framework/test_claude_config_isolation.py` 的
+`test_stage_darwin_rotation_clears_cli_state_but_keeps_transcripts_and_credential`（清顶层文件、
+留 transcript、新凭据落地）、`test_stage_darwin_keeps_config_dir_when_keychain_not_rotated`、
+`test_stage_darwin_first_stage_is_not_a_rotation`、`test_rotation_decision_is_the_staging_comparison`
+（钩子恰在四种情形中的两种触发）、`test_clear_cli_bookkeeping_touches_only_top_level_state_files`、
+`test_clear_cli_bookkeeping_refuses_a_dir_the_platform_does_not_own`（`~/.claude` / `~` /
+非配置路径全部拒绝,symlink 到配置路径放行）、
+`test_stage_darwin_rotation_on_unowned_dir_still_stages_but_clears_nothing`。
 
 ## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
 
