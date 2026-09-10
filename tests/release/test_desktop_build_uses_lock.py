@@ -164,12 +164,44 @@ def _args_blocks(body: str) -> list[str]:
     return blocks
 
 
-def _state_rs_entrypoints() -> set[str]:
-    """The modules `bundled_services()` in state.rs actually launches.
+_ASGI_TARGET = re.compile(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*")
 
-    Reads the Rust source rather than a hand-copied list: the point of the test
-    is that a service added there and not to the smoke script is a service whose
-    dependency graph the build never checks.
+
+def _service_blocks(body: str) -> list[str]:
+    """Every `ServiceDef { ... }` body, sliced by brace matching."""
+    blocks: list[str] = []
+    marker = "ServiceDef {"
+    idx = body.find(marker)
+    while idx != -1:
+        start = idx + len(marker)
+        depth, i = 1, start
+        while i < len(body) and depth:
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+            i += 1
+        blocks.append(body[start:i - 1])
+        idx = body.find(marker, i)
+    return blocks
+
+
+def _state_rs_services() -> list[dict]:
+    """Each bundled_services() entry as {literals, modules, launch_targets, port}.
+
+    ONE reader for everything the guards need from state.rs, with the
+    structural invariants in one place: one block per ServiceDef, exactly one
+    args vec per block, and every entry yielding both an importable module and
+    a launch target. A reader that lets one entry contribute nothing fails OPEN
+    — a new sidecar with an unrecognised launch shape would go unverified while
+    the rest of the list still looks fine.
+
+    - modules: what must IMPORT (the `-m` runner counts: `-m uvicorn` means
+      uvicorn must import too), `.py` paths as module names;
+    - launch_targets: the literal strings the relocated-app step must launch
+      (`.py` paths verbatim, the ASGI `mod:app` — never the runner itself, or
+      `"uvicorn" in run` would pass on `-m uvicorn` alone);
+    - port: `port: Some(N)` when the entry declares one.
     """
     text = STATE_RS.read_text(encoding="utf-8")
     start = text.index("fn bundled_services")
@@ -178,48 +210,54 @@ def _state_rs_entrypoints() -> set[str]:
     end = text.index("fn dev_services", start)
     body = text[start:end]
 
-    blocks = _args_blocks(body)
-    # Structural invariant: one args vec per ServiceDef. If a future edit makes
-    # a ServiceDef unparseable, this is red — never a silently smaller set that
-    # still equals ENTRYPOINTS.
+    blocks = _service_blocks(body)
     assert len(blocks) == body.count("ServiceDef {"), (
-        f"parsed {len(blocks)} `args: vec![..]` blocks but state.rs "
-        f"bundled_services() declares {body.count('ServiceDef {')} ServiceDef(s) — "
-        f"the parser lost one; fix it rather than the count"
+        f"parsed {len(blocks)} ServiceDef blocks but bundled_services() contains "
+        f"{body.count('ServiceDef {')} 'ServiceDef {{' — the reader lost one (or the "
+        f"text occurs in a comment); fix the reader rather than the count"
     )
-
-    found: set[str] = set()
+    services: list[dict] = []
     for block in blocks:
-        literals = re.findall(r'"([^"]*)"', block)
-        # `-m uvicorn backend.main:app`: what gets imported is the `mod:app`,
-        # not the runner `-m` names. Keyed on the runner actually being there,
-        # so an unrelated `foo:bar`-shaped literal cannot swallow the `-m`.
+        args = _args_blocks(block)
+        assert len(args) == 1, f"a ServiceDef has {len(args)} args vecs, expected 1"
+        literals = re.findall(r'"([^"]*)"', args[0])
         runs_asgi_server = "uvicorn" in literals
-        from_block: set[str] = set()
+        modules: set[str] = set()
+        targets: list[str] = []
         for i, literal in enumerate(literals):
-            # By POSITION, never by package prefix: a prefix whitelist silently
-            # ignores a future service under a different top-level package, and
-            # the whole point of this guard is that a NEW service cannot slip in
-            # unimported.
             if literal == "-m" and i + 1 < len(literals):
-                # The runner counts too, and is ADDED rather than replaced by
-                # the mod:app below: a `-m <runner> <target>` service whose
-                # runner is silently dropped is a piece of the bundle nobody
-                # imports, which is the exact hole this guard exists to close.
-                from_block.add(literals[i + 1])
+                modules.add(literals[i + 1])
+                if not runs_asgi_server:
+                    targets.append(literals[i + 1])
             elif literal.endswith(".py"):
-                # launched by path (module_runner.py) — same import graph
-                from_block.add(literal.removeprefix("src/").removesuffix(".py").replace("/", "."))
-            elif runs_asgi_server and re.fullmatch(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", literal):
-                # uvicorn's "backend.main:app"
-                from_block.add(literal.split(":")[0])
-        assert from_block, (
-            "a bundled_services() entry yielded no importable module — the launch "
-            f"shape is new (console script? bare path?) and this parser has to learn "
-            f"it, otherwise that service ships unverified:\n    {literals}"
+                modules.add(literal.removeprefix("src/").removesuffix(".py").replace("/", "."))
+                targets.append(literal)
+            elif runs_asgi_server and _ASGI_TARGET.fullmatch(literal):
+                modules.add(literal.split(":")[0])
+                targets.append(literal)
+        assert modules and targets, (
+            "a bundled_services() entry yielded no importable module or no launch "
+            "target — the launch shape is new (console script? bare path?) and this "
+            f"reader has to learn it, otherwise that service ships unverified:\n    {literals}"
         )
-        found |= from_block
-    return found
+        port = re.search(r"port:\s*Some\((\d+)\)", block)
+        services.append({
+            "literals": literals,
+            "modules": modules,
+            "launch_targets": targets,
+            "port": int(port.group(1)) if port else None,
+        })
+    return services
+
+
+def _state_rs_entrypoints() -> set[str]:
+    """Every module state.rs's bundled services need to import."""
+    return set().union(*(service["modules"] for service in _state_rs_services()))
+
+
+def _state_rs_launch_targets() -> list[str]:
+    """The literal launch targets the relocated-app step must start."""
+    return [t for service in _state_rs_services() for t in service["launch_targets"]]
 
 
 def test_smoke_entrypoints_match_state_rs() -> None:
@@ -393,8 +431,20 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     # build-machine smoke: the checkout is moved away, the app's OWN copy of
     # the smoke script runs, and a sidecar is actually launched until it binds.
     assert 'mv "$GITHUB_WORKSPACE"' in run, "the step no longer hides the checkout"
-    assert "trap restore EXIT INT TERM" in run, (
-        "the checkout must be restored whatever happens, including a cancelled job"
+    assert "set -euo pipefail" in run, "the step must fail on any unhandled error"
+    assert "trap restore EXIT" in run, "the checkout must be restored on every exit path"
+    for signal_name in ("INT", "TERM"):
+        assert re.search(rf"trap '[^']*restore[^']*exit[^']*' {signal_name}\b", run), (
+            f"{signal_name} must restore the checkout AND exit — a handler that returns "
+            "lets the script run on after the checkout was put back"
+        )
+    assert "the relocated app failed the import smoke" in run, (
+        "the relocated-app smoke needs an explicit failure path, not only `set -e` — "
+        "it is the one command that reproduces v1.21.3 directly"
+    )
+    assert 'export PATH="$RES/nodejs/bin' in run and "/usr/bin:/bin:/usr/sbin:/sbin" in run, (
+        "the sidecars must get a Finder launch's PATH (bundled node dirs + launchd's "
+        "minimal PATH), not the runner's wider one"
     )
     assert "unset NARRANEXUS_DEPLOYMENT_MODE" in run, (
         "the step must scrub deployment-mode env the way a Finder launch does, or a "
@@ -412,8 +462,12 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
             f"the relocated-app step does not launch {target!r}, which state.rs's "
             "bundled_services() starts — that service's startup is unverified"
         )
-    for port in ("8100", "8000", "7801", "47831"):
-        assert port in run, f"the step no longer waits for :{port}"
+    # 8100 / 8000 straight from state.rs's `port: Some(..)`; 7801 / 47831 are
+    # Python constants (MCP_PORT default, HEALTHZ_PORT) named next to the loop.
+    declared = {service["port"] for service in _state_rs_services() if service["port"]}
+    assert declared, "no `port: Some(..)` parsed from state.rs — update the reader"
+    for port in sorted(declared) + [7801, 47831]:
+        assert str(port) in run, f"the step no longer waits for :{port}"
     assert "/docs" in run, "backend must be probed over HTTP, not only for an open port"
     assert "/healthz" in run, (
         "workers must be gated on its health endpoint, not a fixed sleep"
@@ -423,24 +477,3 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     assert "port_free" in run and "already in use" in run, (
         "the step must check each port is free before launching"
     )
-
-
-def _state_rs_launch_targets() -> list[str]:
-    """What each bundled_services() entry actually hands the interpreter.
-
-    `-m <module>` → the module; a `.py` path → the path; `-m uvicorn <app>` →
-    the ASGI target. These are the strings the workflow must launch.
-    """
-    text = STATE_RS.read_text(encoding="utf-8")
-    body = text[text.index("fn bundled_services"):text.index("fn dev_services")]
-    targets: list[str] = []
-    for block in _args_blocks(body):
-        literals = re.findall(r'"([^"]*)"', block)
-        if "uvicorn" in literals:
-            targets += [lit for lit in literals if re.fullmatch(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", lit)]
-        elif "-m" in literals:
-            targets.append(literals[literals.index("-m") + 1])
-        else:
-            targets += [lit for lit in literals if lit.endswith(".py")]
-    assert targets, "no launch targets parsed from state.rs — update this reader"
-    return targets

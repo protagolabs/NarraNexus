@@ -190,10 +190,12 @@ jobs:
       # /Users/runner/work/..., the import smoke on this runner was green, and
       # every user's app died with `No module named 'narranexus.contracts'`.
       # So: copy the final, signed .app out, move the whole checkout out of the
-      # way, and bring the app's four sidecars up exactly as state.rs does, in
-      # its order — sqlite_proxy (:8100), backend (:8000, and /docs must answer
-      # 200), mcp (:7801), workers (must stay alive). Any dependency on the build
-      # machine's filesystem, in whatever form, fails here — before either upload.
+      # way, give the sidecars the environment a Finder launch gives them, and
+      # bring all four up exactly as state.rs does, in its order — sqlite_proxy
+      # (:8100), backend (:8000, /docs must answer 200), mcp (:7801), workers
+      # (:47831/healthz must answer 200, then stay alive). Any dependency on the
+      # build machine's filesystem or environment that those four startups
+      # exercise fails here — before either upload.
       # Plain variables, no arrays/eval: the runner's /bin/bash may be 3.2.
       - name: Verify the shipped app starts without the source tree
         run: |
@@ -204,60 +206,74 @@ jobs:
           rm -rf "$VERIFY" && mkdir -p "$VERIFY/home"
           ditto "$APP_SRC" "$VERIFY/NarraNexus.app"
 
-          # Hide the checkout; on EXIT stop every sidecar and put it back —
-          # later steps (and the post-job cleanup) need it.
+          # Hide the checkout; on the way out stop every sidecar and put the
+          # checkout back — later steps (and the post-job cleanup) need it.
           HIDDEN="$GITHUB_WORKSPACE.hidden-for-verify"
-          PIDS=""
+          PIDS=""   # space-separated pid:name pairs
           restore() {
-            for p in $PIDS; do kill "$p" 2>/dev/null || true; done
+            for entry in $PIDS; do kill "${entry%%:*}" 2>/dev/null || true; done
             sleep 2
-            for p in $PIDS; do kill -9 "$p" 2>/dev/null || true; done
+            for entry in $PIDS; do kill -9 "${entry%%:*}" 2>/dev/null || true; done
             if [ -d "$HIDDEN" ]; then mv "$HIDDEN" "$GITHUB_WORKSPACE"; fi
-            # The uncompressed .app copy is large; drop it here, AFTER any
-            # failure branch has already printed its log.
-            rm -rf "$VERIFY"
+            # Only the large uncompressed .app copy goes; the sidecar logs stay
+            # so a failure here can be diagnosed without another notarization.
+            rm -rf "$VERIFY/NarraNexus.app"
           }
-          # INT/TERM too: a cancelled job or step timeout sends TERM, and a bare
-          # EXIT trap would leave the checkout renamed.
-          trap restore EXIT INT TERM
+          # INT/TERM restore AND exit (a bare handler would return and let the
+          # script run on with the checkout already moved back); EXIT covers
+          # every normal and `set -e` path.
+          trap 'restore; exit 130' INT
+          trap 'restore; exit 143' TERM
+          trap restore EXIT
           cd "$RUNNER_TEMP"
           mv "$GITHUB_WORKSPACE" "$HIDDEN"
 
           RES="$VERIFY/NarraNexus.app/Contents/Resources/resources"
           PY="$RES/python/bin/python3"
           PROJ="$RES/project"
-          # A Finder-launched .app inherits launchd's near-empty environment, so
-          # nothing that selects a deployment mode may leak in from this runner:
+          # The environment a Finder-launched .app gives its sidecars, and no
+          # more. PATH: the bundled node dirs + the on-demand plugin CLI dir
+          # (state.rs resolve_bundled_node_bins(), in its order) + launchd's
+          # minimal PATH (process_manager.rs). A runner PATH (Homebrew, a system
+          # python, preinstalled CLIs) is strictly wider than any user's and
+          # would hide a PATH-shaped dependency on this machine.
+          export PATH="$RES/nodejs/bin:$RES/nodejs/node_modules/.bin:$VERIFY/home/.narranexus/plugins/nodejs/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          # Nothing that selects a deployment mode may leak in from this runner:
           # with NARRANEXUS_DEPLOYMENT_MODE or DB_HOST set, backend decides it is
           # cloud and refuses to start without a JWT_SECRET — a failure no user
-          # would ever see. Then the environment lib.rs + process_manager.rs
-          # give every sidecar.
+          # would ever see. Then what lib.rs + process_manager.rs set.
           unset NARRANEXUS_DEPLOYMENT_MODE DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME JWT_SECRET
           export HOME="$VERIFY/home" NARRA_SURFACE=desktop \
                  DATABASE_URL="sqlite:///$VERIFY/verify.db" \
                  SQLITE_PROXY_URL=http://localhost:8100 SQLITE_PROXY_PORT=8100
 
-          echo "--- import smoke, run from the relocated app, checkout hidden ---"
-          "$PY" "$PROJ/scripts/release/bundle_import_smoke.py"
-
-          fail() {
-            echo "--- $1 log ---"; cat "$VERIFY/$1.log" || true
+          fail() {  # fail <name> <message> — print that sidecar's log, then fail
+            echo "--- $1 log ---"; cat "$VERIFY/$1.log" 2>/dev/null || true
             echo "::error::$2"; exit 1
           }
+
+          echo "--- import smoke, run from the relocated app, checkout hidden ---"
+          # Explicit failure path, not only `set -e`: this is the one command
+          # that reproduces the v1.21.3 failure directly, so it must not be
+          # softenable by a stray `|| true`. The script prints its own problem list.
+          "$PY" "$PROJ/scripts/release/bundle_import_smoke.py" \
+            || { echo "::error::the relocated app failed the import smoke (problem list above)"; exit 1; }
+
           launch() {  # launch <name> <command...>   (cwd = project, like state.rs)
             name="$1"; shift
             ( cd "$PROJ" && exec "$@" ) >"$VERIFY/$name.log" 2>&1 &
             LAST_PID=$!
-            PIDS="$PIDS $LAST_PID"
+            PIDS="$PIDS $LAST_PID:$name"
           }
           port_free() {  # port_free <name> <port> — refuse to test on a taken port
             if nc -z 127.0.0.1 "$2" 2>/dev/null; then
-              echo "::error:::$2 is already in use before $1 starts — an open port afterwards would prove nothing"
+              echo "::error::port $2 is already in use before $1 starts — an open port afterwards would prove nothing"
+              lsof -nP -iTCP:"$2" -sTCP:LISTEN || true
               exit 1
             fi
           }
-          wait_port() {  # wait_port <name> <port> <pid>
-            for _ in $(seq 1 90); do
+          wait_port() {  # wait_port <name> <port> <pid> <limit-seconds>
+            for _ in $(seq 1 "$4"); do
               if nc -z 127.0.0.1 "$2" 2>/dev/null; then
                 # The port being open is only evidence if OUR process is the one
                 # holding it: a sidecar that died on "address already in use"
@@ -269,46 +285,56 @@ jobs:
               kill -0 "$3" 2>/dev/null || fail "$1" "$1 exited before binding :$2"
               sleep 1
             done
-            fail "$1" "$1 did not bind :$2 within 90s"
+            fail "$1" "$1 did not bind :$2 within $4s (process still alive)"
           }
+          # 8100 / 8000 are state.rs's `port: Some(..)`; 7801 is MCP_PORT's
+          # default (module_system/base.py); 47831 is HEALTHZ_PORT
+          # (channel/channel_health_server.py). Change one there, change it here.
           for pair in sqlite_proxy:8100 backend:8000 mcp:7801 workers:47831; do
             port_free "${pair%%:*}" "${pair##*:}"
           done
 
           echo "--- 1/4 sqlite_proxy ---"
           launch sqlite_proxy "$PY" -m narranexus.platform.utils.db.sqlite_proxy_server
-          wait_port sqlite_proxy 8100 "$LAST_PID"
+          wait_port sqlite_proxy 8100 "$LAST_PID" 90
 
           echo "--- 2/4 backend ---"
           launch backend env DASHBOARD_BIND_HOST=127.0.0.1 "$PY" -m uvicorn backend.main:app \
             --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60
-          wait_port backend 8000 "$LAST_PID"
+          wait_port backend 8000 "$LAST_PID" 90
           code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:8000/docs || true)"
           [ "$code" = "200" ] || fail backend "backend /docs answered $code, expected 200"
 
+          # mcp and workers get 150s: state.rs itself gates neither on a port or
+          # a health check, so this step is deliberately stricter than the
+          # product — and must not flake into being softened.
           echo "--- 3/4 mcp ---"
           launch mcp "$PY" src/narranexus/platform/module_system/module_runner.py mcp
-          wait_port mcp 7801 "$LAST_PID"
+          wait_port mcp 7801 "$LAST_PID" 150
 
           echo "--- 4/4 workers ---"
           # The supervisor serves its channel health endpoint once every worker
           # has started, so that — not a fixed sleep — is the readiness signal.
           launch workers "$PY" -m narranexus.platform.module_system.run_worker_supervisor
           WORKERS_PID="$LAST_PID"
-          wait_port workers 47831 "$WORKERS_PID"
+          wait_port workers 47831 "$WORKERS_PID" 150
           code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:47831/healthz || true)"
           [ "$code" = "200" ] || fail workers "workers /healthz answered $code, expected 200"
           sleep 10
-          kill -0 "$WORKERS_PID" 2>/dev/null || fail workers "workers exited after reporting healthy"
 
-          # Every sidecar still up, and none of them hit the failure class this
-          # step exists for anywhere in its output.
+          # Every sidecar still up, by name.
+          for entry in $PIDS; do
+            kill -0 "${entry%%:*}" 2>/dev/null || fail "${entry##*:}" "${entry##*:} died during verification"
+          done
+          # No sidecar raised the failure class this step exists for. Matched on
+          # the exception line itself (Python prints `<Type>: message` at the
+          # start of the line that ends a traceback), not on any mention of the
+          # word — a warning that merely names ImportError must not fail a build.
           for name in sqlite_proxy backend mcp workers; do
-            if grep -qE "ModuleNotFoundError|ImportError|cannot import name" "$VERIFY/$name.log"; then
-              fail "$name" "$name logged an import failure"
+            if grep -qE '^(ModuleNotFoundError|ImportError): ' "$VERIFY/$name.log"; then
+              fail "$name" "$name raised an import failure"
             fi
           done
-          for p in $PIDS; do kill -0 "$p" 2>/dev/null || { echo "::error::a sidecar (pid $p) died during verification"; exit 1; }; done
           echo "All four sidecars came up from the relocated app with the checkout hidden."
 
       - name: Normalize artifact filenames (stable name across versions)

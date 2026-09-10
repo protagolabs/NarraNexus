@@ -29,9 +29,11 @@ step 3 曾经是 `uv pip install "$PROJECT_ROOT"`——它按 pyproject 的**区
 
 ## 唯一"看得见用户所见"的检查在工作流里，不在这个脚本里
 
-这个脚本里的所有门禁（包括 step 3.1 冒烟）都跑在构建机上，而构建机上源码 checkout 恰好存在——任何偷偷依赖它的 bundle 都能全绿通过，v1.21.3 就是这样发出去的。所以 `.github/workflows/build-desktop.yml` 在构建之后、两次上传之前加了一步 "Verify the shipped app starts without the source tree"：把最终签名好的 .app `ditto` 出来，把整个 `$GITHUB_WORKSPACE` 挪走（`trap` 保证恢复），然后用 app 自带的 Python 跑 app 里那份冒烟脚本，再按 state.rs 的顺序和启动方式把**四个 sidecar 全部真正拉起来**：sqlite_proxy 绑上 :8100 → backend 绑上 :8000 且 `/docs` 回 200 → mcp 绑上 :7801 → workers 存活 20 秒，最后四个进程都还活着、日志里没有任何 import 失败。只查"能导入"不够——导入成功说明模块能加载，不说明服务能起来。守门测试从 state.rs 解析启动目标，state.rs 加了服务而这一步没拉起它，测试就红。不管依赖构建机文件系统的是 `.pth`、shebang、还是以后的什么新形态，都会在这里现形。本地 `build-desktop.sh` 不做这一步（没法在自己的 checkout 里把 checkout 藏起来）。
+这个脚本里的所有门禁（包括 step 3.1 冒烟）都跑在构建机上，而构建机上源码 checkout 恰好存在——任何偷偷依赖它的 bundle 都能全绿通过，v1.21.3 就是这样发出去的。所以 `.github/workflows/build-desktop.yml` 在构建之后、两次上传之前加了一步 "Verify the shipped app starts without the source tree"：把最终签名好的 .app `ditto` 出来，把整个 `$GITHUB_WORKSPACE` 挪走（`trap` 保证恢复），然后用 app 自带的 Python 跑 app 里那份冒烟脚本，再按 state.rs 的顺序和启动方式把**四个 sidecar 全部真正拉起来**：启动前四个端口（8100 / 8000 / 7801 / 47831）必须全部空闲，否则直接失败并用 `lsof` 打出占用者——被别人占着的端口"通了"证明不了任何事；然后 sqlite_proxy 绑上 :8100 → backend 绑上 :8000 且 `/docs` 回 200 → mcp 绑上 :7801 → workers 绑上 :47831 且 `/healthz` 回 200、再存活 10 秒；每次端口一通都要 `kill -0` 复核是**自己的**进程还活着。最后四个进程都还在，日志里没有以 `ModuleNotFoundError:` / `ImportError:` 开头的异常行。mcp / workers 各给 150 秒——state.rs 对这两个服务既不等端口也不查健康，CI 比产品严格是故意的。
 
-另：bundle 的 `python/bin/*` 里 49 个控制台脚本（`narranexus`、`uvicorn`、`mcp`…）的 shebang 仍写死构建机路径。当前无害——启动器只把 Node 目录加进 PATH，运行时代码也不按名字调用它们（2026-09-10 核过）——但哪天有人把 `python/bin` 加进 PATH 或 shell 出去调这些命令，就会在用户机器上失败；上面那步验证只覆盖被实际执行到的路径。
+环境也按 Finder 启动的样子收窄：PATH 只剩 app 自带的 `resources/nodejs/bin`、`resources/nodejs/node_modules/.bin`、插件目录 `~/.narranexus/plugins/nodejs/node_modules/.bin`（逐字对应 state.rs 的 `resolve_bundled_node_bins()`）加 launchd 的 `/usr/bin:/bin:/usr/sbin:/sbin`；部署模式相关变量全部 `unset`（否则 runner 上一个 `NARRANEXUS_DEPLOYMENT_MODE` 就能让 backend 判成云模式、因缺 JWT_SECRET 拒绝启动）。失败时各 sidecar 日志保留，只删体积大的 `.app` 副本。只查"能导入"不够——导入成功说明模块能加载，不说明服务能起来。守门测试从 state.rs 解析启动目标，state.rs 加了服务而这一步没拉起它，测试就红。不管依赖构建机文件系统的是 `.pth`、shebang、还是以后的什么新形态，都会在这里现形。本地 `build-desktop.sh` 不做这一步（没法在自己的 checkout 里把 checkout 藏起来）。
+
+另：bundle 的 `python/bin/*` 里 49 个控制台脚本（`narranexus`、`uvicorn`、`mcp`…）的 shebang 仍写死构建机路径。当前无害——启动器只把 Node 目录加进 PATH，运行时代码也不按名字调用它们（2026-09-10 核过）。上面那步验证现在用的就是用户的 PATH 形态，所以运行时一旦按名字调到这些脚本，就会在那一步失败；它覆盖不到的只是四个服务启动期间没有走到的代码路径。
 
 ## 已知仍在漂移的面
 
