@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-09-10
 ---
 
+## 2026-09-10（PR #388 round-2 M3）— `_failure(max_len=)` 自己保证"先 redact 再截断"
+
+`_failure(method, *, max_len=None, **fields)`：字符串字段先 `_redact`、再按 `max_len` 切、再压平换行；非 JSON
+分支只传原始 body + `max_len=160`。docstring 承诺的顺序现在是函数自身的性质而不是调用方纪律。
+测试 `test_failure_envelope_redacts_before_it_truncates`。
+
 ## 2026-09-10 — 信封脱敏结构化（PR #388 review I1）
 
 非 JSON 响应分支的 `error_detail` 之前没过 `_redact`——经代理（`trust_env=True`）拿到的 407/502 HTML 页会回显

@@ -58,6 +58,18 @@ class InstallResult:
         return self.status != "failed"
 
 
+# Per-skill failure text handed to the route / MCP tool (agent-visible):
+# exception class + message so a bare KeyError / empty RuntimeError still
+# says what happened, capped so a driver's multi-KB message cannot bloat
+# the response. No URL/token masking here — the only URL on this path is
+# the repository address the user supplied.
+INSTALL_ERROR_MAX_CHARS = 500
+
+
+def _failure_text(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}".replace("\n", " ")[:INSTALL_ERROR_MAX_CHARS]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -171,8 +183,9 @@ class InstallPipeline:
                     # truth, nothing rolls back), this one is failed. Repo-
                     # level errors (fetch, layout, cap) are outside this loop
                     # and still raise.
-                    logger.warning(f"[skills] github install of '{skill_name}' from {canonical_url} rejected: {exc}")
-                    results.append(InstallResult(status="failed", skill=None, skill_name=skill_name, error=str(exc)))
+                    error = _failure_text(exc)
+                    logger.warning(f"[skills] github install of '{skill_name}' from {canonical_url} rejected: {error}")
+                    results.append(InstallResult(status="failed", skill=None, skill_name=skill_name, error=error))
             return results
         finally:
             if temp_dir.exists():

@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #388 round-2 M2）— 逐 skill 失败文本带类名并封顶
+
+`_failure_text(exc)` = `"<Class>: <msg>"` 压平换行后截到 `INSTALL_ERROR_MAX_CHARS=500`，给 `InstallResult.error`
+与 warning 日志。`except Exception` 放宽后 `str(KeyError("env"))` 只是 `'env'`、空 RuntimeError 是空串——agent 通过
+`skill_install` 看到的必须能判断重试/放弃。不做 URL/token 掩码：这条路径唯一的 URL 是用户自己给的仓库地址。
+测试 `test_per_skill_failure_text_names_the_class_and_is_capped`。
+
 ## 2026-09-10（PR #388 review M4）— 逐 skill 隔离覆盖任何异常
 
 安装循环改为 `except Exception`：某个根内部的 RuntimeError/KeyError 也只标记该根 failed，兄弟结果保留

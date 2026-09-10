@@ -138,19 +138,25 @@ CHANNEL_SILENT_SENTINEL = "(stayed silent)"
 
 
 # Upstream error text that reaches a credential row (and from there the
-# owner's panel) is trimmed to this many characters.
+# owner's panel, which has no fold) is trimmed to this many characters.
 DISABLE_REASON_MAX_CHARS = 200
+# The audit table's ``details.error`` keeps more: it is the post-mortem
+# source of truth, and sits next to ``original_message`` /
+# ``agent_response`` which are already cut at 500. Panel width and audit
+# depth are different trade-offs, hence two names.
+AUDIT_ERROR_MAX_CHARS = 500
 _REASON_URL = re.compile(r"https?://\S+")
 # Bot tokens (Telegram ``<digits>:<base64>``), JWTs and long opaque
 # secrets — anything a transport exception string could echo.
 _REASON_SECRET = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]{10,}|\b[A-Za-z0-9_-]{32,}\b")
 
 
-def safe_error_text(exc: BaseException) -> str:
+def safe_error_text(exc: BaseException, max_chars: int = DISABLE_REASON_MAX_CHARS) -> str:
     """The one sanitised rendering of a subscriber error.
 
     Exception type + message, with URLs and token-shaped runs masked and the
-    whole thing capped at DISABLE_REASON_MAX_CHARS. Used for the persisted
+    whole thing capped at ``max_chars`` (DISABLE_REASON_MAX_CHARS for the
+    credential row, AUDIT_ERROR_MAX_CHARS for audit rows). Used for the persisted
     ``disabled_reason``, the formatted subscriber log line and the audit
     row's ``details.error`` — never the raw ``str(exc)``. It is a safety
     net, not the only guard: the traceback ``logger.exception`` renders
@@ -162,7 +168,7 @@ def safe_error_text(exc: BaseException) -> str:
     text = f"{type(exc).__name__}: {exc}".replace("\n", " ")
     text = _REASON_URL.sub("<url>", text)
     text = _REASON_SECRET.sub("<redacted>", text)
-    return text[:DISABLE_REASON_MAX_CHARS]
+    return text[:max_chars]
 
 
 def _compute_next_backoff(
@@ -1223,7 +1229,7 @@ class ChannelTriggerBase(ABC):
                 # the next reconcile cycle. User has to re-bind to wake
                 # the subscriber back up.
                 if self.is_permanent_auth_failure(e):
-                    error_text = safe_error_text(e)
+                    error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                     logger.warning(
                         f"{type(self).__name__} permanent auth failure for "
                         f"agent={agent_id} app={app_id} after {ran:.1f}s: "
@@ -1240,7 +1246,8 @@ class ChannelTriggerBase(ABC):
                         },
                     )
                     try:
-                        await self.disable_credential(credential, reason=error_text)
+                        # The credential row renders in the panel: shorter cap.
+                        await self.disable_credential(credential, reason=safe_error_text(e))
                     except Exception as disable_err:  # noqa: BLE001
                         logger.exception(
                             f"{type(self).__name__}: disable_credential raised "
@@ -1250,7 +1257,7 @@ class ChannelTriggerBase(ABC):
                 backoff = _compute_next_backoff(
                     current=backoff, ran_seconds=ran, max_backoff=max_backoff,
                 )
-                error_text = safe_error_text(e)
+                error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                 logger.exception(
                     f"{type(self).__name__} transport error for {app_id} "
                     f"after {ran:.1f}s (next backoff {backoff}s): {error_text}"
@@ -1438,7 +1445,7 @@ class ChannelTriggerBase(ABC):
                     },
                 )
             except Exception as e:  # noqa: BLE001
-                error_text = safe_error_text(e)
+                error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
                 logger.exception(
                     f"{type(self).__name__} worker {worker_id} error: {error_text}"
                 )
@@ -1556,7 +1563,7 @@ class ChannelTriggerBase(ABC):
         try:
             attachments = await self.fetch_attachments(message, credential)
         except Exception as e:  # noqa: BLE001
-            error_text = safe_error_text(e)
+            error_text = safe_error_text(e, AUDIT_ERROR_MAX_CHARS)
             logger.warning(
                 f"{type(self).__name__}[{app_id}] fetch_attachments raised: {error_text}"
             )
@@ -1597,7 +1604,7 @@ class ChannelTriggerBase(ABC):
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
                 details={
-                    "error": safe_error_text(e),
+                    "error": safe_error_text(e, AUDIT_ERROR_MAX_CHARS),
                     "sender_name": sender_name,
                     "original_message": message.content[:500],
                     "agent_response": (output_text or "")[:500],

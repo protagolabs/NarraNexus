@@ -4,7 +4,15 @@ stub: false
 last_verified: 2026-09-10
 ---
 
-## 2026-09-10 — `safe_error_text` 覆盖全部审计出口（PR #388 review M6）
+## 2026-09-10 — `safe_error_text` 覆盖 `_subscribe_loop` 之外的三个异常审计出口（PR #388 review M6 / round-2 M4-M5）
+
+**范围**：`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`、`EVENT_INBOX_WRITE_FAILED` 三处 + 断连两分支。
+`EVENT_MANAGED_INGRESS_PROCESSED` 的 `details.error`（`:2288`）**不走**它：那是 `managed_after_run` 的入参，来自
+completions 端点的 run 错误消息，已 200 截断且同一文本已经 `format_error_reply` 回给用户，不含传输层凭据；走
+`safe_error_text` 反而会把 32+ 位 run_id/message_id 打成 `<redacted>`。
+**两个上限**：`DISABLE_REASON_MAX_CHARS=200`（凭据行 → 面板无折叠）与 `AUDIT_ERROR_MAX_CHARS=500`（审计行是排障
+真相源，与同行的 `original_message`/`agent_response` 的 500 对齐）；`safe_error_text(exc, max_chars=...)`，五处审计
+写入显式传 500，`disable_credential(reason=)` 仍用 200（永久分支两份文本分别算）。
 
 除 `_subscribe_loop` 的两个断连分支外，`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`（含其 warning 日志句）、
 `EVENT_INBOX_WRITE_FAILED` 的 `details.error` 也统一走 `safe_error_text(e)`（脱敏 + 200 字符截断，几 MB 的异常

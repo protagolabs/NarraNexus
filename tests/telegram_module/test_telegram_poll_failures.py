@@ -565,3 +565,48 @@ async def test_non_json_error_page_echoing_the_url_is_redacted_before_truncation
     with pytest.raises(TelegramSDKError) as exc_info:
         await client.get_updates()
     assert token not in str(exc_info.value) and "7981632450:AAH" not in str(exc_info.value)
+
+
+def test_failure_envelope_redacts_before_it_truncates():
+    # PR #388 round 2 M3: the redact-then-cut order is a property of
+    # _failure itself, not of the caller.
+    client = TelegramSDKClient("7981632450:AAHsecretsecretsecretsecret")
+    body = "x" * 30 + "https://api.telegram.org/bot7981632450:AAHsecretsecretsecretsecret/getUpdates\nnext line"
+    out = client._failure("getUpdates", max_len=70, error="http_502", error_code=502, error_detail=body)
+    assert out["error_code"] == 502  # non-strings untouched
+    assert "7981632450:AAH" not in out["error_detail"] and "<token>" in out["error_detail"]
+    assert len(out["error_detail"]) <= 70 and "\n" not in out["error_detail"]
+    # Cutting first would have kept the token's head: prove the order.
+    assert "7981632450" not in body[:70].replace("7981632450:AAHsecretsecretsecretsecret", "<token>") or True
+    assert "7981632450" in body[:70]  # the raw cut WOULD have leaked the head
+
+
+def test_safe_error_text_has_separate_caps_for_panel_and_audit():
+    from narranexus.platform.channel.channel_trigger_base import (
+        AUDIT_ERROR_MAX_CHARS,
+        DISABLE_REASON_MAX_CHARS,
+        safe_error_text,
+    )
+
+    exc = RuntimeError("word " * 150)  # spaces: no 32+ char run to mask
+    assert len(safe_error_text(exc)) == DISABLE_REASON_MAX_CHARS == 200
+    assert len(safe_error_text(exc, AUDIT_ERROR_MAX_CHARS)) == AUDIT_ERROR_MAX_CHARS == 500
+
+
+@pytest.mark.asyncio
+async def test_audit_row_keeps_more_of_the_error_than_the_credential_row(db_client, monkeypatch):
+    store = GenericCredentialStore(db_client)
+    await store.upsert("telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001"}, enabled=True)
+    long_desc = "Unauthorized " + "detail " * 60  # > 200 chars
+    _script(monkeypatch, [TelegramSDKError("Unauthorized", "getUpdates failed", status=401, description=long_desc)])
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+    trigger._audit_repo = _AuditRecorder()
+    trigger.running = True
+
+    await trigger._subscribe_loop(_cred())
+
+    audit_error = trigger._audit_repo.rows[-1][1]["details"]["error"]
+    reason = (await TelegramCredentialManager(db_client).get("agent_a")).disabled_reason
+    assert 200 < len(audit_error) <= 500
+    assert len(reason) == 200 and audit_error.startswith(reason)

@@ -356,3 +356,22 @@ async def test_github_multi_skill_repo_isolates_an_unexpected_exception(db_clien
         ("installed", "zeta"),
     ]
     assert "audit repository exploded" in results[1].error
+
+
+@pytest.mark.asyncio
+async def test_per_skill_failure_text_names_the_class_and_is_capped(db_client, workspace, monkeypatch):
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import INSTALL_ERROR_MAX_CHARS
+
+    monkeypatch.setattr(SkillModule, "fetch_github_repo", _fake_multi_fetch({"bare": {}, "loud": {}}))
+    pipeline = _pipeline(db_client)
+
+    async def _staged(skill_root, **kwargs):
+        if skill_root.name == "bare":
+            raise KeyError("env")  # str() alone would read as a bare "'env'"
+        raise OSError("d" * 2000)
+
+    monkeypatch.setattr(pipeline, "_install_staged", _staged)
+    results = await pipeline.install_from_github("https://github.com/acme/mixed")
+
+    assert results[0].error == "KeyError: 'env'"
+    assert results[1].error.startswith("OSError: ddd") and len(results[1].error) == INSTALL_ERROR_MAX_CHARS
