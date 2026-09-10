@@ -721,13 +721,25 @@ async def reset_agent(agent_id: str, db=None) -> None:
     logger.info(f"[agent-cb] agent {agent_id} circuit-breaker reset to active")
 
 
-async def reset_for_owner(user_id: str, db=None) -> int:
+async def reset_for_owner(
+    user_id: str, db=None, *, provider_id: Optional[str] = None
+) -> int:
     """Auto-resume the owner's auth/quota-blocked agents after a key/balance
     reconfigure. Clears PAUSED and PROBING (both only ever arise from an
     auth/quota pause — PROBING is the half-open in-flight-probe state) and
     in-progress auth/quota COOLING streaks; a transient COOLING streak is
     left alone (unrelated to the key). Returns the number of agents reset.
     Best-effort.
+
+    ``provider_id`` narrows the reset to agents whose effective ``agent``
+    slot is bound to THAT provider (per-agent ``agent_slots`` override, else
+    the owner's ``user_slots`` default). A confirmed-working provider says
+    nothing about an agent running on a different key, so a
+    ``POST /{provider_id}/test`` success resumes only what it actually
+    tested. The reconfigure paths (add provider, connect subscription, set a
+    slot) keep the default ``None`` = every owned agent — there the user has
+    just changed what the agents run on, possibly to the very provider that
+    is now being unblocked.
     """
     db = db or await get_db_client()
     repo = AgentCircuitBreakerRepository(db)
@@ -752,17 +764,36 @@ async def reset_for_owner(user_id: str, db=None) -> int:
                 ErrorCategory.QUOTA.value,
             ):
                 continue
+            if provider_id is not None:
+                bound = await _agent_bound_provider_id(db, cb.agent_id, user_id)
+                if bound != provider_id:
+                    continue
             await repo.upsert_state(cb.agent_id, _CLEAN_STATE)
             reset += 1
         if reset:
             logger.info(
                 f"[agent-cb] reset {reset} agent(s) for owner {user_id} "
-                f"after provider reconfigure"
+                + (
+                    f"after provider {provider_id} tested OK"
+                    if provider_id is not None
+                    else "after provider reconfigure"
+                )
             )
         return reset
     except Exception as e:  # noqa: BLE001 — best-effort auto-resume
         logger.warning(f"[agent-cb] reset_for_owner({user_id}) failed: {e}")
         return 0
+
+
+async def _agent_bound_provider_id(db, agent_id: str, user_id: str) -> Optional[str]:
+    """The provider the agent's ``agent`` slot actually runs on: a per-agent
+    ``agent_slots`` row with a non-empty provider_id wins over the owner's
+    ``user_slots`` default (the resolver's overlay order). None when neither
+    binds one."""
+    slot = await db.get_one("agent_slots", {"agent_id": agent_id, "slot_name": "agent"})
+    if not slot or not slot.get("provider_id"):
+        slot = await db.get_one("user_slots", {"user_id": user_id, "slot_name": "agent"})
+    return (slot or {}).get("provider_id") or None
 
 
 async def _owner_agent_ids(db, user_id: str) -> set[str]:

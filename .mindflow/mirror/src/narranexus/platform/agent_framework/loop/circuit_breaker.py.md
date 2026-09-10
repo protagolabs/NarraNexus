@@ -62,6 +62,12 @@ executor-infra）保留"不动 streak"，但 PROBING 行同样要结算回 PAUSE
 兜住：用户取消（[[background_run]] CANCELLED 分支）、进程死亡（[[run_recorder]]
 `sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。
 
+**`reset_for_owner` 的 provider 维度**：`reset_for_owner(user_id, provider_id=None)`。
+带 `provider_id` 时只清有效 `agent` slot 绑在该 provider 上的 agent（`agent_slots` 覆盖
+优先，否则 `user_slots` 默认，见 `_agent_bound_provider_id`）；`POST /{provider_id}/test`
+成功走这条。四个重配置调用点不传 = 全量，语义是"用户变得可运行了"（slot 可能刚被改到
+这个 provider 上），故意不收窄。
+
 **其他**：CAS 写失败按"没抢到"处理（`(False, "probing")`，fail-closed，日志文案与读失败的
 fail-open 区分）；`cooldown_until` 为 NULL 视为已到期（fail-safe 向探测倾斜，避免永远
 探不到的行）；认领成功 / 探测成功 / 探测失败各打一条 `[agent-cb]` 日志；

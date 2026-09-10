@@ -26,18 +26,19 @@ def _mock_request(user_id: str = "u1") -> MagicMock:
 async def test_resume_delegates_to_reset_for_owner(monkeypatch):
     seen = []
 
-    async def fake_reset(user_id, db=None):
-        seen.append(user_id)
+    async def fake_reset(user_id, db=None, *, provider_id=None):
+        seen.append((user_id, provider_id))
         return 1
     monkeypatch.setattr(cb, "reset_for_owner", fake_reset)
 
     await _resume_agent_circuit_breakers("alice")
-    assert seen == ["alice"]
+    await _resume_agent_circuit_breakers("alice", provider_id="p1")
+    assert seen == [("alice", None), ("alice", "p1")]
 
 
 @pytest.mark.asyncio
 async def test_resume_swallows_errors(monkeypatch):
-    async def boom(user_id, db=None):
+    async def boom(user_id, db=None, *, provider_id=None):
         raise RuntimeError("db down")
     monkeypatch.setattr(cb, "reset_for_owner", boom)
 
@@ -46,17 +47,22 @@ async def test_resume_swallows_errors(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# GitHub #117: a provider status/test check confirming the credential works
-# must resume PAUSED agents, not just leave that to a manual reset.
+# GitHub #117: an EXPLICIT provider test that succeeds resumes the agents
+# bound to that provider. The read-only status endpoints never resume.
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_provider_test_success_resumes_breakers(monkeypatch):
+def _resume_spy(monkeypatch):
     calls = []
 
-    async def fake_resume(uid):
-        calls.append(uid)
+    async def fake_resume(uid, provider_id=None):
+        calls.append((uid, provider_id))
     monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_provider_test_success_resumes_breakers_for_that_provider(monkeypatch):
+    calls = _resume_spy(monkeypatch)
 
     class FakeService:
         async def test_provider(self, uid, provider_id):
@@ -68,16 +74,12 @@ async def test_provider_test_success_resumes_breakers(monkeypatch):
 
     resp = await prov_routes.test_provider("p1", _mock_request("alice"))
     assert resp["success"] is True
-    assert calls == ["alice"]
+    assert calls == [("alice", "p1")]  # scoped, not the whole fleet
 
 
 @pytest.mark.asyncio
 async def test_provider_test_failure_does_not_resume_breakers(monkeypatch):
-    calls = []
-
-    async def fake_resume(uid):
-        calls.append(uid)
-    monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
+    calls = _resume_spy(monkeypatch)
 
     class FakeService:
         async def test_provider(self, uid, provider_id):
@@ -93,12 +95,10 @@ async def test_provider_test_failure_does_not_resume_breakers(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_claude_status_logged_in_resumes_breakers(monkeypatch):
-    calls = []
-
-    async def fake_resume(uid):
-        calls.append(uid)
-    monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
+async def test_claude_status_is_read_only_even_when_logged_in(monkeypatch):
+    """GET /claude-status reports the HOST CLI; it must not touch the
+    breaker — opening the provider picker used to un-pause every agent."""
+    calls = _resume_spy(monkeypatch)
     monkeypatch.setattr(prov_routes, "_is_cloud", lambda: False)
 
     async def fake_probe(args, timeout):
@@ -110,42 +110,12 @@ async def test_claude_status_logged_in_resumes_breakers(monkeypatch):
         resp = await prov_routes.get_claude_status(_mock_request("alice"))
 
     assert resp["data"]["logged_in"] is True
-    assert calls == ["alice"]
-
-
-@pytest.mark.asyncio
-async def test_claude_status_not_logged_in_does_not_resume(tmp_path, monkeypatch):
-    calls = []
-
-    async def fake_resume(uid):
-        calls.append(uid)
-    monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
-    monkeypatch.setattr(prov_routes, "_is_cloud", lambda: False)
-    # Isolate from any real ~/.claude/.credentials.json on the host running
-    # the test — the fallback path in get_claude_status reads Path.home()
-    # via a function-local `from pathlib import Path`, so patch the class
-    # itself (shared across every import of it).
-    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
-
-    async def fake_probe(args, timeout):
-        return None
-    monkeypatch.setattr(prov_routes, "_run_json_subprocess", fake_probe)
-
-    with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("shutil.which", lambda x: None)
-        resp = await prov_routes.get_claude_status(_mock_request("alice"))
-
-    assert resp["data"]["logged_in"] is False
     assert calls == []
 
 
 @pytest.mark.asyncio
-async def test_codex_status_logged_in_resumes_breakers(tmp_path, monkeypatch):
-    calls = []
-
-    async def fake_resume(uid):
-        calls.append(uid)
-    monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
+async def test_codex_status_is_read_only_even_when_logged_in(tmp_path, monkeypatch):
+    calls = _resume_spy(monkeypatch)
     monkeypatch.setattr(prov_routes, "_is_cloud", lambda: False)
 
     auth = tmp_path / "auth.json"
@@ -157,24 +127,4 @@ async def test_codex_status_logged_in_resumes_breakers(tmp_path, monkeypatch):
         resp = await prov_routes.get_codex_status(_mock_request("alice"))
 
     assert resp["data"]["logged_in"] is True
-    assert calls == ["alice"]
-
-
-@pytest.mark.asyncio
-async def test_codex_status_not_logged_in_does_not_resume(tmp_path, monkeypatch):
-    calls = []
-
-    async def fake_resume(uid):
-        calls.append(uid)
-    monkeypatch.setattr(prov_routes, "_resume_agent_circuit_breakers", fake_resume)
-    monkeypatch.setattr(prov_routes, "_is_cloud", lambda: False)
-
-    # Empty CODEX_HOME — no auth.json → not logged in.
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-
-    with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("shutil.which", lambda x: "/usr/bin/codex" if x == "codex" else None)
-        resp = await prov_routes.get_codex_status(_mock_request("alice"))
-
-    assert resp["data"]["logged_in"] is False
     assert calls == []

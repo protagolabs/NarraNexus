@@ -777,6 +777,36 @@ async def test_reset_for_owner_clears_authquota_cooling(db_client):
     assert (await repo.get("cool_auth")).cb_status == CbStatus.ACTIVE.value
 
 
+@pytest.mark.asyncio
+async def test_reset_for_owner_scoped_to_the_tested_provider(db_client):
+    """POST /{provider_id}/test success resumes only agents whose agent slot
+    runs on THAT provider: a per-agent agent_slots override wins, else the
+    owner's user_slots default; an agent bound elsewhere stays paused."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    for aid in ("scope_default", "scope_override", "scope_other"):
+        await _seed_agent(db_client, aid, "fran")
+        await repo.upsert_state(aid, _paused_row(cooldown_until=utc_now() + timedelta(minutes=5)))
+    await db_client.insert("user_slots", {"user_id": "fran", "slot_name": "agent",
+                                          "provider_id": "prov_a", "model": "m"})
+    await db_client.insert("agent_slots", {"agent_id": "scope_override", "slot_name": "agent",
+                                           "provider_id": "prov_b", "model": "m"})
+    await db_client.insert("agent_slots", {"agent_id": "scope_other", "slot_name": "agent",
+                                           "provider_id": "prov_c", "model": "m"})
+
+    assert await reset_for_owner("fran", db=db_client, provider_id="prov_b") == 1
+    assert (await repo.get("scope_override")).cb_status == CbStatus.ACTIVE.value
+    assert (await repo.get("scope_default")).cb_status == CbStatus.PAUSED.value
+    assert (await repo.get("scope_other")).cb_status == CbStatus.PAUSED.value
+
+    assert await reset_for_owner("fran", db=db_client, provider_id="prov_a") == 1
+    assert (await repo.get("scope_default")).cb_status == CbStatus.ACTIVE.value
+    assert (await repo.get("scope_other")).cb_status == CbStatus.PAUSED.value
+
+    # No provider → the reconfigure semantics: everything owned.
+    assert await reset_for_owner("fran", db=db_client) == 1
+    assert (await repo.get("scope_other")).cb_status == CbStatus.ACTIVE.value
+
+
 def test_exhausted_wallet_is_quota_not_business():
     """Free-tier exhaustion lost its dedicated exception type when the wallet
     moved onto the gateway: it now arrives as a plain 429 whose only signal is
