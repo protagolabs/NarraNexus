@@ -95,6 +95,29 @@ _MISSING_MARKER = (
 )
 
 
+def split_for_bus(content: str, *, max_bytes: int = MAX_BUS_MESSAGE_BYTES) -> List[str]:
+    """Cut ``content`` into pieces of at most ``max_bytes`` UTF-8 bytes each,
+    on character boundaries, nothing dropped: ``"".join(result) == content``.
+
+    For PLATFORM writers that post a whole document in one go (a job report)
+    and can therefore send the parts back to back. A model splits its own
+    text; this is the same contract applied by code.
+    """
+    pieces: List[str] = []
+    buf: List[str] = []
+    size = 0
+    for ch in content:
+        n = len(ch.encode("utf-8"))
+        if size + n > max_bytes and buf:
+            pieces.append("".join(buf))
+            buf, size = [], 0
+        buf.append(ch)
+        size += n
+    if buf:
+        pieces.append("".join(buf))
+    return pieces
+
+
 def too_many_parts_reason(count: int) -> str:
     """The agent-readable refusal for a part_count over `MAX_MESSAGE_PARTS`."""
     return (
@@ -241,4 +264,5 @@ __all__ = [
     "PART_ASSEMBLY_GRACE_SECONDS",
     "assemble",
     "oversize_reason",
+    "split_for_bus",
 ]

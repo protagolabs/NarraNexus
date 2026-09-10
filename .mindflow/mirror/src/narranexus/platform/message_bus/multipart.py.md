@@ -64,6 +64,11 @@ I7 删掉计数上限后，600 块 × 100 字节是合法的组，却没有任�
 `MAX_BUS_MESSAGE_BYTES` 与 `oversize_reason()` 住在本文件（单一家），由 [[local_bus]]
 `send_message` 对所有写入方执行；`message_agent` 工具不再自带副本。
 
+## `split_for_bus`（review r2 I2）
+
+给**平台写入方**（job 报告）用的按字节切块器：字符边界、`"".join(parts)==原文`。模型自己切自己的
+文本；这是同一契约由代码执行。
+
 ## 边界
 
 `MessageBusModule.gather` 的未读预览仍逐行显示（带 `(part i/n)` 标签），只有 trigger 的

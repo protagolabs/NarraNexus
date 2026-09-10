@@ -466,3 +466,67 @@ async def test_an_undeliverable_report_does_not_fail_the_job(db_client, monkeypa
 
     # No raise is the assertion.
     await JobTrigger.__new__(JobTrigger)._deliver_to_origin(job, "report")
+
+
+@pytest.mark.asyncio
+async def test_a_long_report_reaches_the_room_in_parts_not_dropped(db_client, monkeypatch):
+    """The bus refuses one row over MAX_BUS_MESSAGE_BYTES; the fallback must
+    not let that become a silent `logger.error` (review r2 I2). A 70 KB report
+    goes as two ordered parts the room's lane reassembles."""
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
+    from narranexus.platform.message_bus import multipart
+    from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _async_db)
+    await db_client.insert(
+        "bus_channels",
+        {"channel_id": ROOM, "name": "Desk", "channel_type": "group", "created_by": f"team_{TEAM}"},
+    )
+    job = JobModel(
+        job_id="job_long", agent_id=AGENT, user_id=OWNER, title="t", description="d",
+        job_type="one_off",
+        trigger_config=TriggerConfig(run_at="2026-08-15T08:00:00", timezone="Asia/Shanghai"),
+        payload="p", origin_source=JobOrigin.MESSAGE_BUS, origin_channel_id=ROOM,
+    )
+    report = "r" * (multipart.MAX_BUS_MESSAGE_BYTES + 10_000)
+
+    await JobTrigger.__new__(JobTrigger)._deliver_to_origin(job, report)
+
+    rows = sorted(await db_client.get("bus_messages", {"channel_id": ROOM}), key=lambda r: r["part_index"])
+    assert [(r["part_index"], r["part_count"]) for r in rows] == [(1, 2), (2, 2)]
+    assert "".join(r["content"] for r in rows) == report
+    whole, held = multipart.assemble([
+        __import__("narranexus.platform.message_bus.local_bus", fromlist=["LocalMessageBus"])
+        .LocalMessageBus(backend=db_client._backend)._row_to_message(r) for r in rows
+    ])
+    assert held is False and whole[0].content == report
+
+
+@pytest.mark.asyncio
+async def test_a_report_past_the_whole_message_budget_tells_the_room(db_client, monkeypatch):
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
+    from narranexus.platform.message_bus import multipart
+    from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
+
+    async def _async_db():
+        return db_client
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _async_db)
+    await db_client.insert(
+        "bus_channels",
+        {"channel_id": ROOM, "name": "Desk", "channel_type": "group", "created_by": f"team_{TEAM}"},
+    )
+    job = JobModel(
+        job_id="job_huge", agent_id=AGENT, user_id=OWNER, title="t", description="d",
+        job_type="one_off",
+        trigger_config=TriggerConfig(run_at="2026-08-15T08:00:00", timezone="Asia/Shanghai"),
+        payload="p", origin_source=JobOrigin.MESSAGE_BUS, origin_channel_id=ROOM,
+    )
+
+    await JobTrigger.__new__(JobTrigger)._deliver_to_origin(job, "h" * (multipart.MAX_MULTIPART_TOTAL_BYTES + 1))
+
+    rows = await db_client.get("bus_messages", {"channel_id": ROOM})
+    assert len(rows) == 1 and "was not posted here" in rows[0]["content"]

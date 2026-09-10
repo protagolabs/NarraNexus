@@ -31,6 +31,10 @@ from narranexus.platform.utils.mime_sniff import sniff_mime_type
 from narranexus.platform.repository import TeamRepository, TeamMemberRepository
 from narranexus.platform.repository.user_repository import UserRepository
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.multipart import (
+    MAX_BUS_MESSAGE_BYTES,
+    oversize_reason,
+)
 from narranexus.platform.message_bus.attachments import (
     load_bus_attachment_meta,
     resolve_shared_file_for_user,
@@ -302,6 +306,12 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
 
     if not (payload.content or "").strip() and not valid_attachments:
         raise HTTPException(status_code=400, detail="Message content or an attachment is required")
+    # The bus refuses a row over MAX_BUS_MESSAGE_BYTES at its write edge
+    # (never truncates). Translate that into a 400 here rather than let the
+    # ValueError surface as a 500 — the one user-typed path onto the bus.
+    content_bytes = len((payload.content or "").strip().encode("utf-8"))
+    if content_bytes > MAX_BUS_MESSAGE_BYTES:
+        raise HTTPException(status_code=400, detail=oversize_reason(content_bytes))
 
     db = await get_db_client()
     team_repo = TeamRepository(db)
