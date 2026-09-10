@@ -77,7 +77,7 @@ from narranexus.platform.schema.job_schema import (
 )
 from narranexus.platform.schema.hook_schema import WorkingSource
 from narranexus.platform.schema.runtime_message import AUTH_EXPIRED_ERROR_TYPE
-from narranexus.platform.schema.entity_schema import UserStatus
+from narranexus.platform.schema.entity_schema import NON_TRANSACTING_USER_STATUSES
 from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
 # Utils
@@ -655,23 +655,29 @@ class JobTrigger:
                     logger.debug(f"Job {job.job_id} already running, skipped")
                     continue
 
-                # B-13: a banned owner must never be enqueued — `Key is
-                # blocked` 401s are otherwise indistinguishable from an
-                # ordinary auth failure, so the job cycled through
-                # PAUSED_NO_QUOTA and resurrected daily even though the
-                # account itself (not the provider) is what is unusable.
-                # Pause it here, BEFORE it ever reaches a worker, so it also
-                # drops out of `get_due_jobs()` on the next poll instead of
-                # being re-evaluated every cycle.
+                # B-13: a non-transacting owner (banned / blocked / deleted)
+                # must never be enqueued — `Key is blocked` 401s are
+                # otherwise indistinguishable from an ordinary auth failure,
+                # so the job cycled through PAUSED_NO_QUOTA and resurrected
+                # daily even though the account itself (not the provider) is
+                # what is unusable. Pause it here, BEFORE it ever reaches a
+                # worker, so it also drops out of `get_due_jobs()` on the
+                # next poll instead of being re-evaluated every cycle. The
+                # execution principal (`related_entity_id or user_id`) is the
+                # one identity this file judges everywhere (`_user_can_run`,
+                # the spend cap, `_run_agent`).
                 exec_uid = job.related_entity_id or job.user_id
-                if exec_uid and await self._is_user_banned(exec_uid):
+                blocked_status = (
+                    await self._non_transacting_status(exec_uid) if exec_uid else None
+                )
+                if blocked_status:
                     await repo.update_job(job.job_id, {
                         "status": JobStatus.PAUSED.value,
-                        "paused_reason": "banned",
+                        "paused_reason": blocked_status,
                         "paused_at": utc_now(),
                     })
                     logger.warning(
-                        f"Job {job.job_id} paused: owner {exec_uid} is banned"
+                        f"Job {job.job_id} paused: principal {exec_uid} is {blocked_status}"
                     )
                     continue
 
@@ -686,8 +692,9 @@ class JobTrigger:
         except Exception as e:
             logger.exception(f"Error in poll_and_enqueue: {e}")
 
-    async def _is_user_banned(self, user_id: str) -> bool:
-        """Is `user_id`'s account currently BANNED (`users.status`)?
+    async def _non_transacting_status(self, user_id: str) -> Optional[str]:
+        """The account's `users.status` if it is one that must not transact
+        (`NON_TRANSACTING_USER_STATUSES`: banned / blocked / deleted), else None.
 
         B-13: a banned user's `Key is blocked` 401s look identical to a dead
         credential to every other classifier in this file, so a banned owner's
@@ -697,21 +704,31 @@ class JobTrigger:
         no provider check can ever fix that. This is intentionally its OWN
         check ahead of any provider classification (never folded into
         `classify_provider_for_user`): account standing and provider readiness
-        are orthogonal facts, and a banned account must short-circuit before a
-        provider probe is even attempted.
+        are orthogonal facts, and a non-transacting account must short-circuit
+        before a provider probe is even attempted.
 
-        Fails OPEN (returns False) on a lookup error or a missing `users` row
+        Review I1: judged against the shared `NON_TRANSACTING_USER_STATUSES`
+        (the same set the auth middleware / WS gate / admin suspend use), not
+        `banned` alone — `blocked` / `deleted` accounts "equally must not
+        transact" (entity_schema) and their jobs produced the same 401 storm.
+        The status value is returned (not a bool) so the caller can record the
+        real reason in `paused_reason`; none of these values matches
+        `_EDGE_ONLY_RESUME_REASONS` or a resumable status, so they never
+        trip an automatic resume.
+
+        Fails OPEN (returns None) on a lookup error or a missing `users` row
         — a transient DB hiccup here must not freeze every job in the system,
-        and banned is an explicit opt-in state, never the absence of a row.
+        and these are explicit states, never the absence of a row.
         """
         try:
             row = await self.db.get_one("users", {"user_id": user_id})
             if not row:
-                return False
-            return row.get("status") == UserStatus.BANNED.value
+                return None
+            status = row.get("status")
+            return status if status in NON_TRANSACTING_USER_STATUSES else None
         except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
-            logger.debug(f"_is_user_banned lookup failed for {user_id}: {e}")
-            return False
+            logger.debug(f"_non_transacting_status lookup failed for {user_id}: {e}")
+            return None
 
     async def _user_can_run(self, user_id: str) -> bool:
         """Would a run for this user resolve a provider right now?
@@ -730,12 +747,12 @@ class JobTrigger:
         provider choice — it only stops resuming a job into a run the
         runtime will refuse.
 
-        B-13: checked BEFORE the provider classifier — a banned user can never
-        run regardless of provider readiness, and skipping the classifier call
-        entirely avoids probing a provider for an account that is not allowed
-        to transact at all.
+        B-13: checked BEFORE the provider classifier — a non-transacting
+        account (banned / blocked / deleted) can never run regardless of
+        provider readiness, and skipping the classifier call entirely avoids
+        probing a provider for an account that is not allowed to transact.
         """
-        if await self._is_user_banned(user_id):
+        if await self._non_transacting_status(user_id):
             return False
         try:
             from narranexus.platform.agent_framework.providers.resolver import (

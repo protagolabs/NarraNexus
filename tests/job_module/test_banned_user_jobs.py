@@ -7,9 +7,11 @@
 Root cause: neither `JobTrigger._user_can_run` (the PAUSED_NO_QUOTA resume
 gate) nor `_poll_and_enqueue` (the due-job scan) ever consulted `users.status`.
 A banned user whose job kept a valid provider config re-fired every interval
-straight into `Key is blocked` 401s. Fix: both paths must treat a banned
-owner as "cannot run" — the poll path additionally pauses the job
-(`paused_reason="banned"`) so it stops appearing in `get_due_jobs()` at all.
+straight into `Key is blocked` 401s. Fix: both paths must treat a
+non-transacting owner (banned / blocked / deleted — the shared
+NON_TRANSACTING_USER_STATUSES, review I1) as "cannot run" — the poll path
+additionally pauses the job (`paused_reason=<the status>`) so it stops
+appearing in `get_due_jobs()` at all.
 """
 from datetime import datetime, timezone as dt_tz
 
@@ -164,3 +166,63 @@ async def test_poll_and_enqueue_checks_related_entity_id_not_owner(db_client):
     row = await repo.get_job("job_delegated")
     assert row.status == JobStatus.PAUSED
     assert row.paused_reason == "banned"
+
+
+# ─────────────── review I1: every non-transacting status, not just banned ──────
+
+@pytest.mark.parametrize("status", ["banned", "blocked", "deleted"])
+@pytest.mark.asyncio
+async def test_poll_and_enqueue_pauses_every_non_transacting_status(db_client, status):
+    await _seed_user(db_client, f"u_{status}", status=status)
+    await _insert_job(db_client, f"job_{status}", f"u_{status}", status="active")
+
+    trigger = JobTrigger(database_client=db_client)
+    await trigger._poll_and_enqueue()
+
+    assert trigger._job_queue.qsize() == 0
+    row = await JobRepository(db_client).get_job(f"job_{status}")
+    assert row.status == JobStatus.PAUSED
+    # The real status is recorded, not a blanket "banned".
+    assert row.paused_reason == status
+
+
+@pytest.mark.parametrize("status", ["blocked", "deleted"])
+@pytest.mark.asyncio
+async def test_user_can_run_is_false_for_blocked_and_deleted(db_client, monkeypatch, status):
+    await _seed_user(db_client, f"u_{status}_run", status=status)
+    calls = []
+
+    async def _spy(uid, db):
+        calls.append(uid)
+        from narranexus.platform.agent_framework.providers.resolver import ProviderAvailability
+        return ProviderAvailability.USER_OK
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.providers.resolver.classify_provider_for_user",
+        _spy,
+    )
+    trigger = JobTrigger(database_client=db_client)
+    assert await trigger._user_can_run(f"u_{status}_run") is False
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_inactive_is_a_benign_state_and_still_runs(db_client, monkeypatch):
+    """`inactive` (never logged in / dormant) is deliberately NOT in
+    NON_TRANSACTING_USER_STATUSES — it must not pause jobs."""
+    from narranexus.platform.agent_framework.providers.resolver import ProviderAvailability
+
+    await _seed_user(db_client, "u_inactive", status="inactive")
+    await _insert_job(db_client, "job_inactive", "u_inactive", status="active")
+
+    async def _fake(uid, db):
+        return ProviderAvailability.USER_OK
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.providers.resolver.classify_provider_for_user",
+        _fake,
+    )
+    trigger = JobTrigger(database_client=db_client)
+    assert await trigger._user_can_run("u_inactive") is True
+    await trigger._poll_and_enqueue()
+    assert trigger._job_queue.qsize() == 1

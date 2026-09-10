@@ -93,6 +93,19 @@ provider readiness（登录/存 provider 的 edge）恢复，与花费无关，�
 **Fail open**：`_daily_spend_cap_exceeded` 对 env 值解析失败或 DB 查询失败
 都返回 `False`（不暂停）——一次数据库抖动不该冻结全平台的 job。
 
+## 2026-09-10（review r1 I1）— `_is_user_banned` → `_non_transacting_status`：认整套 `NON_TRANSACTING_USER_STATUSES`
+
+首版只认 `status == "banned"`，而仓里早有 `NON_TRANSACTING_USER_STATUSES = {banned, blocked, deleted}`
+（[[entity_schema]]，注释明写三者「equally must not transact」；auth 中间件 / WS 闸 / admin suspend
+都用它）。于是 `blocked` / `deleted` 用户的定时 job 照旧每周期入队、照旧打 401——B-13 声称修掉的
+风暴在这两个状态下原样存在。现在 `_non_transacting_status(user_id)` 返回命中的状态值（否则 None），
+`_poll_and_enqueue` 把**真实状态**写进 `paused_reason`（`banned` / `blocked` / `deleted`，都在
+VARCHAR(32) 内），`_user_can_run` 据此短路。这些值都不匹配 `_EDGE_ONLY_RESUME_REASONS`，也不是任何
+可恢复状态，所以扩值不会误触自动恢复。`inactive`（从未登录/休眠）刻意不在集合里，job 照跑。
+同一条「账户不能交易」的判据从此只有一份，下次加终态（如 `frozen`）两边自动跟上。
+锁：`test_poll_and_enqueue_pauses_every_non_transacting_status`（参数化三态 + paused_reason 是真实值）、
+`test_user_can_run_is_false_for_blocked_and_deleted`、`test_inactive_is_a_benign_state_and_still_runs`。
+
 ## 2026-09-10（review r1 I8）— pause 通知过 `owner_notice_cooldowns` 冷却
 
 首版 `_notify_owner_job_paused` 无条件发 inbox：auth / no_quota 这两类 `paused_reason`
@@ -143,7 +156,7 @@ provider readiness（登录/存 provider 的 edge）恢复，与花费无关，�
 账户本身被封是另一个正交事实，谁都没查过。
 
 **修法两处**：
-1. 新增 `_is_user_banned(user_id)`：查 `users` 表 `status == "banned"`。DB 读失败
+1. 新增 `_is_user_banned(user_id)`（2026-09-10 起改名 `_non_transacting_status`，见上）：查 `users` 表 `status == "banned"`。DB 读失败
    或行不存在都 fail **open**（返回 False）——这是刻意的：一次 DB 抖动不该让全平台
    job 集体冻结，且「banned」是显式 opt-in 状态，行不存在≠被封。
 2. `_user_can_run` 把它加在 provider 分类**之前**短路返回 `False`——banned 用户不消耗
