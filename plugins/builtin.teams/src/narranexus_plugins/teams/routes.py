@@ -18,7 +18,8 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
-from typing import List, Literal, Optional
+from datetime import datetime
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -80,6 +81,7 @@ from narranexus.platform.schema.team_schema import (
     BULLETIN_SOURCE_USER,
     BULLETIN_TIER_CURRENT_TASK,
     BULLETIN_TIER_LONG_TERM,
+    BulletinEntry,
     CreateTeamRequest,
     UpdateTeamRequest,
     AddMemberRequest,
@@ -1057,19 +1059,26 @@ class UpdateBulletinEntryRequest(BaseModel):
     content: str
 
 
-def _bulletin_entry_for_api(entry) -> dict:
-    """A `BulletinEntry` as JSON: every field verbatim except the two
-    datetimes, which `format_for_api` converts to ISO strings.
+def _bulletin_entry_for_api(entry: BulletinEntry) -> dict[str, Any]:
+    """A `BulletinEntry` as JSON: every field verbatim except the datetimes,
+    which `format_for_api` converts to Z-suffixed ISO strings.
 
     `format_for_api` formats ONE datetime, not a dict — feeding it
-    `entry.model_dump()` whole hits its except-branch and returns
-    `str(dict)`, a Python repr the frontend's object filter cannot parse
-    (every bulletin entry silently vanishes from the panel).
+    `entry.model_dump()` whole used to return `str(dict)`, a Python repr,
+    as the whole entry. The frontend's filter (`e.source !== 'auto_summary'`)
+    let those strings through (`undefined !== 'auto_summary'`), so the panel
+    rendered one blank row per entry — `content` and `entry_id` both
+    undefined, every React key undefined — not an empty panel.
+
+    Every `datetime` value is converted, by type rather than by field name:
+    a future datetime field on the model would otherwise bypass this and
+    be serialised by FastAPI without the `Z` suffix the frontend's
+    `new Date()` relies on.
     """
-    data = entry.model_dump()
-    data["created_at"] = format_for_api(entry.created_at)
-    data["updated_at"] = format_for_api(entry.updated_at)
-    return data
+    return {
+        key: format_for_api(value) if isinstance(value, datetime) else value
+        for key, value in entry.model_dump().items()
+    }
 
 
 @router.get("/{team_id}/bulletin")

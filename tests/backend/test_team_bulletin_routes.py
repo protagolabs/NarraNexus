@@ -308,10 +308,12 @@ async def test_an_entry_from_another_team_is_not_editable_through_this_one(repo)
 # ── the API surface returns real JSON, not `str(dict)` reprs ────────────────
 #
 # `format_for_api` formats a single datetime; it is not a dict formatter. Fed
-# a whole `model_dump()`, it hits the AttributeError branch and falls back to
-# `str(dt)` — a Python repr string. The frontend's object filter then sees a
-# string where it expects an object and silently drops every entry (the
-# bulletin panel reporting empty).
+# a whole `model_dump()`, it used to hit the AttributeError branch and fall
+# back to `str(dt)` — a Python repr string. The frontend's filter
+# (`e.source !== 'auto_summary'`) let those strings THROUGH (`undefined !==
+# 'auto_summary'`), so the panel rendered one blank row per entry — content
+# and entry_id undefined, every React key undefined — rather than reporting
+# empty.
 
 
 @pytest.mark.asyncio
@@ -331,6 +333,9 @@ async def test_list_bulletin_returns_entries_as_dicts_with_string_timestamps(db_
     assert entry["content"] == "use Chinese"
     assert isinstance(entry["created_at"], str)
     assert not entry["created_at"].startswith("{"), "must not be a str(dict) repr"
+    # Converted by type, not by field name: both datetimes get the Z suffix
+    # the frontend's `new Date()` needs (a bare FastAPI serialisation has none).
+    assert entry["created_at"].endswith("Z") and entry["updated_at"].endswith("Z")
 
 
 @pytest.mark.asyncio
