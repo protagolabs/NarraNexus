@@ -752,6 +752,8 @@
     },
     "agentRowMenu": {
       "options": "خيارات الوكيل",
+      "rename": "إعادة تسمية",
+      "modelFramework": "النموذج وإطار العمل",
       "clearData": "مسح البيانات",
       "delete": "حذف"
     },

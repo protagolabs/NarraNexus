@@ -1,6 +1,8 @@
 /**
  * Tests for AgentGroupSection (collapse toggle, unread aggregation, and the
- * display-only agent row — no per-row action menu since 2026-08-27).
+ * agent row's ⋯ menu — Owner-required, reinstated 2026-09-11 after #383
+ * removed it: owner rows get Rename / Model & framework / Delete, other
+ * users' public agents stay display-only).
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -128,15 +130,23 @@ describe('AgentGroupSection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Row affordances (2026-08-27 — kebab removed)
+// Row ⋯ menu (Owner-required, reinstated 2026-09-11)
 // ---------------------------------------------------------------------------
 
-describe('agent row is display-only', () => {
+describe('agent row ⋯ menu', () => {
+  const makeActions = () => ({
+    onRename: vi.fn(),
+    onOpenModelConfig: vi.fn(),
+    onDelete: vi.fn(),
+  });
   const props = {
     teamId: null,
     teamName: '',
     teamColor: null,
-    agents: [{ agent_id: 'a1', name: 'Analyst', created_by: 'u1' }],
+    agents: [
+      { agent_id: 'a1', name: 'Analyst', created_by: 'u1' },
+      { agent_id: 'p1', name: 'Public Bot', created_by: 'someone-else', is_public: true },
+    ],
     agentId: null,
     collapsed: false,
     hideHeader: true,
@@ -148,15 +158,79 @@ describe('agent row is display-only', () => {
     completedAgentIds: [] as string[],
   };
 
-  it('renders no per-row action menu — agent actions live on the profile page', () => {
+  it('offers Rename / Model & framework / Delete on the owner\'s row only', () => {
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={makeActions()} />));
+    // One kebab: the owner's row. Someone else's public agent has none.
+    const kebabs = screen.getAllByLabelText(/agent options/i);
+    expect(kebabs).toHaveLength(1);
+    fireEvent.click(kebabs[0]);
+    const labels = ['Rename', 'Model & framework', 'Delete'];
+    for (const label of labels) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('routes each item to the host with the row\'s agent id, without selecting the row', () => {
+    const actions = makeActions();
+    const onSelectAgent = vi.fn();
+    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} rowActions={actions} />));
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Model & framework' }));
+    expect(actions.onOpenModelConfig).toHaveBeenCalledWith('a1');
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(actions.onDelete).toHaveBeenCalledWith('a1');
+
+    expect(onSelectAgent).not.toHaveBeenCalled();
+  });
+
+  it('Rename opens an inline input; Enter commits a changed name once, Escape cancels', () => {
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('Rename') as HTMLInputElement;
+    expect(input.value).toBe('Analyst');
+    fireEvent.change(input, { target: { value: '  Chief Analyst ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+    expect(actions.onRename).toHaveBeenCalledWith('a1', 'Chief Analyst');
+    expect(screen.queryByLabelText('Rename')).toBeNull();
+
+    // Escape: no call, input gone.
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const again = screen.getByLabelText('Rename');
+    fireEvent.change(again, { target: { value: 'Something else' } });
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Rename')).toBeNull();
+  });
+
+  it('an unchanged or blank name is not sent', () => {
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.keyDown(screen.getByLabelText('Rename'), { key: 'Enter' });
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Rename'), { target: { value: '   ' } });
+    fireEvent.blur(screen.getByLabelText('Rename'));
+    expect(actions.onRename).not.toHaveBeenCalled();
+  });
+
+  it('no host actions → no menu at all', () => {
     render(wrapRouter(<AgentGroupSection {...props} />));
     expect(screen.queryByLabelText(/agent options/i)).toBeNull();
-    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('still selects the agent when the row is clicked', () => {
     const onSelectAgent = vi.fn();
-    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} />));
+    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} rowActions={makeActions()} />));
     fireEvent.click(screen.getByText('Analyst'));
     expect(onSelectAgent).toHaveBeenCalledWith('a1');
   });

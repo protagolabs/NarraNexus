@@ -4,6 +4,16 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — also re-reads when the agent list's model/framework for this agent changes
+
+`listedIdentity` (`"<agent_framework>|<model>"` of this agent in
+`configStore.agents`) joins the load effect's deps. The sidebar ⋯ menu and the
+profile page save through their own AgentLlmConfigPanel and then refresh the
+agent list; without this the chip kept showing the replaced model until a
+remount. A string key, so refreshes that do not touch this agent do not
+re-fetch (tested both ways). `reloadKey` stays for the chat panel's own
+header door (it also covers changes the list projection does not show).
+
 ## 2026-09-11 — `reloadKey` prop restored
 
 Optional `reloadKey` (default 0) is back in the load effect's deps: the chat

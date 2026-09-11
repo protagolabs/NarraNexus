@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-09-06
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — owner rows get the ⋯ menu again + inline rename (OWNER-REQUIRED)
+
+Reverses the "rows are display-only" state from #383: an agent row the viewer
+owns (`created_by === currentUserId`) renders [[AgentRowMenu]] at the trailing
+edge (hover-revealed like the team row's, stays visible while open), and
+someone else's public agent stays display-only. New optional prop
+`rowActions: AgentRowActions` (`onRename(agentId, name)`,
+`onOpenModelConfig(agentId)`, `onDelete(agentId)`) — omitted → no menu; the
+host (AgentList) owns API calls, confirm dialog and the config panel.
+Rename swaps the name line for an inline input (Enter / blur commit, Escape
+cancels; a blank or unchanged name is not sent; the commit guard makes the
+Enter-then-blur pair act once); the row ignores clicks while renaming. An open
+menu lifts the row (`relative z-30`) above the next row's stacking context.
+Owner-required entry — do not strip it back to display-only.
 
 ## 2026-08-27 — 行上的 ⋮ 菜单整个拿掉,行变成纯导航
 

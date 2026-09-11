@@ -1,34 +1,41 @@
 /**
- * @file_name: TeamRowMenu.tsx
+ * @file_name: AgentRowMenu.tsx
  * @author:
- * @date: 2026-06-23
- * @description: Kebab (⋮) context menu for the team group-chat row — Add
- * agent / Rename / Delete (a team has no profile page to carry them). Its
- * sibling for agent rows is AgentRowMenu (reinstated 2026-09-11). Inline
- * absolute panel (no portal) so it works inside the sidebar scroll container.
+ * @date: 2026-06-10
+ * @description: Kebab (⋯) context menu for a single sidebar agent row —
+ * Rename, Model & framework, Delete.
+ *
+ * OWNER-REQUIRED entry (2026-09-11): #383 deleted this menu as a duplicate of
+ * the agent profile page, and the Owner asked for it back ("the three dots
+ * behind each agent are gone, restore them: rename / delete / setting
+ * model"). Do not remove it as redundant — the profile page is a second door,
+ * not a replacement.
+ *
+ * Inline absolute panel (no portal) so it works inside the sidebar scroll
+ * container, same as TeamRowMenu. The host renders it only for agents the
+ * viewer owns (every action is owner-only server-side).
  */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { MoreVertical, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
 
-export interface TeamRowMenuProps {
-  /** Create a new agent already assigned to this team (#43). The old
-   *  AgentGroupSection-header "+" no longer exists in the TEAMS-row layout,
-   *  so this capability is re-homed into the row's ⋮ menu. */
-  onAddAgent: (e: React.MouseEvent) => void;
-  /** True while an agent create is in flight — disables the Add-agent item. */
-  addingAgent?: boolean;
-  onRename: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
+export interface AgentRowMenuProps {
+  /** Start the row's inline rename. */
+  onRename: () => void;
+  /** Open the agent's model & framework panel (AgentLlmConfigPanel). */
+  onOpenModelConfig: () => void;
+  /** Delete the agent (the host confirms first). */
+  onDelete: () => void;
   /** Fired on open/close so the host row can lift its z-index above the rows
-   *  below (each row is its own stacking context). */
+   *  below (each row is its own stacking context — animate-slide-up retains a
+   *  transform — so the panel's own z-index cannot escape it). */
   onOpenChange?: (open: boolean) => void;
 }
 
-export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpenChange }: TeamRowMenuProps) {
+export function AgentRowMenu({ onRename, onOpenModelConfig, onDelete, onOpenChange }: AgentRowMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // Notify the parent from the event handler (NOT inside a setState updater —
@@ -37,18 +44,22 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
     setOpen(next);
     onOpenChange?.(next);
   };
+  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpenAndNotify(false));
 
-  const handleItem = (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
+  // Every click stops here: the row's own onClick selects the agent, and a
+  // menu action must not do that as a side effect.
+  const handleItem = (handler: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
     setOpenAndNotify(false);
-    handler(e);
+    handler();
   };
-  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpenAndNotify(false));
 
   return (
     <div ref={containerRef} className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
-        aria-label={t('layout.teamRowMenu.options')}
+        type="button"
+        aria-label={t('layout.agentRowMenu.options')}
+        aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpenAndNotify(!open); }}
         className={cn(
           'p-1 rounded-[var(--radius-xs)] transition-colors',
@@ -63,25 +74,24 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
         <div
           className={cn(
             'absolute right-0 top-full mt-0.5 z-50',
-            'min-w-[120px] py-0.5',
+            'min-w-[150px] py-0.5',
             'rounded-[var(--radius-sm)] border shadow-md',
             'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
           )}
         >
           <MenuItem
-            icon={<UserPlus className="w-3 h-3" />}
-            label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
-            disabled={addingAgent}
-            onClick={handleItem(onAddAgent)}
-          />
-          <MenuItem
             icon={<Pencil className="w-3 h-3" />}
-            label={t('layout.teamRowMenu.rename')}
+            label={t('layout.agentRowMenu.rename')}
             onClick={handleItem(onRename)}
           />
           <MenuItem
+            icon={<SlidersHorizontal className="w-3 h-3" />}
+            label={t('layout.agentRowMenu.modelFramework')}
+            onClick={handleItem(onOpenModelConfig)}
+          />
+          <MenuItem
             icon={<Trash2 className="w-3 h-3" />}
-            label={t('layout.teamRowMenu.delete')}
+            label={t('layout.agentRowMenu.delete')}
             danger
             onClick={handleItem(onDelete)}
           />
@@ -95,22 +105,20 @@ function MenuItem({
   icon,
   label,
   danger,
-  disabled,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   danger?: boolean;
-  disabled?: boolean;
   onClick: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      disabled={disabled}
       className={cn(
-        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
-        disabled && 'opacity-50 cursor-not-allowed',
+        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left',
+        'transition-colors',
         danger
           ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
           : 'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)]',

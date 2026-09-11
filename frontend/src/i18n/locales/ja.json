@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "エージェントのオプション",
+      "rename": "名前を変更",
+      "modelFramework": "モデルとフレームワーク",
       "clearData": "データを消去",
       "delete": "削除"
     },

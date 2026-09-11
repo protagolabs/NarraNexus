@@ -28,7 +28,7 @@ default `ChatView`.
 | `Sidebar.tsx` | Collapsible sidebar; handles logout + mode-switch with hard `window.location.href` reload. |
 | `AgentList.tsx` | Team-grouped agent list + CRUD; collapsed avatar rail. |
 | `AgentGroupSection.tsx` | One collapsible team section (header + rows). |
-| `AgentRowMenu.tsx` | Kebab menu for per-row actions. |
+| `AgentRowMenu.tsx` | Kebab menu on owned agent rows: Rename / Model & framework / Delete (Owner-required, reinstated 2026-09-11). |
 | `AgentsHeaderMenu.tsx` | ⋯ overflow menu (import / export / manage teams). |
 | `agentGroupUtils.ts` | Pure grouping + collapse-persistence helpers. |
 | `ResizableDivider.tsx` | Chat↔artifact drag handle (ghost-line commit-on-release). |

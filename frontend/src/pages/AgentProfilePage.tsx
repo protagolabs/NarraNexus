@@ -48,6 +48,7 @@ import {
   SunkenWell,
 } from '@/components/nm';
 import { useConfirm } from '@/components/ui';
+import { useAgentActions } from '@/hooks/useAgentActions';
 import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
 import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
@@ -118,6 +119,11 @@ export function AgentProfilePage() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
+  // Rename-side-effect report and delete are shared with the sidebar agent
+  // row's ⋯ menu (Owner-required, reinstated 2026-09-11) through one hook, so
+  // the two doors cannot drift. The dialogs render through this page's own
+  // useConfirm host.
+  const { deleteAgent, warnAboutUpdateSideEffects } = useAgentActions({ confirm, alert });
 
   const agent = agents.find((item) => item.agent_id === agentId);
   const status = statusAgents.find((item) => item.agent_id === agentId);
@@ -186,42 +192,11 @@ export function AgentProfilePage() {
   };
 
   /**
-   * Report what a successful update still wants the user to know. Both cases
-   * come back on a `success: true` response, so neither reaches an error
-   * branch, and reporting neither is what made this the rename path where
-   * both happened silently:
-   *
-   * - `name_clash_with` — another of this owner's agents already answers to
-   *   the name. Deliberate often enough that blocking it would be wrong;
-   *   silent is how two agents came to share one name (Shenzhen P1).
-   * - `identity_record_updated === false` — the name IS stored but the agent's
-   *   identity memory was not corrected, so it may keep introducing itself by
-   *   the old name. That state IS the incident.
-   *
-   * Carried over from the sidebar's rename path when that was removed
-   * (2026-08-27); this page is now the only place an agent gets renamed.
-   */
-  const warnAboutUpdateSideEffects = async (res: UpdateAgentResponse) => {
-    const notes: string[] = [];
-    if (res.name_clash_with) {
-      notes.push(t('layout.agentRename.clashWarn', { agentId: res.name_clash_with }));
-    }
-    if (res.identity_record_updated === false) {
-      notes.push(t('layout.agentRename.memoryWarn'));
-    }
-    if (!notes.length) return;
-    await alert({
-      title: t('layout.agentRename.warnTitle'),
-      message: notes.join('\n\n'),
-    });
-  };
-
-  /**
    * Scoped wipe of the agent's conversations and/or memory. Moved here from
-   * the sidebar row's ⋮ menu (Owner ruling 2026-08-27) — this page is now the
-   * single place an agent is acted on, and clearing sits directly above delete
-   * because they are the same family of irreversible action, ordered by blast
-   * radius.
+   * the sidebar row's ⋮ menu (Owner ruling 2026-08-27) and still only here —
+   * the reinstated sidebar menu (2026-09-11) carries Rename / Model &
+   * framework / Delete only. Clearing sits directly above delete because they
+   * are the same family of irreversible action, ordered by blast radius.
    */
   const handleClearData = async (scopes: { conversations: boolean; memory: boolean }) => {
     setClearBusy(true);
@@ -262,48 +237,16 @@ export function AgentProfilePage() {
   };
 
   const handleDeleteAgent = async () => {
-    const ok = await confirm({
-      title: t('layout.agentList.deleteAgentTitle'),
-      message: t('layout.agentList.deleteAgentMessage', { name }),
-      confirmText: t('layout.agentList.deleteAction'),
-      danger: true,
-    });
-    if (!ok) return;
     setDeleting(true);
     try {
-      const res = await api.deleteAgent(agentId);
-      if (res.success) {
-        // This page pointed the global active agent at the one just deleted
-        // (mount effect), so leave the stores clean before navigating: server
-        // list first (it is the truth and `agents` is persisted to
-        // localStorage — a stale row would ghost in the sidebar until the next
-        // refresh), then drop the cached session, then re-point the active
-        // agent so /app/chat cannot open on an agent that no longer exists.
-        const remaining = agents.filter((item) => item.agent_id !== agentId);
-        await refreshAgents();
-        clearAgent(agentId);
-        const next = remaining[0]?.agent_id ?? '';
-        setAgentId(next);
-        if (next) setActiveAgent(next);
-        // The agents tab is the Dashboard's default and carries NO `?tab=`
-        // (see [[DashboardPage.tsx]]: `?tab=` is the single source of truth
-        // and `agents` is written back as "param removed").
-        navigate('/app/dashboard');
-      } else {
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: t('layout.agentList.deleteAgentFailedMessage', { error: res.error }),
-          danger: true,
-        });
-      }
-    } catch (err) {
-      await alert({
-        title: t('layout.agentList.deleteFailedTitle'),
-        message: t('layout.agentList.deleteAgentFailedMessage', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-        danger: true,
-      });
+      // The hook confirms, deletes, refreshes the persisted list, drops the
+      // cached session and re-points the active agent (this page made it the
+      // active one on mount) — then this page leaves the deleted agent.
+      const { deleted } = await deleteAgent(agentId, name);
+      // The agents tab is the Dashboard's default and carries NO `?tab=`
+      // (see [[DashboardPage.tsx]]: `?tab=` is the single source of truth
+      // and `agents` is written back as "param removed").
+      if (deleted) navigate('/app/dashboard');
     } finally {
       setDeleting(false);
     }
@@ -560,9 +503,11 @@ export function AgentProfilePage() {
 /**
  * Header "⋮" kebab — the profile's destructive actions live behind it
  * (Owner ruling 2026-08-25 (3): delete shouldn't sit at the same visual
- * weight as Chat). Since the sidebar row's kebab was removed (Owner ruling
- * 2026-08-27), this is the ONLY place an agent can be cleared or deleted;
- * rename / description moved to this page's Settings tab.
+ * weight as Chat). This is the only place an agent's data can be cleared;
+ * Delete also lives in the sidebar agent row's ⋯ menu (Owner-required,
+ * reinstated 2026-09-11), both through `useAgentActions`. Rename also has a
+ * quick inline door there; the description is edited only on this page's
+ * Settings tab.
  *
  * Order is by blast radius: Clear data (recoverable-ish — persona, channels
  * and account survive) sits above Delete (the agent is gone).

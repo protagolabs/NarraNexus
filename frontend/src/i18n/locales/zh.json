@@ -825,6 +825,8 @@
     },
     "agentRowMenu": {
       "options": "智能体选项",
+      "rename": "重命名",
+      "modelFramework": "模型与框架",
       "clearData": "清理数据",
       "delete": "删除"
     },

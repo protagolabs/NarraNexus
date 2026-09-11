@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "Opções do agente",
+      "rename": "Renomear",
+      "modelFramework": "Modelo e framework",
       "clearData": "Limpar dados",
       "delete": "Excluir"
     },

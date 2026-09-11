@@ -8,7 +8,7 @@
  *  (a) grouping derivation — multi-team agent appears in both sections,
  *      untagged goes to Ungrouped, empty team renders its header
  *  (b) collapse toggle localStorage persistence + unread aggregation
- *  (c) agent rows are display-only — no per-row action menu
+ *  (c) (row ⋯ menu coverage lives in agentGroupSection.test.tsx)
  *  (d) header ⋯ menu entries: import, export, manage
  */
 

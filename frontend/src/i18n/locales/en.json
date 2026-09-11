@@ -825,6 +825,8 @@
     },
     "agentRowMenu": {
       "options": "Agent options",
+      "rename": "Rename",
+      "modelFramework": "Model & framework",
       "clearData": "Clear data",
       "delete": "Delete"
     },
