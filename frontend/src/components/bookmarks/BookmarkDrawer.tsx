@@ -178,14 +178,24 @@ export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerP
   } = props;
   const activeTab = props.activeTab ?? null;
   const { onSelectTab, switcherCategories } = props;
-  // Keyboard Esc handler — only for slide-over mode (not pinned)
+  // The title switcher's open state lives HERE, not in DrawerHeader: the
+  // drawer's own Esc listener and the switcher's (useDismissOnOutside) are
+  // both document-level, so stopPropagation cannot keep one from the other.
+  // The drawer must know the menu is open to let that Esc close only the menu.
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  // A closed drawer unmounts its header; reopening must not resurrect the
+  // menu. Reset during render (React's "adjust state on prop change"
+  // pattern) rather than in an effect, which would paint one stale frame.
+  if (!open && switcherOpen) setSwitcherOpen(false);
+  // Keyboard Esc handler — only for slide-over mode (not pinned), and not
+  // while the switcher menu is open (that Esc belongs to the menu).
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !pinned) {
+      if (e.key === 'Escape' && !pinned && !switcherOpen) {
         onClose();
       }
     },
-    [onClose, pinned],
+    [onClose, pinned, switcherOpen],
   );
 
   useEffect(() => {
@@ -269,6 +279,8 @@ export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerP
           activeTab={activeTab}
           onSelectTab={onSelectTab}
           switcherCategories={switcherCategories}
+          switcherOpen={switcherOpen}
+          onSwitcherOpenChange={setSwitcherOpen}
         />
         {banner}
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
@@ -290,6 +302,9 @@ interface DrawerHeaderProps<T extends string = string> {
   activeTab?: T | null;
   onSelectTab?: (id: T) => void;
   switcherCategories?: ReadonlyArray<DrawerSwitcherCategory<T>>;
+  /** Controlled by BookmarkDrawer — its Esc handler must see this state. */
+  switcherOpen: boolean;
+  onSwitcherOpenChange: (open: boolean) => void;
 }
 
 const TITLE_CLASS =
@@ -304,10 +319,11 @@ function DrawerHeader<T extends string = string>({
   activeTab,
   onSelectTab,
   switcherCategories,
+  switcherOpen,
+  onSwitcherOpenChange,
 }: DrawerHeaderProps<T>) {
   const { t } = useTranslation();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
+  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => onSwitcherOpenChange(false));
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
@@ -320,7 +336,7 @@ function DrawerHeader<T extends string = string>({
           <div ref={switcherRef} className="relative min-w-0">
             <button
               type="button"
-              onClick={() => setSwitcherOpen((v) => !v)}
+              onClick={() => onSwitcherOpenChange(!switcherOpen)}
               aria-haspopup="menu"
               aria-expanded={switcherOpen}
               // The accessible name must carry the open panel's name: an
@@ -363,7 +379,7 @@ function DrawerHeader<T extends string = string>({
                           aria-checked={active}
                           data-testid={`drawer-switcher-item-${id}`}
                           onClick={() => {
-                            setSwitcherOpen(false);
+                            onSwitcherOpenChange(false);
                             if (!active) onSelectTab(id);
                           }}
                           className={cn(

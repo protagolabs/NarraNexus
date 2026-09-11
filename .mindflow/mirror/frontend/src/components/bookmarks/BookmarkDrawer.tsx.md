@@ -27,6 +27,13 @@ stub: false
   `role="menuitemradio"` + `aria-checked`(当前面板打勾)+ `data-testid=drawer-switcher-item-<id>`;
   `count > 0` 才渲染活计数;点当前面板只关菜单不回调;外部 pointerdown / Esc 经
   [[../../hooks/useDismissOnOutside]] 关闭。
+- **`switcherOpen` 由 `BookmarkDrawer` 持有**,`DrawerHeader` 是受控的
+  (`switcherOpen / onSwitcherOpenChange`,内部无 useState)。原因:抽屉自己的 Esc 监听与
+  hook 的 Esc 监听都挂在 document 冒泡阶段,`stopPropagation` 挡不住同节点的另一个监听;
+  未钉住时按 Esc 会把下拉和整个抽屉一起关掉。现在抽屉的 Esc 处理是
+  `Escape && !pinned && !switcherOpen` 才 `onClose()`——菜单开着时 Esc 只关菜单,再按一次才关
+  transient 抽屉;钉住时抽屉本就不注册 Esc,行为不变。抽屉 `open=false` 时在 render 阶段把
+  `switcherOpen` 复位(不用 effect,避免 set-state-in-effect 与一帧陈旧),重开不会带出旧菜单。
 - 文件头里「标题是纯文本」那段说明已替换为本条要求。
 
 调用方:[[../layout/MainLayout.tsx]](`visibleCategories({studioOpen, studioResumable})`,见

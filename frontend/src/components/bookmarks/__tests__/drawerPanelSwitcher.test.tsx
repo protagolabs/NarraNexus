@@ -134,6 +134,71 @@ describe('drawer panel switcher — single chat', () => {
   });
 });
 
+describe('drawer panel switcher — Escape', () => {
+  // The drawer's Esc listener and the menu's are both on `document`, so
+  // stopPropagation cannot separate them; the drawer owns the menu's open
+  // state and yields its Esc while the menu is open.
+  function renderEsc(pinned: boolean) {
+    const onClose = vi.fn();
+    render(
+      <BookmarkDrawer
+        open
+        pinned={pinned}
+        inset
+        onPinnedChange={vi.fn()}
+        onClose={onClose}
+        title="ARTIFACTS"
+        activeTab="artifacts"
+        onSelectTab={vi.fn()}
+        switcherCategories={visibleCategories(STUDIO_OPEN)}
+      >
+        <div>panel body</div>
+      </BookmarkDrawer>,
+    );
+    return onClose;
+  }
+  const pressEsc = () => fireEvent.keyDown(document, { key: 'Escape' });
+
+  it('unpinned: Esc with the menu open closes only the menu, not the drawer', () => {
+    const onClose = renderEsc(false);
+    openMenu();
+    expect(screen.getByRole('menu')).toBeTruthy();
+    pressEsc();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    // The next Esc, with the menu closed, closes the transient drawer as before.
+    pressEsc();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing the drawer with the menu open does not resurrect the menu on reopen', () => {
+    const props = {
+      pinned: true,
+      onPinnedChange: vi.fn(),
+      onClose: vi.fn(),
+      title: 'ARTIFACTS',
+      activeTab: 'artifacts',
+      onSelectTab: vi.fn(),
+      switcherCategories: visibleCategories(STUDIO_OPEN),
+    };
+    const { rerender } = render(<BookmarkDrawer open {...props}><div /></BookmarkDrawer>);
+    openMenu();
+    expect(screen.getByRole('menu')).toBeTruthy();
+    rerender(<BookmarkDrawer open={false} {...props}><div /></BookmarkDrawer>);
+    rerender(<BookmarkDrawer open {...props}><div /></BookmarkDrawer>);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('pinned: Esc with the menu open closes only the menu; the drawer ignores Esc', () => {
+    const onClose = renderEsc(true);
+    openMenu();
+    pressEsc();
+    expect(screen.queryByRole('menu')).toBeNull();
+    pressEsc();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
 describe('drawer panel switcher — team room', () => {
   it('lists every team panel incl. files and manage, with live counts and zeros hidden', () => {
     const onSelectTab = vi.fn();

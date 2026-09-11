@@ -19,4 +19,6 @@ Owner 硬性要求(2026-09-11,推翻 #383 的退役):抽屉标题是面板切换
 - 外部 pointerdown 关菜单,菜单内部不关;
 - 无 studio 时 `visibleCategories` 不提供 `builder`(与 ⋯ / ⌘K 同一规则);
 - 不传切换器 props 时标题是纯文本;
+- Escape:未钉住(`pinned={false}`)时菜单开着按 Esc 只关菜单、`onClose` 不被调用,再按一次才关抽屉;
+  钉住时 Esc 只关菜单、`onClose` 永不调用;抽屉关掉再打开不会复活菜单;
 - 团队注册表 `teamDrawerCategories` 恰为 members/artifacts/files/manage,计数 >0 才显示。
