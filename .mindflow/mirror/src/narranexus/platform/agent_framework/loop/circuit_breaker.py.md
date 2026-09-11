@@ -75,6 +75,13 @@ channel 入口只记探测结论、不记普通 streak（与 bus 一致）；被
 中间有分支时）→ 把 `probe_token` 交给 `BackgroundRun` / `run_and_collect` / `run_stream` →
 出口 `release_probe(token)` 兜底。给不出结果信号、或不回复任何人的 run 只能 `peek_skip`。
 
+**Minor。** M-1 见 [[openai_compat]]（认领后 run 起来前抛异常即归还）。M-3（`probe_claimed_at` 的
+NULL 回退）与 M-5（投影多带 `event_id`）随 I-1 消失。M-4：`peek_skip` 仍返回裸
+`(held, reason)`，docstring 写明是刻意的——预检不得把读结果交给认领点，所以没有 row 可带。
+M-2 不改：若 ACTIVE/无行时也重读，正是每个普通 turn 走的路径，等于撤销 M1 的「普通 turn 只读
+一次」；它放宽的那条边（lane 锁等待期间被打成 PAUSED）只会多起一个无 token 的失败 turn，不喂熔断器、
+不污染 streak，3s 后下一轮 lane 重读即正确跳过。
+
 ## 2026-09-10（PR #394 review 第三轮）— 探测身份随 turn 走；只有能结算的入口才认领
 
 上一轮把认领下移到了 turn 起点，但 #394 预审指出两个根问题，本轮定案如下（上一轮条目中与

@@ -324,9 +324,15 @@ class InProcessAgentRuntimeClient:
             # collection is a failed probe carrying the runtime's own error
             # type/message, which is the vocabulary classify_agent_error
             # knows (a bare str(e) would read as transient and re-arm the
-            # same delay forever). No-op without a token.
-            # Only a turn that holds a probe token has anything to settle;
-            # every other turn returns without touching the collection.
+            # same delay forever).
+            # This guard is NOT about saving a call (settle_probe is itself a
+            # no-op without a token, which is why the exception branches
+            # below call it unguarded). It keeps a turn without a token from
+            # reading the result at all: the channel / lark tests replace
+            # collect_run with hand-built result doubles that are not real
+            # RunCollections and lack is_fatal, so reading it here on every
+            # turn broke them (#394 CI, second review N-2). Pinned by
+            # test_an_ordinary_run_does_not_read_its_result.
             if probe_token is not None:
                 err = result.error
                 await settle_probe(
@@ -440,8 +446,7 @@ class InProcessAgentRuntimeClient:
             if recorder is not None:
                 await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
             # Half-open probe settlement, after the events row is terminal —
-            # the same seam and vocabulary as run_and_collect. No-op without
-            # a token.
+            # the same seam and vocabulary as run_and_collect.
             if probe_token is not None:
                 err = errors.error
                 await settle_probe(

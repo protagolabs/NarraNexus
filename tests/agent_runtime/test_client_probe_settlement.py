@@ -163,6 +163,28 @@ async def test_a_stopped_probe_hands_the_claim_back(wire, db_client):
 
 
 @pytest.mark.asyncio
+async def test_an_ordinary_run_does_not_read_its_result(wire, db_client, monkeypatch):
+    """#394 second review N-6: without a token run_and_collect must not read
+    anything off the collection — it returns the object untouched. A result
+    whose every attribute read raises proves it, whatever shape a test
+    double (or a future RunCollection) takes."""
+    class _Untouchable:
+        def __getattr__(self, name):
+            raise AssertionError(f"run_and_collect read result.{name} without a token")
+
+    sentinel = _Untouchable()
+
+    async def _collect(*_a, **_k):
+        return sentinel
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_runtime.run_collector.collect_run", _collect
+    )
+    wire(_Runtime())
+    assert await _run() is sentinel
+
+
+@pytest.mark.asyncio
 async def test_an_ordinary_trigger_run_never_touches_the_breaker(wire, db_client):
     """No token: the trigger paths do not feed ordinary streaks (unchanged
     since before #117) — even a fatal auth failure leaves no row."""

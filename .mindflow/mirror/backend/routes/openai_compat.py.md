@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 review 第四轮 M-1）— 认领后、run 起来前抛异常时归还探测
+
+`BackgroundRun(...)` 构造与 `bg.task = asyncio.create_task(...)` 包进 `try/except BaseException`：
+认领之后、run 的 task 存在之前抛异常 → `release_probe(agent_id, token)` 再 re-raise，与 WS handler
+的同款归还带一致。task 一旦建成，run 持有 token 自行结算，之后不得归还（会在活探测下误重挂）。
+锁：`test_a_claim_whose_run_never_starts_is_handed_back`（去掉归还即红）。
+
 ## 2026-09-10（PR #394 review I5）— 第五个起 turn 的入口补上熔断门
 
 原来本端点无条件 `BackgroundRun(...)`，零闸门，却由 `BackgroundRun` 照常记账：暂停中的

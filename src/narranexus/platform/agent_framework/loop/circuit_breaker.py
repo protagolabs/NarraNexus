@@ -802,6 +802,10 @@ async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
     held here ("paused:<reason>") while ``should_skip`` lets exactly one turn
     through to try the probe. Deliberately small: it reads the row and
     classifies, nothing else.
+
+    Returns a bare ``(held, reason)`` rather than ``should_skip``'s
+    ``GateVerdict`` on purpose (#394 second review M-4): a pre-flight must
+    never hand its read to a claim, so there is no ``row`` to carry.
     """
     try:
         # The raw row, not the entity: the entity's enum would REJECT a status

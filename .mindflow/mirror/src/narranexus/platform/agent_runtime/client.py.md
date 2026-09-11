@@ -50,9 +50,15 @@ error_type/error_message 取 runtime 自己的 error 帧（熔断器分类认得
 由调用方出口的 `release_probe` 兜住。无 token 时完全不碰熔断器（这些路径不记普通 streak）。
 锁：`tests/agent_runtime/test_client_probe_settlement.py`（死凭据 streak+1 且下次延迟翻倍、
 修好即 ACTIVE、抛异常算失败、停止即归还、无 token 不建行）。
-## 2026-08-07 — 把触发树交给 recorder
-只有持有探测令牌的 turn 才会读取 `RunCollection` 结算探测；没有令牌的 turn 直接返回，不碰结果对象（渠道测试替身与第三方 runtime 返回的轻量结果都不需要 `is_fatal`）。
 
+**无 token 的 turn 不读结果对象（第三轮 CI 修复，第四轮 review N-2~N-6 更正表述）。** 成功路径的
+结算包在 `if probe_token is not None:` 里——不是为了少调一次（`settle_probe` 自身无 token 即
+no-op，所以两个异常分支不加守卫），而是让无 token 的 turn 完全不读 `result`：`tests/channel` /
+`tests/lark_module` 里替换 `collect_run` 的手写结果替身不是真 `RunCollection`、没有 `is_fatal`，
+每个 turn 都读会让它们红（这是测试债，不是为第三方 runtime 留的接缝——`result` 只可能来自
+`collect_run`）。锁：`test_an_ordinary_run_does_not_read_its_result`（结果对象任何属性读取即抛）。
+
+## 2026-08-07 — 把触发树交给 recorder
 
 新增 `_inherited_root_run_id(extra_kwargs)`:从 `trigger_extra_data` 读出
 trigger 声明的树,传给 `RunRecorder`。两个 recorder 创建点都改了。

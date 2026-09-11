@@ -140,3 +140,20 @@ async def test_healthy_agent_runs_without_a_claim(app, db_client):
     assert resp.status_code == 200
     (run,) = _FakeBackgroundRun.instances
     assert run.init_kwargs["probe_token"] is None
+
+
+async def test_a_claim_whose_run_never_starts_is_handed_back(app, db_client, monkeypatch):
+    """#394 second review M-1: setup throws between the claim and the run's
+    task — the probe goes back to PAUSED by its token instead of blocking
+    every entry until the grant expires."""
+    class _Boom(_FakeBackgroundRun):
+        def __init__(self, **kwargs):
+            raise RuntimeError("run setup failed")
+
+    monkeypatch.setattr(compat_mod, "BackgroundRun", _Boom)
+    await _pause(db_client, window_open=True)
+    with pytest.raises(RuntimeError):
+        await _post(app)
+    row = await AgentCircuitBreakerRepository(db_client).get("agent_cb")
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.probe_token is None
