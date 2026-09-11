@@ -146,3 +146,35 @@ def test_scrub_surrogates():
     assert scrub_surrogates("plain 中文 👋") == "plain 中文 👋"
     assert scrub_surrogates("👋") == "👋"
     assert scrub_surrogates("x\ud83dy\udc4bz") == "x�y�z"
+
+
+def test_finalize_reconciles_against_scrubbed_final_with_lone_halves():
+    # A provider sending an unpaired half: the complete args (json.loads)
+    # still carry the lone surrogate; finalize must never re-emit it.
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+        scrub_surrogates,
+    )
+
+    raw = '{"content": "a\\ud83d b \\udc4b c \\ud83d\\ude80 end"}'
+    final = json.loads(raw)
+    assert "\ud83d" in final["content"]  # json.loads keeps the lone half
+    expected = scrub_surrogates(final["content"])
+    for cut in range(len(raw) + 1):
+        ex = StreamingArgExtractor(0, ("content",))
+        got = "".join(d.text for d in ex.feed(raw[:cut]))
+        got += "".join(d.text for d in ex.finalize(final))
+        assert got == expected, cut
+        got.encode("utf-8")
+
+
+def test_parse_args_scrubs_lone_surrogates_everywhere():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (
+        _parse_args,
+    )
+
+    args, err, truncated = _parse_args(
+        '{"text": "hi \\ud83d\\udc4b \\ud83d", "nested": {"k\\udc4b": ["x\\ud83d"]}, "n": 1}'
+    )
+    assert err is None and truncated is False
+    assert args == {"text": "hi 👋 �", "nested": {"k�": ["x�"]}, "n": 1}
+    json.dumps(args, ensure_ascii=False).encode("utf-8")

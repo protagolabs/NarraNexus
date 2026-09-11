@@ -14,3 +14,6 @@ MiniMax 这类 provider 按 ensure_ascii 流式吐工具参数，emoji 以 UTF-1
 中断、回复没发。现在高位 surrogate 先挂起（`_pending_high`，可跨任意 fragment），遇到低位即合成星平面字符；无配对的一半
 （孤立高位后跟非低位、孤立低位）一律输出 U+FFFD。新增公开 `scrub_surrogates(text)`：相邻两半合成、孤立一半换 U+FFFD，
 无 surrogate 时原样返回。finalize 先对最终值 scrub 再校齐，所以「流出 == 最终值」不变量对 scrub 后的值仍成立。
+
+补充（同日预审后）：`scrub_surrogates` 走快速路径（`isascii()` 或预编译正则未命中即原样返回，1MB 非 ASCII 约 3ms）；
+新增 `scrub_json_strings(value)` 对解码后 JSON 的全部字符串（含键）递归 scrub，供 [[model_client.py]] 的 `_parse_args` 使用。

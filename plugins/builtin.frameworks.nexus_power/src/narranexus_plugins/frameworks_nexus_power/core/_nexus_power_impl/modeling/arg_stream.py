@@ -23,7 +23,9 @@ nested occurrences of a declared name never leak.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from typing import Any
 
 
 def scrub_surrogates(text: str) -> str:
@@ -34,9 +36,21 @@ def scrub_surrogates(text: str) -> str:
     every ``ensure_ascii=False`` writer then dies on it with
     ``'utf-8' codec can't encode ... surrogates not allowed``.
     """
-    if not any("\ud800" <= ch <= "\udfff" for ch in text):
+    if text.isascii() or _SURROGATE.search(text) is None:
         return text
     return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+def scrub_json_strings(value: Any) -> Any:
+    """``scrub_surrogates`` applied to every string (keys included) of a
+    decoded JSON value; other values pass through untouched."""
+    if isinstance(value, str):
+        return scrub_surrogates(value)
+    if isinstance(value, dict):
+        return {scrub_json_strings(k): scrub_json_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_json_strings(v) for v in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -51,6 +65,8 @@ class FieldDelta:
 #: What an unpaired UTF-16 surrogate decodes to — mirrors
 #: ``scrub_surrogates`` so streamed text still equals the scrubbed final.
 _REPLACEMENT = "\ufffd"
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 _ESCAPES = {
     '"': '"',
