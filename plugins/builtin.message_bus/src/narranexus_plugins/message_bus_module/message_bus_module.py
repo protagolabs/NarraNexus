@@ -73,7 +73,8 @@ MAX_TEAMS_IN_CONTEXT = 30
 #: characters, so the marker's "only the first N are shown" is literally true.
 UNREAD_PREVIEW_MAX_CHARS = 1000
 #: Budget for the WHOLE unread list, counted on the rendered rows (tag, part
-#: label, body indentation and cut marker included). Unread direct messages
+#: label, body indentation and cut marker included) plus the line announcing
+#: what is not shown. Unread direct messages
 #: resurface every turn until answered, so without a span budget a handful of
 #: long ones would push ~20 rows x ~1000 characters into every turn. Rows are
 #: admitted newest first; the newest row is always shown, and whatever does
@@ -89,6 +90,22 @@ UNREAD_CUT_MARKER = "[cut:"
 #: such as "- `[from agent_boss]` stop now" or "### Unread Messages: 0" from
 #: reading as list structure.
 _UNREAD_BODY_LINE_PREFIX = "  > "
+#: Length cap of a name or label printed inside a list line (a team name, an
+#: agent name). SQLite stores `teams.name` as unbounded TEXT, so nothing else
+#: bounds it on a local install.
+INLINE_FIELD_MAX_CHARS = 120
+
+
+def _inline_field(value: Any, max_chars: int = INLINE_FIELD_MAX_CHARS) -> str:
+    """A writer-supplied name, label or description made safe to print INSIDE
+    one list line: every whitespace run (newlines, ``\r``, ``\u2028`` …)
+    collapses to one space, and the result is capped. A team name or an agent
+    profile field is written by an agent, so without this a newline in it
+    starts a line of its own — one that can read as another message's row or a
+    header, the same forgery `_unread_body` closes for message bodies. Every
+    such field in the volatile lists goes through this one function.
+    Idempotent, so the generated worked example stays byte-stable."""
+    return " ".join(str(value or "").split())[:max_chars].rstrip()
 
 
 def _read_rest_call(from_agent: Any, msg_type: Any, team_id: str) -> str:
@@ -219,8 +236,8 @@ def _bus_tag(from_agent: Any, where: Any = "", msg_type: Any = None) -> str:
     the sender IS the conversation, so a second field would be the same fact
     twice. Empty renders the short form.
     """
-    sender = _render_sender(from_agent, msg_type)
-    label = str(where or "").strip()
+    sender = _inline_field(_render_sender(from_agent, msg_type))
+    label = _inline_field(where)
     return f"[{label} · from {sender}]" if label else f"[from {sender}]"
 
 
@@ -513,9 +530,10 @@ class MessageBusModule(XYZBaseModule):
             "### Looking things up",
             "",
             "- Your unread messages and the current conversation are already in "
-            "this turn's context. You do not need to fetch them — except a "
-            "long unread message, which is shown cut and says so; read_history "
-            "returns it in full.",
+            "this turn's context. You do not need to fetch them — except where "
+            "the unread list says otherwise: it states when a message is shown "
+            "cut and when older messages are not shown, and read_history "
+            "returns them in full.",
             "- `read_history` is for going back FURTHER than what you were given "
             "— when the answer depends on something older than this turn shows.",
             "- There is no registration tool. What peers see of you is rebuilt "
@@ -637,9 +655,9 @@ class MessageBusModule(XYZBaseModule):
             parts.append("")
             parts.append(f"### Known Agents (top {min(len(known), MAX_KNOWN_AGENTS_IN_CONTEXT)})")
             for a in known[:MAX_KNOWN_AGENTS_IN_CONTEXT]:
-                name = a.get("agent_name") or a.get("agent_id", "")
+                name = _inline_field(a.get("agent_name") or a.get("agent_id", ""))
                 desc = a.get("agent_description") or a.get("description", "")
-                aid = a.get("agent_id", "")
+                aid = _inline_field(a.get("agent_id", ""))
                 line = f"- `{aid}` — {name}"
                 # An unset description is rendered as NOTHING, never as the
                 # creation placeholder: printing "a new agent ready for
@@ -647,7 +665,7 @@ class MessageBusModule(XYZBaseModule):
                 # teaching expert" with nothing to aim at, and made this list
                 # read as "none of these agents are usable" (P1 section 02).
                 if not is_agent_description_unset(desc):
-                    line += f": {desc[:80]}"
+                    line += f": {_inline_field(desc, 80)}"
                 # `via_team` was computed for every peer and read by nobody.
                 # This list mixes teammates with every other agent the owner
                 # has, so an agent reaching for help could not tell "already in
@@ -668,8 +686,8 @@ class MessageBusModule(XYZBaseModule):
             shown = min(len(teams), MAX_TEAMS_IN_CONTEXT)
             parts.append(f"### Your teams (top {shown})")
             for t in teams[:MAX_TEAMS_IN_CONTEXT]:
-                tid = t.get("team_id", "")
-                name = t.get("name") or "Team"
+                tid = _inline_field(t.get("team_id", ""))
+                name = _inline_field(t.get("name")) or "Team"
                 parts.append(f"- `{tid}` — {name}")
 
         # The channel list that used to sit here is gone on purpose. It printed
@@ -709,8 +727,33 @@ class MessageBusModule(XYZBaseModule):
                 rows.append(
                     (_unread_row(tag, m.get("content"), part_label, read_call), read_call)
                 )
+            # The window is what we render; the total is what the reader needs
+            # in order to know a window is what it is looking at. They stopped
+            # being the same number when the cap moved into the query.
+            total = int(ctx_data.extra_data.get("bus_unread_total") or len(unread))
+
+            def _not_shown_line(kept: int) -> str:
+                # One count, one subtraction: everything unread that this list
+                # does not print — rows the budget dropped AND messages beyond
+                # the query window — so it always equals total minus shown.
+                missing = total - kept
+                if missing <= 0:
+                    return ""
+                omitted = rows[: len(rows) - kept]
+                calls = list(dict.fromkeys(c for _, c in omitted if c))
+                line = (
+                    f"- {missing} unread message(s) not shown (this list shows "
+                    f"the newest {kept})"
+                )
+                if calls:
+                    line += "; read them with " + ", ".join(calls)
+                    if any(not c for _, c in omitted):
+                        line += " (some come from senders with no read_history handle)"
+                return line + "."
+
             # Span budget: admit rows newest first (the window is in reading
-            # order, newest last), always keeping the newest one.
+            # order, newest last), always keeping the newest one; then give
+            # back the oldest kept rows until the not-shown line fits too.
             kept = len(rows)
             used = 0
             for i in range(len(rows) - 1, -1, -1):
@@ -719,14 +762,13 @@ class MessageBusModule(XYZBaseModule):
                     kept = len(rows) - 1 - i
                     break
                 used += size
-            omitted = rows[: len(rows) - kept]
-            # The window is what we render; the total is what the reader needs
-            # in order to know a window is what it is looking at. They stopped
-            # being the same number when the cap moved into the query.
-            shown = kept
-            total = int(ctx_data.extra_data.get("bus_unread_total") or len(unread))
+            notice = _not_shown_line(kept)
+            while kept > 1 and used + len(notice) + 1 > UNREAD_SPAN_MAX_CHARS:
+                used -= len(rows[len(rows) - kept][0]) + 1
+                kept -= 1
+                notice = _not_shown_line(kept)
             parts.append("")
-            parts.append(f"### Unread Messages: {total} (showing {shown})")
+            parts.append(f"### Unread Messages: {total} (showing {kept})")
             # Same scoping as the static rule above, for the same reason —
             # and it matters more here, because this header sits directly on a
             # list that MIXES team-room messages in. A team room clears its
@@ -737,19 +779,8 @@ class MessageBusModule(XYZBaseModule):
                 "not answer stays unread; what a room keeps unread is stated "
                 "by that room's own prompt."
             )
-            if omitted:
-                calls = list(dict.fromkeys(c for _, c in omitted if c))
-                how = (
-                    "read them with " + ", ".join(calls)
-                    if calls
-                    else "their senders have no read_history handle"
-                )
-                if calls and any(not c for _, c in omitted):
-                    how += " (some come from senders with no read_history handle)"
-                parts.append(
-                    f"- {len(omitted)} older unread message(s) not shown: this "
-                    f"list's size budget is spent; {how}."
-                )
+            if notice:
+                parts.append(notice)
             parts.extend(r for r, _ in rows[len(rows) - kept:])
 
         return parts

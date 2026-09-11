@@ -4,11 +4,18 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 行内字段同样不可伪造 + 省略口径统一（PR#401 review 二轮 🟡1/🟢2-5）
+
+- **`_inline_field` 收口所有作者可写的行内字段**：团队房名（未读 tag 与 `### Your teams`）、tag 里的发送者、Known Agents 的 `agent_name`/`agent_id`/描述（描述仍截 80），一律把全部空白串（含 `\r`/`\u2028`）折成一个空格并按 `INLINE_FIELD_MAX_CHARS = 120` 截断。房名带换行不再能在列表里另起一行冒充别人的 row。清洗在 `_bus_tag` 内，对静态块生成的示例幂等，静态块不因此变化。
+- **「未展示」只有一个数**：声明行写 `- {total - shown} unread message(s) not shown (this list shows the newest {shown})`，与表头 `{total} (showing {shown})` 同一减法；查询窗口（20）之外的也计入，因此 total 超过窗口时即使预算没砍也会出现这一行。能给出的 `read_history` 调用只来自窗口内被预算砍掉的行。
+- **总预算把声明行本身算进去**：先按行从新到旧收，再在声明行放不下时从最旧的已收行往回让，最新一条仍无条件保留。
+- **静态块不再穷举例外**：改为「除非未读列表另有说明——它会标明被截断的消息和未展示的更旧消息，read_history 可取全文」。这一改动使静态块前缀变化一次（prompt cache 一次性失效）。
+
 ## 2026-09-11 — 未读列表结构防伪 + 总预算 + 可执行指路（PR#401 review 🟡1/🟢2-3）
 
 - **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `_unread_body` 布局——首行紧跟 tag，其后每行都加 `_UNREAD_BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
 - **cut 标记给出确切调用**：`_read_rest_call` —— 团队房行（房间已解析）给 `read_history(team_id="…")`，私聊里真 agent 发的给 `read_history(with_agent="<agent_id>")`；`usr_*`/平台发送者且房间未解析时没有工具可接受的句柄，标记如实说「取不到，请向发送者要」，不指向做不到的调用。为此 `_room_labels` 的返回改为 `{channel_id: {"name", "team_id"}}`（name 标 tag，team_id 给指路；不把 raw `channel_id` 打回 tag）。
-- **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明「N older unread message(s) not shown … read them with <去重后的 read_history 调用>」，表头 `(showing M)` 报实际展示数。
+- **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明未展示条数与 read_history 调用（口径见上一节），表头 `(showing M)` 报实际展示数。
 
 ## 2026-09-11 — 未读预览不再静默截 200 字（B-23 / upstream #73）
 
