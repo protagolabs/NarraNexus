@@ -47,6 +47,7 @@ from narranexus.platform.channel.channel_sender_registry import (
     ChannelSenderRegistry,
 )
 from narranexus.platform.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.platform.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
     MessageSourceRegistry,
@@ -178,7 +179,7 @@ def _framework_override_viable(
     # conditions: a non-empty claude.model means codex is never consulted,
     # so an oauth claude slot is non-viable even if codex carries a model.
     if claude.model:
-        return (claude.auth_type or "api_key") not in ("oauth", "oauth_token")
+        return (claude.auth_type or "api_key") not in SUBSCRIPTION_AUTH_TYPES
     return bool(codex.model)
 
 

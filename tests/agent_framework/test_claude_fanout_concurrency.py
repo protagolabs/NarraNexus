@@ -29,6 +29,7 @@ adapter so the seam is exercised where production uses it.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -120,6 +121,42 @@ def test_subscription_set_has_exactly_one_definition():
     from narranexus.platform.agent_framework import api_config
 
     assert api_config.SUBSCRIPTION_AUTH_TYPES is SUBSCRIPTION_AUTH_TYPES
+
+
+# A hand-written ("oauth", "oauth_token") pair in either order, as a tuple,
+# list or set literal. Only the enum-backed definition in provider_schema may
+# spell the set; everything else imports SUBSCRIPTION_AUTH_TYPES.
+_SUBSCRIPTION_LITERAL = re.compile(
+    r"""[(\[{]\s*(['"])oauth(_token)?\1\s*,\s*(['"])oauth(?(2)|_token)\3\s*,?\s*[)\]}]"""
+)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _python_sources():
+    roots = [_REPO_ROOT / "src", _REPO_ROOT / "backend"]
+    roots += sorted((_REPO_ROOT / "plugins").glob("*/src"))
+    for root in roots:
+        yield from root.rglob("*.py")
+
+
+def test_the_literal_pattern_matches_both_spellings_and_nothing_else():
+    assert _SUBSCRIPTION_LITERAL.search('x in ("oauth", "oauth_token")')
+    assert _SUBSCRIPTION_LITERAL.search("x in {'oauth_token', 'oauth'}")
+    assert not _SUBSCRIPTION_LITERAL.search('x in ("oauth", "api_key")')
+    assert not _SUBSCRIPTION_LITERAL.search('x in ("oauth_token", "oauth_token")')
+
+
+def test_no_consumer_spells_the_subscription_set_by_hand():
+    """`SUBSCRIPTION_AUTH_TYPES` is THE definition only if nothing else spells
+    it: a literal copy would not follow the next subscription transport and
+    would silently decide the opposite way (native-Claude detection, the
+    helper-fallback gate, billing path, alias resolution)."""
+    offenders = []
+    for path in _python_sources():
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if _SUBSCRIPTION_LITERAL.search(line):
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}:{lineno}")
+    assert offenders == [], offenders
 
 
 def test_default_setting_is_a_bounded_positive_cap():

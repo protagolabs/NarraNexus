@@ -1077,7 +1077,7 @@ class ClaudeAgentSDK:
         # haiku), which doesn't start with "claude-", so key off auth_type too.
         _model = (claude_config.model or "")
         _is_claude_native = (
-            claude_config.auth_type in ("oauth", "oauth_token")
+            claude_config.auth_type in SUBSCRIPTION_AUTH_TYPES
             or _model.startswith("claude-")
             or _model in ("opus", "sonnet", "haiku")
         )

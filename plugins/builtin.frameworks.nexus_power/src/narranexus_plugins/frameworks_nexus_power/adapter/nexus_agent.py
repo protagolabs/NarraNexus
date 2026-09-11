@@ -45,6 +45,7 @@ from narranexus.platform.agent_framework.api_config import (
 )
 from narranexus.platform.agent_framework.loop.cancellation_view import CancellationView
 from narranexus.platform.schema.turn_profile import TurnProfile
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     TYPE_RAW_RESPONSE_EVENT,
@@ -326,7 +327,7 @@ class NexusAgent:
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         protocol, model, api_key, base_url, auth_type = _resolve_provider()
-        if auth_type in ("oauth", "oauth_token"):
+        if auth_type in SUBSCRIPTION_AUTH_TYPES:
             raise ValueError(
                 "nexus_power drives the provider API directly and cannot use "
                 "subscription OAuth credentials; keep this agent on the "

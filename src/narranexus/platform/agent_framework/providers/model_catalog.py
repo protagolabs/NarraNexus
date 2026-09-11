@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
+
 
 # =============================================================================
 # Model Metadata
@@ -125,7 +127,7 @@ def resolve_cli_alias(model_id: str, *, auth_type: str) -> str:
     aliases, so map them to the family's current full id. Full ids and
     unknown strings pass through untouched.
     """
-    if auth_type in ("oauth", "oauth_token"):
+    if auth_type in SUBSCRIPTION_AUTH_TYPES:
         return model_id
     return _CLI_ALIAS_TO_MODEL_ID.get(model_id, model_id)
 

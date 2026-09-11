@@ -36,6 +36,7 @@ from narranexus.platform.agent_framework.loop.driver import (
     framework_for_oauth_source,
 )
 from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -1127,7 +1128,7 @@ class UserProviderService:
         if not row:
             return False, "Provider not found"
 
-        if row.get("auth_type") in ("oauth", "oauth_token"):
+        if row.get("auth_type") in SUBSCRIPTION_AUTH_TYPES:
             from narranexus.platform.agent_framework.providers.driver.base import (
                 VERIFY_DEAD,
                 VERIFY_OK,

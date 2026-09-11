@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
+
+claude 槽能否走 keyed helper-fallback 的判定（`not in`，方向不变）原先手写 `("oauth", "oauth_token")` 字面量，改为 import
+`narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
+运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
+（扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
 
 ## 2026-09-09 — raw-exception 出口的 `ErrorMessage` 抽成 `_raw_exception_error`
 

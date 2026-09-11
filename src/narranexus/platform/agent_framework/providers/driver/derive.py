@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
+
 
 # =============================================================================
 # Driver type derivation
@@ -106,7 +108,7 @@ def derive_billing_policy(
 
     if src == "system":
         return "system_quota"
-    if auth in ("oauth", "oauth_token"):
+    if auth in SUBSCRIPTION_AUTH_TYPES:
         # Both subscription transports (host-CLI oauth and setup-token) are
         # billed by Anthropic itself — log to cost_records, no quota deduction.
         return "external_oauth"
