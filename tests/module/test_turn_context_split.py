@@ -400,7 +400,7 @@ async def test_bus_turn_context_carries_lists(flag_on):
     # mistaken for part of whatever preceded them.
     assert block.startswith("### Who is around, and what is waiting")
     assert "### Known Agents (top 1)" in block
-    assert "- `agent_peer` — Peer: helper" in block
+    assert '- `agent_peer` — "Peer": "helper"' in block
     # The channel list is gone on purpose, and `bus_channels` is still fed in
     # above so this asserts the RENDERER dropped it rather than the fixture.
     # It printed raw `channel_id`s and a `channel_type` into every turn — the

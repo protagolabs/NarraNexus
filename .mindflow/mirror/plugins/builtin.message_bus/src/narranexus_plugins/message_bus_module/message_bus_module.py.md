@@ -4,6 +4,12 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 行内字段按构造不可伪造（PR#401 review 三轮 🟡1/🟢2-5）
+
+- **根因收口，而不是逐个字符类补洞**：`_inline_field` 是所有行内字段的唯一编码器，分两种形态。**标签**（团队房名、Known Agents 的名字/描述）：折叠空白 → 反引号（含全角 `\uff40`）换成 `'` → 超长按 `INLINE_FIELD_MAX_CHARS=120`（描述 `INLINE_DESCRIPTION_MAX_CHARS=80`）截断且以 `…` 标记 → 以 JSON 字符串字面量输出（`json.dumps(..., ensure_ascii=False)`）。作者写的任何 `` ` ``、` · `、`[`、`]`、` — `、`: `、`(teammate)`、`"`、`\` 都在一对引号里且引号/反斜杠被转义，字段无法提前结束，字面量能原样解码回展示文本。**句柄**（`max_chars=None`：agent/team id、tag 的发送者）：系统生成、不可由作者写，永不截断、不加引号（agent 要原样抄进工具调用），只折叠空白并替换反引号，不能逃出 code span。
+- 渲染形状因此变为 ``["Ops" · from agent_x]``、``- `team_x` — "Ops"``、``- `agent_a` — "Alice": "desc" (teammate)``；静态块的示例由同一个 `_bus_tag` 生成，自动一致。仓内没有把这些行解析回来的消费方。
+- **`_not_shown_line` 提为模块级纯函数** `(total, kept, rows)`。调用列表只来自被预算让出的行，按新到旧最多列 `NOT_SHOWN_MAX_CALLS=3` 个、其余计数（`and N more conversation(s)`），因此让出一条短行不会让声明行变得更长，回让循环不再连锁让到只剩最新一条；窗口外的消息明说「beyond this list — use read_history on the conversation you expect them in」，不再把窗口内的调用摆在全量条数后面；让出的行都没句柄时如实说没有。
+
 ## 2026-09-11 — 行内字段同样不可伪造 + 省略口径统一（PR#401 review 二轮 🟡1/🟢2-5）
 
 - **`_inline_field` 收口所有作者可写的行内字段**：团队房名（未读 tag 与 `### Your teams`）、tag 里的发送者、Known Agents 的 `agent_name`/`agent_id`/描述（描述仍截 80），一律把全部空白串（含 `\r`/`\u2028`）折成一个空格并按 `INLINE_FIELD_MAX_CHARS = 120` 截断。房名带换行不再能在列表里另起一行冒充别人的 row。清洗在 `_bus_tag` 内，对静态块生成的示例幂等，静态块不因此变化。
