@@ -537,3 +537,19 @@ async def test_sweep_releases_the_lost_runs_half_open_probe(db_client):
     assert probe.probe_token is None
     assert probe.consecutive_failure_count == 3
     assert (await repo.get("agent_cooling")).cb_status == CbStatus.COOLING.value
+
+
+def test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle():
+    """#394 review I4: the breaker's probe-claimant check and the stale sweep
+    must use the SAME run_is_live object, and the breaker must get it from
+    the leaf utils module — not by importing this module back (that closed
+    a loop<->runtime import cycle papered over by two lazy imports)."""
+    import inspect
+
+    from narranexus.platform.agent_framework.loop import circuit_breaker
+    from narranexus.platform.agent_runtime import run_recorder
+    from narranexus.platform.utils import run_liveness
+
+    assert circuit_breaker.run_is_live is run_liveness.run_is_live
+    assert run_recorder.run_is_live is run_liveness.run_is_live
+    assert "agent_runtime.run_recorder" not in inspect.getsource(circuit_breaker)

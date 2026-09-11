@@ -47,7 +47,6 @@ import asyncio
 import json
 import os
 from contextlib import suppress
-from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
@@ -58,36 +57,32 @@ from narranexus.platform.schema import (
 )
 from narranexus.platform.utils.timezone import utc_now
 
+# Liveness (heartbeat cadence, staleness threshold, ``run_is_live``) lives in
+# the leaf ``utils.run_liveness`` so the circuit breaker can share the SAME
+# rule without importing this module (see that module's docstring).
+# Re-exported here, unchanged objects, for every existing caller.
+from narranexus.platform.utils.run_liveness import (
+    HEARTBEAT_INTERVAL_S,
+    RUN_STALE_AFTER_S,
+    STATE_RUNNING,
+    parse_db_utc,
+    run_is_live,
+)
+
+# A plain downward import: the breaker no longer imports this module (the
+# liveness rule both share lives in utils.run_liveness), so there is no cycle
+# to hide behind a function-local import any more.
+from narranexus.platform.agent_framework.loop.circuit_breaker import release_probe
+
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
-# Heartbeat cadence — every N seconds the heartbeat task bumps
-# events.last_event_at, even if no stream events fired. Used by the
-# stale-run sweep and observability read-sides to distinguish a healthy
-# long thinking pass from a dead process.
-HEARTBEAT_INTERVAL_S = 30
-
-
 # Run state machine — string-typed for direct DB column compatibility.
-STATE_RUNNING = "running"
 STATE_COMPLETED = "completed"
 STATE_CANCELLED = "cancelled"
 STATE_FAILED = "failed"
 TERMINAL_STATES = frozenset({STATE_COMPLETED, STATE_CANCELLED, STATE_FAILED})
-
-
-# An events row stuck at state='running' is only trusted as alive while
-# its heartbeat is fresh. After 3 missed beats the run is presumed dead —
-# its task died without finalize (process killed mid-run, or the terminal
-# DB write failed). Shared by every read-side consumer (agents listing,
-# WS observe endpoint, stale sweep) so "is this run actually alive?" has
-# ONE answer.
-#
-# This is a read-side liveness rule only — consumers must never stop or
-# mutate a live run based on it. A genuinely long-running agent keeps
-# beating and stays live, so long agent_loops remain first-class (铁律 #14).
-RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
 
 
 # Kill switch for the trigger-path recording surface. The WS/openai
@@ -101,37 +96,6 @@ def recording_enabled() -> bool:
     return os.environ.get(RECORDING_DISABLED_ENV, "").strip().lower() not in (
         "1", "true", "yes", "on",
     )
-
-
-def parse_db_utc(ts: Any) -> Optional[datetime]:
-    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
-    returns datetime) into a tz-aware UTC datetime. Returns None when the
-    value is absent or unparseable."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.rstrip("Z"))
-        except ValueError:
-            return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-
-def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
-    """Whether a 'running' events row still has a fresh heartbeat. Falls
-    back to started_at when the first beat hasn't fired yet. Fails open
-    (treats as live) when no parseable timestamp exists, so we never
-    declare dead a run that might genuinely be running."""
-    now = now or utc_now()
-    parsed = parse_db_utc(events_row.get("last_event_at")) or parse_db_utc(
-        events_row.get("started_at")
-    )
-    if parsed is None:
-        return True
-    return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
 
 
 async def first_live_run_id(
@@ -205,10 +169,6 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
     ~RUN_STALE_AFTER_S + one sweep interval, regardless of which process
     restarts when.
     """
-    # Lazy: the breaker imports agent_runtime modules itself; a module-level
-    # import here would close that cycle.
-    from narranexus.platform.agent_framework.loop.circuit_breaker import release_probe
-
     flipped = 0
     try:
         running_rows = await db.get("events", {"state": STATE_RUNNING})

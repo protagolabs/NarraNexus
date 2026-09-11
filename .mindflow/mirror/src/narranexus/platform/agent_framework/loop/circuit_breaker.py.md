@@ -57,7 +57,9 @@ executor-infra）保留"不动 streak"，但 PROBING 行同样要结算回 PAUSE
 
 **grant 不是 turn 时长上限（铁律 #14）。** `PROBE_GRANT_SECONDS`(5min) 只界定"认领
 到 run 行存在"这段窗口；stale-PROBING 重认领额外要求 `_agent_has_live_run` 为假（events
-里没有心跳新鲜的 running 行——与 `run_recorder.sweep_stale_runs` 同一条活性规则）。跑
+里没有心跳新鲜的 running 行——与 `run_recorder.sweep_stale_runs` 同一条活性规则，同一个
+`utils.run_liveness.run_is_live` 对象，PR #394 I4 起模块级导入，不再 lazy import
+`run_recorder`）。跑
 几小时的探测 turn 不会被第二个探测叠上。探测永远不结算的三个口子由 `release_probe`
 兜住：用户取消（[[background_run]] CANCELLED 分支）、进程死亡（[[run_recorder]]
 `sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。`release_probe` **只在该 agent 没有存活

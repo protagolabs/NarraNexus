@@ -67,6 +67,7 @@ from narranexus.platform.services.background_llm_alerts import (
 )
 from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.run_liveness import STATE_RUNNING, run_is_live
 from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on
@@ -709,12 +710,8 @@ async def try_begin_probe(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
 
 async def _agent_has_live_run(db, agent_id: str) -> bool:
     """Whether the agent has a 'running' events row with a fresh heartbeat —
-    the one cross-process liveness rule (``run_recorder.run_is_live``)."""
-    from narranexus.platform.agent_runtime.run_recorder import (
-        STATE_RUNNING,
-        run_is_live,
-    )
-
+    the one cross-process liveness rule (``utils.run_liveness.run_is_live``,
+    shared with ``run_recorder.sweep_stale_runs``)."""
     rows = await db.get("events", filters={"agent_id": agent_id, "state": STATE_RUNNING})
     return any(run_is_live(r) for r in rows or [])
 

@@ -17,6 +17,15 @@ stub: false
 测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
 （failed 保留、cancelled 不写）。
 
+## 2026-09-10（PR #394 review I4）— 活性规则搬到叶子模块 `utils.run_liveness`
+
+`HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live` 移到 [[run_liveness]]，本模块原样 re-export（同一对象、`__all__` 不变），
+既有调用方（agents 列表、observe 端点、`message_bus_trigger._member_status`）不受影响。
+熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级下行导入——
+原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。锁：
+`test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle`。
+
 ## 2026-09-10 — `sweep_stale_runs` 翻掉丢失 run 时顺带释放半开探测
 
 进程死亡的 run 永远走不到 `BackgroundRun._finalize`，熔断器结算也就不会发生。现在每翻一
