@@ -4,6 +4,21 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — the not-installed run error names Model Defaults too; one registry walk
+
+- `FrameworkNotInstalledError`'s message now names both ways out: install
+  the plugin (Settings → Plugins) or switch to an installed framework
+  (Settings → Model Defaults, or the agent's Model & framework panel). This
+  is the self-heal path for local users whose slot was bound to an
+  uninstalled on-demand framework before onboarding skipped those: no
+  migration rewrites stored `user_slots.agent_framework` (a silent rewrite
+  would run their agents on a framework they did not choose), so the run
+  error has to point at the fix, and the Model Defaults page can save that
+  framework-only change even with the slot unbound.
+- `default_framework_for_protocol` filters with `_meta_installed(meta)` (the
+  probe behind `framework_installed`, taking the already-resolved meta), so
+  `framework_metas()` is walked once instead of once per candidate.
+
 ## 2026-09-11 — `default_framework_for_protocol` only picks INSTALLED frameworks
 
 Candidates are now filtered through `framework_installed` (the same probe the

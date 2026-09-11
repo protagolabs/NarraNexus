@@ -68,9 +68,15 @@ class FrameworkNotInstalledError(RuntimeError):
 
     def __init__(self, framework: str) -> None:
         self.framework = framework
+        # Two ways out, both named: install the plugin, or move the binding to
+        # a framework that is installed. The second matters for users whose
+        # slot was bound to an on-demand framework before onboarding learned
+        # to skip uninstalled ones — nothing rewrites that stored binding.
         super().__init__(
             f"Framework '{framework}' is not installed. Install it from "
-            f"Settings → Plugins before running."
+            f"Settings → Plugins, or switch to an installed framework in "
+            f"Settings → Model Defaults (or the agent's Model & framework "
+            f"panel) before running."
         )
 
 
@@ -178,11 +184,12 @@ def default_framework_for_protocol(protocol: str) -> str:
     Claude Code / Codex are registered but ship as on-demand plugins, and a
     fresh user whose first card landed on an uninstalled framework could not
     run a single turn (``FrameworkNotInstalledError``) until they found the
-    framework picker. Availability is read from ``framework_installed`` — the
-    same probe the driver's fail-closed gate uses — never from a name list.
+    framework picker. Availability is read from the same probe the driver's
+    fail-closed gate uses (``_meta_installed``, behind ``framework_installed``)
+    — never from a name list. The registry is walked once.
     """
     wanted = protocol.strip().lower()
-    metas = [meta for meta in framework_metas() if framework_installed(meta.name)]
+    metas = [meta for meta in framework_metas() if _meta_installed(meta)]
     for meta in metas:
         if meta.protocol == wanted:
             return meta.name
@@ -217,6 +224,12 @@ def framework_installed(name: str) -> bool:
         meta = framework_meta(name)
     except UnknownEntry:
         return False
+    return _meta_installed(meta)
+
+
+def _meta_installed(meta: FrameworkMeta) -> bool:
+    """``framework_installed`` for an already-resolved meta (no second registry
+    scan when the caller is iterating ``framework_metas()``)."""
     if meta.install is None:
         return True
     # Imported locally to avoid an import cycle with this package's __init__.

@@ -119,6 +119,16 @@ def test_default_framework_for_protocol_skips_uninstalled_plugins(monkeypatch):
     assert default_framework_for_protocol("openai") == "nexus_power"
 
 
+def test_framework_not_installed_error_names_both_ways_out():
+    """A binding stored before onboarding skipped uninstalled frameworks is not
+    rewritten; the run error must tell that user where to move it, not only
+    where to install the plugin."""
+    msg = str(FrameworkNotInstalledError("claude_code"))
+    assert "Settings → Plugins" in msg
+    assert "Settings → Model Defaults" in msg
+    assert "'claude_code'" in msg
+
+
 def test_oauth_source_ownership_is_registry_derived(acme_cli):
     assert framework_for_oauth_source("claude_oauth") == "claude_code"
     assert framework_for_oauth_source("acme_oauth") == "acme_cli"
