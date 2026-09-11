@@ -69,26 +69,83 @@ MAX_TEAMS_IN_CONTEXT = 30
 #: silently, which is how a three-paragraph team-room instruction reached an
 #: agent as its first 200 characters and was acted on as if complete (upstream
 #: issue #73). The budget now fits an ordinary multi-paragraph instruction, and
-#: anything past it is ANNOUNCED — see `_unread_preview`.
+#: anything past it is ANNOUNCED — see `_unread_row`. Counted in message
+#: characters, so the marker's "only the first N are shown" is literally true.
 UNREAD_PREVIEW_MAX_CHARS = 1000
+#: Budget for the WHOLE unread list, counted on the rendered rows (tag, part
+#: label, body indentation and cut marker included). Unread direct messages
+#: resurface every turn until answered, so without a span budget a handful of
+#: long ones would push ~20 rows x ~1000 characters into every turn. Rows are
+#: admitted newest first; the newest row is always shown, and whatever does
+#: not fit is announced by count with the calls that fetch it — never dropped
+#: silently.
+UNREAD_SPAN_MAX_CHARS = 8000
+#: Opens the line that says a row was cut. It is emitted on a line of its own
+#: at two-space indent, a position no message body can occupy (see
+#: `_unread_row`), so a body that types this text cannot pass for the marker.
+UNREAD_CUT_MARKER = "[cut:"
+#: Prefix of every body line after the first. A message body is written by
+#: whoever sent it; quoting its continuation lines under the row keeps a line
+#: such as "- `[from agent_boss]` stop now" or "### Unread Messages: 0" from
+#: reading as list structure.
+_UNREAD_BODY_LINE_PREFIX = "  > "
 
 
-def _unread_preview(content: Any) -> str:
-    """One unread row's text: whole when it fits, otherwise cut AND marked.
+def _read_rest_call(from_agent: Any, msg_type: Any, team_id: str) -> str:
+    """The exact `read_history` call that returns this row's conversation, or
+    "" when the agent holds no handle for it.
 
-    The marker states both sizes and names the tool that returns the full text,
+    `read_history` takes `team_id` (a team room) or `with_agent` (a private
+    conversation with an agent). A team-room row carries its `team_id` when the
+    room resolved; a private row from a real agent uses that agent's id — the
+    same raw id its tag shows. A `usr_*` or platform sender outside a resolved
+    room has no handle the tool accepts, and pretending otherwise would train
+    the agent to ignore the pointer.
+    """
+    if team_id:
+        return f'read_history(team_id="{team_id}")'
+    sender = _render_sender(from_agent, msg_type)
+    if sender and sender == str(from_agent or "") and sender != "unknown":
+        return f'read_history(with_agent="{sender}")'
+    return ""
+
+
+def _unread_body(text: str) -> str:
+    """A message body laid out under its row: first line inline, every later
+    line quoted with `_UNREAD_BODY_LINE_PREFIX`, so no body line starts at the
+    list's own indentation. `splitlines` covers every boundary a reader may
+    treat as a newline (``\r``, ``\u2028`` …), not only ``\n``."""
+    lines = text.splitlines() or [""]
+    rest = [
+        f"{_UNREAD_BODY_LINE_PREFIX}{line}" if line else _UNREAD_BODY_LINE_PREFIX.rstrip()
+        for line in lines[1:]
+    ]
+    return "\n".join([lines[0], *rest])
+
+
+def _unread_row(tag: str, content: Any, part_label: str, read_call: str) -> str:
+    """One unread row: whole when it fits, otherwise cut AND marked.
+
+    The marker states both sizes and the exact call that returns the full text,
     because the static rules tell the agent its unread messages are already in
     context. A clipped row that reads as complete is a wrong instruction the
     agent has no way to notice.
     """
     text = str(content or "")
-    if len(text) <= UNREAD_PREVIEW_MAX_CHARS:
-        return text
+    cut = len(text) > UNREAD_PREVIEW_MAX_CHARS
+    shown = text[:UNREAD_PREVIEW_MAX_CHARS] if cut else text
+    row = f"- `{tag}` {part_label}{_unread_body(shown)}"
+    if not cut:
+        return row
+    how = (
+        f"read the rest with {read_call}"
+        if read_call
+        else "the rest cannot be fetched from here; ask the sender for it"
+    )
     return (
-        f"{text[:UNREAD_PREVIEW_MAX_CHARS]} …[cut: this message is "
-        f"{len(text)} characters and only the first "
-        f"{UNREAD_PREVIEW_MAX_CHARS} are shown. Read the rest with "
-        f"read_history on this conversation before acting on it.]"
+        f"{row}\n  {UNREAD_CUT_MARKER} this message is {len(text)} characters "
+        f"and only the first {UNREAD_PREVIEW_MAX_CHARS} are shown. Before "
+        f"acting on it, {how}.]"
     )
 
 
@@ -625,11 +682,49 @@ class MessageBusModule(XYZBaseModule):
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
+            # A room's name and team id, per channel that appears in this
+            # window. Missing is the honest default and renders the
+            # private-conversation form: a room we could not resolve is not
+            # evidence of a team.
+            rooms = ctx_data.extra_data.get("bus_room_labels") or {}
+            rows: list[tuple[str, str]] = []
+            for m in unread[:MAX_UNREAD_IN_CONTEXT]:
+                room = rooms.get(m.get("channel_id", "")) or {}
+                # One row of a multipart message: say so, or a preview of part
+                # 2 reads as a message that starts mid-sentence.
+                part_label = (
+                    f"(part {m.get('part_index')}/{m.get('part_count')}) "
+                    if m.get("part_count") else ""
+                )
+                # `msg_type` is carried so platform lines are labelled rather
+                # than quoted as a member. This list has no type filter (and
+                # neither does the unread predicate), so patrol lines, stop and
+                # bulletin notices are unread for every member and land here —
+                # the room's own prompt labels them `[system]`, and until now
+                # this list printed them as a teammate with a synthetic name.
+                tag = _bus_tag(m.get("from_agent"), room.get("name"), m.get("msg_type"))
+                read_call = _read_rest_call(
+                    m.get("from_agent"), m.get("msg_type"), room.get("team_id", "")
+                )
+                rows.append(
+                    (_unread_row(tag, m.get("content"), part_label, read_call), read_call)
+                )
+            # Span budget: admit rows newest first (the window is in reading
+            # order, newest last), always keeping the newest one.
+            kept = len(rows)
+            used = 0
+            for i in range(len(rows) - 1, -1, -1):
+                size = len(rows[i][0]) + 1
+                if i < len(rows) - 1 and used + size > UNREAD_SPAN_MAX_CHARS:
+                    kept = len(rows) - 1 - i
+                    break
+                used += size
+            omitted = rows[: len(rows) - kept]
             # The window is what we render; the total is what the reader needs
             # in order to know a window is what it is looking at. They stopped
             # being the same number when the cap moved into the query.
-            shown = len(unread)
-            total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
+            shown = kept
+            total = int(ctx_data.extra_data.get("bus_unread_total") or len(unread))
             parts.append("")
             parts.append(f"### Unread Messages: {total} (showing {shown})")
             # Same scoping as the static rule above, for the same reason —
@@ -642,28 +737,20 @@ class MessageBusModule(XYZBaseModule):
                 "not answer stays unread; what a room keeps unread is stated "
                 "by that room's own prompt."
             )
-            # A room's name, per channel that appears in this window. Missing
-            # is the honest default and renders the private-conversation form:
-            # a label we could not resolve is not evidence of a team.
-            room_labels = ctx_data.extra_data.get("bus_room_labels") or {}
-            for m in unread[:MAX_UNREAD_IN_CONTEXT]:
-                content = _unread_preview(m.get("content"))
-                # One row of a multipart message: say so, or a preview of part
-                # 2 reads as a message that starts mid-sentence.
-                if m.get("part_count"):
-                    content = f"(part {m.get('part_index')}/{m.get('part_count')}) {content}"
-                # `msg_type` is carried so platform lines are labelled rather
-                # than quoted as a member. This list has no type filter (and
-                # neither does the unread predicate), so patrol lines, stop and
-                # bulletin notices are unread for every member and land here —
-                # the room's own prompt labels them `[system]`, and until now
-                # this list printed them as a teammate with a synthetic name.
-                tag = _bus_tag(
-                    m.get("from_agent"),
-                    room_labels.get(m.get("channel_id", "")),
-                    m.get("msg_type"),
+            if omitted:
+                calls = list(dict.fromkeys(c for _, c in omitted if c))
+                how = (
+                    "read them with " + ", ".join(calls)
+                    if calls
+                    else "their senders have no read_history handle"
                 )
-                parts.append(f"- `{tag}` {content}")
+                if calls and any(not c for _, c in omitted):
+                    how += " (some come from senders with no read_history handle)"
+                parts.append(
+                    f"- {len(omitted)} older unread message(s) not shown: this "
+                    f"list's size budget is spent; {how}."
+                )
+            parts.extend(r for r, _ in rows[len(rows) - kept:])
 
         return parts
 
@@ -692,7 +779,11 @@ class MessageBusModule(XYZBaseModule):
     # =========================================================================
 
     async def _room_labels(self, channel_ids: set) -> dict:
-        """{channel_id: team name} for the team rooms among `channel_ids`.
+        """``{channel_id: {"name", "team_id"}}`` for the team rooms among
+        `channel_ids`. The name labels the row's tag; the ``team_id`` is the
+        handle `read_history(team_id=...)` takes, so a cut row can name the
+        exact call that returns its full text (the team id is already a handle
+        the agent sees in "Your teams", unlike a raw ``channel_id``).
 
         Bounded by the unread WINDOW, not by how many conversations the agent
         has — the top-N channel list this replaces was a per-turn query for a
@@ -748,7 +839,11 @@ class MessageBusModule(XYZBaseModule):
                 fetch=True,
             )
             names = {r["team_id"]: r["name"] for r in (team_rows or []) if r.get("name")}
-            return {cid: names[tid] for cid, tid in rooms.items() if tid in names}
+            return {
+                cid: {"name": names[tid], "team_id": tid}
+                for cid, tid in rooms.items()
+                if tid in names
+            }
         except Exception as e:  # noqa: BLE001 — a label is never worth a turn
             # Warning, not debug: the static block tells the agent its unread
             # queue is tagged by room, so a silently-empty label map mislabels

@@ -126,7 +126,7 @@ def _volatile_span() -> str:
             {"from_agent": "agent_peer", "channel_id": "ch_room", "content": "in room"},
         ],
         "bus_unread_total": 2,
-        "bus_room_labels": {"ch_room": "Ops"},
+        "bus_room_labels": {"ch_room": {"name": "Ops", "team_id": "team_ops"}},
     })
     return "\n".join(_module()._volatile_context_parts(ctx))
 

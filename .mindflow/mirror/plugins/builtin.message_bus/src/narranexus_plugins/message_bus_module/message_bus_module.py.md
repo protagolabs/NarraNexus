@@ -4,13 +4,19 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 未读列表结构防伪 + 总预算 + 可执行指路（PR#401 review 🟡1/🟢2-3）
+
+- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `_unread_body` 布局——首行紧跟 tag，其后每行都加 `_UNREAD_BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
+- **cut 标记给出确切调用**：`_read_rest_call` —— 团队房行（房间已解析）给 `read_history(team_id="…")`，私聊里真 agent 发的给 `read_history(with_agent="<agent_id>")`；`usr_*`/平台发送者且房间未解析时没有工具可接受的句柄，标记如实说「取不到，请向发送者要」，不指向做不到的调用。为此 `_room_labels` 的返回改为 `{channel_id: {"name", "team_id"}}`（name 标 tag，team_id 给指路；不把 raw `channel_id` 打回 tag）。
+- **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明「N older unread message(s) not shown … read them with <去重后的 read_history 调用>」，表头 `(showing M)` 报实际展示数。
+
 ## 2026-09-11 — 未读预览不再静默截 200 字（B-23 / upstream #73）
 
 #73：团队房里一条三段指令到了 agent 手里只剩「... so people can scan it via」——恰好是原文前
 200 字符。根因是 `_volatile_context_parts` 对每条未读 `content[:200]` 硬切且不加任何标记，
 而静态块又告诉 agent「未读已在 context，不用再取」，所以被切的片段和完整消息无从区分，agent
 按残片执行/追问。修法：行预算常量 `UNREAD_PREVIEW_MAX_CHARS = 1000`（装得下正常多段指令），
-超出由 `_unread_preview` 截断**并声明**（原长、展示长、用 `read_history` 取全文）；静态块那
+超出由 `_unread_preview`（现 `_unread_row`，见上条）截断**并声明**（原长、展示长、用 `read_history` 取全文）；静态块那
 句补上「长未读会被截断并注明，read_history 返回全文」。`(part i/n)` 前缀照旧叠在截断文本前。
 
 ## 2026-09-09 — 未读列表给分片行加 `(part i/n)` 标签
