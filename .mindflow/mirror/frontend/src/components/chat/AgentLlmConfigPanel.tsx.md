@@ -4,6 +4,13 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — thinking / reasoning effort need a provider
+
+Same rule as Settings → Model Defaults: the thinking and reasoning-effort
+selects are disabled while the agent draft has no provider, and their labels
+are bound with `htmlFor` (ids from `useId`). Before, they were editable on an
+unbound slot and the save was refused with a provider/model message.
+
 ## 2026-09-11 — helper failure after the agent slot saved says so
 
 Same class as ModelDefaultsSettings' partial save: `saveAll` writes the agent

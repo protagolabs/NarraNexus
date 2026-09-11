@@ -14,6 +14,7 @@ import { DESKTOP_RELEASES_URL } from '@/lib/agentFramework';
 const { mockT } = vi.hoisted(() => {
   const copy: Record<string, string> = {
     'pages.settings.modelDefaults.agentMain': 'Agent (main dialogue)',
+    'pages.settings.modelDefaults.helperTitle': 'Helper model',
   };
   return {
     mockT: (key: string, fallback?: unknown) =>
@@ -139,10 +140,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Every select is located by accessible name (block title + its own label),
+// so inserting another select or renaming an option value cannot silently
+// retarget a helper. The framework label may carry the auth-probe badge, hence
+// the prefix match.
 function frameworkSelect(): HTMLSelectElement {
-  return screen
-    .getAllByRole('combobox')
-    .find((el) => el.querySelector('option[value="claude_code"]')) as HTMLSelectElement;
+  return screen.getByRole('combobox', {
+    name: /^Agent \(main dialogue\) pages\.settings\.modelDefaults\.framework/,
+  }) as HTMLSelectElement;
 }
 
 async function renderLoaded() {
@@ -465,20 +470,52 @@ test('a provider the user cleared by hand is refused, not skipped behind a fake 
   expect(screen.queryByText(/pages\.settings\.modelDefaults\.saved/)).toBeNull();
 });
 
-test('a thinking edit on an unbound agent slot is refused, not skipped behind a fake "Saved", even with a framework change', async () => {
-  // Review 399c M1 (b): the empty-draft check ignores thinking/effort, so
-  // this edit used to be dropped while the framework alone was saved.
+test('thinking / reasoning effort are disabled on an unbound agent slot and enabled once a provider is picked', async () => {
+  // Review 399d M1: these knobs live on the slot row, so on an unbound slot an
+  // edit had nowhere to land — it was refused with a provider/model message
+  // that did not match the field the user touched.
   await renderLoaded();
   expect(agentProviderSelect().value).toBe('');
-  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
-  const thinking = screen
-    .getAllByRole('combobox')
-    .find((el) => el.querySelector('option[value="on"]')) as HTMLSelectElement;
-  fireEvent.change(thinking, { target: { value: 'on' } });
-  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
-  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
-  expect(mockSetAgentFramework).not.toHaveBeenCalled();
-  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  expect(agentThinkingSelect()).toBeDisabled();
+  expect(agentEffortSelect()).toBeDisabled();
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_own' } });
+  expect(agentThinkingSelect()).not.toBeDisabled();
+  expect(agentEffortSelect()).not.toBeDisabled();
+});
+
+test('every select label is bound to its select, so clicking the label focuses the control', async () => {
+  // Review 399d M3: aria-labelledby names the select for assistive tech, but
+  // only htmlFor makes a click on the label text reach the control.
+  withBoundAgentSlot();
+  await renderLoaded();
+  const selects = [
+    frameworkSelect(),
+    agentProviderSelect(),
+    agentModelSelect(),
+    agentThinkingSelect(),
+    agentEffortSelect(),
+    helperProviderSelect(),
+    helperModelSelect(),
+  ];
+  for (const select of selects) {
+    // The last aria-labelledby id is the select's own label.
+    const ids = (select.getAttribute('aria-labelledby') ?? '').split(' ');
+    const label = document.getElementById(ids[ids.length - 1]) as HTMLLabelElement;
+    expect(label.tagName).toBe('LABEL');
+    expect(label.control).toBe(select);
+  }
+});
+
+test('a framework switch that drops the bound card also locks thinking / reasoning effort', async () => {
+  // Review 399d M1 (b): after the switch emptied the draft, a thinking edit
+  // used to be skipped silently while the framework alone was saved.
+  withBoundAgentSlot();
+  await renderLoaded();
+  expect(agentThinkingSelect()).not.toBeDisabled();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  expect(agentProviderSelect().value).toBe('');
+  expect(agentThinkingSelect()).toBeDisabled();
+  expect(agentEffortSelect()).toBeDisabled();
 });
 
 test('load: a soft failure of the framework endpoint says the load failed instead of rendering empty selects silently', async () => {
@@ -508,9 +545,6 @@ test('a failed framework save keeps the draft dirty and shows the error', async 
   expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
 });
 
-// The agent selects are located by accessible name (block title + label), so
-// inserting another select into the page cannot silently retarget them.
-// Helper selects: last helper model, the one before it helper provider.
 function agentProviderSelect(): HTMLSelectElement {
   return screen.getByRole('combobox', {
     name: 'Agent (main dialogue) pages.settings.modelDefaults.provider',
@@ -521,9 +555,25 @@ function agentModelSelect(): HTMLSelectElement {
     name: 'Agent (main dialogue) pages.settings.modelDefaults.model',
   }) as HTMLSelectElement;
 }
+function agentThinkingSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.thinking',
+  }) as HTMLSelectElement;
+}
+function agentEffortSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.reasoningEffort',
+  }) as HTMLSelectElement;
+}
 function helperProviderSelect(): HTMLSelectElement {
-  const all = screen.getAllByRole('combobox');
-  return all[all.length - 2] as HTMLSelectElement;
+  return screen.getByRole('combobox', {
+    name: 'Helper model pages.settings.modelDefaults.provider',
+  }) as HTMLSelectElement;
+}
+function helperModelSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Helper model pages.settings.modelDefaults.model',
+  }) as HTMLSelectElement;
 }
 
 test('an unbound agent slot does not block saving a framework-only change', async () => {
@@ -681,6 +731,8 @@ test('helper write fails after only the framework landed → the message names t
   expect(mockSetProviderSlot).toHaveBeenCalledWith('helper_llm', expect.objectContaining({ provider_id: 'p_free_o' }));
   const helperAfter = helperProviderSelect();
   expect(helperAfter.value).toBe('p_free_o');
+  // The kept helper edit still carries its model, so it can be re-saved as is.
+  expect(helperModelSelect().value).not.toBe('');
   expect(frameworkSelect().value).toBe('nexus_power');
   // Only the helper edit is still unsaved.
   expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();

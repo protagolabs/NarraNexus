@@ -75,7 +75,7 @@ describe('SubscriptionConnect', () => {
       <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const claudeCard = await screen.findByTestId('claude-connect-card');
-    fireEvent.click(within(claudeCard).getByText('Add as Provider'));
+    fireEvent.click(await within(claudeCard).findByText('Add as Provider'));
     await waitFor(() =>
       expect(addProvider).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
     );
@@ -87,7 +87,7 @@ describe('SubscriptionConnect', () => {
       <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const codexCard = await screen.findByTestId('codex-connect-card');
-    fireEvent.click(within(codexCard).getByText('Add as Provider'));
+    fireEvent.click(await within(codexCard).findByText('Add as Provider'));
     await waitFor(() =>
       expect(addProvider).toHaveBeenCalledWith({ card_type: 'codex_oauth' }),
     );
@@ -187,7 +187,7 @@ describe('SubscriptionConnect', () => {
     const claudeCard = await screen.findByTestId('claude-connect-card');
     // One line, several nodes ("Session expired as <email> · expires …"):
     // assert on the line's text rather than on node boundaries.
-    const line = within(claudeCard).getByTestId('cli-status-line').textContent ?? '';
+    const line = (await within(claudeCard).findByTestId('cli-status-line')).textContent ?? '';
     expect(line).toContain('Session expired');
     expect(line).toContain('old@example.com');
     expect(line).toMatch(/expires/);
@@ -207,10 +207,14 @@ describe('SubscriptionConnect', () => {
         addProvider={vi.fn()}
       />,
     );
+    // The cards render before the status probes resolve ("Checking status..."),
+    // so wait for the hint instead of asserting on the first paint.
     const claudeCard = await screen.findByTestId('claude-connect-card');
-    expect(within(claudeCard).getByTestId('provider-session-expired-hint')).toBeTruthy();
-    // The codex card's session is fine: no hint there.
+    expect(await within(claudeCard).findByTestId('provider-session-expired-hint')).toBeTruthy();
+    // The codex card's session is fine: no hint there — asserted only once its
+    // own probe has resolved, so the absence is not vacuous.
     const codexCard = await screen.findByTestId('codex-connect-card');
+    await waitFor(() => expect(within(codexCard).queryByText(/Checking status/i)).toBeNull());
     expect(within(codexCard).queryByTestId('provider-session-expired-hint')).toBeNull();
   });
 

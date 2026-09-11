@@ -141,4 +141,23 @@ describe('AgentLlmConfigPanel save feedback', () => {
     expect((await screen.findAllByDisplayValue('My Provider')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/^✓ saved$/i)).toBeNull();
   });
+
+  test('thinking / reasoning effort stay disabled until the agent slot has a provider', async () => {
+    // Review 399d M1: on an unbound slot these knobs had nowhere to land, so
+    // an edit was either refused with an unrelated message or dropped.
+    render(
+      <MemoryRouter>
+        <AgentLlmConfigPanel agentId="agent_1" isOpen onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    const thinking = await screen.findByLabelText(/^thinking$/i);
+    const effort = screen.getByLabelText(/^reasoning effort$/i);
+    expect(thinking).toBeDisabled();
+    expect(effort).toBeDisabled();
+
+    const providerSelect = (await screen.findAllByDisplayValue('Select provider…'))[0];
+    fireEvent.change(providerSelect, { target: { value: 'prov1' } });
+    expect(thinking).not.toBeDisabled();
+    expect(effort).not.toBeDisabled();
+  });
 });

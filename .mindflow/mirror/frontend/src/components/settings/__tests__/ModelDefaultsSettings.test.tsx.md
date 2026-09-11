@@ -4,12 +4,22 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r4) — follow-up of PR #399's last-review minors
+
+- thinking / reasoning effort disabled on an unbound slot, enabled once a
+  provider is picked; a framework switch that drops the bound card locks them
+  again (both red when the `disabled` props are removed);
+- every select label's `control` is its select (red without `htmlFor`);
+- all selects — framework, agent provider/model/thinking/effort, helper
+  provider/model — are located by accessible name; the mock translator maps
+  `helperTitle` to "Helper model" for that. No positional or option-content
+  combobox lookups remain.
+
 ## 2026-09-11 (r3) — third review of PR #399 (minors)
 
 - bound card kept by a nexus_power switch, user picks the blank provider →
   `pickAgentModel`, no framework or slot write, no "Saved";
-- unbound slot, thinking edited + framework change → `pickAgentModel`, no
-  framework or slot write;
+- (superseded in r4: thinking can no longer be edited on an unbound slot)
 - agent provider / model selects located by accessible name
   (`agentProviderSelect()` / `agentModelSelect()`), no positional combobox
   index for agent selects any more.
