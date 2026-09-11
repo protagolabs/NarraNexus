@@ -119,7 +119,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // same way.
   const [saved, flashSaved] = useFlashFlag(2500);
 
-  const load = useCallback(async () => {
+  // `keepHelperDraft`: after a partial save, reload the stored state but keep
+  // the user's still-unsaved helper edit in the draft.
+  const load = useCallback(async (keepHelperDraft?: Draft) => {
     setLoading(true);
     setError('');
     try {
@@ -145,7 +147,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       // The helper slot carries no framework (its save never sends one).
       const h = draftFrom(s.helper_llm?.effective ?? null, '');
       setAgentDraft(a);
-      setHelperDraft(h);
+      setHelperDraft(keepHelperDraft ?? h);
       setAgentInitial(a);
       setHelperInitial(h);
       // A soft failure of the framework endpoint leaves no framework list to
@@ -234,7 +236,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        if (!r.success) {
+          const failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+          if (!agentChanged) { setError(failure); return; }
+          // The agent half landed: reload it as saved, keep the helper edit.
+          await load(helperDraft);
+          onSaved?.();
+          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          return;
+        }
       }
       await load();
       onSaved?.();

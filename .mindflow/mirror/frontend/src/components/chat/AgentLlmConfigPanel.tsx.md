@@ -4,6 +4,16 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — helper failure after the agent slot saved says so
+
+Same class as ModelDefaultsSettings' partial save: `saveAll` writes the agent
+slot (framework included, one call) then the helper. A helper failure after the
+agent write used to show only the helper error with the agent still "dirty".
+Now `load(helperDraft)` reloads the agent half as saved, keeps the unsaved
+helper edit, calls `onSaved`, and shows `agentSavedHelperFailed`; a helper-only
+failure is the plain error. Pinned by
+`__tests__/AgentLlmConfigPanel.saveFeedback.test.tsx`.
+
 ## 2026-09-11 — a soft-failed framework load is reported
 
 `GET /agent-framework` answering `success:false` (no throw) left no framework
