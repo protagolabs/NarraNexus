@@ -11,6 +11,7 @@ stub: false
 `chat.team.drawerCategory` ×10),四项 members(Users2,计数)/ artifacts(ArtifactsGlyph,计数)/
 files(FolderOpen,计数)/ manage(Settings2,无计数,排最后)。label 仍唯一来源
 `TAB_LABEL_KEYS`。下方 09-03「只剩 id + labelKey」条已作废。
+`ArtifactsGlyph` 与 `DrawerSwitcherCategory` 类型都从 barrel `@/components/bookmarks` 导入。
 
 ## 2026-09-03 — 第四个 tab:manage
 

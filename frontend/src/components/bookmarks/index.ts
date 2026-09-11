@@ -10,6 +10,7 @@
  */
 
 export { BookmarkDrawer } from './BookmarkDrawer';
+export type { DrawerSwitcherTab, DrawerSwitcherCategory } from './BookmarkDrawer';
 
 export { BookmarkPanelHost } from './BookmarkPanelHost';
 

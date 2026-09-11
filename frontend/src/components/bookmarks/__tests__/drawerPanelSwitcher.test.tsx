@@ -14,8 +14,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { BookmarkDrawer, type DrawerSwitcherCategory } from '../BookmarkDrawer';
-import { allTabs, stripCategories, visibleCategories } from '../tabs';
+import { BookmarkDrawer, allTabs, stripCategories, visibleCategories, type DrawerSwitcherCategory } from '..';
 import { teamDrawerCategories } from '@/components/chat/team/teamTabs';
 
 const STUDIO_OPEN = { studioOpen: true, studioResumable: false };

@@ -15,8 +15,7 @@
  */
 
 import { Users2, FolderOpen, Settings2 } from 'lucide-react';
-import { ArtifactsGlyph } from '@/components/bookmarks/tabs';
-import type { DrawerSwitcherCategory } from '@/components/bookmarks/BookmarkDrawer';
+import { ArtifactsGlyph, type DrawerSwitcherCategory } from '@/components/bookmarks';
 
 export type TeamTabId = 'members' | 'artifacts' | 'files' | 'manage';
 
