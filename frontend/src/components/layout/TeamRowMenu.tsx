@@ -4,15 +4,13 @@
  * @date: 2026-06-23
  * @description: Kebab (⋮) context menu for the team group-chat row — Add
  * agent / Rename / Delete (a team has no profile page to carry them). Its
- * sibling for agent rows is AgentRowMenu (reinstated 2026-09-11). Inline
- * absolute panel (no portal) so it works inside the sidebar scroll container.
+ * sibling for agent rows is AgentRowMenu (reinstated 2026-09-11). Both are item
+ * lists on the shared RowKebabMenu dropdown shell.
  */
 
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react';
-import { useDismissOnOutside } from '@/hooks';
-import { cn } from '@/lib/utils';
+import { Pencil, Trash2, UserPlus } from 'lucide-react';
+import { RowKebabMenu } from './RowKebabMenu';
 
 export interface TeamRowMenuProps {
   /** Create a new agent already assigned to this team (#43). The old
@@ -30,94 +28,21 @@ export interface TeamRowMenuProps {
 
 export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpenChange }: TeamRowMenuProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  // Notify the parent from the event handler (NOT inside a setState updater —
-  // that runs during render and triggers a cross-component setState warning).
-  const setOpenAndNotify = (next: boolean) => {
-    setOpen(next);
-    onOpenChange?.(next);
-  };
-
-  const handleItem = (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpenAndNotify(false);
-    handler(e);
-  };
-  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpenAndNotify(false));
-
   return (
-    <div ref={containerRef} className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
-      <button
-        aria-label={t('layout.teamRowMenu.options')}
-        onClick={(e) => { e.stopPropagation(); setOpenAndNotify(!open); }}
-        className={cn(
-          'p-1 rounded-[var(--radius-xs)] transition-colors',
-          'hover:bg-[var(--nm-paper-warm)]',
-          open && 'bg-[var(--nm-paper-warm)]',
-        )}
-      >
-        <MoreVertical className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-      </button>
-
-      {open && (
-        <div
-          className={cn(
-            'absolute right-0 top-full mt-0.5 z-50',
-            'min-w-[120px] py-0.5',
-            'rounded-[var(--radius-sm)] border shadow-md',
-            'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
-          )}
-        >
-          <MenuItem
-            icon={<UserPlus className="w-3 h-3" />}
-            label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
-            disabled={addingAgent}
-            onClick={handleItem(onAddAgent)}
-          />
-          <MenuItem
-            icon={<Pencil className="w-3 h-3" />}
-            label={t('layout.teamRowMenu.rename')}
-            onClick={handleItem(onRename)}
-          />
-          <MenuItem
-            icon={<Trash2 className="w-3 h-3" />}
-            label={t('layout.teamRowMenu.delete')}
-            danger
-            onClick={handleItem(onDelete)}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  danger,
-  disabled,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
-        disabled && 'opacity-50 cursor-not-allowed',
-        danger
-          ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
-          : 'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)]',
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
+    <RowKebabMenu
+      ariaLabel={t('layout.teamRowMenu.options')}
+      onOpenChange={onOpenChange}
+      items={[
+        {
+          key: 'add-agent',
+          icon: <UserPlus className="w-3 h-3" />,
+          label: addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent'),
+          disabled: addingAgent,
+          onSelect: onAddAgent,
+        },
+        { key: 'rename', icon: <Pencil className="w-3 h-3" />, label: t('layout.teamRowMenu.rename'), onSelect: onRename },
+        { key: 'delete', icon: <Trash2 className="w-3 h-3" />, label: t('layout.teamRowMenu.delete'), danger: true, onSelect: onDelete },
+      ]}
+    />
   );
 }

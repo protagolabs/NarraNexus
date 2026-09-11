@@ -4,6 +4,15 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — the dropdown shell moved to RowKebabMenu
+
+The trigger, panel, item buttons, `useDismissOnOutside` wiring and the
+`onOpenChange` notification now live in the shared [[RowKebabMenu]]; this
+file is only the three items (Rename / Model & framework / Delete, panel
+`min-w-[150px]`). It had been a line-for-line copy of [[TeamRowMenu]]'s shell;
+one copy means a panel restyle cannot drift between the agent and team rows.
+Behaviour unchanged.
+
 ## 2026-09-11 — reinstated (OWNER-REQUIRED entry): Rename / Model & framework / Delete
 
 #383 (19aae3ada, 2026-09-04) deleted this file together with its mirror: every
