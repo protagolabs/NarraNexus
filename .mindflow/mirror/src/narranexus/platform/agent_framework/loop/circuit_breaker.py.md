@@ -44,6 +44,37 @@ True，行被无界地焊死在 PROBING。现在认领者给自己的 run 落一
 `test_run_recorder.py::test_a_probe_carrying_recorder_binds_its_run_as_the_claimant`。
 把 `_claimant_may_be_live` 退回「该 agent 任一存活 run」这三条 SQLite 用例变红。
 
+**I-3：按「起 turn 的构造点」重扫，六处新入口全部上闸门。** 第三轮的扫描口径漏了
+`channel_trigger_base`（且 plugins 目录根本没扫），IM 面上熔断器从未生效。新增
+`admit_turn(agent_id, db=None) -> TurnAdmission`：`should_skip` → `try_begin_probe(prior=)`
+一次做完，给那些「闸门与起 turn 之间已无分支」的入口用。完整清单（构造点 = `run_and_collect(` /
+`.run_stream(` / `BackgroundRun(` / `AgentRuntime()`，扫 src/backend/plugins 源码）：
+
+| 构造点 | 闸门 | 结算 |
+|---|---|---|
+| [[websocket.py]] `BackgroundRun` | should_skip + try_begin_probe | `BackgroundRun` |
+| [[openai_compat]] `BackgroundRun`（含 managed ingress） | 同上 | `BackgroundRun` |
+| [[message_bus_trigger]] lane / patrol → `run_and_collect` | 同上 | `run_and_collect` + 出口 release |
+| [[module_poller]] Path A `AgentRuntime()` | `peek_skip`（无结果信号，不认领） | — |
+| [[channel_trigger_base]] `_build_and_run_agent`（WeChat/Telegram/Slack/Discord/Matrix atomic…） | **新** `_circuit_admission` → `admit_turn` | `run_and_collect` + 出口 release |
+| [[channel_trigger_base]] 静默批 `_build_and_run_agent_silent_batch` | **新** `peek_skip`（不回复任何人，不值得占探测名额） | — |
+| [[lark_trigger]] 整体覆写的 `_build_and_run_agent` | **新** `_circuit_admission` | 同上 |
+| [[matrix_trigger]] `_build_and_run_agent_streaming` → `run_stream` | **新** `_circuit_admission` | **新** `run_stream(probe_token=)` + 出口 release |
+| [[chat_trigger]] A2A `tasks/send` → `run_and_collect` | **新** `admit_turn` | `run_and_collect` + 出口 release |
+| [[chat_trigger]] A2A `tasks/sendSubscribe` → `run_stream` | **新** `admit_turn` | `run_stream` + 出口 release |
+| job_trigger | 显式豁免：job 有自己的熔断器 | — |
+| skill_module routes（技能学习） | 显式豁免：owner 在面板手动发起的一次性 run，无重试风暴 | — |
+| client / background_run / agent_runtime | 接缝本身（只结算、不决定放行） | — |
+
+channel 入口只记探测结论、不记普通 streak（与 bus 一致）；被拒时在会话里回一句
+（`format_circuit_refusal`：paused →「暂停中，请联系 bot 所有者」，其余 →「稍后再试」），不静默丢，
+也不重试。门禁：`test_every_turn_entry_passes_the_breaker_gate`（按构造点扫，未设闸门且不在豁免表
+即红；豁免表条目若不再起 turn 也红）；行为：`tests/channel/test_channel_circuit_breaker_gate.py`。
+
+**新入口契约（取代第三轮版本）**：先过完所有「不起 turn」分支，再 `admit_turn`（或两步分开，
+中间有分支时）→ 把 `probe_token` 交给 `BackgroundRun` / `run_and_collect` / `run_stream` →
+出口 `release_probe(token)` 兜底。给不出结果信号、或不回复任何人的 run 只能 `peek_skip`。
+
 ## 2026-09-10（PR #394 review 第三轮）— 探测身份随 turn 走；只有能结算的入口才认领
 
 上一轮把认领下移到了 turn 起点，但 #394 预审指出两个根问题，本轮定案如下（上一轮条目中与
@@ -91,7 +122,7 @@ streak 不涨、延迟永不翻倍；修好的凭据也回不到 ACTIVE。现在
 - [[websocket.py]] 同样把 token 交给 `BackgroundRun`；认领后、`bg` 建出来之前抛异常时，外层
   `finally` 按 token 归还（`bg` 已存在则由 run 自己结算，此时归还会在活探测下误重挂）。
 
-**入口契约（新入口照此办理）**：`verdict = should_skip(...)` → 所有「不起 turn」分支 →
+**入口契约（第三轮版本；覆盖面与扫描口径已由第四轮 I-3 更正，见最上一节）**：`verdict = should_skip(...)` → 所有「不起 turn」分支 →
 `admission = try_begin_probe(..., prior=verdict)` → 把 `admission.probe_token` 交给 turn 的
 结算（`BackgroundRun` 或 `run_and_collect`），出口兜底 `release_probe(token)`。给不出结果
 信号的入口只能用 `peek_skip`，不许认领。扫描口径：`git grep -n "should_skip\|try_begin_probe\|

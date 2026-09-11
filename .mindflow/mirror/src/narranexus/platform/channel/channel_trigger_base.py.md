@@ -4,6 +4,24 @@ stub: false
 last_verified: 2026-09-10
 ---
 
+## 2026-09-10（PR #394 review 第四轮 I-3）— channel turn 过熔断器闸门
+
+此前 `_build_and_run_agent` 与静默批两处 `run_and_collect` 零闸门：一个凭据已死、被硬 PAUSED
+的 agent，群里每来一条消息仍起一个真 turn、打一次坏 key、失败再播回房间。现在：
+- `_circuit_admission(credential, message, agent_id) -> (TurnAdmission, refusal)`：在 prompt/anchor/
+  extra_data 都建好、紧挨 `run_and_collect` 之前调 `circuit_breaker.admit_turn`（所有「不起 turn」
+  分支——dedup、echo、非 @ 群消息、ingress guard——早已在 `_process_message` 上游返回）。被拒 →
+  经 `_send_error_fallback` 把 `format_circuit_refusal(reason)` 发回会话，并作为 turn 输出返回（inbox
+  照常记录）；不重试。放行 → `probe_token` 交给 `run_and_collect`（它结算探测），`finally` 里
+  `_release_unsettled_probe` 兜底（token CAS，已结算即 no-op）。
+- `format_circuit_refusal(reason)`：面向发消息的人（常常不是 owner），不给操作指引；paused →
+  「暂停中、请联系 bot 所有者」，cooling/probing →「稍后再试」。子类可覆写。
+- 静默批只用 `peek_skip`：它不回复任何人，占掉唯一的探测名额是浪费；任何 held 状态直接跳过这次
+  记忆写入并记日志。
+- `_breaker_db()`：优先用 trigger 自己的 `_db`，否则进程 client。
+覆写了 `_build_and_run_agent` 的子类（[[lark_trigger]]、[[matrix_trigger]] 流式路径）必须自己调
+`_circuit_admission` / `_release_unsettled_probe`。锁：`tests/channel/test_channel_circuit_breaker_gate.py`。
+
 ## 2026-09-10 — `safe_error_text` 覆盖 `_subscribe_loop` 之外的三个异常审计出口（PR #388 review M6 / round-2 M4-M5）
 
 **范围**：`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`、`EVENT_INBOX_WRITE_FAILED` 三处 + 断连两分支。

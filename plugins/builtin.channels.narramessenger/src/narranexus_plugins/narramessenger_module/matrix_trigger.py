@@ -1807,12 +1807,24 @@ class MatrixTrigger(ChannelTriggerBase):
         if turn_profile is not None:
             run_kwargs["turn_profile"] = turn_profile
 
+        # The base's circuit-breaker gate — this path replaces the base's
+        # run_and_collect with run_stream, so it calls the gate itself. The
+        # base send hook is a no-op on this channel, so the refusal is sent
+        # here through the same reply sender as a normal answer.
+        admission, refusal = await self._circuit_admission(
+            credential, message, agent_id
+        )
+        if refusal is not None:
+            await self._send_matrix_reply(credential, message.chat_id, refusal)
+            return refusal
+
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,
+            probe_token=admission.probe_token,
             **run_kwargs,
         )
         _t_voice_request = time.monotonic()
@@ -1834,6 +1846,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"[matrix:{credential.agent_id}] run_stream raised: "
                 f"{type(e).__name__}: {e}"
             )
+        finally:
+            # run_stream settles every exit it sees; this covers a consumer
+            # that stopped iterating before the stream could settle.
+            await self._release_unsettled_probe(agent_id, admission)
 
         # Finalize.
         if state.voice_bridge is not None:

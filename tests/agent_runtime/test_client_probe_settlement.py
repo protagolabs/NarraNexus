@@ -169,3 +169,61 @@ async def test_an_ordinary_trigger_run_never_touches_the_breaker(wire, db_client
     wire(_Runtime(_fatal("AuthenticationError", "401 invalid api key")))
     await _run()
     assert await AgentCircuitBreakerRepository(db_client).get(AGENT) is None
+
+
+async def _stream(**kw) -> list:
+    return [e async for e in InProcessAgentRuntimeClient().run_stream(
+        agent_id=AGENT, user_id="u", input_content="hi", **kw,
+    )]
+
+
+@pytest.mark.asyncio
+async def test_a_streamed_dead_credential_probe_climbs_the_ladder(wire, db_client):
+    """#394 second review I-3: the streaming entries (NarraMessenger, A2A
+    SSE) now claim too, so run_stream settles exactly like run_and_collect
+    — from the same error verdict (RunErrorTracker)."""
+    token = await _paused_and_claimed(db_client)
+    wire(_Runtime(_fatal("AuthenticationError", "401 invalid api key")))
+    await _stream(probe_token=token)
+    row = await AgentCircuitBreakerRepository(db_client).get(AGENT)
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD + 1
+
+
+@pytest.mark.asyncio
+async def test_a_streamed_repaired_probe_closes_the_breaker(wire, db_client):
+    token = await _paused_and_claimed(db_client)
+    wire(_Runtime(_reply()))
+    events = await _stream(probe_token=token)
+    assert len(events) == 1
+    row = await AgentCircuitBreakerRepository(db_client).get(AGENT)
+    assert row.cb_status == CbStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_a_streamed_probe_that_raises_or_stops(wire, db_client):
+    token = await _paused_and_claimed(db_client)
+    wire(_Runtime(raise_exc=RuntimeError("401 Unauthorized: invalid x-api-key")))
+    with pytest.raises(RuntimeError):
+        await _stream(probe_token=token)
+    row = await AgentCircuitBreakerRepository(db_client).get(AGENT)
+    assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD + 1
+
+    await AgentCircuitBreakerRepository(db_client).upsert_state(
+        AGENT, {"cooldown_until": utc_now() - timedelta(seconds=1)}
+    )
+    token = (await try_begin_probe(AGENT, db=db_client)).probe_token
+    wire(_Runtime(raise_exc=CancelledByUser("owner pressed stop")))
+    with pytest.raises(CancelledByUser):
+        await _stream(probe_token=token)
+    row = await AgentCircuitBreakerRepository(db_client).get(AGENT)
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD + 1
+    assert row.probe_token is None
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_stream_never_touches_the_breaker(wire, db_client):
+    wire(_Runtime(_fatal("AuthenticationError", "401 invalid api key")))
+    await _stream()
+    assert await AgentCircuitBreakerRepository(db_client).get(AGENT) is None

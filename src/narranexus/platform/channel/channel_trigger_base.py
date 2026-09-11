@@ -45,6 +45,7 @@ from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from narranexus.platform.agent_runtime.run_collector import RunError
+    from narranexus.platform.agent_framework.loop.circuit_breaker import TurnAdmission
 
 from loguru import logger
 
@@ -1780,6 +1781,15 @@ class ChannelTriggerBase(ABC):
             source_message_id=message.message_id or "",
         )
 
+        # Circuit-breaker gate, at the last point before the turn starts —
+        # every "no turn" branch (dedup, echo, non-@ group message, ingress
+        # guard) has already returned upstream in _process_message.
+        admission, refusal = await self._circuit_admission(
+            credential, message, agent_id
+        )
+        if refusal is not None:
+            return refusal
+
         try:
             result = await get_agent_runtime_client().run_and_collect(
                 agent_id=agent_id,
@@ -1787,6 +1797,7 @@ class ChannelTriggerBase(ABC):
                 input_content=tagged_prompt,
                 working_source=self.working_source,
                 trigger_extra_data=extra_data,
+                probe_token=admission.probe_token,
             )
         except Exception as e:  # noqa: BLE001
             # The runtime is DESIGNED to yield MessageType.ERROR rather than
@@ -1805,6 +1816,8 @@ class ChannelTriggerBase(ABC):
                 credential, message, err_text, already_replied=False
             )
             return err_text
+        finally:
+            await self._release_unsettled_probe(agent_id, admission)
 
         if result.is_error:
             logger.warning(
@@ -1978,6 +1991,23 @@ class ChannelTriggerBase(ABC):
             silent_batch_size=len(batch_messages),
         )
 
+        # A silent memory pass answers nobody and is not worth the single
+        # half-open probe slot, so it never claims one (same reason as
+        # module_poller Path A): read-only peek — any held state (cooling,
+        # paused, probing) skips the pass instead of running a turn against
+        # a credential the breaker is holding off.
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            peek_skip,
+        )
+
+        held, why = await peek_skip(agent_id, db=await self._breaker_db())
+        if held:
+            logger.info(
+                f"{type(self).__name__}[{agent_id}] silent batch of "
+                f"{len(batch_messages)} skipped: agent circuit-breaker {why}"
+            )
+            return
+
         try:
             result = await get_agent_runtime_client().run_and_collect(
                 agent_id=agent_id,
@@ -2015,6 +2045,84 @@ class ChannelTriggerBase(ABC):
             return ""
         from narranexus.platform.repository.agent_repository import AgentRepository
         return await AgentRepository(self._db).resolve_owner(agent_id)
+
+    # ────────────────────────────────────────────────────────────────────
+    # Agent circuit-breaker gate (shared by every channel turn entry)
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _breaker_db(self) -> Any:
+        """The DB client the breaker reads through: the trigger's own when
+        it has one, else the process client."""
+        if self._db is not None:
+            return self._db
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        return await get_db_client()
+
+    async def _circuit_admission(
+        self, credential: Any, message: ParsedMessage, agent_id: str
+    ) -> "tuple[TurnAdmission, Optional[str]]":
+        """The agent circuit-breaker's two-step gate for a channel turn that
+        is about to start (``circuit_breaker.admit_turn``).
+
+        Call it immediately before the runtime call, after every branch
+        that returns without a turn. Returns ``(admission, refusal)``:
+        ``refusal`` is None when the turn may run — hand
+        ``admission.probe_token`` to the runtime call (it settles the
+        probe) and call ``_release_unsettled_probe`` on the way out. When
+        refused, the person is told in the chat (never a silent drop) with
+        ``format_circuit_refusal`` and ``refusal`` is that text, which the
+        caller returns as the turn's output (the inbox records it).
+        Refused messages are not retried: a paused agent's retry storm is
+        exactly what the breaker exists to stop.
+        """
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            admit_turn,
+        )
+
+        admission = await admit_turn(agent_id, db=await self._breaker_db())
+        if admission.allowed:
+            return admission, None
+        logger.info(
+            f"{type(self).__name__}[{agent_id}] turn refused by the agent "
+            f"circuit-breaker ({admission.reason})"
+        )
+        refusal = self.format_circuit_refusal(admission.reason)
+        await self._send_error_fallback(
+            credential, message, refusal, already_replied=False
+        )
+        return admission, refusal
+
+    async def _release_unsettled_probe(
+        self, agent_id: str, admission: "TurnAdmission"
+    ) -> None:
+        """Exit belt for an admitted turn: hand back a probe claim the
+        runtime call never settled (it raised before reaching its own
+        settlement). A no-op without a token and once settled — the
+        release is a token CAS."""
+        if admission.probe_token is None:
+            return
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            release_probe,
+        )
+
+        await release_probe(agent_id, admission.probe_token, db=await self._breaker_db())
+
+    def format_circuit_refusal(self, reason: Optional[str]) -> str:
+        """The chat reply for a turn the agent circuit-breaker refused.
+
+        Addressed to whoever wrote in — often not the owner, so it names
+        no remedy (the owner was alerted when the agent paused and fixes
+        it in Settings). A pause reads as "can't reply right now"; cooling
+        and a probe in flight read as "try again shortly"."""
+        if (reason or "").startswith("paused"):
+            return (
+                "⚠️ This agent is paused and can't reply right now. "
+                "Please contact the bot's owner."
+            )
+        return (
+            "⚠️ This agent is briefly unavailable. Please try again shortly."
+        )
 
     def format_error_reply(self, error: "RunError") -> str:
         """

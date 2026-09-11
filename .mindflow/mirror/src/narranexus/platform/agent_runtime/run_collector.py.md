@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/run_collector.py
-last_verified: 2026-09-03
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-3）— `RunErrorTracker`：错误结论的唯一规则
+
+把 `collect_run` 里「最后一个错误胜出、但致命粘滞、verdict 类 severity 不被升级」的逻辑抽成
+`RunErrorTracker`（`observe(msg)` / `error` / `is_fatal`），`collect_run` 改用它，行为不变；
+[[client]] `run_stream` 用同一个对象给流式探测下结论——流式 turn 与收集式 turn 对「失败没有」不会
+各说各话。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

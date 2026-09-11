@@ -25,6 +25,14 @@ events 行落地 `state=completed` + `error_message` 为空,Run-observation
 `test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
 
 
+## 2026-09-10（PR #394 review 第四轮 I-3）— `run_stream(probe_token=)`：流式入口的探测结算
+
+流式入口（NarraMessenger 流式、A2A SSE）现在也认领探测，`run_stream` 与 `run_and_collect` 用同一
+接缝结算：流正常结束 → 按 [[run_collector]] `RunErrorTracker` 的结论（与 `collect_run` 同一条
+「最后一个错误 + 致命粘滞」规则）调 `settle_probe`；抛异常 → 失败；`CancelledByUser` → 归还；
+消费方关闭流（GeneratorExit，不能 await）→ `_spawn_settle` 在独立 task 上归还。无 token 不碰熔断器。
+锁：`test_client_probe_settlement.py` 的 `test_a_streamed_*` 与 `test_an_ordinary_stream_never_touches_the_breaker`。
+
 ## 2026-09-10（PR #394 review 第四轮 I-1）— `_new_recorder` 带上探测认领
 
 `_new_recorder(inherited_root_run_id, *, agent_id=None, probe_token=None)`；`run_and_collect`

@@ -91,9 +91,14 @@ class AgentRuntimeClient(Protocol):
         user_id: str,
         input_content: str,
         working_source: Any = None,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> AsyncGenerator:
-        """Yield runtime events live (caller iterates with ``async for``)."""
+        """Yield runtime events live (caller iterates with ``async for``).
+
+        ``probe_token``: same contract as ``run_and_collect`` — the
+        half-open probe claim this run carries; the client settles it from
+        the stream's own error verdict once the stream ends."""
         ...
 
 
@@ -228,6 +233,33 @@ def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
     task.add_done_callback(_log_failure)
 
 
+def _spawn_settle(agent_id: str, probe_token: Optional[str]) -> None:
+    """Hand a probe claim back (no verdict) on a task of its own — for the
+    GeneratorExit unwinding of ``run_stream``, which cannot await. No-op
+    without a token; a failure is logged, never silently GC'd."""
+    if probe_token is None:
+        return
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        settle_probe,
+    )
+
+    try:
+        task = asyncio.get_running_loop().create_task(
+            settle_probe(agent_id, probe_token, succeeded=None)
+        )
+    except RuntimeError:  # loop already closing — the grant bounds the claim
+        return
+
+    def _log_failure(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception() is not None:
+            logger.warning(
+                f"[agent-cb] deferred probe release for {agent_id} failed: "
+                f"{t.exception()}"
+            )
+
+    task.add_done_callback(_log_failure)
+
+
 class InProcessAgentRuntimeClient:
     """In-process transport — constructs AgentRuntime and drives it here.
 
@@ -346,13 +378,18 @@ class InProcessAgentRuntimeClient:
         user_id: str,
         input_content: str,
         working_source: Any = None,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> AsyncGenerator:
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            settle_probe,
+        )
         from narranexus.platform.agent_runtime.admission import (
             get_admission_controller,
         )
         from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
         from narranexus.platform.agent_runtime.cancellation import CancelledByUser
+        from narranexus.platform.agent_runtime.run_collector import RunErrorTracker
         from narranexus.platform.agent_runtime.run_recorder import (
             STATE_CANCELLED,
             STATE_COMPLETED,
@@ -367,7 +404,14 @@ class InProcessAgentRuntimeClient:
         if working_source is not None:
             extra_kwargs["working_source"] = working_source
 
-        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
+        recorder = await _new_recorder(
+            _inherited_root_run_id(extra_kwargs),
+            agent_id=agent_id,
+            probe_token=probe_token,
+        )
+        # The stream's error verdict — the SAME rule collect_run applies —
+        # so a streamed probe settles exactly like a collected one.
+        errors = RunErrorTracker()
         # Set when a terminal handler already scheduled a DEFERRED finalize
         # (a task, not awaited) — the recorder's state is still non-terminal
         # at that instant, so the finally-net below must not double-spawn a
@@ -383,6 +427,7 @@ class InProcessAgentRuntimeClient:
                     input_content=input_content,
                     **extra_kwargs,
                 ):
+                    errors.observe(event)
                     if recorder is not None:
                         try:
                             await recorder.record(normalise_event(event))
@@ -394,10 +439,24 @@ class InProcessAgentRuntimeClient:
                     yield event
             if recorder is not None:
                 await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
+            # Half-open probe settlement, after the events row is terminal —
+            # the same seam and vocabulary as run_and_collect. No-op without
+            # a token.
+            if probe_token is not None:
+                err = errors.error
+                await settle_probe(
+                    agent_id,
+                    probe_token,
+                    succeeded=not errors.is_fatal,
+                    error_type=err.error_type if err is not None else None,
+                    error_message=err.error_message if err is not None else None,
+                )
         except CancelledByUser as e:
             if recorder is not None:
                 with suppress(Exception):
                     await recorder.finalize(STATE_CANCELLED, cancel_reason=e.reason)
+            # A stop says nothing about the credential: hand the probe back.
+            await settle_probe(agent_id, probe_token, succeeded=None)
             raise
         except GeneratorExit:
             # Consumer closed the stream mid-run; the underlying run dies
@@ -409,6 +468,9 @@ class InProcessAgentRuntimeClient:
                     cancel_reason="stream consumer closed",
                 )
                 finalize_deferred = True
+            # No verdict either: the probe goes back on a task of its own,
+            # for the same reason.
+            _spawn_settle(agent_id, probe_token)
             raise
         except Exception as e:
             if recorder is not None:
@@ -418,6 +480,13 @@ class InProcessAgentRuntimeClient:
                         error_type=type(e).__name__,
                         error_message=str(e),
                     )
+            await settle_probe(
+                agent_id,
+                probe_token,
+                succeeded=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             raise
         finally:
             # Host task cancelled at a suspension point (deploy restart,

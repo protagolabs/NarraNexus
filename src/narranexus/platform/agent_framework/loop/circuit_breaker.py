@@ -911,6 +911,24 @@ async def try_begin_probe(
     return TurnAdmission(allowed=True, reason=None, probe_token=token)
 
 
+async def admit_turn(agent_id: str, db=None) -> TurnAdmission:
+    """Both gate steps at once, for an entry point that has nothing left to
+    decide between "should this agent run?" and "start the turn" — the IM
+    channel triggers and the A2A server call it immediately before their
+    runtime call, after every branch that returns without a turn.
+
+    ``should_skip`` (a refusal carries its reason) → ``try_begin_probe``
+    reusing that read. Same contract as the two steps: a won probe comes
+    back as ``probe_token``, which the caller MUST hand to its runtime call
+    (``run_and_collect`` / ``run_stream`` settle it) and release on its
+    exit (``release_probe`` is a no-op once settled). Fail-open on read
+    errors exactly like the two steps."""
+    verdict = await should_skip(agent_id, db=db)
+    if verdict.skip:
+        return TurnAdmission(allowed=False, reason=verdict.reason)
+    return await try_begin_probe(agent_id, db=db, prior=verdict)
+
+
 async def _claimant_may_be_live(db, row: AgentCircuitBreaker) -> bool:
     """Whether the run holding ``row``'s probe claim may still be running.
 

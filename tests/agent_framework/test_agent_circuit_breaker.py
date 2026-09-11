@@ -1189,3 +1189,49 @@ def test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker():
     the loose `is_auth_like_error`; the breaker must keep using the loose one
     or an owner-actionable 403 with no status digits files as BUSINESS."""
     assert classify_agent_error("X", "request forbidden by upstream policy") == ErrorCategory.AUTH
+
+
+# Files that construct a turn but are deliberately NOT gated, with the reason.
+_UNGATED_TURN_CONSTRUCTORS = {
+    # The runtime seams themselves: they settle a probe their caller won,
+    # they never decide whether a turn may start.
+    "src/narranexus/platform/agent_runtime/client.py": "runtime client seam",
+    "src/narranexus/platform/agent_runtime/background_run.py": "run object built after the WS/openai gate",
+    "src/narranexus/platform/agent_runtime/agent_runtime.py": "the runtime (plus its dev-only demo function)",
+    # Jobs are scheduled work with their own consecutive-failure breaker
+    # (job_trigger); the real-time breaker gates dialogue turns only.
+    "plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py": "own job breaker",
+    # Skill study is a one-shot run the owner starts from the Skills panel;
+    # nothing re-triggers it, so there is no retry storm to hold off.
+    "plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py": "owner-initiated one-shot",
+}
+
+
+def test_every_turn_entry_passes_the_breaker_gate():
+    """#394 second review I-3: the sweep is by TURN CONSTRUCTION POINT, not
+    by existing gate — the first sweep missed channel_trigger_base (and the
+    Lark / NarraMessenger / A2A entries) because it looked where gates
+    already were. Every production file that starts a turn must call a gate
+    (the two steps, ``admit_turn``, the channel helper, or ``peek_skip`` for
+    entries that cannot settle) or be listed above with its reason."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    construct = re.compile(r"run_and_collect\(|\.run_stream\(|BackgroundRun\(|AgentRuntime\(\)")
+    gate = re.compile(r"\b(should_skip|try_begin_probe|admit_turn|peek_skip|_circuit_admission)\(")
+    files = [*root.joinpath("src").rglob("*.py"), *root.joinpath("backend").rglob("*.py")]
+    files += [p for p in root.joinpath("plugins").rglob("*.py") if "/src/" in p.as_posix()]
+    ungated = []
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        if not construct.search(text):
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel in _UNGATED_TURN_CONSTRUCTORS or gate.search(text):
+            continue
+        ungated.append(rel)
+    assert ungated == []
+    # The exemption list must not rot: every entry still constructs a turn.
+    for rel in _UNGATED_TURN_CONSTRUCTORS:
+        assert construct.search((root / rel).read_text(encoding="utf-8")), rel
