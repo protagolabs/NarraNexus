@@ -1,8 +1,20 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/adapter/nexus_agent.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 按协议发 per-agent 请求标识（`_request_identity_params`）
+
+`_build_request_payload` 把 `_request_identity_params(protocol, base_url, agent_id)` 并入 `llm_extra`，值取 agent_id：
+- anthropic 协议 → litellm `user`，由 litellm anthropic 路由翻成线上的 `metadata.user_id`（Messages API 唯一的 metadata 字段）。
+- openai 协议 → `extra_body={"prompt_cache_key": agent_id}`（缓存路由提示）。必须走 `extra_body`：litellm 1.94 的 `acompletion` 没有这个参数，直接当 kwarg 传会被静默丢掉（2026-09-11 实测）。`extra_body` 会绕过 `drop_params`，所以只发给自家网关（`_is_own_gateway_url`，上游 NetMind 实测返回 200）和显式写出的 OpenAI 官方 base_url（复用 `model_catalog.is_official_provider`，不在插件里另养一份 host 表）；任意 OpenAI 兼容的 BYOK host 一律不发，避免严格校验的 host 返回 400。
+- **空 base_url 一律不发（fail-closed）**：此时 `model_client._litellm_model` 会把 model id 原样交给 litellm 按前缀路由（`groq/…`、`mistral/…`），adapter 无法知道最终目的地。注意 `is_official_provider("openai", "")` 返回 True，所以要先判 `base_url` 非空。
+- anthropic 协议有意不按 host 门禁：`metadata.user_id` 是 Messages API 自己的字段。
+- agent_id 缺失或为占位符 `_PLACEHOLDER_AGENT_ID`（`"agent"`，options 里的 agent_id 默认值也引用它）→ 不加任何字段。
+- 并入 `llm_extra` 走 `_merge_llm_extra`：dict 类型的值（`extra_body`）按键浅合并，与 `extra_headers` 的做法一致，已有生产者写入的子键不会被覆盖。
+
+测试 `tests/agent_framework/test_nexus_request_identity.py`：payload 断言覆盖两种协议、自家网关/官方/BYOK/空 base_url、合并和缺失 id；wire 测试经 `LitellmClient` 打到本地抓包 server，断言请求体里有 `prompt_cache_key` 和 `metadata.user_id`，并反向断言 openai 请求体没有 `metadata`、anthropic 请求体顶层没有 `user`（确认是被翻译而不是原样透传）。
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 

@@ -43,6 +43,9 @@ from narranexus.platform.agent_framework.api_config import (
     claude_config,
     codex_config,
 )
+from narranexus.platform.agent_framework.providers.model_catalog import (
+    is_official_provider,
+)
 from narranexus.platform.agent_framework.loop.cancellation_view import CancellationView
 from narranexus.platform.schema.turn_profile import TurnProfile
 from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
@@ -56,6 +59,8 @@ from narranexus.platform.utils.logging import timed
 _STREAM_LIMIT_BYTES = 32 * 1024 * 1024  # image-bearing lines reach 100s of KB
 _CANCEL_POLL_S = 0.2
 _STDERR_TAIL_BYTES = 4096
+# agent_id stand-in when the caller passes none; never a real identity.
+_PLACEHOLDER_AGENT_ID = "agent"
 
 
 def start_stderr_drain(process: asyncio.subprocess.Process) -> "asyncio.Task[bytes]":
@@ -360,6 +365,10 @@ class NexusAgent:
             _headers = dict(llm_extra.get("extra_headers") or {})
             _headers["X-NarraNexus-Identity-Token"] = _identity_token
             llm_extra["extra_headers"] = _headers
+        _merge_llm_extra(
+            llm_extra,
+            _request_identity_params(protocol, base_url, kwargs.get("agent_id")),
+        )
         # Per-turn fast-mode profile. Arrives as the in-process model or as
         # its model_dump() dict off the executor wire — normalize once here.
         # Absent profile MUST leave the payload semantically identical to
@@ -375,7 +384,7 @@ class NexusAgent:
             llm_extra["reasoning_effort"] = profile.reasoning_effort
         options: dict[str, Any] = {
             "cwd": self.working_path,
-            "agent_id": str(kwargs.get("agent_id") or "agent"),
+            "agent_id": str(kwargs.get("agent_id") or _PLACEHOLDER_AGENT_ID),
             "env": dict(extra_env or {}),
             # Collaborative areas (e.g. the team shared folder) sit outside
             # this agent's workspace by design; the caller decides which
@@ -635,6 +644,51 @@ def _resolve_provider() -> tuple[str, str, str, str, str]:
             codex_config.auth_type or "api_key",
         )
     return ("anthropic", "", "", "", "api_key")
+
+
+def _merge_llm_extra(llm_extra: dict[str, Any], params: dict[str, Any]) -> None:
+    """Fold ``params`` into ``llm_extra``; dict-valued passthroughs
+    (``extra_body``) merge key-wise like ``extra_headers`` so another
+    producer's sub-keys survive."""
+    for key, value in params.items():
+        current = llm_extra.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            value = {**current, **value}
+        llm_extra[key] = value
+
+
+def _request_identity_params(
+    protocol: str, base_url: str, agent_id: Any
+) -> dict[str, Any]:
+    """Per-agent request identifiers, in each protocol's own vocabulary.
+
+    - anthropic: ``metadata.user_id`` (the Messages API's only metadata
+      field). Passed as litellm's ``user``, which its anthropic route
+      translates into ``metadata.user_id``.
+    - openai: ``prompt_cache_key`` (cache-routing hint: same prefix + same
+      key lands on the same cache host). Sent via ``extra_body`` because
+      litellm 1.94's ``acompletion`` has no such parameter and silently
+      drops it as a plain kwarg (measured 2026-09-11). ``extra_body`` also
+      bypasses ``drop_params``, so it goes only to hosts known to accept
+      it: our own gateway (NetMind upstream answers 200) and an explicit
+      official OpenAI base_url (``is_official_provider``). Arbitrary
+      OpenAI-compatible BYOK hosts may reject unknown fields.
+      An EMPTY base_url is fail-closed: model_client._litellm_model then
+      hands the model id to litellm's prefix routing (``groq/...``,
+      ``mistral/...``), so the destination is not knowable here.
+
+    No real agent id (missing or the placeholder) → nothing.
+    """
+    agent = str(agent_id or "")
+    if not agent or agent == _PLACEHOLDER_AGENT_ID:
+        return {}
+    if protocol == "anthropic":
+        return {"user": agent}
+    if base_url and (
+        _is_own_gateway_url(base_url) or is_official_provider("openai", base_url)
+    ):
+        return {"extra_body": {"prompt_cache_key": agent}}
+    return {}
 
 
 def _terminate_group(pid: int) -> None:
