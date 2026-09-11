@@ -4,6 +4,14 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — `output_truncated` 映成 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`
+
+TYPE_ERROR 的 error_type 若是 loop 自己的 `ErrorType.OUTPUT_TRUNCATED`，不再折成 `invalid_request`，而是映成
+平台常量 `"output_budget_exhausted"`（[[runtime_message]]）；其余不在 `LEGACY_SAFE_ERROR_TYPES` 的类型照旧折叠。
+这是 [[circuit_breaker]] 豁免的结构化信号：只有 loop 自己构造 OUTPUT_TRUNCATED（provider 错误分类器不会产出它），
+所以调用方/provider 回显的文本无法伪造它。下游核过：`classify_self_serviceable` 对该类型返回 None、
+`_is_auth_failure` 不命中、`_fallback_skip_decision` 与原 `invalid_request` 同路径、前端无按 `invalid_request` 分支。
+
 ## 2026-09-10（B-05/#127）— TYPE_ERROR 翻译透传框架自报的 `fatal`
 
 `response.error` 的 data 带 `"fatal": bool(payload.get("fatal", True))`，原样透传 loop.py `_fail()`

@@ -14,6 +14,7 @@ import pytest
 from narranexus.platform.agent_framework.loop import circuit_breaker as cb
 from narranexus.platform.agent_framework.loop.circuit_breaker import (
     AUTH_QUOTA_PAUSE_THRESHOLD,
+    breaker_exemption,
     classify_agent_error,
     record_failure,
     record_success,
@@ -25,7 +26,8 @@ from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
 from narranexus.platform.schema import (
-    OUTPUT_BUDGET_EXHAUSTED_MARKER,
+    EXECUTOR_INFRA_ERROR_TYPE,
+    OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
     CbStatus,
     ErrorCategory,
     PausedReason,
@@ -186,28 +188,58 @@ async def test_executor_infra_leaves_prior_streak_intact(db_client):
 @pytest.mark.asyncio
 async def test_output_budget_exhaustion_does_not_advance_breaker(db_client):
     """A thinking model that spent its whole output budget on reasoning
-    (NexusPower OUTPUT_TRUNCATED, folded to ``invalid_request`` by its event
-    adapter) is deterministic for that model — cooling the agent would only
-    reject the user's next message (binding rule #15). Contrast case: the
-    same error_type WITHOUT the marker is still the BUSINESS residual and
-    cools, so the exemption is keyed on the marker, not the type."""
+    (NexusPower OUTPUT_TRUNCATED, carried as the structured
+    ``output_budget_exhausted`` error_type) is deterministic for that model
+    — cooling the agent would only reject the user's next message (binding
+    rule #15)."""
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_budget"
     message = (
-        f"model output truncated: {OUTPUT_BUDGET_EXHAUSTED_MARKER} "
+        "model output truncated: thinking exhausted the output budget "
         "(max_tokens=8192)"
     )
-    await record_failure(aid, "invalid_request", message, db=db_client)
-    await record_failure(aid, "invalid_request", message, db=db_client)
+    await record_failure(aid, OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, message, db=db_client)
+    await record_failure(aid, OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, message, db=db_client)
     assert await repo.get(aid) is None  # no cooling/pause row created
     assert await should_skip(aid, db=db_client) == (False, None)
 
+
+@pytest.mark.asyncio
+async def test_budget_phrase_in_message_alone_does_not_exempt(db_client):
+    """The exemption is keyed on the structured error_type, never on message
+    text: a provider error that merely echoes the phrase (caller-controlled
+    content) must still advance the breaker."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_echo"
     await record_failure(
-        aid, "invalid_request", "unsupported parameter: foo", db=db_client
+        aid,
+        "invalid_request",
+        "400 bad request: prompt contained 'model output truncated: thinking "
+        "exhausted the output budget (max_tokens=8192)'",
+        db=db_client,
     )
     row = await repo.get(aid)
     assert row is not None
     assert row.cb_status == CbStatus.COOLING.value
+    assert row.consecutive_failure_count == 1
+
+
+def test_breaker_exemptions_name_each_class_and_nothing_else():
+    """One table lists every failure the breaker ignores; anything else
+    advances it."""
+    assert breaker_exemption(
+        "config_actionable", "the model's maximum context length is 8192 tokens"
+    ) == "self-serviceable"
+    assert breaker_exemption(
+        EXECUTOR_INFRA_ERROR_TYPE, "out of memory"
+    ) == "executor-infra (platform-side)"
+    assert breaker_exemption(
+        OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, ""
+    ) == "output-budget exhaustion"
+    assert breaker_exemption("TimeoutError", "read timed out") is None
+    assert breaker_exemption(
+        "invalid_request", "thinking exhausted the output budget"
+    ) is None
 
 
 @pytest.mark.asyncio

@@ -304,9 +304,10 @@ class ErrorMessage(BaseRuntimeMessage):
             failure operationally. Frontend renders the reply as normal and
             surfaces this error as a warning badge.
           - "recovered_after_reply": the agent had already delivered a
-            reply through one of its delivery tools before a fatal hit —
-            named generically because this schema is shared by every
-            surface and each one has a different tool. No fallback
+            reply before a fatal hit — through one of its delivery tools,
+            or, on a turn with no delivery tool, by writing the reply as
+            plain text. Named generically because this schema is shared by
+            every surface and each one has a different tool. No fallback
             runs (we already spoke), but the badge tells the user the turn
             didn't finish all planned work.
           Default is "fatal" to preserve historical behaviour; new error
@@ -376,17 +377,18 @@ SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"
 # rules #14/#15): surfaces the truth + a retry hint only — never a force-stop.
 EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"
 
-# error_message marker for a framework turn whose model spent its whole output
+# error_type marker for a framework turn whose model spent its whole output
 # budget on hidden reasoning and never produced an answer (NexusPower's
 # OUTPUT_TRUNCATED, after its one budget-doubling replay). The cause is the
 # platform's own budget choice meeting a thinking-by-default model the user
 # picked — waiting does not heal it, and cooling the agent would only reject the
 # user's next message. The circuit breaker therefore stays out of it entirely
-# (binding rule #15: never be the interruption source). Carried in the MESSAGE,
-# not the error_type, because the framework's event adapter folds unknown error
-# types into ``invalid_request`` before they reach the breaker; the message
-# survives verbatim. Producer and consumer both import this one constant.
-OUTPUT_BUDGET_EXHAUSTED_MARKER = "thinking exhausted the output budget"
+# (binding rule #15: never be the interruption source). Carried as a STRUCTURED
+# error_type, never matched in the message: the message can echo provider- and
+# user-controlled text, so a phrase match would let caller content switch the
+# breaker off. Only NexusPower's event adapter emits it (mapped from the loop's
+# own ErrorType.OUTPUT_TRUNCATED, which no provider error classifies into).
+OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE = "output_budget_exhausted"
 
 
 # Step-3 pipeline phase identity. Step 3 splits into two user-visible phases

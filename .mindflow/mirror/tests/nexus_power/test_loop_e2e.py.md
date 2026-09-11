@@ -8,7 +8,11 @@ stub: false
 
 已通过表达工具答过话后再 `_fail` → payload `fatal is False`；本轮从未表达过 → `fatal is True`。
 无表达工具的 plain-text turn：流出过文本后失败 → `False`，没流出文本 → `True`；有表达工具时 monologue 文本
-不算交付 → `True`。截断失败文案携带熔断豁免 marker 且报实际发出的 `max_tokens`。
+不算交付 → `True`。只在中途断掉的 attempt 里流出、被 `discard_step()` 丢弃的文本不算交付 → `True`；
+提交时尚无表达工具的文本、之后 `expand()` 中途授予表达工具再失败 → 仍 `False`；授予之后才写的文本 → `True`
+（`FakeModel` 的 step 列表可在事件中间放 Exception，模拟流出前缀后断流；`_GrantingTools` 执行 `expand` 时调
+`add_tools`）。截断失败经 event_adapter 到平台的 error_type 是 `output_budget_exhausted`（普通 provider 错误不是），
+文案报实际发出的 `max_tokens`。
 
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 的截断重试
 

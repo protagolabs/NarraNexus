@@ -4,14 +4,17 @@ last_verified: 2026-09-11
 stub: false
 ---
 
-## 2026-09-11 — 输出预算耗尽不推进熔断
+## 2026-09-11 — 输出预算耗尽不推进熔断；三道豁免收成一张表
 
-`record_failure` 在 self-serviceable / executor-infra 两道豁免之后新增第三道：`error_message` 含
-`OUTPUT_BUDGET_EXHAUSTED_MARKER`（[[runtime_message]]，由 nexus_power loop.py 的 OUTPUT_TRUNCATED 失败文案携带）
-即早退——不冷却、不暂停、不动计数。成因是平台自己的预算取值 + 用户选的会思考的模型，对 ceiling==地板的
-模型是确定性的，冷却只会拒掉用户的下一条消息（铁律 #15）。按 message 而不按 error_type 匹配：event_adapter
-会把未知类型折成 `invalid_request`，只有 message 能原样到达这里。marker 是唯一短语，不用 `max_tokens` 这种宽词。
-测试：`test_output_budget_exhaustion_does_not_advance_breaker`（同 error_type 无 marker 仍冷却作对照）。
+「完全不碰熔断器」的失败类收进 `_BREAKER_EXEMPTIONS`（名字 + 谓词，按序：self-serviceable →
+executor-infra → output-budget exhaustion），`breaker_exemption(error_type, error_message)` 返回命中的名字或
+None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各谓词旁保留原有的事故论证注释。
+第三道是新增的：`error_type == OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`（[[runtime_message]]，由 nexus_power
+[[event_adapter]] 从 loop 自己的 OUTPUT_TRUNCATED 映出）——不冷却、不暂停、不动计数。成因是平台自己的预算取值 +
+用户选的会思考的模型，确定性、等待不愈，冷却只会拒掉用户的下一条消息（铁律 #15）。**只认结构化 error_type、
+绝不匹配 message**：message 会回显 provider/用户可控文本，短语匹配等于让调用方内容关掉熔断器。
+测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
+（message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
 ## 2026-07-30 — `_is_out_of_credit` 改为成员判定
 

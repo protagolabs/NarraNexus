@@ -32,7 +32,6 @@ from typing import Any, AsyncIterator
 
 from loguru import logger
 
-from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_MARKER
 from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import (
     ErrorType,
     LoopError,
@@ -105,7 +104,8 @@ class NexusPowerLoop:
         self._closed = False
         self._continuation_turn = False  # prefill repair, armed at most once
         self._turn_expressed = False     # any expressive call seen this turn
-        self._turn_text_streamed = False  # any non-empty text delta this turn
+        # Any COMMITTED text on a step that ran with no expression tool.
+        self._turn_text_streamed = False
         self._expression_nudged = False  # mute-turn nudge, armed at most once
         self._truncation_retried = False  # output-budget doubling, armed at most once
         # Floor multiplier for the NEXT ``_build_request()``, carried on
@@ -143,6 +143,18 @@ class NexusPowerLoop:
                     except Exception as exc:  # noqa: BLE001 - classified below
                         error = a.errors.classify(exc)
                     if error is None:
+                        # Delivery is sampled when the step COMMITS, never
+                        # when a delta arrives: text from an attempt that
+                        # later broke is thrown away by ``discard_step()``
+                        # below and was never delivered. The expression
+                        # contract is read at the same moment because
+                        # ``expand()`` can grant delivery tools mid-turn
+                        # (DISPATCH runs after this point); only on a step
+                        # with NO expression tool is the plain text the
+                        # delivered reply — with one, text is monologue
+                        # nobody receives. See ``_fail``.
+                        if step_meta.get("had_text") == "1" and not a.expression.names():
+                            self._turn_text_streamed = True
                         break
                     # The failed attempt may have streamed text and tool
                     # calls into the ledger before it broke. Every path
@@ -272,8 +284,8 @@ class NexusPowerLoop:
                     async for ev in self._fail(
                         LoopError(
                             ErrorType.OUTPUT_TRUNCATED,
-                            f"model output truncated: {OUTPUT_BUDGET_EXHAUSTED_MARKER} "
-                            f"(max_tokens={current_budget})",
+                            "model output truncated: thinking exhausted the "
+                            f"output budget (max_tokens={current_budget})",
                         )
                     ):
                         yield ev
@@ -567,10 +579,6 @@ class NexusPowerLoop:
                 # truncation.
                 if model_event.payload.get("text"):
                     step_meta["had_text"] = "1"
-                    # Turn-level twin of ``had_text`` (step_meta is cleared
-                    # every attempt): on a turn with no expression tool the
-                    # plain text IS the delivered reply — see ``_fail``.
-                    self._turn_text_streamed = True
             if kind == "done" and step_meta is not None:
                 step_meta["stop_reason"] = str(
                     model_event.payload.get("stop_reason", "")
@@ -645,11 +653,8 @@ class NexusPowerLoop:
                     # ``fatal`` contract: see response_processor's
                     # DATA_TYPE_ERROR handling. This is the loop's own
                     # verdict on "delivered nothing": no expressive call
-                    # this turn, and — on a turn with NO expression tool,
-                    # where the plain text is the delivered artifact (see
-                    # harness/expression.py) — no streamed text either.
-                    # With expression tools present, text is monologue
-                    # nobody receives, so it never counts.
+                    # this turn, and no committed plain-text reply (see
+                    # where ``_turn_text_streamed`` is set in run_turn).
                     "fatal": not self._turn_delivered(),
                 },
             )
@@ -673,9 +678,7 @@ class NexusPowerLoop:
 
     def _turn_delivered(self) -> bool:
         """Has this turn put anything in front of its audience yet?"""
-        if self._turn_expressed:
-            return True
-        return not self._a.expression.names() and self._turn_text_streamed
+        return self._turn_expressed or self._turn_text_streamed
 
     async def _log(self, event: LoopEvent) -> LoopEvent:
         if event.type in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):

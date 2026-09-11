@@ -9,16 +9,23 @@ stub: false
 `_fail()` 的 TYPE_ERROR payload 带 `"fatal"`，契约正文只在 [[response_processor]]（终局 **且** 未交付）。
 本框架的判据 `_turn_delivered()` 两条腿：
 - 本 turn 见过表达型调用（`_turn_expressed`，DISPATCH 维护）→ 已交付；
-- 或本 turn **没有任何表达工具**（`expression.names()` 为空，team patrol 这类 plain-text turn，平台直接
-  投递正文，见 harness/expression.py 文件头）且流出过非空文本（`_turn_text_streamed`，`_stream_step`
-  置位；`step_meta` 每次 attempt 都 clear，所以另存 turn 级标志）→ 已交付。
-有表达工具时文本是 monologue、不投递给任何人，**不**算交付。
+- 或本 turn 有**已提交**的 plain-text 回复（`_turn_text_streamed`）→ 已交付。它只在 run_turn 里某个 step
+  **提交成功那一刻**（`if error is None:`，`step_meta` 每次 attempt 都 clear，所以必须就地读）置位，条件是
+  该 step 有文本（`had_text`）**且此刻**没有任何表达工具（`expression.names()` 为空，team patrol 这类
+  plain-text turn，平台直接投递正文，见 harness/expression.py 文件头）。
+  - 不在 delta 到达时置位：中途断掉的 attempt 的半句会被 `discard_step()` 丢弃，没交付就不能算。
+  - `names()` 在提交时快照而不是在 `_fail` 时读：`expand()` 可在 turn 中途授予表达工具（DISPATCH 在提交
+    之后），失败时刻再读会把之前已作为正文交付的文本事后判成 monologue。
+有表达工具时文本是 monologue、不投递给任何人，**不**算交付。`_turn_delivered()` 只是两个布尔的或。
 
 测试：`test_fail_after_an_already_expressed_reply_is_not_marked_fatal`、
 `test_fail_with_no_prior_expression_is_marked_fatal`、
 `test_plain_text_turn_that_already_spoke_is_not_marked_fatal`、
 `test_plain_text_turn_that_never_spoke_is_still_fatal`、
-`test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery`。
+`test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery`、
+`test_plain_text_discarded_by_a_broken_attempt_is_not_delivery`、
+`test_plain_text_committed_before_a_mid_turn_grant_is_still_delivery`、
+`test_plain_text_after_a_mid_turn_grant_is_monologue`。
 
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 不再被 STOP_CHECK 误判成 NO_MORE_ACTIONS
 
@@ -47,7 +54,7 @@ stub: false
   或用户在 `params.extra` 钉了 `max_tokens`（`requested_max_tokens` 原样返回钉住值，两次求值
   相等）。后者今天无触发面（平台没有任何代码往 `llm_extra` 写 `max_tokens`）。失败文案报
   `current_budget`，即实际发出的值。
-- 失败文案含 `OUTPUT_BUDGET_EXHAUSTED_MARKER`（[[runtime_message]]），熔断据此不记账
+- 失败的 error_type 是 `OUTPUT_TRUNCATED`，[[event_adapter]] 把它映成平台的 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`（[[runtime_message]]），熔断据此不记账；文案不再承担任何匹配职责
   （[[circuit_breaker]]）。重放是 `continue` 回外层循环，由外层重建 request，这里不重复构建。
 - 重放前调 `ledger.discard_step()`：空 step 在 `_turn_messages` 里什么都没留下，但它的
   `_step_thinking` 没被 `_fold_step_message` 的 early return 清掉；不 discard 的话，

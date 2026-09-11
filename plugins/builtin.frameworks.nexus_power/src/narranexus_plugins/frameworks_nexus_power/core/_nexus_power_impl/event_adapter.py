@@ -51,6 +51,9 @@ from narranexus.contracts.agent_events import (
     TYPE_RAW_RESPONSE_EVENT,
     TYPE_RUN_ITEM_STREAM_EVENT,
 )
+from narranexus.platform.schema.runtime_message import (
+    OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+)
 from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import (
     LEGACY_SAFE_ERROR_TYPES,
     ErrorType,
@@ -174,7 +177,13 @@ class LegacyEventAdapter:
             ]
         if etype == TYPE_ERROR:
             error_type = str(payload.get("error_type", ErrorType.UNKNOWN.value))
-            if error_type not in LEGACY_SAFE_ERROR_TYPES:
+            if error_type == ErrorType.OUTPUT_TRUNCATED.value:
+                # Only the loop itself raises OUTPUT_TRUNCATED (no provider
+                # error classifies into it), so this is a trusted structured
+                # signal: the platform's circuit breaker keys its exemption
+                # on it instead of on message text callers can influence.
+                error_type = OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+            elif error_type not in LEGACY_SAFE_ERROR_TYPES:
                 error_type = ErrorType.INVALID_REQUEST.value
             return [
                 {

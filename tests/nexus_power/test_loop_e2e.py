@@ -14,6 +14,7 @@ import dataclasses
 
 import pytest
 
+from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
 from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
@@ -66,7 +67,6 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.c
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     resolve_profile,
 )
-from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_MARKER
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
@@ -99,6 +99,8 @@ class FakeModel:
         if isinstance(step, Exception):
             raise step
         for event in step:
+            if isinstance(event, Exception):
+                raise event  # the step streamed a prefix, then broke
             yield event
 
 
@@ -1183,6 +1185,78 @@ async def test_plain_text_turn_that_already_spoke_is_not_marked_fatal():
 
 
 @pytest.mark.asyncio
+async def test_plain_text_discarded_by_a_broken_attempt_is_not_delivery():
+    """Text streamed by an attempt that then broke is thrown away by
+    ``discard_step()`` — it never reached the ledger, so it was not
+    delivered. A plain-text turn whose only text came from such an
+    attempt must stay ``fatal: True`` (delivery is sampled when the step
+    commits, not when a delta arrives)."""
+    model = FakeModel([
+        [_text("status: all gre"), Exception("totally unclassified provider failure")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(
+        _assembly(model, FakeTools(), expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+class _GrantingTools(FakeTools):
+    """Executing ``expand`` grants a delivery tool mid-turn, the way
+    tooling/expansion.py feeds ``ExpressionContract.add_tools``."""
+
+    def __init__(self, specs, expression):
+        super().__init__(specs)
+        self._expression = expression
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        if call.name == "expand":
+            self._expression.add_tools(["mcp__chat__reply"])
+        return await super().execute(call)
+
+
+@pytest.mark.asyncio
+async def test_plain_text_committed_before_a_mid_turn_grant_is_still_delivery():
+    """Whether text is the delivered reply is a fact of the moment it was
+    written: no expression tool existed then, so it was the reply. An
+    ``expand()`` that grants a delivery tool later in the turn must not
+    retroactively turn it into monologue and flip ``fatal`` to True."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    assert expression.names() == ("mcp__chat__reply",)
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_after_a_mid_turn_grant_is_monologue():
+    """Negative twin: once ``expand()`` granted a delivery tool, text
+    written in later steps is monologue — it does not count."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_use("c1", "expand", {}), _done(stop="tool_use")],
+        [_text("thinking out loud"), _use("c2", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
 async def test_plain_text_turn_that_never_spoke_is_still_fatal():
     """Negative case for the plain-text shape: no text streamed before
     the failure means nothing was delivered, so ``fatal`` stays True."""
@@ -1223,15 +1297,25 @@ async def test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery()
 
 
 @pytest.mark.asyncio
-async def test_truncation_failure_message_carries_the_breaker_exemption_marker():
-    """The circuit breaker exempts output-budget exhaustion by the shared
-    ``OUTPUT_BUDGET_EXHAUSTED_MARKER`` in the message (the error_type is
-    folded to invalid_request downstream) — the producer must carry it."""
+async def test_truncation_failure_reaches_the_platform_as_output_budget_exhausted():
+    """Output-budget exhaustion must reach the platform as the structured
+    ``output_budget_exhausted`` error_type (the circuit breaker's exemption
+    key), not folded into ``invalid_request`` — and a classified provider
+    error must still fold as before."""
     model = FakeModel([
         [_done(stop="max_tokens")],
     ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
     events, _ = await _run(_assembly(model, FakeTools()))
 
     error = next(e for e in events if e.type == TYPE_ERROR)
-    assert OUTPUT_BUDGET_EXHAUSTED_MARKER in error.payload["message"]
     assert "max_tokens=8192" in error.payload["message"]
+    legacy = LegacyEventAdapter().translate(error)
+    assert legacy[0]["data"]["error_type"] == OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                      profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert LegacyEventAdapter().translate(error)[0]["data"]["error_type"] != (
+        OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+    )
