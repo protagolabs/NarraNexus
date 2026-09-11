@@ -25,14 +25,20 @@ table).
 
 ``UnknownEntry`` from ``host()`` is the honest failure: it means this
 process has no HTTP host, i.e. a router is being invoked from a worker or
-MCP role. It is never silently degraded to "allow".
+MCP role. It is never silently degraded to "allow". The one exception is
+``host_settings()``: settings are deployment facts, not request facts, and
+resolve from the environment where no HTTP host exists.
 """
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from narranexus.contracts.services import WEB_HOST
 from narranexus.contracts.web import (
+    DEFAULT_MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_BYTES_ENV,
     IDENTITY_UNRESOLVED,
     TOKEN_EXPIRED,
     TOKEN_INVALID,
@@ -89,9 +95,32 @@ def reject_cross_origin(request: Any) -> None:
     host().reject_cross_origin(request)
 
 
+@dataclass(frozen=True)
+class _ProcessSettings:
+    """``HostSettings`` for a process with no HTTP host (workers, MCP)."""
+
+    max_upload_bytes: int
+
+
 def host_settings() -> HostSettings:
-    """The host's deployment settings (today: the upload ceiling)."""
-    return host().settings()
+    """The host's deployment settings (today: the upload ceiling).
+
+    Unlike the request-scoped calls above, settings are a property of the
+    deployment, and their main consumers — the channel triggers'
+    ``fetch_attachments`` and ``narra_send_media`` — run in the workers and
+    MCP processes, which expose no ``WebHost``. There this reads the same
+    env var with the same default the backend's settings use, instead of
+    raising ``UnknownEntry`` (which silently dropped every inbound channel
+    attachment on 2026-09-11).
+    """
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    web = KERNEL_REGISTRIES.services.try_require(WEB_HOST)
+    if web is not None:
+        return web.settings()
+    return _ProcessSettings(
+        max_upload_bytes=int(os.getenv(MAX_UPLOAD_BYTES_ENV, str(DEFAULT_MAX_UPLOAD_BYTES)))
+    )
 
 
 async def filter_public_mcp_servers(mcp_servers: Mapping[str, Any]) -> Mapping[str, Any]:

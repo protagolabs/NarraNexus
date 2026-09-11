@@ -309,6 +309,7 @@ async def test_fetch_attachments_audits_oversized_before_download(
 
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = trigger.parse_event(_media_raw(size=10_000))  # > 1024
     attachments = await trigger.fetch_attachments(parsed, cred)
@@ -374,3 +375,39 @@ async def test_fetch_attachments_audits_fetch_failure(
         {"channel": "narramessenger", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
     )
     assert len(failures) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_attachments_works_in_a_process_without_an_http_host(
+    db_client, isolated_workspace, monkeypatch, trigger_with_owner
+):
+    """The trigger runs in the workers process, which exposes no WebHost.
+
+    2026-09-11 prod: ``host_settings()`` raised ``UnknownEntry: service
+    'host.web' is not exposed`` there, so every inbound NarraMessenger image
+    and file was dropped. The other tests in this file pass only because the
+    test process has imported ``backend.main`` (which installs the WebHost);
+    this one removes it to reproduce the workers topology.
+    """
+    from narranexus.contracts.services import WEB_HOST
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    monkeypatch.delitem(KERNEL_REGISTRIES.services._services, WEB_HOST.id, raising=False)
+    assert KERNEL_REGISTRIES.services.try_require(WEB_HOST) is None
+
+    trigger = await trigger_with_owner()
+
+    async def _stub_download(*, credential, server_name, media_id, max_bytes):
+        return _FAKE_PNG
+
+    monkeypatch.setattr(trigger, "_download_mxc", _stub_download)
+
+    attachments = await trigger.fetch_attachments(trigger.parse_event(_media_raw()), _cred())
+
+    assert len(attachments) == 1
+    assert attachments[0].mime_type == "image/png"
+    failed = await db_client.get(
+        "channel_trigger_audit",
+        {"channel": "narramessenger", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
+    )
+    assert failed == []
