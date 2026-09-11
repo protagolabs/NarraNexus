@@ -4,6 +4,15 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 编码器迁到平台层共享（PR#401 同类扫描）
+
+`_inline_field` 及其常量（`INLINE_FIELD_MAX_CHARS` / `INLINE_DESCRIPTION_MAX_CHARS` /
+`INLINE_FIELD_CUT_MARK` / `_CODE_SPAN_DELIMITERS`）移到
+[[../../../../../src/narranexus/platform/message_bus/inline_field]]，本模块改为
+`from narranexus.platform.message_bus.inline_field import INLINE_DESCRIPTION_MAX_CHARS, inline_field`。
+行为不变；原因是平台侧 `message_bus_trigger` 的团队房 roster / 工作板也要用同一个编码器，而平台层
+不能 import 插件。下文历史条目里的 `_inline_field` 即现在的 `inline_field`。
+
 ## 2026-09-11 — 行内字段按构造不可伪造（PR#401 review 三轮 🟡1/🟢2-5）
 
 - **根因收口，而不是逐个字符类补洞**：`_inline_field` 是所有行内字段的唯一编码器，分两种形态。**标签**（团队房名、Known Agents 的名字/描述）：折叠空白 → 反引号（含全角 `\uff40`）换成 `'` → 超长按 `INLINE_FIELD_MAX_CHARS=120`（描述 `INLINE_DESCRIPTION_MAX_CHARS=80`）截断且以 `…` 标记 → 以 JSON 字符串字面量输出（`json.dumps(..., ensure_ascii=False)`）。作者写的任何 `` ` ``、` · `、`[`、`]`、` — `、`: `、`(teammate)`、`"`、`\` 都在一对引号里且引号/反斜杠被转义，字段无法提前结束，字面量能原样解码回展示文本。**句柄**（`max_chars=None`：agent/team id、tag 的发送者）：系统生成、不可由作者写，永不截断、不加引号（agent 要原样抄进工具调用），只折叠空白并替换反引号，不能逃出 code span。

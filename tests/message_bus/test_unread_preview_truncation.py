@@ -25,18 +25,20 @@ import json
 import re
 from types import SimpleNamespace
 
-from narranexus_plugins.message_bus_module import message_bus_module as mbm
-from narranexus_plugins.message_bus_module.message_bus_module import (
+from narranexus.platform.message_bus.inline_field import (
     INLINE_DESCRIPTION_MAX_CHARS,
     INLINE_FIELD_CUT_MARK,
     INLINE_FIELD_MAX_CHARS,
+    inline_field,
+)
+from narranexus_plugins.message_bus_module import message_bus_module as mbm
+from narranexus_plugins.message_bus_module.message_bus_module import (
     NOT_SHOWN_MAX_CALLS,
     UNREAD_CUT_MARKER,
     UNREAD_PREVIEW_MAX_CHARS,
     UNREAD_SPAN_MAX_CHARS,
     MessageBusModule,
     _bus_tag,
-    _inline_field,
     _not_shown_line,
 )
 
@@ -225,7 +227,7 @@ def test_a_cut_label_is_marked_and_a_handle_is_never_cut():
     name = json.loads(KNOWN_ROW.fullmatch(known)["name"])
     assert len(name) == INLINE_FIELD_MAX_CHARS and name.endswith(INLINE_FIELD_CUT_MARK)
     # A label that fits is not marked.
-    assert _inline_field("N" * INLINE_FIELD_MAX_CHARS) == json.dumps(
+    assert inline_field("N" * INLINE_FIELD_MAX_CHARS) == json.dumps(
         "N" * INLINE_FIELD_MAX_CHARS
     )
 

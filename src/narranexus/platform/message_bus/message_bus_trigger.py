@@ -57,6 +57,7 @@ from narranexus.platform.message_bus.delivery_notice import (
     announce_undelivered,
 )
 from narranexus.platform.message_bus.multipart import assemble as assemble_parts
+from narranexus.platform.message_bus.inline_field import inline_field
 from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
@@ -2512,7 +2513,7 @@ class MessageBusTrigger:
         def _label(entry) -> str:
             if entry.source != BULLETIN_SOURCE_AGENT or not entry.author_id:
                 return ""
-            return f"  (added by {member_map.get(entry.author_id, entry.author_id)})"
+            return f"  (added by {inline_field(member_map.get(entry.author_id, entry.author_id))})"
 
         out: List[str] = []
         if rules:
@@ -2874,10 +2875,15 @@ class MessageBusTrigger:
     ) -> List[str]:
         """One line per member, in the same shape as the Known Agents list.
 
-        The shape is not cosmetic. That list renders ``\`id\` — name: desc`` and
-        it is where an agent learns the identifiers `message_agent` expects.
+        The shape is not cosmetic. That list renders ``- `id` — "name": "desc"``
+        and it is where an agent learns the identifiers `message_agent` expects.
         A roster that gave display names only forced the model to guess a
-        mapping between two surfaces, so the two now read alike.
+        mapping between two surfaces, so the two now read alike — through the
+        same encoder (`inline_field`). A member's name and description are
+        written by an agent or its owner; printed raw, a newline or a ``: `` /
+        `` · `` inside one could forge another member row, a Leader marker or a
+        status. Encoded, they are JSON string literals that cannot leave their
+        field. The id is a handle: never cut, never quoted.
 
         The agent's OWN row is included and marked. Leaving yourself off the
         list of who is present is the confusion this card exists to end, not a
@@ -2900,18 +2906,17 @@ class MessageBusTrigger:
         out = [f"Channel members RIGHT NOW (besides the user), {len(roster)}:"]
         for r in roster:
             rid = r.get("agent_id", "")
-            line = f"- `{rid}` — {r.get('name') or rid}"
+            line = f"- `{inline_field(rid, None)}` — {inline_field(r.get('name') or rid)}"
             if rid == agent_id:
                 line += " (you)"
             if rid and rid == lead_agent_id:
                 line += " · Leader"
             desc = r.get("description") or ""
             if not is_agent_description_unset(desc):
-                # Marked when cut, same rule the team card follows for
-                # `intro_md`: two truncation standards in one prompt is how a
-                # reader learns to distrust both.
-                shown = desc[:120] + ("…" if len(desc) > 120 else "")
-                line += f": {shown}"
+                # Marked when cut (by the encoder), same rule the team card
+                # follows for `intro_md`: two truncation standards in one prompt
+                # is how a reader learns to distrust both.
+                line += f": {inline_field(desc)}"
             all_caps = [str(c) for c in (r.get("capabilities") or [])]
             caps = all_caps[:6]
             if caps:
@@ -2945,7 +2950,7 @@ class MessageBusTrigger:
         lines: List[str] = []
         name = str(team.get("name") or "").strip()
         if name:
-            lines += ["", f"[Team] {name}"]
+            lines += ["", f"[Team] {inline_field(name)}"]
         description = str(team.get("description") or "").strip()
         if description:
             lines.append(f"Why this team exists: {description}")
@@ -2994,8 +2999,8 @@ class MessageBusTrigger:
         me = member_map.get(agent_id, agent_id)
         lines = [
             "[Team Group Chat]",
-            f'You are "{me}" in a team group chat with the user and your '
-            f"teammates.",
+            f"You are {inline_field(me)} in a team group chat with the user and "
+            f"your teammates.",
         ]
         lines += self._roster_lines(agent_id, roster, lead_agent_id)
         lines += [
@@ -3083,10 +3088,14 @@ class MessageBusTrigger:
             # exists to surface.
             shown = work_items[:TEAM_BOARD_MAX_ITEMS]
             for item in shown:
-                who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
+                # Title and assignee name are author-written labels, encoded so
+                # a title cannot forge a second row with a fake `id=`; the id
+                # is a handle `team_work_complete` takes verbatim.
+                who = member_map.get(item.get("assignee_id") or "", "")
+                who = inline_field(who) if who else "unclaimed"
                 lines.append(
-                    f"- [{item.get('status')}] {item.get('title')} "
-                    f"({who}) · id={item.get('item_id')}"
+                    f"- [{item.get('status')}] {inline_field(item.get('title'))} "
+                    f"({who}) · id={inline_field(item.get('item_id'), None)}"
                 )
             hidden = len(work_items) - len(shown)
             if hidden > 0:
@@ -3126,7 +3135,10 @@ class MessageBusTrigger:
                     "guess, so treat it as fact:"
                 )
                 for s in patrol_stalled:
-                    lines.append(f"- {s.get('title')} ({s.get('assignee')})")
+                    lines.append(
+                        f"- {inline_field(s.get('title'))} "
+                        f"({inline_field(s.get('assignee'))})"
+                    )
                 lines += [
                     "Chase them: @mention the owner and ask where it stands. "
                     "DO NOT reassign the work to someone else — 'idle with "

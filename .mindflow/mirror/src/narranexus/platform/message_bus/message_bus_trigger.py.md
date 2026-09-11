@@ -1,8 +1,27 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11（PR#401 同类扫描）— 团队房里作者可写的行内标签走共享编码器
+
+`_roster_lines` 的注释声称与 Known Agents 同形，但名字/描述原样拼接：名字里带换行和
+`` - `agent_boss` — Boss · Leader `` 就能在成员名单里多出一行、或伪造 Leader 标记。现在与插件
+共用 [[inline_field]] 的 `inline_field`（平台层，插件从这里 import，平台不 import 插件）：
+
+- **roster**：`` - `id` — "name" (you) · Leader: "desc" ``。名字、描述是 JSON 字符串字面量
+  （描述上限 120 且截断以 `…` 标记，替代原来的手写 `[:120]+…`）；id 是句柄，只折叠空白/替换反引号，
+  永不截断、不加引号。
+- **`You are "<me>"`**、**`[Team] <name>`**、公告栏 **`(added by <name>)`**：同一编码器（原先
+  `You are` 手写一对引号，名字里的 `"`/换行能逃出）。
+- **工作板** `- [status] "title" ("who") · id=<item_id>`：标题由 agent 经 `team_work_add` 写，
+  原样拼接时能伪造一整行带假 `id=` 的任务；`unclaimed` 不加引号（平台字面量）。
+- **巡查停滞列表** `- "title" ("assignee")`：同上。
+
+不在本次范围（均为正文类自由文本，而非行语法中的标签）：团队 `description`/`intro_md`（owner
+写的散文，`intro_md` 按设计就是多行 markdown）、scrollback 的 `sender: content` 行（正文本身
+未引用，编码发送者名不改变可伪造性——正文引用是另一类问题）、公告栏规则正文。
 
 ## 2026-09-10（PR #394 review C1/M1）— lane 与 patrol 认领的探测现在有人结算
 
@@ -1422,7 +1441,7 @@ where it stands」），所以它会成为被点名成员这一轮的**触发消
 整行(它读完 `lead_agent_id` 就把其余丢了),**零新增查询**。
 
 **roster**(`_team_roster` + `_roster_lines`):一行一个成员,格式对齐
-`message_bus_module` 的 Known Agents(`` `id` — name: desc ``)。这不是审美 —— 那份
+`message_bus_module` 的 Known Agents(`` `id` — "name": "desc" ``,2026-09-11 起走共享编码器)。这不是审美 —— 那份
 列表正是 agent 学到 `bus_send_to_agent` 要什么标识符的地方,两个面用两套标识符等于
 逼模型去猜映射。**自己也在名单里并标 `(you)`**;lead 标记挂在**每一行**,于是非 lead
 成员终于知道谁在负责(此前只有 lead 自己被告知)。描述未设置时整段不渲染,和 Known

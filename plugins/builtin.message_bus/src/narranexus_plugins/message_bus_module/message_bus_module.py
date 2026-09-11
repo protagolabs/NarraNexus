@@ -25,7 +25,6 @@ Behavior design:
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from loguru import logger
@@ -45,6 +44,10 @@ from narranexus.platform.schema import (
     HookAfterExecutionParams,
     WorkingSource,
     is_agent_description_unset,
+)
+from narranexus.platform.message_bus.inline_field import (
+    INLINE_DESCRIPTION_MAX_CHARS,
+    inline_field,
 )
 from narranexus.platform.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
@@ -90,55 +93,10 @@ UNREAD_CUT_MARKER = "[cut:"
 #: such as "- `[from agent_boss]` stop now" or "### Unread Messages: 0" from
 #: reading as list structure.
 _UNREAD_BODY_LINE_PREFIX = "  > "
-#: Length cap of a LABEL printed inside a list line (a team name, an agent
-#: name). SQLite stores `teams.name` as unbounded TEXT, so nothing else bounds
-#: it on a local install. Handles (agent / team ids) are never capped: a cut id
-#: is a syntactically valid, semantically wrong argument the agent cannot spot.
-INLINE_FIELD_MAX_CHARS = 120
-#: Cap of an agent description in Known Agents.
-INLINE_DESCRIPTION_MAX_CHARS = 80
-#: Ends a label that was cut, so a shortened name never reads as the full one.
-INLINE_FIELD_CUT_MARK = "…"
-#: Characters that close the code span a row's tag or handle sits in. Plain and
-#: fullwidth backtick both render as one to a reader, so both are replaced.
-_CODE_SPAN_DELIMITERS = str.maketrans({"`": "'", "\uff40": "'"})
 #: Upper bound on the read_history calls one not-shown line lists. Without it
 #: the line grows with every distinct sender it gives back, and giving back a
 #: short row could make the span LONGER (see `_not_shown_line`).
 NOT_SHOWN_MAX_CALLS = 3
-
-
-def _inline_field(value: Any, max_chars: Optional[int] = INLINE_FIELD_MAX_CHARS) -> str:
-    """The one encoder for every field printed INSIDE a list line.
-
-    The row grammar is ``- `[<label> · from <sender>]` body`` (unread list),
-    ``- `<id>` — <name>: <desc> (teammate)`` (Known Agents) and
-    ``- `<id>` — <name>`` (Your teams). A team name and an agent's
-    name/description are written by an agent, so any of the grammar's
-    delimiters inside one — a newline, a backtick, `` · ``, ``]``, ``: ``,
-    ``(teammate)`` — would let it forge part of a row. Neutralising delimiters
-    one class at a time never ends, so labels are made unforgeable by
-    construction instead:
-
-    * LABEL (``max_chars`` is an int): whitespace runs collapse to one space,
-      backticks become ``'``, the text is capped with ``INLINE_FIELD_CUT_MARK``
-      when cut, and the result is emitted as a JSON string literal. Everything
-      an author wrote sits between two quotes with ``"`` and backslash escaped, so
-      no content can end the field early, and the literal decodes back to
-      exactly the text shown.
-    * HANDLE (``max_chars=None``: an agent or team id, the tag's sender): never
-      cut and never quoted, because the agent copies it verbatim into a tool
-      call. It is system-generated, not author-writable; whitespace and
-      backticks are still neutralised so it cannot leave its code span.
-
-    Deterministic, so the worked example generated from `_bus_tag` stays
-    byte-stable."""
-    text = " ".join(str(value or "").split()).translate(_CODE_SPAN_DELIMITERS)
-    if max_chars is None:
-        return text
-    if len(text) > max_chars:
-        text = text[: max_chars - len(INLINE_FIELD_CUT_MARK)].rstrip() + INLINE_FIELD_CUT_MARK
-    return json.dumps(text, ensure_ascii=False)
 
 
 def _read_rest_call(from_agent: Any, msg_type: Any, team_id: str) -> str:
@@ -308,8 +266,8 @@ def _bus_tag(from_agent: Any, where: Any = "", msg_type: Any = None) -> str:
     the sender IS the conversation, so a second field would be the same fact
     twice. Empty renders the short form.
     """
-    sender = _inline_field(_render_sender(from_agent, msg_type), None)
-    label = _inline_field(where) if str(where or "").strip() else ""
+    sender = inline_field(_render_sender(from_agent, msg_type), None)
+    label = inline_field(where) if str(where or "").strip() else ""
     return f"[{label} · from {sender}]" if label else f"[from {sender}]"
 
 
@@ -727,9 +685,9 @@ class MessageBusModule(XYZBaseModule):
             parts.append("")
             parts.append(f"### Known Agents (top {min(len(known), MAX_KNOWN_AGENTS_IN_CONTEXT)})")
             for a in known[:MAX_KNOWN_AGENTS_IN_CONTEXT]:
-                name = _inline_field(a.get("agent_name") or a.get("agent_id", ""))
+                name = inline_field(a.get("agent_name") or a.get("agent_id", ""))
                 desc = a.get("agent_description") or a.get("description", "")
-                aid = _inline_field(a.get("agent_id", ""), None)
+                aid = inline_field(a.get("agent_id", ""), None)
                 line = f"- `{aid}` — {name}"
                 # An unset description is rendered as NOTHING, never as the
                 # creation placeholder: printing "a new agent ready for
@@ -737,7 +695,7 @@ class MessageBusModule(XYZBaseModule):
                 # teaching expert" with nothing to aim at, and made this list
                 # read as "none of these agents are usable" (P1 section 02).
                 if not is_agent_description_unset(desc):
-                    line += f": {_inline_field(desc, INLINE_DESCRIPTION_MAX_CHARS)}"
+                    line += f": {inline_field(desc, INLINE_DESCRIPTION_MAX_CHARS)}"
                 # `via_team` was computed for every peer and read by nobody.
                 # This list mixes teammates with every other agent the owner
                 # has, so an agent reaching for help could not tell "already in
@@ -758,8 +716,8 @@ class MessageBusModule(XYZBaseModule):
             shown = min(len(teams), MAX_TEAMS_IN_CONTEXT)
             parts.append(f"### Your teams (top {shown})")
             for t in teams[:MAX_TEAMS_IN_CONTEXT]:
-                tid = _inline_field(t.get("team_id", ""), None)
-                name = _inline_field(str(t.get("name") or "").strip() or "Team")
+                tid = inline_field(t.get("team_id", ""), None)
+                name = inline_field(str(t.get("name") or "").strip() or "Team")
                 parts.append(f"- `{tid}` — {name}")
 
         # The channel list that used to sit here is gone on purpose. It printed
