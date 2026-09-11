@@ -4,6 +4,11 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+`_inline_assistant_error_event` 在 `unknown` 时不写 `self_serviceable` 键（契约返回 None = 无判决），
+`_zero_output_error_event`（`no_output`）仍写 False。测试 `test_inline_error_event_carries_the_flag`。
+
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 
 `_is_claude_native` 的订阅判定原先手写 `("oauth", "oauth_token")` 字面量，改为 import
@@ -15,7 +20,7 @@ stub: false
 
 `_inline_assistant_error_event` / `_zero_output_error_event` 的 data 里新增布尔键，值由契约包
 `cli_error_self_serviceable(enum)` 给出（rate_limit / authentication_failed / billing_error → True；
-其余含 `no_output` → False）。按枚举判、不看正文（正文自 PR #379 起是 provider 原样文本）。
+其余含 `no_output` → False；`unknown` 自 09-10 起无判决、键缺席）。按枚举判、不看正文（正文自 PR #379 起是 provider 原样文本）。
 第三个构造点在 [[output_transfer]]（无 stderr/正文可折叠时走的那条），口径一致。
 `response_processor` 把它带上 `ErrorMessage.self_serviceable` 出线。测试
 `tests/agent_framework/test_cli_error_self_serviceable.py`。

@@ -40,7 +40,8 @@ Load-bearing consumer facts (why these exact fields):
     breaker and frontend actionable badges.
   - ``self_serviceable`` (optional bool) says whether the USER can clear
     the error alone (wait out / upgrade a rate limit, re-login, top up)
-    — set by drivers that classify (claude), absent otherwise.
+    — set by drivers that classify (claude), absent otherwise, and absent
+    too when the CLI itself did not classify the error (``unknown``).
 """
 from __future__ import annotations
 
@@ -126,8 +127,10 @@ CLI_ERROR_TYPES = frozenset(
 # Which CLI enums the USER can clear on their own — wait out / upgrade a
 # rate limit, re-login, top up — as opposed to a provider outage or a request
 # the platform built wrong. Keyed on the enum only (message text is free-form
-# and provider-specific); every CLI_ERROR_TYPES value is placed explicitly and
-# anything else (platform-side extensions such as ``no_output``) is False.
+# and provider-specific); every CLI_ERROR_TYPES value is placed explicitly.
+# ``unknown`` (the CLI did not classify it either) and a missing type have NO
+# verdict -> None, never a fabricated False: it may well be a quota or
+# credential problem. Platform-side extensions (``no_output``) are False.
 # Consumed by the claude driver's ``response.error`` builders; carried to the
 # frontend / inbox as ``ErrorMessage.self_serviceable`` so the UI can tell
 # "you can fix this" from "the platform broke" without parsing the text.
@@ -136,9 +139,16 @@ _SELF_SERVICEABLE_CLI_ERROR_TYPES = frozenset(
 )
 
 
-def cli_error_self_serviceable(error_type: "str | None") -> bool:
-    """True when ``error_type`` names a failure the user can clear alone."""
-    return (error_type or "") in _SELF_SERVICEABLE_CLI_ERROR_TYPES
+_UNCLASSIFIED_CLI_ERROR_TYPES = frozenset({"", "unknown"})
+
+
+def cli_error_self_serviceable(error_type: "str | None") -> "bool | None":
+    """True when ``error_type`` names a failure the user can clear alone,
+    False when it names one they cannot, None when nobody classified it."""
+    key = error_type or ""
+    if key in _UNCLASSIFIED_CLI_ERROR_TYPES:
+        return None
+    return key in _SELF_SERVICEABLE_CLI_ERROR_TYPES
 
 
 # ---------------------------------------------------------------------------

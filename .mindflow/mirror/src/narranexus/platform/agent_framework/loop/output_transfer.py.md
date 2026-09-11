@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/output_transfer.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+claude 内联错误事件在 `cli_error_self_serviceable(enum)` 为 None（`unknown`）时**不写** `self_serviceable` 键，
+与契约「只有会分类才带」一致；True/False 照旧写。测试 `test_output_transfer_inline_error_carries_the_flag`（`unknown` → 键缺席）。
 
 ## 2026-09-09 — claude 内联错误事件带 `self_serviceable`
 

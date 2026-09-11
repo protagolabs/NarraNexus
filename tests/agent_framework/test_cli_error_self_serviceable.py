@@ -58,10 +58,10 @@ from tests.agent_framework.test_claude_transient_retry import AssistantMessage, 
         ("billing_error", True),
         ("server_error", False),
         ("invalid_request", False),
-        ("unknown", False),
+        ("unknown", None),
         ("no_output", False),
-        ("", False),
-        (None, False),
+        ("", None),
+        (None, None),
     ],
 )
 def test_cli_error_self_serviceable(error_type, expected):
@@ -76,7 +76,7 @@ _EXPECTED_CLASSIFICATION = {
     "billing_error": True,
     "invalid_request": False,
     "server_error": False,
-    "unknown": False,
+    "unknown": None,
 }
 
 
@@ -111,6 +111,10 @@ def test_inline_error_event_carries_the_flag():
     server = _inline_assistant_error_event("server_error", ["529 overloaded"], "")
     assert server["data"]["self_serviceable"] is False
 
+    # The CLI did not classify it either: no verdict, not a fabricated False.
+    unknown = _inline_assistant_error_event("unknown", [], "")
+    assert "self_serviceable" not in unknown["data"]
+
 
 def test_zero_output_event_is_not_self_serviceable():
     assert _zero_output_error_event([])["data"]["self_serviceable"] is False
@@ -126,11 +130,18 @@ def test_output_transfer_inline_error_carries_the_flag():
     assert event["data"]["self_serviceable"] is True
 
     (event,) = output_transfer(
-        AssistantMessage([TextBlock("")], error="unknown"),
+        AssistantMessage([TextBlock("")], error="server_error"),
         transfer_type="claude_agent_sdk",
         streaming=True,
     )
     assert event["data"]["self_serviceable"] is False
+
+    (event,) = output_transfer(
+        AssistantMessage([TextBlock("")], error="unknown"),
+        transfer_type="claude_agent_sdk",
+        streaming=True,
+    )
+    assert "self_serviceable" not in event["data"]
 
 
 # ── ResponseProcessor → ErrorMessage ─────────────────────────────────────

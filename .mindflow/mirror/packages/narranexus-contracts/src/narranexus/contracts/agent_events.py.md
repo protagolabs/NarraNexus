@@ -1,8 +1,16 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/agent_events.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+`cli_error_self_serviceable` 返回 `bool | None`：CLI 自己也没分类的 `unknown` 以及缺失/空类型 → **None**（无判决），
+不再伪造 False——它完全可能是限额/凭据问题，与 `response_processor`「缺席即 None」的原则一致。
+`server_error` / `invalid_request` 仍 False，平台侧扩展（`no_output`）仍 False。模块 docstring 同步：
+`self_serviceable` 在 `unknown` 时也缺席。测试 `test_cli_error_self_serviceable` / `test_every_cli_enum_is_classified_explicitly`。
+下方 09-09 条目里「`unknown` → False」一句已被本条取代。
 
 ## 2026-09-09 — `cli_error_self_serviceable` + `response.error.self_serviceable?`
 

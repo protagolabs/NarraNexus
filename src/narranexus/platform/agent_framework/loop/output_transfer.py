@@ -253,17 +253,18 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
         }
         error_message = error_messages.get(error_type, f"Claude API error: {error_type}")
 
-        return [{
-            "type": TYPE_RAW_RESPONSE_EVENT,
-            "data": {
-                "type": DATA_TYPE_ERROR,
-                "error_message": error_message,
-                "error_type": error_type,
-                # Can the user clear this alone (wait / upgrade / re-login /
-                # top up)? Keyed on the enum; see contracts.agent_events.
-                "self_serviceable": cli_error_self_serviceable(error_type),
-            }
-        }]
+        data: Dict[str, Any] = {
+            "type": DATA_TYPE_ERROR,
+            "error_message": error_message,
+            "error_type": error_type,
+        }
+        # Can the user clear this alone (wait / upgrade / re-login / top
+        # up)? Keyed on the enum; see contracts.agent_events. No verdict
+        # (``unknown``) -> the key stays absent, never a fabricated False.
+        self_serviceable = cli_error_self_serviceable(error_type)
+        if self_serviceable is not None:
+            data["self_serviceable"] = self_serviceable
+        return [{"type": TYPE_RAW_RESPONSE_EVENT, "data": data}]
 
     if not hasattr(message, 'content') or not message.content:
         return [_empty_delta()]

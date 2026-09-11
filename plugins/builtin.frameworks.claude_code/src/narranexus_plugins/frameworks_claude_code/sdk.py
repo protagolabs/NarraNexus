@@ -461,16 +461,17 @@ def _inline_assistant_error_event(
     detail = _stderr_tail_detail(cli_stderr_lines)
     text = assistant_text.strip()
     message = text if text else f"Claude API error: {enum}"
-    return {
-        "type": TYPE_RAW_RESPONSE_EVENT,
-        "data": {
-            "type": DATA_TYPE_ERROR,
-            "error_type": enum,
-            "error_message": message + detail,
-            # Keyed on the enum, so it survives the detail folding above.
-            "self_serviceable": cli_error_self_serviceable(enum),
-        },
+    data: dict[str, Any] = {
+        "type": DATA_TYPE_ERROR,
+        "error_type": enum,
+        "error_message": message + detail,
     }
+    # Keyed on the enum, so it survives the detail folding above. No verdict
+    # (``unknown``) -> the key stays absent, never a fabricated False.
+    self_serviceable = cli_error_self_serviceable(enum)
+    if self_serviceable is not None:
+        data["self_serviceable"] = self_serviceable
+    return {"type": TYPE_RAW_RESPONSE_EVENT, "data": data}
 
 
 # ---------------------------------------------------------------------------
