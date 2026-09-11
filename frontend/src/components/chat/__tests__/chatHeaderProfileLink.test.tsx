@@ -6,6 +6,10 @@
  *
  * `state.from === 'chat'` is load-bearing: it is what makes the profile's
  * breadcrumb offer "back to Chat" instead of "back to Agents".
+ *
+ * Also pins the Model & framework button (Owner-required, reinstated
+ * 2026-09-11 after #383 removed it): present only when the host hands over a
+ * handler, and clicking it calls that handler.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -74,5 +78,23 @@ describe('chat header identity block', () => {
     renderHeader({ agentId: null });
     fireEvent.click(screen.getByRole('button', { name: /view agent profile/i }));
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('chat header Model & framework button (Owner-required entry)', () => {
+  it('renders when the host passes a handler and opens the config on click', () => {
+    const onOpenAgentConfig = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatHeader {...baseProps} onOpenAgentConfig={onOpenAgentConfig} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /model & framework/i }));
+    expect(onOpenAgentConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('is absent when the host passes no handler (not the owner)', () => {
+    renderHeader();
+    expect(screen.queryByRole('button', { name: /model & framework/i })).toBeNull();
   });
 });

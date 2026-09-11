@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "Agent-Optionen",
+      "rename": "Umbenennen",
+      "modelFramework": "Modell & Framework",
       "clearData": "Daten leeren",
       "delete": "Löschen"
     },
@@ -1387,7 +1389,13 @@
         "saved": "Gespeichert",
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
-        "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
+        "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit.",
+        "slotSaveRolledBack": "Die Framework-Änderung wurde rückgängig gemacht, nichts wurde gespeichert: Das Agent-Modell konnte nicht gespeichert werden ({{detail}}).",
+        "frameworkSavedSlotFailed": "Das Framework wurde gewechselt, aber das Agent-Modell konnte nicht gespeichert werden ({{detail}}). Wähle ein Modell und speichere erneut.",
+        "agentSavedHelperFailed": "Das Agent-Modell wurde gespeichert, das Helfer-Modell jedoch nicht ({{detail}}).",
+        "frameworkSavedHelperFailed": "Das Framework wurde gewechselt, das Helfer-Modell konnte jedoch nicht gespeichert werden ({{detail}}).",
+        "frameworkRestoredBindingLost": "Das gespeicherte Framework wurde wiederhergestellt, aber das Agent-Modell konnte nicht gespeichert werden ({{detail}}) und die vorherige Karte ließ sich nicht erneut verknüpfen – der Agent-Slot ist jetzt leer. Deine neue Framework-Auswahl steht noch ungespeichert im Formular – wähle ein Modell und speichere erneut, um sie zu übernehmen.",
+        "slotClearedPickModel": "Das Framework wurde gewechselt; die bisher verknüpfte Karte kann es nicht ausführen und wurde getrennt. Wähle Anbieter und Modell für den Agenten."
       },
       "privacy": {
         "label": "Datenschutz",

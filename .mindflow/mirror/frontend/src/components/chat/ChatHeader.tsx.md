@@ -4,6 +4,20 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — Model & framework button reinstated (OWNER-REQUIRED entry)
+
+Owner report 2026-09-11: "I cannot find where to change the framework — it used
+to be at the chat's top right". #383 (19aae3ada) had dropped the ⋯ menu's
+"Model & framework" item (and before that the header sliders icon) as a
+duplicate of the profile page. The Owner overruled that: the chat view must have
+its own door. A `SlidersHorizontal` icon button (Radix tooltip + aria-label
+`chat.header.modelFramework`) now sits in the right-hand icon cluster between
+the cost popover and the ⋯ menu, calling the new optional `onOpenAgentConfig`
+prop. The prop is optional on purpose: the host passes it only to the agent's
+owner (the llm-config routes 403 anyone else), and no handler → no button.
+It opens the SAME AgentLlmConfigPanel the profile page and the sidebar row's ⋯
+menu open — **do not remove it as "redundant"**; it is an Owner-required entry.
+
 ## 2026-09-11 — 注释跟随:抽屉标题切换器恢复
 
 `DETAIL_GROUP_A` 上方注释不再说「抽屉切换器已退役、⋯ 是唯一回路」:抽屉关着时 ⋯ 菜单是回到

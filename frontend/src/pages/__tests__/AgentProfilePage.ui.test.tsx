@@ -102,6 +102,8 @@ const copy: Record<string, string> = {
   'layout.agentRowMenu.options': 'Agent options',
   'layout.agentRowMenu.clearData': 'Clear data',
   'layout.agentRowMenu.delete': 'Delete',
+  'layout.agentList.deleteAgentTitle': 'Delete agent',
+  'layout.agentList.deleteAction': 'Delete it',
   'layout.clearAgentData.title': 'Clear data',
   'layout.clearAgentData.subtitle': 'Choose what to clear.',
   'layout.clearAgentData.optConversations': 'Delete chat history',
@@ -136,6 +138,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: dashboardState.agents }),
     clearHistory: vi.fn().mockResolvedValue({ success: true }),
+    deleteAgent: vi.fn().mockResolvedValue({ success: true }),
     getAgentCapabilities: vi.fn().mockResolvedValue({ success: true, data: { agent_id: 'agent-1', capabilities: [], budget: { baseline_tokens: 0, enabled_tokens: 0, ratio: 0, over_budget: false } } }),
   },
 }));
@@ -162,6 +165,7 @@ vi.mock('@/components/ui/tooltip', () => ({
 }));
 
 import AgentProfilePage from '../AgentProfilePage';
+import { api } from '@/lib/api';
 
 describe('AgentProfilePage', () => {
   test('groups work in Overview and agent configuration in Capabilities', () => {
@@ -308,5 +312,25 @@ describe('AgentProfilePage', () => {
     } finally {
       dashboardState.agents = [owned];
     }
+  });
+
+  test('Delete confirms, deletes through the shared agent actions and lands on the Dashboard', async () => {
+    // The profile page and the sidebar row menu share useAgentActions; this
+    // pins the profile's half of that contract after the extraction.
+    render(
+      <MemoryRouter initialEntries={['/app/agents/agent-1']}>
+        <Routes>
+          <Route path="/app/agents/:agentId" element={<AgentProfilePage />} />
+          <Route path="/app/dashboard" element={<div>Dashboard landed</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Agent options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Delete agent')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete it' }));
+    expect(await screen.findByText('Dashboard landed')).toBeTruthy();
+    expect(api.deleteAgent).toHaveBeenCalledWith('agent-1');
+    expect(chatState.clearAgent).toHaveBeenCalledWith('agent-1');
   });
 });

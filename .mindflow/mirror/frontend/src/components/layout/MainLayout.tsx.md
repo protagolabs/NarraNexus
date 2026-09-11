@@ -4,6 +4,23 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — a new agent's chat opens the drawer on Artifacts (Owner)
+
+ChatView now opens the drawer on `artifacts` for any agent whose chat was never
+shown on this desktop ([[drawerLayout]] `shouldAutoOpenForAgent`), for new and
+existing users alike — at mount via the `drawerTab` lazy initializer (together
+with the unchanged first-run coach) and on agent switches via derived state set
+during render (`drawerAgentId` vs `agentId`; no effect, so no flash of a closed
+drawer). An effect keyed on `agentId` marks the agent seen (skipped on phones,
+so a phone visit never spends the desktop first view). Afterwards the agent
+keeps whatever drawer state the user leaves; an agent already seen is not
+re-opened. Pinning follows the global preference (pinned by default, an
+explicit unpin is respected). A panel explicitly requested through uiStore
+(e.g. the creation studio's `builder`) still wins: the pending-panel effect runs
+after the initial render. `useConfigStore()` moved above the drawer state (the
+initializer needs `agentId`). The Owner-required title switcher (#395) is
+untouched.
+
 ## 2026-09-11 — 抽屉重新接上标题切换器(Owner 要求)
 
 `<BookmarkDrawer>` 传 `activeTab={drawerTab}` / `onSelectTab={openPanel}` /

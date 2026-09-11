@@ -119,4 +119,26 @@ describe('AgentLlmConfigPanel save feedback', () => {
     await screen.findByText('nope');
     expect(screen.queryByText(/^✓ saved$/i)).toBeNull();
   });
+
+  test('helper fails after the agent slot saved → the page says the agent half landed and keeps the helper edit', async () => {
+    setAgentLlmConfig
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false, detail: 'helper nope' });
+    render(
+      <MemoryRouter>
+        <AgentLlmConfigPanel agentId="agent_1" isOpen onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    const [agentSelect, helperSelect] = await screen.findAllByDisplayValue('Select provider…');
+    fireEvent.change(agentSelect, { target: { value: 'prov1' } });
+    fireEvent.change(helperSelect, { target: { value: 'prov1' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByText(
+      'The agent model was saved, but the helper model could not be saved (helper nope).',
+    )).toBeInTheDocument();
+    // The unsaved helper edit is still in the form.
+    expect((await screen.findAllByDisplayValue('My Provider')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^✓ saved$/i)).toBeNull();
+  });
 });

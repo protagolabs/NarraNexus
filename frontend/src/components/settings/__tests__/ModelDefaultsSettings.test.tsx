@@ -218,7 +218,8 @@ test('cloud non-staff CAN select NexusPower — it runs on their own key', async
   fireEvent.change(select, { target: { value: 'nexus_power' } });
 
   expect(screen.queryByText('Staff only in cloud')).toBeNull();
-  expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power');
+  expect(select.value).toBe('nexus_power');
+  expect(screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' })).not.toBeDisabled();
 });
 
 test('cloud staff keeps the full provider list and no note', async () => {
@@ -232,8 +233,8 @@ test('cloud staff keeps the full provider list and no note', async () => {
   ).toBeNull();
   // Staff switches frameworks freely — no notice dialog, API called.
   fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
-  expect(screen.queryByText('Desktop version only')).toBeNull();
-  expect(mockSetAgentFramework).toHaveBeenCalledWith('codex_cli');
+  expect(screen.queryByText('Staff only in cloud')).toBeNull();
+  expect(frameworkSelect().value).toBe('codex_cli');
 });
 
 test('local stays fully open and shows no note', async () => {
@@ -324,10 +325,9 @@ test('a mixed wallet keeps every framework listed and shows no note', async () =
   ).toBeNull();
 });
 
-test('switching framework drops the binding only when the backend cleared it', async () => {
-  // The backend unbinds a provider the new framework can't drive and says so
-  // via `slot_cleared`; a binding both frameworks can drive must survive, so
-  // the editor mirrors that answer instead of clearing optimistically.
+const SAVE_NAME = 'pages.settings.modelDefaults.saveDefaults';
+
+function withBoundAgentSlot() {
   mockGetProviders.mockResolvedValue({
     success: true,
     data: {
@@ -335,43 +335,370 @@ test('switching framework drops the binding only when the backend cleared it', a
       slots: { agent: { config: { provider_id: 'p_own', model: 'claude-opus-4-8' } } },
     },
   });
+}
+
+test('changing only the framework makes the form dirty and Save persists it', async () => {
+  // Owner bug 2026-09-11: picking another default framework left Save greyed
+  // out — the framework was written behind the user's back on change and was
+  // never part of the dirty state, so "Save" had nothing to save and the page
+  // never said the choice had landed. The framework is now a draft like every
+  // other field: nothing is written until Save.
+  withBoundAgentSlot();
   mockSetAgentFramework.mockResolvedValue({
     success: true,
-    data: {
-      framework: 'nexus_power',
-      probe: { ok: true, detail: '' },
-      install: null,
-      slot_cleared: false,
-    },
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, install: null, slot_cleared: false },
   });
   await renderLoaded();
 
-  const providerSelect = screen.getAllByRole('combobox')[1] as HTMLSelectElement;
-  const save = screen.getByRole('button', {
-    name: 'pages.settings.modelDefaults.saveDefaults',
-  });
-  expect(providerSelect.value).toBe('p_own');
-  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
-  await waitFor(() => expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power'));
-  // nexus_power drives that anthropic key fine — the pick survives.
-  expect(providerSelect.value).toBe('p_own');
+  const save = screen.getByRole('button', { name: SAVE_NAME });
   expect(save).toBeDisabled();
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  expect(frameworkSelect().value).toBe('nexus_power');
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(save).not.toBeDisabled();
 
-  // codex_cli can't: the backend unbinds and reports it. The draft AND the
-  // saved-state snapshot both drop it, so the form doesn't come back dirty
-  // with an empty provider the user never touched.
+  // The post-save reload reads the now-stored framework back.
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
+  });
+  fireEvent.click(save);
+  await waitFor(() => expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power'));
+  // nexus_power drives the bound anthropic key — the slot itself is untouched.
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  // Reloaded state reflects the saved framework and the form is clean again.
+  await waitFor(() => expect(screen.getByText(/pages\.settings\.modelDefaults\.saved/)).toBeInTheDocument());
+});
+
+test('picking the saved framework back makes the form clean again', async () => {
+  withBoundAgentSlot();
+  await renderLoaded();
+  const save = screen.getByRole('button', { name: SAVE_NAME });
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  expect(save).not.toBeDisabled();
+  fireEvent.change(frameworkSelect(), { target: { value: 'claude_code' } });
+  expect(save).toBeDisabled();
+});
+
+test('a framework the bound provider cannot drive drops the provider from the draft; Save writes framework before the slot', async () => {
+  withBoundAgentSlot();
   mockSetAgentFramework.mockResolvedValue({
     success: true,
-    data: {
-      framework: 'codex_cli',
-      probe: { ok: true, detail: '' },
-      install: null,
-      slot_cleared: true,
-    },
+    data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null, slot_cleared: true },
   });
+  await renderLoaded();
+
+  const providerSelect = agentProviderSelect();
+  expect(providerSelect.value).toBe('p_own');
   fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
-  await waitFor(() => expect(providerSelect.value).toBe(''));
+  // Codex only drives openai cards — the anthropic key cannot stay selected.
+  expect(providerSelect.value).toBe('');
+
+  // Pick an openai card → framework first (set_slot validates the provider
+  // against the STORED framework), then the slot.
+  fireEvent.change(providerSelect, { target: { value: 'p_free_o' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  await waitFor(() => expect(mockSetProviderSlot).toHaveBeenCalledWith('agent', expect.objectContaining({ provider_id: 'p_free_o' })));
+  expect(mockSetAgentFramework).toHaveBeenCalledWith('codex_cli');
+  expect(mockSetAgentFramework.mock.invocationCallOrder[0])
+    .toBeLessThan(mockSetProviderSlot.mock.invocationCallOrder[0]);
+});
+
+test('switching to a framework the bound card cannot run and saving with no card: the framework lands, then the page asks for a card', async () => {
+  // Review 399b I2: this path used to be refused before anything was written
+  // (generic pickAgentModel), so the `slotClearedPickModel` branch was dead.
+  withBoundAgentSlot();
+  mockSetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null, slot_cleared: true },
+  });
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  expect(agentProviderSelect().value).toBe('');
+  // What the backend holds after the switch: codex_cli, agent slot unbound.
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
+  });
+  mockGetProviders.mockResolvedValue({ success: true, data: { providers: PROVIDERS, slots: {} } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.slotClearedPickModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).toHaveBeenCalledWith('codex_cli');
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  expect(screen.queryByText('pages.settings.modelDefaults.pickAgentModel')).toBeNull();
+  expect(screen.queryByText(/pages\.settings\.modelDefaults\.saved/)).toBeNull();
+  // Empty slot — nothing to push onto agents, so no apply dialog.
+  expect(mockGetSlotOverrideStats).not.toHaveBeenCalled();
+  expect(frameworkSelect().value).toBe('codex_cli');
+});
+
+test('a half-filled agent draft is still refused before anything is written, even with a framework change', async () => {
+  withBoundAgentSlot();
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  // A provider with no model yet: an explicit, incomplete agent edit.
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
+  const modelInput = agentModelSelect();
+  fireEvent.change(modelInput, { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+});
+
+test('a provider the user cleared by hand is refused, not skipped behind a fake "Saved", even with a framework change', async () => {
+  // Review 399c M1: an agent draft emptied by the USER (not by the framework
+  // switch) used to count as framework-only — the framework landed, the
+  // clear was silently dropped and the page flashed "Saved".
+  withBoundAgentSlot();
+  await renderLoaded();
+  // nexus_power drives any protocol, so the switch keeps the bound card...
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  expect(agentProviderSelect().value).toBe('p_own');
+  // ...and the user picks the blank provider option themselves.
+  fireEvent.change(agentProviderSelect(), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  expect(screen.queryByText(/pages\.settings\.modelDefaults\.saved/)).toBeNull();
+});
+
+test('a thinking edit on an unbound agent slot is refused, not skipped behind a fake "Saved", even with a framework change', async () => {
+  // Review 399c M1 (b): the empty-draft check ignores thinking/effort, so
+  // this edit used to be dropped while the framework alone was saved.
+  await renderLoaded();
+  expect(agentProviderSelect().value).toBe('');
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  const thinking = screen
+    .getAllByRole('combobox')
+    .find((el) => el.querySelector('option[value="on"]')) as HTMLSelectElement;
+  fireEvent.change(thinking, { target: { value: 'on' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+});
+
+test('load: a soft failure of the framework endpoint says the load failed instead of rendering empty selects silently', async () => {
+  withBoundAgentSlot();
+  mockGetAgentFramework.mockResolvedValue({ success: false, data: null });
+  await renderLoaded();
+  expect(screen.getByText('pages.settings.modelDefaults.loadFailed')).toBeInTheDocument();
+  // No framework is invented on the frontend, so Save stays disabled.
+  expect(screen.getByRole('button', { name: SAVE_NAME })).toBeDisabled();
+});
+
+test('load: a successful framework endpoint shows no load error', async () => {
+  withBoundAgentSlot();
+  await renderLoaded();
+  expect(screen.queryByText('pages.settings.modelDefaults.loadFailed')).toBeNull();
+});
+
+test('a failed framework save keeps the draft dirty and shows the error', async () => {
+  withBoundAgentSlot();
+  mockSetAgentFramework.mockRejectedValue(new Error("Framework 'nexus_power' plugin is not installed"));
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText(/plugin is not installed/)).toBeInTheDocument();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  expect(frameworkSelect().value).toBe('nexus_power');
+  expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
+});
+
+// The agent selects are located by accessible name (block title + label), so
+// inserting another select into the page cannot silently retarget them.
+// Helper selects: last helper model, the one before it helper provider.
+function agentProviderSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.provider',
+  }) as HTMLSelectElement;
+}
+function agentModelSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.model',
+  }) as HTMLSelectElement;
+}
+function helperProviderSelect(): HTMLSelectElement {
+  const all = screen.getAllByRole('combobox');
+  return all[all.length - 2] as HTMLSelectElement;
+}
+
+test('an unbound agent slot does not block saving a framework-only change', async () => {
+  // Review I2 (2026-09-11): the provider/model check ran on any framework
+  // change, so a user whose agent slot was never bound could not save a new
+  // framework at all — the Owner's bug in a narrower shape. The backend keeps
+  // the framework on a stub slot row until a card is wired.
+  mockSetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, install: null, slot_cleared: false },
+  });
+  await renderLoaded();
+  expect(agentProviderSelect().value).toBe('');
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
+  });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  await waitFor(() => expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power'));
+  await waitFor(() => expect(screen.getByText(/pages\.settings\.modelDefaults\.saved/)).toBeInTheDocument());
+  expect(screen.queryByText('pages.settings.modelDefaults.pickAgentModel')).toBeNull();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+});
+
+test('switching to a framework that drops the provider and back restores the provider and model', async () => {
+  withBoundAgentSlot();
+  await renderLoaded();
+  const save = screen.getByRole('button', { name: SAVE_NAME });
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  expect(agentProviderSelect().value).toBe('');
+  fireEvent.change(frameworkSelect(), { target: { value: 'claude_code' } });
+  expect(agentProviderSelect().value).toBe('p_own');
   expect(save).toBeDisabled();
+});
+
+test('a provider picked after the drop is not overwritten by the remembered one', async () => {
+  withBoundAgentSlot();
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
+  // nexus_power drives both cards: the user's new pick stays.
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  expect(agentProviderSelect().value).toBe('p_free_o');
+});
+
+test('slot write fails after the framework landed → the framework and the cleared binding are rolled back', async () => {
+  // Review I3 (2026-09-11): the framework used to stay switched (and the
+  // binding cleared) while the page only said "save failed".
+  withBoundAgentSlot();
+  mockSetAgentFramework
+    .mockResolvedValueOnce({
+      success: true,
+      data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null, slot_cleared: true },
+    })
+    .mockResolvedValueOnce({
+      success: true,
+      data: { framework: 'claude_code', probe: { ok: true, detail: '' }, install: null, slot_cleared: false },
+    });
+  mockSetProviderSlot
+    .mockResolvedValueOnce({ success: false, detail: 'model rejected' })
+    .mockResolvedValueOnce({ success: true });
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.slotSaveRolledBack')).toBeInTheDocument();
+  expect(mockSetAgentFramework.mock.calls.map((c) => c[0])).toEqual(['codex_cli', 'claude_code']);
+  // The binding the switch cleared is written back.
+  expect(mockSetProviderSlot).toHaveBeenLastCalledWith('agent', expect.objectContaining({ provider_id: 'p_own', model: 'claude-opus-4-8' }));
+  // Nothing is stored, so the draft stays as the user left it.
+  expect(frameworkSelect().value).toBe('codex_cli');
+  expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
+});
+
+test('slot write fails and the rollback fails too → the stored state is reloaded and the half-save is named', async () => {
+  withBoundAgentSlot();
+  mockSetAgentFramework
+    .mockResolvedValueOnce({
+      success: true,
+      data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null, slot_cleared: true },
+    })
+    .mockRejectedValueOnce(new Error('network down'));
+  mockSetProviderSlot.mockResolvedValueOnce({ success: false, detail: 'model rejected' });
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
+  // What the backend really holds now: codex_cli with an unbound slot.
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
+  });
+  mockGetProviders.mockResolvedValue({ success: true, data: { providers: PROVIDERS, slots: {} } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.frameworkSavedSlotFailed')).toBeInTheDocument();
+  expect(frameworkSelect().value).toBe('codex_cli');
+  // Review 399b m4: the agent pick survives the reload (the stored slot is
+  // empty), so Save stays live for a retry.
+  expect(agentProviderSelect().value).toBe('p_free_o');
+  expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
+});
+
+test('framework rolled back but the cleared binding could not be rebound → says the framework is back and the slot is unbound', async () => {
+  // Review 399b m3(b): this sub-case used to say "the framework was switched".
+  withBoundAgentSlot();
+  mockSetAgentFramework
+    .mockResolvedValueOnce({
+      success: true,
+      data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null, slot_cleared: true },
+    })
+    .mockResolvedValueOnce({
+      success: true,
+      data: { framework: 'claude_code', probe: { ok: true, detail: '' }, install: null, slot_cleared: false },
+    });
+  mockSetProviderSlot
+    .mockResolvedValueOnce({ success: false, detail: 'model rejected' })
+    .mockResolvedValueOnce({ success: false, detail: 'rebind rejected' });
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
+  // Stored now: the original framework, slot unbound.
+  mockGetProviders.mockResolvedValue({ success: true, data: { providers: PROVIDERS, slots: {} } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.frameworkRestoredBindingLost')).toBeInTheDocument();
+  expect(screen.queryByText('pages.settings.modelDefaults.frameworkSavedSlotFailed')).toBeNull();
+  // The user's edits survive the reload so Save can retry them.
+  expect(frameworkSelect().value).toBe('codex_cli');
+  expect(agentProviderSelect().value).toBe('p_free_o');
+  expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
+});
+
+test('helper write fails after only the framework landed → the message names the framework, not the agent model', async () => {
+  // Review 399b m3(a): no agent-slot edit here, so "the agent model was saved"
+  // would be wrong.
+  mockSetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, install: null, slot_cleared: false },
+  });
+  mockSetProviderSlot.mockResolvedValue({ success: false, detail: 'helper rejected' });
+  await renderLoaded();
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  const helper = helperProviderSelect();
+  fireEvent.change(helper, { target: { value: 'p_free_o' } });
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: { framework: 'nexus_power', probe: { ok: true, detail: '' }, frameworks: LIVE_FRAMEWORKS },
+  });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.frameworkSavedHelperFailed')).toBeInTheDocument();
+  expect(screen.queryByText('pages.settings.modelDefaults.agentSavedHelperFailed')).toBeNull();
+  expect(mockSetProviderSlot).toHaveBeenCalledWith('helper_llm', expect.objectContaining({ provider_id: 'p_free_o' }));
+  const helperAfter = helperProviderSelect();
+  expect(helperAfter.value).toBe('p_free_o');
+  expect(frameworkSelect().value).toBe('nexus_power');
+  // Only the helper edit is still unsaved.
+  expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
+});
+
+test('helper write fails after the agent slot landed → the message names the agent model', async () => {
+  mockSetProviderSlot
+    .mockResolvedValueOnce({ success: true })
+    .mockResolvedValueOnce({ success: false, detail: 'helper rejected' });
+  await renderLoaded();
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_own' } });
+  fireEvent.change(helperProviderSelect(), { target: { value: 'p_free_o' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+
+  expect(await screen.findByText('pages.settings.modelDefaults.agentSavedHelperFailed')).toBeInTheDocument();
+  expect(screen.queryByText('pages.settings.modelDefaults.frameworkSavedHelperFailed')).toBeNull();
+  expect(mockSetProviderSlot.mock.calls.map((c) => c[0])).toEqual(['agent', 'helper_llm']);
+  expect(helperProviderSelect().value).toBe('p_free_o');
 });
 
 test('after saving a changed default, the apply-to-agents dialog appears when overrides exist', async () => {
@@ -379,7 +706,7 @@ test('after saving a changed default, the apply-to-agents dialog appears when ov
   // Pick a provider for the agent slot — this also auto-fills the model, so the
   // slot becomes valid + dirty in one change (see ModelDefaultsSettings agent
   // provider onChange).
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -394,7 +721,7 @@ test('no apply dialog when there are zero overrides', async () => {
     data: { agent: 0, helper_llm: 0, total_agents: 5 },
   });
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -407,7 +734,7 @@ test('a failing override-stats fetch does not turn a successful save into an err
   // must not render a "save failed" state (it lived in the same try before).
   mockGetSlotOverrideStats.mockRejectedValue(new Error('boom'));
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -426,7 +753,7 @@ test('dialog is gated to CHANGED slots — overrides on an untouched slot do not
     data: { agent: 0, helper_llm: 5, total_agents: 8 },
   });
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } }); // agent slot dirty
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } }); // agent slot dirty
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );

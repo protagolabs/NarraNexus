@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "Opciones del agente",
+      "rename": "Renombrar",
+      "modelFramework": "Modelo y framework",
       "clearData": "Limpiar datos",
       "delete": "Eliminar"
     },
@@ -1387,7 +1389,13 @@
         "saved": "Guardado",
         "frameworkFilteredNote": "Solo se muestran los frameworks que tus proveedores conectados pueden ejecutar realmente.",
         "cloudFrameworkLockedTitle": "Solo para staff en la nube",
-        "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local."
+        "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local.",
+        "slotSaveRolledBack": "Se deshizo el cambio de framework y no se guardó nada: no se pudo guardar el modelo del agente ({{detail}}).",
+        "frameworkSavedSlotFailed": "Se cambió el framework, pero no se pudo guardar el modelo del agente ({{detail}}). Elige un modelo y guarda de nuevo.",
+        "agentSavedHelperFailed": "Se guardó el modelo del agente, pero no el modelo auxiliar ({{detail}}).",
+        "frameworkSavedHelperFailed": "Se cambió el framework, pero no se pudo guardar el modelo auxiliar ({{detail}}).",
+        "frameworkRestoredBindingLost": "El framework guardado se restableció, pero no se pudo guardar el modelo del agente ({{detail}}) ni volver a vincular la tarjeta anterior, así que la ranura del agente quedó sin asignar. Tu nueva elección de framework sigue en el formulario, aún sin guardar: elige un modelo y guarda de nuevo para aplicarla.",
+        "slotClearedPickModel": "Se cambió el framework y la tarjeta vinculada no puede ejecutarlo, así que se desvinculó. Elige un proveedor y un modelo para el agente."
       },
       "privacy": {
         "label": "Privacidad",

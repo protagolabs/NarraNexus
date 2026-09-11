@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "エージェントのオプション",
+      "rename": "名前を変更",
+      "modelFramework": "モデルとフレームワーク",
       "clearData": "データを消去",
       "delete": "削除"
     },
@@ -1386,7 +1388,13 @@
         "saved": "保存しました",
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
-        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
+        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。",
+        "slotSaveRolledBack": "フレームワークの変更は取り消され、何も保存されていません：エージェントモデルを保存できませんでした（{{detail}}）。",
+        "frameworkSavedSlotFailed": "フレームワークは切り替わりましたが、エージェントモデルを保存できませんでした（{{detail}}）。モデルを選び直して保存してください。",
+        "agentSavedHelperFailed": "エージェントモデルは保存されましたが、ヘルパーモデルを保存できませんでした（{{detail}}）。",
+        "frameworkSavedHelperFailed": "フレームワークは切り替わりましたが、ヘルパーモデルを保存できませんでした（{{detail}}）。",
+        "frameworkRestoredBindingLost": "保存済みのフレームワークは元に戻されましたが、エージェントモデルを保存できず（{{detail}}）、以前のカードも再設定できなかったため、エージェントスロットは未設定になりました。選んだ新しいフレームワークはフォームに残っており、まだ保存されていません。モデルを選んで再度保存すると適用されます。",
+        "slotClearedPickModel": "フレームワークを切り替えました。以前のカードはこのフレームワークで使えないため解除されました。エージェントのプロバイダーとモデルを選んでください。"
       },
       "privacy": {
         "label": "プライバシー",

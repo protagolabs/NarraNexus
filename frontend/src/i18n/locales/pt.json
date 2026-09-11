@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "Opções do agente",
+      "rename": "Renomear",
+      "modelFramework": "Modelo e framework",
       "clearData": "Limpar dados",
       "delete": "Excluir"
     },
@@ -1387,7 +1389,13 @@
         "saved": "Salvo",
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
-        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
+        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local.",
+        "slotSaveRolledBack": "A mudança de framework foi desfeita e nada foi salvo: não foi possível salvar o modelo do agente ({{detail}}).",
+        "frameworkSavedSlotFailed": "O framework foi trocado, mas não foi possível salvar o modelo do agente ({{detail}}). Escolha um modelo e salve novamente.",
+        "agentSavedHelperFailed": "O modelo do agente foi salvo, mas o modelo auxiliar não ({{detail}}).",
+        "frameworkSavedHelperFailed": "O framework foi trocado, mas o modelo auxiliar não pôde ser salvo ({{detail}}).",
+        "frameworkRestoredBindingLost": "O framework salvo foi restaurado, mas não foi possível salvar o modelo do agente ({{detail}}) nem religar o cartão anterior, então o slot do agente ficou sem vínculo. Sua nova escolha de framework continua no formulário, ainda não salva — escolha um modelo e salve novamente para aplicá-la.",
+        "slotClearedPickModel": "O framework foi trocado e o cartão vinculado não consegue executá-lo, por isso foi desvinculado. Escolha um provedor e um modelo para o agente."
       },
       "privacy": {
         "label": "Privacidade",

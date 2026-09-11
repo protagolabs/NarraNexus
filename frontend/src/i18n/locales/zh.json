@@ -825,6 +825,8 @@
     },
     "agentRowMenu": {
       "options": "智能体选项",
+      "rename": "重命名",
+      "modelFramework": "模型与框架",
       "clearData": "清理数据",
       "delete": "删除"
     },
@@ -1805,7 +1807,13 @@
         "pluginRequiredTitle": "需要先安装插件",
         "pluginRequired": "该框架需要先安装对应插件才能使用。",
         "pluginRequiredLink": "前往 设置 › 插件 →",
-        "pluginNotInstalledSuffix": "插件未安装"
+        "pluginNotInstalledSuffix": "插件未安装",
+        "slotSaveRolledBack": "框架改动已撤回，本次什么都没保存：Agent 模型保存失败（{{detail}}）。",
+        "frameworkSavedSlotFailed": "框架已切换，但 Agent 模型保存失败（{{detail}}）。请重新选择模型并保存。",
+        "agentSavedHelperFailed": "Agent 模型已保存，但辅助模型保存失败（{{detail}}）。",
+        "frameworkSavedHelperFailed": "框架已切换，但辅助模型保存失败（{{detail}}）。",
+        "frameworkRestoredBindingLost": "已保存的框架已恢复为原来的，但 Agent 模型保存失败（{{detail}}），原来的卡也未能重新绑定，Agent 槽位现在是空的。你选的新框架仍保留在表单中、尚未保存——请选择模型后再次保存以生效。",
+        "slotClearedPickModel": "框架已切换，原先绑定的卡无法运行该框架，已被解除绑定。请为 Agent 重新选择服务商和模型。"
       },
       "updates": {
         "label": "应用更新",

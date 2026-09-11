@@ -1,8 +1,102 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 (r3) — third review of PR #399 (minors)
+
+- **A user-emptied agent draft is refused, not skipped.** `frameworkOnlyAgent`
+  is now `frameworkChanged && agentDraftEmpty && (!agentChanged ||
+  droppedByFrameworkRef.current !== null)`: an empty draft counts as
+  framework-only only when nobody edited the agent slot, or when the
+  framework switch dropped the card (the ref is set). Picking the blank
+  provider option by hand, or editing thinking / reasoning effort on an
+  unbound slot, together with a framework change now gets `pickAgentModel`
+  with nothing written — before, the framework landed, the edit was silently
+  skipped and the page flashed "Saved".
+- **`frameworkRestoredBindingLost` copy** now says the STORED framework was
+  put back while the user's new framework choice is still in the form, not
+  yet saved (the select keeps showing it so Save can retry).
+- The agent provider / model selects are named by `aria-labelledby` (block
+  title + their own label, ids from `useId`), so the two "Provider" / "Model"
+  pairs on the page have distinct accessible names.
+
+## 2026-09-11 (r2) — second review of PR #399
+
+- **Framework switch that empties the agent draft is saved, then asks for a
+  card.** When a framework change drops the bound card from the draft (the new
+  framework cannot drive it) and the user saves without picking another one,
+  the up-front check no longer refuses: an empty agent draft together with a
+  framework change counts as a framework-only save (`frameworkOnlyAgent`) —
+  but only when the agent draft is untouched or the framework switch itself
+  emptied it (see r3). `apply()` writes the framework, skips the agent-slot
+  write, reloads, and — when the backend reported `slot_cleared` — shows
+  `slotClearedPickModel` instead of "Saved" and does not offer the
+  apply-to-agents dialog (the slot is empty; `dirtySlots` leaves out `agent`
+  whenever the agent draft is empty). A half-filled agent draft (provider
+  without model) is still refused before anything is written
+  (`pickAgentModel`).
+- **`load()` surfaces a soft failure of `GET /agent-framework`** (`success:
+  false`) as `loadFailed`, same as AgentLlmConfigPanel: with no framework list
+  `providerBacksFramework` fails closed and both the framework and agent
+  provider selects would render empty with no explanation. No frontend
+  framework id is invented; `frameworkInitial` stays `''` so Save stays
+  disabled. Later `setError` calls from partial-save paths overwrite it.
+- **Partial-save messages name what actually landed.** `rollbackFramework`
+  returns `'rolled-back' | 'binding-lost' | 'failed'`: `binding-lost` (the
+  framework is back but the cleared binding could not be re-PUT) shows
+  `frameworkRestoredBindingLost`; `failed` (framework still switched) shows
+  `frameworkSavedSlotFailed`. The probe follows the framework as soon as the
+  rollback POST lands. A helper failure after only the framework landed shows
+  `frameworkSavedHelperFailed`; after the agent slot landed,
+  `agentSavedHelperFailed`.
+- **Post-failure reloads keep the user's drafts.** `load(keep?: {framework?,
+  agent?, helper?})` re-reads the stored state as the baseline (`*Initial`)
+  but keeps the given drafts; after `binding-lost` / `failed` all three are
+  kept so Save stays live for a retry, and `droppedByFrameworkRef` is kept
+  whenever an agent draft is kept (switching back still restores the dropped
+  card). Helper-failure reloads keep only the helper draft.
+
+## 2026-09-11 — framework + agent slot save as one unit (review of PR #399)
+
+- **Framework-only change is savable with an unbound agent slot.** The
+  provider+model check runs only when the agent slot itself changed
+  (`agentChanged`) — superseded in part by the r2 section above (an empty
+  draft left by a framework switch is also saved).
+- **No half-commit.** Order is unchanged (framework, agent slot, helper). If
+  the agent-slot write fails (`success:false` or throw) after the framework
+  landed, `rollbackFramework` POSTs `frameworkInitial` back and, when the
+  switch had cleared the binding (`slot_cleared`), re-PUTs `agentInitial`;
+  the draft stays as the user left it and the error says nothing was saved
+  (`slotSaveRolledBack`). The other outcomes are described in the r2 section.
+- **Switching back restores.** A provider/model the framework switch dropped is
+  kept in `droppedByFrameworkRef` and put back when the user picks a framework
+  that can drive it (checked with `providerBacksFramework`, never blind) and
+  has not picked another provider in between; `load()` clears it unless it
+  keeps an agent draft.
+
+## 2026-09-11 — the framework is a draft; Save commits it (Owner bug)
+
+Owner report: changing the default framework could not be saved. Root cause:
+the framework `<select>` wrote `POST /agent-framework` immediately on change and
+the framework was never part of `isDirty`, so after a pick the Save button stayed
+disabled (nothing "changed"), no "✓ Saved" ever appeared, and the page gave no
+sign the choice had landed.
+
+Now the framework is a draft like every other field: `framework` vs
+`frameworkInitial` (both filled by `load()`, initial state `''` — no hardcoded
+id), `frameworkChanged` joins `isDirty`, and picking the stored value again makes
+the form clean. Picking a framework the bound agent provider cannot drive
+(`providerBacksFramework`, the dropdown's own predicate) drops provider/model from
+the DRAFT so the user re-picks; a provider both frameworks can drive keeps the
+pick. `apply()` requires a provider+model when the agent slot changed (a
+framework-only change no longer needs one — see the sections above), then writes the framework FIRST (set_slot validates the provider against
+the stored framework), then the agent slot when it changed or the backend
+reported `slot_cleared`, then the helper. A framework change counts as an agent
+slot change for the apply-to-agents dialog. The auth probe line is hidden while
+the draft framework differs from the stored one (the probe describes the stored
+framework); the select is disabled while saving.
 
 ## 2026-09-10 — "✓ Saved" flag via the shared `useFlashFlag` hook
 

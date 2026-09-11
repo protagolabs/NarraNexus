@@ -13,6 +13,10 @@ import {
   maxDrawerPx,
   readInitialDrawerPinned,
   shouldAutoOpenFirstRun,
+  shouldAutoOpenForAgent,
+  markAgentDrawerSeen,
+  DRAWER_AGENT_SEEN_KEY,
+  MAX_SEEN_AGENTS,
   DRAWER_OPENED_ONCE_KEY,
   DRAWER_PINNED_KEY,
   DRAWER_WIDTH_KEY,
@@ -88,5 +92,65 @@ describe('first-run auto-open', () => {
       storage.setItem(key, key === DRAWER_PINNED_KEY ? '0' : '1');
       expect(shouldAutoOpenFirstRun(storage, false)).toBe(false);
     }
+  });
+});
+
+describe('per-agent first view (Owner 2026-09-11: new agents open on Artifacts)', () => {
+  const mem = () => {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+    };
+  };
+
+  it('opens for an agent never shown before — even for an existing user', () => {
+    const storage = mem();
+    // Existing user: first-run coach long spent, drawer used before.
+    storage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
+    storage.setItem(DRAWER_PINNED_KEY, '1');
+    expect(shouldAutoOpenFirstRun(storage, false)).toBe(false);
+    expect(shouldAutoOpenForAgent(storage, 'agent_new', false)).toBe(true);
+  });
+
+  it('opens once per agent: after being marked, that agent stays as the user left it', () => {
+    const storage = mem();
+    markAgentDrawerSeen(storage, 'a1');
+    expect(shouldAutoOpenForAgent(storage, 'a1', false)).toBe(false);
+    expect(shouldAutoOpenForAgent(storage, 'a2', false)).toBe(true);
+    markAgentDrawerSeen(storage, 'a1'); // idempotent
+    expect(JSON.parse(storage.getItem(DRAWER_AGENT_SEEN_KEY)!)).toEqual(['a1']);
+  });
+
+  it('never opens on a phone or without an agent', () => {
+    const storage = mem();
+    expect(shouldAutoOpenForAgent(storage, 'a1', true)).toBe(false);
+    expect(shouldAutoOpenForAgent(storage, '', false)).toBe(false);
+    expect(shouldAutoOpenForAgent(storage, null, false)).toBe(false);
+  });
+
+  it('an unreadable or corrupt store does not open the drawer on every view', () => {
+    const throwing = {
+      getItem: () => { throw new Error('denied'); },
+      setItem: () => { throw new Error('denied'); },
+    };
+    expect(shouldAutoOpenForAgent(throwing, 'a1', false)).toBe(false);
+    expect(() => markAgentDrawerSeen(throwing, 'a1')).not.toThrow();
+
+    const corrupt = mem();
+    corrupt.setItem(DRAWER_AGENT_SEEN_KEY, '{not json');
+    // Treated as "nothing seen" once; marking rewrites a valid list.
+    expect(shouldAutoOpenForAgent(corrupt, 'a1', false)).toBe(true);
+    markAgentDrawerSeen(corrupt, 'a1');
+    expect(shouldAutoOpenForAgent(corrupt, 'a1', false)).toBe(false);
+  });
+
+  it('keeps the seen list bounded, dropping the oldest ids', () => {
+    const storage = mem();
+    for (let i = 0; i < MAX_SEEN_AGENTS + 5; i += 1) markAgentDrawerSeen(storage, `a${i}`);
+    const list = JSON.parse(storage.getItem(DRAWER_AGENT_SEEN_KEY)!) as string[];
+    expect(list).toHaveLength(MAX_SEEN_AGENTS);
+    expect(list[0]).toBe('a5');
+    expect(shouldAutoOpenForAgent(storage, `a${MAX_SEEN_AGENTS + 4}`, false)).toBe(false);
   });
 });

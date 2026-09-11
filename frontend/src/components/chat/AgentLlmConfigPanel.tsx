@@ -61,7 +61,8 @@ const EMPTY_DRAFT: Draft = {
   model: '',
   thinking: '',
   reasoning_effort: '',
-  agent_framework: 'nexus_power',
+  // Filled by load() — no hardcoded framework id (see ownerFramework below).
+  agent_framework: '',
 };
 
 function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): Draft {
@@ -118,7 +119,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // same way.
   const [saved, flashSaved] = useFlashFlag(2500);
 
-  const load = useCallback(async () => {
+  // `keepHelperDraft`: after a partial save, reload the stored state but keep
+  // the user's still-unsaved helper edit in the draft.
+  const load = useCallback(async (keepHelperDraft?: Draft) => {
     setLoading(true);
     setError('');
     try {
@@ -134,14 +137,24 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
+      // No owner slot bound → the framework the backend resolved for this
+      // user (its default already skips uninstalled plugins). Never a
+      // frontend literal: a hardcoded id can name a framework whose plugin
+      // is not installed on this build.
       const ownerFramework =
-        s.agent?.owner_default?.agent_framework || 'nexus_power';
+        s.agent?.owner_default?.agent_framework || (fwRes?.success ? fwRes.data.framework : '');
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
-      const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
+      // The helper slot carries no framework (its save never sends one).
+      const h = draftFrom(s.helper_llm?.effective ?? null, '');
       setAgentDraft(a);
-      setHelperDraft(h);
+      setHelperDraft(keepHelperDraft ?? h);
       setAgentInitial(a);
       setHelperInitial(h);
+      // A soft failure of the framework endpoint leaves no framework list to
+      // offer (and providerBacksFramework fails closed on it), so the form
+      // would render an empty framework select with no explanation. Say the
+      // load failed instead.
+      if (!fwRes?.success) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
@@ -223,7 +236,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        if (!r.success) {
+          const failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+          if (!agentChanged) { setError(failure); return; }
+          // The agent half landed: reload it as saved, keep the helper edit.
+          await load(helperDraft);
+          onSaved?.();
+          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          return;
+        }
       }
       await load();
       onSaved?.();

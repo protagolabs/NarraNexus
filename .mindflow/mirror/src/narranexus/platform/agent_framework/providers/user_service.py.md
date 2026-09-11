@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/user_service.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — onboarding framework follows plugin availability
+
+`onboard_one_key` still asks `default_framework_for_protocol` which framework a
+fresh card lands on; that helper now considers only INSTALLED frameworks, so on
+the lightweight local build (no Claude Code / Codex plugin) every card lands on
+`nexus_power` instead of an uninstalled framework that could not run a turn.
+Only the docstring and the inline comment here changed (they now say
+*installed*, and name the nexus_power fallback).
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 

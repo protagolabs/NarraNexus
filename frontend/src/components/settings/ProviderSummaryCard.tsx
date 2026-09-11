@@ -68,7 +68,8 @@ interface ProviderSummaryCardProps {
 export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardProps) {
   const [providers, setProviders] = useState<Record<string, ProviderInfo>>({});
   const [slots, setSlots] = useState<Record<string, SlotInfo>>({});
-  const [framework, setFramework] = useState<string>('claude_code');
+  // Filled from GET /agent-framework before the card renders; no hardcoded id.
+  const [framework, setFramework] = useState<string>('');
   const [frameworks, setFrameworks] = useState<Array<{ name: string; display_name?: string }>>();
   const [loaded, setLoaded] = useState(false);
 

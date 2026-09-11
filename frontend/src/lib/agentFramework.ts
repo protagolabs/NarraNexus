@@ -203,7 +203,9 @@ export function providerBacksFramework(
   }
   if (!SUBSCRIPTION_AUTH_TYPES.includes(prov.auth_type)) return true
   const redeemer = frameworks.find((f) => f.oauth_source === prov.source)?.name
-  return (framework || 'claude_code') === redeemer
+  // No framework resolved yet redeems nothing — never read "unset" as a
+  // hardcoded Claude Code (on the lightweight build it may not be installed).
+  return !!framework && framework === redeemer
 }
 
 /**

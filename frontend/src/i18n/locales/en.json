@@ -825,6 +825,8 @@
     },
     "agentRowMenu": {
       "options": "Agent options",
+      "rename": "Rename",
+      "modelFramework": "Model & framework",
       "clearData": "Clear data",
       "delete": "Delete"
     },
@@ -1805,7 +1807,13 @@
         "pluginRequiredTitle": "Plugin required",
         "pluginRequired": "This framework needs its plugin installed first.",
         "pluginRequiredLink": "Go to Settings › Plugins →",
-        "pluginNotInstalledSuffix": "plugin not installed"
+        "pluginNotInstalledSuffix": "plugin not installed",
+        "slotSaveRolledBack": "The framework change was undone and nothing was saved: the agent model could not be saved ({{detail}}).",
+        "frameworkSavedSlotFailed": "The framework was switched, but the agent model could not be saved ({{detail}}). Pick a model and save again.",
+        "agentSavedHelperFailed": "The agent model was saved, but the helper model could not be saved ({{detail}}).",
+        "frameworkSavedHelperFailed": "The framework was switched, but the helper model could not be saved ({{detail}}).",
+        "frameworkRestoredBindingLost": "The stored framework was put back, but the agent model could not be saved ({{detail}}) and the previous card could not be rebound, so the agent slot is now unbound. Your new framework choice is still in the form, not yet saved — pick a model and save again to apply it.",
+        "slotClearedPickModel": "The framework was switched and the previously bound card cannot run it, so it was unbound. Pick a provider and model for the agent slot."
       },
       "updates": {
         "label": "App updates",

@@ -5,10 +5,13 @@
  * @description: Renders one collapsible team section inside the grouped
  * agent list. Owns the section header (team name, member count, collapse
  * toggle, aggregated unread pill) and the agent rows beneath it.
- * Rows are display-only — every agent mutation now lives on the agent
- * profile page, so the row carries no per-row action affordance.
+ * An owned agent's row carries the ⋯ menu (Rename / Model & framework /
+ * Delete — Owner-required, reinstated 2026-09-11 after #383 removed it) and
+ * the inline rename input it opens; other users' public agents stay
+ * display-only. The actions themselves are the host's (AgentList).
  */
 
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
@@ -17,6 +20,7 @@ import { AGENT_CARD_BADGES } from '@/platform/registries';
 import { SlotOutlet } from '@/platform/SlotOutlet';
 import { useWhenContext } from '@/platform/whenContext';
 import { aggregateSectionUnread } from './agentGroupUtils';
+import { AgentRowMenu } from './AgentRowMenu';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -57,8 +61,20 @@ export interface AgentGroupSectionProps {
   completedAgentIds: string[];
 
   /** Logged-in user — the read-only Globe badge marks OTHER users' public
-   *  agents, so the row still needs to know who is looking. */
+   *  agents, and only the owner's rows get the ⋯ menu. */
   currentUserId: string | null;
+
+  /** Row ⋯ menu actions (owner rows only). Omitted → no menu. */
+  rowActions?: AgentRowActions;
+}
+
+/** What the row's ⋯ menu can do — supplied by the host, which owns the API
+ *  calls, the confirm dialog and the model-config panel. */
+export interface AgentRowActions {
+  /** Persist a new name (the host reports failures itself). */
+  onRename: (agentId: string, name: string) => void;
+  onOpenModelConfig: (agentId: string) => void;
+  onDelete: (agentId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +106,7 @@ export function AgentGroupSection({
   getIsStreaming,
   completedAgentIds,
   currentUserId,
+  rowActions,
 }: AgentGroupSectionProps) {
   const totalUnread = aggregateSectionUnread(agents, (aid) => getRowMeta(aid).unread);
 
@@ -193,6 +210,7 @@ export function AgentGroupSection({
               completedAgentIds={completedAgentIds}
               currentUserId={currentUserId}
               onSelectAgent={onSelectAgent}
+              rowActions={rowActions}
             />
           ))}
         </div>
@@ -214,6 +232,7 @@ interface AgentRowProps {
   completedAgentIds: string[];
   currentUserId: string | null;
   onSelectAgent: (agentId: string) => void;
+  rowActions?: AgentRowActions;
 }
 
 /** Single agent row — mirrors the AgentList row but scoped to the group context. */
@@ -226,8 +245,12 @@ function AgentRow({
   completedAgentIds,
   currentUserId,
   onSelectAgent,
+  rowActions,
 }: AgentRowProps) {
   const { t } = useTranslation();
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
   const badgeCtx = useWhenContext({ agentId: agent.agent_id });
@@ -245,12 +268,40 @@ function AgentRow({
   const allowHover = !isSelected && unread === 0;
 
   const isOwner = agent.created_by === currentUserId;
+  const showMenu = isOwner && !!rowActions;
+
+  // Whether the current rename session has already been settled (committed or
+  // cancelled). A ref, not the `renaming` state: Enter/Escape unmount the
+  // input, and engines that dispatch blur on removal (WebKit — the Tauri
+  // webviews) run the blur handler from the SAME render's closure, where
+  // `renaming` is still true. Only a ref sees the first settle.
+  const renameSettledRef = useRef(false);
+  const startRename = () => {
+    renameSettledRef.current = false;
+    setNameDraft(displayName);
+    setRenaming(true);
+  };
+  const cancelRename = () => {
+    renameSettledRef.current = true;
+    setRenaming(false);
+  };
+  const commitRename = () => {
+    // Enter and the blur it triggers both land here — only the first may act.
+    if (renameSettledRef.current) return;
+    renameSettledRef.current = true;
+    const next = nameDraft.trim();
+    setRenaming(false);
+    if (next && next !== displayName) rowActions?.onRename(agent.agent_id, next);
+  };
 
   return (
     <div
-      onClick={() => onSelectAgent(agent.agent_id)}
+      onClick={() => { if (!renaming) onSelectAgent(agent.agent_id); }}
       className={cn(
         'w-full text-left px-3 py-1.5 cursor-pointer animate-slide-up',
+        // Each row is its own stacking context (animate-slide-up keeps a
+        // transform), so an open ⋯ panel lifts its whole row above the next.
+        menuOpen && 'relative z-30',
         // Slight editorial radius matching the chat bubbles (--radius-lg = 4px)
         // so the selected-row background reads consistently with the messages.
         'rounded-[var(--radius-lg)] transition-colors duration-150',
@@ -286,10 +337,25 @@ function AgentRow({
           )}
         </div>
 
-        {/* Right side — single line: name … unread + time. The row is
-            display-only; rename / clear / delete live on the agent profile
-            page (Owner ruling 2026-08-27). */}
+        {/* Right side — single line: name … unread + time (+ the owner's ⋯
+            menu). Renaming swaps the line for an inline input. */}
         <div className="flex-1 min-w-0">
+          {renaming ? (
+            <input
+              autoFocus
+              aria-label={t('layout.agentRowMenu.rename')}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+              }}
+              onBlur={commitRename}
+              className="w-full px-2 py-0.5 text-sm text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
+            />
+          ) : (
           <div className="flex items-center gap-1">
             <span
               className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
@@ -335,8 +401,24 @@ function AgentRow({
               >
                 {time}
               </span>
+              {showMenu && rowActions && (
+                <div
+                  className={cn(
+                    'shrink-0 transition-opacity',
+                    menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+                  )}
+                >
+                  <AgentRowMenu
+                    onOpenChange={setMenuOpen}
+                    onRename={startRename}
+                    onOpenModelConfig={() => rowActions.onOpenModelConfig(agent.agent_id)}
+                    onDelete={() => rowActions.onDelete(agent.agent_id)}
+                  />
+                </div>
+              )}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

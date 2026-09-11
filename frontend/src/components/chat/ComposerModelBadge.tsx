@@ -7,16 +7,20 @@
  * shows the active agent's effective model and lets you switch it inline —
  * picking a model here writes a per-agent override (PUT
  * /api/agents/{id}/llm-config/agent). Framework + reasoning + helper live in
- * the detailed AgentLlmConfigPanel, now only reachable from the agent's
- * Profile page (2026-08-27 — the header's own entry point was dropped as a
- * duplicate). When the owner has no agent slot at all it falls back to a
- * "set model" link into Settings.
+ * the detailed AgentLlmConfigPanel, reachable from the chat header's Model &
+ * framework button, the sidebar agent row's ⋯ menu and the agent's Profile
+ * page. `reloadKey` is bumped by the host after that panel saves, and the chip
+ * also re-reads whenever the agent list's model/framework projection for this
+ * agent changes (a save from ANOTHER door — the sidebar ⋯ menu, the profile
+ * page — refreshes that list), so it never keeps showing a replaced model. When the owner has no agent
+ * slot at all it falls back to a "set model" link into Settings.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfigStore } from '@/stores/configStore';
 import { cn } from '@/lib/utils';
 import {
   getModelsForSlot,
@@ -26,10 +30,18 @@ import type { AgentSlotEffective } from '@/types';
 
 interface Props {
   agentId: string;
+  /** Bump to force a re-read (the host's AgentLlmConfigPanel saved). */
+  reloadKey?: number;
 }
 
-export function ComposerModelBadge({ agentId }: Props) {
+export function ComposerModelBadge({ agentId, reloadKey = 0 }: Props) {
   const { t } = useTranslation();
+  // This agent's model/framework as the agent list last reported it — a
+  // string so an unrelated list refresh does not re-trigger the load.
+  const listedIdentity = useConfigStore((s) => {
+    const listed = s.agents.find((a) => a.agent_id === agentId);
+    return listed ? `${listed.agent_framework ?? ''}|${listed.model ?? ''}` : '';
+  });
   const navigate = useNavigate();
   const [eff, setEff] = useState<AgentSlotEffective | null>(null);
   const [inheriting, setInheriting] = useState(true);
@@ -66,7 +78,7 @@ export function ComposerModelBadge({ agentId }: Props) {
   useEffect(() => {
     setLoaded(false);
     void load();
-  }, [load]);
+  }, [load, reloadKey, listedIdentity]);
 
   useEffect(() => {
     if (!open) return;

@@ -92,10 +92,41 @@ def test_unknown_slot_framework_fails_loud_instead_of_defaulting():
     assert _agent_framework_from_slot({}) == "nexus_power"
 
 
-def test_default_framework_for_protocol_prefers_locked_then_agnostic():
+def test_default_framework_for_protocol_prefers_locked_then_agnostic(monkeypatch):
+    from narranexus.platform.agent_framework import plugin_paths
+
+    # Every on-demand plugin installed (cloud image / a desktop that installed them).
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: True)
     assert default_framework_for_protocol("anthropic") == "claude_code"
     assert default_framework_for_protocol("openai") == "codex_cli"
     assert default_framework_for_protocol("weird") == "nexus_power"
+
+
+def test_default_framework_for_protocol_skips_uninstalled_plugins(monkeypatch):
+    """Lightweight local build: Claude Code / Codex are registered but their
+    plugins are not installed. A fresh card must land on a framework that can
+    actually run (the host-shipped nexus_power), never on the uninstalled one."""
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: False)
+    assert default_framework_for_protocol("anthropic") == "nexus_power"
+    assert default_framework_for_protocol("openai") == "nexus_power"
+
+    # Only Claude Code installed → anthropic cards pair with it again, openai
+    # cards still fall through to the installed protocol-agnostic framework.
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: fw == "claude_code")
+    assert default_framework_for_protocol("anthropic") == "claude_code"
+    assert default_framework_for_protocol("openai") == "nexus_power"
+
+
+def test_framework_not_installed_error_names_both_ways_out():
+    """A binding stored before onboarding skipped uninstalled frameworks is not
+    rewritten; the run error must tell that user where to move it, not only
+    where to install the plugin."""
+    msg = str(FrameworkNotInstalledError("claude_code"))
+    assert "Settings → Plugins" in msg
+    assert "Settings → Model Defaults" in msg
+    assert "'claude_code'" in msg
 
 
 def test_oauth_source_ownership_is_registry_derived(acme_cli):

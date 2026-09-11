@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — framework state starts empty
+
+The framework state starts as `''` instead of `'claude_code'`: if the
+agent-framework request fails the Agent row now reads "— · <provider>" rather
+than claiming Claude Code. Pinned by `__tests__/ProviderSummaryCard.framework.test.tsx`.
 
 ## 2026-09-07 — the framework label uses the live `display_name` (B6)
 

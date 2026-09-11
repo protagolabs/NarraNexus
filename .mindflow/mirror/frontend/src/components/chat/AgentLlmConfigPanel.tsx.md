@@ -4,6 +4,35 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — helper failure after the agent slot saved says so
+
+Same class as ModelDefaultsSettings' partial save: `saveAll` writes the agent
+slot (framework included, one call) then the helper. A helper failure after the
+agent write used to show only the helper error with the agent still "dirty".
+Now `load(helperDraft)` reloads the agent half as saved, keeps the unsaved
+helper edit, calls `onSaved`, and shows `agentSavedHelperFailed`; a helper-only
+failure is the plain error. Pinned by
+`__tests__/AgentLlmConfigPanel.saveFeedback.test.tsx`.
+
+## 2026-09-11 — a soft-failed framework load is reported
+
+`GET /agent-framework` answering `success:false` (no throw) left no framework
+list and no user framework: the framework select rendered with zero options
+and no explanation (the provider list is empty too, since
+`providerBacksFramework` fails closed without the list). `load()` now sets the
+`loadFailed` error in that case. Pinned by
+`__tests__/AgentLlmConfigPanel.defaultFramework.test.tsx` (soft failure →
+error; normal load → none).
+
+## 2026-09-11 — no hardcoded framework fallback
+
+`EMPTY_DRAFT.agent_framework` is `''` and, when the agent has no owner slot
+bound, the draft's framework falls back to the backend-resolved user framework
+(`getAgentFramework().data.framework`, which already skips uninstalled plugins)
+instead of the literal `'nexus_power'`. The helper draft's fallback is `''`
+(the helper save never sends a framework). Pinned by
+`__tests__/AgentLlmConfigPanel.defaultFramework.test.tsx`.
+
 ## 2026-09-11 — orphaned free-tier banner removed; "✓ Saved" after Save
 
 - The 2026-07-23 free-tier banner below is gone. The backend stopped

@@ -748,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "에이전트 옵션",
+      "rename": "이름 변경",
+      "modelFramework": "모델 및 프레임워크",
       "clearData": "데이터 지우기",
       "delete": "삭제"
     },
@@ -1386,7 +1388,13 @@
         "saved": "저장됨",
         "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
-        "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
+        "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요.",
+        "slotSaveRolledBack": "프레임워크 변경이 취소되어 아무것도 저장되지 않았습니다: 에이전트 모델을 저장하지 못했습니다({{detail}}).",
+        "frameworkSavedSlotFailed": "프레임워크는 전환되었지만 에이전트 모델을 저장하지 못했습니다({{detail}}). 모델을 다시 선택하고 저장하세요.",
+        "agentSavedHelperFailed": "에이전트 모델은 저장되었지만 헬퍼 모델을 저장하지 못했습니다({{detail}}).",
+        "frameworkSavedHelperFailed": "프레임워크는 전환되었지만 헬퍼 모델을 저장하지 못했습니다({{detail}}).",
+        "frameworkRestoredBindingLost": "저장된 프레임워크는 원래대로 되돌렸지만 에이전트 모델을 저장하지 못했고({{detail}}) 이전 카드도 다시 연결하지 못해 에이전트 슬롯이 비어 있습니다. 선택한 새 프레임워크는 아직 저장되지 않은 채 양식에 남아 있습니다. 모델을 선택하고 다시 저장하면 적용됩니다.",
+        "slotClearedPickModel": "프레임워크가 전환되었고, 이전에 연결된 카드는 이 프레임워크를 실행할 수 없어 연결이 해제되었습니다. 에이전트의 제공자와 모델을 선택하세요."
       },
       "privacy": {
         "label": "개인정보 보호",

@@ -62,8 +62,10 @@ import { useAutoRefresh } from '@/hooks';
 import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
 import {
   DRAWER_OPENED_ONCE_KEY,
+  markAgentDrawerSeen,
   markFirstRunSeen,
   shouldAutoOpenFirstRun,
+  shouldAutoOpenForAgent,
 } from './drawerLayout';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
 
@@ -92,9 +94,30 @@ export function ChatView() {
     // First-run decision is mount-time only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const { agentId, userId } = useConfigStore();
+  // Per-agent first view (Owner 2026-09-11): an agent whose chat was never
+  // shown on this desktop opens with the drawer on Artifacts — pinned, the
+  // pin default — so a new agent's explainer is visible immediately, for new
+  // AND existing users (the coach above only reaches brand-new profiles).
+  // Decided at mount (lazy initializer) and on every agent switch (derived
+  // state set during render — no effect → no flash of a closed drawer); the
+  // seen-marker is written from the effect below.
+  const isSmallViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767.98px)').matches;
+  const autoOpenFor = (id: string | null | undefined) =>
+    typeof window !== 'undefined' && shouldAutoOpenForAgent(window.localStorage, id, isSmallViewport());
   const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
-    () => (showDrawerCoach ? 'artifacts' : null),
+    () => (showDrawerCoach || autoOpenFor(agentId) ? 'artifacts' : null),
   );
+  const [drawerAgentId, setDrawerAgentId] = useState(agentId);
+  if (agentId !== drawerAgentId) {
+    setDrawerAgentId(agentId);
+    if (autoOpenFor(agentId)) setDrawerTab('artifacts');
+  }
+  useEffect(() => {
+    // A phone visit does not spend the agent's desktop first view.
+    if (agentId && !isSmallViewport()) markAgentDrawerSeen(window.localStorage, agentId);
+  }, [agentId]);
   const {
     pinned: drawerPinned,
     setPinned: setDrawerPinned,
@@ -103,7 +126,6 @@ export function ChatView() {
     handleResize: handleDrawerResize,
     handleResizeEnd: handleDrawerResizeEnd,
   } = usePinnedDrawer();
-  const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
   useBookmarkSignals(agentId);
 
