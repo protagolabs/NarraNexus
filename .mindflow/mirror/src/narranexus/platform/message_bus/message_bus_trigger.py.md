@@ -4,24 +4,42 @@ last_verified: 2026-09-11
 stub: false
 ---
 
-## 2026-09-11（PR#401 同类扫描）— 团队房里作者可写的行内标签走共享编码器
+## 2026-09-11（PR#401 同类扫描）— 团队房 prompt 的行语法按构造不可伪造
 
-`_roster_lines` 的注释声称与 Known Agents 同形，但名字/描述原样拼接：名字里带换行和
-`` - `agent_boss` — Boss · Leader `` 就能在成员名单里多出一行、或伪造 Leader 标记。现在与插件
-共用 [[inline_field]] 的 `inline_field`（平台层，插件从这里 import，平台不 import 插件）：
+**不变量**：团队房 prompt（`_build_team_prompt` 及其子块）与 peer 私聊 prompt（`_build_prompt`）
+里，任何作者可写的文本都不能开出一行该块语法里的新行、也不能伪造同一行里的字段。两种手段，均来自
+平台层 [[inline_field]]（插件同样从这里 import，平台不 import 插件）：
 
-- **roster**：`` - `id` — "name" (you) · Leader: "desc" ``。名字、描述是 JSON 字符串字面量
-  （描述上限 120 且截断以 `…` 标记，替代原来的手写 `[:120]+…`）；id 是句柄，只折叠空白/替换反引号，
-  永不截断、不加引号。
-- **`You are "<me>"`**、**`[Team] <name>`**、公告栏 **`(added by <name>)`**：同一编码器（原先
-  `You are` 手写一对引号，名字里的 `"`/换行能逃出）。
-- **工作板** `- [status] "title" ("who") · id=<item_id>`：标题由 agent 经 `team_work_add` 写，
-  原样拼接时能伪造一整行带假 `id=` 的任务；`unclaimed` 不加引号（平台字面量）。
-- **巡查停滞列表** `- "title" ("assignee")`：同上。
+- **标签**（名字、描述、标题）→ `inline_field`：JSON 字符串字面量，折叠空白、替换反引号、超长带
+  `…` 截断。**句柄**（agent/team/item id）→ `inline_field(x, None)`：不截断、不加引号。
+- **正文**（消息、公告规则，可合法多行）→ `body_lines`：首行接在行头后，后续行一律以
+  `BODY_LINE_PREFIX`（`"  > "`）引用，任何块的行都不以它开头；无独立行头的整段 → `quoted_block`
+  （每行都引用）。
 
-不在本次范围（均为正文类自由文本，而非行语法中的标签）：团队 `description`/`intro_md`（owner
-写的散文，`intro_md` 按设计就是多行 markdown）、scrollback 的 `sender: content` 行（正文本身
-未引用，编码发送者名不改变可伪造性——正文引用是另一类问题）、公告栏规则正文。
+**不变量的覆盖范围**（逐块穷举）：
+
+| 块 | 行语法 | 作者可写部分的处理 |
+|---|---|---|
+| `You are "<me>"` | 单行 | 名字 → 标签 |
+| roster `_roster_lines` | `` - `id` — "name" @token (you) · Leader: "desc" · can: … · status `` | 名字/描述 → 标签（描述上限 `INLINE_DESCRIPTION_MAX_CHARS`=80，与 Known Agents 同口径）；id → 句柄；`@token` 见下 |
+| 团队卡 `[Team] "<name>"` | 单行 | 名字 → 标签 |
+| 公告栏 `_render_bulletin` | `N.[ (added by "<name>")] <body>` | 署名移到**首行、正文之前**（正文无法仿造）；署名名字 → 标签；规则正文 → `body_lines`，换行不能再造一条「无署名 = owner 写的」规则 |
+| 公告栏 `[Team progress]` 摘要 | 表头下整段 | 平台 LLM 由房间内容生成 → `quoted_block` 整段引用，不能开出 `[Work board]` 等表头或编号规则 |
+| 工作板 | `- [status] "title" ("who") · id=<item_id>` | 标题/负责人 → 标签；id → 句柄；`status` 走 `WorkItemStatus.MODEL_SETTABLE` 白名单，非自由文本 |
+| 巡查停滞列表 | `- "title" ("assignee")` | 标签 |
+| scrollback | `<sender>[ [→ names]]: <body>` | 发送者、被点名者 → 标签（`User`/`[system]` 为平台常量不加引号）；`[→ …]` 移到**冒号前**（正文够不着）；正文 → `body_lines`。`[system]` 行正文同样 `body_lines` |
+| 附件 marker `build_bus_markers` | `[Shared file from agent <who>: name=…, path=…, …]` 一行 | `who` 由调用方传入（团队房传已编码标签，DM 传句柄）；文件名与 transcript 折叠空白（见 [[_bus_attachment_impl]]） |
+| 指向行 `You were just @mentioned by <who>` / 批次列表 `- <who>[ [no @mention — routed to you]]: <body>` | 同 scrollback | `_who` → `_sender`（标签）；平台触发的 `_platform_trigger_label` 是平台常量，不加引号；routed 标记移到冒号前；正文 → `body_lines` |
+| peer 私聊 `_build_prompt` | `From: <id>` / `Time: <ts>` / 正文 | 正文 → `quoted_block`，不能伪造另一条消息的 `From:`/`Time:` 头 |
+
+**@mention token**：roster 显示的是带引号的名字，而 `extract_team_mentions` 只认裸 `@word`，模型照抄会
+写出 `@"Ana"` → 静默不唤醒。所以每行在名字后显示 `@<token>`（`team_posting.mention_token`，用真解析器
+回验该 token 只唤醒此成员），名字没有唯一 token（以非 token 字符开头、或与他人同前缀）时显示
+`(no @mention token)`；表头明说「照抄 @token，不要带引号」。解析器口径未改，前端 `mentionPattern.ts`
+仍与之一致。
+
+**明确不纳入**：团队 `description` / `intro_md`——owner 在管理 UI 写的散文（`intro_md` 按设计是多行
+markdown），owner 就是这个 prompt 的委托方，不存在跨主体伪造。
 
 ## 2026-09-10（PR #394 review C1/M1）— lane 与 patrol 认领的探测现在有人结算
 

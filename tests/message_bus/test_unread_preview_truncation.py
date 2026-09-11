@@ -334,8 +334,8 @@ def test_the_not_shown_count_includes_messages_beyond_the_query_window():
                    "content": "short"} for i in range(20)], total=50)
     assert "### Unread Messages: 50 (showing 20)" in span
     assert (
-        "- 30 unread message(s) not shown (this list shows the newest 20); the 30 "
-        "older than those are beyond this list — use read_history on the "
+        "- 30 unread message(s) not shown (this list shows the newest 20); all 30 "
+        "are older than this list — use read_history on the "
         "conversation you expect them in."
     ) in span
     # No call is offered for them: no row in this list carries their handle.

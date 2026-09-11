@@ -17,7 +17,7 @@ stub: false
 
 - **根因收口，而不是逐个字符类补洞**：`_inline_field` 是所有行内字段的唯一编码器，分两种形态。**标签**（团队房名、Known Agents 的名字/描述）：折叠空白 → 反引号（含全角 `\uff40`）换成 `'` → 超长按 `INLINE_FIELD_MAX_CHARS=120`（描述 `INLINE_DESCRIPTION_MAX_CHARS=80`）截断且以 `…` 标记 → 以 JSON 字符串字面量输出（`json.dumps(..., ensure_ascii=False)`）。作者写的任何 `` ` ``、` · `、`[`、`]`、` — `、`: `、`(teammate)`、`"`、`\` 都在一对引号里且引号/反斜杠被转义，字段无法提前结束，字面量能原样解码回展示文本。**句柄**（`max_chars=None`：agent/team id、tag 的发送者）：系统生成、不可由作者写，永不截断、不加引号（agent 要原样抄进工具调用），只折叠空白并替换反引号，不能逃出 code span。
 - 渲染形状因此变为 ``["Ops" · from agent_x]``、``- `team_x` — "Ops"``、``- `agent_a` — "Alice": "desc" (teammate)``；静态块的示例由同一个 `_bus_tag` 生成，自动一致。仓内没有把这些行解析回来的消费方。
-- **`_not_shown_line` 提为模块级纯函数** `(total, kept, rows)`。调用列表只来自被预算让出的行，按新到旧最多列 `NOT_SHOWN_MAX_CALLS=3` 个、其余计数（`and N more conversation(s)`），因此让出一条短行不会让声明行变得更长，回让循环不再连锁让到只剩最新一条；窗口外的消息明说「beyond this list — use read_history on the conversation you expect them in」，不再把窗口内的调用摆在全量条数后面；让出的行都没句柄时如实说没有。
+- **`_not_shown_line` 提为模块级纯函数** `(total, kept, rows)`。调用列表只来自被预算让出的行，按新到旧最多列 `NOT_SHOWN_MAX_CALLS=3` 个、其余计数（`and N more conversation(s)`），让出一条行仍可能让声明行变长（它的调用加入列表），所以回让循环不是单调的；上限只是约束了这种增长，循环从最多往下取第一个装得下的条数、且永不少于最新一条；窗口外的消息明说「beyond this list — use read_history on the conversation you expect them in」（没有被让出的行时说「all N are older than this list」，不再用没有先行词的「those」），不再把窗口内的调用摆在全量条数后面；让出的行都没句柄时如实说没有。
 
 ## 2026-09-11 — 行内字段同样不可伪造 + 省略口径统一（PR#401 review 二轮 🟡1/🟢2-5）
 
@@ -28,7 +28,7 @@ stub: false
 
 ## 2026-09-11 — 未读列表结构防伪 + 总预算 + 可执行指路（PR#401 review 🟡1/🟢2-3）
 
-- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `_unread_body` 布局——首行紧跟 tag，其后每行都加 `_UNREAD_BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
+- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `body_lines`（平台层 [[../../../../../src/narranexus/platform/message_bus/inline_field]]，2026-09-11 从本文件 `_unread_body` 迁出，团队房 trigger 共用）布局——首行紧跟 tag，其后每行都加 `BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
 - **cut 标记给出确切调用**：`_read_rest_call` —— 团队房行（房间已解析）给 `read_history(team_id="…")`，私聊里真 agent 发的给 `read_history(with_agent="<agent_id>")`；`usr_*`/平台发送者且房间未解析时没有工具可接受的句柄，标记如实说「取不到，请向发送者要」，不指向做不到的调用。为此 `_room_labels` 的返回改为 `{channel_id: {"name", "team_id"}}`（name 标 tag，team_id 给指路；不把 raw `channel_id` 打回 tag）。
 - **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明未展示条数与 read_history 调用（口径见上一节），表头 `(showing M)` 报实际展示数。
 

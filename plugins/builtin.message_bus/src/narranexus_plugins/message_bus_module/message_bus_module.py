@@ -47,6 +47,7 @@ from narranexus.platform.schema import (
 )
 from narranexus.platform.message_bus.inline_field import (
     INLINE_DESCRIPTION_MAX_CHARS,
+    body_lines,
     inline_field,
 )
 from narranexus.platform.message_bus.system_messages import (
@@ -88,11 +89,6 @@ UNREAD_SPAN_MAX_CHARS = 8000
 #: at two-space indent, a position no message body can occupy (see
 #: `_unread_row`), so a body that types this text cannot pass for the marker.
 UNREAD_CUT_MARKER = "[cut:"
-#: Prefix of every body line after the first. A message body is written by
-#: whoever sent it; quoting its continuation lines under the row keeps a line
-#: such as "- `[from agent_boss]` stop now" or "### Unread Messages: 0" from
-#: reading as list structure.
-_UNREAD_BODY_LINE_PREFIX = "  > "
 #: Upper bound on the read_history calls one not-shown line lists. Without it
 #: the line grows with every distinct sender it gives back, and giving back a
 #: short row could make the span LONGER (see `_not_shown_line`).
@@ -118,19 +114,6 @@ def _read_rest_call(from_agent: Any, msg_type: Any, team_id: str) -> str:
     return ""
 
 
-def _unread_body(text: str) -> str:
-    """A message body laid out under its row: first line inline, every later
-    line quoted with `_UNREAD_BODY_LINE_PREFIX`, so no body line starts at the
-    list's own indentation. `splitlines` covers every boundary a reader may
-    treat as a newline (``\r``, ``\u2028`` …), not only ``\n``."""
-    lines = text.splitlines() or [""]
-    rest = [
-        f"{_UNREAD_BODY_LINE_PREFIX}{line}" if line else _UNREAD_BODY_LINE_PREFIX.rstrip()
-        for line in lines[1:]
-    ]
-    return "\n".join([lines[0], *rest])
-
-
 def _unread_row(tag: str, content: Any, part_label: str, read_call: str) -> str:
     """One unread row: whole when it fits, otherwise cut AND marked.
 
@@ -142,7 +125,7 @@ def _unread_row(tag: str, content: Any, part_label: str, read_call: str) -> str:
     text = str(content or "")
     cut = len(text) > UNREAD_PREVIEW_MAX_CHARS
     shown = text[:UNREAD_PREVIEW_MAX_CHARS] if cut else text
-    row = f"- `{tag}` {part_label}{_unread_body(shown)}"
+    row = f"- `{tag}` {part_label}{body_lines(shown)}"
     if not cut:
         return row
     how = (
@@ -189,8 +172,15 @@ def _not_shown_line(total: int, kept: int, rows: list[tuple[str, str]]) -> str:
         else:
             line += " come from senders with no read_history handle"
     if beyond > 0:
+        # With no given-back rows there is no "those" to be older than: the
+        # messages are simply older than the whole list.
+        where = (
+            f"the {beyond} older than those are beyond this list"
+            if omitted
+            else f"all {beyond} are older than this list"
+        )
         line += (
-            f"; the {beyond} older than those are beyond this list — use "
+            f"; {where} — use "
             "read_history on the conversation you expect them in"
         )
     return line + "."
@@ -238,7 +228,7 @@ def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
 
 
 def _bus_tag(from_agent: Any, where: Any = "", msg_type: Any = None) -> str:
-    """The `[from sender]` / `[Team X · from sender]` marker, built in one place.
+    """The `[from sender]` / `["Team X" · from sender]` marker, built in one place.
 
     Renamed off "MessageBus" on 2026-08-17. The word named a subsystem the agent
     is no longer supposed to know exists — it thinks in "a private message" and
@@ -765,9 +755,11 @@ class MessageBusModule(XYZBaseModule):
             # Span budget: admit rows newest first (the window is in reading
             # order, newest last), always keeping the newest one; then give
             # back the oldest kept rows until the not-shown line fits too.
-            # The line's call list is bounded (NOT_SHOWN_MAX_CALLS), so giving
-            # a row back cannot keep growing it and the loop stops at the
-            # largest count that fits instead of cascading to the newest row.
+            # Giving a row back can lengthen the notice (the row's call joins
+            # its list), so the loop is not monotonic; the call list is bounded
+            # (NOT_SHOWN_MAX_CALLS), which bounds that growth, and the loop
+            # takes the first count, walking down from the most, whose notice
+            # fits. It never goes below the newest row.
             kept = len(rows)
             used = 0
             for i in range(len(rows) - 1, -1, -1):

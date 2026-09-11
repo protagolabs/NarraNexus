@@ -92,13 +92,19 @@ def _resolve_hop_cap() -> int:
 MAX_TEAM_AGENT_HOPS = _resolve_hop_cap()
 
 
+#: One @mention token as `extract_team_mentions` reads it. Shared with the
+#: roster's `mention_token`, so the token the prompt shows is one the parser
+#: takes.
+_MENTION_TOKEN = re.compile(r"[\w一-鿿]+")
+
+
 def extract_team_mentions(text: str, member_map: Dict[str, str]) -> List[str]:
     """Resolve @mentions in a reply to channel-member agent ids.
 
     Returns EITHER ``["@everyone"]`` OR a list of ids, never a mix — callers
     downstream (the cap notice in particular) depend on that shape.
     """
-    tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
+    tokens = {t.lower() for t in re.findall(rf"@({_MENTION_TOKEN.pattern})", text or "")}
     if not tokens:
         return []
     if "all" in tokens or "everyone" in tokens:
@@ -112,6 +118,26 @@ def extract_team_mentions(text: str, member_map: Dict[str, str]) -> List[str]:
         ):
             out.append(aid)
     return out
+
+
+def mention_token(agent_id: str, member_map: Dict[str, str]) -> Optional[str]:
+    """The exact bare token that, written after ``@``, wakes this member and no
+    one else — or None when the name offers none (it starts with a character a
+    token cannot hold, or its token also wakes another member).
+
+    The roster prints names as quoted literals (see `inline_field`), while the
+    parser reads only a bare ``@word``; an agent copying the quoted form would
+    write ``@"Ana"``, which resolves to nobody, silently. So the prompt shows
+    the token itself, and the token is checked against the real parser rather
+    than a copy of its rules."""
+    name = (member_map.get(agent_id) or agent_id).strip()
+    m = _MENTION_TOKEN.match(name)
+    if not m:
+        return None
+    token = m.group(0)
+    if extract_team_mentions(f"@{token}", member_map) != [agent_id]:
+        return None
+    return token
 
 
 async def team_cascade_depth(db: Any, channel_id: str) -> int:
@@ -334,6 +360,7 @@ async def post_team_reply(
 __all__ = [
     "MAX_TEAM_AGENT_HOPS",
     "extract_team_mentions",
+    "mention_token",
     "team_cascade_depth",
     "post_team_reply",
 ]

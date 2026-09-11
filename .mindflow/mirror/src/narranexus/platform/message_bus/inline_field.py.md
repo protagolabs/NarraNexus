@@ -4,7 +4,7 @@ last_verified: 2026-09-11
 stub: false
 ---
 
-# inline_field — 行语法 prompt 块里作者可写字段的唯一编码器
+# inline_field — 行语法 prompt 块里作者可写文本的唯一编码器
 
 ## 为什么存在
 
@@ -25,5 +25,14 @@ stub: false
   提前结束或另起一行，字面量能原样解码回展示文本。
 - **句柄**（`max_chars=None`）：永不截断、不加引号，只折叠空白并替换反引号，不能逃出 code span 或行。
 
-常量：`INLINE_FIELD_MAX_CHARS = 120`（名字/标题/roster 描述），`INLINE_DESCRIPTION_MAX_CHARS = 80`
-（Known Agents 描述）。确定性函数，prompt 字节稳定。
+常量：`INLINE_FIELD_MAX_CHARS = 120`（名字/标题），`INLINE_DESCRIPTION_MAX_CHARS = 80`
+（Known Agents 与团队房 roster 的描述，两面同口径）。确定性函数，prompt 字节稳定。
+
+## `body_lines(text)` / `quoted_block(text)` — 多行正文
+
+消息与规则的正文可以合法多行，不能折成一行，所以按行布局：`body_lines` 首行接在行头后，之后每行
+以 `BODY_LINE_PREFIX`（`"  > "`）引用；`quoted_block` 连首行一起引用（用于没有独立行头、挂在表头下的
+整段）。任何行语法块的行都不以该前缀开头，所以正文里的 `User: …`、`- [open] …`、`2. …` 只能读作
+所属行的续行。按 `splitlines` 切分（含 `\r`、`\u2028` 等），空续行保留裸 `>`。2026-09-11 从插件
+`_unread_body` 迁出，插件未读列表与平台 trigger 共用。使用处的完整清单见 [[message_bus_trigger]] 的
+「不变量的覆盖范围」表。

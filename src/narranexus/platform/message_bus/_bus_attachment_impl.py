@@ -42,6 +42,7 @@ from typing import List, NamedTuple, Optional
 
 from loguru import logger
 
+from narranexus.platform.message_bus.inline_field import inline_field
 from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
 from narranexus.platform.schema.attachment_schema import derive_category_from_mime
 from narranexus.platform.utils.attachment_storage import (
@@ -456,6 +457,13 @@ def build_bus_markers(
     ``use Read tool`` instruction. The absolute path is rebuilt from
     ``base_working_path`` + the stored base-relative ``rel_path`` (drift-tolerant,
     like ``instance_artifacts.file_path``). Empty/malformed input → "".
+
+    One marker is one line. The file name and the transcript are written by a
+    sender and may carry newlines, which would let them start a row of the
+    prompt block the marker sits in (a scrollback `User: ...` line), so their
+    whitespace is collapsed. Their text is otherwise kept as is — the marker's
+    inner shape is shared with the user-upload marker. ``from_agent`` is
+    printed as given: callers pass a handle or an already-encoded label.
     """
     if not attachments:
         return ""
@@ -469,7 +477,7 @@ def build_bus_markers(
         if not rel:
             continue
         path = str((root / rel).resolve())
-        name = att.get("original_name") or "(unnamed)"
+        name = inline_field(att.get("original_name"), None) or "(unnamed)"
         mime = att.get("mime_type") or "application/octet-stream"
         kind = att.get("category") or "file"
         marker = f"[Shared file{origin}: name={name}, path={path}, mime={mime}, kind={kind}"
@@ -477,7 +485,7 @@ def build_bus_markers(
         if isinstance(transcript, str) and transcript.strip():
             # A voice memo — surface the spoken text inline so the recipient
             # agent reads it directly (it cannot listen to the audio).
-            marker += f", transcript={transcript.strip()}"
+            marker += f", transcript={inline_field(transcript, None)}"
         marker += " — use Read tool to view]"
         lines.append(marker)
     return "\n".join(lines)
