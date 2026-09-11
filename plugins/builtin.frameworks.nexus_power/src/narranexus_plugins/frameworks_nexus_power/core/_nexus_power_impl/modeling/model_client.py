@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+    SurrogateJoiner,
     scrub_json_strings,
 )
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
@@ -113,6 +114,11 @@ class LiteLLMModelClient:
             base_url=params.base_url or None,
             extra=extra,
         )
+        # Every provider text surface is made strictly UTF-8 encodable here,
+        # at the source, so both run modes (subprocess and in-process
+        # executor) get the same guarantee without an outlet-layer scrub.
+        text_joiner, thinking_joiner = SurrogateJoiner(), SurrogateJoiner()
+        arg_joiners: dict[int, SurrogateJoiner] = {}
         async for chunk in stream:
             chunk_usage = _extract_usage(chunk.get("usage"))
             if chunk_usage is not None:
@@ -123,10 +129,14 @@ class LiteLLMModelClient:
                 delta = choice.get("delta") or {}
                 text = delta.get("content")
                 if isinstance(text, str) and text:
-                    yield ModelEvent(kind="text_delta", payload={"text": text})
+                    text = text_joiner.feed(text)
+                    if text:
+                        yield ModelEvent(kind="text_delta", payload={"text": text})
                 thinking = delta.get("reasoning_content")
                 if isinstance(thinking, str) and thinking:
-                    yield ModelEvent(kind="thinking_delta", payload={"text": thinking})
+                    thinking = thinking_joiner.feed(thinking)
+                    if thinking:
+                        yield ModelEvent(kind="thinking_delta", payload={"text": thinking})
                 for fragment in delta.get("tool_calls") or ():
                     index = int(fragment.get("index") or 0)
                     call = calls.setdefault(
@@ -148,12 +158,31 @@ class LiteLLMModelClient:
                         )
                     arguments = function.get("arguments")
                     if isinstance(arguments, str) and arguments:
+                        # raw keeps the exact wire text for parsing; only the
+                        # streamed view is joined/scrubbed.
                         call["arguments"].append(arguments)
-                        yield ModelEvent(
-                            kind="arg_delta",
-                            content_index=index,
-                            payload={"call_index": index, "text": arguments},
-                        )
+                        shown = _arguments_joiner(arg_joiners, index).feed(arguments)
+                        if shown:
+                            yield ModelEvent(
+                                kind="arg_delta",
+                                content_index=index,
+                                payload={"call_index": index, "text": shown},
+                            )
+
+        tail = text_joiner.flush()
+        if tail:
+            yield ModelEvent(kind="text_delta", payload={"text": tail})
+        tail = thinking_joiner.flush()
+        if tail:
+            yield ModelEvent(kind="thinking_delta", payload={"text": tail})
+        for index in sorted(arg_joiners):
+            tail = arg_joiners[index].flush()
+            if tail:
+                yield ModelEvent(
+                    kind="arg_delta",
+                    content_index=index,
+                    payload={"call_index": index, "text": tail},
+                )
 
         for index in sorted(calls):
             call = calls[index]
@@ -304,6 +333,14 @@ class AnthropicDirectClient:
         yield  # pragma: no cover - makes this an async generator
 
 
+def _arguments_joiner(joiners: dict[int, SurrogateJoiner], index: int) -> SurrogateJoiner:
+    """The per-call joiner for streamed argument fragments."""
+    joiner = joiners.get(index)
+    if joiner is None:
+        joiner = joiners[index] = SurrogateJoiner()
+    return joiner
+
+
 def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
     """(args, parse_error, truncated). Broken argument JSON is NOT
     smuggled through under a synthetic key — the old ``{"_raw": raw}``
@@ -319,9 +356,9 @@ def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
         return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}", _is_cut_short(raw, exc)
     if not isinstance(parsed, dict):
         return {}, f"expected a JSON object, got {type(parsed).__name__}", False
-    # json.loads keeps a lone \uD8XX escape as a lone surrogate; scrub it
-    # here so no downstream strict UTF-8 writer (ledger, event store, MCP
-    # call body) ever sees one.
+    # json.loads keeps a lone \uD8XX escape (or a raw half from a split
+    # chunk) as a lone surrogate; scrub it here so no downstream strict
+    # UTF-8 writer (ledger, event store, MCP call body) ever sees one.
     return scrub_json_strings(parsed), None, False
 
 

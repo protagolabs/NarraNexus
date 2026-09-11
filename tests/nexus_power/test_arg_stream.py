@@ -131,7 +131,7 @@ def test_unpaired_surrogates_become_replacement_char():
 def test_streamed_equals_scrubbed_final_with_emoji():
     payload = {"content": "前缀 🙂 后缀"}
     raw = json.dumps(payload, ensure_ascii=True)
-    for cut in range(len(raw)):
+    for cut in range(len(raw) + 1):
         ex = StreamingArgExtractor(0, ("content",))
         got = "".join(d.text for d in ex.feed(raw[:cut]))
         got += "".join(d.text for d in ex.finalize(json.loads(raw)))

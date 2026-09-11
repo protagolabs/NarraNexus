@@ -14,3 +14,5 @@ ensure_ascii 形态的 emoji 在任意切分下合成正确且严格可 UTF-8 �
 
 补充：含孤立一半的参数逐切点 feed+finalize 等于 scrub 后最终值（删 finalize scrub 变红）；`_parse_args` 对嵌套键/值/数组里的孤立
 surrogate 全部 scrub（删源头 scrub 变红）。
+
+补充：含 emoji 的逐切点测试切点范围改为 `range(len(raw) + 1)`，覆盖全量 feed 后再 finalize。

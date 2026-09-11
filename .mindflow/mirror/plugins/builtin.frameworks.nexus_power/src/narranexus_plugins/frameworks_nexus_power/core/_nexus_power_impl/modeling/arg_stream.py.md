@@ -17,3 +17,7 @@ MiniMax 这类 provider 按 ensure_ascii 流式吐工具参数，emoji 以 UTF-1
 
 补充（同日预审后）：`scrub_surrogates` 走快速路径（`isascii()` 或预编译正则未命中即原样返回，1MB 非 ASCII 约 3ms）；
 新增 `scrub_json_strings(value)` 对解码后 JSON 的全部字符串（含键）递归 scrub，供 [[model_client.py]] 的 `_parse_args` 使用。
+
+补充（同日 review 后）：新增 `SurrogateJoiner`（`feed` 挂起结尾高位并与下一段合并，`flush` 把未完成的一半换 U+FFFD），
+供 [[model_client.py]] 的 text/thinking/arg 三个流使用；`scrub_json_strings` 对无 surrogate 的子树返回原对象不复制
+（依赖 `scrub_surrogates` 干净时原样返回这一前提）；`_REPLACEMENT`/`_SURROGATE` 常量上移到首个使用者之前。
