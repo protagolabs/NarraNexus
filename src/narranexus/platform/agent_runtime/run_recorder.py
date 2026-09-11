@@ -47,7 +47,6 @@ import asyncio
 import json
 import os
 from contextlib import suppress
-from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
@@ -58,36 +57,34 @@ from narranexus.platform.schema import (
 )
 from narranexus.platform.utils.timezone import utc_now
 
+# Liveness (heartbeat cadence, staleness threshold, ``run_is_live``) lives in
+# the leaf ``utils.run_liveness`` so the circuit breaker can share the SAME
+# rule without importing this module (see that module's docstring). Imported
+# here for this module's own use only — callers import it from
+# ``utils.run_liveness``, the one path to the rule.
+from narranexus.platform.utils.run_liveness import (
+    HEARTBEAT_INTERVAL_S,
+    STATE_RUNNING,
+    run_is_live,
+)
+
+# A plain downward import: the breaker no longer imports this module (the
+# liveness rule both share lives in utils.run_liveness), so there is no cycle
+# to hide behind a function-local import any more.
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    bind_probe_run,
+    release_orphaned_probe,
+)
+
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
-# Heartbeat cadence — every N seconds the heartbeat task bumps
-# events.last_event_at, even if no stream events fired. Used by the
-# stale-run sweep and observability read-sides to distinguish a healthy
-# long thinking pass from a dead process.
-HEARTBEAT_INTERVAL_S = 30
-
-
 # Run state machine — string-typed for direct DB column compatibility.
-STATE_RUNNING = "running"
 STATE_COMPLETED = "completed"
 STATE_CANCELLED = "cancelled"
 STATE_FAILED = "failed"
 TERMINAL_STATES = frozenset({STATE_COMPLETED, STATE_CANCELLED, STATE_FAILED})
-
-
-# An events row stuck at state='running' is only trusted as alive while
-# its heartbeat is fresh. After 3 missed beats the run is presumed dead —
-# its task died without finalize (process killed mid-run, or the terminal
-# DB write failed). Shared by every read-side consumer (agents listing,
-# WS observe endpoint, stale sweep) so "is this run actually alive?" has
-# ONE answer.
-#
-# This is a read-side liveness rule only — consumers must never stop or
-# mutate a live run based on it. A genuinely long-running agent keeps
-# beating and stays live, so long agent_loops remain first-class (铁律 #14).
-RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
 
 
 # Kill switch for the trigger-path recording surface. The WS/openai
@@ -101,37 +98,6 @@ def recording_enabled() -> bool:
     return os.environ.get(RECORDING_DISABLED_ENV, "").strip().lower() not in (
         "1", "true", "yes", "on",
     )
-
-
-def parse_db_utc(ts: Any) -> Optional[datetime]:
-    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
-    returns datetime) into a tz-aware UTC datetime. Returns None when the
-    value is absent or unparseable."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.rstrip("Z"))
-        except ValueError:
-            return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-
-def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
-    """Whether a 'running' events row still has a fresh heartbeat. Falls
-    back to started_at when the first beat hasn't fired yet. Fails open
-    (treats as live) when no parseable timestamp exists, so we never
-    declare dead a run that might genuinely be running."""
-    now = now or utc_now()
-    parsed = parse_db_utc(events_row.get("last_event_at")) or parse_db_utc(
-        events_row.get("started_at")
-    )
-    if parsed is None:
-        return True
-    return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
 
 
 async def first_live_run_id(
@@ -229,6 +195,16 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
             logger.warning(
                 f"[run-sweep] failed to mark stale run {row.get('event_id')!r}: {e}"
             )
+            continue
+        # A lost run never reaches its settlement (BackgroundRun._finalize or
+        # the runtime client's), so its probe token died with it. If the
+        # agent is PROBING and no run that started after the claim is still
+        # alive, the dead run was the claimant: release it now (best-effort,
+        # no verdict on the credential) instead of leaving every entry point
+        # refused until the grant expires. A live run that predates the claim
+        # does not keep the row PROBING (circuit_breaker._claimant_may_be_live).
+        if row.get("agent_id"):
+            await release_orphaned_probe(row["agent_id"], db=db)
     if flipped:
         logger.info(f"[run-sweep] flipped {flipped} stale 'running' rows to 'failed'")
     return flipped
@@ -394,8 +370,17 @@ class RunRecorder:
         on_run_id: Optional[Callable[[str], Awaitable[None]]] = None,
         on_thinking_buffer: Optional[Callable[[str, bool], None]] = None,
         inherited_root_run_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        probe_token: Optional[str] = None,
     ) -> None:
         self.db = db
+        # The circuit-breaker half-open probe claim this run carries, if any
+        # (#394 review I-1). When the run's events row goes running, the
+        # recorder names this run as the claimant (``bind_probe_run``), so the
+        # breaker's crash-window fallback can ask about THIS run instead of
+        # guessing from other runs of the agent. Both None for an ordinary run.
+        self._probe_agent_id = agent_id
+        self._probe_token = probe_token
         # The trigger TREE this run belongs to. Non-empty when the trigger knew
         # it was continuing somebody else's tree; otherwise this run IS a root
         # and stamps its own id at bind time. Recorded here rather than in
@@ -614,6 +599,12 @@ class RunRecorder:
             },
             context="running init",
         )
+        if self._probe_token is not None and self._probe_agent_id:
+            # After the running flip, so the claimant is already live by the
+            # time the breaker can see its id. Never raises.
+            await bind_probe_run(
+                self._probe_agent_id, self._probe_token, run_id, db=self.db
+            )
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         if self._on_run_id is not None:
             try:
@@ -730,21 +721,16 @@ class RunRecorder:
 
 __all__ = [
     "classify_event",
-    "HEARTBEAT_INTERVAL_S",
     "RECORDING_DISABLED_ENV",
-    "RUN_STALE_AFTER_S",
     "RunRecorder",
     "STATE_CANCELLED",
     "STATE_COMPLETED",
     "STATE_FAILED",
-    "STATE_RUNNING",
     "TERMINAL_STATES",
     "event_to_wire",
     "first_live_run_id",
     "normalise_event",
-    "parse_db_utc",
     "recording_enabled",
-    "run_is_live",
     "sweep_stale_runs",
     "try_extract_event_id",
 ]

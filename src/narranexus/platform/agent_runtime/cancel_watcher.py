@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional
 from loguru import logger
 
 from narranexus.platform.agent_runtime.cancellation import CancellationToken
-from narranexus.platform.agent_runtime.run_recorder import parse_db_utc
+from narranexus.platform.utils.run_liveness import parse_db_utc
 
 # How often the registry is reconciled against the DB. One second is the
 # budget the user actually feels: the click already got its own instant

@@ -58,6 +58,12 @@ from backend.routes.manyfold.sync import (
     parse_run_job_control,
     retag_managed_input,
 )
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    describe_skip_reason,
+    release_probe,
+    should_skip,
+    try_begin_probe,
+)
 from narranexus.platform.agent_runtime.background_run import BackgroundRun
 from narranexus.platform.agent_runtime.cancellation import CancellationToken
 from narranexus.platform.channel.message_source_handler import (
@@ -689,28 +695,64 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 stream=body.stream,
             )
 
-    active_runs = request.app.state.active_runs
-    cancellation = CancellationToken()
-    bg = BackgroundRun(
-        agent_id=agent_id,
-        user_id=creator,
-        input_preview=user_input or "",
-        db=db,
-        active_runs=active_runs,
-        cancellation=cancellation,
+    # Circuit-breaker gate — the same two steps every turn-starting entry
+    # point takes (should_skip, then try_begin_probe at the last moment before
+    # the run exists). Placed AFTER every branch that answers without a turn
+    # (run-job control, managed-ingress deny, silent group ingest) so none of
+    # them can burn the single half-open probe grant. Without it this entry
+    # ran turns against a paused agent, and — because BackgroundRun feeds the
+    # breaker — an unclaimed turn here could decide another turn's probe.
+    cb_gate = await should_skip(agent_id, db=db)
+    cb_admission = (
+        await try_begin_probe(agent_id, db=db, prior=cb_gate)
+        if not cb_gate.skip
+        else None
     )
+    if cb_admission is None or not cb_admission.allowed:
+        cb_reason = cb_gate.reason if cb_admission is None else cb_admission.reason
+        return JSONResponse(
+            status_code=503,
+            content=_openai_error(
+                describe_skip_reason(cb_reason),
+                etype="agent_circuit_open",
+                code=cb_reason,
+                model_echo=agent_id,
+            ),
+        )
 
-    # Kick off the background agent run.
-    bg.task = asyncio.create_task(
-        bg.drive(
+    try:
+        active_runs = request.app.state.active_runs
+        cancellation = CancellationToken()
+        bg = BackgroundRun(
             agent_id=agent_id,
             user_id=creator,
-            input_content=run_input,
-            working_source=working_source,
-            pass_mcp_servers={},
-            trigger_extra_data=trigger_extra_data,
+            input_preview=user_input or "",
+            db=db,
+            active_runs=active_runs,
+            cancellation=cancellation,
+            # A won probe claim rides the run to its settlement.
+            probe_token=cb_admission.probe_token,
         )
-    )
+
+        # Kick off the background agent run.
+        bg.task = asyncio.create_task(
+            bg.drive(
+                agent_id=agent_id,
+                user_id=creator,
+                input_content=run_input,
+                working_source=working_source,
+                pass_mcp_servers={},
+                trigger_extra_data=trigger_extra_data,
+            )
+        )
+    except BaseException:
+        # Claimed, but the run never started (setup threw before its task
+        # existed): hand the probe back by its token, the same belt the WS
+        # handler carries — else every entry is refused until the grant
+        # expires. Once the task exists the run owns the token and settles
+        # it itself, so nothing after this point may release it.
+        await release_probe(agent_id, cb_admission.probe_token, db=db)
+        raise
 
     # Wait until BackgroundRun publishes its run_id (Step 0 emitted),
     # otherwise the broadcaster subscribe race might miss early events.

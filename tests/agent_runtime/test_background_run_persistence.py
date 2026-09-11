@@ -28,8 +28,8 @@ import pytest
 from narranexus.platform.agent_runtime.background_run import (
     BackgroundRun,
     STATE_COMPLETED,
-    STATE_RUNNING,
 )
+from narranexus.platform.utils.run_liveness import STATE_RUNNING
 
 
 def _step0_progress(event_id: str) -> dict:

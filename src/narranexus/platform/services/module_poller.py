@@ -616,15 +616,24 @@ class ModulePoller:
             trigger_data: Trigger data
         """
         try:
-            # Circuit-breaker skip-gate. This is the ModulePoller's only path
-            # that triggers AgentRuntime directly (Path A). It is currently
-            # DORMANT — Path B (JobTrigger, which has its own breaker) is
-            # active — so this gate is defensive: if Path A is ever switched
-            # on, a broken agent (dead key / quota) won't be re-triggered here
-            # either. Fail-open on read error.
-            from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
-            cb_skip, cb_reason = await should_skip(agent_id)
-            if cb_skip:
+            # Circuit-breaker gate. This is the ModulePoller's only path that
+            # triggers AgentRuntime directly (Path A). It is currently DORMANT
+            # — Path B (JobTrigger, which has its own breaker) is active — so
+            # this gate is defensive: if Path A is ever switched on, a broken
+            # agent (dead key / quota) won't be re-triggered here either.
+            #
+            # `peek_skip`, not the should_skip/try_begin_probe pair: this path
+            # can never SETTLE a half-open probe (`_execute_callback_instance`
+            # swallows every failure and reports no outcome), and a claim
+            # nobody settles re-runs a dead credential every grant window
+            # forever (#394 review C1). So it takes no probe and runs nothing
+            # while the agent is PAUSED or PROBING at all — the probe is left
+            # to the entry points that can settle it. Fail-open on read error.
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                peek_skip,
+            )
+            cb_held, cb_reason = await peek_skip(agent_id, db=await get_db_client())
+            if cb_held:
                 logger.info(
                     f"ModulePoller: skipping callback for instance {instance_id} "
                     f"— agent {agent_id} circuit-breaker open ({cb_reason})"

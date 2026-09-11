@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/client.py
 stub: false
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 ---
+
+## 2026-09-11（PR #394 rebase 到 #396 之后）— 自然结束：先 `_finalize_natural_end`，再结算探测
+
+`run_and_collect` / `run_stream` 的自然结束分支现在是 #396 的 `_finalize_natural_end(recorder, STATE_COMPLETED,
+STATE_FAILED)`（fatal 落 FAILED + error_message），紧随其后才是本 PR 的 `settle_probe`（有 token 才读结果）——
+顺序仍是「events 行终态在前、结算在后」。输出预算耗尽这类 #396 新的真 fatal 以 `succeeded=False` 进
+`record_failure`，被 `breaker_exemption` 豁免，持有的探测无结论归还（见 [[circuit_breaker]] 同日条目）。
+锁：`test_client_probe_settlement.py::test_an_output_budget_probe_is_released_without_verdict`。
 ## 2026-09-10（GH #127 / B-05）— natural-end 不再无条件写 STATE_COMPLETED
 
 `run_and_collect`/`run_stream` 里两处 `recorder.finalize(STATE_COMPLETED)`
@@ -23,6 +31,47 @@ events 行落地 `state=completed` + `error_message` 为空,Run-observation
 测试:`tests/agent_runtime/test_client_recording.py` 的
 `test_run_and_collect_finalizes_failed_on_fatal_error_without_exception` +
 `test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
+
+
+## 2026-09-11（PR #394 review 第五轮 M-B）— GeneratorExit 注释改成真实理由
+
+`_spawn_finalize` / `_spawn_settle` 与 `run_stream` 的 GeneratorExit 分支注释原写「不能 await」，不成立
+（async generator 在 `aclose()` 里可以 await，不能 yield）。真实理由：关闭可能来自事件循环关停时的
+async-generator finalizer，此时 await 一次 DB 写会抛错或被中途取消；独立 task + `RuntimeError` 分支让这条路径安静，
+结算本身是幂等 token CAS。行为不变，只改注释。
+
+## 2026-09-10（PR #394 review 第四轮 I-3）— `run_stream(probe_token=)`：流式入口的探测结算
+
+流式入口（NarraMessenger 流式、A2A SSE）现在也认领探测，`run_stream` 与 `run_and_collect` 用同一
+接缝结算：流正常结束 → 按 [[run_collector]] `RunErrorTracker` 的结论（与 `collect_run` 同一条
+「最后一个错误 + 致命粘滞」规则）调 `settle_probe`；抛异常 → 失败；`CancelledByUser` → 归还；
+消费方关闭流（GeneratorExit；可能在 loop 关停 finalizer 里，不内联 await）→ `_spawn_settle` 在独立 task 上归还。无 token 不碰熔断器。
+锁：`test_client_probe_settlement.py` 的 `test_a_streamed_*` 与 `test_an_ordinary_stream_never_touches_the_breaker`。
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— `_new_recorder` 带上探测认领
+
+`_new_recorder(inherited_root_run_id, *, agent_id=None, probe_token=None)`；`run_and_collect`
+把自己的 `agent_id` / `probe_token` 交进去，recorder 在 run 行 running 时把它绑定为认领者。
+recording 关掉时没有 recorder、不绑定，认领只靠 grant 兜底。
+
+## 2026-09-10（PR #394 review C1）— `run_and_collect(probe_token=)`：触发路径的探测结算接缝
+
+bus lane 与 patrol 会认领熔断器的半开探测，但不经 `BackgroundRun`，此前没人结算：死凭据
+每个 grant 周期重跑、延迟永不翻倍，修好的凭据回不到 ACTIVE。现在 `run_and_collect` 多一个
+显式参数 `probe_token`（不透传给 runtime），在 recorder 把 events 行写成终态**之后**调
+[[circuit_breaker]] 的 `settle_probe`：正常返回按 `RunCollection.is_fatal` 判成败，失败时的
+error_type/error_message 取 runtime 自己的 error 帧（熔断器分类认得的词表）；抛异常 → 失败
+（异常类名 + 文本）；`CancelledByUser` → 无结论归还。宿主 task 被 cancel 的出口不在这里结算，
+由调用方出口的 `release_probe` 兜住。无 token 时完全不碰熔断器（这些路径不记普通 streak）。
+锁：`tests/agent_runtime/test_client_probe_settlement.py`（死凭据 streak+1 且下次延迟翻倍、
+修好即 ACTIVE、抛异常算失败、停止即归还、无 token 不建行）。
+
+**无 token 的 turn 不读结果对象（第三轮 CI 修复，第四轮 review N-2~N-6 更正表述）。** 成功路径的
+结算包在 `if probe_token is not None:` 里——不是为了少调一次（`settle_probe` 自身无 token 即
+no-op，所以两个异常分支不加守卫），而是让无 token 的 turn 完全不读 `result`：`tests/channel` /
+`tests/lark_module` 里替换 `collect_run` 的手写结果替身不是真 `RunCollection`、没有 `is_fatal`，
+每个 turn 都读会让它们红（这是测试债，不是为第三方 runtime 留的接缝——`result` 只可能来自
+`collect_run`）。锁：`test_an_ordinary_run_does_not_read_its_result`（结果对象任何属性读取即抛）。
 
 ## 2026-08-07 — 把触发树交给 recorder
 

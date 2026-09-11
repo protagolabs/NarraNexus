@@ -37,7 +37,13 @@ class CbStatus(str, Enum):
     """Circuit-breaker state for one Agent's real-time turns."""
     ACTIVE = "active"      # normal — new turns are allowed
     COOLING = "cooling"    # recent failure(s); skip until cooldown_until elapses
-    PAUSED = "paused"      # hard stop; only auth/quota reach this. Needs reset.
+    PAUSED = "paused"      # hard stop; only auth/quota reach this. Needs reset,
+                           # OR a half-open probe once cooldown_until elapses.
+    PROBING = "probing"    # exactly one turn is in flight as a half-open probe;
+                           # every other entry point is rejected while this
+                           # holds. Only the turn holding ``probe_token``
+                           # settles it: ACTIVE (probe succeeded) or back to
+                           # PAUSED (probe failed / ended without a verdict).
 
 
 class PausedReason(str, Enum):
@@ -88,6 +94,20 @@ class AgentCircuitBreaker(BaseModel):
     cooldown_until: Optional[datetime] = None
     paused_reason: Optional[PausedReason] = None
     paused_at: Optional[datetime] = None
+    # The half-open probe claim's real compare-and-swap key (2026-09-09,
+    # GitHub #117 review C2). NULL when there is no live claim; a fresh random
+    # value on every successful claim, reset to NULL whenever the row is
+    # written back to ACTIVE/COOLING/PAUSED. See
+    # ``AgentCircuitBreakerRepository.try_claim_probe`` for why cb_status
+    # alone cannot be the CAS key on the stale-PROBING self-heal branch.
+    probe_token: Optional[str] = None
+    # The claimant's own run (``events.event_id``), bound by the claiming turn
+    # once its run row exists (2026-09-10, #394 review I-1). NULL whenever
+    # probe_token is NULL, and NULL between a claim and its run row. The
+    # crash-window fallback asks "is THIS run still alive?" — never "is some
+    # run of this agent alive?", which let an unrelated run weld the row in
+    # PROBING. The token itself is carried in-process by the claiming turn.
+    probe_run_id: Optional[str] = None
     last_error: Optional[str] = None  # already redacted before it lands here
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

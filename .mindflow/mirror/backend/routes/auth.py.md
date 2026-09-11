@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-08
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`run_is_live` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `background_run`
+转手）；`_run_is_live` 别名与 agents 列表 active_run 过滤行为不变。下方 2026-06-10 一节里「搬到
+background_run.py」是历史。
 
 ## 2026-09-08 — 空白建 agent 的占位名用 `PLACEHOLDER_AGENT_NAME`
 

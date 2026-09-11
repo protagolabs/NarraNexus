@@ -17,6 +17,38 @@ stub: false
 测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
 （failed 保留、cancelled 不写）。
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 替探测认领者报出 run id
+
+`RunRecorder(..., agent_id=None, probe_token=None)`：run 携带半开探测认领时，`_bind_run_id`
+在「running init」那次写之后调 [[circuit_breaker]] `bind_probe_run`，把本 run 的 event_id
+记为认领者（token CAS，永不抛）。普通 run 两个参数都是 None，什么都不写。这是认领身份唯一的
+落点——WS/openai（[[background_run]]）与触发路径（[[client]] `_new_recorder`）都经过它。
+`sweep_stale_runs` 调 `release_orphaned_probe` 的判定随之变成「被绑定的那条 run 是否还活着」。
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则只剩一条 import 路径
+
+本模块不再 re-export 活性规则：只为自身使用导入 `HEARTBEAT_INTERVAL_S` / `STATE_RUNNING` /
+`run_is_live`，`__all__` 去掉了 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` /
+`parse_db_utc` / `run_is_live`。所有调用方（backend main/auth/websocket/runs、cancel_watcher、
+patrol、errand、测试）直接从 [[run_liveness]] 导入。状态机常量 `STATE_COMPLETED` /
+`STATE_CANCELLED` / `STATE_FAILED` / `TERMINAL_STATES` 仍住在本模块。门禁：
+`test_run_recorder.py::test_the_liveness_rule_has_one_import_path`（扫 src/backend/tests/scripts
+里从 run_recorder / background_run 导入活性名字的语句，含多行括号导入）。
+
+## 2026-09-10（PR #394 review I1/I4）— 活性规则搬到叶子模块；清扫改调 `release_orphaned_probe`
+
+`HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live` 移到 [[run_liveness]]（`utils` 叶子）。（最初本模块原样 re-export；第二轮 review I-4 已删掉
+re-export，见上一节。）熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级
+下行导入——原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。
+
+`sweep_stale_runs` 每翻一行（failed 或 cancelled）对该 `agent_id` 调
+`release_orphaned_probe`：丢失的 run 带着 token 死了，只能靠时间判身份——行是 PROBING 且
+没有「认领之后才开始」的存活 run 时才归还（同 agent 更早就在跑的长 run 不再能把行焊在
+PROBING）。锁：`test_sweep_releases_the_lost_runs_half_open_probe`、
+`test_sweep_releases_a_lost_probe_despite_an_older_live_run`、
+`test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle`。
+
 ## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
 
 followups #1 折入本单。此前这条回放路（recorder → [[broadcaster]] →

@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— `probe_claimed_at` 换成 `probe_run_id`
+
+`instance_agent_circuit_breaker` 的新列改为 `probe_run_id`（TEXT / VARCHAR(128)，与
+`events.event_id` 同宽），additive、nullable、无回填；`probe_claimed_at` 从注册表删除（同一 PR
+引入，未到任何已发布环境；本地已跑过迁移的库留下的空列无害，`auto_migrate` 不删列）。golden
+`tests/snapshots/golden/tables.json` 已用 `NX_UPDATE_SNAPSHOTS=1` 重生成。
+
+## 2026-09-10（PR #394 review I1）— `instance_agent_circuit_breaker` 加 `probe_claimed_at`
+
+additive、nullable、无回填：半开探测认领时刻（`try_claim_probe` 写，所有离开 PROBING 的写
+与 `probe_token` 一起清 NULL）。[[circuit_breaker]] `_claimant_may_be_live` 用它区分「认领
+之后才开始的 run（可能是认领者）」与「更早就在跑的无关长 run」。golden
+`tests/snapshots/golden/tables.json` 同步重生成（`probe_token` 那次漏了，正是 CI
+`test_schema_registry_is_unchanged` 变红的原因）。
 
 ## 2026-09-09（review M6）— `bus_messages` 加索引 `idx_bus_msg_sender_time`
 
@@ -698,7 +713,7 @@ additive.
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
-注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳。
+注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳；2026-09-10 additive 加 `probe_token`（TEXT / VARCHAR(64)，nullable，无回填）——半开探测认领的 CAS 键；同日再加 `probe_claimed_at`（TEXT / DATETIME(6)，nullable，与 `probe_token` 同写同清）——认领时刻，崩溃窗口兜底只把「认领之后才开始」的 run 当作可能的认领者（PR #394 review I1）。存量表由 `auto_migrate` 的 ADD COLUMN 路径补上。
 
 ## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
 

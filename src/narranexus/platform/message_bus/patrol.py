@@ -180,7 +180,7 @@ def patrol_due_at(last_patrol_at: Optional[Any], has_stalled: bool) -> bool:
     """
     if last_patrol_at is None:
         return True
-    from narranexus.platform.agent_runtime.run_recorder import parse_db_utc
+    from narranexus.platform.utils.run_liveness import parse_db_utc
 
     last = parse_db_utc(last_patrol_at)
     if last is None:
@@ -352,7 +352,7 @@ async def note_patrol_spoke(db: Any, team_id: str) -> None:
 def _within_speech_window(spoke_at: Optional[Any]) -> bool:
     if spoke_at is None:
         return False
-    from narranexus.platform.agent_runtime.run_recorder import parse_db_utc
+    from narranexus.platform.utils.run_liveness import parse_db_utc
 
     last = parse_db_utc(spoke_at)
     if last is None:

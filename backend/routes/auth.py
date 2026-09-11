@@ -79,7 +79,7 @@ from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from narranexus.platform.agent_profile import apply_agent_profile_change
 from narranexus.platform.utils.deployment_mode import is_power_login_enabled
 from narranexus.platform.utils import is_valid_timezone
-from narranexus.platform.agent_runtime.background_run import run_is_live
+from narranexus.platform.utils.run_liveness import run_is_live
 from narranexus.platform.settings import settings as app_settings
 from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
 from narranexus.platform.channel.binding_tables import bound_channels_query, channel_binding_sources
@@ -94,7 +94,7 @@ router = APIRouter()
 
 # Heartbeat-freshness liveness rule for events rows stuck at
 # state='running' — shared with the WS reconnect path so "is this run
-# actually alive?" has one answer. See run_is_live in background_run.py.
+# actually alive?" has one answer. See utils/run_liveness.py.
 # Without this filter the sidebar avatar pulses "running" forever for an
 # agent whose run task died without _finalize.
 _run_is_live = run_is_live

@@ -4,6 +4,50 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10 — 轮换清理改为"最小集合 + 路径归属守卫"，撤回 rmtree（GitHub #117 预审 C3/I3/I7/I8）
+
+**背景**（2026-09-09 条的动机不变）：macOS 上 `claude` CLI 第一次针对某个
+`CLAUDE_CONFIG_DIR` 启动时,会把我们暂存的 `.credentials.json` 一次性导入成按目录命名
+空间化的 Keychain 条目,此后只读那个条目;凭据轮换后隔离 CLI 会永远读旧导入,认证永远
+失败,[[circuit_breaker]] 永远重新 PAUSE。那个 Keychain 条目的 service name 是 CLI 内部
+细节,不猜、不删。
+
+**上一版的两个错误**（本轮撤回）：(1) `shutil.rmtree(config_dir)`——这个目录是
+**进程级共享**的（`settings.claude_oauth_config_path`,所有 oauth turn 共用),
+`prepare_transcript` 每个 turn 都往 `<dir>/projects/<cwd-slug>/<session>.jsonl` 写 CLI 要
+`--resume` 的 transcript,而且本 turn 自己的 `prepare_transcript` 就在 staging **之前**
+——整目录删除会抹掉并发 turn（乃至本 turn）的 transcript、抽走刚 stage 好还没 spawn 的
+凭据（恰好被熔断器记成一次 auth 失败,自伤闭环）。(2) 删除前零校验:`Settings` 无
+`env_prefix`,`CLAUDE_OAUTH_CONFIG_PATH` 一行就能把它指回用户真实的 `~/.claude`,历史上它
+就指过那里。
+
+**现在**：
+- `_clear_cli_bookkeeping(config_dir)` 只删**顶层普通文件**（`.claude.json` 及其兄弟）:
+  所有目录保留（`projects/` transcript、`shell-snapshots/` 等在跑的 CLI 要读）,
+  `.credentials.json` 与并发 stager 的 `.credentials.json.*.tmp` 保留,symlink 不碰。
+- `_is_platform_owned_config_dir` fail-closed 守卫:`resolve()` 后必须**恰好等于**
+  `settings.claude_oauth_config_path`（同样 resolve）,且不等于 `~` / `~/.claude`;不满足只
+  warn、什么都不删（staging 本身照常进行,只拒绝破坏性一步）。用 resolve 而非字符串前缀。
+- "是不是真轮换"只在 `_stage_blob_newest_wins` 里判一次（I7）:它多了 `before_replace`
+  钩子,仅当**已有 staged 文件且比较判定要覆盖**（源严格更新,或 staged 损坏/不可读）时、
+  在写入前调用;首次 stage 不是轮换。darwin 分支把 `_clear_cli_bookkeeping` 挂在这个钩子
+  上,`_should_reset_isolated_config_dir` / `_read_staged_credentials` / `_reset_isolated_config_dir`
+  三个函数删除（两份 newest-wins 真理并成一份,凭据文件也只读一次）。
+
+**已知局限**（诚实记录）：仍基于"隔离 CLI 的一次性导入记录活在它自己的 CONFIG_DIR 顶层
+文件里"这个推断,没有真实 macOS 验证 CLI 内部行为。若 CLI 的判定其实只看 Keychain 条目
+（按目录路径命名空间）,那么删顶层文件不会触发重导入——那种情况下正解是给轮换开一个新的
+CONFIG_DIR 路径而不是清理旧目录;本轮没有做（需要把 `cli_config_dir` 变成按轮换派生的
+路径,并解决旧目录退休的删除风险）。测试覆盖的是我们能验证的部分:
+`tests/agent_framework/test_claude_config_isolation.py` 的
+`test_stage_darwin_rotation_clears_cli_state_but_keeps_transcripts_and_credential`（清顶层文件、
+留 transcript、新凭据落地）、`test_stage_darwin_keeps_config_dir_when_keychain_not_rotated`、
+`test_stage_darwin_first_stage_is_not_a_rotation`、`test_rotation_decision_is_the_staging_comparison`
+（钩子恰在四种情形中的两种触发）、`test_clear_cli_bookkeeping_touches_only_top_level_state_files`、
+`test_clear_cli_bookkeeping_refuses_a_dir_the_platform_does_not_own`（`~/.claude` / `~` /
+非配置路径全部拒绝,symlink 到配置路径放行）、
+`test_stage_darwin_rotation_on_unowned_dir_still_stages_but_clears_nothing`。
+
 ## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
 
 `_inline_assistant_error_event` 在 `unknown` 时不写 `self_serviceable` 键（契约返回 None = 无判决），

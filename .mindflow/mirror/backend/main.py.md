@@ -1,8 +1,13 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+lifespan 里 `HEARTBEAT_INTERVAL_S` 改为从 `narranexus.platform.utils.run_liveness` 导入
+（`sweep_stale_runs` 仍来自 `run_recorder`），行为不变。
 
 ## 2026-09-07 — 挂载 `GET /api/plugins/channels` 渠道目录
 

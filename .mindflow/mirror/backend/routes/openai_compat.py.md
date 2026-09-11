@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 M-1）— 认领后、run 起来前抛异常时归还探测
+
+`BackgroundRun(...)` 构造与 `bg.task = asyncio.create_task(...)` 包进 `try/except BaseException`：
+认领之后、run 的 task 存在之前抛异常 → `release_probe(agent_id, token)` 再 re-raise，与 WS handler
+的同款归还带一致。task 一旦建成，run 持有 token 自行结算，之后不得归还（会在活探测下误重挂）。
+锁：`test_a_claim_whose_run_never_starts_is_handed_back`（去掉归还即红）。
+
+## 2026-09-10（PR #394 review I5）— 第五个起 turn 的入口补上熔断门
+
+原来本端点无条件 `BackgroundRun(...)`，零闸门，却由 `BackgroundRun` 照常记账：暂停中的
+agent 照样起 turn；半开期间一个从未认领的请求还能替探测下结论。现在与其他入口同一契约
+（[[circuit_breaker]]）：`should_skip` → `try_begin_probe(prior=)`，放在 run-job 控制消息、
+managed `before_run` 拒绝、群聊非 @ 静默入库这些「不起 turn」的分支**之后**（否则它们会白吃
+唯一的探测名额），紧挨 `BackgroundRun` 构造之前。拒绝时回 OpenAI 形状的 **503**：
+`error.type="agent_circuit_open"`、`error.code=<reason>`（`paused:auth` / `paused:quota` /
+`cooling` / `probing`）、`message` 为 `describe_skip_reason` 的同一份文案、`model` 回显
+agent_id。赢得的 `probe_token` 交给 `BackgroundRun(probe_token=...)`。锁：
+`tests/backend/test_openai_compat_circuit_breaker_gate.py`（暂停拒绝不建 run、窗口开时认领并
+把 token 交给 run 且第二个请求拿 `probing`、健康 agent 无 token）。
 
 ## 2026-08-26 — 托管 turn 在 `before_run` 之后重渲 tag 行
 

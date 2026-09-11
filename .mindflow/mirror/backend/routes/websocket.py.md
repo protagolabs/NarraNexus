@@ -1,8 +1,36 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`run_is_live` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `background_run`
+转手），行为不变；文中「background_run.py 的心跳新鲜度规则」现住在 `utils/run_liveness.py`。
+
+## 2026-09-10 — fresh-run 路径两步熔断门，赢得的探测随 run 走
+
+[[circuit_breaker]] 的 `should_skip`（纯读，返回 `GateVerdict`）放行之后、
+`_record_message_accepted` 之前调 `try_begin_probe(agent_id, prior=cb_gate)`（复用同一次
+读，普通 turn 只读一次，PR #394 M1）；被拒（`reason="probing"` 等）就发同一种
+`agent_circuit_open` 帧并关 socket，run 不记录、不创建。赢得认领时
+`cb_admission.probe_token` 交给 `BackgroundRun(probe_token=...)`，由 run 在终态按 token
+结算（PR #394 I1）。认领之后、`bg` 建出来之前抛异常（会话登记、消息受理记录等）时，外层
+`finally` 按 token `release_probe` 归还；`bg` 已存在则不归还——run 持有 token，此时归还会在
+活探测下误重挂。`_circuit_open_frame` 的文案改由 `circuit_breaker.describe_skip_reason`
+提供（与 [[openai_compat]] 共用一份）。锁：
+`test_ws_claims_the_half_open_probe_before_recording_the_run`、
+`test_ws_hands_back_a_won_probe_when_setup_throws_before_the_run`。
+
+## 2026-09-09 — `_circuit_open_frame` 补上 `should_skip` 的第四个原因 `probing`
+
+[[circuit_breaker]] 新增半开态 PROBING 后，`should_skip` 现在会返回
+`(True, "probing")`（并发 turn 撞上正在进行的探测时）。`_circuit_open_frame`
+的 else 分支本就把它当 "cooling" 文案处理（"稍后重试"，语义上完全对——探测
+不是硬暂停，不该建议用户去重新登录），代码行为无需改；只是补全文档字符串
+把 `probing` 列进已知的 `cb_reason` 取值集合，避免读者以为还是三值。
+`test_frame_probing_falls_back_to_cooling_copy` 钉住这个回退行为。
 
 ## 2026-08-24 — `_format_dt` 补上时区契约(#349 I1 根因)
 

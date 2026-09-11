@@ -1,8 +1,31 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — 熔断器恢复：只挂显式动作、按 provider 收窄（GitHub #117 预审 I1）
+
+上一版把 `_resume_agent_circuit_breakers(uid)` 挂到了 `GET /claude-status` /
+`GET /codex-status` 上——两个**只读**端点变成了写接口，而且它们报告的是**宿主机 CLI**
+的状态，跟一个因 NetMind key 余额耗尽而 PAUSED 的 agent 毫无关系。前端在打开 provider
+选卡弹窗、订阅页 mount 时都会并发拉它们：用户每点一次弹窗，全部 PAUSED agent 被清空 →
+积压 backlog 一口气放出 → 全部再失败 → 3 连败重新 PAUSE + 再告警 owner。熔断器对这类
+用户等于不存在。本轮：
+
+- 两个 GET 恢复成纯读，代码里留注释说明"不许再往 GET 上挂副作用"。
+- 恢复只挂在 **显式动作** 上：既有的 4 条重配置路径（add_provider / onboard /
+  use_subscription / set_slot，不带 provider_id = 该 owner 全量，因为用户刚改了 agent
+  跑在什么上）+ `POST /{provider_id}/test` 成功（带 `provider_id`）。
+- `reset_for_owner(uid, provider_id=...)`（[[circuit_breaker]]）按 agent 的有效 `agent`
+  slot 绑定收窄：`agent_slots` 覆盖优先、否则 `user_slots` 默认；绑在别的 provider 上的
+  agent 不动——测通 A 对跑在 B 上的 agent 没有任何信息量。既无 `agent_slots` 也无
+  `user_slots` 绑定的 agent 永远不会被 `POST /{id}/test` 恢复（它绑的 provider 未知）；
+  这类 agent 由 add-provider / set-slot 走的不带 provider_id 全量路径恢复。
+
+`tests/backend/test_providers_circuit_breaker_resume.py`：test 成功 → `("alice","p1")`；
+失败不恢复；两个 status 端点 `logged_in=True` 时**不**恢复（原来钉住相反行为的 4 条测试
+已删）。`test_reset_for_owner_scoped_to_the_tested_provider` 钉住收窄口径。
 
 ## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111；复审 I3/I4/M6/M7 修订）
 

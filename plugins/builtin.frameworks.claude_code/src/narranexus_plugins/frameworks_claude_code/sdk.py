@@ -23,7 +23,7 @@ from contextlib import aclosing, suppress
 from pathlib import Path
 
 from loguru import logger
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable
 
 from narranexus.platform.agent_framework import plugin_paths
 
@@ -155,8 +155,12 @@ def _read_keychain_blob() -> str | None:
 
 
 def _stage_blob_newest_wins(
-    config_dir: str | Path, blob: str, *, sourced_from: str
-) -> None:
+    config_dir: str | Path,
+    blob: str,
+    *,
+    sourced_from: str,
+    before_replace: Callable[[], None] | None = None,
+) -> bool:
     """Atomically stage ``blob`` as ``.credentials.json`` (0600) in the isolated
     dir, newest-wins by the token's own ``claudeAiOauth.expiresAt``.
 
@@ -168,6 +172,14 @@ def _stage_blob_newest_wins(
     the source copy → keep it, and never re-inject an already-consumed refresh
     token, the logout #76's newest-wins avoids). An unparseable ``blob``
     (no ``expiresAt``) never clobbers a good staged file.
+
+    ``before_replace`` runs when this is a genuine ROTATION — a staged copy
+    existed and lost the comparison (or was unreadable/corrupt) — immediately
+    before the new file lands. It is the ONE place the "is the source newer"
+    decision is made, so the caller's rotation side effect can never drift
+    from the staging rule. A first-ever stage is not a rotation.
+
+    Returns True when a file was written.
     """
     import os
 
@@ -175,6 +187,7 @@ def _stage_blob_newest_wins(
     dest = dest_dir / ".credentials.json"
     new_exp = _oauth_expires_at(blob)
 
+    rotation = False
     if dest.is_file():
         try:
             staged_blob = dest.read_text(encoding="utf-8")
@@ -185,7 +198,11 @@ def _stage_blob_newest_wins(
             # Keep the staged copy unless the source is strictly newer.
             # Unparseable source (new_exp is None) → never clobber a good file.
             if new_exp is None or (staged_exp is not None and staged_exp >= new_exp):
-                return
+                return False
+        rotation = True
+
+    if rotation and before_replace is not None:
+        before_replace()
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
@@ -200,6 +217,75 @@ def _stage_blob_newest_wins(
     logger.info(
         f"[ClaudeAgentSDK] staged Claude OAuth credential (source: {sourced_from}) "
         f"→ {dest} (0600)"
+    )
+    return True
+
+
+def _is_platform_owned_config_dir(config_dir: str | Path) -> bool:
+    """Fail-closed ownership check before anything in ``config_dir`` is
+    deleted: it must resolve to exactly the platform's own isolated OAuth
+    dir (``settings.claude_oauth_config_path``) and must never be the home
+    dir or the user's real ``~/.claude``. The setting is env-overridable
+    (``CLAUDE_OAUTH_CONFIG_PATH``) and historically DID point at ``~/.claude``
+    — a misconfigured box must lose nothing.
+
+    ``resolve()`` on both sides, never string-prefix comparison (symlinks,
+    ``..``).
+    """
+    from narranexus.platform.settings import settings
+
+    try:
+        resolved = Path(config_dir).resolve()
+        owned = Path(settings.claude_oauth_config_path).resolve()
+        home = Path.home().resolve()
+    except OSError:
+        return False
+    if resolved != owned:
+        return False
+    return resolved not in (home, home / ".claude")
+
+
+def _clear_cli_bookkeeping(config_dir: str | Path) -> None:
+    """On a genuine credential rotation, remove the isolated CLI's own
+    top-level state files so its next spawn treats the dir as never seen
+    (see ``_stage_claude_oauth_credentials`` for why) — and NOTHING else.
+
+    The dir is shared by every concurrent OAuth turn on this host, so this
+    is deliberately not an ``rmtree``:
+      * every DIRECTORY is kept — ``projects/`` holds the transcripts that
+        in-flight turns (this one included: ``prepare_transcript`` runs
+        before staging) are resuming from; ``shell-snapshots/`` etc. are read
+        by running CLIs;
+      * ``.credentials.json`` and its in-flight ``.credentials.json.*.tmp``
+        stagers are kept — a turn that just staged and has not spawned yet
+        must not lose its credential (that failure would be counted by the
+        very circuit breaker this feature exists to un-jam);
+      * only top-level regular files (``.claude.json`` and siblings) go.
+    Guarded by ``_is_platform_owned_config_dir``: outside the platform's own
+    dir it logs and deletes nothing. Best-effort — a leftover file only
+    means the stale import might survive one more spawn.
+    """
+    if not _is_platform_owned_config_dir(config_dir):
+        logger.warning(
+            f"[ClaudeAgentSDK] refusing to clear CLI state in {config_dir}: "
+            "not the platform-owned isolated OAuth config dir"
+        )
+        return
+    root = Path(config_dir)
+    if not root.is_dir():
+        return
+    removed = 0
+    for entry in root.iterdir():
+        if entry.name.startswith(".credentials.json"):
+            continue
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        with suppress(OSError):
+            entry.unlink()
+            removed += 1
+    logger.info(
+        f"[ClaudeAgentSDK] credential rotation: cleared {removed} CLI state "
+        f"file(s) in the isolated OAuth config dir (directories kept)"
     )
 
 
@@ -263,7 +349,20 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
         # file instead). darwin-ONLY: on Linux/cloud there is no Keychain.
         kc_blob = _read_keychain_blob()
         if kc_blob is not None:
-            _stage_blob_newest_wins(config_dir, kc_blob, sourced_from="macOS Keychain")
+            # GitHub #117: on a genuine rotation, clear the isolated CLI's
+            # own state files for this dir (its one-shot Keychain-import
+            # bookkeeping included) right before the new file lands —
+            # otherwise the file would land but the CLI keeps reading its
+            # already-imported, now-stale copy forever. The rotation
+            # decision is the staging comparison itself (one rule), and the
+            # clear never touches transcripts, other directories, or the
+            # credential file. See _clear_cli_bookkeeping.
+            _stage_blob_newest_wins(
+                config_dir,
+                kc_blob,
+                sourced_from="macOS Keychain",
+                before_replace=lambda: _clear_cli_bookkeeping(config_dir),
+            )
             return
 
     if source is None or not source.is_file():

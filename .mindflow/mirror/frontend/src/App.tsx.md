@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — 熔断横幅轮询抽成 `useCircuitBannerAutoClear`，事件 handler 去重
+
+2026-09-09 的轮询 `useEffect` 依赖整个 `circuitOpen` 对象，而事件 handler 每帧都
+`setCircuitOpen(detail)` 建新对象——用户每重试一次 interval 就重置一次，30s 永远数不
+满；也没有登录门禁与登出清横幅。现在：handler 对"同 agent + 同 reason"短路（函数式
+setState 返回 prev）；轮询逻辑整体搬到 [[useCircuitBannerAutoClear]]（依赖收窄为
+agentId/reason/isLoggedIn、挂上即查、未登录清横幅不轮询），App.tsx 只剩一行调用。
+横幅文案与 Resume 按钮不变。
+
+## 2026-09-09 — 熔断横幅显示期间轮询状态，自愈后自动关闭（GitHub #117）
+
+`circuitOpen` 横幅原本纯事件驱动（只在 wsManager 收到 fresh-run 拒绝帧时 set，
+从不重新校验）——后端半开探测（[[circuit_breaker]]）自己好了，或 owner 在别的
+tab/设备确认了凭据，这个横幅仍会挂在屏幕上直到用户手动点 Resume 或刷新页面。
+加轮询 `api.getAgentCircuitBreaker`（既有、之前零调用方的端点）,
+`shouldClearCircuitBanner(status.cb_status)` 判定为真就 `setCircuitOpen(null)`。
+cooling 原因的横幅不轮询。实现细节以 2026-09-10 条为准。
 
 ## 2026-09-09 — the four global banners speak the user's language (GitHub #107/#108)
 

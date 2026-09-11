@@ -21,6 +21,10 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
+from narranexus.platform.agent_framework.providers.model_identity import (
+    resolve_agent_config_slot,
+)
+
 SUSPECTS_TABLE = "model_probe_suspects"
 
 # Only sources the probe engine can actually revalidate. ``system_pool`` shares
@@ -89,20 +93,18 @@ async def report_agent_slot_suspect(
     """Resolve the acting agent-slot binding back to (provider source, protocol,
     model) and report it as a suspect.
 
-    Mirrors the resolver's overlay order: an ``agent_slots`` row with a
-    non-empty provider_id wins over the ``user_slots`` row. Resolution happens
+    Resolves the binding through the shared provider overlay rule
+    (``model_identity.resolve_agent_config_slot`` — an ``agent_slots`` row
+    with a non-empty provider_id wins over the ``user_slots`` row, exactly
+    as the resolver applies it). Resolution happens
     at report time (the error path), which can theoretically race a concurrent
     config change — acceptable, because a wrong suspect only triggers one extra
     probe. Best-effort by contract: returns False instead of raising.
     """
     try:
-        slot = await db.get_one(
-            "agent_slots", {"agent_id": agent_id, "slot_name": "agent"}
+        slot = await resolve_agent_config_slot(
+            db, agent_id=agent_id, user_id=user_id
         )
-        if not slot or not slot.get("provider_id"):
-            slot = await db.get_one(
-                "user_slots", {"user_id": user_id, "slot_name": "agent"}
-            )
         if not slot or not slot.get("provider_id") or not slot.get("model"):
             return False
         prov = await db.get_one(

@@ -212,10 +212,8 @@ async def lifespan(app: FastAPI):
     # not only when the backend happens to restart.
     import asyncio as _asyncio
 
-    from narranexus.platform.agent_runtime.run_recorder import (
-        HEARTBEAT_INTERVAL_S,
-        sweep_stale_runs,
-    )
+    from narranexus.platform.agent_runtime.run_recorder import sweep_stale_runs
+    from narranexus.platform.utils.run_liveness import HEARTBEAT_INTERVAL_S
 
     app.state.active_runs = {}
     await sweep_stale_runs(db)

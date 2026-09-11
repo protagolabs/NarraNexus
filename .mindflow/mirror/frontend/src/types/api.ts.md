@@ -16,6 +16,12 @@ stub: false
 Telegram / Slack / Discord / WeChat / Narramessenger 五个凭据类型与泛型 `ChannelCredentialView` 都加了可选 `disabled_reason`（后端
 `to_public_dict` 新增的公开字段）；旧响应无此键时 UI 不显示原因。Lark 用自己的 `auth_status` 机制，不带。
 
+## 2026-09-09 — `CircuitBreakerStatus` gains `'probing'`
+
+[[circuit_breaker]] 新增半开态 PROBING（GitHub #117），`GET
+.../circuit-breaker` 现在会把它原样透传成 `cb_status`。补进联合类型，避免
+消费方（[[wsCircuitOpen]] 的轮询判定）以为只有三个值。
+
 ## 2026-09-07 — `PluginChannelRow`
 
 `GET /api/plugins/channels` 的一行：宿主 `ingress.channels` 注册表的数据形态，

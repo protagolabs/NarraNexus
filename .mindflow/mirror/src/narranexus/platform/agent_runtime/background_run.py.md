@@ -15,6 +15,32 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 `_record_circuit_breaker` 的「STATE_COMPLETED 且 had_fatal_error」分支从 `drive()` 已不可达（state 在它
 之前就转成 FAILED）；保留为防御并在 docstring 写明。熔断结果不变（这类 run 以前也记 failure）。
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 带上探测认领
+
+`RunRecorder` 构造时传 `agent_id` 与 `probe_token`：赢得探测的 WS/openai run 在 Step-0 拿到
+event_id 时由 recorder 绑定为认领者（`circuit_breaker.bind_probe_run`）。WS 先认领后建行，所以
+绑定只可能发生在这里。
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 不再转手导出活性规则
+
+`__all__` 去掉 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live`；本模块只从 [[run_liveness]] 导入自己用到的 `STATE_RUNNING`。websocket / auth
+改为直接从 `utils.run_liveness` 导入 `run_is_live`（与删除在同一 commit，否则 backend 起不来）。
+下方 2026-06-10 一节说的「上移到本文件」是历史：规则现在只住在 `utils/run_liveness.py`。
+
+## 2026-09-10（PR #394 review I1）— run 携带探测身份 `probe_token`
+
+`__init__` 新增 `probe_token: Optional[str] = None`：入口（[[websocket.py]]、
+[[openai_compat]]）在 `try_begin_probe` 赢得半开探测时把 token 交进来。
+`_record_circuit_breaker` 的三条结算全部带上它：失败 `record_failure(..., probe_token=)`、
+成功 `record_success(..., probe_token=)`、CANCELLED `release_probe(agent_id, probe_token)`。
+[[circuit_breaker]] 只让持 token 的 run 结算探测（token CAS）：普通 run 在别人持有探测时结束，
+既不能替它清 ACTIVE、也不能把它的失败算成探测结论；被取消的探测 run 按 token 归还，与该
+agent 还有没有别的存活 run 无关（旧的「无存活 run 才归还」代理判定会把行焊死在 PROBING）。
+`recorder.finalize` 仍先于这一步。锁：
+`test_background_run_circuit_breaker.py::test_every_settlement_carries_the_runs_probe_token`、
+`::test_only_the_claiming_run_settles_the_probe`（真熔断器）。
+
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
 
 `BackgroundRun.__init__` 加 `steering: Optional[Any] = None`(存 `self._steering`),`drive()` 把它原样传给 `runtime.run(steering=...)`。用途:owner 单聊的 WS(见 [[websocket.py]])建一个 `SteerChannel` 递进来;运行中 owner 再发一句,`_listen_for_control` push 进这个 channel,loop 在下个 step 边界 drain,折进**同一 turn** 而不是起新 run。None → 现状不变(无运行中注入)。与 bus 同一 steering 接缝、同一个 `AgentRuntime.run` 穿到 loop 的对象。

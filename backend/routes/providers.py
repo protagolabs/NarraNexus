@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Literal
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -153,16 +153,28 @@ def _get_user_id(request: Request) -> str:
     return uid
 
 
-async def _resume_agent_circuit_breakers(uid: str) -> None:
+async def _resume_agent_circuit_breakers(
+    uid: str, provider_id: Optional[str] = None
+) -> None:
     """Auto-resume the user's auth/quota-paused agents after they reconfigure
     a provider (added/onboarded a key, connected a subscription, changed a
-    slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
-    fired on these paths. Best-effort — never fails the reconfigure."""
+    slot) or explicitly test one. Mirrors the ``schedule_user_no_quota_rearm``
+    edge-recovery already fired on these paths. Best-effort — never fails
+    the reconfigure.
+
+    Only ever called from a WRITE or an explicit user action, never from a
+    GET: the ``/claude-status`` and ``/codex-status`` reads used to resume
+    too, but "the host CLI has a credential file" says nothing about an
+    agent paused on a NetMind key, and every open of the provider picker
+    un-paused the whole fleet just to watch it re-fail and re-alert. A
+    ``provider_id`` narrows the resume to agents bound to that provider
+    (``POST /{provider_id}/test``); the reconfigure paths pass none.
+    """
     try:
         from narranexus.platform.agent_framework.loop.circuit_breaker import (
             reset_for_owner,
         )
-        await reset_for_owner(uid)
+        await reset_for_owner(uid, provider_id=provider_id)
     except Exception as e:  # noqa: BLE001 — recovery is best-effort
         logger.warning(f"[providers] agent circuit-breaker resume failed for {uid}: {e}")
 
@@ -572,6 +584,13 @@ async def test_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
+    if success:
+        # The user explicitly tested THIS provider and it works: agents whose
+        # agent slot runs on it can stop waiting for their own half-open
+        # probe (GitHub #117). Scoped to the tested provider — an agent on a
+        # different key learned nothing here. Best-effort, never fails the
+        # test response.
+        await _resume_agent_circuit_breakers(uid, provider_id=provider_id)
     return {"success": success, "message": message}
 
 
@@ -1328,6 +1347,8 @@ async def get_claude_status(request: Request):
         result["logged_in"] = False
         result["expired"] = True
 
+    # Read-only on purpose: this reports the HOST CLI's state and must not
+    # touch the circuit breaker (see _resume_agent_circuit_breakers).
     return {"success": True, "data": result}
 
 
@@ -1435,6 +1456,7 @@ async def get_codex_status(request: Request):
             result["logged_in"] = False
             result["expired"] = True
 
+    # Read-only on purpose, same as /claude-status: no breaker side effect.
     return {"success": True, "data": result}
 
 

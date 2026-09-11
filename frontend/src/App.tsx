@@ -7,7 +7,7 @@ import { useState, useEffect, useSyncExternalStore, lazy, Suspense } from 'react
 import { useTranslation } from 'react-i18next';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
-import { usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
+import { useCircuitBannerAutoClear, usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
@@ -369,11 +369,23 @@ function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId: string; reason: string }>).detail;
-      if (detail?.agentId) setCircuitOpen(detail);
+      if (!detail?.agentId) return;
+      // Same agent + same reason → keep the existing state object. Every
+      // rejected turn fires this event; a fresh object per retry would
+      // re-render and re-key everything hanging off the banner for nothing.
+      setCircuitOpen((prev) =>
+        prev && prev.agentId === detail.agentId && prev.reason === detail.reason ? prev : detail,
+      );
     };
     window.addEventListener('narranexus:agent-circuit-open', handler);
     return () => window.removeEventListener('narranexus:agent-circuit-open', handler);
   }, []);
+  // GitHub #117: the banner above is purely event-driven — it never re-checks
+  // reality, so it stays up even after the agent self-heals. While a "paused"
+  // banner is showing (and the user is logged in), poll the existing
+  // per-agent status endpoint and close the banner once the breaker is no
+  // longer paused. See hooks/useCircuitBannerAutoClear for the contract.
+  useCircuitBannerAutoClear(circuitOpen, setCircuitOpen, isLoggedIn);
   const handleResumeAgent = async () => {
     if (!circuitOpen || resuming) return;
     setResuming(true);

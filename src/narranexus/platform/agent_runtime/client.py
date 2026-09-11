@@ -72,9 +72,16 @@ class AgentRuntimeClient(Protocol):
         user_id: str,
         input_content: str,
         working_source: Any,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> "RunCollection":
-        """Drive one run to completion, return its grouped output."""
+        """Drive one run to completion, return its grouped output.
+
+        ``probe_token`` is the circuit-breaker half-open probe claim the
+        caller won (``circuit_breaker.try_begin_probe``) for THIS run, or
+        None. When given, the client settles the probe from the run's
+        outcome after the run's events row is terminal — it is not forwarded
+        to the runtime."""
         ...
 
     def run_stream(
@@ -84,9 +91,14 @@ class AgentRuntimeClient(Protocol):
         user_id: str,
         input_content: str,
         working_source: Any = None,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> AsyncGenerator:
-        """Yield runtime events live (caller iterates with ``async for``)."""
+        """Yield runtime events live (caller iterates with ``async for``).
+
+        ``probe_token``: same contract as ``run_and_collect`` — the
+        half-open probe claim this run carries; the client settles it from
+        the stream's own error verdict once the stream ends."""
         ...
 
 
@@ -135,10 +147,18 @@ def _inherited_root_run_id(extra_kwargs: dict) -> Optional[str]:
 
 async def _new_recorder(
     inherited_root_run_id: Optional[str] = None,
+    *,
+    agent_id: Optional[str] = None,
+    probe_token: Optional[str] = None,
 ) -> "Optional[RunRecorder]":
     """Build a recorder for one trigger run, or None when recording is
     off (kill switch) or the DB client cannot be obtained — a run must
-    start regardless of observability."""
+    start regardless of observability.
+
+    ``agent_id`` / ``probe_token``: the half-open probe claim this run
+    carries, so the recorder binds the run as the claimant once its events
+    row exists (see ``RunRecorder``). Without a recorder nothing is bound
+    and the claim is bounded by its grant alone."""
     from narranexus.platform.agent_runtime.run_recorder import (
         RunRecorder,
         recording_enabled,
@@ -151,6 +171,8 @@ async def _new_recorder(
         return RunRecorder(
             db=await get_db_client(),
             inherited_root_run_id=inherited_root_run_id,
+            agent_id=agent_id,
+            probe_token=probe_token,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[RunRecorder] unavailable for this run: {e}")
@@ -190,8 +212,9 @@ async def _finalize_natural_end(
 
 
 def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
-    """Finalize on a task of its own — for contexts that cannot await
-    (GeneratorExit unwinding, host-task cancellation). Paired with a
+    """Finalize on a task of its own — for contexts that must not block on
+    an await (GeneratorExit unwinding that may run in the loop's shutdown
+    finalizer, host-task cancellation). Paired with a
     done-callback so a failure is logged, never silently GC'd
     (incident lesson #2)."""
     try:
@@ -205,6 +228,39 @@ def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
         if not t.cancelled() and t.exception() is not None:
             logger.warning(
                 f"[RunRecorder {recorder.run_id}] deferred finalize failed: "
+                f"{t.exception()}"
+            )
+
+    task.add_done_callback(_log_failure)
+
+
+def _spawn_settle(agent_id: str, probe_token: Optional[str]) -> None:
+    """Hand a probe claim back (no verdict) on a task of its own — for the
+    GeneratorExit unwinding of ``run_stream``. Awaiting there is legal (an
+    async generator may await inside ``aclose()``; it may not yield), but
+    the close can come from the event loop's async-generator finalizer while
+    the loop is shutting down, where an awaited DB write would raise or be
+    cancelled mid-flight; the detached task plus the ``RuntimeError`` branch
+    below keep that path quiet, and the settlement is an idempotent token
+    CAS either way. No-op without a token; a failure is logged, never
+    silently GC'd."""
+    if probe_token is None:
+        return
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        settle_probe,
+    )
+
+    try:
+        task = asyncio.get_running_loop().create_task(
+            settle_probe(agent_id, probe_token, succeeded=None)
+        )
+    except RuntimeError:  # loop already closing — the grant bounds the claim
+        return
+
+    def _log_failure(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception() is not None:
+            logger.warning(
+                f"[agent-cb] deferred probe release for {agent_id} failed: "
                 f"{t.exception()}"
             )
 
@@ -227,8 +283,12 @@ class InProcessAgentRuntimeClient:
         user_id: str,
         input_content: str,
         working_source: Any,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> "RunCollection":
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            settle_probe,
+        )
         from narranexus.platform.agent_runtime.admission import (
             get_admission_controller,
         )
@@ -242,7 +302,11 @@ class InProcessAgentRuntimeClient:
             TERMINAL_STATES,
         )
 
-        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
+        recorder = await _new_recorder(
+            _inherited_root_run_id(extra_kwargs),
+            agent_id=agent_id,
+            probe_token=probe_token,
+        )
         runtime: Any = AgentRuntime()
         if recorder is not None:
             runtime = _RecordedRuntime(runtime, recorder)
@@ -261,11 +325,37 @@ class InProcessAgentRuntimeClient:
                 )
             if recorder is not None:
                 await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
+            # Half-open probe settlement — the SAME record_success /
+            # record_failure the WS/openai BackgroundRun path feeds, keyed by
+            # the same token, and after the events row is terminal. A fatal
+            # collection is a failed probe carrying the runtime's own error
+            # type/message, which is the vocabulary classify_agent_error
+            # knows (a bare str(e) would read as transient and re-arm the
+            # same delay forever).
+            # This guard is NOT about saving a call (settle_probe is itself a
+            # no-op without a token, which is why the exception branches
+            # below call it unguarded). It keeps a turn without a token from
+            # reading the result at all: the channel / lark tests replace
+            # collect_run with hand-built result doubles that are not real
+            # RunCollections and lack is_fatal, so reading it here on every
+            # turn broke them (#394 CI, second review N-2). Pinned by
+            # test_an_ordinary_run_does_not_read_its_result.
+            if probe_token is not None:
+                err = result.error
+                await settle_probe(
+                    agent_id,
+                    probe_token,
+                    succeeded=not result.is_fatal,
+                    error_type=err.error_type if err is not None else None,
+                    error_message=err.error_message if err is not None else None,
+                )
             return result
         except CancelledByUser as e:
             if recorder is not None:
                 with suppress(Exception):
                     await recorder.finalize(STATE_CANCELLED, cancel_reason=e.reason)
+            # A stop says nothing about the credential: hand the probe back.
+            await settle_probe(agent_id, probe_token, succeeded=None)
             raise
         except Exception as e:
             if recorder is not None:
@@ -275,6 +365,13 @@ class InProcessAgentRuntimeClient:
                         error_type=type(e).__name__,
                         error_message=str(e),
                     )
+            await settle_probe(
+                agent_id,
+                probe_token,
+                succeeded=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             raise
         finally:
             # Host task cancelled mid-run (deploy restart, trigger
@@ -294,13 +391,18 @@ class InProcessAgentRuntimeClient:
         user_id: str,
         input_content: str,
         working_source: Any = None,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> AsyncGenerator:
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            settle_probe,
+        )
         from narranexus.platform.agent_runtime.admission import (
             get_admission_controller,
         )
         from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
         from narranexus.platform.agent_runtime.cancellation import CancelledByUser
+        from narranexus.platform.agent_runtime.run_collector import RunErrorTracker
         from narranexus.platform.agent_runtime.run_recorder import (
             STATE_CANCELLED,
             STATE_COMPLETED,
@@ -315,7 +417,14 @@ class InProcessAgentRuntimeClient:
         if working_source is not None:
             extra_kwargs["working_source"] = working_source
 
-        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
+        recorder = await _new_recorder(
+            _inherited_root_run_id(extra_kwargs),
+            agent_id=agent_id,
+            probe_token=probe_token,
+        )
+        # The stream's error verdict — the SAME rule collect_run applies —
+        # so a streamed probe settles exactly like a collected one.
+        errors = RunErrorTracker()
         # Set when a terminal handler already scheduled a DEFERRED finalize
         # (a task, not awaited) — the recorder's state is still non-terminal
         # at that instant, so the finally-net below must not double-spawn a
@@ -331,6 +440,7 @@ class InProcessAgentRuntimeClient:
                     input_content=input_content,
                     **extra_kwargs,
                 ):
+                    errors.observe(event)
                     if recorder is not None:
                         try:
                             await recorder.record(normalise_event(event))
@@ -342,21 +452,37 @@ class InProcessAgentRuntimeClient:
                     yield event
             if recorder is not None:
                 await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
+            # Half-open probe settlement, after the events row is terminal —
+            # the same seam and vocabulary as run_and_collect.
+            if probe_token is not None:
+                err = errors.error
+                await settle_probe(
+                    agent_id,
+                    probe_token,
+                    succeeded=not errors.is_fatal,
+                    error_type=err.error_type if err is not None else None,
+                    error_message=err.error_message if err is not None else None,
+                )
         except CancelledByUser as e:
             if recorder is not None:
                 with suppress(Exception):
                     await recorder.finalize(STATE_CANCELLED, cancel_reason=e.reason)
+            # A stop says nothing about the credential: hand the probe back.
+            await settle_probe(agent_id, probe_token, succeeded=None)
             raise
         except GeneratorExit:
             # Consumer closed the stream mid-run; the underlying run dies
-            # with the generator. Awaiting inside GeneratorExit unwinding
-            # is forbidden, so finalize on a task of its own.
+            # with the generator. Finalize on a task of its own: the close
+            # may come from the loop's shutdown finalizer (see _spawn_settle).
             if recorder is not None:
                 _spawn_finalize(
                     recorder, STATE_CANCELLED,
                     cancel_reason="stream consumer closed",
                 )
                 finalize_deferred = True
+            # No verdict either: the probe goes back on a task of its own
+            # (see _spawn_settle for why not an inline await).
+            _spawn_settle(agent_id, probe_token)
             raise
         except Exception as e:
             if recorder is not None:
@@ -366,6 +492,13 @@ class InProcessAgentRuntimeClient:
                         error_type=type(e).__name__,
                         error_message=str(e),
                     )
+            await settle_probe(
+                agent_id,
+                probe_token,
+                succeeded=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             raise
         finally:
             # Host task cancelled at a suspension point (deploy restart,

@@ -1,8 +1,26 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_identity.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review I3）— provider 覆盖规则也住这里：`config_override_wins` / `resolve_agent_config_slot`
+
+「这个 agent 的调用实际打到哪个 provider」原本手写了三份（[[resolver]]
+`_apply_agent_overrides`、[[model_health]] `report_agent_slot_suspect`、熔断器的
+`_agent_bound_provider_id`），外加 [[slot_service.py]] 的 `_is_effective_override` 第四份。
+现在规则只在这里：`config_override_wins(row)` = 行有非空 `provider_id`；
+`resolve_agent_config_slot(db, *, agent_id, user_id, slot_name="agent")` 返回胜出的
+`agent_slots` 行，否则 owner 的 `user_slots` 行（DB 错误上抛，由调用方决定失败方向）。
+
+**两条规则刻意不同**：`slot_rebinds`（identity，要求 provider_id **且** agent_framework）
+决定 prompt 自称与 driver；`config_override_wins`（provider）决定配置解析。只填了
+provider_id 的 stub 在 identity 上回落到 owner 默认，在 provider 上却是胜出——把 provider
+问题路由到 `slot_rebinds` 会让熔断器的收窄恢复漏掉这类 agent。锁：
+`test_config_override_rule_is_provider_only_unlike_identity`、
+`test_resolve_agent_config_slot_applies_the_provider_rule`、
+`test_the_overlay_rule_has_no_hand_written_copies`。放在本模块是因为它只有 loguru 一个模块级
+依赖，loop 层与 driver 层都能模块级导入而不成环。
 
 ## 2026-09-04 — `FRAMEWORK_DISPLAY_NAMES` 注释改为实话
 
