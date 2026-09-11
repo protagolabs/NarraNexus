@@ -15,6 +15,19 @@ claude 内联错误事件在 `cli_error_self_serviceable(enum)` 为 None（`unkn
 多一个 `self_serviceable`（`contracts.agent_events.cli_error_self_serviceable(enum)`）。这是
 sdk.py 没有 stderr / 正文可折叠时走到的那条路，与 sdk.py 自己的两个构造器口径一致——三处都按
 枚举判，缺一处前端就会在同一类错误上时有时无。
+## 2026-09-10（B-05/B-07/#127）— codex `turn/completed(status=failed)` 带 `fatal`（默认 `True`）
+
+`_codex_official_to_openai_agents` 的 `turn/completed` 分支：`status=="failed"` 是 SDK 的终局判决，
+之后这个 turn 不会再有流。错误帧带 `"fatal": True`——但这只是**没有 turn 上下文时的保守默认**：
+本函数逐条翻译通知，不知道这个 turn 之前有没有流出过正文。`fatal` 的契约是「终局 **且** 本 turn
+未交付任何输出」（[[response_processor]]），真正的值由调用方
+`official_sdk._translate_and_track_delivery` 按 `turn_had_message` 覆写（[[official_sdk]] 同日条目）。
+直接消费本函数输出而不做覆写的调用方会得到保守的 `True`。
+
+**没有动的姊妹分支**：独立的 `method == "error"` 通知（非 `will_retry`）不带这个键——它不是生命周期
+通知，之后是否还有 `turn/completed` 跟进不确定，打 fatal 有误判风险。claude_code sdk.py 的
+`_zero_output_error_event` 也未动：外层有 retry/supersede 机制（`DATA_TYPE_DONE_SUPERSEDED_KEY`），
+要先读懂那套重试语义。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

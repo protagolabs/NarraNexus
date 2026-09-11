@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-08-14
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-10（B-03）— `max_tokens` 取自 `requested_max_tokens`
+
+`stream_step()` 发送 `extra["max_tokens"] = requested_max_tokens(profile, params.extra, input_tokens_estimate,
+floor_multiplier=request.floor_multiplier)`（[[profiles]]）：用户在 `params.extra` 钉的值原样胜出，否则是
+`output_budget`。loop.py 的截断重试调同一函数判断「实际发了多少 / 翻倍能否更大」，两处不再各写一份
+「钉住优先」的规则。调用方的 `params.extra` 不被修改（先拷贝）。乘数语义见 [[model]]。
 
 ## 2026-08-14 — 自家网关名单补 `llm-gateway`
 

@@ -61,6 +61,9 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.a
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     estimate_message_tokens,
 )
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
+    requested_max_tokens,
+)
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
@@ -101,7 +104,15 @@ class NexusPowerLoop:
         self._closed = False
         self._continuation_turn = False  # prefill repair, armed at most once
         self._turn_expressed = False     # any expressive call seen this turn
+        # Any COMMITTED text on a step that ran with no expression tool.
+        self._turn_text_streamed = False
         self._expression_nudged = False  # mute-turn nudge, armed at most once
+        self._truncation_retried = False  # output-budget doubling, armed at most once
+        # Floor multiplier for the NEXT ``_build_request()``, carried on
+        # ``ModelRequest.floor_multiplier`` — never written into the shared
+        # ``a.params.extra`` dict. Raised to 2 only for the one step the
+        # output-budget-truncation retry replays, then reset to 1.
+        self._truncation_floor_multiplier = 1
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
@@ -132,6 +143,18 @@ class NexusPowerLoop:
                     except Exception as exc:  # noqa: BLE001 - classified below
                         error = a.errors.classify(exc)
                     if error is None:
+                        # Delivery is sampled when the step COMMITS, never
+                        # when a delta arrives: text from an attempt that
+                        # later broke is thrown away by ``discard_step()``
+                        # below and was never delivered. The expression
+                        # contract is read at the same moment because
+                        # ``expand()`` can grant delivery tools mid-turn
+                        # (DISPATCH runs after this point); only on a step
+                        # with NO expression tool is the plain text the
+                        # delivered reply — with one, text is monologue
+                        # nobody receives. See ``_fail``.
+                        if step_meta.get("had_text") == "1" and not a.expression.names():
+                            self._turn_text_streamed = True
                         break
                     # The failed attempt may have streamed text and tool
                     # calls into the ledger before it broke. Every path
@@ -191,6 +214,91 @@ class NexusPowerLoop:
                     async for ev in self._interrupt("cancelled by user"):
                         yield ev
                     return
+
+                # ---- OUTPUT-BUDGET TRUNCATION -------------------------------
+                # A step that came back with zero text and zero tool calls
+                # AND a stop_reason admitting the output cap severed the
+                # response is not "no more actions" — it is a thinking-
+                # by-default model that spent its entire ``max_tokens`` on
+                # hidden chain-of-thought before it could reach an answer
+                # (measured 2026-09-08 against NetMind's DeepSeek-V4-Pro).
+                # Left alone this falls through STOP_CHECK and closes as
+                # NO_MORE_ACTIONS with a real reply the model never got to
+                # write — a silent empty run. Double the floor and replay
+                # the step ONCE (armed via ``_truncation_retried``, same
+                # "repair the request, not a verdict on the error" idiom as
+                # PREFILL_REJECTED) — but ONLY if doubling can actually ask
+                # for more: a model whose ceiling already sits at (or a
+                # user override that already pins) the current budget would
+                # replay a byte-identical request and 100%-certainly fail
+                # again, burning a full extra round-trip for nothing.
+                # If the doubled budget still
+                # yields nothing, a third try would not either, so surface
+                # a real, terminal failure instead of retrying forever.
+                #
+                # This check sits before DRAIN_STEERING and the replay
+                # ``continue``s straight back to PROJECT, so a steering
+                # message that arrived during the truncated step is drained
+                # one model call later (after the replayed step). Accepted:
+                # the replay is at most one extra call per turn and the
+                # message is not lost, only deferred.
+                stop_reason = step_meta.get("stop_reason", "")
+                produced_output = bool(step_calls) or step_meta.get("had_text") == "1"
+                if not produced_output and stop_reason in _TRUNCATING_STOP_REASONS:
+                    # One source of truth for "what this request sent":
+                    # the same function the model client used, so a pinned
+                    # ``params.extra['max_tokens']`` (which always wins)
+                    # makes both values equal and rules the replay out.
+                    current_budget = requested_max_tokens(
+                        a.model.profile,
+                        request.params.extra,
+                        request.input_tokens_estimate,
+                        floor_multiplier=request.floor_multiplier,
+                    )
+                    next_multiplier = request.floor_multiplier * 2
+                    new_budget = requested_max_tokens(
+                        a.model.profile,
+                        request.params.extra,
+                        request.input_tokens_estimate,
+                        floor_multiplier=next_multiplier,
+                    )
+                    if not self._truncation_retried and new_budget > current_budget:
+                        self._truncation_retried = True
+                        self._truncation_floor_multiplier = next_multiplier
+                        # The empty step folded to nothing in
+                        # `_turn_messages` (`_fold_step_message` no-ops
+                        # when text+calls are both empty), but its CoT is
+                        # NOT nothing: `_step_thinking` accumulated the
+                        # whole thinking-exhausted budget and that early
+                        # return does not clear it. Left alone, the
+                        # replayed step's OWN thinking would be appended
+                        # onto this abandoned CoT and folded into one
+                        # `reasoning_content` — a concatenation, not the
+                        # CoT that actually produced the replay's tool
+                        # call. `discard_step()`
+                        # clears all three step buffers and is a no-op on
+                        # the already-empty text/calls, so it only ever
+                        # fixes the leaked thinking here.
+                        ledger.discard_step()
+                        continue  # the outer loop rebuilds the request
+                    async for ev in self._fail(
+                        LoopError(
+                            ErrorType.OUTPUT_TRUNCATED,
+                            "model output truncated: thinking exhausted the "
+                            f"output budget (max_tokens={current_budget})",
+                        )
+                    ):
+                        yield ev
+                    return
+                # The boosted floor served exactly the step it was armed
+                # for. Every later step gets the plain floor back: the
+                # floor deliberately wins over headroom (see
+                # ``output_budget``), so a multiplier left in place would
+                # keep pushing ``input + max_tokens`` past the wall on
+                # every later, larger-input step of this turn.
+                # ``_truncation_retried`` stays armed, so a later
+                # truncation fails instead of retrying again.
+                self._truncation_floor_multiplier = 1
 
                 # ---- DISPATCH ---------------------------------------------
                 for call in step_calls:
@@ -404,6 +512,7 @@ class NexusPowerLoop:
             # The measurement is better but is zero on the turn's first
             # step, which is exactly the step whose projection already
             # carries every earlier turn — so take whichever is larger.
+            floor_multiplier=self._truncation_floor_multiplier,
             input_tokens_estimate=max(
                 self._ledger.last_input_tokens(), estimate_message_tokens(messages)
             ),
@@ -462,6 +571,14 @@ class NexusPowerLoop:
                             self._arg_delta_event(delta, stream_meta.get(index))
                         )
                 continue
+            if kind == "text_delta" and step_meta is not None:
+                # Recorded so the OUTPUT-BUDGET TRUNCATION check in
+                # run_turn can tell "the model answered but stayed brief"
+                # apart from "the model never got past thinking" — both
+                # can carry the same stop_reason, and only the second is
+                # truncation.
+                if model_event.payload.get("text"):
+                    step_meta["had_text"] = "1"
             if kind == "done" and step_meta is not None:
                 step_meta["stop_reason"] = str(
                     model_event.payload.get("stop_reason", "")
@@ -533,6 +650,12 @@ class NexusPowerLoop:
                     "error_type": error.error_type.value,
                     "message": error.message,
                     "retryable": error.retryable,
+                    # ``fatal`` contract: see response_processor's
+                    # DATA_TYPE_ERROR handling. This is the loop's own
+                    # verdict on "delivered nothing": no expressive call
+                    # this turn, and no committed plain-text reply (see
+                    # where ``_turn_text_streamed`` is set in run_turn).
+                    "fatal": not self._turn_delivered(),
                 },
             )
         )
@@ -552,6 +675,10 @@ class NexusPowerLoop:
         return await self._log(
             self._ledger.close_turn(reason, model=model, cost_usd=cost)
         )
+
+    def _turn_delivered(self) -> bool:
+        """Has this turn put anything in front of its audience yet?"""
+        return self._turn_expressed or self._turn_text_streamed
 
     async def _log(self, event: LoopEvent) -> LoopEvent:
         if event.type in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):

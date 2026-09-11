@@ -211,6 +211,12 @@ def test_turn_completed_with_failed_status_emits_response_error():
     assert evs[0]["data"]["type"] == "response.error"
     assert evs[0]["data"]["error_message"] == "rate_limited"
     assert evs[0]["data"]["error_type"] == "rate_limit_error"
+    # turn/completed(status=='failed') is the SDK's own terminal verdict,
+    # unlike the standalone 'error' notification which can precede a retry.
+    # Without turn context the translator reports the conservative
+    # ``fatal: True``; official_sdk.py overrides it to False when the turn
+    # already streamed a message (B-05/#127).
+    assert evs[0]["data"]["fatal"] is True
 
 
 def test_top_level_error_emits_response_error():

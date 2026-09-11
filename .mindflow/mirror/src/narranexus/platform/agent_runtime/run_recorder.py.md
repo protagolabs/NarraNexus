@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/run_recorder.py
-last_verified: 2026-08-30
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（GH #127 / B-05）— FAILED 行也保留已流出的 final_output
+
+- STATE_FAILED 分支本身一直正确写 `error_message`；漏洞在调用方从不带 `had_fatal_error=True` 的 run
+  调 `finalize(STATE_FAILED, ...)`（见 [[client]]/[[background_run]] 同日条目）。原来那条
+  "deliberate asymmetry" 注释描述的正是被修掉的旧行为，已改写。
+- `final_output` 兜底的门从 `state == STATE_COMPLETED` 改为 `state != STATE_CANCELLED`：调用方现在会把
+  「已流出正文后才撞上 fatal」的 run（例如 claude_code 中途 401，那条分支仍无条件 fatal）落成
+  FAILED，旧门会让这种行只剩 error_message、丢掉用户其实已看到的回复。cancelled 行照旧不写。
+  「never overwrite a non-empty value」的读-改-写原样保留（step_4 写过的值不被覆盖）。
+
+测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
+（failed 保留、cancelled 不写）。
 
 ## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
 

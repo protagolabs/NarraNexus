@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
-    output_budget,
+    requested_max_tokens,
 )
 from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
@@ -83,8 +83,13 @@ class LiteLLMModelClient:
         params = request.params
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
-        extra.setdefault(
-            "max_tokens", output_budget(self.profile, request.input_tokens_estimate)
+        # Same function loop.py's truncation retry reads back, so what is
+        # sent here and what the loop believes was sent are one value.
+        extra["max_tokens"] = requested_max_tokens(
+            self.profile,
+            params.extra,
+            request.input_tokens_estimate,
+            floor_multiplier=request.floor_multiplier,
         )
         if _is_own_gateway(params.base_url):
             extra["extra_headers"] = {

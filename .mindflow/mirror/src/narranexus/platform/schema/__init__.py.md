@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/schema/__init__.py
-last_verified: 2026-09-06
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 导出 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`
+
+门面 re-export（[[runtime_message.py]]），供 `circuit_breaker` 从 `schema` 顶层引用。纯转发。
 
 ## 2026-08-27 — 导出 `ChannelIngressBreaker` / `session_key`
 

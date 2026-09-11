@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/schema/runtime_message.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 新增 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`；`severity` 文档补 plain-text 交付
+
+`"output_budget_exhausted"`：nexus_power [[event_adapter]] 从 loop 自己的 OUTPUT_TRUNCATED 映出、
+[[circuit_breaker]] 据此不推进熔断的结构化 error_type。放在这个叶子模块与其他 error 标记同理（生产方插件与平台
+消费方都能 import、无循环）。刻意是 error_type 而不是 message 短语：message 可回显调用方可控文本。
+`ErrorMessage.severity` 的 `recovered_after_reply` 说明改为「经交付工具，或在没有交付工具的 turn 上以 plain text 写出回复」。
 
 ## 2026-09-09 — `ErrorMessage.self_serviceable: Optional[bool]`
 

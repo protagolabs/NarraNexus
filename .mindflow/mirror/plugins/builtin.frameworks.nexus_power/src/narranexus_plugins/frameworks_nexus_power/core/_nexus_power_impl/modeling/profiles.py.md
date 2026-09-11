@@ -1,8 +1,52 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/profiles.py
-last_verified: 2026-09-08
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 自填 id 按名字只借安全的事实
+
+`_with_model_limits`：`get_model_meta` 精确命中（含剥一层路由前缀）时行为不变；未命中时改查
+`get_model_name_match`（[[model_catalog]]），只借 `thinks_by_default` 与**更低**的 ceiling（`min`），
+**不**借 `vendor_context_window`、**不**抬高 ceiling——同名的自建/量化版本窗口可能更小，借来的墙会让压缩永不触发。
+
+## 2026-09-10（B-03）— 默认思考模型的输出地板 8_192；地板按 `thinks_by_default` 选；`floor_multiplier`
+
+25-45% 平台 job run 空产出的根因：`output_budget` 地板统一 1_024，对默认思考的模型不够——
+隐藏 CoT 先吃 max_tokens，1_024 在模型够到文字/工具调用前就被吃光，`stop_reason=max_tokens`
+但零产出（NetMind DeepSeek-V4-Pro 实测：1_024→4/6 空跑，4_096→1/6，8_192→0/8）。
+
+- **判据是 `ProviderProfile.thinks_by_default`，不是 `thinking_replay`。** 后者是「这个方言要不要
+  回传 reasoning_content」的契约事实，和「这个模型默不默认思考」是两件事；全表只有 deepseek 行是
+  `keep`，拿它判地板会漏掉其他默认思考的模型。`_with_model_limits` 从
+  `ModelMeta.thinks_by_default` **逐模型**覆盖（不是逐方言），`_PROFILES` 各方言行一律 `False`。
+  哪些模型置 `True`、依据是什么，是 [[model_catalog]] 的职责（事实源）；本文件只持有地板常量
+  `_THINKING_MIN_OUTPUT_TOKENS = 8_192` 与选择逻辑。
+- **clamp 顺序改为 `min(ceiling, max(floor, headroom))`**（原 `max(floor, min(ceiling, headroom))`）。
+  地板 1_024 时两者等价；抬到 8_192 后，真实 ceiling 低于地板的模型（DeepSeek-V3 的 7_200）在旧顺序
+  下会被顶到 8_192——新顺序保证 ceiling 永远最后钳制。
+- **地板刻意压过 headroom**，即使 `input + max_tokens` 因此越过 wall：provider 的可见 400 优于一次
+  静默空跑。有实测支撑：同一次 2026-09-08 测量里 128_000 窗口、输入约 122_880、`max_tokens=8_192`
+  （合计 131_072，已越墙）8 次全部正常返回——NetMind/DeepSeek 在这一段不强制 `input + max_tokens ≤ window`。
+- `requested_max_tokens(profile, extra, input_tokens_estimate, *, floor_multiplier=1) -> int`：一个请求实际携带的
+  `max_tokens` 的唯一来源——`extra` 里钉住的值（`int()` 后）胜出，否则 `output_budget`。`None` 或 `int()` 转不了的值
+  视为未钉，发计算出的预算而不是 `max_tokens: null`（旧的 `setdefault` 会把显式 `None` 原样发出；平台无人写它）。[[model_client]] 用它发送，
+  loop.py 的截断重试用它判断「发了多少 / 翻倍能否更大」。
+- `output_budget()` 加 keyword-only `floor_multiplier: int = 1`，只放大地板项，ceiling 仍最后钳制。
+  它**不**让结果服从 headroom——地板本来就压过 headroom，放大地板等于放大同一个越墙风险。因此
+  loop.py 只把乘数用在截断重试重放的那一步，之后复位为 1（[[loop]] 同日条目）。实算：四个
+  `thinks_by_default=True` 的模型 ceiling==地板==8_192，乘数翻倍也不变，重试不可达；能真正翻倍的
+  只有非思考行在地板区（如 qwen 1_024→2_048）。
+
+顺带查过：qwen 行的 `context_window=32_000` 是协议猜的，catalog 三条 Qwen3.6 都没填
+`context_window`，没有真数字可核对，留着不动。
+
+测试（`tests/nexus_power/test_modeling.py`）：`test_thinks_by_default_gets_a_higher_output_floor`
+（负例用 `thinking_replay="strip"` 证明地板不看那个字段）、
+`test_thinking_floor_never_exceeds_the_models_own_ceiling`、
+`test_catalog_thinks_by_default_overlay_is_honest_per_model`、
+`test_self_entered_spellings_of_a_thinking_model_still_think`（自填 id 经 [[model_catalog]] 末段归一化命中）、
+`test_client_sends_exactly_requested_max_tokens`。
 
 ## 2026-09-08 — deepseek 行 `thinking_replay="keep"`
 

@@ -14,6 +14,7 @@ import dataclasses
 
 import pytest
 
+from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
 from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
@@ -63,6 +64,9 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.loop impor
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
+    resolve_profile,
+)
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
@@ -95,6 +99,8 @@ class FakeModel:
         if isinstance(step, Exception):
             raise step
         for event in step:
+            if isinstance(event, Exception):
+                raise event  # the step streamed a prefix, then broke
             yield event
 
 
@@ -136,6 +142,10 @@ class CancelAfter:
 
 def _text(t):
     return ModelEvent(kind="text_delta", payload={"text": t})
+
+
+def _thinking(t):
+    return ModelEvent(kind="thinking_delta", payload={"text": t})
 
 
 def _use(cid, name, args=None, index=0):
@@ -923,3 +933,389 @@ async def test_no_steering_closes_on_the_first_stoppable_step():
 
     assert len(model.requests) == 1
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+# A thinking-capable profile (``thinks_by_default=True``) with a tight
+# context_window so the first computed output_budget lands on the
+# thinking floor (8_192, see profiles.py) rather than the huge
+# max_output_tokens ceiling — leaving real room for the retry to double
+# it (16_384) instead of the ceiling capping both attempts to the same
+# number. ``thinking_replay="keep"`` is also set (independently of
+# ``thinks_by_default``) so this profile doubles as the
+# reasoning_content-replay fixture for the CoT-concatenation test.
+_THINKING_PROFILE = ProviderProfile(
+    name="deepseek-like", thinking_replay="keep", thinks_by_default=True,
+    context_window=1_000, max_output_tokens=100_000,
+)
+
+# The real DeepSeek-V4-Pro profile, unmodified: NetMind never registered
+# a catalog ``max_output_tokens`` for it, so its ceiling is the dialect
+# row's conservative default (8_192) — exactly equal to the thinking
+# floor. Used to prove the no-replay guard: doubling a floor
+# that is ALREADY at the ceiling can never grow the actual request, so
+# the loop must fail immediately rather than replay an identical one.
+_REAL_DEEPSEEK_V4_PRO_PROFILE = resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai")
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_retries_with_doubled_budget_then_succeeds():
+    """A step with zero text and zero tool calls that stopped on
+    ``max_tokens`` is thinking-exhaustion, not NO_MORE_ACTIONS (B-03).
+    The loop doubles the output budget and replays the step once; a
+    model that then answers closes the turn normally with no error."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_text("finally"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 2
+    # The retry doubles the FLOOR MULTIPLIER on the request itself, never
+    # the shared ``params.extra`` dict — the first
+    # request carries the default multiplier, the retried one carries 2x.
+    assert model.requests[0].floor_multiplier == 1
+    assert model.requests[1].floor_multiplier == 2
+    # And ``a.params`` is untouched: nothing was ever written into the
+    # shared extra dict, so a later, unrelated step in the same turn
+    # would still get ``output_budget``'s wall clamp fresh.
+    assert "max_tokens" not in model.requests[0].params.extra
+    assert "max_tokens" not in model.requests[1].params.extra
+    assert model.requests[0].params is model.requests[1].params
+
+
+@pytest.mark.asyncio
+async def test_floor_multiplier_resets_after_the_retried_step_succeeds():
+    """The doubled floor serves only the replayed step. Once that step
+    produces output, the next step's request is back to multiplier 1 —
+    the floor wins over headroom, so a sticky multiplier would keep
+    pushing every later, larger-input step of the turn past the wall."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    assert TYPE_ERROR not in [e.type for e in events]
+    assert [r.floor_multiplier for r in model.requests] == [1, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_fails_after_one_retry():
+    """If the doubled budget ALSO comes back empty, a third try would not
+    help either — the loop must surface a real, terminal error instead
+    of retrying forever (iron rule #14 bounds retries by progress, not by
+    a ceiling, but "no progress twice in a row" IS the progress signal)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "output budget" in error.payload["message"]
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # Exactly one retry attempt — no unbounded spin on a hopeless budget.
+    assert len(model.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_truncation_with_a_pinned_max_tokens_fails_without_replay_and_reports_it():
+    """A pinned ``max_tokens`` always wins at the client, so no multiplier
+    can grow the request: fail on the first truncated step, and report
+    the value that was actually sent, not the budget we computed."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    params = ModelParams(model="fake-model", extra={"max_tokens": 777})
+    events, _ = await _run(_assembly(model, FakeTools(), params=params))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "max_tokens=777" in error.payload["message"]
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_brief_but_real_answer_is_not_treated_as_truncation():
+    """Negative case: a step that stopped on ``max_tokens`` but DID
+    produce text must not be misclassified as an empty-output failure —
+    only the zero-text, zero-tool-call combination is truncation. With
+    no tool calls, STOP_CHECK closes the turn normally on step 1 (v1: no
+    actions = stop) — the point is that it closes as NO_MORE_ACTIONS
+    with the text delivered, not as a retried/failed truncation."""
+    model = FakeModel([
+        [_text("a short answer"), _done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    # No budget-doubling retry happened: only one request was ever made.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_truncation_fails_immediately_when_the_real_ceiling_cant_grow():
+    """This is the REAL DeepSeek-V4-Pro profile (no catalog
+    ``max_output_tokens`` override registered for it), whose ceiling
+    already equals the thinking floor (8_192). Doubling the floor can
+    never ask the client for more than what was already sent, so the
+    loop must fail on the FIRST truncated step instead of wastefully
+    replaying a byte-identical request (the synthetic
+    ``_THINKING_PROFILE`` fixture, with its artificially huge ceiling,
+    cannot exercise this branch)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # No replay: growth was recognised as impossible on the first try.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_replayed_step_after_truncation_does_not_concatenate_reasoning():
+    """The discarded step's abandoned chain-of-thought must not leak
+    into the replayed step's ``reasoning_content``. DeepSeek's thinking
+    contract requires the CoT that PRODUCED the eventual tool call, not
+    a concatenation of an abandoned CoT plus the real one — the same 400
+    family as the reasoning_content-passback contract this profile's
+    ``thinking_replay="keep"`` exists to satisfy. Regression: without
+    ``ledger.discard_step()`` on the retry path, ``_step_thinking``
+    survives the empty step's early-return fold and gets prepended onto
+    the next step's real CoT."""
+    model = FakeModel([
+        [_thinking("aborted-cot-that-exhausted-the-budget"), _done(stop="max_tokens")],
+        [_thinking("real-cot"), _use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, ledger = await _run(_assembly(model, tools))
+
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    messages = ledger.provider_messages()
+    assistant_with_call = next(
+        m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")
+    )
+    assert assistant_with_call["reasoning_content"] == "real-cot"
+
+
+@pytest.mark.asyncio
+async def test_fail_after_an_already_expressed_reply_is_not_marked_fatal():
+    """``_fail`` also fires for unrecoverable provider errors that
+    have nothing to do with output-budget truncation (retry-exhausted
+    429/5xx, an uncompactable CONTEXT_OVERFLOW) — and those can land
+    AFTER the agent already delivered a real answer via an expressive
+    tool call. ``fatal`` must reflect that: a turn that already produced
+    output must never be classified the same way as a turn that produced
+    nothing, or chat_module/message_bus would erase or paper over an
+    already-delivered reply (the exact "one provider wobble cost the
+    sender their answer" defect run_collector.py's docstring documents
+    fixing, reintroduced at the framework level if this regresses)."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "here is your answer"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_fail_with_no_prior_expression_is_marked_fatal():
+    """Negative case: a turn that never produced ANY expressive
+    output before an unrecoverable error must still be fatal — the fix
+    narrows fatal to "no output delivered", it does not disable it."""
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                       profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_already_spoke_is_not_marked_fatal():
+    """A turn with NO expression tool (the team patrol shape, where the
+    platform posts the composed line) delivers BY writing: its streamed
+    text is the reply. A later unrecoverable error must therefore report
+    ``fatal: False`` — otherwise message_bus swaps the already-streamed
+    status line for a failure notice."""
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_discarded_by_a_broken_attempt_is_not_delivery():
+    """Text streamed by an attempt that then broke is thrown away by
+    ``discard_step()`` — it never reached the ledger, so it was not
+    delivered. A plain-text turn whose only text came from such an
+    attempt must stay ``fatal: True`` (delivery is sampled when the step
+    commits, not when a delta arrives)."""
+    model = FakeModel([
+        [_text("status: all gre"), Exception("totally unclassified provider failure")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(
+        _assembly(model, FakeTools(), expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+class _GrantingTools(FakeTools):
+    """Executing ``expand`` grants a delivery tool mid-turn, the way
+    tooling/expansion.py feeds ``ExpressionContract.add_tools``."""
+
+    def __init__(self, specs, expression):
+        super().__init__(specs)
+        self._expression = expression
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        if call.name == "expand":
+            self._expression.add_tools(["mcp__chat__reply"])
+        return await super().execute(call)
+
+
+@pytest.mark.asyncio
+async def test_plain_text_committed_before_a_mid_turn_grant_is_still_delivery():
+    """Whether text is the delivered reply is a fact of the moment it was
+    written: no expression tool existed then, so it was the reply. An
+    ``expand()`` that grants a delivery tool later in the turn must not
+    retroactively turn it into monologue and flip ``fatal`` to True."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    assert expression.names() == ("mcp__chat__reply",)
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_after_a_mid_turn_grant_is_monologue():
+    """Negative twin: once ``expand()`` granted a delivery tool, text
+    written in later steps is monologue — it does not count."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_use("c1", "expand", {}), _done(stop="tool_use")],
+        [_text("thinking out loud"), _use("c2", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_never_spoke_is_still_fatal():
+    """Negative case for the plain-text shape: no text streamed before
+    the failure means nothing was delivered, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery():
+    """Negative case: when expression tools exist, plain text is
+    monologue nobody receives — streaming it and then failing without an
+    expressive call still delivered nothing, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_text("thinking out loud"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([
+        ToolSpec(name="bash", description="", input_schema={}),
+        ToolSpec(
+            name="mcp__chat__reply", description="reply", input_schema={},
+            annotations=ToolAnnotations(expressive=True),
+        ),
+    ])
+    events, _ = await _run(_assembly(model, tools))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_truncation_failure_reaches_the_platform_as_output_budget_exhausted():
+    """Output-budget exhaustion must reach the platform as the structured
+    ``output_budget_exhausted`` error_type (the circuit breaker's exemption
+    key), not folded into ``invalid_request`` — and a classified provider
+    error must still fold as before."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert "max_tokens=8192" in error.payload["message"]
+    legacy = LegacyEventAdapter().translate(error)
+    assert legacy[0]["data"]["error_type"] == OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                      profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert LegacyEventAdapter().translate(error)[0]["data"]["error_type"] != (
+        OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+    )

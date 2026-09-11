@@ -36,7 +36,7 @@ in-flight loop or caps loop length.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from loguru import logger
 
@@ -54,6 +54,7 @@ from narranexus.platform.schema import (
     ErrorCategory,
     PAUSING_CATEGORIES,
     EXECUTOR_INFRA_ERROR_TYPE,
+    OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
 )
 from narranexus.platform.services.background_llm_alerts import (
     alert_agent_paused,
@@ -196,6 +197,68 @@ async def _resolve_owner(db, agent_id: str) -> Optional[str]:
         return None
 
 
+def _is_self_serviceable(error_type: Optional[str], error_message: Optional[str]) -> bool:
+    # Deterministic, user-self-serviceable failures (context window too small,
+    # no credits, bad model id) must NOT advance the breaker. They don't heal
+    # by waiting, so a cooldown would only block the CORRECTED retry after the
+    # user switches models — punishing them for doing exactly what the
+    # actionable error told them (binding rule #14/#15: never be the
+    # interruption source). They're also not a provider-hammering risk (the
+    # provider rejects them instantly). The turn already surfaced an
+    # actionable error.
+    return classify_self_serviceable(error_type, error_message) is not None
+
+
+def _is_executor_infra(error_type: Optional[str], error_message: Optional[str]) -> bool:
+    # Executor-infra failures (OOM / unreachable) are a PLATFORM fault, not the
+    # agent's — and the surfaced ``infra_transient`` error tells the user to
+    # "resend shortly". Advancing the breaker would COOL the agent for 60s+ and
+    # reject that very resend (websocket should_skip), turning one platform
+    # blip into a self-inflicted second punishment. Same reasoning as the
+    # self-serviceable exemption (binding rule #15: never be the interruption
+    # source).
+    return error_type == EXECUTOR_INFRA_ERROR_TYPE
+
+
+def _is_output_budget_exhausted(
+    error_type: Optional[str], error_message: Optional[str]
+) -> bool:
+    # Output-budget exhaustion (a thinking model spent its whole max_tokens on
+    # reasoning, even after the framework's one budget-doubling replay) is our
+    # own budget choice meeting the model the user picked. It is deterministic
+    # — waiting never heals it — so a cooldown would only reject the user's
+    # next message: the platform as the interruption source (binding rule
+    # #15). Keyed on the structured error_type ONLY: the message can echo
+    # provider- and user-controlled text, and a phrase match there would let
+    # caller content switch the breaker off for every failure class.
+    return error_type == OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+
+
+# Failures that must not touch the breaker AT ALL — no cool, no pause, no
+# counter change (an unrelated prior streak is left intact). Checked in order;
+# the first match names the exemption in the debug log. Order is deliberate:
+# self-serviceable first (its classifier also reads the message), then the
+# two exact error_type markers.
+_BREAKER_EXEMPTIONS: tuple[
+    tuple[str, Callable[[Optional[str], Optional[str]], bool]], ...
+] = (
+    ("self-serviceable", _is_self_serviceable),
+    ("executor-infra (platform-side)", _is_executor_infra),
+    ("output-budget exhaustion", _is_output_budget_exhausted),
+)
+
+
+def breaker_exemption(
+    error_type: Optional[str], error_message: Optional[str]
+) -> Optional[str]:
+    """Name of the exemption that keeps this failure out of the breaker, or
+    ``None`` when the failure must advance it."""
+    for name, applies in _BREAKER_EXEMPTIONS:
+        if applies(error_type, error_message):
+            return name
+    return None
+
+
 async def record_failure(
     agent_id: str,
     error_type: Optional[str],
@@ -207,33 +270,11 @@ async def record_failure(
     Callers MUST treat this as best-effort (wrap in try/except) — a breaker
     write must never break turn finalization.
     """
-    # Deterministic, user-self-serviceable failures (context window too small,
-    # no credits, bad model id) must NOT advance the breaker. They don't heal
-    # by waiting, so a cooldown would only block the CORRECTED retry after the
-    # user switches models — punishing them for doing exactly what the
-    # actionable error told them (binding rule #14/#15: never be the
-    # interruption source). They're also not a provider-hammering risk (the
-    # provider rejects them instantly). The turn already surfaced an actionable
-    # error; the breaker stays out entirely — no cool, no pause, no counter
-    # change (an unrelated prior streak is left intact).
-    if classify_self_serviceable(error_type, error_message) is not None:
+    exemption = breaker_exemption(error_type, error_message)
+    if exemption is not None:
         logger.debug(
-            f"[agent-cb] agent {agent_id} self-serviceable failure "
+            f"[agent-cb] agent {agent_id} {exemption} failure "
             f"({error_type}) — breaker not advanced"
-        )
-        return
-
-    # Executor-infra failures (OOM / unreachable) are a PLATFORM fault, not the
-    # agent's — and the surfaced ``infra_transient`` error tells the user to
-    # "resend shortly". Advancing the breaker would COOL the agent for 60s+ and
-    # reject that very resend (websocket should_skip), turning one platform blip
-    # into a self-inflicted second punishment. Same reasoning as the
-    # self-serviceable exemption above (binding rule #15: never be the
-    # interruption source). Stay out entirely — no cool, no pause, no counter.
-    if error_type == EXECUTOR_INFRA_ERROR_TYPE:
-        logger.debug(
-            f"[agent-cb] agent {agent_id} executor-infra failure "
-            f"({error_type}) — breaker not advanced (platform-side)"
         )
         return
 

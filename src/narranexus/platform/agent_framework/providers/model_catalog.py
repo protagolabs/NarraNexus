@@ -41,6 +41,16 @@ class ModelMeta:
     # callers that size output against the room the input leaves;
     # `None` means unverified, and they fall back to their own budget.
     context_window: Optional[int] = None
+    # Does this model spend output-token budget on a hidden chain-of-
+    # thought before it can reach text or a tool call, WITHOUT the caller
+    # asking for it? Read by nexus_power's ``output_budget`` to raise its
+    # output floor for exactly the models that need it (2026-09-09).
+    # ONLY set True where there is a defensible source — an in-repo
+    # measurement, or well-established, undisputed public documentation
+    # for the model family. Left False (the honest "not measured" default,
+    # not "confirmed non-thinking") for every row this change did not
+    # independently verify — see the per-row comments below.
+    thinks_by_default: bool = False
 
 
 # =============================================================================
@@ -48,16 +58,44 @@ class ModelMeta:
 # =============================================================================
 
 _KNOWN_MODELS: dict[str, ModelMeta] = {}
+# Lower-cased LAST path segment of every registered id -> the entries sharing
+# it. Lets ``get_model_name_match`` recognise a self-entered spelling of a
+# catalog model ("deepseek-v4-pro", "netmind/deepseek-ai/DeepSeek-V4-Pro").
+_KNOWN_MODELS_BY_NAME: dict[str, list[ModelMeta]] = {}
+
+
+def _model_name_key(model_id: str) -> str:
+    return model_id.rsplit("/", 1)[-1].lower()
 
 
 def _register(*models: ModelMeta) -> None:
     for m in models:
         _KNOWN_MODELS[m.model_id] = m
+        _KNOWN_MODELS_BY_NAME.setdefault(_model_name_key(m.model_id), []).append(m)
 
 
 # --- NetMind models ---
 # `max_output_tokens` left None for newer entries whose official limits
 # we have not yet verified — callers fall back to the provider's own cap.
+#
+# `thinks_by_default` sourcing (added for B-03, the output-budget-floor fix):
+# - DeepSeek-V4-Pro / V4-Flash: True, measured IN-REPO against NetMind's
+#   OpenAI-protocol endpoint (2026-09-08 incident — see profiles.py's
+#   ``_THINKING_MIN_OUTPUT_TOKENS`` comment for the empty-run counts at
+#   each max_tokens value tried). The strongest evidence tier we have.
+# - DeepSeek-V3: left False. This is the older, non-"V4" DeepSeek chat
+#   line and was not part of the 2026-09-08 measurement; marking it True
+#   by family-name association would be exactly the invented-fact the
+#   catalog ceilings above are already disciplined against — not extending
+#   that discipline to a boolean would be inconsistent.
+# - Gemini 3.1 (pro / flash-lite), Kimi K2.5 / K2.6, GLM-5 / GLM-5.1,
+#   MiniMax M2.7, Qwen3.6 (Plus / Flash / 35B-A3B): left False. No
+#   in-repo measurement exists for any of them against NetMind's actual
+#   default request shape, and general public documentation about each
+#   vendor's specific default (thinking on/off, and whether NetMind's own
+#   deployment overrides that default) is not something this change can
+#   verify without live access. Honest "not measured" rather than a
+#   guessed True or a guessed False-with-false-confidence.
 _register(
     ModelMeta("minimax/minimax-m2.7", "MiniMax M2.7", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", max_output_tokens=58982),
@@ -67,8 +105,8 @@ _register(
     ModelMeta("zai-org/GLM-5", "GLM-5", max_output_tokens=117964),
     ModelMeta("zai-org/GLM-5.1", "GLM-5.1", max_output_tokens=117964),
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
-    ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
-    ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash"),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro", thinks_by_default=True),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash", thinks_by_default=True),
     # Anthropic Claude routed via NetMind's anthropic-protocol endpoint.
     # NetMind prefixes the upstream model id with "anthropic/", which is
     # how its inference router dispatches; the prefix is part of the
@@ -185,6 +223,16 @@ def effective_card_models(source: str, stored: Optional[list]) -> list[str]:
 
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
+#
+# `thinks_by_default`: o3 / o4-mini are True — OpenAI's o-series has no
+# non-reasoning mode at all (there is no request-time toggle to turn
+# reasoning off), which is well-established, undisputed public behaviour
+# for the family, not a per-deployment guess. The gpt-5.x line is left
+# False: GPT-5 exposes a configurable reasoning-effort control (including
+# a low/"minimal" setting), so "does it default to spending a thinking-
+# sized output budget" is a quantitative question this change cannot
+# verify without a live measurement — the same "don't invent a number"
+# discipline as the catalog ceilings above, applied to this boolean.
 _register(
     ModelMeta("gpt-5.5", "GPT-5.5"),
     ModelMeta("gpt-5.4", "GPT-5.4"),
@@ -195,8 +243,8 @@ _register(
     ModelMeta("gpt-5.1", "GPT-5.1"),
     ModelMeta("gpt-5", "GPT-5"),
     ModelMeta("gpt-4.1", "GPT-4.1"),
-    ModelMeta("o4-mini", "o4-mini (reasoning)"),
-    ModelMeta("o3", "o3 (reasoning)"),
+    ModelMeta("o4-mini", "o4-mini (reasoning)", thinks_by_default=True),
+    ModelMeta("o3", "o3 (reasoning)", thinks_by_default=True),
 )
 
 
@@ -401,6 +449,11 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     entry: two independent lookups can each fall back differently and
     pair one row's ceiling with another row's window.
 
+    This is an IDENTITY lookup: it answers only for an id that names a
+    catalog row. A self-entered spelling that merely shares a row's name
+    is not that row — see ``get_model_name_match`` for the narrow facts
+    such a spelling may borrow.
+
     The normalization lives here rather than in a caller so every
     consumer inherits it; a copy per caller is the duplication this
     catalog exists to prevent.
@@ -411,6 +464,48 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     if meta is None and "/" in model_id:
         meta = _KNOWN_MODELS.get(model_id.split("/", 1)[1])
     return meta
+
+
+@dataclass(frozen=True)
+class ModelNameMatch:
+    """The facts a self-entered model id may borrow from catalog rows that
+    share its name — deliberately NOT a ``ModelMeta``.
+
+    Sharing a name does not make it the same model: a BYOK user's
+    ``myorg/DeepSeek-V4-Pro`` may be a quantised or fine-tuned build with
+    a smaller window. So the match carries no ``model_id`` /
+    ``display_name`` (they would name another row) and no
+    ``context_window`` (a borrowed wall would size compaction and output
+    against a limit this model may not have). What it does carry is safe
+    to apply by name: ``thinks_by_default`` (a family trait), and
+    ``max_output_tokens`` which a consumer may only use to LOWER its own
+    ceiling — a smaller ceiling can never overrun any wall.
+    """
+    thinks_by_default: bool
+    max_output_tokens: Optional[int]
+
+
+def get_model_name_match(model_id: str) -> Optional[ModelNameMatch]:
+    """Match an id that ``get_model_meta`` does not know, case-insensitively
+    on its LAST path segment ("deepseek-v4-pro", "DeepSeek-V4-Pro" and
+    "netmind/deepseek-ai/DeepSeek-V4-Pro" all share the catalog's
+    "deepseek-ai/DeepSeek-V4-Pro" name).
+
+    Answers only when every catalog entry sharing the name agrees on the
+    facts it returns; a name whose entries disagree is ambiguous and stays
+    unknown rather than borrowing one arbitrary row's numbers. No fuzzy
+    matching: a near-miss name is unknown.
+    """
+    if not model_id:
+        return None
+    candidates = _KNOWN_MODELS_BY_NAME.get(_model_name_key(model_id), [])
+    facts = {(m.thinks_by_default, m.max_output_tokens) for m in candidates}
+    if len(facts) != 1:
+        return None
+    thinks_by_default, max_output_tokens = facts.pop()
+    return ModelNameMatch(
+        thinks_by_default=thinks_by_default, max_output_tokens=max_output_tokens
+    )
 
 
 def get_max_output_tokens(model_id: str) -> Optional[int]:

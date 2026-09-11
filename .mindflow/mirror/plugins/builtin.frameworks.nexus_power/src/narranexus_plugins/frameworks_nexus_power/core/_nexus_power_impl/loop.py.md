@@ -1,8 +1,83 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/loop.py
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-10（B-05/#127）— `_fail` 自报 `fatal = not self._turn_delivered()`
+
+`_fail()` 的 TYPE_ERROR payload 带 `"fatal"`，契约正文只在 [[response_processor]]（终局 **且** 未交付）。
+本框架的判据 `_turn_delivered()` 两条腿：
+- 本 turn 见过表达型调用（`_turn_expressed`，DISPATCH 维护）→ 已交付；
+- 或本 turn 有**已提交**的 plain-text 回复（`_turn_text_streamed`）→ 已交付。它只在 run_turn 里某个 step
+  **提交成功那一刻**（`if error is None:`，`step_meta` 每次 attempt 都 clear，所以必须就地读）置位，条件是
+  该 step 有文本（`had_text`）**且此刻**没有任何表达工具（`expression.names()` 为空，team patrol 这类
+  plain-text turn，平台直接投递正文，见 harness/expression.py 文件头）。
+  - 不在 delta 到达时置位：中途断掉的 attempt 的半句会被 `discard_step()` 丢弃，没交付就不能算。
+  - `names()` 在提交时快照而不是在 `_fail` 时读：`expand()` 可在 turn 中途授予表达工具（DISPATCH 在提交
+    之后），失败时刻再读会把之前已作为正文交付的文本事后判成 monologue。
+有表达工具时文本是 monologue、不投递给任何人，**不**算交付。`_turn_delivered()` 只是两个布尔的或。
+
+测试：`test_fail_after_an_already_expressed_reply_is_not_marked_fatal`、
+`test_fail_with_no_prior_expression_is_marked_fatal`、
+`test_plain_text_turn_that_already_spoke_is_not_marked_fatal`、
+`test_plain_text_turn_that_never_spoke_is_still_fatal`、
+`test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery`、
+`test_plain_text_discarded_by_a_broken_attempt_is_not_delivery`、
+`test_plain_text_committed_before_a_mid_turn_grant_is_still_delivery`、
+`test_plain_text_after_a_mid_turn_grant_is_monologue`。
+
+## 2026-09-10（B-03）— 空产出 + `max_tokens` 不再被 STOP_CHECK 误判成 NO_MORE_ACTIONS
+
+**问题形状**：MODEL_STREAM 成功返回，但这个 step 零文本、零工具调用，`stop_reason`
+落在 `_TRUNCATING_STOP_REASONS`（`"length"`/`"max_tokens"`）——不是「模型无事可做」，
+而是默认思考的模型把 CoT 全部吃进了 output budget，答案还没写出来预算已见底
+（NetMind DeepSeek-V4-Pro 实测）。原来这个形状落进 STOP_CHECK，当作
+`EndReason.NO_MORE_ACTIONS` 静默收工，final_output 与 error_message 双空
+（2026-09-08 triage：25-45% 平台 job run 这样消失）。判「零文本」靠 `_stream_step`
+新增的 `step_meta["had_text"]`（每个非空 `text_delta` 置位），不是只看 `step_calls`
+——后者会漏掉「吐了字但没调工具」的真实产出。
+
+**处理**：在 POST-STREAM 取消边界之后、DISPATCH 之前判这个形状。
+
+- 真正修好事故的是 [[profiles]] 的思考地板（1_024 → 8_192）。本分支只是兜底重试。
+- 重试 = 地板乘数翻倍后重放整个 step，仅一次（`_truncation_retried`，与
+  `_continuation_turn`/`_expression_nudged` 同一「修复只武装一次」纪律）。乘数走
+  `ModelRequest.floor_multiplier`（[[model]]），**不**写进整个 turn 共享的
+  `a.params.extra`。
+- **只有能真正加大请求才重放**：`current_budget` / `new_budget` 都由 [[profiles]] 的
+  `requested_max_tokens`（client 实际发送值的唯一来源）按当前乘数 / 乘数 ×2 求出，
+  `new_budget > current_budget` 才重放；否则直接
+  `_fail(OUTPUT_TRUNCATED)`，不重放一个逐字节相同、注定又空的请求。两种「翻不动」：
+  ceiling 已等于地板——catalog 里四个 `thinks_by_default=True` 的模型（V4-Pro/V4-Flash/
+  o3/o4-mini）ceiling 全是方言默认 8_192，等于思考地板，所以**对这四个模型重试永远不触发**；
+  或用户在 `params.extra` 钉了 `max_tokens`（`requested_max_tokens` 原样返回钉住值，两次求值
+  相等）。后者今天无触发面（平台没有任何代码往 `llm_extra` 写 `max_tokens`）。失败文案报
+  `current_budget`，即实际发出的值。
+- 失败的 error_type 是 `OUTPUT_TRUNCATED`，[[event_adapter]] 把它映成平台的 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`（[[runtime_message]]），熔断据此不记账；文案不再承担任何匹配职责
+  （[[circuit_breaker]]）。重放是 `continue` 回外层循环，由外层重建 request，这里不重复构建。
+- 重放前调 `ledger.discard_step()`：空 step 在 `_turn_messages` 里什么都没留下，但它的
+  `_step_thinking` 没被 `_fold_step_message` 的 early return 清掉；不 discard 的话，
+  重放那一步的 CoT 会拼到废弃 CoT 后面一起进 `reasoning_content`（deepseek 行
+  `thinking_replay="keep"` 会原样回传，provider 要的是产生本次 tool call 的那段 CoT）。
+- **乘数只服务被重放的那一步**：截断判定一过（该 step 有产出），乘数复位为 1。地板刻意
+  压过 headroom（见 [[profiles]]），粘性乘数会让本 turn 后续每一步（input 只增不减）都
+  带着放大后的地板越墙。`_truncation_retried` 不复位，所以同一 turn 再次截断直接失败，
+  不会循环。
+- 翻倍后仍空 → `_fail(OUTPUT_TRUNCATED)` 真失败，不无限重试（铁律「不设硬顶」指不因慢/久
+  砍轮次，不是连续两次零进展也继续喂钱）。
+- 取舍：这个判定在 DRAIN_STEERING 之前且重放直接 `continue` 回 PROJECT，被截断那一步期间
+  到达的 live-steering 消息会晚一次 model call 才被 drain（不丢，只是延后；每 turn 至多一次）。
+
+测试（`tests/nexus_power/test_loop_e2e.py`）：
+`test_truncated_empty_step_retries_with_doubled_budget_then_succeeds`、
+`test_floor_multiplier_resets_after_the_retried_step_succeeds`（乘数序列 `[1, 2, 1]`）、
+`test_truncated_empty_step_fails_after_one_retry`、
+`test_truncation_with_a_pinned_max_tokens_fails_without_replay_and_reports_it`、
+`test_a_brief_but_real_answer_is_not_treated_as_truncation`（负例）、
+`test_truncation_fails_immediately_when_the_real_ceiling_cant_grow`（真实 V4-Pro profile）、
+`test_replayed_step_after_truncation_does_not_concatenate_reasoning`、
+`test_truncation_failure_message_carries_the_breaker_exemption_marker`。
 
 ## 2026-09-03（批 2a.5）— 模型请求用 `model_tools()`
 

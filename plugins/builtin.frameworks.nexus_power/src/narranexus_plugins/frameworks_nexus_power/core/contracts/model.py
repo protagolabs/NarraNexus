@@ -41,6 +41,24 @@ class ProviderProfile:
     name: str
     cache_style: Literal["breakpoints", "prefix_auto", "none"] = "none"
     thinking_replay: Literal["keep", "strip"] = "strip"
+    # Whether THIS MODEL burns output budget on a hidden chain-of-thought
+    # before it can reach text or a tool call, absent an explicit opt-out.
+    # Deliberately a SEPARATE fact from ``thinking_replay``: that field is
+    # about the reasoning_content passback CONTRACT (does the provider
+    # reject a tool round without it echoed back?), which is orthogonal to
+    # whether the model actually spends tokens thinking — a model could
+    # require the contract without defaulting to long CoT, or think by
+    # default under a dialect that never asks for replay. Conflating the
+    # two meant only the single "deepseek" dialect row (which happens to
+    # need replay) ever got the higher output floor (``output_budget`` in
+    # profiles.py), while every other thinking-capable model — Gemini
+    # 3.x, Kimi, GLM, MiniMax, OpenAI's o-series/gpt-5.x — kept the low
+    # floor and reproduced the same silent-empty-run failure mode.
+    # This is MODEL-specific (the catalog overlay in
+    # ``_with_model_limits`` fills it per row), not dialect-specific — the
+    # dialect default here stays False; see model_catalog.py for which
+    # catalog rows are sourced True and on what evidence.
+    thinks_by_default: bool = False
     supports_arg_delta: bool = False   # streamed tool-argument fragments
     max_breakpoints: int = 4           # Anthropic-style cache_control budget
     context_window: int = 128_000      # tokens; compaction thresholds key off this
@@ -124,6 +142,16 @@ class ModelRequest:
     # leave room for it under the provider's input+output wall. Zero
     # means "unknown" and the client asks for the full ceiling.
     input_tokens_estimate: int = 0
+    # Scales ``output_budget``'s floor term for THIS request only (loop.py's
+    # output-budget-truncation retry uses 2 after an empty, budget-exhausted
+    # step, and only for the one replayed step). Deliberately per-REQUEST,
+    # not an absolute ``max_tokens`` written into the shared
+    # ``params.extra`` dict: that would freeze the boosted number for the
+    # rest of the turn. Note the floor wins over the headroom clamp, so a
+    # multiplied floor can itself push ``input + max_tokens`` past the
+    # wall on a near-full context; the loop accepts that for the single
+    # replayed step and resets to 1 afterwards.
+    floor_multiplier: int = 1
 
 
 # R3: a closed kind vocabulary. Providers may evolve freely — we always
