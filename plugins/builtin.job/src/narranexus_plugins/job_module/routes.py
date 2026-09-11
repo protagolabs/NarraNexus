@@ -532,14 +532,18 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
         # than the pre-sort behaviour it replaced. Unknown dependencies keep
         # their historical `200 success=False` envelope (the frontend reads
         # `error` from that body); structural request errors are 400.
-        seen: set[str] = set()
-        duplicates = sorted({j.task_key for j in body.jobs if j.task_key in seen or seen.add(j.task_key)})
+        task_keys: set[str] = set()
+        duplicate_keys: set[str] = set()
+        for job in body.jobs:
+            if job.task_key in task_keys:
+                duplicate_keys.add(job.task_key)
+            task_keys.add(job.task_key)
+        duplicates = sorted(duplicate_keys)
         if duplicates:
             raise HTTPException(
                 status_code=400,
                 detail=f"duplicate task_key(s) in job list: {', '.join(duplicates)}",
             )
-        task_keys = seen
         for job in body.jobs:
             for dep in job.depends_on:
                 if dep not in task_keys:

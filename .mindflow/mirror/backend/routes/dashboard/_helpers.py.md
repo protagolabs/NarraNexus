@@ -13,6 +13,12 @@ routes.py 原来手抄两份状态元组，改成只认这里一份。
 `tests/backend/test_dashboard_live_job_states.py` 钉死「`_LIVE_JOB_STATES` == 所有 JobStatus
 去掉 completed/cancelled」以及 [[_schema.py]] 的 `QueueCounts` 字段 / `queue_status` Literal
 与之对齐；`test_fetch_jobs_surfaces_a_spend_capped_job` 直接查库验证。
+r2 M-a：元组顺序只在一处有意义——`pending_jobs` 按 `_QUEUED_JOB_STATES` 顺序发射；派生后曾把原来的
+`pending, active, …` 变成 `active, pending, …`，现把 `_LIVE_JOB_STATES` 调回 `running, pending, active, …`，
+测试钉住 `_QUEUED_JOB_STATES[:2] == ("pending", "active")`。
+已知既有缺口（r2 M-e，非本批引入、未修）：`derive_attention_banners` / `derive_health` 只看
+`failed/blocked/paused`，`paused_spend_cap` 与 `paused_no_quota` / `cooling` / `blocked_failed` 一样不会点亮
+banner 或状态灯。
 
 # dashboard/_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 

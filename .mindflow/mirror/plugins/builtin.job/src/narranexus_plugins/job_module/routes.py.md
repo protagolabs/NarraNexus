@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r2 M-c/M-f）— 重复 `task_key` 检测改显式循环；两处过时说明改成事实
+
+M-c：原来用 `set.add` 返回 None 的副作用在集合推导里同时建 `seen`，行为正确但难读；改成显式循环
+（`task_keys` / `duplicate_keys` 两个集合），行为不变。M-f：「Gotcha」里「status 过滤是硬编码白名单」与
+「设计决策」里「不做拓扑排序、调用方必须保证顺序」两段早已与代码不符（前者从 `JobStatus` 派生，后者 B-16
+已加 Kahn 排序），按现状重写。
+
 ## 2026-09-10（review r1 I9/M2）— 重复 `task_key` → 400；docstring 步骤 4 改成真实状态
 
 B-16 的 Kahn 排序按 `task_key` 建字典：请求里两条 job 用同一个 `task_key`（LLM 批量生成时完全
@@ -197,9 +204,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 
 **Job Complex 的依赖解析**
 
-创建 Job Complex 时，`task_key` 是用户用来表达依赖关系的临时标识，最终要转换成实际的 `job_id`。转换是顺序的：按 `request.jobs` 的顺序逐一创建，每创建一个就把 `task_key -> job_id` 记录下来，下一个 job 的依赖解析就能用到之前的映射。这意味着 `request.jobs` 的顺序必须是拓扑序（被依赖的 job 先出现）；否则解析时找不到 `task_key`，会报 "Invalid dependency" 错误。
-
-实际上代码里会先校验所有 `task_key` 存在，但不做拓扑排序验证。如果 job A 依赖 job B，但 B 在请求列表里排在 A 后面，创建 B 时就能找到 A 的 job_id，但创建 A 时找不到 B 的 job_id——因为 B 还没创建。调用方必须自己保证顺序。
+创建 Job Complex 时，`task_key` 是用户用来表达依赖关系的临时标识，最终要转换成实际的 `job_id`。代码先校验 `task_key` 唯一（重复 → 400）且每个 `depends_on` 都指向列表内的 `task_key`（否则 `200 success=False` + "Invalid dependency"），再用 `_topological_sort_job_complex`（B-16，Kahn 排序）排出创建顺序——被依赖的 job 先建，与请求里的顺序无关；有环 → 400 并点名涉及的 `task_key`。然后按拓扑序逐一创建，每建一个记录 `task_key -> job_id`，后面的 job 用这张映射解析依赖。调用方不需要自己保证顺序。
 
 **`job_row_to_response` 的递归 JSON 解析**
 
@@ -208,7 +213,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 ## Gotcha / 边界情况
 
 - **取消 running 状态的 Job**：处于 `running` 状态的 Job 不能被中断（Agent 正在执行中），但可以被标记为 `cancelled`，标记后 ModulePoller 不会再重新调度这个 Job。当前执行不会停止。
-- **`status` 过滤的白名单**：列表接口对 `status` 参数有硬编码的有效值列表 `["pending", "active", "running", "completed", "failed", "blocked", "cancelled"]`。如果核心包里 `JobStatus` 枚举新增了状态值，这里的白名单需要同步更新，否则过滤会报 "Invalid status" 错误。
+- **`status` 过滤的有效值**：列表接口的 `status` 参数按 `[s.value for s in JobStatus]` 从枚举派生校验，`JobStatus` 新增状态值（如 `paused_spend_cap`）自动被接受，无需同步任何白名单；非法值返回 `success=False` + "Invalid status"。
 - **`format_for_api` 确保 UTC 时间格式**：`next_run_time` 等时间字段都通过 `format_for_api` 转换为带 `Z` 后缀的 ISO 8601 格式，以确保前端 `new Date()` 能正确识别为 UTC。
 - **`assert_owned` 必须在 try 块之外调用**：当你把 `await assert_owned(...)` 放进本文件其它端点惯用的 `try: ... except Exception as e: return XxxResponse(success=False, error=str(e))` 块内时 → 症状是所有权拒绝（403/404/503）被吞成 200 + `{"success": false}`，调用方再也拿不到正确的 HTTP 状态码 → 根因是 `HTTPException` 是 `Exception` 的子类，会被泛化的 `except Exception` 一并捕获。四个新端点都是先调用 `assert_owned`，再进入 `try` 块。
 

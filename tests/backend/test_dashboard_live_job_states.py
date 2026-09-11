@@ -32,6 +32,8 @@ def test_live_states_cover_every_non_terminal_job_status():
 
 def test_queued_states_are_the_live_states_minus_running():
     assert set(_QUEUED_JOB_STATES) == set(_LIVE_JOB_STATES) - {"running"}
+    # pending_jobs emission order predates the shared tuple (review r2 M-a).
+    assert _QUEUED_JOB_STATES[:2] == ("pending", "active")
 
 
 def test_queue_counts_schema_has_a_field_per_live_state():

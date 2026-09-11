@@ -281,8 +281,10 @@ async def fetch_last_activity(agent_ids: list[str]) -> dict[str, str | None]:
 # status cannot fall through the WHERE again. routes.py derives its two
 # per-state loops from this tuple; _schema.py's Literal / QueueCounts and the
 # frontend JobQueueStatus / QueueCounts must be extended by hand.
+# Order matters once: routes.py emits pending_jobs in this order (minus
+# "running"), and that order predates this tuple (pending before active).
 _LIVE_JOB_STATES = (
-    "running", "active", "pending", "blocked", "paused", "failed",
+    "running", "pending", "active", "blocked", "paused", "failed",
     "cooling", "paused_no_quota", "blocked_failed", "paused_spend_cap",
 )
 # Everything above except "running": the queue-position states routes.py
