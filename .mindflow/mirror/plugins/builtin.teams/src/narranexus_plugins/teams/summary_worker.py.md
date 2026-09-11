@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.teams/src/narranexus_plugins/teams/summary_worker.py
-last_verified: 2026-09-04
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -137,3 +137,45 @@ helper SDK 会丢弃整条成本记录，总结等于**烧了 owner 的 token �
 Started/stopped through the `WORKERS` contribution (`WorkerSpec(host="backend")`) of `builtin.teams`, not by `backend/main.py` directly. `_BackendHandle` adapts the start()/stop() pair to the run-until-stopped handle shape the backend worker host expects, so the worker itself stays untouched.
 
 Batch 6b.3: moved from `platform/services/team_summary_worker.py` into the builtin.teams package.
+
+## 2026-09-07 (prod 事故) — 失败的团队按指数退避，不再每分钟重打
+
+prod 上两个 team 的 owner 自带 NetMind key 余额为零，worker 对它们**每 60 秒各重试一次**，
+连续三天每小时约 1,000 行同一个 400，把 backend 日志淹了。「失败保留旧总结」是对**产出**的
+正确策略，但对**调用**没说任何话：在进程之外的东西（充值、换 key）改变之前这个调用不可能成功，
+每分钟问一次只是在埋日志。
+
+现在每个 team 失败后进入退避：等待 `BACKOFF_BASE`（300s）按连续失败次数翻倍，封顶
+`BACKOFF_MAX`（6 小时）。算式用共享的 `utils/backoff.compute_cooldown_seconds`（不再手写第 4 份副本）；
+两个常量是 int，所以连击计数不设上限也不会溢出（任意精度整数），`_BACKOFF_CAP_STEPS` 随之删除。
+
+`_summarise_team` 返回 `_Attempt(outcome, newest)`，outcome 三态：`WRITTEN`（写入 → 清零）、`NOT_DUE`（没到阈值 / 空 transcript /
+无成员，**没打模型** → 清零）、`EMPTY_REPLY`（**打了模型但回空**）。空回复是 `_INSTRUCTIONS` 设计内的正常输出，
+既不能写入（会盖掉旧总结），也推不动水位（从未总结过的团队没有那一行）。
+
+**两种等待，退避表条目是 `_Wait`（review r2 I1）**：
+- 失败等待：`next_at` + `failures`，按时钟指数退避（上面那条曲线）。
+- 空回复等待：`shown_newest` = 模型看到的最新消息时间戳，**按内容不按时间**——`_in_backoff` 对它做一次
+  `_new_message_count(channel, shown_newest)`，房间比模型看过的再多出 `MESSAGE_THRESHOLD` 条非系统消息才重问，
+  时间推进多久都不重问（输入没变答案也不会变）。旧版让空回复共用失败的计时曲线：闲聊 15 条的房间半天爬到 6h 档，
+  之后团队真干活公告板也要等 6 小时。
+- 空回复说明调用本身成功，会替换掉失败条目（连击清零）；空回复之后再失败从第 1 次（BASE）算起，有测试钉住。
+- 内容门要读库，读挂了该团队这轮算 waiting、条目不动，不拖累其他团队。
+空回复不计入 `failed`、也不告警，只打一行 info。安静房间（阈值挡住）仍然永不退避，变忙的瞬间就会被尝试，有测试钉住。
+
+**失败必须有出口。** except 分支在 `_note_failure` 之后调 `_report_failure` → `alert_background_llm_failure`
+（source=`team_summary`，agent_id=`_cost_bearer`，owner=团队 owner，source_id=team_id）：每次真实尝试失败都落一行
+`service_audit`；凭据类或余额耗尽类（共享分类器 `OUT_OF_CREDIT_REASONS`）再发 owner 收件箱通知，按
+`owner_notice_cooldowns` 30 分钟去重（凭据类按 `(agent, team)`，余额类按 owner 收敛，见 [[background_llm_alerts]]）。
+`_summarise_team` 已解析的 bearer 记在 `_attempt_bearer`，`_report_failure` 直接复用，只有在解析前就失败时才再查（review r2 M7）；
+owner 仍查一次 `teams`（只在失败路径、且受退避约束）。只在真实尝试上调——在退避中被跳过的团队不告警，
+否则就是把日志洪水换成审计洪水。owner/bearer 查询和告警本身各自包 try：故障中的 DB 会让查询抛，而这里在 except 块里，
+冲出去会拖死同一 pass 后面的团队。
+
+**退避只放内存，不加列。** 重启就是再试一次的好理由；持久痕迹由上面的 `service_audit` 承担。
+`_clock` 是测试可替换的接缝（默认 `time.monotonic`），测试用假时钟推进而不是 sleep。已删除的团队条目在每个 pass 末尾清掉。
+与 [[memory_consolidation_worker]] 的分野：那边把持续失败的 scope 置 `failed` 直到重新变 dirty（边沿触发）；这边失败是定时等待（失败的原因在进程外，没有边沿可等），空回复则是内容边沿（见上）。
+
+`last_pass` 多一个 `backoff` 计数（被跳过的等待中团队数），进 `[team.summary] pass:` 日志行；该行的门是
+`failed or summarised or backoff`（review r2 I4）——「只剩等待中团队」这个稳态也会打出，空部署三者皆 0 仍静默。
+（worker 自插件化起跑在 workers 进程，backend `/health` 已不再有 `team_summary` 块。）
