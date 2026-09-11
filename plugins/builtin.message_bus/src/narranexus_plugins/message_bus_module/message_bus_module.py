@@ -17,7 +17,7 @@ Behavior design:
   (a backlog reaching below that window holds the cursor — see `_ack_room_seen`)
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
 - Source recognition: entries in the unread list are tagged
-  [from sender] / [Team X · from sender] (see `_bus_tag`). This is the ONLY place the
+  [from sender] / ["Team X" · from sender] (see `_bus_tag`). This is the ONLY place the
   tag appears — a branch that prefixed the turn's INPUT with it was deleted on
   2026-08-17 after it turned out never to have executed; do not describe an
   input prefix here again without checking that one exists
@@ -25,7 +25,6 @@ Behavior design:
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from loguru import logger
@@ -46,6 +45,11 @@ from narranexus.platform.schema import (
     WorkingSource,
     is_agent_description_unset,
 )
+from narranexus.platform.message_bus.inline_field import (
+    INLINE_DESCRIPTION_MAX_CHARS,
+    body_lines,
+    inline_field,
+)
 from narranexus.platform.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
     SYSTEM_SENDER_LABEL,
@@ -65,6 +69,121 @@ MAX_KNOWN_AGENTS_IN_CONTEXT = 50
 # team is a deliberately-created room, not an auto-grouping), so this cap is a
 # guard against a pathological owner, not an expected trim.
 MAX_TEAMS_IN_CONTEXT = 30
+#: Per-row character budget of the unread list. It used to be 200 and cut
+#: silently, which is how a three-paragraph team-room instruction reached an
+#: agent as its first 200 characters and was acted on as if complete (upstream
+#: issue #73). The budget now fits an ordinary multi-paragraph instruction, and
+#: anything past it is ANNOUNCED — see `_unread_row`. Counted in message
+#: characters, so the marker's "only the first N are shown" is literally true.
+UNREAD_PREVIEW_MAX_CHARS = 1000
+#: Budget for the WHOLE unread list, counted on the rendered rows (tag, part
+#: label, body indentation and cut marker included) plus the line announcing
+#: what is not shown. Unread direct messages
+#: resurface every turn until answered, so without a span budget a handful of
+#: long ones would push ~20 rows x ~1000 characters into every turn. Rows are
+#: admitted newest first; the newest row is always shown, and whatever does
+#: not fit is announced by count with the calls that fetch it — never dropped
+#: silently.
+UNREAD_SPAN_MAX_CHARS = 8000
+#: Opens the line that says a row was cut. It is emitted on a line of its own
+#: at two-space indent, a position no message body can occupy (see
+#: `_unread_row`), so a body that types this text cannot pass for the marker.
+UNREAD_CUT_MARKER = "[cut:"
+#: Upper bound on the read_history calls one not-shown line lists. Without it
+#: the line grows with every distinct sender it gives back, and giving back a
+#: short row could make the span LONGER (see `_not_shown_line`).
+NOT_SHOWN_MAX_CALLS = 3
+
+
+def _read_rest_call(from_agent: Any, msg_type: Any, team_id: str) -> str:
+    """The exact `read_history` call that returns this row's conversation, or
+    "" when the agent holds no handle for it.
+
+    `read_history` takes `team_id` (a team room) or `with_agent` (a private
+    conversation with an agent). A team-room row carries its `team_id` when the
+    room resolved; a private row from a real agent uses that agent's id — the
+    same raw id its tag shows. A `usr_*` or platform sender outside a resolved
+    room has no handle the tool accepts, and pretending otherwise would train
+    the agent to ignore the pointer.
+    """
+    if team_id:
+        return f'read_history(team_id="{team_id}")'
+    sender = _render_sender(from_agent, msg_type)
+    if sender and sender == str(from_agent or "") and sender != "unknown":
+        return f'read_history(with_agent="{sender}")'
+    return ""
+
+
+def _unread_row(tag: str, content: Any, part_label: str, read_call: str) -> str:
+    """One unread row: whole when it fits, otherwise cut AND marked.
+
+    The marker states both sizes and the exact call that returns the full text,
+    because the static rules tell the agent its unread messages are already in
+    context. A clipped row that reads as complete is a wrong instruction the
+    agent has no way to notice.
+    """
+    text = str(content or "")
+    cut = len(text) > UNREAD_PREVIEW_MAX_CHARS
+    shown = text[:UNREAD_PREVIEW_MAX_CHARS] if cut else text
+    row = f"- `{tag}` {part_label}{body_lines(shown)}"
+    if not cut:
+        return row
+    how = (
+        f"read the rest with {read_call}"
+        if read_call
+        else "the rest cannot be fetched from here; ask the sender for it"
+    )
+    return (
+        f"{row}\n  {UNREAD_CUT_MARKER} this message is {len(text)} characters "
+        f"and only the first {UNREAD_PREVIEW_MAX_CHARS} are shown. Before "
+        f"acting on it, {how}.]"
+    )
+
+
+def _not_shown_line(total: int, kept: int, rows: list[tuple[str, str]]) -> str:
+    """The line announcing every unread message the list does not print, or ""
+    when it prints them all.
+
+    ``rows`` is the rendered window as ``(row, read_call)`` in reading order
+    (newest last) and ``kept`` how many of its newest rows are shown. The count
+    is ``total - kept`` — rows the span budget gave back AND messages beyond the
+    query window — the same subtraction as the header's ``showing``. The calls
+    listed are honest about their reach: they come only from the given-back
+    rows, at most ``NOT_SHOWN_MAX_CALLS`` of them (newest first) with the rest
+    counted, and messages beyond the window are named as such, since no row
+    here carries a handle for them.
+    """
+    missing = total - kept
+    if missing <= 0:
+        return ""
+    omitted = rows[: len(rows) - kept]
+    beyond = missing - len(omitted)
+    line = f"- {missing} unread message(s) not shown (this list shows the newest {kept})"
+    if omitted:
+        calls = list(dict.fromkeys(c for _, c in reversed(omitted) if c))
+        listed = calls[:NOT_SHOWN_MAX_CALLS]
+        line += f"; the {len(omitted)} just older than the list"
+        if listed:
+            line += " can be read with " + ", ".join(listed)
+            if len(calls) > len(listed):
+                line += f" and {len(calls) - len(listed)} more conversation(s)"
+            if any(not c for _, c in omitted):
+                line += " (some come from senders with no read_history handle)"
+        else:
+            line += " come from senders with no read_history handle"
+    if beyond > 0:
+        # With no given-back rows there is no "those" to be older than: the
+        # messages are simply older than the whole list.
+        where = (
+            f"the {beyond} older than those are beyond this list"
+            if omitted
+            else f"all {beyond} are older than this list"
+        )
+        line += (
+            f"; {where} — use "
+            "read_history on the conversation you expect them in"
+        )
+    return line + "."
 
 
 def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
@@ -109,7 +228,7 @@ def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
 
 
 def _bus_tag(from_agent: Any, where: Any = "", msg_type: Any = None) -> str:
-    """The `[from sender]` / `[Team X · from sender]` marker, built in one place.
+    """The `[from sender]` / `["Team X" · from sender]` marker, built in one place.
 
     Renamed off "MessageBus" on 2026-08-17. The word named a subsystem the agent
     is no longer supposed to know exists — it thinks in "a private message" and
@@ -137,8 +256,8 @@ def _bus_tag(from_agent: Any, where: Any = "", msg_type: Any = None) -> str:
     the sender IS the conversation, so a second field would be the same fact
     twice. Empty renders the short form.
     """
-    sender = _render_sender(from_agent, msg_type)
-    label = str(where or "").strip()
+    sender = inline_field(_render_sender(from_agent, msg_type), None)
+    label = inline_field(where) if str(where or "").strip() else ""
     return f"[{label} · from {sender}]" if label else f"[from {sender}]"
 
 
@@ -431,7 +550,10 @@ class MessageBusModule(XYZBaseModule):
             "### Looking things up",
             "",
             "- Your unread messages and the current conversation are already in "
-            "this turn's context. You do not need to fetch them.",
+            "this turn's context. You do not need to fetch them — except where "
+            "the unread list says otherwise: it states when a message is shown "
+            "cut and when older messages are not shown, and read_history "
+            "returns them in full.",
             "- `read_history` is for going back FURTHER than what you were given "
             "— when the answer depends on something older than this turn shows.",
             "- There is no registration tool. What peers see of you is rebuilt "
@@ -553,9 +675,9 @@ class MessageBusModule(XYZBaseModule):
             parts.append("")
             parts.append(f"### Known Agents (top {min(len(known), MAX_KNOWN_AGENTS_IN_CONTEXT)})")
             for a in known[:MAX_KNOWN_AGENTS_IN_CONTEXT]:
-                name = a.get("agent_name") or a.get("agent_id", "")
+                name = inline_field(a.get("agent_name") or a.get("agent_id", ""))
                 desc = a.get("agent_description") or a.get("description", "")
-                aid = a.get("agent_id", "")
+                aid = inline_field(a.get("agent_id", ""), None)
                 line = f"- `{aid}` — {name}"
                 # An unset description is rendered as NOTHING, never as the
                 # creation placeholder: printing "a new agent ready for
@@ -563,7 +685,7 @@ class MessageBusModule(XYZBaseModule):
                 # teaching expert" with nothing to aim at, and made this list
                 # read as "none of these agents are usable" (P1 section 02).
                 if not is_agent_description_unset(desc):
-                    line += f": {desc[:80]}"
+                    line += f": {inline_field(desc, INLINE_DESCRIPTION_MAX_CHARS)}"
                 # `via_team` was computed for every peer and read by nobody.
                 # This list mixes teammates with every other agent the owner
                 # has, so an agent reaching for help could not tell "already in
@@ -584,8 +706,8 @@ class MessageBusModule(XYZBaseModule):
             shown = min(len(teams), MAX_TEAMS_IN_CONTEXT)
             parts.append(f"### Your teams (top {shown})")
             for t in teams[:MAX_TEAMS_IN_CONTEXT]:
-                tid = t.get("team_id", "")
-                name = t.get("name") or "Team"
+                tid = inline_field(t.get("team_id", ""), None)
+                name = inline_field(str(t.get("name") or "").strip() or "Team")
                 parts.append(f"- `{tid}` — {name}")
 
         # The channel list that used to sit here is gone on purpose. It printed
@@ -598,13 +720,61 @@ class MessageBusModule(XYZBaseModule):
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
+            # A room's name and team id, per channel that appears in this
+            # window. Missing is the honest default and renders the
+            # private-conversation form: a room we could not resolve is not
+            # evidence of a team.
+            rooms = ctx_data.extra_data.get("bus_room_labels") or {}
+            rows: list[tuple[str, str]] = []
+            for m in unread[:MAX_UNREAD_IN_CONTEXT]:
+                room = rooms.get(m.get("channel_id", "")) or {}
+                # One row of a multipart message: say so, or a preview of part
+                # 2 reads as a message that starts mid-sentence.
+                part_label = (
+                    f"(part {m.get('part_index')}/{m.get('part_count')}) "
+                    if m.get("part_count") else ""
+                )
+                # `msg_type` is carried so platform lines are labelled rather
+                # than quoted as a member. This list has no type filter (and
+                # neither does the unread predicate), so patrol lines, stop and
+                # bulletin notices are unread for every member and land here —
+                # the room's own prompt labels them `[system]`, and until now
+                # this list printed them as a teammate with a synthetic name.
+                tag = _bus_tag(m.get("from_agent"), room.get("name"), m.get("msg_type"))
+                read_call = _read_rest_call(
+                    m.get("from_agent"), m.get("msg_type"), room.get("team_id", "")
+                )
+                rows.append(
+                    (_unread_row(tag, m.get("content"), part_label, read_call), read_call)
+                )
             # The window is what we render; the total is what the reader needs
             # in order to know a window is what it is looking at. They stopped
             # being the same number when the cap moved into the query.
-            shown = len(unread)
-            total = int(ctx_data.extra_data.get("bus_unread_total") or shown)
+            total = int(ctx_data.extra_data.get("bus_unread_total") or len(unread))
+
+            # Span budget: admit rows newest first (the window is in reading
+            # order, newest last), always keeping the newest one; then give
+            # back the oldest kept rows until the not-shown line fits too.
+            # Giving a row back can lengthen the notice (the row's call joins
+            # its list), so the loop is not monotonic; the call list is bounded
+            # (NOT_SHOWN_MAX_CALLS), which bounds that growth, and the loop
+            # takes the first count, walking down from the most, whose notice
+            # fits. It never goes below the newest row.
+            kept = len(rows)
+            used = 0
+            for i in range(len(rows) - 1, -1, -1):
+                size = len(rows[i][0]) + 1
+                if i < len(rows) - 1 and used + size > UNREAD_SPAN_MAX_CHARS:
+                    kept = len(rows) - 1 - i
+                    break
+                used += size
+            notice = _not_shown_line(total, kept, rows)
+            while kept > 1 and used + len(notice) + 1 > UNREAD_SPAN_MAX_CHARS:
+                used -= len(rows[len(rows) - kept][0]) + 1
+                kept -= 1
+                notice = _not_shown_line(total, kept, rows)
             parts.append("")
-            parts.append(f"### Unread Messages: {total} (showing {shown})")
+            parts.append(f"### Unread Messages: {total} (showing {kept})")
             # Same scoping as the static rule above, for the same reason —
             # and it matters more here, because this header sits directly on a
             # list that MIXES team-room messages in. A team room clears its
@@ -615,28 +785,9 @@ class MessageBusModule(XYZBaseModule):
                 "not answer stays unread; what a room keeps unread is stated "
                 "by that room's own prompt."
             )
-            # A room's name, per channel that appears in this window. Missing
-            # is the honest default and renders the private-conversation form:
-            # a label we could not resolve is not evidence of a team.
-            room_labels = ctx_data.extra_data.get("bus_room_labels") or {}
-            for m in unread[:MAX_UNREAD_IN_CONTEXT]:
-                content = (m.get("content") or "")[:200]
-                # One row of a multipart message: say so, or a preview of part
-                # 2 reads as a message that starts mid-sentence.
-                if m.get("part_count"):
-                    content = f"(part {m.get('part_index')}/{m.get('part_count')}) {content}"
-                # `msg_type` is carried so platform lines are labelled rather
-                # than quoted as a member. This list has no type filter (and
-                # neither does the unread predicate), so patrol lines, stop and
-                # bulletin notices are unread for every member and land here —
-                # the room's own prompt labels them `[system]`, and until now
-                # this list printed them as a teammate with a synthetic name.
-                tag = _bus_tag(
-                    m.get("from_agent"),
-                    room_labels.get(m.get("channel_id", "")),
-                    m.get("msg_type"),
-                )
-                parts.append(f"- `{tag}` {content}")
+            if notice:
+                parts.append(notice)
+            parts.extend(r for r, _ in rows[len(rows) - kept:])
 
         return parts
 
@@ -665,7 +816,11 @@ class MessageBusModule(XYZBaseModule):
     # =========================================================================
 
     async def _room_labels(self, channel_ids: set) -> dict:
-        """{channel_id: team name} for the team rooms among `channel_ids`.
+        """``{channel_id: {"name", "team_id"}}`` for the team rooms among
+        `channel_ids`. The name labels the row's tag; the ``team_id`` is the
+        handle `read_history(team_id=...)` takes, so a cut row can name the
+        exact call that returns its full text (the team id is already a handle
+        the agent sees in "Your teams", unlike a raw ``channel_id``).
 
         Bounded by the unread WINDOW, not by how many conversations the agent
         has — the top-N channel list this replaces was a per-turn query for a
@@ -721,7 +876,11 @@ class MessageBusModule(XYZBaseModule):
                 fetch=True,
             )
             names = {r["team_id"]: r["name"] for r in (team_rows or []) if r.get("name")}
-            return {cid: names[tid] for cid, tid in rooms.items() if tid in names}
+            return {
+                cid: {"name": names[tid], "team_id": tid}
+                for cid, tid in rooms.items()
+                if tid in names
+            }
         except Exception as e:  # noqa: BLE001 — a label is never worth a turn
             # Warning, not debug: the static block tells the agent its unread
             # queue is tagged by room, so a silently-empty label map mislabels

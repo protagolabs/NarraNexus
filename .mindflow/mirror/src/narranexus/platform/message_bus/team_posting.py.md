@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/message_bus/team_posting.py
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11（PR#401）— `mention_token`：roster 显示的 @token 由解析器本身回验
+
+团队房 roster 把名字编码成带引号的 JSON 字面量（见 [[message_bus_trigger]]），而
+`extract_team_mentions` 只认裸 `@word`，模型照抄名字会写 `@"Ana"` → 静默不唤醒。新增
+`mention_token(agent_id, member_map)`：取名字开头的 token（与解析器共用 `_MENTION_TOKEN` 正则），
+再用 `extract_team_mentions(f"@{token}", member_map)` 回验恰好只唤醒该成员才返回，否则 `None`
+（名字以非 token 字符开头，或与他人同前缀）。解析口径本身未改，前端 `mentionPattern.ts` 仍一致。
 
 ## 2026-09-03 — `_record_errands` 查一次 `teams` 行拿组长
 

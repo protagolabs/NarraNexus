@@ -400,7 +400,7 @@ async def test_bus_turn_context_carries_lists(flag_on):
     # mistaken for part of whatever preceded them.
     assert block.startswith("### Who is around, and what is waiting")
     assert "### Known Agents (top 1)" in block
-    assert "- `agent_peer` — Peer: helper" in block
+    assert '- `agent_peer` — "Peer": "helper"' in block
     # The channel list is gone on purpose, and `bus_channels` is still fed in
     # above so this asserts the RENDERER dropped it rather than the fixture.
     # It printed raw `channel_id`s and a `channel_type` into every turn — the
@@ -445,7 +445,7 @@ async def test_a_team_rooms_messages_are_tagged_with_the_team_name(flag_on):
     ctx.extra_data["bus_unread_messages"].append(
         {"from_agent": "agent_peer", "channel_id": "ch_room", "content": "in the room"}
     )
-    ctx.extra_data["bus_room_labels"] = {"ch_room": "Ops"}
+    ctx.extra_data["bus_room_labels"] = {"ch_room": {"name": "Ops", "team_id": "team_ops"}}
 
     block = await mod.contribute_turn_context(ctx)
 

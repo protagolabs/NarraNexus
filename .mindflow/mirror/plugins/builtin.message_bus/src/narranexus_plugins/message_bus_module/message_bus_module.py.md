@@ -1,12 +1,49 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/message_bus_module.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 编码器迁到平台层共享（PR#401 同类扫描）
+
+`_inline_field` 及其常量（`INLINE_FIELD_MAX_CHARS` / `INLINE_DESCRIPTION_MAX_CHARS` /
+`INLINE_FIELD_CUT_MARK` / `_CODE_SPAN_DELIMITERS`）移到
+[[../../../../../src/narranexus/platform/message_bus/inline_field]]，本模块改为
+`from narranexus.platform.message_bus.inline_field import INLINE_DESCRIPTION_MAX_CHARS, inline_field`。
+行为不变；原因是平台侧 `message_bus_trigger` 的团队房 roster / 工作板也要用同一个编码器，而平台层
+不能 import 插件。下文历史条目里的 `_inline_field` 即现在的 `inline_field`。
+
+## 2026-09-11 — 行内字段按构造不可伪造（PR#401 review 三轮 🟡1/🟢2-5）
+
+- **根因收口，而不是逐个字符类补洞**：`_inline_field` 是所有行内字段的唯一编码器，分两种形态。**标签**（团队房名、Known Agents 的名字/描述）：折叠空白 → 反引号（含全角 `\uff40`）换成 `'` → 超长按 `INLINE_FIELD_MAX_CHARS=120`（描述 `INLINE_DESCRIPTION_MAX_CHARS=80`）截断且以 `…` 标记 → 以 JSON 字符串字面量输出（`json.dumps(..., ensure_ascii=False)`）。作者写的任何 `` ` ``、` · `、`[`、`]`、` — `、`: `、`(teammate)`、`"`、`\` 都在一对引号里且引号/反斜杠被转义，字段无法提前结束，字面量能原样解码回展示文本。**句柄**（`max_chars=None`：agent/team id、tag 的发送者）：系统生成、不可由作者写，永不截断、不加引号（agent 要原样抄进工具调用），只折叠空白并替换反引号，不能逃出 code span。
+- 渲染形状因此变为 ``["Ops" · from agent_x]``、``- `team_x` — "Ops"``、``- `agent_a` — "Alice": "desc" (teammate)``；静态块的示例由同一个 `_bus_tag` 生成，自动一致。仓内没有把这些行解析回来的消费方。
+- **`_not_shown_line` 提为模块级纯函数** `(total, kept, rows)`。调用列表只来自被预算让出的行，按新到旧最多列 `NOT_SHOWN_MAX_CALLS=3` 个、其余计数（`and N more conversation(s)`），让出一条行仍可能让声明行变长（它的调用加入列表），所以回让循环不是单调的；上限只是约束了这种增长，循环从最多往下取第一个装得下的条数、且永不少于最新一条；窗口外的消息明说「beyond this list — use read_history on the conversation you expect them in」（没有被让出的行时说「all N are older than this list」，不再用没有先行词的「those」），不再把窗口内的调用摆在全量条数后面；让出的行都没句柄时如实说没有。
+
+## 2026-09-11 — 行内字段同样不可伪造 + 省略口径统一（PR#401 review 二轮 🟡1/🟢2-5）
+
+- **`_inline_field` 收口所有作者可写的行内字段**：团队房名（未读 tag 与 `### Your teams`）、tag 里的发送者、Known Agents 的 `agent_name`/`agent_id`/描述（描述仍截 80），一律把全部空白串（含 `\r`/`\u2028`）折成一个空格并按 `INLINE_FIELD_MAX_CHARS = 120` 截断。房名带换行不再能在列表里另起一行冒充别人的 row。清洗在 `_bus_tag` 内，对静态块生成的示例幂等，静态块不因此变化。
+- **「未展示」只有一个数**：声明行写 `- {total - shown} unread message(s) not shown (this list shows the newest {shown})`，与表头 `{total} (showing {shown})` 同一减法；查询窗口（20）之外的也计入，因此 total 超过窗口时即使预算没砍也会出现这一行。能给出的 `read_history` 调用只来自窗口内被预算砍掉的行。
+- **总预算把声明行本身算进去**：先按行从新到旧收，再在声明行放不下时从最旧的已收行往回让，最新一条仍无条件保留。
+- **静态块不再穷举例外**：改为「除非未读列表另有说明——它会标明被截断的消息和未展示的更旧消息，read_history 可取全文」。这一改动使静态块前缀变化一次（prompt cache 一次性失效）。
+
+## 2026-09-11 — 未读列表结构防伪 + 总预算 + 可执行指路（PR#401 review 🟡1/🟢2-3）
+
+- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `body_lines`（平台层 [[../../../../../src/narranexus/platform/message_bus/inline_field]]，2026-09-11 从本文件 `_unread_body` 迁出，团队房 trigger 共用）布局——首行紧跟 tag，其后每行都加 `BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
+- **cut 标记给出确切调用**：`_read_rest_call` —— 团队房行（房间已解析）给 `read_history(team_id="…")`，私聊里真 agent 发的给 `read_history(with_agent="<agent_id>")`；`usr_*`/平台发送者且房间未解析时没有工具可接受的句柄，标记如实说「取不到，请向发送者要」，不指向做不到的调用。为此 `_room_labels` 的返回改为 `{channel_id: {"name", "team_id"}}`（name 标 tag，team_id 给指路；不把 raw `channel_id` 打回 tag）。
+- **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明未展示条数与 read_history 调用（口径见上一节），表头 `(showing M)` 报实际展示数。
+
+## 2026-09-11 — 未读预览不再静默截 200 字（B-23 / upstream #73）
+
+#73：团队房里一条三段指令到了 agent 手里只剩「... so people can scan it via」——恰好是原文前
+200 字符。根因是 `_volatile_context_parts` 对每条未读 `content[:200]` 硬切且不加任何标记，
+而静态块又告诉 agent「未读已在 context，不用再取」，所以被切的片段和完整消息无从区分，agent
+按残片执行/追问。修法：行预算常量 `UNREAD_PREVIEW_MAX_CHARS = 1000`（装得下正常多段指令），
+超出由 `_unread_preview`（现 `_unread_row`，见上条）截断**并声明**（原长、展示长、用 `read_history` 取全文）；静态块那
+句补上「长未读会被截断并注明，read_history 返回全文」。`(part i/n)` 前缀照旧叠在截断文本前。
+
 ## 2026-09-09 — 未读列表给分片行加 `(part i/n)` 标签
 
-`gather` 的未读预览仍是逐行 200 字；一条分片消息的第 2 块预览会像「从句子中间开始的
+`gather` 的未读预览当时仍是逐行 200 字（2026-09-11 起见上条）；一条分片消息的第 2 块预览会像「从句子中间开始的
 消息」，所以带 `part_count` 的行前缀 `(part i/n)`。重组只在 trigger 的 turn 入口做
 （[[multipart]]），这里不合并——预览是窗口，不是投递面。
 

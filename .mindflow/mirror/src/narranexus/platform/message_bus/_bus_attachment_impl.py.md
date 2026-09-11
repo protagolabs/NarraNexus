@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11（PR#401）— `build_bus_markers` 一个 marker 只占一行
+
+文件名（`original_name`）和 transcript 由发送方写，可能带换行，原样拼进 marker 就能在团队房
+scrollback 里开出一行 `User: …`。现在两者经 `inline_field(x, None)` 折叠空白（不加引号：marker 内部
+形态与用户上传 marker `Attachment.synthesize_marker` 共享）。`from_agent` 按调用方给的原样打印——
+团队房传已编码的标签，peer 私聊传句柄。
 
 ## 2026-09-09 — `_resolve_ref_to_source` 补上共享区回退（B-22，#122）
 
