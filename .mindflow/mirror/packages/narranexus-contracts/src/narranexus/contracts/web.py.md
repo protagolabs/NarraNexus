@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/web.py
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -42,6 +42,9 @@ SECURITY POSTURE 段）。如果 seam 只收 user_id，每个插件都得自己�
 - **`HostSettings` 故意只有一个字段**。八个插件调用点要的全是 `max_upload_bytes`。
   写成整个 `backend.config.Settings` 的 Protocol 等于把宿主配置的每个字段都变成契约。
   加一个字段是一次契约变更，这正是想要的摩擦。
+- **上传上限的来源常量也在这里**：`MAX_UPLOAD_BYTES_ENV = "MAX_UPLOAD_BYTES"`、
+  `DEFAULT_MAX_UPLOAD_BYTES = 50 MiB`。backend `config.settings` 和 SDK 在无 HTTP 宿主进程里的
+  回落都用它们，保证 backend / workers / MCP 三种进程读到同一个值。
 - **`artifact_view_token` 归宿主**。token 就是宿主那条 public raw 路由的鉴权本身；
   让插件拿到签名密钥等于复制一份宿主的信任边界。`filter_public_mcp_servers` 同理——
   出网策略是宿主的决定，不是每个插件各自的判断。

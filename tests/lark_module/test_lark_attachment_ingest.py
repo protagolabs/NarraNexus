@@ -286,6 +286,7 @@ async def test_fetch_attachments_oversized_pre_check_audits_and_skips(monkeypatc
     # Force a tiny cap.
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = t.parse_event(
         _raw(
@@ -318,6 +319,7 @@ async def test_fetch_attachments_post_download_cap_audits_and_skips(monkeypatch)
 
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 100)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "100")  # workers topology: no WebHost
 
     parsed = t.parse_event(
         _raw(

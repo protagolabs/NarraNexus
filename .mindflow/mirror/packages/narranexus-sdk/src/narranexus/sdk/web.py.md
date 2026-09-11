@@ -1,6 +1,6 @@
 ---
 code_file: packages/narranexus-sdk/src/narranexus/sdk/web.py
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -28,3 +28,12 @@ router 是 import 期收集的，context 是激活期造的。
 `host()` 在没有 HTTP 宿主的进程里抛 `UnknownEntry`（worker / MCP 角色误 import 了 router）。
 **绝不**降级成「放行」——一个鉴权 seam 在解析失败时放行，就是把整条路由变成无鉴权，
 正是 `_ownership.py` 那段安全说明里反复强调的失败模式。
+
+**唯一例外是 `host_settings()`**：设置是部署级事实，不是请求级事实，而它的主要消费方
+（五个渠道 trigger 的 `fetch_attachments`、`narra_send_media`）恰恰跑在 workers / MCP
+进程里，那里没有 `WebHost`。所以 `host_settings()` 先 `try_require(WEB_HOST)`，拿不到就
+回落到读 env `MAX_UPLOAD_BYTES`（默认值同 backend，二者都来自 `contracts.web` 的
+`MAX_UPLOAD_BYTES_ENV` / `DEFAULT_MAX_UPLOAD_BYTES`，不会漂移）。这不是鉴权降级：上传上限
+没有「放行」语义。教训：2026-09-11 prod 上它照样 `host()` 抛 `UnknownEntry`，NarraMessenger
+收到的每张图片、每个文件都被丢掉；单测全绿是因为同一测试进程先 import 过 `backend.main`，
+渠道测试单跑其实是红的。
