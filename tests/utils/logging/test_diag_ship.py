@@ -804,3 +804,157 @@ def test_run_sh_staging_sandbox_discovers_from_dev_collector():
         "hand-set NEXUS_DIAG_ENV=staging on a personal install would leak "
         "logs to our dev collector (the whole point of last round's guard)"
     )
+
+
+class _FakeClock:
+    """Monotonic clock the test advances by hand, so a simulated day of
+    flushes runs in milliseconds without touching real time."""
+
+    def __init__(self, start: float = 1_000.0) -> None:
+        self.now = start
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+class TestMissingCollectorBackoff:
+    """B-39: prod has no diag-collector, so /telemetry/v1/config answers
+    502 and every shipping process used to re-probe it every 60s forever
+    (~1.4k GETs per process per day). A 5xx / network failure must back
+    off exponentially, with jitter, up to a long cap; the same holds for
+    a dead ingest (the breaker cooldown)."""
+
+    _DAY_S = 24 * 3600
+    _STEP_S = 30
+
+    def _simulate_day(self, monkeypatch, handler, config) -> list:
+        clock = _FakeClock()
+        monkeypatch.setattr(
+            _ship, "time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)
+        )
+        hits: list = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            hits.append(request.method)
+            return handler(request)
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_handle)
+        )
+        sink = _ship.ShipSink("backend", config)
+        start = clock.now
+        while clock.now - start < self._DAY_S:
+            sink(_message("tick"))
+            sink.flush()
+            clock.now += self._STEP_S
+        return hits
+
+    def test_502_discovery_probes_a_bounded_number_of_times_per_day(self, monkeypatch):
+        hits = self._simulate_day(
+            monkeypatch,
+            lambda r: httpx.Response(502, text="bad gateway"),
+            _config(url=None),
+        )
+        gets = hits.count("GET")
+        # 60s fixed retry = 1440/day; exponential to a 6h cap is ~15.
+        assert 3 <= gets <= 20, gets
+        assert hits.count("POST") == 0
+
+    def test_network_error_discovery_probes_a_bounded_number_of_times(self, monkeypatch):
+        def _dead(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        hits = self._simulate_day(monkeypatch, _dead, _config(url=None))
+        assert 3 <= hits.count("GET") <= 20, hits.count("GET")
+
+    def test_404_discovery_also_grows_past_one_ttl(self, monkeypatch):
+        hits = self._simulate_day(
+            monkeypatch,
+            lambda r: httpx.Response(404, json={"detail": "no config"}),
+            _config(url=None),
+        )
+        # Fixed 1h TTL = 24/day; doubling from 1h to the cap is far fewer.
+        assert 1 <= hits.count("GET") <= 8, hits.count("GET")
+
+    def test_dead_ingest_breaker_cooldown_grows(self, monkeypatch):
+        hits = self._simulate_day(
+            monkeypatch,
+            lambda r: httpx.Response(502, text="bad gateway"),
+            _config(),  # direct URL: every request is an ingest POST
+        )
+        posts = hits.count("POST")
+        # Fixed 60s cooldown = threshold + ~1440 probes/day.
+        assert posts <= _ship._BREAKER_THRESHOLD + 20, posts
+
+    def test_success_resets_the_discovery_backoff(self, monkeypatch):
+        """Positive case: once the collector exists again, the sink
+        resolves and the failure streak is forgotten, so the NEXT outage
+        starts again from the short retry instead of the cap."""
+        clock = _FakeClock()
+        monkeypatch.setattr(
+            _ship, "time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)
+        )
+        state = {"status": 502}
+        mapping = {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET" and state["status"] == 502:
+                return httpx.Response(502, text="bad gateway")
+            if request.method == "GET":
+                return httpx.Response(200, json={"ingest": mapping})
+            return httpx.Response(200, json={"ok": True})
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_handle)
+        )
+        sink = _ship.ShipSink("backend", _config(url=None))
+        for _ in range(6):  # several consecutive failures grow the delay
+            clock.now = max(clock.now, sink._discovery_next) + 1
+            sink(_message("x"))
+            sink.flush()
+        assert sink._discovery_next - clock.now > _ship._DISCOVERY_RETRY_S * 10
+        state["status"] = 200
+        clock.now = sink._discovery_next + 1
+        sink(_message("y"))
+        sink.flush()
+        assert sink._resolved_url == mapping["default"]
+        # Next outage: back to the short first step.
+        state["status"] = 502
+        clock.now = sink._url_expires + 1
+        sink(_message("z"))
+        sink.flush()
+        assert sink._discovery_next - clock.now <= _ship._DISCOVERY_RETRY_S
+
+    def test_backoff_delay_is_jittered_and_capped(self):
+        d1 = _ship._backoff_delay(_ship._DISCOVERY_RETRY_S, 1)
+        assert _ship._DISCOVERY_RETRY_S * 0.5 <= d1 <= _ship._DISCOVERY_RETRY_S
+        assert _ship._backoff_delay(_ship._DISCOVERY_RETRY_S, 50) <= _ship._BACKOFF_CAP_S
+        samples = {_ship._backoff_delay(3600.0, 3) for _ in range(20)}
+        assert len(samples) > 1  # jitter: a fleet does not probe in lockstep
+
+
+class TestCloudDefault:
+    """A multi-tenant cloud stack has no user toggle (PUT is 403 there);
+    it ships only when the deployment opts in. Before this, prod's own
+    containers shipped at the built-in meta default and beaconed a
+    collector prod never deployed."""
+
+    def test_cloud_without_opt_in_is_off(self, monkeypatch):
+        monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+        assert _ship.telemetry_consent() == {"mode": "off", "source": "default"}
+        assert _ship.ship_config() is None
+
+    def test_cloud_env_override_still_ships(self, monkeypatch):
+        monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+        monkeypatch.setenv("NEXUS_DIAG_SHIP", "full")
+        config = _ship.ship_config()
+        assert config is not None and config["mode"] == "full"
+
+    def test_cloud_managed_default_still_ships(self, monkeypatch):
+        monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+        monkeypatch.setenv("NEXUS_DIAG_DEFAULT_SHIP", "meta")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}
+
+    def test_local_default_stays_meta(self, monkeypatch):
+        monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+        assert _ship.telemetry_consent() == {"mode": "meta", "source": "default"}

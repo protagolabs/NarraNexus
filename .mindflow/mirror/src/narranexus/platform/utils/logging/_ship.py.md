@@ -1,8 +1,38 @@
 ---
 code_file: src/narranexus/platform/utils/logging/_ship.py
 stub: false
-last_verified: 2026-08-12
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09(B-39)— 缺失 collector 的指数退避 + 云端默认不外发
+
+现象:prod 的 `/telemetry/v1/config` 每天约 3.5k 次 502,95% 来自
+prod 自己的容器。两层根因:
+
+- **prod 在未 opt-in 的情况下外发**:#286 把内置默认从 off 翻成
+  meta,理由是单租户面有告知横幅 + 设置开关;但多租户云上没有任何
+  用户能持有这个开关(PUT 403),prod 栈也没设 `NEXUS_DIAG_SHIP`
+  (deploy 仓 diag-collector compose 的注释仍写着"sender default is
+  OFF")——于是 prod 每个进程都按 meta 外发,打向一个 prod 从未部署
+  的 collector。修:同意链新增第 4 层"云端默认"——`is_cloud_mode()`
+  且第 1/3 层都未表态时 `mode=off, source=default`。dev 栈显式
+  `NEXUS_DIAG_SHIP=full` 不受影响;manyfold 沙盒走托管默认层不受
+  影响;设置页在云上显示开关关闭 + "管理员控制"(managed_by=cloud,
+  原有文案)。
+- **5xx/网络错误固定 60s 重试**:模拟一天实测每进程 1440 次 GET
+  (旧 mirror 立下"5xx 保持 60s 短重试"的规则,对"根本没有
+  collector"的部署就是永久 1 次/分钟)。修:`_backoff_delay(base,
+  failures)` = `base·2^(n-1)`,封顶 `_BACKOFF_CAP_S`=6h,向下抖动
+  25%。5xx/网络从 60s 起步(第一次仍是短重试,瞬态恢复快),3xx/4xx/
+  非文档 200 从 TTL 1h 起步;成功解析即清零。同类扫描:熔断冷却也是
+  固定 60s(死 ingest = 每分钟一个探测 POST),同样按连续 OPEN 次数
+  翻倍,任何 collector 应答(2xx/4xx)清零。进行中的探测先占位
+  60s,防定时线程与 enqueue 线程并发各发一次。
+
+测试(`TestMissingCollectorBackoff` / `TestCloudDefault` + 路由
+`test_cloud_deployment_without_opt_in_reports_off`):假时钟模拟一天,
+502/网络错误 GET ≤20(旧 1440)、404 ≤8(旧 24)、死 ingest POST ≤
+阈值+20(旧 1442);成功后下次故障回到短步长;回退 _ship.py 后 8 条红。
 
 ## 2026-08-12(rc.2 / #292)— staging 从 dev collector 取发现文档 + 4xx 退避
 
@@ -235,7 +265,8 @@ pull 半边 = manyfold 诊断端点,两者刻意零共享机制。
   含审计镜像行与告警);full = **跟随文件 sink 的 resolved_level**——
   排障开 DEBUG 时远端必须同步可见,硬编码 INFO 恰好在最需要的场景
   失效(review 修);被滤记录零成本;
-- **熔断**(review 两轮):连续 5 次**瞬态**失败 OPEN 60s——期间
+- **熔断**(review 两轮):连续 5 次**瞬态**失败 OPEN 60s(连续重开
+  按指数翻倍至 6h 封顶,见 B-39 条目)——期间
   记录在门口直接丢、不入缓冲(否则死收集器 = 无界 enqueue 队列反噬
   被观测进程内存)。冷却后 **HALF-OPEN 真实现**(第二轮修:此前只
   存在于注释——探测批失败**立即**重开,不再重攒 5 次,消灭每 70s
