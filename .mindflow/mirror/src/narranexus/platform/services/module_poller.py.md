@@ -4,11 +4,26 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r2 I-A）— 对账改成按 `id` keyset 分页走完整个 BLOCKED 集
+
+r1 版的「限量」是假的：`find(limit=200, created_at ASC)` 只限制了**发现哪些 agent**，handler 随后对每个
+agent 再做一次无上限的 `get_by_agent(BLOCKED)`；而且固定的「最老 200 条」窗口会被永远激活不了的行
+（上游仍 ONGOING、或依赖行已被删）长期占满，之后新产生的 BLOCKED 行再也不会被看到——backstop 静默失效。
+现在每轮从 `id > 0` 起，用 [[instance_repository]] 的 `get_blocked_page(after_id, _BLOCKED_RECONCILE_PAGE=200)`
+按自增 `id` 升序分页，每页按 `agent_id` 分组后**把行本身**传给 `reconcile_blocked_instances(rows)`
+（handler 不再二次查询），下一页游标 = 本页最后一行的 `id`，页不满即结束。结果：**每条查询、每次
+handler 调用都以 200 行为界；一轮总量不设上限（刻意的——任何 BLOCKED 行都不会被饿死）**，15 分钟一轮。
+游标只活在单次调用里，不跨轮保存任何进程内状态，重启/多副本无需交接。选 `id` 而非 `created_at`：
+唯一、随插入单调、主键有索引、两种方言都是整数——无重叠、无因本页行被激活移出 BLOCKED 导致的
+OFFSET 式跳行，也不依赖 SQLite 下 DATETIME 文本的写法。
+锁：`test_window_full_of_never_activatable_rows_still_activates_a_new_row`（页大小打到 3，塞 8 条永久卡死
+的老行 + 1 条可激活的新行，新行必须被激活）、`test_reconcile_pages_are_bounded_and_the_handler_does_not_requery`。
+
 ## 2026-09-10（review r1 I10）— `_reconcile_blocked_instances`：15 分钟一次的 BLOCKED 对账
 
 `_poll_and_enqueue` 开头加低频 backstop（`_BLOCKED_RECONCILE_INTERVAL_S = 900`，与
-[[job_trigger]] 的 no-quota backstop 同节奏；`_last_blocked_reconcile` 记上次时间）：取一批
-BLOCKED 实例（`_BLOCKED_RECONCILE_BATCH = 200`，按 `created_at` 最老优先，绝不在 poll 循环里拉全表），
+[[job_trigger]] 的 no-quota backstop 同节奏；`_last_blocked_reconcile` 记上次时间）：取
+BLOCKED 实例（取法已被 r2 I-A 改为按 `id` keyset 分页走全集，见上节），
 按 `agent_id` 分组，逐组交给 [[instance_handler]] 的 `reconcile_blocked_instances`——判据与激活钩子
 都是事件路径那一份，这里不另写「依赖是否满足」。为什么放在本服务而不是 job_trigger：本文件是
 依赖链推进的唯一驱动者（`_process_completed_instance` 是 `handle_completion*` 的唯一调用点），

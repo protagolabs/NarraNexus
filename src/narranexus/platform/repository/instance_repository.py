@@ -90,6 +90,35 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
 
         return await self.find(filters=filters, order_by="created_at DESC")
 
+    async def get_blocked_page(self, after_id: int, limit: int) -> List[ModuleInstanceRecord]:
+        """One keyset page of BLOCKED instances across ALL agents: rows whose
+        auto-increment `id` is greater than `after_id`, lowest id first, at
+        most `limit` of them.
+
+        Used by `ModulePoller._reconcile_blocked_instances` to walk the whole
+        BLOCKED set in bounded pages. Keyset on `id` (not `created_at`, not
+        OFFSET) because `id` is unique, monotonic with insertion, indexed as
+        the primary key and a plain integer on both dialects: the next page
+        starts strictly after the last row seen, so there is neither overlap
+        nor a skip when rows activated on this page leave the BLOCKED set
+        (which is exactly what shifts an OFFSET window), and no dependence on
+        how a backend renders DATETIME text.
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders).
+        Twins: tests/repository/test_instance_repository_blocked_page.py + `_mysql`.
+        """
+        logger.debug(f"    → InstanceRepository.get_blocked_page(after_id={after_id}, limit={limit})")
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE status = %s AND id > %s
+            ORDER BY id ASC
+            LIMIT {int(limit)}
+        """
+        rows = await self._db.execute(
+            query, params=(InstanceStatus.BLOCKED.value, int(after_id)), fetch=True,
+        )
+        return [self._row_to_entity(row) for row in rows] if rows else []
+
     async def get_by_agent_and_user(
         self,
         agent_id: str,

@@ -238,7 +238,9 @@ class InstanceHandler:
         logger.info(f"Newly activated (no-narrative path): {newly_activated}")
         return newly_activated
 
-    async def reconcile_blocked_instances(self) -> List[str]:
+    async def reconcile_blocked_instances(
+        self, blocked: List["ModuleInstanceRecord"]
+    ) -> List[str]:
         """
         Periodic backstop for the edge-triggered dependency chain (review I10).
 
@@ -254,10 +256,15 @@ class InstanceHandler:
 
         Same predicate, same activation tail as the event path
         (`_activate_resolved`) — deliberately NOT a second copy of "all
-        dependencies terminal". Scoped to this handler's `agent_id`; the
-        caller (`ModulePoller._reconcile_blocked_instances`) bounds the batch.
-        A BLOCKED instance with NO dependencies is left alone and logged: it
-        is an anomaly this scan cannot explain, not something to auto-run.
+        dependencies terminal".
+
+        `blocked` is the candidate set the caller already fetched (one bounded
+        keyset page from `ModulePoller._reconcile_blocked_instances`); this
+        method does NOT re-query the table, so the caller's page size really
+        is the bound on the work done per call. Rows outside this handler's
+        `agent_id`, or no longer BLOCKED in the snapshot, are ignored. A
+        BLOCKED instance with NO dependencies is left alone and logged: it is
+        an anomaly this scan cannot explain, not something to auto-run.
 
         Returns:
             List of newly activated instance_ids
@@ -267,10 +274,13 @@ class InstanceHandler:
 
         db_client = await self._get_db_client()
         instance_repo = InstanceRepository(db_client)
-        blocked = await instance_repo.get_by_agent(self.agent_id, status=InstanceStatus.BLOCKED)
 
         candidates = []
         for inst in blocked:
+            if inst.agent_id != self.agent_id:
+                continue
+            if getattr(inst.status, "value", inst.status) != InstanceStatus.BLOCKED.value:
+                continue
             if not inst.dependencies:
                 logger.warning(
                     f"[blocked-reconcile] {inst.instance_id} is BLOCKED with no "

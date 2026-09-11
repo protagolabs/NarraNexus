@@ -82,10 +82,10 @@ from narranexus.platform.services.service_audit import ServiceAuditor
 # reconciliation below is the backstop for the edges it cannot see — an
 # upstream that finished before its dependent's BLOCKED row was written, or
 # a completion lost to a restart / a failed callback — and runs at this low
-# cadence, not every 5-second cycle (review I10). Bounded per pass so it can
-# never turn into a full-table walk inside the poll loop.
+# cadence, not every 5-second cycle (review I10). Each pass walks every
+# BLOCKED row in keyset pages; a page bounds each query and each handler call.
 _BLOCKED_RECONCILE_INTERVAL_S = 900  # 15 minutes
-_BLOCKED_RECONCILE_BATCH = 200
+_BLOCKED_RECONCILE_PAGE = 200  # rows per keyset page (query + handler call bound)
 
 
 @dataclass
@@ -365,33 +365,56 @@ class ModulePoller:
         """Activate BLOCKED instances whose dependencies are all terminal but
         that no completion event ever unblocked (review I10).
 
-        Reads one bounded batch of BLOCKED rows (oldest first), groups them by
-        agent and hands each group to `InstanceHandler.reconcile_blocked_instances`
+        Walks the WHOLE BLOCKED set once per round, in keyset pages of
+        `_BLOCKED_RECONCILE_PAGE` rows ordered by the auto-increment `id`
+        (`InstanceRepository.get_blocked_page`). Each page is grouped by agent
+        and handed, rows and all, to `InstanceHandler.reconcile_blocked_instances`
         — the SAME predicate and activation hook the event path uses, so this
         cannot drift into a second definition of "dependencies satisfied".
+        The handler does not re-query, so every query and every handler call
+        is bounded by the page size; the round as a whole is not, on purpose.
+
+        Why a full walk and not a fixed "oldest N" window (review r2 I-A): rows
+        whose dependencies can never become terminal (upstream still ONGOING,
+        or the dependency row deleted) stay BLOCKED forever. A fixed window
+        ordered oldest-first fills up with them and every newer BLOCKED row is
+        never looked at again — the backstop would fail silently. The cursor
+        is the last `id` of the previous page and lives only inside this call:
+        no process-local state carried between rounds, so a restarted or
+        additional poller replica needs nothing handed over. (Two replicas
+        reaching the same row in the same instant is the same pre-existing
+        race the event path has with this backstop; nothing here widens it.)
+
         Returns the number of instances activated. Never raises into the loop.
         """
         try:
-            rows = await self._get_instance_repo().find(
-                filters={"status": InstanceStatus.BLOCKED.value},
-                limit=_BLOCKED_RECONCILE_BATCH,
-                order_by="created_at ASC",
-            )
-            if not rows:
-                return 0
-            agent_ids = sorted({r.agent_id for r in rows})
-
             from narranexus.platform.narrative import InstanceHandler
 
+            repo = self._get_instance_repo()
             activated = 0
-            for agent_id in agent_ids:
-                handler = InstanceHandler(agent_id=agent_id)
-                handler.set_database_client(self.db)
-                activated += len(await handler.reconcile_blocked_instances())
+            agents: Set[str] = set()
+            after_id = 0
+            while True:
+                rows = await repo.get_blocked_page(after_id, _BLOCKED_RECONCILE_PAGE)
+                if not rows:
+                    break
+                by_agent: Dict[str, list] = {}
+                for r in rows:
+                    by_agent.setdefault(r.agent_id, []).append(r)
+                for agent_id in sorted(by_agent):
+                    handler = InstanceHandler(agent_id=agent_id)
+                    handler.set_database_client(self.db)
+                    newly = await handler.reconcile_blocked_instances(by_agent[agent_id])
+                    if newly:
+                        agents.add(agent_id)
+                        activated += len(newly)
+                if len(rows) < _BLOCKED_RECONCILE_PAGE:
+                    break
+                after_id = rows[-1].id
             if activated:
                 logger.warning(
                     f"[blocked-reconcile] activated {activated} instance(s) across "
-                    f"{len(agent_ids)} agent(s) whose dependencies had already finished"
+                    f"{len(agents)} agent(s) whose dependencies had already finished"
                 )
             return activated
         except Exception as e:  # noqa: BLE001 — a backstop must never wedge the poll loop

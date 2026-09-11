@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/repository/instance_repository.py
-last_verified: 2026-07-28
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 I-A）— `get_blocked_page(after_id, limit)`：BLOCKED 的 keyset 分页
+
+跨全部 agent 取 `status='blocked' AND id > after_id ORDER BY id ASC LIMIT n`，供 [[module_poller]] 的
+BLOCKED 对账逐页走完全集。用自增 `id` 当游标而非 `created_at` / OFFSET：唯一、单调、主键索引、双方言
+都是整数，下一页严格从上一页最后一行之后开始，本页行被激活移出 BLOCKED 也不会让下一页跳行。新裸 SQL
+（无引号标识符、`%s` 占位、LIMIT 以 `int()` 内联）配双 twin：
+`tests/repository/test_instance_repository_blocked_page.py` + `_mysql`。
 
 ## 2026-07-28 — R4d：get_public_instances 补 order_by（此前是唯一没有排序的查询）
 

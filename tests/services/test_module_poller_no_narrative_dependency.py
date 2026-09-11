@@ -150,3 +150,66 @@ async def test_reconcile_groups_by_agent_and_counts(db_client):
     poller = ModulePoller(database_client=db_client)
     assert await poller._reconcile_blocked_instances() == 2
     assert (await repo.get_by_instance_id("other_blocked")).status == InstanceStatus.ACTIVE.value
+
+
+# ── review r2 I-A: never-activatable rows must not starve the backstop ────────
+
+@pytest.mark.asyncio
+async def test_window_full_of_never_activatable_rows_still_activates_a_new_row(db_client, monkeypatch):
+    """More permanently-stuck BLOCKED rows than one page holds (their
+    dependency never becomes terminal), all OLDER than a freshly resolvable
+    row. A fixed oldest-first window would only ever see the stuck rows; the
+    keyset walk must still reach and activate the new one."""
+    from narranexus.platform.services import module_poller as mp
+
+    monkeypatch.setattr(mp, "_BLOCKED_RECONCILE_PAGE", 3)
+    await _seed_instance(db_client, "upstream_ongoing", status=InstanceStatus.ACTIVE)
+    for i in range(7):
+        await _seed_instance(
+            db_client, f"stuck_{i}", status=InstanceStatus.BLOCKED,
+            dependencies=["upstream_ongoing"],
+        )
+    await _seed_instance(
+        db_client, "stuck_deleted_dep", status=InstanceStatus.BLOCKED,
+        dependencies=["instance_row_that_was_deleted"],
+    )
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_new", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+
+    poller = ModulePoller(database_client=db_client)
+    assert await poller._reconcile_blocked_instances() == 1
+
+    repo = InstanceRepository(db_client)
+    assert (await repo.get_by_instance_id("job_new")).status == InstanceStatus.ACTIVE.value
+    for i in range(7):
+        assert (await repo.get_by_instance_id(f"stuck_{i}")).status == InstanceStatus.BLOCKED.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pages_are_bounded_and_the_handler_does_not_requery(db_client, monkeypatch):
+    """Every handler call receives at most one page of rows, and the handler
+    never goes back to the table for more (the page is the real bound)."""
+    from narranexus.platform.narrative import InstanceHandler
+    from narranexus.platform.services import module_poller as mp
+
+    monkeypatch.setattr(mp, "_BLOCKED_RECONCILE_PAGE", 2)
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    for i in range(5):
+        await _seed_instance(db_client, f"dep_{i}", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+
+    sizes = []
+    real = InstanceHandler.reconcile_blocked_instances
+
+    async def _spy(self, blocked):
+        sizes.append(len(blocked))
+        return await real(self, blocked)
+
+    async def _no_requery(self, *a, **kw):
+        raise AssertionError("reconciliation must not re-query BLOCKED rows per agent")
+
+    monkeypatch.setattr(InstanceHandler, "reconcile_blocked_instances", _spy)
+    monkeypatch.setattr(InstanceRepository, "get_by_agent", _no_requery)
+
+    poller = ModulePoller(database_client=db_client)
+    assert await poller._reconcile_blocked_instances() == 5
+    assert sizes and max(sizes) <= 2 and sum(sizes) == 5

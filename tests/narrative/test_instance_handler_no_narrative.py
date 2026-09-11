@@ -150,6 +150,30 @@ async def test_unknown_completed_instance_is_a_noop(db_client):
 
 # ── review I10: periodic reconciliation for edges the poller never saw ────────
 
+async def _blocked(db):
+    """The caller's candidate page: every BLOCKED row, as the poller fetches it."""
+    return await InstanceRepository(db).get_blocked_page(0, 1000)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_judges_only_the_rows_it_is_handed(db_client):
+    """Review r2 I-A: the handler must NOT re-query the table — the caller's
+    keyset page is the bound on work per call. A resolvable BLOCKED row that
+    is not in the handed-in page is left for the page that contains it."""
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.COMPLETED)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await _seed_instance(db_client, "job_c", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+
+    handler = InstanceHandler(agent_id=AGENT_ID)
+    handler.set_database_client(db_client)
+    page = [r for r in await _blocked(db_client) if r.instance_id == "job_c"]
+
+    assert await handler.reconcile_blocked_instances([]) == []
+    assert await handler.reconcile_blocked_instances(page) == ["job_c"]
+    b = await InstanceRepository(db_client).get_by_instance_id("job_b")
+    assert b.status == InstanceStatus.BLOCKED.value
+
+
 @pytest.mark.asyncio
 async def test_reconcile_activates_a_blocked_instance_whose_dependency_finished_unseen(db_client):
     """/api/jobs/complex creates jobs one at a time: the upstream can complete
@@ -161,7 +185,7 @@ async def test_reconcile_activates_a_blocked_instance_whose_dependency_finished_
     handler = InstanceHandler(agent_id=AGENT_ID)
     handler.set_database_client(db_client)
 
-    assert await handler.reconcile_blocked_instances() == ["job_b"]
+    assert await handler.reconcile_blocked_instances(await _blocked(db_client)) == ["job_b"]
     b = await InstanceRepository(db_client).get_by_instance_id("job_b")
     assert b.status == InstanceStatus.ACTIVE.value
 
@@ -177,7 +201,7 @@ async def test_reconcile_leaves_a_blocked_instance_with_a_live_dependency(db_cli
     handler = InstanceHandler(agent_id=AGENT_ID)
     handler.set_database_client(db_client)
 
-    assert await handler.reconcile_blocked_instances() == []
+    assert await handler.reconcile_blocked_instances(await _blocked(db_client)) == []
     b = await InstanceRepository(db_client).get_by_instance_id("job_b")
     assert b.status == InstanceStatus.BLOCKED.value
 
@@ -191,7 +215,7 @@ async def test_reconcile_leaves_a_blocked_instance_with_no_dependencies(db_clien
     handler = InstanceHandler(agent_id=AGENT_ID)
     handler.set_database_client(db_client)
 
-    assert await handler.reconcile_blocked_instances() == []
+    assert await handler.reconcile_blocked_instances(await _blocked(db_client)) == []
 
 
 @pytest.mark.asyncio
@@ -205,7 +229,7 @@ async def test_reconcile_is_scoped_to_the_handlers_agent(db_client):
     handler = InstanceHandler(agent_id=AGENT_ID)
     handler.set_database_client(db_client)
 
-    assert await handler.reconcile_blocked_instances() == []
+    assert await handler.reconcile_blocked_instances(await _blocked(db_client)) == []
 
 
 @pytest.mark.asyncio
@@ -231,6 +255,6 @@ async def test_both_paths_share_the_activation_hook(db_client, monkeypatch):
     handler = InstanceHandler(agent_id=AGENT_ID)
     handler.set_database_client(db_client)
     await handler.handle_completion_no_narrative(instance_id="job_a", new_status=InstanceStatus.COMPLETED)
-    await handler.reconcile_blocked_instances()
+    await handler.reconcile_blocked_instances(await _blocked(db_client))
 
     assert sorted(seen) == ["job_b", "job_d"]
