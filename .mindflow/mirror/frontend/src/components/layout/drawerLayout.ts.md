@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/layout/drawerLayout.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — per-agent first view: new agents open on Artifacts (Owner)
+
+Owner report: a new agent showed no Artifacts panel, so its explainer was never
+seen. `shouldAutoOpenFirstRun` only ever fired for a brand-new profile (any
+drawer key ⇒ existing user), so an existing user's NEW agents never opened it.
+Added `DRAWER_AGENT_SEEN_KEY` (JSON array of agent ids, bounded to
+`MAX_SEEN_AGENTS` = 500, oldest dropped) with the same read-only/mark pair as
+the first run: `shouldAutoOpenForAgent(storage, agentId, isSmall)` is true for
+an agent not in the list (false with no agent, on a small viewport, or when the
+store throws — a broken store must not open the drawer on every view; a corrupt
+value reads as "nothing seen" once and is rewritten by the mark), and
+`markAgentDrawerSeen` appends idempotently from an effect. The pin state is NOT
+touched: pinned is already the default and only an explicit unpin ('0') is
+respected. The global first-run coach is unchanged.
 
 # drawerLayout — 书签抽屉的尺寸与持久化策略
 
