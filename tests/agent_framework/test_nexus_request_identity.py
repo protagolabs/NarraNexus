@@ -99,7 +99,13 @@ def test_no_real_agent_id_adds_nothing(anthropic_slot, agent_id):
 
 
 @pytest.fixture()
-def capture_server():
+def capture_server(monkeypatch):
+    # A corporate proxy in the environment would swallow the loopback call.
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
     bodies: list[dict] = []
 
     class _Handler(BaseHTTPRequestHandler):
