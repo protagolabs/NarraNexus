@@ -125,6 +125,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // agent selects are named by the block title + their own label so each one
   // has a distinct accessible name.
   const agentIds = useId();
+  const helperIds = useId();
   // `keep`: after a partial save, reload the stored state as the baseline but
   // keep the user's still-unsaved edits in the draft (so Save stays live and
   // nothing the user picked silently disappears).
@@ -496,7 +497,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className={labelCls}>
+            <label id={`${agentIds}-framework`} htmlFor={`${agentIds}-framework-select`} className={labelCls}>
               {t('pages.settings.modelDefaults.framework')}
               {probe && !frameworkChanged && (
                 <span
@@ -515,6 +516,8 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 interactive — a blocked pick pops an explanation and snaps back,
                 which reads friendlier than a greyed-out control. */}
             <select
+              id={`${agentIds}-framework-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-framework`}
               className={selectCls}
               value={framework}
               disabled={frameworkSaving || applying}
@@ -622,8 +625,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label id={`${agentIds}-provider`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
+            <label id={`${agentIds}-provider`} htmlFor={`${agentIds}-provider-select`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
+              id={`${agentIds}-provider-select`}
               aria-labelledby={`${agentIds}-title ${agentIds}-provider`}
               className={selectCls}
               value={agentDraft.provider_id}
@@ -640,8 +644,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label id={`${agentIds}-model`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
+            <label id={`${agentIds}-model`} htmlFor={`${agentIds}-model-select`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
+              id={`${agentIds}-model-select`}
               aria-labelledby={`${agentIds}-title ${agentIds}-model`}
               className={selectCls}
               value={agentDraft.model}
@@ -657,9 +662,18 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
-            <select className={selectCls} value={agentDraft.thinking}
-              onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}>
+            {/* Thinking / reasoning effort live on the slot row, so they are
+                only editable once a provider is chosen — like the model
+                select. An edit on an unbound slot would have nowhere to land. */}
+            <label id={`${agentIds}-thinking`} htmlFor={`${agentIds}-thinking-select`} className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
+            <select
+              id={`${agentIds}-thinking-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-thinking`}
+              className={selectCls}
+              value={agentDraft.thinking}
+              disabled={!agentDraft.provider_id}
+              onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
+            >
               <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
               <option value="on">{t('pages.settings.modelDefaults.on')}</option>
               <option value="off">{t('pages.settings.modelDefaults.off')}</option>
@@ -667,9 +681,15 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
-            <select className={selectCls} value={agentDraft.reasoning_effort}
-              onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}>
+            <label id={`${agentIds}-effort`} htmlFor={`${agentIds}-effort-select`} className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
+            <select
+              id={`${agentIds}-effort-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-effort`}
+              className={selectCls}
+              value={agentDraft.reasoning_effort}
+              disabled={!agentDraft.provider_id}
+              onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
+            >
               <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
               <option value="low">{t('pages.settings.modelDefaults.low')}</option>
               <option value="medium">{t('pages.settings.modelDefaults.medium')}</option>
@@ -682,13 +702,15 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
 
       {/* ---- Helper slot ---- */}
       <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+        <div id={`${helperIds}-title`} className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.helperTitle')}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
+            <label id={`${helperIds}-provider`} htmlFor={`${helperIds}-provider-select`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
+              id={`${helperIds}-provider-select`}
+              aria-labelledby={`${helperIds}-title ${helperIds}-provider`}
               className={selectCls}
               value={helperDraft.provider_id}
               onChange={(e) => {
@@ -704,8 +726,10 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
             </select>
           </div>
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
+            <label id={`${helperIds}-model`} htmlFor={`${helperIds}-model-select`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
+              id={`${helperIds}-model-select`}
+              aria-labelledby={`${helperIds}-title ${helperIds}-model`}
               className={selectCls}
               value={helperDraft.model}
               disabled={!helperDraft.provider_id}

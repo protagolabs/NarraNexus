@@ -13,7 +13,7 @@
  * helpers in lib/agentFramework so this offers exactly the same choices the
  * Settings default editor does.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
@@ -105,6 +105,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // (not `[]`) until a response actually lands.
   const [liveFrameworks, setLiveFrameworks] = useState<LiveFrameworkEntry[] | undefined>(undefined);
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
+  const knobIds = useId();
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
   // Snapshot of what was loaded — so Save only writes slots the user changed.
   const [agentInitial, setAgentInitial] = useState<Draft>(EMPTY_DRAFT);
@@ -458,10 +459,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
+                  {/* Thinking / reasoning effort belong to the slot binding:
+                      editable only once a provider is chosen, like the model. */}
+                  <label htmlFor={`${knobIds}-thinking`} className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
                   <select
+                    id={`${knobIds}-thinking`}
                     className={selectCls}
                     value={agentDraft.thinking}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
@@ -471,10 +476,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
+                  <label htmlFor={`${knobIds}-effort`} className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
                   <select
+                    id={`${knobIds}-effort`}
                     className={selectCls}
                     value={agentDraft.reasoning_effort}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>

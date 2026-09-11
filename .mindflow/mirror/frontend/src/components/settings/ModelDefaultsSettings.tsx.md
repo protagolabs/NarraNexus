@@ -4,6 +4,20 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r4) — follow-up of PR #399's last-review minors
+
+- **Thinking / reasoning effort are disabled until a provider is chosen**
+  (`disabled={!agentDraft.provider_id}`, same rule as the model select). They
+  live on the slot row, so on an unbound slot — or after a framework switch
+  dropped the card — an edit had nowhere to land (refused with an unrelated
+  provider/model message, or silently skipped). `agentDraftEmpty` therefore
+  only means "the slot has nothing writable".
+- **Every select has an accessible name and a bound label.** Framework,
+  thinking and reasoning effort join the agent provider / model on
+  `aria-labelledby` (block title + own label); the helper block gets its own
+  `useId` (`helperIds`) with the same pattern. Each label also has `htmlFor`
+  pointing at its select's `id`, so clicking the label text focuses the select.
+
 ## 2026-09-11 (r3) — third review of PR #399 (minors)
 
 - **A user-emptied agent draft is refused, not skipped.** `frameworkOnlyAgent`
@@ -11,8 +25,8 @@ stub: false
   droppedByFrameworkRef.current !== null)`: an empty draft counts as
   framework-only only when nobody edited the agent slot, or when the
   framework switch dropped the card (the ref is set). Picking the blank
-  provider option by hand, or editing thinking / reasoning effort on an
-  unbound slot, together with a framework change now gets `pickAgentModel`
+  provider option by hand together with a framework change now gets
+  `pickAgentModel`
   with nothing written — before, the framework landed, the edit was silently
   skipped and the page flashed "Saved".
 - **`frameworkRestoredBindingLost` copy** now says the STORED framework was
