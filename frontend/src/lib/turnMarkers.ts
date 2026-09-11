@@ -4,7 +4,8 @@
  * @description: The two no-reply turn markers and their render-time labels.
  *
  * A turn that produced no owner-facing reply is persisted by the backend
- * chat module (`chat_module.py`, persist path) with one of two fixed English
+ * chat module (`plugins/builtin.chat/src/narranexus_plugins/chat_module/
+ * chat_module.py`, persist_turn) with one of two fixed English
  * markers as its assistant content: the user stopped the turn, or the agent
  * chose silence. The live session (chatStore.stopStreaming) writes the SAME
  * marker, so a settled bubble and its reloaded history row carry identical
