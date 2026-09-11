@@ -175,26 +175,27 @@ function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
 }
 
 /**
- * The tabs a user may PICK from right now — `allTabs()` minus the conditional
- * tabs whose context does not hold. Every entry point that offers panels (the
- * chat header's ⋯ menu, the ⌘K palette, and — grouped — the drawer's title
- * switcher via `visibleCategories`) goes through here, so a conditional
- * tab can never leak out of one entry while being hidden in another.
- */
-export function visibleTabs(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabDef[] {
-  return allTabs(entries).filter((t) => tabOffered(t, ctx));
-}
-
-/**
- * `visibleTabs` keeping the category grouping — for the drawer's title
- * switcher, which lists panels under their strip categories. Same
- * `tabOffered` rule, so the switcher can never offer a tab the ⋯ menu and
- * the palette hide; categories left empty by the filter are dropped.
+ * The panels a user may PICK from right now, grouped by strip category —
+ * `stripCategories()` minus the conditional tabs whose context does not
+ * hold; categories left empty by the filter are dropped. This is the SINGLE
+ * place visibility is decided: the drawer's title switcher consumes it
+ * directly and `visibleTabs` is its flattening, so every entry point that
+ * offers panels sees the same set.
  */
 export function visibleCategories(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): StripCategory[] {
   return stripCategories(entries)
     .map((c) => ({ ...c, tabs: c.tabs.filter((t) => tabOffered(t, ctx)) }))
     .filter((c) => c.tabs.length > 0);
+}
+
+/**
+ * `visibleCategories` flattened — for the flat entry points (the chat
+ * header's ⋯ menu, the ⌘K palette). Derived from, never parallel to, the
+ * grouped view, so a conditional tab can never leak out of one entry while
+ * being hidden in another.
+ */
+export function visibleTabs(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabDef[] {
+  return visibleCategories(ctx, entries).flatMap((c) => c.tabs);
 }
 
 export function tabLabel(id: AtomicTabId): string {

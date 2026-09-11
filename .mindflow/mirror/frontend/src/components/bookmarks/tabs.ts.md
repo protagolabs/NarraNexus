@@ -8,8 +8,10 @@ stub: false
 
 抽屉标题切换器按 Owner 要求恢复([[BookmarkDrawer]] 同日条),它按分类分组列面板,所以
 重新提供 `visibleCategories(ctx)`:`stripCategories()` 每组用同一个 `tabOffered` 过滤、
-丢弃空组。可见性规则仍只有 `tabOffered` 一处,由 `visibleTabs` / `visibleCategories` 两个出口
-施加——切换器、⋯ 菜单、⌘K 永远一致(无 studio 的 agent 不会在任何一处看到 `builder`)。
+丢弃空组。可见性规则仍只有 `tabOffered` 一处,且只有**一个出口**:`visibleCategories` 施加它,
+`visibleTabs(ctx)` 就是 `visibleCategories(ctx).flatMap(c => c.tabs)`(不再各自一条过滤链;
+因 `allTabs()` 本身即 `stripCategories().flatMap`,返回值与顺序不变)——切换器、⋯ 菜单、⌘K
+永远一致(无 studio 的 agent 不会在任何一处看到 `builder`)。将来规则升级为跨组规则时只改一处。
 下方 09-04「`visibleCategories` 删除」条已作废。
 
 ## 2026-09-07 — `STRIP_CATEGORIES`/`ALL_TABS`/`BUILTIN_TAB_IDS` become functions (I-3, import-order hazard)
