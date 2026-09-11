@@ -291,6 +291,23 @@ _LIVE_JOB_STATES = (
 # surfaces as pending_jobs, in emission order.
 _QUEUED_JOB_STATES = tuple(s for s in _LIVE_JOB_STATES if s != "running")
 
+# How each live state drives the attention banners and the health rail
+# (review M2). Every state in _LIVE_JOB_STATES is in exactly one group —
+# tests/backend/test_dashboard_live_job_states.py pins that, so a new status
+# cannot silently leave an agent looking "healthy_idle" again.
+_FAILED_JOB_STATES = ("failed",)
+# Waiting on a dependency: an ordinary one, or one whose upstream failed.
+_BLOCKED_JOB_STATES = ("blocked", "blocked_failed")
+# Stopped until an owner / platform condition clears: user or suspension
+# pause, free-tier quota, daily spend cap.
+_PAUSED_JOB_STATES = ("paused", "paused_no_quota", "paused_spend_cap")
+# Scheduled / in flight / backing off on the clock — no attention needed.
+_NOMINAL_JOB_STATES = ("running", "pending", "active", "cooling")
+
+
+def _count(queue: dict, states: tuple) -> int:
+    return sum(int(queue.get(s, 0) or 0) for s in states)
+
 
 async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
     """Partition instance_jobs across all 6 live states per agent.
@@ -452,24 +469,24 @@ def derive_attention_banners(
     Returns banners ordered by severity (error first, then warning).
     """
     banners: list[dict] = []
-    if queue.get("failed", 0) > 0:
-        n = queue["failed"]
+    n = _count(queue, _FAILED_JOB_STATES)
+    if n > 0:
         banners.append({
             "level": "error",
             "kind": "job_failed",
             "message": f"{n} job{'s' if n != 1 else ''} failed",
             "action": None,  # Retry wired per-job, not per-card
         })
-    if queue.get("blocked", 0) > 0:
-        n = queue["blocked"]
+    n = _count(queue, _BLOCKED_JOB_STATES)
+    if n > 0:
         banners.append({
             "level": "warning",
             "kind": "job_blocked",
             "message": f"{n} job{'s' if n != 1 else ''} blocked by dependencies",
             "action": None,
         })
-    if queue.get("paused", 0) > 0:
-        n = queue["paused"]
+    n = _count(queue, _PAUSED_JOB_STATES)
+    if n > 0:
         banners.append({
             "level": "warning",
             "kind": "jobs_paused",
@@ -490,11 +507,11 @@ def derive_health(
     kind: str, queue: dict, last_activity_at: str | None, errors_today: int
 ) -> str:
     """v2.1: derive status rail color bucket for consistent server-driven display."""
-    if queue.get("failed", 0) > 0 or errors_today > 0:
+    if _count(queue, _FAILED_JOB_STATES) > 0 or errors_today > 0:
         return "error"
-    if queue.get("blocked", 0) > 0:
+    if _count(queue, _BLOCKED_JOB_STATES) > 0:
         return "warning"
-    if queue.get("paused", 0) > 0:
+    if _count(queue, _PAUSED_JOB_STATES) > 0:
         return "paused"
     if kind != "idle":
         return "healthy_running"

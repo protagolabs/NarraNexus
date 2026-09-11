@@ -63,3 +63,43 @@ async def test_fetch_jobs_surfaces_a_spend_capped_job(db_client, monkeypatch):
 
     ids = [j["job_id"] for j in per_agent["agent_1"]["paused_spend_cap"]]
     assert ids == ["job_capped"]
+
+
+# ── review M2: banners / health see every live state ─────────────────────────
+
+def test_every_live_state_has_exactly_one_attention_group():
+    from backend.routes.dashboard import _helpers as h
+
+    groups = (
+        h._FAILED_JOB_STATES, h._BLOCKED_JOB_STATES,
+        h._PAUSED_JOB_STATES, h._NOMINAL_JOB_STATES,
+    )
+    flat = [s for g in groups for s in g]
+    assert sorted(flat) == sorted(_LIVE_JOB_STATES)
+
+
+@pytest.mark.parametrize("state", ["paused", "paused_no_quota", "paused_spend_cap"])
+def test_paused_family_raises_the_paused_banner_and_rail(state):
+    from backend.routes.dashboard._helpers import derive_attention_banners, derive_health
+
+    queue = {state: 2}
+    assert [b["kind"] for b in derive_attention_banners(queue)] == ["jobs_paused"]
+    assert derive_attention_banners(queue)[0]["message"] == "2 jobs paused"
+    assert derive_health("idle", queue, None, 0) == "paused"
+
+
+@pytest.mark.parametrize("state", ["blocked", "blocked_failed"])
+def test_blocked_family_raises_the_blocked_banner_and_warning_rail(state):
+    from backend.routes.dashboard._helpers import derive_attention_banners, derive_health
+
+    queue = {state: 1}
+    assert [b["kind"] for b in derive_attention_banners(queue)] == ["job_blocked"]
+    assert derive_health("idle", queue, None, 0) == "warning"
+
+
+def test_nominal_states_raise_nothing():
+    from backend.routes.dashboard._helpers import derive_attention_banners, derive_health
+
+    queue = {"running": 1, "pending": 1, "active": 1, "cooling": 1}
+    assert derive_attention_banners(queue) == []
+    assert derive_health("idle", queue, None, 0) == "healthy_idle"
