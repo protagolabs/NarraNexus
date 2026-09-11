@@ -65,6 +65,31 @@ MAX_KNOWN_AGENTS_IN_CONTEXT = 50
 # team is a deliberately-created room, not an auto-grouping), so this cap is a
 # guard against a pathological owner, not an expected trim.
 MAX_TEAMS_IN_CONTEXT = 30
+#: Per-row character budget of the unread list. It used to be 200 and cut
+#: silently, which is how a three-paragraph team-room instruction reached an
+#: agent as its first 200 characters and was acted on as if complete (upstream
+#: issue #73). The budget now fits an ordinary multi-paragraph instruction, and
+#: anything past it is ANNOUNCED — see `_unread_preview`.
+UNREAD_PREVIEW_MAX_CHARS = 1000
+
+
+def _unread_preview(content: Any) -> str:
+    """One unread row's text: whole when it fits, otherwise cut AND marked.
+
+    The marker states both sizes and names the tool that returns the full text,
+    because the static rules tell the agent its unread messages are already in
+    context. A clipped row that reads as complete is a wrong instruction the
+    agent has no way to notice.
+    """
+    text = str(content or "")
+    if len(text) <= UNREAD_PREVIEW_MAX_CHARS:
+        return text
+    return (
+        f"{text[:UNREAD_PREVIEW_MAX_CHARS]} …[cut: this message is "
+        f"{len(text)} characters and only the first "
+        f"{UNREAD_PREVIEW_MAX_CHARS} are shown. Read the rest with "
+        f"read_history on this conversation before acting on it.]"
+    )
 
 
 def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
@@ -431,7 +456,9 @@ class MessageBusModule(XYZBaseModule):
             "### Looking things up",
             "",
             "- Your unread messages and the current conversation are already in "
-            "this turn's context. You do not need to fetch them.",
+            "this turn's context. You do not need to fetch them — except a "
+            "long unread message, which is shown cut and says so; read_history "
+            "returns it in full.",
             "- `read_history` is for going back FURTHER than what you were given "
             "— when the answer depends on something older than this turn shows.",
             "- There is no registration tool. What peers see of you is rebuilt "
@@ -620,7 +647,7 @@ class MessageBusModule(XYZBaseModule):
             # a label we could not resolve is not evidence of a team.
             room_labels = ctx_data.extra_data.get("bus_room_labels") or {}
             for m in unread[:MAX_UNREAD_IN_CONTEXT]:
-                content = (m.get("content") or "")[:200]
+                content = _unread_preview(m.get("content"))
                 # One row of a multipart message: say so, or a preview of part
                 # 2 reads as a message that starts mid-sentence.
                 if m.get("part_count"):

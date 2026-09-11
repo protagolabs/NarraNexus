@@ -1,12 +1,21 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/message_bus_module.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 未读预览不再静默截 200 字（B-23 / upstream #73）
+
+#73：团队房里一条三段指令到了 agent 手里只剩「... so people can scan it via」——恰好是原文前
+200 字符。根因是 `_volatile_context_parts` 对每条未读 `content[:200]` 硬切且不加任何标记，
+而静态块又告诉 agent「未读已在 context，不用再取」，所以被切的片段和完整消息无从区分，agent
+按残片执行/追问。修法：行预算常量 `UNREAD_PREVIEW_MAX_CHARS = 1000`（装得下正常多段指令），
+超出由 `_unread_preview` 截断**并声明**（原长、展示长、用 `read_history` 取全文）；静态块那
+句补上「长未读会被截断并注明，read_history 返回全文」。`(part i/n)` 前缀照旧叠在截断文本前。
+
 ## 2026-09-09 — 未读列表给分片行加 `(part i/n)` 标签
 
-`gather` 的未读预览仍是逐行 200 字；一条分片消息的第 2 块预览会像「从句子中间开始的
+`gather` 的未读预览当时仍是逐行 200 字（2026-09-11 起见上条）；一条分片消息的第 2 块预览会像「从句子中间开始的
 消息」，所以带 `part_count` 的行前缀 `(part i/n)`。重组只在 trigger 的 turn 入口做
 （[[multipart]]），这里不合并——预览是窗口，不是投递面。
 
