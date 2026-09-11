@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 注释跟随:标题切换器恢复
+
+`tab` prop 的所有者改述为「member bar toggle 与抽屉标题切换器」;外壳注释改回「title switcher」。
+行为不变。见 [[../../bookmarks/BookmarkDrawer]] 同日条。
 
 ## 2026-09-03 — 「一个面板两个 tab」的入口回到 member bar
 

@@ -39,6 +39,7 @@ import {
   BookmarkPanelHost,
   tabLabelKey,
   tabDescKey,
+  visibleCategories,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -111,14 +112,18 @@ export function ChatView() {
   const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const openPanel = useUIStore((s) => s.openPanel);
 
   // The creation studio lives exactly as long as its panel is what this
   // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
   // not at each way the drawer can close. Which entries OFFER its tab is the
   // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
-  // the chat header's ⋯ menu and the ⌘K palette; the drawer itself has no
-  // switcher any more, so nothing here filters a tab list.
-  useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // the chat header's ⋯ menu, the ⌘K palette and the drawer's title switcher
+  // below (via visibleCategories, the same rule grouped by category).
+  const { studioOpen, studioResumable } = useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // Computed per render, not memoized: PANELS can gain plugin panels after
+  // mount, and the derivation is a sort over ~a dozen entries.
+  const switcherCategories = visibleCategories({ studioOpen, studioResumable });
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -126,7 +131,8 @@ export function ChatView() {
   };
 
   // A panel requested from the chat header entries / ⋯ detail menu / the
-  // command palette — all funnel through uiStore.requestPanel.
+  // command palette / the drawer's title switcher — all funnel through
+  // uiStore (requestPanel / openPanel).
   // Re-requesting the open tab closes the drawer (toggle).
   useEffect(() => {
     if (pendingPanel) {
@@ -233,6 +239,13 @@ export function ChatView() {
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={effectiveDrawerWidth}
+          // Title switcher (Owner-required): a pinned drawer switches its own
+          // content without a trip back to the chat header. It goes through
+          // the same uiStore funnel as every other panel entry ('open' mode:
+          // the switcher never re-selects the open tab, so no toggle).
+          activeTab={drawerTab}
+          onSelectTab={openPanel}
+          switcherCategories={switcherCategories}
           banner={
             showDrawerCoach ? (
               <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />

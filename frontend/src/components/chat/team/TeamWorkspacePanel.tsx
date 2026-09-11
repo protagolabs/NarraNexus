@@ -31,7 +31,7 @@ import { activeLocale, formatMessageAge } from '@/lib/utils';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
-  /** Which panel the drawer has open — the member-bar toggles own this. */
+  /** Which panel the drawer has open — the member-bar toggles and the drawer title switcher own this. */
   tab: 'artifacts' | 'files';
   artifacts: Artifact[];
   files: TeamFile[];
@@ -108,7 +108,7 @@ export function TeamWorkspacePanel({
   };
 
   return (
-    // Pure drawer content: the shared BookmarkDrawer owns the shell (title,
+    // Pure drawer content: the shared BookmarkDrawer owns the shell (title switcher,
     // pin, close, width); this fills it.
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0">

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/teamTabs.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — `teamDrawerCategories` / `TeamTabCounts` 回归,含 manage
+
+抽屉标题切换器按 Owner 要求恢复([[../../bookmarks/BookmarkDrawer]] 同日条),本文件重新提供
+切换器注册表:`teamDrawerCategories({members, artifacts, files})` 返回一个分组(i18n
+`chat.team.drawerCategory` ×10),四项 members(Users2,计数)/ artifacts(ArtifactsGlyph,计数)/
+files(FolderOpen,计数)/ manage(Settings2,无计数,排最后)。label 仍唯一来源
+`TAB_LABEL_KEYS`。下方 09-03「只剩 id + labelKey」条已作废。
+`ArtifactsGlyph` 与 `DrawerSwitcherCategory` 类型都从 barrel `@/components/bookmarks` 导入。
 
 ## 2026-09-03 — 第四个 tab:manage
 

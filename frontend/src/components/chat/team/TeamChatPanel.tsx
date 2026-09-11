@@ -26,7 +26,7 @@ import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
 import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
 import { ResizableDivider } from '@/components/layout/ResizableDivider';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
@@ -971,9 +971,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </button>
 
-        {/* Shared files — its own entry, because the drawer title is plain text
-            now and this panel has no other way in. A file the team shared is
-            invisible unless something advertises it, so the count rides here. */}
+        {/* Shared files — its own entry beside the drawer's title switcher (both
+            coexist). A file the team shared is invisible unless something
+            advertises it, so the count rides here too. */}
         <button
           type="button"
           onClick={() => toggleDrawerTab('files')}
@@ -1370,6 +1370,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           onPinnedChange={setDrawerPinned}
           onClose={() => setDrawerTab(null)}
           title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
+          // Title switcher (Owner-required): every team panel, incl. files and
+          // manage, is reachable from the drawer itself.
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
           inset={!isMobile}

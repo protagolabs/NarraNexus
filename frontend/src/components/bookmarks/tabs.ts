@@ -75,9 +75,10 @@ export interface AtomicTabDef {
    * did not: a studio panel with no conversation driving it reads as broken.
    * The tab stays REGISTERED regardless (so
    * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
-   * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette — filter on it.
+   * only the pickable lists — the chat header's ⋯ menu, the ⌘K palette, the drawer's title switcher — filter on it.
    * One field here rather than a filter in each consumer — but the rule is
-   * applied ONLY by `visibleTabs(ctx)`. `stripCategories()` / `allTabs()` are
+   * applied ONLY by `visibleTabs(ctx)` / `visibleCategories(ctx)` (both via
+   * `tabOffered`). `stripCategories()` / `allTabs()` are
    * the UNFILTERED registry, for looking a def up by id (the chat header's
    * `ALL_TAB_DEFS`) and resolving the drawer title; a new panel entry must go
    * through `visibleTabs`, or it will offer this tab to every agent.
@@ -174,13 +175,27 @@ function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
 }
 
 /**
- * The tabs a user may PICK from right now — `allTabs()` minus the conditional
- * tabs whose context does not hold. Every entry point that offers panels (the
- * chat header's ⋯ menu, the ⌘K palette) goes through here, so a conditional
- * tab can never leak out of one entry while being hidden in another.
+ * The panels a user may PICK from right now, grouped by strip category —
+ * `stripCategories()` minus the conditional tabs whose context does not
+ * hold; categories left empty by the filter are dropped. This is the SINGLE
+ * place visibility is decided: the drawer's title switcher consumes it
+ * directly and `visibleTabs` is its flattening, so every entry point that
+ * offers panels sees the same set.
+ */
+export function visibleCategories(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): StripCategory[] {
+  return stripCategories(entries)
+    .map((c) => ({ ...c, tabs: c.tabs.filter((t) => tabOffered(t, ctx)) }))
+    .filter((c) => c.tabs.length > 0);
+}
+
+/**
+ * `visibleCategories` flattened — for the flat entry points (the chat
+ * header's ⋯ menu, the ⌘K palette). Derived from, never parallel to, the
+ * grouped view, so a conditional tab can never leak out of one entry while
+ * being hidden in another.
  */
 export function visibleTabs(ctx: TabVisibilityContext, entries: RegistryEntry<PanelDef>[] = PANELS.list()): AtomicTabDef[] {
-  return allTabs(entries).filter((t) => tabOffered(t, ctx));
+  return visibleCategories(ctx, entries).flatMap((c) => c.tabs);
 }
 
 export function tabLabel(id: AtomicTabId): string {

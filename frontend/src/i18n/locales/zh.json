@@ -269,7 +269,8 @@
         "patrolOff": "关闭",
         "editProfile": "编辑资料（名称 / 颜色 / 简介）",
         "clearData": "清理团队数据…"
-      }
+      },
+      "drawerCategory": "团队房间"
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -1416,7 +1417,8 @@
     "drawer": {
       "unpin": "取消固定面板",
       "pin": "固定面板",
-      "close": "关闭面板"
+      "close": "关闭面板",
+      "switchPanel": "切换面板"
     },
     "coach": {
       "title": "可视化产物会显示在这里",

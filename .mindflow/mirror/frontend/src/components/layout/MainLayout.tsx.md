@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 抽屉重新接上标题切换器(Owner 要求)
+
+`<BookmarkDrawer>` 传 `activeTab={drawerTab}` / `onSelectTab={openPanel}` /
+`switcherCategories={visibleCategories({ studioOpen, studioResumable })}`,studio 两个标志取自
+`useStudioLifecycle` 的返回值。每次渲染现算、不 memo:`PANELS` 可能在挂载后才注册插件面板,
+派生只是十来项的排序。钉住的抽屉是独立窗口,必须能从标题自己切面板,见
+[[../bookmarks/BookmarkDrawer]] 同日条。下方 09-04「抽屉不再有切换器」条已作废。
+`onSelectTab` 是 `uiStore.openPanel`(`'open'` 模式),不直接写本地 `setDrawerTab`:切换器与聊天头部
+入口 / ⋯ 菜单 / ⌘K 走同一个 `pendingPanel` effect 漏斗,该 effect 的记账(`DRAWER_OPENED_ONCE_KEY`
+及以后加进去的任何东西)不会漏掉切换器这条路。用 `'open'` 而非 `requestPanel` 的 `'toggle'`:
+切换器本就不会对当前面板回调,两者等价,`'open'` 语义更准。
+测试:`__tests__/chatViewDrawerSwitcher.test.tsx`(去掉这三个 prop 即红;改回本地 setState 则
+opened-once 断言红)。
 
 ## 2026-09-04 (合并 dev #383 后) — 抽屉不再有切换器，`switcherCategories` 随之删除
 

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 再导出 `visibleCategories`
+
+供 [[../layout/MainLayout.tsx]] 给抽屉标题切换器取分组清单(见 [[tabs]] 同日条)。
+同批再导出切换器公共类型 `DrawerSwitcherTab` / `DrawerSwitcherCategory`(`export type`,来自
+[[BookmarkDrawer]]),外部消费者([[../chat/team/teamTabs]]、切换器测试)经 barrel 取,不再深路径
+导入组件文件。只加函数/类型再导出,不改 `tabs.ts` 的 PANELS 导入时序(builtin /
+panelHostLateRegistration 测试已复跑)。
 
 ## 2026-09-07 — barrel 只再导出 `BuiltinTabId` 类型
 

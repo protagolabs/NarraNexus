@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 抽屉标题切换器恢复(Owner 要求)
+
+`<BookmarkDrawer>` 重新传 `activeTab / onSelectTab / switcherCategories=teamDrawerCategories({members,
+artifacts, files})`,下拉含 members / artifacts / files / manage 四项。`files-toggle` 与其它
+member bar toggle **保留**,两条入口并存(注释改为「与标题切换器并存」)。见
+[[../../bookmarks/BookmarkDrawer]] 同日条。roster.test 新增「标题切换器可达全部四个面板」用例。
 
 ## 2026-09-03 — 公告栏和团队管理收进抽屉第四个 tab
 

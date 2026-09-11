@@ -217,7 +217,8 @@
         "patrolOff": "Desligar",
         "editProfile": "Editar perfil (nome / cor / intro)",
         "clearData": "Limpar dados…"
-      }
+      },
+      "drawerCategory": "Sala da equipe"
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -1083,7 +1084,8 @@
     "drawer": {
       "unpin": "Desafixar painel",
       "pin": "Afixar painel",
-      "close": "Fechar painel"
+      "close": "Fechar painel",
+      "switchPanel": "Trocar painel"
     },
     "coach": {
       "title": "Seus artefatos aparecem aqui",

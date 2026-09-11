@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/hooks/useDismissOnOutside.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 外层可通过「持有弹层开关状态」让出 Escape(仅注释)
+
+hook 行为不变。docstring 补一句:外层若自己持有弹层的 open 状态、并在弹层打开时跳过自己的
+Escape,就不会一起关——[[../components/bookmarks/BookmarkDrawer]] 对其标题切换器就是这么做的
+(只此一处;面板内容里的其它弹层仍会连抽屉一起关,通用的「最顶层优先」仍需全局 popover 栈)。
 
 ## 2026-08-19 — extraRefs、Escape 语义、iframe blur、DEV 警告
 
