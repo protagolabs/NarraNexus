@@ -75,6 +75,14 @@ def test_step3_installs_from_the_exported_requirements() -> None:
     installs = command_lines(SCRIPT, "uv pip install")
     assert installs, "build-desktop.sh no longer installs the project — update this guard"
     for line in installs:
+        # On the install, not just the export (v1.21.3): the export writes the
+        # workspace members as bare paths and `uv pip install -r` installs those
+        # editable unless the INSTALL says otherwise.
+        assert "--no-editable" in line, (
+            "the install itself must carry --no-editable; without it the 30 "
+            "workspace members become `.pth` hooks into the build machine's source "
+            f"tree and the shipped app cannot import them:\n    {line}"
+        )
         assert re.search(r"(^|\s)(-r\s|--requirements?[=\s])", line), (
             "the bundled install must read the exported requirements file; installing "
             f"the project directly re-resolves from the pyproject ranges:\n    {line}"
@@ -156,12 +164,44 @@ def _args_blocks(body: str) -> list[str]:
     return blocks
 
 
-def _state_rs_entrypoints() -> set[str]:
-    """The modules `bundled_services()` in state.rs actually launches.
+_ASGI_TARGET = re.compile(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*")
 
-    Reads the Rust source rather than a hand-copied list: the point of the test
-    is that a service added there and not to the smoke script is a service whose
-    dependency graph the build never checks.
+
+def _service_blocks(body: str) -> list[str]:
+    """Every `ServiceDef { ... }` body, sliced by brace matching."""
+    blocks: list[str] = []
+    marker = "ServiceDef {"
+    idx = body.find(marker)
+    while idx != -1:
+        start = idx + len(marker)
+        depth, i = 1, start
+        while i < len(body) and depth:
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+            i += 1
+        blocks.append(body[start:i - 1])
+        idx = body.find(marker, i)
+    return blocks
+
+
+def _state_rs_services() -> list[dict]:
+    """Each bundled_services() entry as {literals, modules, launch_targets, port}.
+
+    ONE reader for everything the guards need from state.rs, with the
+    structural invariants in one place: one block per ServiceDef, exactly one
+    args vec per block, and every entry yielding both an importable module and
+    a launch target. A reader that lets one entry contribute nothing fails OPEN
+    — a new sidecar with an unrecognised launch shape would go unverified while
+    the rest of the list still looks fine.
+
+    - modules: what must IMPORT (the `-m` runner counts: `-m uvicorn` means
+      uvicorn must import too), `.py` paths as module names;
+    - launch_targets: the literal strings the relocated-app step must launch
+      (`.py` paths verbatim, the ASGI `mod:app` — never the runner itself, or
+      `"uvicorn" in run` would pass on `-m uvicorn` alone);
+    - port: `port: Some(N)` when the entry declares one.
     """
     text = STATE_RS.read_text(encoding="utf-8")
     start = text.index("fn bundled_services")
@@ -170,48 +210,54 @@ def _state_rs_entrypoints() -> set[str]:
     end = text.index("fn dev_services", start)
     body = text[start:end]
 
-    blocks = _args_blocks(body)
-    # Structural invariant: one args vec per ServiceDef. If a future edit makes
-    # a ServiceDef unparseable, this is red — never a silently smaller set that
-    # still equals ENTRYPOINTS.
+    blocks = _service_blocks(body)
     assert len(blocks) == body.count("ServiceDef {"), (
-        f"parsed {len(blocks)} `args: vec![..]` blocks but state.rs "
-        f"bundled_services() declares {body.count('ServiceDef {')} ServiceDef(s) — "
-        f"the parser lost one; fix it rather than the count"
+        f"parsed {len(blocks)} ServiceDef blocks but bundled_services() contains "
+        f"{body.count('ServiceDef {')} 'ServiceDef {{' — the reader lost one (or the "
+        f"text occurs in a comment); fix the reader rather than the count"
     )
-
-    found: set[str] = set()
+    services: list[dict] = []
     for block in blocks:
-        literals = re.findall(r'"([^"]*)"', block)
-        # `-m uvicorn backend.main:app`: what gets imported is the `mod:app`,
-        # not the runner `-m` names. Keyed on the runner actually being there,
-        # so an unrelated `foo:bar`-shaped literal cannot swallow the `-m`.
+        args = _args_blocks(block)
+        assert len(args) == 1, f"a ServiceDef has {len(args)} args vecs, expected 1"
+        literals = re.findall(r'"([^"]*)"', args[0])
         runs_asgi_server = "uvicorn" in literals
-        from_block: set[str] = set()
+        modules: set[str] = set()
+        targets: list[str] = []
         for i, literal in enumerate(literals):
-            # By POSITION, never by package prefix: a prefix whitelist silently
-            # ignores a future service under a different top-level package, and
-            # the whole point of this guard is that a NEW service cannot slip in
-            # unimported.
             if literal == "-m" and i + 1 < len(literals):
-                # The runner counts too, and is ADDED rather than replaced by
-                # the mod:app below: a `-m <runner> <target>` service whose
-                # runner is silently dropped is a piece of the bundle nobody
-                # imports, which is the exact hole this guard exists to close.
-                from_block.add(literals[i + 1])
+                modules.add(literals[i + 1])
+                if not runs_asgi_server:
+                    targets.append(literals[i + 1])
             elif literal.endswith(".py"):
-                # launched by path (module_runner.py) — same import graph
-                from_block.add(literal.removeprefix("src/").removesuffix(".py").replace("/", "."))
-            elif runs_asgi_server and re.fullmatch(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", literal):
-                # uvicorn's "backend.main:app"
-                from_block.add(literal.split(":")[0])
-        assert from_block, (
-            "a bundled_services() entry yielded no importable module — the launch "
-            f"shape is new (console script? bare path?) and this parser has to learn "
-            f"it, otherwise that service ships unverified:\n    {literals}"
+                modules.add(literal.removeprefix("src/").removesuffix(".py").replace("/", "."))
+                targets.append(literal)
+            elif runs_asgi_server and _ASGI_TARGET.fullmatch(literal):
+                modules.add(literal.split(":")[0])
+                targets.append(literal)
+        assert modules and targets, (
+            "a bundled_services() entry yielded no importable module or no launch "
+            "target — the launch shape is new (console script? bare path?) and this "
+            f"reader has to learn it, otherwise that service ships unverified:\n    {literals}"
         )
-        found |= from_block
-    return found
+        port = re.search(r"port:\s*Some\((\d+)\)", block)
+        services.append({
+            "literals": literals,
+            "modules": modules,
+            "launch_targets": targets,
+            "port": int(port.group(1)) if port else None,
+        })
+    return services
+
+
+def _state_rs_entrypoints() -> set[str]:
+    """Every module state.rs's bundled services need to import."""
+    return set().union(*(service["modules"] for service in _state_rs_services()))
+
+
+def _state_rs_launch_targets() -> list[str]:
+    """The literal launch targets the relocated-app step must start."""
+    return [t for service in _state_rs_services() for t in service["launch_targets"]]
 
 
 def test_smoke_entrypoints_match_state_rs() -> None:
@@ -305,4 +351,192 @@ def test_smoke_checks_uvicorns_lazily_resolved_deps() -> None:
         "no single loop iterates both ENTRYPOINTS and LAZY_RUNTIME_IMPORTS — the "
         "two must share one fatal path, or the lazy group can be quietly demoted "
         f"to a warning (loops found: {[sorted(n) for n in per_loop if n]})"
+    )
+
+
+def test_smoke_checks_the_bundle_is_relocatable() -> None:
+    """The smoke script must check the INSTALL, not only the imports.
+
+    Import checks run on the build machine, where an editable install's `.pth`
+    target exists — so they pass on a bundle that cannot work anywhere else.
+    That is exactly how v1.21.3 shipped: green build, green smoke, and
+    `No module named 'narranexus.contracts'` on every user's Mac. The
+    relocatability check has to exist AND run before the imports.
+    """
+    tree = ast.parse(SMOKE.read_text(encoding="utf-8"))
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    assert "_non_relocatable_installs" in functions, (
+        "bundle_import_smoke.py lost its relocatability check — an editable/"
+        "non-relocatable bundle would pass the import smoke on the build machine"
+    )
+    main = functions.get("main")
+    assert main is not None, "bundle_import_smoke.py has no main()"
+    called = {
+        n.func.id for n in ast.walk(main)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "_non_relocatable_installs" in called, (
+        "main() no longer calls _non_relocatable_installs — the check exists but "
+        "never runs, which is the same as not having it"
+    )
+
+
+def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
+    """The release workflow must run the FINAL app with the checkout hidden, before uploading.
+
+    Every other gate here runs on the build machine, where the source tree
+    exists — v1.21.3 passed all of them and still died on every user's Mac,
+    because its bundle leaned on /Users/runner/work/... through editable `.pth`
+    hooks. The only check that sees what a user sees is one that removes the
+    checkout and then launches the app; it has to sit before both uploads, or a
+    broken bundle is published first and found second.
+    """
+    import yaml  # pyyaml is a runtime dependency (pyproject.toml)
+
+    workflow = yaml.safe_load(
+        (REPO / ".github/workflows/build-desktop.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["build-macos"]["steps"]
+    names = [str(step.get("name", "")) for step in steps]
+
+    def index_of(fragment: str) -> int:
+        hits = [i for i, name in enumerate(names) if fragment in name]
+        assert hits, f"no workflow step named like {fragment!r}: {names}"
+        return hits[0]
+
+    verify = index_of("without the source tree")
+    build = index_of("Build, sign, notarize")
+    uploads = [i for i, name in enumerate(names) if name.startswith("Upload")]
+    assert uploads, "no upload steps found — update this guard"
+    assert build < verify < min(uploads), (
+        "the relocated-app verification must run after the build and before "
+        f"every upload (build={build}, verify={verify}, uploads={uploads})"
+    )
+
+    # The comments and mirror promise the sidecar logs survive a failure; the
+    # step that makes that true must exist, run only on failure, come right
+    # after the verification, and point at where the verification writes them.
+    collect = index_of("sidecar logs (on failure)")
+    assert collect == verify + 1, (
+        f"the log-collection step must directly follow the verification "
+        f"(verify={verify}, collect={collect})"
+    )
+    collect_step = steps[collect]
+    assert "failure()" in str(collect_step.get("if", "")), (
+        "the log-collection step must run on failure (job-level), not unconditionally"
+    )
+    assert "upload-artifact" in str(collect_step.get("uses", "")), (
+        "the log-collection step must upload the logs as an artifact"
+    )
+    assert "relocated/*.log" in str((collect_step.get("with") or {}).get("path", "")), (
+        "the log-collection step must upload the verification's sidecar logs"
+    )
+
+    step = steps[verify]
+    # A gate this expensive (it runs after notarization) is exactly the one a
+    # "just get the release out" edit would soften. Neither of the two quiet
+    # ways to do that — without deleting the step — is allowed.
+    assert not step.get("continue-on-error"), (
+        "the relocated-app verification is the only gate that sees what a user "
+        "sees; continue-on-error turns it into a log line"
+    )
+    assert "if" not in step, (
+        "the relocated-app verification must run on every desktop build — a "
+        "condition here is how it gets disabled without being deleted"
+    )
+
+    run = str(step.get("run", ""))
+    # Code lines only, for every assertion below that looks for a token the
+    # step's own comments also mention: a guard satisfied by the comment that
+    # explains it is not a guard. (Whole-line comments only — trailing
+    # comments stay, which none of these tokens depend on.)
+    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
+    # The three things that make it a real check rather than a re-run of the
+    # build-machine smoke: the checkout is moved away, the app's OWN copy of
+    # the smoke script runs, and a sidecar is actually launched until it binds.
+    assert 'mv "$GITHUB_WORKSPACE"' in run, "the step no longer hides the checkout"
+    assert "set -euo pipefail" in run, "the step must fail on any unhandled error"
+    assert "trap restore EXIT" in run, "the checkout must be restored on every exit path"
+    for signal_name in ("INT", "TERM"):
+        assert re.search(rf"trap '[^']*restore[^']*exit[^']*' {signal_name}\b", run), (
+            f"{signal_name} must restore the checkout AND exit — a handler that returns "
+            "lets the script run on after the checkout was put back"
+        )
+    # The explicit failure path must actually EXIT: `|| { echo ...; }` without
+    # it keeps the message and quietly turns the smoke into "log and continue"
+    # (the `||` already exempts the command from `set -e`).
+    assert re.search(r"failed the import smoke[^\n]*exit 1", run), (
+        "the relocated-app smoke needs an explicit failure path that exits, not only "
+        "`set -e` — it is the one command that reproduces v1.21.3 directly"
+    )
+    # Everything about the log scan is asserted on CODE lines only. The step's
+    # own comments quote these very strings (`cannot import name ...`, the
+    # grep|grep -q it avoids), and a guard satisfied by the comment explaining
+    # it is not a guard: deleting the pattern from the awk would stay green.
+    # Caught-and-logged import failures too (the supervisor and plugin hooks
+    # log only the message), iterating the launched sidecars, not a hand-kept
+    # third list of names.
+    for message in ("cannot import name ", "No module named "):
+        assert message in code, f"the log scan no longer catches logged {message!r} failures"
+    assert 'name="${entry##*:}"' in code and "for name in sqlite_proxy" not in code, (
+        "the log scan must iterate $PIDS, so a new sidecar's log is scanned without "
+        "anyone remembering to add it"
+    )
+    # DEBUG probes excluded in all three spellings that reach these logs.
+    for spelling in (":DEBUG", "| DEBUG ", "^DEBUG:"):
+        assert spelling in code, f"the log scan no longer skips {spelling!r} DEBUG lines"
+    # No `grep -v ... | grep -q`: under pipefail an early match SIGPIPEs the
+    # first grep and the pipeline reads as "no match".
+    assert not re.search(r"grep[^\n|]*\|\s*grep -q", code), (
+        "a `grep ... | grep -q` scan can report a real match as clean under pipefail"
+    )
+    # Both non-clean outcomes of the awk must fail the step, matched on
+    # structure (branch + `fail`), not on the wording of the message. `0)` is
+    # the one a false red would soften first — `0) ;;` turns the whole scan
+    # into a no-op; `*)` is awk itself not running.
+    assert re.search(r"^\s*0\)\s*fail ", code, re.MULTILINE), (
+        "an awk hit must fail the step — a `0) ;;` turns the whole log scan into a no-op"
+    )
+    assert re.search(r"^\s*\*\)\s*fail ", code, re.MULTILINE), (
+        "an awk that fails to run (exit 2) must fail the step, not pass as clean"
+    )
+    assert 'export PATH="$RES/nodejs/bin' in run and "/usr/bin:/bin:/usr/sbin:/sbin" in run, (
+        "the sidecars must get a Finder launch's PATH (bundled node dirs + launchd's "
+        "minimal PATH), not the runner's wider one"
+    )
+    assert "unset NARRANEXUS_DEPLOYMENT_MODE" in run, (
+        "the step must scrub deployment-mode env the way a Finder launch does, or a "
+        "runner-side variable decides whether backend thinks it is in the cloud"
+    )
+    assert "$PROJ/scripts/release/bundle_import_smoke.py" in run, (
+        "the smoke must run from the relocated app's project copy"
+    )
+    # All four sidecars, not just the first: an import check proves a module
+    # loads, not that the service it belongs to comes up. Launch targets are
+    # read from state.rs's bundled_services() via the same reader the lockstep
+    # test uses, so a new service there that is not launched here goes red.
+    for target in _state_rs_launch_targets():
+        assert target in code, (
+            f"the relocated-app step does not launch {target!r}, which state.rs's "
+            "bundled_services() starts — that service's startup is unverified"
+        )
+    # 8100 / 8000 straight from state.rs's `port: Some(..)`; 7801 / 47831 are
+    # Python constants (MCP_PORT default, HEALTHZ_PORT) named next to the loop.
+    declared = {service["port"] for service in _state_rs_services() if service["port"]}
+    assert declared, "no `port: Some(..)` parsed from state.rs — update the reader"
+    # Each port must appear in a wait_port CALL: the step's comment names all
+    # four numbers, and SQLITE_PROXY_PORT=8100 names one again, so a bare
+    # substring check passes with the wait deleted.
+    for port in sorted(declared) + [7801, 47831]:
+        assert re.search(rf"wait_port \w+ {port}\b", code), (
+            f"the step no longer waits for :{port}"
+        )
+    assert "/docs" in run, "backend must be probed over HTTP, not only for an open port"
+    assert "/healthz" in run, (
+        "workers must be gated on its health endpoint, not a fixed sleep"
+    )
+    # An open port proves nothing if someone else already held it: the step
+    # must refuse to test on a taken port and confirm its own process is alive.
+    assert "port_free" in run and "already in use" in run, (
+        "the step must check each port is free before launching"
     )

@@ -14,11 +14,20 @@ stub: false
 
 ## 上下游
 
-- **调用方**：`scripts/release/build-desktop.sh` step 3.1，紧跟依赖安装之后（早于 Node/签名/公证，失败越早越省时间）。
+- **调用方（两处）**：
+  1. `scripts/release/build-desktop.sh` step 3.1，紧跟依赖安装之后（早于 Node/签名/公证，失败越早越省时间），跑在**构建机**上、源码 checkout 在场；
+  2. `.github/workflows/build-desktop.yml` 的 "Verify the shipped app starts without the source tree"，在构建之后、两次上传之前，用**重定位后的最终 app** 跑同一份脚本，checkout 已被挪走——这是唯一"看得见用户所见"的调用点。
+  两处的 `sys.prefix` 不同（构建机上是 `tauri/src-tauri/resources/python`，重定位后是 `$RUNNER_TEMP/relocated/…`），所以可迁移性判据**不能相对 `sys.prefix`**：同一个 `.pth` 在一处"落在解释器内"、在另一处"落在外面"，判据必须两处一致。
 - **事实来源**：`ENTRYPOINTS` 是 `tauri/src-tauri/src/state.rs` 的 `bundled_services()` 的镜像；两者一致性由 `tests/release/test_desktop_build_uses_lock.py::test_smoke_entrypoints_match_state_rs` 守住。
 - **`LAZY_RUNTIME_IMPORTS` 也有可执行守门**：`test_smoke_checks_uvicorns_lazily_resolved_deps` 断言 `websockets` 必须在名单里，并且**同一个循环**要同时迭代两个元组——拆成两个循环、把 lazy 那组降级成警告，是削弱这道门最自然的方式（"uvloop 挂了只是性能回退"很容易说服人），所以断言盯的是"共用同一条判死路径"，不是"两个名字各自出现过"。
 
+## 先查"可迁移"，再查导入（v1.21.3 教训）
+
+导入检查有一个它自己无法察觉的盲区：它跑在**构建机**上。v1.21.3 的 30 个 workspace 包全被装成 editable，每个都是一个指向 `/Users/runner/work/...` 的 `.pth`——在构建机上这些目录存在，所以 8 项导入全绿；在用户机器上不存在，于是 `No module named 'narranexus.contracts'`。所以 `main()` 第一件事是 `_non_relocatable_installs()`：任何 `direct_url.json` 标了 `editable`、任何 `_editable_impl_*` / `__editable__*` 钩子，以及 `.pth` 里**任何绝对路径**——包括今天恰好落在解释器目录之内的——都直接判死：app 搬到 `/Applications` 之后，构建机上"在解释器内"的那条绝对路径同样不存在。合法的 `.pth` 条目是相对 site-packages 的；按 step 3 同样方式装出来的真实 site-packages 里一个 `.pth` 都没有（2026-09-10 核过），所以这条不会误伤好构建。这类问题无法靠"导入成功"证伪，只能看安装本身。
+
 ## 设计决策
+
+- **purelib 和 platlib 都扫**（去重后逐个）。今天在我们打包的 macOS python-build-standalone 上两者是同一个目录，但这是一个靠外部事实成立的收窄；换解释器发行版或出 Windows/Linux bundle 时两者会分叉，editable 安装落进没扫的那个目录就会被放行。问题标识用相对各自 site 目录的路径，避免两个目录里同名文件产生歧义。
 
 - **任何异常都判死，不只是 ImportError**。第一版只判 ImportError，理由是"别让构建机的环境问题误伤"。这个取舍是错的：跨 major 的破坏在 import 期多数**不是** ImportError——starlette/fastapi 是签名变化的 TypeError、属性没了的 AttributeError，pydantic 是 PydanticUserError，builtin 插件加载失败是 loader 直接 raise。9/10 真正漂移进 DMG 的四个包里，只有 mcp 恰好以 ImportError 现身，四分之一的覆盖率。
 - 能这么严，是因为**先把有状态的东西全指到临时目录**（HOME / `NARRANEXUS_PLUGIN_HOME` / `DATABASE_URL` / `NARRA_SURFACE`）。`backend.main` 在 import 期就建 FastAPI app 并加载 builtin 插件，会读 home、插件树和数据库；不隔离的话结果取决于谁在构建，那才是"环境误伤"的真正来源。隔离之后结果是确定的，于是不需要任何白名单。
