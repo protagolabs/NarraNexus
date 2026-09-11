@@ -2209,8 +2209,6 @@
       "descriptionLabel": "説明",
       "payloadLabel": "内容 / プロンプト",
       "payloadHint": "このジョブが実行される際にエージェントへ渡される指示テキストです。",
-      "save": "保存",
-      "cancel": "キャンセル",
       "titleRequired": "タイトルを空にすることはできません",
       "failedTitle": "更新に失敗しました",
       "failedMessage": "ジョブの内容を更新できませんでした。もう一度お試しください。"

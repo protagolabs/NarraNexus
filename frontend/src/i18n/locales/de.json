@@ -2210,8 +2210,6 @@
       "descriptionLabel": "Beschreibung",
       "payloadLabel": "Inhalt / Prompt",
       "payloadHint": "Der Anweisungstext, der beim Ausführen dieser Aufgabe an den Agenten übergeben wird.",
-      "save": "Speichern",
-      "cancel": "Abbrechen",
       "titleRequired": "Der Titel darf nicht leer sein",
       "failedTitle": "Aktualisierung fehlgeschlagen",
       "failedMessage": "Der Aufgabeninhalt konnte nicht aktualisiert werden. Bitte erneut versuchen."

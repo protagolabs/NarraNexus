@@ -2668,8 +2668,6 @@
       "descriptionLabel": "描述",
       "payloadLabel": "内容 / 提示词",
       "payloadHint": "任务运行时传给智能体的指令文本。",
-      "save": "保存",
-      "cancel": "取消",
       "titleRequired": "标题不能为空",
       "failedTitle": "更新失败",
       "failedMessage": "无法更新任务内容，请重试。"

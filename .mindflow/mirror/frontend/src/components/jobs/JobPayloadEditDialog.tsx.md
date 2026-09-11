@@ -40,6 +40,12 @@ paths for no benefit.
   after trim) — the payload/description have no format constraint
   worth enforcing here; the backend is the source of truth for anything
   deeper.
+- Title and description are compared and submitted trimmed (the value
+  that passed validation is the value stored; a whitespace-only edit
+  counts as unchanged). The payload is prompt text and is sent verbatim —
+  a trailing newline may be intentional.
+- The footer buttons use the shared `common.save` / `common.cancel`
+  labels; the dialog has no private copy of them.
 - `saving`/error display follow the same prop contract as
   JobScheduleEditDialog: this component holds no network state of its
   own, the parent (`JobsPanel`) owns success/failure handling.

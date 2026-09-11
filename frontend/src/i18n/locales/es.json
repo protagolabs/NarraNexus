@@ -2210,8 +2210,6 @@
       "descriptionLabel": "Descripción",
       "payloadLabel": "Contenido / prompt",
       "payloadHint": "El texto de instrucciones que se pasa al agente cuando se ejecuta esta tarea.",
-      "save": "Guardar",
-      "cancel": "Cancelar",
       "titleRequired": "El título no puede estar vacío",
       "failedTitle": "Error al actualizar",
       "failedMessage": "No se pudo actualizar el contenido de la tarea. Inténtalo de nuevo."

@@ -2210,8 +2210,6 @@
       "descriptionLabel": "Description",
       "payloadLabel": "Contenu / prompt",
       "payloadHint": "Le texte d'instructions transmis à l'agent lors de l'exécution de cette tâche.",
-      "save": "Enregistrer",
-      "cancel": "Annuler",
       "titleRequired": "Le titre ne peut pas être vide",
       "failedTitle": "Échec de la mise à jour",
       "failedMessage": "Impossible de mettre à jour le contenu de la tâche. Veuillez réessayer."

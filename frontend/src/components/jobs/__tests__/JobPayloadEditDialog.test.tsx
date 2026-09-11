@@ -34,6 +34,46 @@ describe('JobPayloadEditDialog', () => {
     expect(onSave).toHaveBeenCalledWith({ payload: 'Summarize overnight news in 3 bullets.' });
   });
 
+  test('title and description are submitted trimmed; the payload keeps its whitespace', () => {
+    const onSave = vi.fn();
+    render(
+      <JobPayloadEditDialog job={baseJob} isOpen saving={false} onClose={() => {}} onSave={onSave} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue('Morning briefing'), {
+      target: { value: '  Evening briefing  ' },
+    });
+    fireEvent.change(screen.getByDisplayValue('Sends the daily summary'), {
+      target: { value: ' Sends the nightly summary\n' },
+    });
+    fireEvent.change(screen.getByDisplayValue('Summarize overnight news.'), {
+      target: { value: 'Summarize overnight news.\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      title: 'Evening briefing',
+      description: 'Sends the nightly summary',
+      payload: 'Summarize overnight news.\n',
+    });
+  });
+
+  test('whitespace-only edits to title/description count as unchanged', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <JobPayloadEditDialog job={baseJob} isOpen saving={false} onClose={onClose} onSave={onSave} />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue('Morning briefing'), {
+      target: { value: 'Morning briefing  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
   test('closes without saving when nothing changed', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();

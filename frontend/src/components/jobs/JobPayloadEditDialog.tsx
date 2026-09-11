@@ -31,7 +31,13 @@ export function JobPayloadEditDialog({ job, isOpen, saving, onClose, onSave }: J
 
   const handleSave = () => {
     setError(null);
-    if (!title.trim()) {
+    // Title and description are validated, compared and submitted in their
+    // trimmed form so the check and the stored value agree. The payload is
+    // prompt text and keeps its exact whitespace (a trailing newline can be
+    // intentional).
+    const trimmedTitle = title.trim();
+    const trimmedDescription = description.trim();
+    if (!trimmedTitle) {
       setError(t('jobs.editPayload.titleRequired'));
       return;
     }
@@ -39,8 +45,8 @@ export function JobPayloadEditDialog({ job, isOpen, saving, onClose, onSave }: J
     // Only send the fields that actually changed — matches the backend's
     // only-passed-fields-change semantics (JobUpdateFields: None = unchanged).
     const fields: { title?: string; description?: string; payload?: string } = {};
-    if (title !== (job.title || '')) fields.title = title;
-    if (description !== (job.description || '')) fields.description = description;
+    if (trimmedTitle !== (job.title || '').trim()) fields.title = trimmedTitle;
+    if (trimmedDescription !== (job.description || '').trim()) fields.description = trimmedDescription;
     if (payload !== (job.payload || '')) fields.payload = payload;
 
     if (Object.keys(fields).length === 0) { onClose(); return; }
@@ -92,7 +98,7 @@ export function JobPayloadEditDialog({ job, isOpen, saving, onClose, onSave }: J
       </DialogContent>
       <DialogFooter>
         <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-          {t('jobs.editPayload.cancel')}
+          {t('common.cancel')}
         </Button>
         <Button variant="default" size="sm" onClick={handleSave} disabled={saving}>
           {saving ? (
@@ -101,7 +107,7 @@ export function JobPayloadEditDialog({ job, isOpen, saving, onClose, onSave }: J
               {t('jobs.action.savingPayload')}
             </>
           ) : (
-            t('jobs.editPayload.save')
+            t('common.save')
           )}
         </Button>
       </DialogFooter>
