@@ -4,6 +4,11 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`run_is_live` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `background_run`
+转手），行为不变；文中「background_run.py 的心跳新鲜度规则」现住在 `utils/run_liveness.py`。
+
 ## 2026-09-10 — fresh-run 路径两步熔断门，赢得的探测随 run 走
 
 [[circuit_breaker]] 的 `should_skip`（纯读，返回 `GateVerdict`）放行之后、

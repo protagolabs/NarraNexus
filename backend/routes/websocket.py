@@ -51,7 +51,8 @@ from backend.auth_errors import (
 from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
 from narranexus.platform.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
-from narranexus.platform.agent_runtime.background_run import BackgroundRun, run_is_live
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.utils.run_liveness import run_is_live
 from narranexus.platform.agent_runtime.cancellation import CancellationToken, CancelledByUser
 from narranexus.platform.agent_runtime.steer_channel import SteerChannel
 from narranexus.platform.schema.steer_schema import SteerInjection

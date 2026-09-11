@@ -30,11 +30,11 @@ from narranexus.platform.agent_runtime.run_recorder import (
     STATE_CANCELLED,
     STATE_COMPLETED,
     STATE_FAILED,
-    STATE_RUNNING,
     first_live_run_id,
     recording_enabled,
     sweep_stale_runs,
 )
+from narranexus.platform.utils.run_liveness import STATE_RUNNING
 from narranexus.platform.utils.timezone import utc_now
 
 
@@ -590,3 +590,36 @@ def test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle():
     assert circuit_breaker.run_is_live is run_liveness.run_is_live
     assert run_recorder.run_is_live is run_liveness.run_is_live
     assert "agent_runtime.run_recorder" not in inspect.getsource(circuit_breaker)
+
+
+def test_the_liveness_rule_has_one_import_path():
+    """#394 review I4 (second round): ``utils.run_liveness`` is the ONLY
+    module callers import the liveness rule from. ``run_recorder`` and
+    ``background_run`` use it but must not re-export it — a second path
+    invites the next liveness change to land in the heavy runtime module
+    and reopen the loop<->runtime cycle."""
+    import re
+    from pathlib import Path
+
+    from narranexus.platform.agent_runtime import background_run, run_recorder
+
+    names = {
+        "HEARTBEAT_INTERVAL_S", "RUN_STALE_AFTER_S", "STATE_RUNNING",
+        "parse_db_utc", "run_is_live",
+    }
+    assert not names & set(run_recorder.__all__)
+    assert not names & set(background_run.__all__)
+
+    root = Path(__file__).resolve().parents[2]
+    import_block = re.compile(
+        r"from narranexus\.platform\.agent_runtime\.(?:run_recorder|background_run)"
+        r"\s+import\s+(\([^)]*\)|[^\n]*)"
+    )
+    offenders = []
+    for base in ("src", "backend", "tests", "scripts"):
+        for path in (root / base).rglob("*.py"):
+            for match in import_block.finditer(path.read_text(encoding="utf-8")):
+                imported = set(re.findall(r"\b\w+\b", match.group(1)))
+                if imported & names:
+                    offenders.append(f"{path.relative_to(root)}: {sorted(imported & names)}")
+    assert offenders == []

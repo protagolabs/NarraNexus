@@ -59,13 +59,12 @@ from narranexus.platform.utils.timezone import utc_now
 
 # Liveness (heartbeat cadence, staleness threshold, ``run_is_live``) lives in
 # the leaf ``utils.run_liveness`` so the circuit breaker can share the SAME
-# rule without importing this module (see that module's docstring).
-# Re-exported here, unchanged objects, for every existing caller.
+# rule without importing this module (see that module's docstring). Imported
+# here for this module's own use only — callers import it from
+# ``utils.run_liveness``, the one path to the rule.
 from narranexus.platform.utils.run_liveness import (
     HEARTBEAT_INTERVAL_S,
-    RUN_STALE_AFTER_S,
     STATE_RUNNING,
-    parse_db_utc,
     run_is_live,
 )
 
@@ -706,21 +705,16 @@ class RunRecorder:
 
 __all__ = [
     "classify_event",
-    "HEARTBEAT_INTERVAL_S",
     "RECORDING_DISABLED_ENV",
-    "RUN_STALE_AFTER_S",
     "RunRecorder",
     "STATE_CANCELLED",
     "STATE_COMPLETED",
     "STATE_FAILED",
-    "STATE_RUNNING",
     "TERMINAL_STATES",
     "event_to_wire",
     "first_live_run_id",
     "normalise_event",
-    "parse_db_utc",
     "recording_enabled",
-    "run_is_live",
     "sweep_stale_runs",
     "try_extract_event_id",
 ]

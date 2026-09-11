@@ -17,6 +17,13 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 
 ## 2026-09-10 — CANCELLED 的 turn 归还半开探测名额
 
+## 2026-09-10（PR #394 第二轮 review I-4）— 不再转手导出活性规则
+
+`__all__` 去掉 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live`；本模块只从 [[run_liveness]] 导入自己用到的 `STATE_RUNNING`。websocket / auth
+改为直接从 `utils.run_liveness` 导入 `run_is_live`（与删除在同一 commit，否则 backend 起不来）。
+下方 2026-06-10 一节说的「上移到本文件」是历史：规则现在只住在 `utils/run_liveness.py`。
+
 ## 2026-09-10（PR #394 review I1）— run 携带探测身份 `probe_token`
 
 `__init__` 新增 `probe_token: Optional[str] = None`：入口（[[websocket.py]]、

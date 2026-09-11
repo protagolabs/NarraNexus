@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/runs.py
-last_verified: 2026-08-11
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`STATE_RUNNING` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `run_recorder`
+转手），行为不变。
+
 ## 2026-08-07 (四次) — 停止顺带把工作板停下(第 7 条落地)
 
 `_pause_work_items(db, root)`:停一棵树之后,把该树 ACTIVE 的工作项置

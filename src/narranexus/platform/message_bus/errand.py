@@ -427,7 +427,7 @@ async def expire_stale_errands(
         logger.warning(f"[errand] stale sweep failed team={team_id}: {e}")
         return []
 
-    from narranexus.platform.agent_runtime.run_recorder import parse_db_utc
+    from narranexus.platform.utils.run_liveness import parse_db_utc
     from narranexus.platform.message_bus._bus_activity import is_live
 
     cutoff = utc_now() - timedelta(hours=ERRAND_TTL_HOURS)

@@ -23,8 +23,10 @@ ImportError（PR #394 review I4）。把纯数据 + 算术搬到 `utils` 叶子�
 
 ## 上下游
 
-[[run_recorder]] 原样 re-export（同一对象、`__all__` 不变），既有调用方不动；
-[[circuit_breaker]] 模块级导入。两处活性判定必须是**同一个对象**——
+本模块是活性规则**唯一**的导入路径（PR #394 第二轮 review I-4）：[[run_recorder]] /
+[[background_run]] 只为自身使用导入、不再 re-export；所有调用方（backend main/auth/websocket/runs、
+cancel_watcher、patrol、errand、[[circuit_breaker]]）直接从这里导入。门禁
+`test_run_recorder.py::test_the_liveness_rule_has_one_import_path`。两处活性判定必须是**同一个对象**——
 `test_run_recorder.py::test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle` 钉住。
 
 ## 约束

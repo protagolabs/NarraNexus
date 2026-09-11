@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/cancel_watcher.py
-last_verified: 2026-08-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`parse_db_utc` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `run_recorder`
+转手），行为不变。
 
 # cancel_watcher.py — 把「停止」送到持有 token 的那个进程
 

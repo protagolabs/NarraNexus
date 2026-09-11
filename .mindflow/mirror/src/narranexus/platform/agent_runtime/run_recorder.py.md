@@ -19,12 +19,21 @@ stub: false
 
 ## 2026-09-10（PR #394 review I4）— 活性规则搬到叶子模块 `utils.run_liveness`
 
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则只剩一条 import 路径
+
+本模块不再 re-export 活性规则：只为自身使用导入 `HEARTBEAT_INTERVAL_S` / `STATE_RUNNING` /
+`run_is_live`，`__all__` 去掉了 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` /
+`parse_db_utc` / `run_is_live`。所有调用方（backend main/auth/websocket/runs、cancel_watcher、
+patrol、errand、测试）直接从 [[run_liveness]] 导入。状态机常量 `STATE_COMPLETED` /
+`STATE_CANCELLED` / `STATE_FAILED` / `TERMINAL_STATES` 仍住在本模块。门禁：
+`test_run_recorder.py::test_the_liveness_rule_has_one_import_path`（扫 src/backend/tests/scripts
+里从 run_recorder / background_run 导入活性名字的语句，含多行括号导入）。
+
 ## 2026-09-10（PR #394 review I1/I4）— 活性规则搬到叶子模块；清扫改调 `release_orphaned_probe`
 
 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
-`run_is_live` 移到 [[run_liveness]]（`utils` 叶子），本模块原样 re-export（同一对象、
-`__all__` 不变），既有调用方（agents 列表、observe 端点、`message_bus_trigger._member_status`）
-不受影响。熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级
+`run_is_live` 移到 [[run_liveness]]（`utils` 叶子）。（最初本模块原样 re-export；第二轮 review I-4 已删掉
+re-export，见上一节。）熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级
 下行导入——原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。
 
 `sweep_stale_runs` 每翻一行（failed 或 cancelled）对该 `agent_id` 调

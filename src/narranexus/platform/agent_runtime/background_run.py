@@ -69,20 +69,16 @@ from narranexus.platform.repository.artifact_event_repository import (
     ArtifactEventRepository,
 )
 from narranexus.platform.agent_runtime.run_recorder import (
-    HEARTBEAT_INTERVAL_S,
-    RUN_STALE_AFTER_S,
     RunRecorder,
     STATE_CANCELLED,
     STATE_COMPLETED,
     STATE_FAILED,
-    STATE_RUNNING,
     TERMINAL_STATES,
     classify_event,
     event_to_wire,
     normalise_event,
-    parse_db_utc,
-    run_is_live,
 )
+from narranexus.platform.utils.run_liveness import STATE_RUNNING
 
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
@@ -605,7 +601,5 @@ class BackgroundRun:
             )
 
 
-__all__ = ["BackgroundRun", "HEARTBEAT_INTERVAL_S", "RUN_STALE_AFTER_S",
-           "STATE_RUNNING", "STATE_COMPLETED", "STATE_CANCELLED",
-           "STATE_FAILED", "TERMINAL_STATES",
-           "parse_db_utc", "run_is_live"]
+__all__ = ["BackgroundRun", "STATE_COMPLETED", "STATE_CANCELLED",
+           "STATE_FAILED", "TERMINAL_STATES"]
