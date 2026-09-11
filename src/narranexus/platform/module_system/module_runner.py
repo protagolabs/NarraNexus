@@ -80,10 +80,20 @@ from loguru import logger
 from narranexus.platform.module_system import XYZBaseModule, module_registry
 from narranexus.platform.module_system.base import mcp_mount_path, mcp_port
 
+#: Tightest SIGTERM->SIGKILL window any supervisor gives this process: the
+#: Tauri sidecar manager waits 3s (``process_manager.rs::stop_service``);
+#: Docker's default ``stop_grace_period`` (the deploy compose sets none for
+#: ``mcp``) is 10s. Everything in ``_release_host_resources`` must fit inside it.
+_STOP_GRACE_BUDGET_SEC = 3.0
+#: Time reserved after the drain for cancel+gather, closing the pool and
+#: flushing loguru. A drain that eats the whole grace gets the process
+#: SIGKILLed before the pool closes -- exactly when there was in-flight work.
+_POOL_CLOSE_HEADROOM_SEC = 1.0
 #: How long shutdown waits for detached (`spawn`ed) work before cancelling it
-#: and closing the pool. Bounded so a wedged task cannot hold the process past
-#: the container's stop grace; the work is cancelled, never silently dropped.
-_BACKGROUND_DRAIN_SEC = 10.0
+#: and closing the pool. Derived, never set independently: it MUST stay below
+#: the stop grace or the close step it protects never runs. The work is
+#: cancelled, never silently dropped.
+_BACKGROUND_DRAIN_SEC = _STOP_GRACE_BUDGET_SEC - _POOL_CLOSE_HEADROOM_SEC
 
 # Utils
 from narranexus.platform.utils import (

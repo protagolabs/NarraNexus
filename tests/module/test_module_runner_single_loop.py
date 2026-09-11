@@ -529,3 +529,48 @@ async def test_detached_work_is_joined_before_the_pool_closes(monkeypatch, fake_
     await stopper
 
     assert log == ["task_done", "closed"]
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_detached_task_still_leaves_time_to_close_the_pool(monkeypatch, fake_uvicorn):
+    """The drain is bounded BELOW the tightest stop grace (Tauri: 3s SIGTERM ->
+    SIGKILL; Docker default: 10s). A drain that uses the whole grace gets the
+    process SIGKILLed before `close_db_client()` -- the in-flight-work case is
+    exactly the one this shutdown order exists for. A task that never finishes
+    must be cancelled and the pool closed, all inside the grace."""
+    import time
+
+    from narranexus.platform.module_system import module_runner as mr
+    from narranexus.platform.utils import spawn
+
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    async def _wedged_work():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            log.append("task_cancelled")
+            raise
+
+    async def _spawn_then_stop():
+        for _ in range(500):
+            if len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        spawn(_wedged_work(), name="test-wedged-work")
+        fake_uvicorn.release.set()
+
+    stopper = asyncio.create_task(_spawn_then_stop())
+    started = time.monotonic()
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=15.0)
+    elapsed = time.monotonic() - started
+    await stopper
+
+    assert log == ["task_cancelled", "closed"]
+    assert mr._BACKGROUND_DRAIN_SEC + mr._POOL_CLOSE_HEADROOM_SEC <= mr._STOP_GRACE_BUDGET_SEC
+    assert elapsed < mr._STOP_GRACE_BUDGET_SEC

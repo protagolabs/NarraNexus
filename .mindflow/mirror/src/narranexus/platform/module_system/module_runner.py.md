@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 ---
 
 ## 2026-09-09 — `run_mcp_servers_async` 关闭它自己开的池（B-41；复审 I5/M5 修订）
@@ -22,9 +22,17 @@ return`、`auto_migrate` 抛异常）都在那个 try 之前，池照样漏—�
 `_release_host_resources` 的顺序抄两个同族入口（`run_worker_supervisor._drain_and_close`
 / `run_channel_triggers.main`）的纪律——**先 join 工作，再关池，最后 flush 日志**：
 1. `utils.background_tasks.spawn` 派出的脱离任务（hook_manager 会拉起一整个 run、dataloader
-   批刷、narrative updater）若落在关池之后会撞 `_backend=None`。`drain(timeout=10s)` →
+   批刷、narrative updater）若落在关池之后会撞 `_backend=None`。`drain(timeout=_BACKGROUND_DRAIN_SEC)` →
    剩余 cancel → gather(return_exceptions)，与先例的 stop→cancel→gather 三段式同形；有上限
-   是因为进程反正在退出，卡死的任务不能把关停拖过容器 stop grace。
+   是因为进程反正在退出，卡死的任务不能把关停拖过 stop grace。
+   **关停预算（复审 PR#393 I1）**：drain 不能吃满 grace，否则恰好在"有在途任务"这个唯一需要本修复
+   的场景里，进程在 close_db_client() 之前就被 SIGKILL。各监管方给的 SIGTERM→SIGKILL 窗口：
+   Tauri `process_manager.rs::stop_service` 3s（最紧）；deploy 仓 compose 的 `mcp` 服务未设
+   `stop_grace_period` → Docker 默认 10s；`run.sh` 的清理直接 `kill -9` 端口，本来就没有 grace。
+   因此 `_STOP_GRACE_BUDGET_SEC = 3.0`、`_POOL_CLOSE_HEADROOM_SEC = 1.0`，
+   `_BACKGROUND_DRAIN_SEC = 3.0 - 1.0 = 2.0s` 由二者推导而不单独设值——第一版写成 10.0 恰等于
+   Docker 默认 grace。`test_a_wedged_detached_task_still_leaves_time_to_close_the_pool` 用一个
+   永不结束的任务钉住：任务被 cancel、池照样关、全程 < 3s（改回 10.0 即红）。
 2. `db is not None` 才 `close_db_client()`（seam=HttpStore 模式没开过池，
    `test_sigterm_does_not_close_a_pool_it_never_opened` 钉住）。
 3. `await logger.complete()`——loop 关掉之后再 flush 的 sink 会丢关停的最后几行。
