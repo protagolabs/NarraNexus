@@ -138,6 +138,18 @@ class CreateJobComplexRequest(BaseModel):
     jobs: List[JobComplexJobRequest]
 
 
+class CreateJobComplexResponse(BaseModel):
+    """Response for creating a Job Complex"""
+    success: bool
+    group_id: Optional[str] = None
+    jobs_created: int = 0
+    job_ids: List[str] = []
+    error: Optional[str] = None
+
+
+router = APIRouter()
+
+
 def _topological_sort_job_complex(
     jobs: List["JobComplexJobRequest"],
 ) -> "tuple[Optional[List[JobComplexJobRequest]], Optional[str]]":
@@ -183,18 +195,6 @@ def _topological_sort_job_complex(
         return None, f"dependency cycle detected among task_keys: {', '.join(cyclic)}"
 
     return [by_key[k] for k in ordered], None
-
-
-class CreateJobComplexResponse(BaseModel):
-    """Response for creating a Job Complex"""
-    success: bool
-    group_id: Optional[str] = None
-    jobs_created: int = 0
-    job_ids: List[str] = []
-    error: Optional[str] = None
-
-
-router = APIRouter()
 
 
 def _parse_json(value: Any, default: Any) -> Any:

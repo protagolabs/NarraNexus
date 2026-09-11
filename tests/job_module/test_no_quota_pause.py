@@ -297,3 +297,21 @@ async def test_resume_leaves_paused_when_user_still_cannot_run(db_client, monkey
     assert resumed == 0
     row = await db_client.get_one("instance_jobs", {"job_id": "job_r2"})
     assert row["status"] == JobStatus.PAUSED_NO_QUOTA.value
+
+
+@pytest.mark.asyncio
+async def test_backstop_checks_each_principal_once_per_call(db_client, monkeypatch):
+    """Review M1: one readiness check per principal per backstop call — the
+    decision is the same for every job of that principal."""
+    for i in range(3):
+        await _insert_job(db_client, f"job_same_user_{i}", status=JobStatus.PAUSED_NO_QUOTA.value)
+    trigger = JobTrigger(database_client=db_client)
+    calls = []
+
+    async def _can_run(uid):
+        calls.append(uid)
+        return True
+    monkeypatch.setattr(trigger, "_user_can_run", _can_run)
+
+    assert await trigger._resume_eligible_no_quota_jobs() == 3
+    assert len(calls) == 1

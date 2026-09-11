@@ -226,3 +226,31 @@ async def test_inactive_is_a_benign_state_and_still_runs(db_client, monkeypatch)
     assert await trigger._user_can_run("u_inactive") is True
     await trigger._poll_and_enqueue()
     assert trigger._job_queue.qsize() == 1
+
+
+# ── review M1: one account lookup per principal per poll cycle ───────────────
+
+@pytest.mark.asyncio
+async def test_poll_and_enqueue_looks_each_principal_up_once(db_client, monkeypatch):
+    await _seed_user(db_client, "u_many_banned", status="banned")
+    await _seed_user(db_client, "u_many_ok", status="active")
+    for i in range(3):
+        await _insert_job(db_client, f"job_banned_{i}", "u_many_banned")
+        await _insert_job(db_client, f"job_ok_{i}", "u_many_ok")
+
+    calls = []
+    real = JobTrigger._non_transacting_status
+
+    async def _spy(self, user_id):
+        calls.append(user_id)
+        return await real(self, user_id)
+
+    monkeypatch.setattr(JobTrigger, "_non_transacting_status", _spy)
+    trigger = JobTrigger(database_client=db_client)
+    await trigger._poll_and_enqueue()
+
+    assert sorted(calls) == ["u_many_banned", "u_many_ok"]
+    assert trigger._job_queue.qsize() == 3
+    for i in range(3):
+        row = await JobRepository(db_client).get_job(f"job_banned_{i}")
+        assert (row.status, row.paused_reason) == (JobStatus.PAUSED, "banned")

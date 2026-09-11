@@ -380,3 +380,29 @@ async def test_backstop_judges_each_jobs_own_timezone(db_client, monkeypatch):
     utc = await db_client.get_one("instance_jobs", {"job_id": "job_utc"})
     assert shanghai["status"] == JobStatus.ACTIVE.value
     assert utc["status"] == JobStatus.PAUSED_SPEND_CAP.value
+
+
+# ── review M1: one spend scan per (principal, timezone) per backstop call ────
+
+@pytest.mark.asyncio
+async def test_backstop_scans_each_principal_and_timezone_once(db_client, monkeypatch):
+    monkeypatch.setenv(ENV_VAR, "100")
+    await _insert_cost_record(db_client, "user_1", 5.0)
+    for i in range(3):
+        await _insert_capped_job(db_client, f"job_sh_{i}")
+    await _insert_capped_job(
+        db_client, "job_utc_once", trigger_config='{"cron":"0 8 * * *","timezone":"UTC"}',
+    )
+
+    calls = []
+    real = JobTrigger._daily_spend_cap_exceeded
+
+    async def _spy(self, user_id, tz_name):
+        calls.append((user_id, tz_name))
+        return await real(self, user_id, tz_name)
+
+    monkeypatch.setattr(JobTrigger, "_daily_spend_cap_exceeded", _spy)
+    trigger = JobTrigger(database_client=db_client)
+
+    assert await trigger._resume_spend_capped_jobs() == 4
+    assert sorted(calls) == [("user_1", "Asia/Shanghai"), ("user_1", "UTC")]

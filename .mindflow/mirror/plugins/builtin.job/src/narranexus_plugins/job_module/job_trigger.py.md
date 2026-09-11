@@ -3,6 +3,15 @@ code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py
 last_verified: 2026-09-10
 ---
 
+## 2026-09-10（review r3 M1）— 同一次调用内按执行主体 memo
+
+`_poll_and_enqueue` 的入队门对每个 `exec_uid` 只调一次 `_non_transacting_status`（局部 dict `standing`）；
+`_resume_eligible_no_quota_jobs` 对每个 `exec_uid` 只调一次 `_user_can_run`；`_resume_spend_capped_jobs`
+对每个 `(exec_uid, tz)` 只扫一次 `_daily_spend_cap_exceeded`。memo 只活在单次调用里，不跨轮，判定结果与
+逐 job 查询相同（同一次调用内同一主体本来就得同一答案）。
+锁：`test_poll_and_enqueue_looks_each_principal_up_once`、`test_backstop_checks_each_principal_once_per_call`、
+`test_backstop_scans_each_principal_and_timezone_once`。
+
 ## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 每日自愈：`_resume_spend_capped_jobs`
 
 首版把花费封顶的 job 标成 `PAUSED_SPEND_CAP` 之后**没有任何路径能把它拉回来**：不在

@@ -650,6 +650,8 @@ class JobTrigger:
 
             # 3. Put tasks into queue (skip already executing ones)
             enqueued = 0
+            # One account lookup per principal per cycle, not per job (review M1).
+            standing: Dict[str, Optional[str]] = {}
             for job in due_jobs:
                 if job.job_id in self._running_jobs:
                     logger.debug(f"Job {job.job_id} already running, skipped")
@@ -667,9 +669,9 @@ class JobTrigger:
                 # one identity this file judges everywhere (`_user_can_run`,
                 # the spend cap, `_run_agent`).
                 exec_uid = job.related_entity_id or job.user_id
-                blocked_status = (
-                    await self._non_transacting_status(exec_uid) if exec_uid else None
-                )
+                if exec_uid and exec_uid not in standing:
+                    standing[exec_uid] = await self._non_transacting_status(exec_uid)
+                blocked_status = standing.get(exec_uid) if exec_uid else None
                 if blocked_status:
                     await repo.update_job(job.job_id, {
                         "status": JobStatus.PAUSED.value,
@@ -775,6 +777,8 @@ class JobTrigger:
             if not paused:
                 return 0
             resumed = 0
+            # One readiness check per principal per call, not per job (review M1).
+            can_run: Dict[str, bool] = {}
             for job in paused:
                 # Do NOT blind-probe reasons whose fix readiness can't observe
                 # (balance top-up / model / context). Re-arming them every cycle
@@ -784,7 +788,11 @@ class JobTrigger:
                 if job.paused_reason in _EDGE_ONLY_RESUME_REASONS:
                     continue
                 exec_uid = job.related_entity_id or job.user_id
-                if not exec_uid or not await self._user_can_run(exec_uid):
+                if not exec_uid:
+                    continue
+                if exec_uid not in can_run:
+                    can_run[exec_uid] = await self._user_can_run(exec_uid)
+                if not can_run[exec_uid]:
                     continue
                 next_run = compute_next_run(
                     job_type=job.job_type,
@@ -833,11 +841,17 @@ class JobTrigger:
             if not paused:
                 return 0
             resumed = 0
+            # One spend scan per (principal, timezone) per call, not per job (review M1).
+            over_cap: Dict[tuple, bool] = {}
             for job in paused:
                 exec_uid = job.related_entity_id or job.user_id
                 user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
-                if exec_uid and await self._daily_spend_cap_exceeded(exec_uid, user_tz):
-                    continue
+                if exec_uid:
+                    key = (exec_uid, user_tz)
+                    if key not in over_cap:
+                        over_cap[key] = await self._daily_spend_cap_exceeded(exec_uid, user_tz)
+                    if over_cap[key]:
+                        continue
                 next_run = compute_next_run(
                     job_type=job.job_type,
                     trigger_config=job.trigger_config,
