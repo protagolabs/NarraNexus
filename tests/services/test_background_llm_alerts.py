@@ -171,8 +171,65 @@ async def test_an_empty_balance_notifies_the_owner(db_client):
     msg = _FakeInboxRepo.created[0]
     assert "Top up" in msg["content"]
     assert "team_summary" in msg["title"]
-    rows = await db_client.get("owner_notice_cooldowns", {"agent_id": "agt_1"})
-    assert [(r["target"], r["category"]) for r in rows] == [("team_1", "provider_balance")]
+    rows = await db_client.get("owner_notice_cooldowns", {"agent_id": "usr_owner"})
+    assert [(r["target"], r["category"]) for r in rows] == [("owner", "provider_balance")]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_balance_is_one_notice_per_owner_across_sources():
+    """An empty balance is one fact about the owner's account; every narrative,
+    entity and team of every agent failing on it must not each page them."""
+    err = RuntimeError("Error code: 400 - balance not enough")
+    for agent_id, source, source_id in [
+        ("agt_1", "narrative_update", "nar_1"),
+        ("agt_1", "narrative_update", "nar_2"),
+        ("agt_1", "entity_dedup", "Alice"),
+        ("agt_2", "team_summary", "team_1"),
+    ]:
+        await alerts.alert_background_llm_failure(
+            agent_id=agent_id, owner_user_id="usr_owner", source=source,
+            error=err, source_id=source_id,
+        )
+    assert len(_FakeAuditor.errors) == 4  # every failure still leaves its trace
+    assert len(_FakeInboxRepo.created) == 1
+    # Another owner is a different account: notified separately.
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_3", owner_user_id="usr_other", source="narrative_update",
+        error=err, source_id="nar_9",
+    )
+    assert len(_FakeInboxRepo.created) == 2
+
+
+@pytest.mark.asyncio
+async def test_credential_notices_stay_per_source():
+    for source_id in ("nar_1", "nar_2"):
+        await alerts.alert_background_llm_failure(
+            agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+            error="401 unauthorized", source_id=source_id,
+        )
+    assert len(_FakeInboxRepo.created) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        "403 Forbidden: your credit balance is too low",
+        "API key sk-abc has insufficient balance",
+    ],
+)
+async def test_balance_wins_over_a_credential_lookalike(error):
+    """Same order as `classify_self_serviceable`: out-of-credit first. These
+    bodies also match the broad credential patterns (a bare 403, "API key")."""
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error=error, source_id="nar_1",
+    )
+    assert _FakeAuditor.errors[0][1]["category"] == "provider_balance"
+    content = _FakeInboxRepo.created[0]["content"]
+    assert "Top up" in content
+    assert "API key and base URL" not in content
+    assert "balance/quota error" in content
 
 
 @pytest.mark.asyncio

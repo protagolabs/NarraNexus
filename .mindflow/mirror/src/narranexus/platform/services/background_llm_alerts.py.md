@@ -4,6 +4,18 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11（review r2 I2/I3/M5/M6）— 余额先于凭据判定；余额通知按 owner 去重
+
+- **判定顺序**：先问 `_out_of_credit_reason`，再退回 `is_credential_error`，与 `classify_self_serviceable`
+  「invalid_credentials 放最后」的排序一致。凭据正则很宽（裸 `api key`、独立 token `401`/`403`），
+  「403 Forbidden: your credit balance is too low」或回显 key 的额度报错以前被判成凭据、让没钱的 owner 去查 key，
+  审计行 category 也记错。正文的 `problem` 按 category 判。
+- **去重粒度按类别**（`_dedup_key`）：凭据类仍是 `(agent_id, source_id or agent_id, category)`；
+  `provider_balance` 收敛为 `(owner_user_id, "owner", "provider_balance")`——余额是 owner 账户的一个事实，
+  按 source 扇出会让一次余额耗尽给每个 narrative / 实体候选名各发一条、每 30 分钟一轮。
+  文案/标题里的 `source`、`MessageSource.id` 不变（运维定位用），收敛的只是去重键。
+- docstring：函数摘要行改成「凭据或余额」；source 清单里 `_entity_updater.py` 的路径改为插件化后的真实路径。
+
 ## 2026-09-11 — 余额耗尽也发 owner 通知；新增 source `team_summary`
 
 Tier-2 的判定从「凭据类」扩到「owner 能自己修的」：`is_credential_error` 之外，再用共享分类器
@@ -13,7 +25,7 @@ Tier-2 的判定从「凭据类」扩到「owner 能自己修的」：`is_creden
 提示按类别给补救：凭据 → 查 helper_llm 的 key/base URL；余额 → 充值或换 provider；免费额度用完 → 升级 Nexus Pro
 或换自己的 key（与 `SELF_SERVICEABLE_USER_MESSAGE` 同口径，不能对免费卡说「充值」）。
 正文从「long-memory updates」改成中性的「background updates」，标题带上 source——`team_summary` 不是记忆。
-影响所有调用方（narrative/post_turn/entity 链）：它们遇到余额耗尽现在也会通知 owner，同一 30 分钟去重窗口。
+影响所有调用方（narrative/post_turn/entity 链）：它们遇到余额耗尽现在也会通知 owner（30 分钟窗口，按 owner 去重，见上一节）。
 message bus 的失败通知走自己的 `_classify_error`，本来就对所有类别都通知，不需要跟改。
 
 ## 2026-09-10（review r2 M5）— `_cooling` docstring 写明 fail-open 的代价

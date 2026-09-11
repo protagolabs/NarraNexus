@@ -931,17 +931,34 @@ async def test_a_deleted_teams_backoff_entry_is_dropped(db_client):
     assert TEAM not in w._backoff
 
 
-# ── an empty reply backs off too ────────────────────────────────────────────
+# ── an empty reply waits for new content ────────────────────────────────────
 #
 # The prompt tells the model to "reply with nothing at all" when the transcript
 # shows no substantive work, so an empty answer is normal output. It is not
 # written (it would blank a real summary) and the watermark cannot advance (a
 # never-summarised team has no row to hold it) — so without a wait the same
 # transcript was re-sent, and billed, on every 60 s pass, forever and silently.
+# The wait is on CONTENT, not time: a timed wait let an idle-chat room climb to
+# the 6 h cap and then keep its bulletin stale through real work.
+
+
+async def _add_messages(db, n, *, prefix, offset):
+    for i in range(n):
+        await db.insert(
+            "bus_messages",
+            {
+                "message_id": f"{prefix}{i}",
+                "channel_id": CHANNEL,
+                "from_agent": "agent_a",
+                "content": "more work",
+                "msg_type": "text",
+                "created_at": _ts(offset + i),
+            },
+        )
 
 
 @pytest.mark.asyncio
-async def test_an_empty_reply_is_not_re_asked_on_the_next_pass(db_client, alerts):
+async def test_an_empty_reply_is_not_re_asked_until_the_room_moves(db_client, alerts):
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
     now, advance = _clock()
     w = _worker(db_client, summary="   ")
@@ -954,7 +971,17 @@ async def test_an_empty_reply_is_not_re_asked_on_the_next_pass(db_client, alerts
     # Not a failure: nothing to alert the owner about.
     assert alerts == []
 
-    advance(TeamSummaryWorker.BACKOFF_BASE)
+    # Time alone never re-asks: the transcript is unchanged.
+    advance(10 * TeamSummaryWorker.BACKOFF_MAX)
+    await w.run_once()
+    assert len(w.calls) == 1
+
+    # One short of the threshold past what the model saw: still waiting.
+    await _add_messages(db_client, TeamSummaryWorker.MESSAGE_THRESHOLD - 1, prefix="a", offset=100)
+    await w.run_once()
+    assert len(w.calls) == 1
+    # The threshold reached: asked at once, no clock advance needed.
+    await _add_messages(db_client, 1, prefix="b", offset=200)
     await w.run_once()
     assert len(w.calls) == 2
     assert (await TeamBulletinRepository(db_client).get_summary(TEAM)) is None
@@ -963,9 +990,7 @@ async def test_an_empty_reply_is_not_re_asked_on_the_next_pass(db_client, alerts
 @pytest.mark.asyncio
 async def test_a_written_summary_clears_an_empty_reply_wait(db_client):
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
-    now, advance = _clock()
     w = TeamSummaryWorker(db_client)
-    w._clock = now
     replies = ["", "real progress"]
     calls = []
 
@@ -975,11 +1000,74 @@ async def test_a_written_summary_clears_an_empty_reply_wait(db_client):
 
     w._summarise = scripted
     await w.run_once()
-    advance(TeamSummaryWorker.BACKOFF_BASE)
+    await _add_messages(db_client, TeamSummaryWorker.MESSAGE_THRESHOLD, prefix="a", offset=100)
     await w.run_once()
     assert len(calls) == 2
     assert TEAM not in w._backoff
     assert (await TeamBulletinRepository(db_client).get_summary(TEAM)) is not None
+
+
+@pytest.mark.asyncio
+async def test_a_failure_after_an_empty_reply_starts_its_streak_at_base(db_client):
+    """The two waits do not share a streak: an empty reply means the call
+    worked, so the next failure is failure #1, not #2."""
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    now, advance = _clock()
+    w = TeamSummaryWorker(db_client)
+    w._clock = now
+    outcomes = [RuntimeError("f1"), RuntimeError("f2"), "", RuntimeError("f3"), "ok"]
+    calls = []
+
+    async def scripted(*, team_id, transcript, bearer=""):
+        calls.append(team_id)
+        out = outcomes[len(calls) - 1]
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    w._summarise = scripted
+    base = TeamSummaryWorker.BACKOFF_BASE
+    await w.run_once()  # failure 1 → base
+    advance(base)
+    await w.run_once()  # failure 2 → 2*base
+    advance(2 * base)
+    await w.run_once()  # empty reply → content wait, streak reset
+    assert len(calls) == 3
+    await _add_messages(db_client, TeamSummaryWorker.MESSAGE_THRESHOLD, prefix="a", offset=100)
+    await w.run_once()  # failure again → must wait BASE, not 4*base
+    assert len(calls) == 4
+    advance(base - 1)
+    await w.run_once()
+    assert len(calls) == 4
+    advance(1)
+    await w.run_once()
+    assert len(calls) == 5
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_team_is_logged_in_the_pass_line(db_client):
+    """`backoff` is the only signal that a team is waiting out a failure; the
+    steady state (failed=0, summarised=0) must still produce the pass line,
+    and an empty deployment must stay silent."""
+    from loguru import logger
+
+    lines = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="INFO", format="{message}")
+    try:
+        empty = TeamSummaryWorker(db_client)
+        await empty.run_once()
+        assert not [ln for ln in lines if "pass:" in ln]
+
+        await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+        now, _advance = _clock()
+        w = _worker(db_client, summary=RuntimeError("balance not enough"))
+        w._clock = now
+        await w.run_once()
+        lines.clear()
+        await w.run_once()
+    finally:
+        logger.remove(sink)
+    assert [ln for ln in lines if "pass:" in ln and "backoff=1" in ln]
 
 
 # ── a failure leaves a trace and reaches the owner ──────────────────────────
@@ -1028,28 +1116,39 @@ async def test_a_raising_alert_does_not_abort_the_pass(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_failing_owner_lookup_still_reports(db_client, alerts):
-    """The lookups for the alert run while the DB may be the thing failing;
-    they must not escape, and the audit row must still be written."""
+    """An attempt that fails before the bearer is resolved makes
+    `_report_failure` look it up while the DB may be the thing failing; that
+    lookup must not escape, and the audit row must still be written."""
     await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
-    w = _worker(db_client, summary=RuntimeError("cursed"))
+    w = _worker(db_client)
+
+    async def dead_transcript(_channel_id):
+        raise RuntimeError("db down")
 
     async def dead_bearer(_team_id):
         raise RuntimeError("db down")
 
-    await w.run_once()  # first attempt, normal lookups
-    w._backoff.clear()
-    alerts.clear()
-    real = w._cost_bearer
-    calls = {"n": 0}
-
-    async def bearer_once_then_dead(team_id):
-        calls["n"] += 1
-        if calls["n"] == 1:  # the gate inside _summarise_team
-            return await real(team_id)
-        return await dead_bearer(team_id)
-
-    w._cost_bearer = bearer_once_then_dead
+    w._transcript = dead_transcript
+    w._cost_bearer = dead_bearer
     await w.run_once()
+    assert w.last_pass["failed"] == 1
     assert len(alerts) == 1
     assert alerts[0]["agent_id"] == ""
     assert alerts[0]["source_id"] == TEAM
+
+
+@pytest.mark.asyncio
+async def test_a_failed_attempt_reuses_the_bearer_it_resolved(db_client, alerts):
+    await _seed_room(db_client, messages=TeamSummaryWorker.MESSAGE_THRESHOLD)
+    w = _worker(db_client, summary=RuntimeError("cursed"))
+    real = w._cost_bearer
+    lookups = []
+
+    async def counting(team_id):
+        lookups.append(team_id)
+        return await real(team_id)
+
+    w._cost_bearer = counting
+    await w.run_once()
+    assert lookups == [TEAM]
+    assert alerts[0]["agent_id"] == "agent_a"

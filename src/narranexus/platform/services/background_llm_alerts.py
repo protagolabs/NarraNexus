@@ -78,12 +78,32 @@ def _out_of_credit_reason(error: object) -> Optional[str]:
 # Name the background LLM plane records under in the service_audit table.
 _AUDIT_SERVICE = "background_llm"
 
-# One owner inbox notice per (agent_id, target, category) per this window.
-# Matches the message bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner running
-# many background paths for one broken key gets at most one nudge per surface
-# per half hour. `target` is the source_id when the caller has one (a narrative,
-# an agent) so two sources failing for one agent are two facts, not one.
+# One owner inbox notice per dedup key per this window. Matches the message
+# bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner gets at most one nudge per
+# key per half hour. The key depends on the category (`_dedup_key`).
 ALERT_COOLDOWN_SECONDS = 1800
+
+# Balance-class notices are keyed on the owner alone: see `_dedup_key`.
+_OWNER_WIDE_TARGET = "owner"
+
+
+def _dedup_key(
+    category: str, *, agent_id: str, owner_user_id: str, source_id: str
+) -> tuple[str, str]:
+    """The (agent_id, target) half of the cooldown key for one notice.
+
+    A credential failure is keyed per source (a narrative, a team, an entity):
+    two sources may be configured differently, so two failing sources are two
+    facts. An out-of-credit failure is ONE fact about the owner's account — a
+    spent free tier or an empty provider balance stops every narrative, entity
+    and team of every agent at once, and the remedy is the same single top-up.
+    Keying it per source turned one empty balance into a notice per active
+    narrative / entity candidate every half hour, the alarm fatigue this module
+    exists to avoid. So balance notices collapse to one per owner per window.
+    """
+    if category == "provider_balance":
+        return owner_user_id, _OWNER_WIDE_TARGET
+    return agent_id, source_id or agent_id
 
 
 async def _cooling(db, agent_id: str, target: str, category: str) -> bool:
@@ -120,7 +140,8 @@ async def alert_background_llm_failure(
     owner_user_id: Optional[str] = None,
     source_id: str = "",
 ) -> None:
-    """Record a background LLM failure and, if credential-class, notify the owner.
+    """Record a background LLM failure and, when the owner can fix it
+    (credential or out-of-credit), notify them.
 
     ``source`` is a short label that lands in the audit detail and the
     notice title. The list below is authoritative — an operator reading it
@@ -131,8 +152,8 @@ async def alert_background_llm_failure(
     - ``post_turn_hooks`` — agent_runtime/agent_runtime.py
     - ``entity_summary`` / ``entity_dedup`` / ``entity_extraction`` /
       ``description_compression`` / ``persona_inference`` — the
-      social-network memory chain (module/social_network_module/
-      _entity_updater.py)
+      social-network memory chain (plugins/builtin.social_network/.../
+      social_network_module/_entity_updater.py)
     - ``team_summary`` — the team bulletin's auto-summary
       (plugins/builtin.teams/.../teams/summary_worker.py)
 
@@ -148,13 +169,17 @@ async def alert_background_llm_failure(
     Never raises — an observer must not break the observed path (incident
     lesson #3's corollary: the alerter is best-effort).
     """
-    is_credential = is_credential_error(error)
-    credit_reason = None if is_credential else _out_of_credit_reason(error)
-    if is_credential:
-        category, hint = "provider_credential", _CREDENTIAL_HINT
-    elif credit_reason is not None:
+    # Out-of-credit is asked FIRST, the same order `classify_self_serviceable`
+    # uses (invalid credentials last): a 403 whose body reports an empty
+    # balance, or a quota error that echoes "API key", also matches the broad
+    # credential patterns, and telling that owner to re-check a working key is
+    # the wrong remedy.
+    credit_reason = _out_of_credit_reason(error)
+    if credit_reason is not None:
         category = "provider_balance"
         hint = _FREE_TIER_HINT if credit_reason == SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED else _BALANCE_HINT
+    elif is_credential_error(error):
+        category, hint = "provider_credential", _CREDENTIAL_HINT
     else:
         category, hint = "generic", ""
 
@@ -178,11 +203,13 @@ async def alert_background_llm_failure(
 
     try:
         db = await get_db_client()
-        target = source_id or agent_id
-        if await _cooling(db, agent_id, target, category):
+        key_agent, target = _dedup_key(
+            category, agent_id=agent_id, owner_user_id=owner_user_id, source_id=source_id
+        )
+        if await _cooling(db, key_agent, target, category):
             return
         safe_error = redact_secrets(error)
-        problem = "credential" if is_credential else "balance/quota"
+        problem = "credential" if category == "provider_credential" else "balance/quota"
         content = (
             f"A background task ({source}) for this agent is failing with what "
             f"looks like a provider {problem} error, so its background updates "
@@ -200,7 +227,7 @@ async def alert_background_llm_failure(
         )
         # Arm cooldown only after a successful write — a transient DB blip must
         # not silently suppress the real notice for the rest of the window.
-        await _arm(db, agent_id, target, category)
+        await _arm(db, key_agent, target, category)
         logger.warning(
             f"[background-llm] notified owner {owner_user_id} of {category} "
             f"failure for agent {agent_id} (source={source})"

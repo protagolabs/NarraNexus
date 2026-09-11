@@ -48,9 +48,13 @@ three days (2026-09-07 prod): the call cannot succeed until something outside
 this process changes, and asking every minute only buries the log. A team that
 failed waits an exponentially growing, capped interval (5 min → 6 h, the
 shared `utils/backoff.py` formula) before it is tried again. A model that was
-called and answered with nothing waits the same way: the transcript it would be
-shown next minute is the same one, so the answer would be too, and each ask is
-billed. Only a written summary, or a pass that never reached the model, clears
+called and answered with nothing waits too, but on CONTENT, not time: asked
+again about the same transcript it would answer the same way, and each ask is
+billed — yet the moment the room has moved another `MESSAGE_THRESHOLD` messages
+past what the model was shown, the input has changed and it is asked at once.
+A timed wait there would have let a room that chatted idly for a while climb
+to the 6 h cap and then keep its bulletin stale through an afternoon of real
+work. Only a written summary, or a pass that never reached the model, clears
 the wait. The wait is kept in memory on purpose — a restart is a fine reason to
 try once more — but every failure also goes through
 `alert_background_llm_failure`, so it leaves a `service_audit` row and, for a
@@ -62,6 +66,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -154,6 +159,33 @@ class _Outcome(Enum):
     EMPTY_REPLY = "empty_reply"
 
 
+@dataclass(frozen=True)
+class _Attempt:
+    """`_summarise_team`'s result. `newest` is the timestamp of the newest
+    message the model was shown — set whenever the model was asked, because an
+    EMPTY_REPLY waits for the room to move past exactly that point."""
+
+    outcome: _Outcome
+    newest: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _Wait:
+    """Why a team is not tried this pass — one of two independent waits.
+
+    A FAILURE wait (`shown_newest` None) is timed: `next_at` on the worker's
+    clock, earned by `failures` consecutive failed attempts. An EMPTY-REPLY wait
+    (`shown_newest` set) is content-gated: it ends when the room holds
+    `MESSAGE_THRESHOLD` non-system messages newer than `shown_newest`. An empty
+    reply means the call itself worked, so it replaces (and thereby resets) a
+    failure streak; a failure after an empty reply starts its streak at 1.
+    """
+
+    next_at: float = 0.0
+    failures: int = 0
+    shown_newest: Optional[str] = None
+
+
 class TeamSummaryWorker:
     """One worker per process; polls every team room on an interval."""
 
@@ -162,8 +194,8 @@ class TeamSummaryWorker:
     MESSAGE_THRESHOLD = 15
     # How much scrollback the summariser is shown.
     TRANSCRIPT_LIMIT = 60
-    # After a failure or an empty reply, how long before the team is tried
-    # again: BASE doubled per consecutive miss, never more than MAX. Ints on
+    # After a failed attempt, how long before the team is tried again: BASE
+    # doubled per consecutive failure, never more than MAX. Ints on
     # purpose — `compute_cooldown_seconds` then stays in arbitrary-precision
     # integer arithmetic and a long streak cannot overflow.
     BACKOFF_BASE = 300
@@ -177,10 +209,13 @@ class TeamSummaryWorker:
         # Last pass's outcome, for the `pass:` log line and tests. `backoff` is
         # the number of teams skipped because they are waiting out a miss.
         self.last_pass: Dict[str, int] = {"rooms": 0, "summarised": 0, "failed": 0, "backoff": 0}
-        # team_id → (earliest next attempt, consecutive failures). Monotonic
-        # seconds; tests swap the clock.
-        self._backoff: Dict[str, tuple[float, int]] = {}
+        # team_id → why it is waiting (`_Wait`). Monotonic seconds; tests swap
+        # the clock.
+        self._backoff: Dict[str, _Wait] = {}
         self._clock: Callable[[], float] = time.monotonic
+        # team_id → cost bearer resolved by `_summarise_team` during the
+        # current attempt, so `_report_failure` does not resolve it again.
+        self._attempt_bearer: Dict[str, str] = {}
 
     # ── lifecycle (mirrors services/memory_consolidation_worker.py) ─────────
 
@@ -224,11 +259,19 @@ class TeamSummaryWorker:
         rooms = await self._team_rooms()
         for room in rooms:
             team_id = room["team_id"]
-            if self._in_backoff(team_id):
+            try:
+                waiting = await self._in_backoff(team_id, room["channel_id"])
+            except Exception as e:  # noqa: BLE001 — isolate the bad team
+                # The content gate reads the DB; one unreadable room must not
+                # stall the rest. Stays waiting — its entry is untouched.
+                logger.warning(f"[team.summary] team {team_id}: wait check failed: {e}")
+                waiting = True
+            if waiting:
                 backoff += 1
                 continue
+            self._attempt_bearer.pop(team_id, None)
             try:
-                outcome = await self._summarise_team(team_id, room["channel_id"])
+                attempt = await self._summarise_team(team_id, room["channel_id"])
             except Exception as e:  # noqa: BLE001 — isolate the bad team
                 failed += 1
                 wait = self._note_failure(team_id)
@@ -240,17 +283,18 @@ class TeamSummaryWorker:
                 # otherwise a waiting team would alert on every poll.
                 await self._report_failure(team_id, e)
                 continue
-            if outcome is _Outcome.EMPTY_REPLY:
-                wait = self._note_failure(team_id)
+            if attempt.outcome is _Outcome.EMPTY_REPLY:
+                self._backoff[team_id] = _Wait(shown_newest=attempt.newest)
                 logger.info(
                     f"[team.summary] team {team_id}: model had nothing to say; "
-                    f"next attempt in {wait}s"
+                    f"next attempt after {self.MESSAGE_THRESHOLD} more messages"
                 )
                 continue
-            if outcome is _Outcome.WRITTEN:
+            if attempt.outcome is _Outcome.WRITTEN:
                 summarised += 1
             self._backoff.pop(team_id, None)
         self._forget_vanished_teams(rooms)
+        self._attempt_bearer.clear()
         # An L2 heartbeat, not decoration. With only per-failure warnings, "every
         # room is quiet" and "every room is failing" are the same observation:
         # silence. This distinguishes them, and it is the signal that would have
@@ -259,7 +303,10 @@ class TeamSummaryWorker:
         self.last_pass = {
             "rooms": len(rooms), "summarised": summarised, "failed": failed, "backoff": backoff,
         }
-        if failed or summarised:
+        # `backoff` is in the gate: a team waiting out a failure is the steady
+        # state this counter exists for, and it has failed=0 and summarised=0.
+        # An empty deployment (all three zero) stays silent.
+        if failed or summarised or backoff:
             logger.info(
                 f"[team.summary] pass: rooms={len(rooms)} summarised={summarised} "
                 f"failed={failed} backoff={backoff}"
@@ -268,15 +315,27 @@ class TeamSummaryWorker:
 
     # ── failure backoff ─────────────────────────────────────────────────────
 
-    def _in_backoff(self, team_id: str) -> bool:
+    async def _in_backoff(self, team_id: str, channel_id: str) -> bool:
+        """Is this team waiting? A failure waits on the clock; an empty reply
+        waits until the room has moved `MESSAGE_THRESHOLD` messages past what
+        the model was shown (one indexed COUNT per waiting team per pass)."""
         entry = self._backoff.get(team_id)
-        return entry is not None and self._clock() < entry[0]
+        if entry is None:
+            return False
+        if entry.shown_newest is not None:
+            moved = await self._new_message_count(channel_id, entry.shown_newest)
+            return moved < self.MESSAGE_THRESHOLD
+        return self._clock() < entry.next_at
 
     def _note_failure(self, team_id: str) -> int:
-        """Record one more consecutive miss; return the wait it earned."""
-        failures = self._backoff.get(team_id, (0.0, 0))[1] + 1
+        """Record one more consecutive failure; return the wait it earned.
+
+        Only a failure streak counts — an empty-reply entry carries 0, so a
+        failure right after one starts at BASE."""
+        entry = self._backoff.get(team_id)
+        failures = (entry.failures if entry is not None else 0) + 1
         wait = compute_cooldown_seconds(failures, base=self.BACKOFF_BASE, cap=self.BACKOFF_MAX)
-        self._backoff[team_id] = (self._clock() + wait, failures)
+        self._backoff[team_id] = _Wait(next_at=self._clock() + wait, failures=failures)
         return wait
 
     async def _report_failure(self, team_id: str, error: Exception) -> None:
@@ -284,17 +343,20 @@ class TeamSummaryWorker:
         it, tell them. Never raises: this runs in `run_once`'s except block, and
         an exception here would abort every later team in the pass.
 
-        The lookups are wrapped separately because the alerter only promises
-        not to raise itself; a DB that is failing would make the owner/bearer
-        lookups raise before it is ever called. An empty agent id still leaves
-        the audit row.
+        The cost bearer `_summarise_team` already resolved in this attempt is
+        reused; it is looked up here only when the attempt failed before that
+        point. The lookups are wrapped separately because the alerter only
+        promises not to raise itself; a DB that is failing would make them
+        raise before it is ever called. An empty agent id still leaves the
+        audit row.
         """
         owner: Optional[str] = None
-        bearer = ""
+        bearer = self._attempt_bearer.pop(team_id, "")
         try:
             team = await self._db.get_one("teams", {"team_id": team_id})
             owner = (team or {}).get("owner_user_id") or None
-            bearer = await self._cost_bearer(team_id)
+            if not bearer:
+                bearer = await self._cost_bearer(team_id)
         except Exception as lookup_error:  # noqa: BLE001 — observer never breaks observed
             logger.warning(f"[team.summary] owner lookup for {team_id} failed: {lookup_error}")
         try:
@@ -363,7 +425,7 @@ class TeamSummaryWorker:
             )
         return int((rows or [{"n": 0}])[0].get("n") or 0)
 
-    async def _summarise_team(self, team_id: str, channel_id: str) -> _Outcome:
+    async def _summarise_team(self, team_id: str, channel_id: str) -> _Attempt:
         """Summarise one team if it has moved enough."""
         repo = TeamBulletinRepository(self._db)
         existing = await repo.get_summary(team_id)
@@ -372,11 +434,11 @@ class TeamSummaryWorker:
         if await self._new_message_count(channel_id, watermark) < self.MESSAGE_THRESHOLD:
             # Nothing new worth a call. An unchanged room re-summarised on every
             # poll would bill the user to rewrite the same paragraph.
-            return _Outcome.NOT_DUE
+            return _Attempt(_Outcome.NOT_DUE)
 
         transcript, newest = await self._transcript(channel_id)
         if not transcript.strip():
-            return _Outcome.NOT_DUE
+            return _Attempt(_Outcome.NOT_DUE)
 
         # No member means no cost bearer, and every helper SDK discards a record
         # whose agent id is empty — so summarising here would burn the owner's
@@ -386,26 +448,28 @@ class TeamSummaryWorker:
         # gate, and the empty-bearer path is unreachable instead of merely
         # unlikely.
         bearer = await self._cost_bearer(team_id)
+        self._attempt_bearer[team_id] = bearer
         if not bearer:
             logger.debug(
                 f"[team.summary] team {team_id} has no members — skipping "
                 f"(no cost bearer, so the tokens would go unrecorded)"
             )
-            return _Outcome.NOT_DUE
+            return _Attempt(_Outcome.NOT_DUE)
 
         text = await self._summarise(team_id=team_id, transcript=transcript, bearer=bearer)
         # A model that returned whitespace has told us nothing. Writing it would
         # replace a real summary with a blank one, which reads as "no progress".
         # Nor can the watermark advance: a team never summarised has no row to
-        # hold it. So the caller backs this team off — the same transcript
-        # would get the same non-answer, billed, on every poll.
+        # hold it. So the caller holds this team until the room moves past
+        # `newest` — the same transcript would get the same non-answer, billed,
+        # on every poll.
         if not (text or "").strip():
-            return _Outcome.EMPTY_REPLY
+            return _Attempt(_Outcome.EMPTY_REPLY, newest)
 
         await repo.upsert_summary(team_id, (text or "").strip()[:BULLETIN_MAX_SUMMARY_CHARS])
         await self._set_watermark(team_id, newest)
         logger.info(f"[team.summary] team={team_id} summarised ({'refreshed' if existing else 'first'})")
-        return _Outcome.WRITTEN
+        return _Attempt(_Outcome.WRITTEN, newest)
 
     async def _transcript(self, channel_id: str) -> tuple[str, Optional[str]]:
         """The room's recent messages as plain text, plus the newest timestamp.
