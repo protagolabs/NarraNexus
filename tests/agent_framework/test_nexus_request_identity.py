@@ -120,6 +120,24 @@ def test_existing_extra_body_is_merged():
     }
 
 
+def test_payload_folds_identity_through_merge(openai_slot, monkeypatch):
+    # The call site must merge, not llm_extra.update(): no other extra_body
+    # producer exists today, so only a spy can tell the two apart.
+    from narranexus_plugins.frameworks_nexus_power.adapter import nexus_agent
+
+    calls = []
+    real = nexus_agent._merge_llm_extra
+
+    def _spy(llm_extra, params):
+        calls.append(dict(params))
+        real(llm_extra, params)
+
+    monkeypatch.setattr(nexus_agent, "_merge_llm_extra", _spy)
+    extra = _llm_extra(agent_id="agent_abc")
+    assert calls == [{"extra_body": {"prompt_cache_key": "agent_abc"}}]
+    assert extra["extra_body"] == {"prompt_cache_key": "agent_abc"}
+
+
 @pytest.mark.parametrize("agent_id", [None, "", "agent"])
 def test_no_real_agent_id_adds_nothing(anthropic_slot, agent_id):
     extra = _llm_extra(agent_id=agent_id)
