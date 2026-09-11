@@ -7,7 +7,7 @@ means "this turn is terminal AND the turn delivered no usable output" --
 NOT merely "this turn ended". ``fatal: true`` (or a framework that
 never reports the flag at all) maps to severity="fatal"/"recoverable"
 as before; an EXPLICIT ``fatal: false`` -- the turn already delivered a
-reply via an expressive tool call before this failure landed -- maps to
+reply before this failure landed -- maps to
 severity="recovered_after_reply", distinct from the generic
 "recoverable" default used when no framework has classified the error.
 
@@ -25,10 +25,20 @@ from __future__ import annotations
 
 from narranexus.platform.agent_runtime.execution_state import ExecutionState
 from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
-from narranexus.platform.schema import ErrorMessage
+from narranexus.platform.schema import (
+    AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
+    ErrorMessage,
+)
 
 
-def _error_event(error_message: str, error_type: str, *, fatal: bool | None = None) -> dict:
+def _error_event(
+    error_message: str,
+    error_type: str,
+    *,
+    fatal: bool | None = None,
+    self_serviceable: bool | None = None,
+) -> dict:
     data = {
         "type": "response.error",
         "error_message": error_message,
@@ -36,6 +46,8 @@ def _error_event(error_message: str, error_type: str, *, fatal: bool | None = No
     }
     if fatal is not None:
         data["fatal"] = fatal
+    if self_serviceable is not None:
+        data["self_serviceable"] = self_serviceable
     return {"type": "raw_response_event", "data": data}
 
 
@@ -81,13 +93,67 @@ def test_fatal_false_is_recovered_after_reply_not_recoverable():
 
 
 def test_fatal_flag_does_not_override_auth_or_self_serviceable_classification():
-    """Auth and self-serviceable failures already resolve to severity
-    "fatal" with a dedicated, actionable error_type -- the generic fatal
-    flag must not shadow that more specific classification (it is only
-    ever consulted in the branch AFTER both checks)."""
+    """Auth and self-serviceable failures resolve to a dedicated,
+    actionable error_type -- ``fatal: true`` must not shadow that more
+    specific classification. (``fatal: false`` only changes their
+    severity, see the tests below.)"""
     msg = _process(_error_event(
         "Please log out and sign in again.", "unauthorized", fatal=True,
     ))
     assert msg.severity == "fatal"
-    from narranexus.platform.schema import AUTH_EXPIRED_ERROR_TYPE
     assert msg.error_type == AUTH_EXPIRED_ERROR_TYPE
+
+
+def test_fatal_false_downgrades_an_auth_failure_but_keeps_its_classification():
+    """A key revoked mid-turn AFTER the framework already delivered a
+    reply: the auth branch keeps its dedicated error_type and copy, but
+    an explicit ``fatal: false`` must not let it erase the reply."""
+    msg = _process(_error_event(
+        "Please log out and sign in again.", "unauthorized", fatal=False,
+    ))
+    assert msg.severity == "recovered_after_reply"
+    assert msg.error_type == AUTH_EXPIRED_ERROR_TYPE
+    assert msg.self_serviceable is True
+
+
+def test_fatal_false_downgrades_a_context_window_failure_but_keeps_its_classification():
+    """An uncompactable context overflow landing after the reply: same
+    rule for the self-serviceable branch. Absent flag / ``fatal: true``
+    stay fatal (covered above and below)."""
+    msg = _process(_error_event(
+        "This model's maximum context length is 8192 tokens",
+        "invalid_request", fatal=False,
+    ))
+    assert msg.severity == "recovered_after_reply"
+    assert msg.error_type == SELF_SERVICEABLE_ERROR_TYPE
+    assert msg.action_reason == "context_window"
+
+
+def test_context_window_failure_without_fatal_false_stays_fatal():
+    for fatal in (None, True):
+        msg = _process(_error_event(
+            "This model's maximum context length is 8192 tokens",
+            "invalid_request", fatal=fatal,
+        ))
+        assert msg.severity == "fatal"
+        assert msg.error_type == SELF_SERVICEABLE_ERROR_TYPE
+
+
+def test_framework_fatal_exits_pass_the_drivers_self_serviceable_through():
+    """Both framework-classified exits carry the driver's own
+    ``self_serviceable`` verdict, like the "recoverable" exit — and
+    never fabricate one when the driver did not classify."""
+    msg = _process(_error_event(
+        "upstream failure", "api_error", fatal=True, self_serviceable=True,
+    ))
+    assert msg.severity == "fatal"
+    assert msg.self_serviceable is True
+    msg = _process(_error_event(
+        "upstream failure", "api_error", fatal=False, self_serviceable=True,
+    ))
+    assert msg.severity == "recovered_after_reply"
+    assert msg.self_serviceable is True
+    msg = _process(_error_event("upstream failure", "api_error", fatal=False))
+    assert msg.self_serviceable is None
+    msg = _process(_error_event("upstream failure", "api_error", fatal=True))
+    assert msg.self_serviceable is None

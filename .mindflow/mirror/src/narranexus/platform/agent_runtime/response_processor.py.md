@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/response_processor.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -15,26 +15,25 @@ stub: false
 
 ## 2026-09-10（B-05/#127）— `response.error` 的 `fatal`：框架自报「终局且未交付」
 
-在既有 auth / self-serviceable 两条判定之后、最终 `recoverable` 兜底之前，新插两层，读同一个框架
-自报的 `data.get("fatal")`。**契约**：`fatal` = 本 turn 终局失败 **且** 本 turn 未交付任何输出，
-不是单纯「turn 结束了」。
+**契约正文只在本文件（代码注释同处），生产方只指过来。** `fatal` = 本 turn 终局失败 **且** 本 turn 未交付
+任何输出，不是单纯「turn 结束了」。读一次得出 `already_delivered = data.get("fatal") is False`：
 
-- `fatal is True`（或任何 truthy）→ `severity="fatal"`，`error_type` 原样透传（这一层不判「为什么
-  失败」，只判「turn 死了且没交付」）。
-- `fatal is False`（**显式**上报）→ `severity="recovered_after_reply"`：turn 同样终局，但失败落地前
-  agent 已经交付过回复。复用 run_collector 的既有四值词汇——`recoverable` 的定义是「loop 吸收后
-  继续跑」，这里 loop 没有继续；`recovered_after_reply` 在 `VERDICT_ON_FATAL_SEVERITIES` 里，
-  sticky-fatal 规则不会把它升回 `fatal`（落进 `recoverable` 会被升回，用户已看到的回复被换成失败通知）。
-- 不带这个键（claude_code 的内联错误、codex 的独立 `error` 通知等）→ 两层都不命中，历史
-  `recoverable` 默认行为零变化。
+- 显式 `False` → 本函数**所有**出口出 `severity="recovered_after_reply"`：auth / self-serviceable 两条分支
+  （对所有框架生效，不是某个框架专属）保留各自的 `error_type`、文案、`action_reason`、`self_serviceable=True`，
+  只把 severity 从 `fatal` 降级——turn 中途 key 被吊销、已答话后才撞上不可压缩 context overflow，不抹掉用户
+  已看到的回复。`recovered_after_reply` 在 `VERDICT_ON_FATAL_SEVERITIES` 里，sticky-fatal 不会升回；
+  step_3 `_has_fatal_error_frame` 只认 `"fatal"`，同样放行。
+- truthy → 未命中 auth / self-serviceable 时 `severity="fatal"`，`error_type` 原样透传。
+- 缺键（claude 内联错误、codex 独立 `error` 通知）→ 行为零变化：auth / self-serviceable 仍 `fatal`，其余 `recoverable`。
+- 两个框架分类出口都透传 driver 的 `self_serviceable`（含 `None`），与 `recoverable` 出口同口径，不编造。
 
-谁填这个值：nexus_power 的 [[event_adapter]] 透传 loop.py `_fail` 的 `not self._turn_expressed`；
-codex 的 [[official_sdk]] 按 `turn_had_message` 覆写 [[output_transfer]] 的保守默认 `True`。
-claude_code 的 auth / self-serviceable 分支仍无条件 `fatal`，不看是否已交付（未在本次统一）。
+谁填这个值：nexus_power [[event_adapter]] 透传 loop.py `_fail` 的 `_turn_delivered()` 判定；codex [[official_sdk]]
+按 `turn_had_message` 覆写 [[output_transfer]] 的保守默认 `True`。
 
 背景：`recoverable` 桶对真正终局的 NexusPower 失败不成立，旧行为让 turn 落 `state=completed` +
 空回复 + 无 fatal 痕迹（GitHub #127）。
-测试：`tests/agent_runtime/test_response_processor_fatal_flag.py`。
+测试：`tests/agent_runtime/test_response_processor_fatal_flag.py`（含 `fatal=False` + auth / context-window
+降级、缺键/True 仍 fatal、`self_serviceable` 透传与不编造）。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

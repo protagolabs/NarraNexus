@@ -479,6 +479,32 @@ class ResponseProcessor:
             if self_serviceable_flag is not None:
                 self_serviceable_flag = bool(self_serviceable_flag)
 
+            # The ``fatal`` contract (the one authoritative description —
+            # producers point here). A framework may report a ``fatal``
+            # boolean on its OWN error event's raw payload, meaning "this
+            # turn is terminal AND it delivered nothing usable" — NOT merely
+            # "this turn ended". Today NexusPower (loop.py ``_fail``, via its
+            # event_adapter) and codex (output_transfer / official_sdk) set
+            # it; claude does not, and an absent key keeps every legacy
+            # branch below exactly as it was.
+            #   * ``fatal is False`` (explicit, never merely absent): the
+            #     framework already delivered a reply this turn before the
+            #     failure landed (a 429/5xx retry exhaustion, an
+            #     uncompactable context overflow, a key revoked mid-turn).
+            #     Every exit below then files it as
+            #     ``recovered_after_reply`` — the auth / self-serviceable
+            #     branches keep their specific error_type and copy, but must
+            #     not let a blanket fatal erase a reply the user already saw.
+            #   * ``fatal`` truthy: terminal with nothing delivered. Without
+            #     this a terminal NexusPower failure (e.g. output-budget
+            #     truncation) fell into the "recoverable" default and the
+            #     run finished state=completed with an empty reply and no
+            #     fatal marker (B-05/#127).
+            already_delivered = data.get("fatal") is False
+            terminal_severity = (
+                "recovered_after_reply" if already_delivered else "fatal"
+            )
+
             # Auth failures are NOT recoverable by retrying or by a helper
             # reply — the credentials are dead. Surface a fatal, actionable
             # message and tag it ``auth_expired`` so step_3 skips the
@@ -494,7 +520,7 @@ class ResponseProcessor:
                     message=ErrorMessage(
                         error_message=_AUTH_EXPIRED_USER_MESSAGE,
                         error_type=AUTH_EXPIRED_ERROR_TYPE,
-                        severity="fatal",
+                        severity=terminal_severity,
                         self_serviceable=True,  # re-login is the user's to do
                     ),
                     state_update={"method": "increment_response", "args": {}}
@@ -522,36 +548,17 @@ class ResponseProcessor:
                             self_serviceable, error_message
                         ),
                         error_type=SELF_SERVICEABLE_ERROR_TYPE,
-                        severity="fatal",
+                        severity=terminal_severity,
                         action_reason=self_serviceable,
                         self_serviceable=True,  # by definition of the class
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
 
-            # A framework can report a ``fatal`` boolean on its OWN error
-            # event's raw payload. The contract is "this turn is terminal
-            # AND the turn delivered no usable output" — NOT merely "this
-            # turn ended". NexusPower's event_adapter passes this through
-            # verbatim from loop.py's own judgment (``not
-            # self._turn_expressed``), because that loop's ``_fail``
-            # always closes the turn with EndReason.ERROR immediately
-            # after — there is no "absorbed mid-loop, kept going" shape
-            # for this framework the way there is for claude/codex's
-            # inline API errors. Without this branch existing at all, a
-            # genuinely terminal NexusPower failure (e.g. B-03's
-            # output-budget truncation after the retry is exhausted) fell
-            # into the "recoverable" bucket below, and the turn finished
-            # as state=completed with an empty reply and no fatal marker
-            # for anything downstream to notice (B-05/#127).
-            #
-            # ``fatal is False`` (explicitly reported, not merely absent)
-            # means the loop already delivered a reply via an expressive
-            # tool call before this failure landed — that's
-            # "recovered_after_reply", not the generic "recoverable"
-            # default below (which is for errors no framework has
-            # classified at all, e.g. claude/codex's inline API errors).
-            if data.get("fatal") is False:
+            # Framework-classified terminality (contract above). Both exits
+            # pass the driver's own ``self_serviceable`` through, exactly as
+            # the "recoverable" exit does — never a fabricated value.
+            if already_delivered:
                 logger.error(
                     f"[AGENT-LOOP-RECOVERED-AFTER-REPLY] API error "
                     f"({error_type}): {error_message}"
@@ -562,6 +569,7 @@ class ResponseProcessor:
                         error_message=error_message,
                         error_type=error_type,
                         severity="recovered_after_reply",
+                        self_serviceable=self_serviceable_flag,
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
@@ -574,6 +582,7 @@ class ResponseProcessor:
                         error_message=error_message,
                         error_type=error_type,
                         severity="fatal",
+                        self_serviceable=self_serviceable_flag,
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
