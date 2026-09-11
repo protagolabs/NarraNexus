@@ -79,3 +79,41 @@ async def test_narra_guide_serves_curated_reference(monkeypatch):
     out = await narra_guide("agent_x")
     assert out["success"] is True
     assert "curated narra-cli reference" in out["guide"]
+
+
+async def test_narra_send_media_works_in_a_process_without_an_http_host(monkeypatch):
+    """narra_send_media runs in the MCP process, which exposes no WebHost.
+
+    2026-09-11 prod: ``host_settings()`` raised ``UnknownEntry: service
+    'host.web' is not exposed`` there, so the tool could not send any file.
+    """
+    from types import SimpleNamespace
+
+    from narranexus.contracts.services import WEB_HOST
+    from narranexus.contracts.web import MAX_UPLOAD_BYTES_ENV
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    monkeypatch.delitem(KERNEL_REGISTRIES.services._services, WEB_HOST.id, raising=False)
+    monkeypatch.setenv(MAX_UPLOAD_BYTES_ENV, "4321")
+
+    async def fake_cred(agent_id):
+        return SimpleNamespace(matrix_access_token="tok", matrix_homeserver_url="https://hs")
+
+    async def fake_owner(agent_id):
+        return "user_owner"
+
+    seen = {}
+
+    async def fake_send(**kwargs):
+        seen.update(kwargs)
+        return {"ok": True, "event_id": "$e"}
+
+    monkeypatch.setattr(mt, "_get_credential", fake_cred)
+    monkeypatch.setattr(mt, "_get_owner", fake_owner)
+    monkeypatch.setattr(mt, "send_media_impl", fake_send)
+    narra_send_media = _register_tools()["narra_send_media"]
+
+    out = await narra_send_media("agent_x", "!r:h", "out/photo.png")
+    assert out == {"ok": True, "event_id": "$e"}
+    assert seen["max_bytes"] == 4321
+    assert seen["owner_id"] == "user_owner"

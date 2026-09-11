@@ -61,6 +61,15 @@ class AuthError(Exception):
     status_code: int = 401
 
 
+# ── The upload ceiling's source of truth ──────────────────────────────────
+# ``HostSettings.max_upload_bytes`` is deployment-wide, not request-scoped:
+# every process role (backend, workers, MCP) reads the same env var with the
+# same default. The backend's ``config.settings`` and the SDK's no-HTTP-host
+# fallback both resolve through these two names so they cannot drift.
+MAX_UPLOAD_BYTES_ENV = "MAX_UPLOAD_BYTES"
+DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
 @runtime_checkable
 class HostSettings(Protocol):
     """The host's deployment-wide settings a plugin may read.
@@ -132,7 +141,9 @@ class WebHost(Protocol):
 
 
 __all__ = [
+    "DEFAULT_MAX_UPLOAD_BYTES",
     "IDENTITY_UNRESOLVED",
+    "MAX_UPLOAD_BYTES_ENV",
     "TOKEN_EXPIRED",
     "TOKEN_INVALID",
     "AuthError",
