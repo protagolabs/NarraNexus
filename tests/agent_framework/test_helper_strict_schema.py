@@ -339,3 +339,41 @@ async def test_rejected_output_type_does_not_demote_the_model_for_others():
     rf = client.chat.completions.create.call_args.kwargs["response_format"]
     assert rf["type"] == "json_schema"
     assert rf["json_schema"]["strict"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_same_named_model_with_a_different_shape_keeps_the_strict_rung():
+    """Plugins can build output models dynamically; two `create_model("Foo")`
+    in one module share a qualified name. The rejection of the open-object
+    one must not switch the strict rung off for the strict-compatible one."""
+    from pydantic import create_model
+
+    open_foo = create_model("Foo", verdict=(bool, ...), attributes=(dict[str, str], {}))
+    strict_foo = create_model("Foo", verdict=(bool, ...))
+    assert open_foo.__qualname__ == strict_foo.__qualname__
+    assert open_foo.__module__ == strict_foo.__module__
+
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_fake_response('{"verdict": true, "attributes": {}}')
+    )
+    sdk = OpenAIAgentsSDK()
+    await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=open_foo, max_tokens=200,
+    )
+    assert client.chat.completions.create.call_args.kwargs["response_format"] == {
+        "type": "json_object"
+    }
+
+    client.chat.completions.create = AsyncMock(return_value=_fake_response('{"verdict": true}'))
+    await sdk._fallback_chat_completion(
+        client, "gpt-5.4-mini", instructions="judge", user_input="q",
+        output_type=strict_foo, max_tokens=200,
+    )
+    assert client.chat.completions.create.call_args.kwargs["response_format"]["type"] == "json_schema"
+
+    # The same shape still maps to one key (the skip stays cached).
+    assert mod._strict_rewrite_key(open_foo) == mod._strict_rewrite_key(
+        create_model("Foo", verdict=(bool, ...), attributes=(dict[str, str], {}))
+    )

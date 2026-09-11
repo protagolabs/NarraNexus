@@ -10,6 +10,7 @@ Supports two modes:
    return <think> blocks and ignore response_format)
 """
 
+import hashlib
 import json
 import re
 from contextvars import ContextVar
@@ -256,14 +257,21 @@ def build_strict_json_schema(output_type: Type[BaseModel]) -> dict:
 # schema alone, so caching it on the model's capability set would demote every
 # other output type on that model to json_object — undoing the rung the
 # 2026-08-25 fix exists to reach. Process-local, like the capability cache.
-# Keyed by the type's qualified name (not the class object) so a plugin that
-# builds throwaway output models per call cannot grow the set without bound
-# or pin those classes in memory.
+# Keyed by the type's qualified name plus a fingerprint of its JSON schema
+# (not the class object) so a plugin that builds throwaway output models per
+# call cannot pin those classes in memory, and two models that share a name
+# (``pydantic.create_model("Foo", ...)`` twice in one module) but differ in
+# shape do not share a verdict. Identical shapes still collapse to one key.
 _strict_rewrite_unsupported: set[str] = set()
 
 
 def _strict_rewrite_key(output_type: type) -> str:
-    return f"{output_type.__module__}.{output_type.__qualname__}"
+    name = f"{output_type.__module__}.{output_type.__qualname__}"
+    try:
+        schema = json.dumps(output_type.model_json_schema(), sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 - a schema that cannot render keys on its name
+        return name
+    return f"{name}#{hashlib.sha256(schema.encode()).hexdigest()[:16]}"
 
 
 def _allowed_levels(key: tuple[str, str]) -> set[str]:
