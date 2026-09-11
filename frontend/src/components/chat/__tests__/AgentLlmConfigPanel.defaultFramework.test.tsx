@@ -14,6 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 let ownerDefault: Record<string, unknown> | null = null;
 let resolvedFramework = 'codex_cli';
+let frameworkLoadOk = true;
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -45,7 +46,7 @@ vi.mock('@/lib/api', () => ({
         },
       }),
     getAgentFramework: () =>
-      Promise.resolve({
+      Promise.resolve(frameworkLoadOk ? {
         success: true,
         data: {
           framework: resolvedFramework,
@@ -57,7 +58,7 @@ vi.mock('@/lib/api', () => ({
           ],
           probe: { ok: true, detail: '' },
         },
-      }),
+      } : { success: false }),
     setAgentLlmConfig: vi.fn(),
   },
 }));
@@ -86,6 +87,7 @@ async function renderPanel() {
 beforeEach(() => {
   ownerDefault = null;
   resolvedFramework = 'codex_cli';
+  frameworkLoadOk = true;
 });
 
 describe('AgentLlmConfigPanel default framework', () => {
@@ -98,5 +100,20 @@ describe('AgentLlmConfigPanel default framework', () => {
     ownerDefault = { provider_id: 'prov_a', model: 'claude-x', agent_framework: 'nexus_power' };
     await renderPanel();
     await waitFor(() => expect(frameworkSelect().value).toBe('nexus_power'));
+  });
+
+  test('a soft-failed framework load says so instead of an empty form', async () => {
+    frameworkLoadOk = false;
+    render(
+      <MemoryRouter>
+        <AgentLlmConfigPanel agentId="agent_1" isOpen onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+  });
+
+  test('a successful load shows no load error', async () => {
+    await renderPanel();
+    expect(screen.queryByText('Failed to load configuration')).toBeNull();
   });
 });

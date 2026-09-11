@@ -148,6 +148,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setHelperDraft(h);
       setAgentInitial(a);
       setHelperInitial(h);
+      // A soft failure of the framework endpoint leaves no framework list to
+      // offer (and providerBacksFramework fails closed on it), so the form
+      // would render an empty framework select with no explanation. Say the
+      // load failed instead.
+      if (!fwRes?.success) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {

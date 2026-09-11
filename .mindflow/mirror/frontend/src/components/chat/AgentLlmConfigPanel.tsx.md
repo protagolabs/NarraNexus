@@ -4,6 +4,16 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — a soft-failed framework load is reported
+
+`GET /agent-framework` answering `success:false` (no throw) left no framework
+list and no user framework: the framework select rendered with zero options
+and no explanation (the provider list is empty too, since
+`providerBacksFramework` fails closed without the list). `load()` now sets the
+`loadFailed` error in that case. Pinned by
+`__tests__/AgentLlmConfigPanel.defaultFramework.test.tsx` (soft failure →
+error; normal load → none).
+
 ## 2026-09-11 — no hardcoded framework fallback
 
 `EMPTY_DRAFT.agent_framework` is `''` and, when the agent has no owner slot
