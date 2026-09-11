@@ -4,6 +4,13 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — `getAgentLlmConfig` response type drops `free_tier`
+
+The backend stopped sending `data.free_tier` on 2026-07-28 (the free tier
+became an ordinary provider card); the optional field lingered here and
+kept an unreachable banner alive in `AgentLlmConfigPanel`. Removed with
+that banner.
+
 ## 2026-09-09 — `updateJob` added: the seam PUT had no frontend caller (GitHub #86)
 
 Backend PUT /api/jobs/{job_id} (mirrors the job_update MCP tool) has

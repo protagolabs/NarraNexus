@@ -116,13 +116,6 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // ModelDefaultsSettings' "✓ Saved" indicator so the two editors read the
   // same way.
   const [saved, setSaved] = useState(false);
-  // While the owner's cloud free tier has budget, the runtime pins every run to
-  // the fixed system model and ignores what's edited here — surface that
-  // honestly (the edits still persist and apply once the free tier is spent).
-  const [freeTier, setFreeTier] = useState<{ active: boolean; model: string | null }>({
-    active: false,
-    model: null,
-  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +133,6 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
-      setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
       const ownerFramework =
         s.agent?.owner_default?.agent_framework || 'nexus_power';
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
@@ -300,13 +292,6 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           </p>
         ) : (
           <div className="space-y-6">
-            {freeTier.active && (
-              <div className="rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
-                {t('chat.model.freeTierBanner', {
-                  model: freeTier.model ? prettifyModel(freeTier.model) : '',
-                })}
-              </div>
-            )}
             <p className="text-sm text-[var(--text-tertiary)]">
               {t('pages.settings.modelDefaults.agentOnlyDescription', { agentId })}
             </p>
@@ -588,16 +573,16 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         <button className={btnGhost} onClick={onClose}>
           {t('pages.settings.modelDefaults.close')}
         </button>
-        {saved && !isDirty && (
-          <span className="text-sm text-[var(--color-success)]">
-            ✓ {t('pages.settings.modelDefaults.saved')}
-          </span>
-        )}
         <button className={btnPrimary} disabled={!isDirty || saving || loading} onClick={saveAll}>
           {saving
             ? t('pages.settings.modelDefaults.saving')
             : t('pages.settings.modelDefaults.save')}
         </button>
+        {saved && !isDirty && (
+          <span className="text-sm text-[var(--color-success)]">
+            ✓ {t('pages.settings.modelDefaults.saved')}
+          </span>
+        )}
       </DialogFooter>
     </Dialog>
     {noticeDialog}

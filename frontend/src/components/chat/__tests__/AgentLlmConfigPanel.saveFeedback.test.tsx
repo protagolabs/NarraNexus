@@ -24,7 +24,6 @@ vi.mock('@/lib/api', () => ({
             agent: { owner_default: { agent_framework: 'nexus_power' }, effective: null },
             helper_llm: { owner_default: {}, effective: null },
           },
-          free_tier: { active: false, model: null },
         },
       }),
     getProviders: () =>
@@ -95,7 +94,12 @@ describe('AgentLlmConfigPanel save feedback', () => {
       expect.objectContaining({ provider_id: 'prov1', model: 'claude-x' }),
     ));
 
-    await screen.findByText(/saved/i);
+    const savedNote = await screen.findByText(/^✓ saved$/i);
+    // Same position as ModelDefaultsSettings: after Save, so it never
+    // shifts the Save button when it appears.
+    expect(
+      saveButton.compareDocumentPosition(savedNote) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test('a failed save keeps showing the error, not a false confirmation', async () => {

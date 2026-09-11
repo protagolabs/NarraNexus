@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — orphaned free-tier banner removed; "✓ Saved" after Save
+
+- The 2026-07-23 free-tier banner below is gone. The backend stopped
+  sending `data.free_tier` on 2026-07-28 (see [[agents_llm_config]];
+  `tests/backend/test_agents_llm_config_routes.py` asserts it is absent)
+  and the `chat.model.freeTierBanner` key was deleted from every locale
+  then, but this panel kept the `freeTier` state and the banner JSX. The
+  branch was unreachable, and had it ever rendered it would have shown a
+  raw key. The `free_tier` field is also dropped from
+  `api.getAgentLlmConfig`'s response type.
+- The "✓ Saved" indicator now sits after the Save button, the same
+  position ModelDefaultsSettings uses, so it no longer shifts Save when
+  it appears. The 2.5s auto-clear timer is deliberately left uncleared on
+  unmount, matching ModelDefaultsSettings (React 18 ignores a set-state
+  on an unmounted component; changing one editor alone would make the
+  two diverge).
 
 ## 2026-09-09 — a successful Save now says so (GitHub #96)
 
@@ -64,7 +81,7 @@ provider API，anthropic / openai 两族都能用，被单值过滤会砍掉一�
 改走 [[agentFramework]] 的 `frameworkAcceptsProtocol()`——CLI 型框架依旧只认
 自己 CLI 的那一种，行为不变。
 
-## 2026-07-23 — 免费额度生效诚实 banner
+## 2026-07-23 — 免费额度生效诚实 banner (removed 2026-09-11, see top)
 
 `load()` 读 `getAgentLlmConfig` 返回的 `data.free_tier`（[[api]]），`active` 为真时
 面板顶部渲染一条信息 banner（`chat.model.freeTierBanner`，插值当前系统模型名）：说明

@@ -103,11 +103,7 @@ class SetAgentSlotRequest(BaseModel):
 @router.get("/{agent_id}/llm-config")
 async def get_agent_llm_config(agent_id: str, request: Request):
     """Per-slot view: is the agent inheriting the owner default, what is the
-    effective config, and (if any) the raw override + owner default.
-
-    Also carries a ``free_tier`` block: while the owner's cloud free tier has
-    budget, runs are pinned to the fixed system model and per-agent overrides
-    are ignored — the UI uses this to render an honest read-only model chip."""
+    effective config, and (if any) the raw override + owner default."""
     user_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 
