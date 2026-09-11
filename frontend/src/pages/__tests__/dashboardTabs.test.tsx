@@ -80,6 +80,11 @@ vi.mock('@/pages/BundleExportPage', () => ({ default: () => <div>export-wizard-s
 
 import DashboardPage from '../DashboardPage';
 import { api } from '@/lib/api';
+import {
+  MASTER_DETAIL_ROW_CLASS,
+  MASTER_NAV_CLASS,
+  MASTER_NAV_ITEM_CLASS,
+} from '@/lib/masterDetailNav';
 
 const renderAt = (path: string) =>
   render(<MemoryRouter initialEntries={[path]}><DashboardPage /></MemoryRouter>);
@@ -100,13 +105,17 @@ describe('Dashboard left-rail tabs (#1)', () => {
   });
 
   it('the left rail collapses to a horizontal strip below md (GitHub #130)', () => {
-    // A fixed w-56 (224px) column with no breakpoint ate most of a 360px
-    // viewport. Below md it must give up the fixed width and stack above
-    // the content as a scrollable row instead.
+    // The rail's responsive classes live in one shared definition
+    // (lib/masterDetailNav) so this page and its sibling cannot drift; the
+    // breakpoint pin itself is asserted in masterDetailNav.test.ts.
     renderAt('/app/dashboard');
-    const classes = screen.getByRole('navigation').className.split(/\s+/);
-    expect(classes).toContain('md:w-56');
-    expect(classes).not.toContain('w-56');
+    const nav = screen.getByRole('navigation');
+    expect(nav.className).toBe(MASTER_NAV_CLASS);
+    expect(nav.parentElement?.className).toBe(MASTER_DETAIL_ROW_CLASS);
+    const item = nav.querySelector('button');
+    expect(item?.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(MASTER_NAV_ITEM_CLASS.split(' ')),
+    );
   });
 
   it('the Create Agent button invokes useCreateAgent().createAgent', () => {

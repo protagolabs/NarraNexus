@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui';
 import { isTauri } from '@/lib/tauri';
+import { MASTER_DETAIL_ROW_CLASS, MASTER_NAV_CLASS, masterNavItemClass } from '@/lib/masterDetailNav';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { SETTINGS_SECTIONS, sortedSettingsSections, useRegistryEntries } from '@/platform/registries';
 import './settings/registerBuiltinSections';
@@ -54,12 +55,12 @@ export default function SettingsPage() {
         </h1>
       </header>
 
-      <div className="flex flex-1 min-h-0 flex-col md:flex-row">
+      <div className={MASTER_DETAIL_ROW_CLASS}>
         {/* Left nav (master). Below md there's no room for a fixed 224px
             column (it ate most of a 360px viewport, GitHub #130) — it
             becomes a horizontal scroll strip above the content instead. */}
         <nav
-          className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 md:block md:w-56 md:gap-0 md:overflow-x-visible md:overflow-y-auto md:space-y-1 md:border-b-0 md:border-r md:px-3 md:py-4"
+          className={MASTER_NAV_CLASS}
           style={{ borderColor: 'var(--nm-line)' }}
         >
           {items.map((entry) => {
@@ -71,11 +72,7 @@ export default function SettingsPage() {
                 key={entry.id}
                 type="button"
                 onClick={() => setActive(entry.id)}
-                className={`shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors md:w-full ${
-                  isActive
-                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]'
-                }`}
+                className={masterNavItemClass(isActive)}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 {t(item.labelKey)}
