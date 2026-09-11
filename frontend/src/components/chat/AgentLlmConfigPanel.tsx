@@ -61,7 +61,8 @@ const EMPTY_DRAFT: Draft = {
   model: '',
   thinking: '',
   reasoning_effort: '',
-  agent_framework: 'nexus_power',
+  // Filled by load() — no hardcoded framework id (see ownerFramework below).
+  agent_framework: '',
 };
 
 function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): Draft {
@@ -134,10 +135,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
+      // No owner slot bound → the framework the backend resolved for this
+      // user (its default already skips uninstalled plugins). Never a
+      // frontend literal: a hardcoded id can name a framework whose plugin
+      // is not installed on this build.
       const ownerFramework =
-        s.agent?.owner_default?.agent_framework || 'nexus_power';
+        s.agent?.owner_default?.agent_framework || (fwRes?.success ? fwRes.data.framework : '');
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
-      const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
+      // The helper slot carries no framework (its save never sends one).
+      const h = draftFrom(s.helper_llm?.effective ?? null, '');
       setAgentDraft(a);
       setHelperDraft(h);
       setAgentInitial(a);

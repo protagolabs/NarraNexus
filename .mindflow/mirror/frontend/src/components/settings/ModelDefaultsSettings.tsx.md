@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — the framework is a draft; Save commits it (Owner bug)
+
+Owner report: changing the default framework could not be saved. Root cause:
+the framework `<select>` wrote `POST /agent-framework` immediately on change and
+the framework was never part of `isDirty`, so after a pick the Save button stayed
+disabled (nothing "changed"), no "✓ Saved" ever appeared, and the page gave no
+sign the choice had landed.
+
+Now the framework is a draft like every other field: `framework` vs
+`frameworkInitial` (both filled by `load()`, initial state `''` — no hardcoded
+id), `frameworkChanged` joins `isDirty`, and picking the stored value again makes
+the form clean. Picking a framework the bound agent provider cannot drive
+(`providerBacksFramework`, the dropdown's own predicate) drops provider/model from
+the DRAFT so the user re-picks; a provider both frameworks can drive keeps the
+pick. `apply()` requires a provider+model when the agent slot or the framework
+changed, then writes the framework FIRST (set_slot validates the provider against
+the stored framework), then the agent slot when it changed or the backend
+reported `slot_cleared`, then the helper. A framework change counts as an agent
+slot change for the apply-to-agents dialog. The auth probe line is hidden while
+the draft framework differs from the stored one (the probe describes the stored
+framework); the select is disabled while saving.
 
 ## 2026-09-10 — "✓ Saved" flag via the shared `useFlashFlag` hook
 

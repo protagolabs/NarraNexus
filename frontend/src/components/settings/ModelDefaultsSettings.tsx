@@ -9,6 +9,10 @@
  *   - PUT  /api/providers/slots/{agent|helper_llm}   (setProviderSlot)
  *   - POST /api/providers/agent-framework            (setAgentFramework)
  *
+ * The framework is a DRAFT like every other field: picking one writes nothing,
+ * it makes the form dirty, and Save commits it (framework first, then the
+ * slots — set_slot validates the provider against the stored framework).
+ *
  * Extracted out of ProviderSettings' old "Section ③" so LLM Providers is purely
  * the credential wallet. Option-building is shared via lib/agentFramework so the
  * choices match the per-agent panel + the provider dropdowns.
@@ -75,7 +79,11 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
-  const [framework, setFramework] = useState('claude_code');
+  // Framework draft + the stored value it is compared against. No hardcoded
+  // initial id: the form renders only after load() filled both from the
+  // backend, which resolves the user's framework (default included).
+  const [framework, setFramework] = useState('');
+  const [frameworkInitial, setFrameworkInitial] = useState('');
   // Plugin-install gate (Claude Code / Codex CLI are user-installed local
   // plugins) — name→available, defaulted to available for any framework the
   // backend didn't mention (see lib/agentFramework frameworkAvailabilityMap).
@@ -128,6 +136,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
       setHelperInitial(helper);
       if (fwRes?.success) {
         setFramework(fwRes.data.framework);
+        setFrameworkInitial(fwRes.data.framework);
         setProbe(fwRes.data.probe);
         setFrameworkAvailability(frameworkAvailabilityMap(fwRes.data.frameworks));
         setLiveFrameworks(fwRes.data.frameworks);
@@ -182,45 +191,33 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const sameHelper = (a: HelperDraft, b: HelperDraft) =>
     a.provider_id === b.provider_id && a.model === b.model;
 
+  const frameworkChanged = framework !== frameworkInitial;
   const agentChanged = !sameAgent(agentDraft, agentInitial);
   const helperChanged = !sameHelper(helperDraft, helperInitial);
-  const isDirty = agentChanged || helperChanged;
+  // The framework is part of the dirty state (Owner bug 2026-09-11): it used
+  // to be written on change and left out of this check, so after picking a
+  // new default framework Save stayed disabled and the page never confirmed
+  // the choice — "changing the framework cannot be saved".
+  const isDirty = frameworkChanged || agentChanged || helperChanged;
 
-  // Framework switch persists immediately (it may auto-install codex + re-probe
-  // auth). The BACKEND decides whether the bound provider survives — a card the
-  // new framework can't drive (CLI subscription, or wrong protocol) is unbound
-  // server-side. Mirror that answer instead of clearing optimistically: a
-  // binding both frameworks can drive must keep the user's model pick.
-  const onFrameworkChange = async (next: string) => {
+  // Picking a framework only edits the draft. A bound provider the new
+  // framework cannot drive (wrong protocol, or a CLI subscription it cannot
+  // redeem) is dropped from the draft — same predicate the provider dropdown
+  // filters with — so the user picks one that can; a provider both frameworks
+  // can drive keeps the user's model pick.
+  const onFrameworkChange = (next: string) => {
     setFramework(next);
-    setFrameworkSaving(true);
     setError('');
     setInstall(null);
-    try {
-      const resp = await api.setAgentFramework(next);
-      if (resp.success) {
-        setProbe(resp.data.probe);
-        setInstall(resp.data.install);
-        if (resp.data.slot_cleared) {
-          const cleared = { provider_id: '', model: '' };
-          setAgentDraft((d) => ({ ...d, ...cleared }));
-          setAgentInitial((d) => ({ ...d, ...cleared }));
-        }
-      }
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : t('pages.settings.modelDefaults.frameworkSwitchFailed'),
-      );
-    } finally {
-      setFrameworkSaving(false);
+    const bound = providers[agentDraft.provider_id];
+    if (bound && !providerBacksFramework(bound, next, liveFrameworks)) {
+      setAgentDraft((d) => ({ ...d, provider_id: '', model: '' }));
     }
   };
 
   const apply = async () => {
     if (!isDirty || applying) return;
-    if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
+    if ((agentChanged || frameworkChanged) && (!agentDraft.provider_id || !agentDraft.model)) {
       setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
@@ -233,11 +230,28 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     // Capture which slots changed BEFORE load() resets the initial snapshots —
     // only these are offered in the apply-to-agents dialog.
     const dirtySlots: Array<'agent' | 'helper_llm'> = [
-      ...(agentChanged ? ['agent' as const] : []),
+      ...(agentChanged || frameworkChanged ? ['agent' as const] : []),
       ...(helperChanged ? ['helper_llm' as const] : []),
     ];
     try {
-      if (agentChanged) {
+      // Framework FIRST: set_slot validates the agent provider against the
+      // user's stored framework. The backend may still unbind the stored
+      // provider (slot_cleared) — the draft's provider is then written below
+      // even if the slot fields themselves were untouched.
+      let slotCleared = false;
+      if (frameworkChanged) {
+        setFrameworkSaving(true);
+        try {
+          const resp = await api.setAgentFramework(framework);
+          if (!resp.success) { setError(t('pages.settings.modelDefaults.frameworkSwitchFailed')); return; }
+          setProbe(resp.data.probe);
+          setInstall(resp.data.install);
+          slotCleared = resp.data.slot_cleared;
+        } finally {
+          setFrameworkSaving(false);
+        }
+      }
+      if (agentChanged || slotCleared) {
         const r = await api.setProviderSlot('agent', {
           provider_id: agentDraft.provider_id,
           model: agentDraft.model,
@@ -339,7 +353,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           <div className="col-span-2">
             <label className={labelCls}>
               {t('pages.settings.modelDefaults.framework')}
-              {probe && (
+              {probe && !frameworkChanged && (
                 <span
                   className={cn('ml-2 text-xs', probe.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}
                   title={probe.detail}
@@ -358,7 +372,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
             <select
               className={selectCls}
               value={framework}
-              disabled={frameworkSaving}
+              disabled={frameworkSaving || applying}
               onChange={(e) => {
                 const picked = frameworkOptions.find((f) => f.id === e.target.value);
                 // Plugin-install gate first: a framework that needs a local
@@ -427,7 +441,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                   e.target.value = framework;
                   return;
                 }
-                void onFrameworkChange(e.target.value);
+                onFrameworkChange(e.target.value);
               }}
             >
               {frameworkOptions.map((f) => (
@@ -457,7 +471,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 {t('pages.settings.modelDefaults.codexUnavailable', { reason: install.reason })}
               </div>
             )}
-            {probe && !probe.ok && !(install && install.action === 'install_failed') && (
+            {probe && !probe.ok && !frameworkChanged && !(install && install.action === 'install_failed') && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1">{probe.detail}</div>
             )}
           </div>

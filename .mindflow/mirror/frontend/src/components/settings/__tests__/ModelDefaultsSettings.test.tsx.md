@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/settings/__tests__/ModelDefaultsSettings.test.tsx
-last_verified: 2026-08-28
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — framework-as-draft cases
+
+The old "switching framework drops the binding only when the backend cleared it"
+case pinned the immediate-persist design (Save disabled after a framework pick) —
+that design IS the Owner bug, so it is replaced by: changing only the framework
+enables Save and Save calls `setAgentFramework` (no slot write when the bound
+provider still backs it); picking the stored framework back makes the form clean;
+a framework the bound provider cannot drive clears the provider in the draft, a
+Save without a provider is refused client-side, and after picking a compatible
+card the framework is written BEFORE the slot (invocation order asserted); a
+rejected framework save shows the error and keeps the draft dirty. The cloud /
+staff cases now assert the pick lands in the draft (select value, Save enabled)
+instead of an immediate API call.
 
 ## 2026-08-28 — 插件门禁：disabled 选项 + 弹窗拦截
 
