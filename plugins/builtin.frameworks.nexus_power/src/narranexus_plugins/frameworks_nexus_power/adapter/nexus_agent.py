@@ -35,6 +35,7 @@ import signal
 import sys
 import uuid
 from typing import Any, AsyncGenerator
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -360,6 +361,9 @@ class NexusAgent:
             _headers = dict(llm_extra.get("extra_headers") or {})
             _headers["X-NarraNexus-Identity-Token"] = _identity_token
             llm_extra["extra_headers"] = _headers
+        llm_extra.update(
+            _request_identity_params(protocol, base_url, kwargs.get("agent_id"))
+        )
         # Per-turn fast-mode profile. Arrives as the in-process model or as
         # its model_dump() dict off the executor wire — normalize once here.
         # Absent profile MUST leave the payload semantically identical to
@@ -635,6 +639,40 @@ def _resolve_provider() -> tuple[str, str, str, str, str]:
             codex_config.auth_type or "api_key",
         )
     return ("anthropic", "", "", "", "api_key")
+
+
+# Hosts known to accept OpenAI's ``prompt_cache_key``. An empty base_url is
+# litellm's default route, i.e. api.openai.com itself.
+_PROMPT_CACHE_KEY_HOSTS = ("api.openai.com",)
+
+
+def _request_identity_params(
+    protocol: str, base_url: str, agent_id: Any
+) -> dict[str, Any]:
+    """Per-agent request identifiers, in each protocol's own vocabulary.
+
+    - anthropic: ``metadata.user_id`` (the Messages API's only metadata
+      field). Passed as litellm's ``user``, which its anthropic route
+      translates into ``metadata.user_id``.
+    - openai: ``prompt_cache_key`` (cache-routing hint: same prefix + same
+      key lands on the same cache host). Sent via ``extra_body`` because
+      litellm 1.94's ``acompletion`` has no such parameter and silently
+      drops it as a plain kwarg (measured 2026-09-11). ``extra_body`` also
+      bypasses ``drop_params``, so it goes only to hosts known to accept
+      it: our own gateway (NetMind upstream answers 200) and OpenAI.
+      Arbitrary OpenAI-compatible BYOK hosts may reject unknown fields.
+
+    No real agent id (the adapter's ``"agent"`` placeholder) → nothing.
+    """
+    agent = str(agent_id or "")
+    if not agent or agent == "agent":
+        return {}
+    if protocol == "anthropic":
+        return {"user": agent}
+    host = (urlparse(base_url).hostname or "") if base_url else "api.openai.com"
+    if _is_own_gateway_url(base_url) or host in _PROMPT_CACHE_KEY_HOSTS:
+        return {"extra_body": {"prompt_cache_key": agent}}
+    return {}
 
 
 def _terminate_group(pid: int) -> None:

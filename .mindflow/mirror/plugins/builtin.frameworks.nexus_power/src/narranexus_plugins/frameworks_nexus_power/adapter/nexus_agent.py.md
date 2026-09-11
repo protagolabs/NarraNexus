@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/adapter/nexus_agent.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 按协议发 per-agent 请求标识（`_request_identity_params`）
+
+`_build_request_payload` 把 `_request_identity_params(protocol, base_url, agent_id)` 并入 `llm_extra`，值取 agent_id：
+- anthropic 协议 → litellm `user`，由 litellm anthropic 路由翻成线上的 `metadata.user_id`（Messages API 唯一的 metadata 字段）。
+- openai 协议 → `extra_body={"prompt_cache_key": agent_id}`（缓存路由提示）。必须走 `extra_body`：litellm 1.94 的 `acompletion` 没有这个参数，直接当 kwarg 传会被静默丢掉（2026-09-11 实测）。`extra_body` 会绕过 `drop_params`，所以只发给自家网关（`_is_own_gateway_url`，上游 NetMind 实测返回 200）和 OpenAI 官方（空 base_url 或 `api.openai.com`）；任意 OpenAI 兼容的 BYOK host 一律不发，避免严格校验的 host 返回 400。
+- agent_id 缺失或为占位符 `"agent"` → 不加任何字段。
+
+测试 `tests/agent_framework/test_nexus_request_identity.py`：payload 断言，外加一个 wire 测试，经 `LitellmClient` 打到本地抓包 server，断言请求体里真的带上了 `prompt_cache_key` 和 `metadata.user_id`。
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 
