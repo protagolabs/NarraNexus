@@ -3,6 +3,14 @@ code_file: src/narranexus/platform/agent_runtime/client.py
 stub: false
 last_verified: 2026-09-11
 ---
+
+## 2026-09-11（PR #394 rebase 到 #396 之后）— 自然结束：先 `_finalize_natural_end`，再结算探测
+
+`run_and_collect` / `run_stream` 的自然结束分支现在是 #396 的 `_finalize_natural_end(recorder, STATE_COMPLETED,
+STATE_FAILED)`（fatal 落 FAILED + error_message），紧随其后才是本 PR 的 `settle_probe`（有 token 才读结果）——
+顺序仍是「events 行终态在前、结算在后」。输出预算耗尽这类 #396 新的真 fatal 以 `succeeded=False` 进
+`record_failure`，被 `breaker_exemption` 豁免，持有的探测无结论归还（见 [[circuit_breaker]] 同日条目）。
+锁：`test_client_probe_settlement.py::test_an_output_budget_probe_is_released_without_verdict`。
 ## 2026-09-10（GH #127 / B-05）— natural-end 不再无条件写 STATE_COMPLETED
 
 `run_and_collect`/`run_stream` 里两处 `recorder.finalize(STATE_COMPLETED)`

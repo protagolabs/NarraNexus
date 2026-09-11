@@ -15,8 +15,6 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 `_record_circuit_breaker` 的「STATE_COMPLETED 且 had_fatal_error」分支从 `drive()` 已不可达（state 在它
 之前就转成 FAILED）；保留为防御并在 docstring 写明。熔断结果不变（这类 run 以前也记 failure）。
 
-## 2026-09-10 — CANCELLED 的 turn 归还半开探测名额
-
 ## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 带上探测认领
 
 `RunRecorder` 构造时传 `agent_id` 与 `probe_token`：赢得探测的 WS/openai run 在 Step-0 拿到

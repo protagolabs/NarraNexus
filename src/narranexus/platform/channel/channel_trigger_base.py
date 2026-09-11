@@ -156,6 +156,27 @@ class ChannelTurnOutput(NamedTuple):
     refused: bool = False
 
 
+class RefusalClaim(NamedTuple):
+    """A claim on one chat's circuit-breaker refusal notice
+    (``ChannelTriggerBase._claim_circuit_refusal_send``). ``key`` is
+    ``(channel_name, agent_id, chat_id)``; ``window`` is the breaker window
+    the claim was taken in, or None when the send is not throttled (a 1:1
+    chat, or a refusal without a window) and there is nothing to hand back.
+    """
+
+    key: tuple[str, str, str]
+    window: Optional[str]
+
+
+# Why a silent memory batch did not run — stable short codes carried in the
+# managed silent-ingest receipt. Exception classes and runtime error types
+# stay in the log: the receipt is platform-facing and must not change shape
+# when an internal exception type does.
+SILENT_BATCH_EMPTY = "empty_batch"
+SILENT_BATCH_RUNTIME_RAISED = "runtime_raised"
+SILENT_BATCH_RUNTIME_ERROR = "runtime_error"
+
+
 # Upstream error text that reaches a credential row (and from there the
 # owner's panel, which has no fold) is trimmed to this many characters.
 DISABLE_REASON_MAX_CHARS = 200
@@ -1924,26 +1945,31 @@ class ChannelTriggerBase(ABC):
                 Serialised into batch_messages[i]["attachments"] so
                 ChatModule can persist them on the individual user row.
 
-        Not gated by the agent circuit-breaker (#394 fifth review N-1):
-        ``silent=True`` runs ``SilentAct`` — step_3 is skipped, so the pass
-        makes zero agent LLM calls and never touches the credential the
-        breaker holds; its memory/narrative LLM calls go through the helper
-        slot. Skipping it while the agent is paused would lose the room's
-        messages from memory for good (there is no retry queue) and save
-        nothing. It never claims or settles the half-open probe: no
+        Not gated by the agent circuit-breaker (#394 fifth review N-1,
+        sixth review I-2). The breaker guards turns that spend the
+        agent-slot credential, and ``silent=True`` runs ``SilentAct`` —
+        step_3 is skipped, so the pass starts no such turn (zero agent LLM
+        calls). The pass has no retry or catch-up queue, so skipping it in
+        any breaker state would lose the room's messages from memory for
+        good. Its memory/narrative LLM calls go through the helper slot,
+        which in the default one-key setup is the SAME credential the
+        breaker may be holding — during a pause those calls can fail too;
+        helper-slot health is the helper side's concern, not this
+        breaker's. It never claims or settles the half-open probe: no
         ``probe_token`` is passed.
 
         Returns:
-            None when the pass ran, else a short reason it did not (empty
-            batch, runtime raised, runtime error) — the managed receipt
-            reports it. Silent runs produce no user-facing text; the caller
+            None when the pass ran, else a stable short code for why it did
+            not (``SILENT_BATCH_EMPTY`` / ``SILENT_BATCH_RUNTIME_RAISED`` /
+            ``SILENT_BATCH_RUNTIME_ERROR``) — the managed receipt reports
+            it. Exception classes and error types go to the log only. Silent runs produce no user-facing text; the caller
             should NOT send anything to the IM platform.
         """
         if not messages:
             logger.warning(
                 f"{type(self).__name__}._build_and_run_agent_silent_batch called with empty batch"
             )
-            return "empty batch"
+            return SILENT_BATCH_EMPTY
 
         from narranexus.platform.agent_runtime.client import (
             get_agent_runtime_client,
@@ -2059,14 +2085,14 @@ class ChannelTriggerBase(ABC):
                 f"{type(self).__name__}[{agent_id}] silent batch runtime raised: "
                 f"{type(e).__name__}: {e}"
             )
-            return f"runtime raised {type(e).__name__}"
+            return SILENT_BATCH_RUNTIME_RAISED
 
         if result.is_error:
             logger.warning(
                 f"{type(self).__name__}[{agent_id}] silent batch runtime error "
                 f"({result.error.error_type}): {result.error.error_message}"
             )
-            return f"runtime error {result.error.error_type}"
+            return SILENT_BATCH_RUNTIME_ERROR
         return None
 
     # ────────────────────────────────────────────────────────────────────
@@ -2132,7 +2158,8 @@ class ChannelTriggerBase(ABC):
         if claim is None:
             logger.info(
                 f"{type(self).__name__}[{agent_id}] refusal reply to "
-                f"{message.chat_id} throttled (already sent in this window)"
+                f"{message.chat_id} throttled (already claimed in this "
+                f"window: {admission.window})"
             )
         elif not await self._send_circuit_refusal(credential, message, refusal):
             self._unclaim_circuit_refusal_send(claim)
@@ -2140,7 +2167,7 @@ class ChannelTriggerBase(ABC):
 
     def _claim_circuit_refusal_send(
         self, message: ParsedMessage, agent_id: str, window: Optional[str]
-    ) -> "Optional[tuple[tuple[str, str, str], Optional[str]]]":
+    ) -> Optional[RefusalClaim]:
         """Claim this refusal as the one the chat hears in the current
         breaker window (#394 fourth review I-C). Returns the claim (hand it
         to ``_unclaim_circuit_refusal_send`` if the send fails), or None
@@ -2169,7 +2196,7 @@ class ChannelTriggerBase(ABC):
             ChatType.GROUP, ChatType.TOPIC_GROUP,
         )
         if not is_group or window is None:
-            return (key, None)
+            return RefusalClaim(key, None)
         sent = ChannelTriggerBase._circuit_refusal_windows
         if sent.get(key) == window:
             return None
@@ -2177,15 +2204,15 @@ class ChannelTriggerBase(ABC):
         sent.move_to_end(key)
         while len(sent) > self._CIRCUIT_REFUSAL_WINDOWS_MAX:
             sent.popitem(last=False)
-        return (key, window)
+        return RefusalClaim(key, window)
 
     @staticmethod
     def _unclaim_circuit_refusal_send(
-        claim: "tuple[tuple[str, str, str], Optional[str]]",
+        claim: RefusalClaim,
     ) -> None:
         """Hand back a refusal-window claim whose send failed — only if the
         entry is still this claim's window (a newer window stays)."""
-        key, window = claim
+        key, window = claim.key, claim.window
         if window is None:
             return
         sent = ChannelTriggerBase._circuit_refusal_windows

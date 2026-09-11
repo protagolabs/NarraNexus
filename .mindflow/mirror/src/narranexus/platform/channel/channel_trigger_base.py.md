@@ -6,20 +6,26 @@ last_verified: 2026-09-11
 
 ## 2026-09-11（PR #394 review 第五/六轮）— 静默批不过闸门、回执说真话；群聊拒绝提示按窗口节流
 
-- **静默批不过熔断器闸门**（第六轮 N-1）：`silent=True` 走 `SilentAct`，零 agent LLM 调用，记忆侧 LLM 走
-  helper 槽，不碰熔断器扣住的凭据；它没有重试/补偿队列，PAUSED/PROBING/COOLING 下跳过都会让那段群聊
-  **永久进不了记忆**且什么也省不下。它从不传 `probe_token`，所以不认领也不结算探测。
+- **静默批不过熔断器闸门**（第五轮 N-1；理由第六轮 I-2 订正）：熔断器守的是**会花 agent 槽凭据的 turn**，
+  `silent=True` 走 `SilentAct`（跳过 step_3，零 agent LLM 调用），一次都不起；它没有重试/补偿队列，
+  PAUSED/PROBING/COOLING 下跳过都会让那段群聊**永久进不了记忆**。记忆/叙事侧 LLM 走 helper 槽，而默认单 key
+  配置下 helper 槽**就是**熔断器可能扣住的那把凭据——暂停期间这些调用同样可能失败；helper 槽健康归 helper 侧管，
+  不在本熔断器职责内（此前写的「不碰被扣住的凭据」不成立）。它从不传 `probe_token`，所以不认领也不结算探测。
   锁：`test_the_silent_batch_runs_whatever_the_breaker_holds`（三态都跑、行不变）/ `test_the_silent_batch_never_claims_the_probe`。
-- **静默批返回结果**（N-2）：`_build_and_run_agent_silent_batch -> Optional[str]`，跑成返回 None，否则返回没跑成的原因
-  （`empty batch` / `runtime raised <Exc>` / `runtime error <type>`）。`managed_silent_ingest` 据此回执：
+- **静默批返回结果**（N-2）：`_build_and_run_agent_silent_batch -> Optional[str]`，跑成返回 None，否则返回没跑成的
+  稳定短码（第六轮 M-3）：模块常量 `SILENT_BATCH_EMPTY="empty_batch"` / `SILENT_BATCH_RUNTIME_RAISED="runtime_raised"` /
+  `SILENT_BATCH_RUNTIME_ERROR="runtime_error"`；异常类名与 runtime error_type 只进日志，不进面向平台的回执。`managed_silent_ingest` 据此回执：
   跑成才写 `(silent group message ingested to memory - no reply)`，否则 `(silent group message not ingested - <reason>)`。
   原生 `group_silent` 调用方不读返回值。锁：`test_the_silent_batch_reports_a_pass_that_did_not_run`、
   `test_manyfold_im_ingress.py::test_base_managed_silent_ingest_drives_native_batch`。
+- 被节流时日志写 `throttled (already claimed in this window: <window>)`（第六轮 M-4）：先占后发，挡住的那一刻
+  第一条可能还在飞、甚至随后失败被回滚，所以不说「已发送」。
 - **拒绝提示节流**：`_circuit_admission` 被拒后 `_claim_circuit_refusal_send(message, agent_id, admission.window)`（同步，
   check-and-set 之间无 `await`，并发消息不会双发）：群聊（`GROUP` / `TOPIC_GROUP`）按 `(channel_name, agent_id, chat_id)`
   每个熔断窗口只发第一条。窗口直接取 `TurnAdmission.window`（`admit_turn` 那**同一次读行**的 `cb_status|cooldown_until`，
   M-2：不再二次读行，文案与窗口同源）；修好→再坏、探测失败退避翻倍都是新窗口。私聊不节流；拒绝不带窗口则照发。
-  **先占、发送失败回滚**（M-1）：`_send_circuit_refusal` 返回 bool，False 时 `_unclaim_circuit_refusal_send` 交还窗口
+  **先占、发送失败回滚**（M-1）：claim 是 `RefusalClaim(key, window)` NamedTuple（第六轮 M-5；`window=None` 表示不节流、
+  无可交还）。`_send_circuit_refusal` 返回 bool，False 时 `_unclaim_circuit_refusal_send(claim)` 交还窗口
   （只在该条仍是本窗口时删），下一条消息会再试；失败发送在飞期间到达的消息不会被补告知。节流的只是**发送**：
   `refusal` 仍作为 turn 输出返回，inbox 照记。记录在类级 `_circuit_refusal_windows`（进程内、OrderedDict、上限 4096 淘汰最旧），
   丢一条记录的代价是多提示一次。
@@ -27,7 +33,10 @@ last_verified: 2026-09-11
   [[matrix_trigger]] 覆写成 `_send_matrix_reply`（它的 `send_channel_reply` 是 no-op）。
 - **`_run_agent_turn -> ChannelTurnOutput(text, refused)`**（N-3）：`_build_and_run_agent` 的 turn 本体拆出来，
   `_build_and_run_agent` 只返回其 `.text`。`refused=True` 表示拒绝文案的投递已归闸门所有；自己发送返回文本的渠道
-  （Matrix atomic）调它并在 refused 时不再发送。
+  （Matrix atomic）调它并在 refused 时不再发送。第六轮 M-1 给这条契约加了门禁
+  `test_only_registered_channels_consume_the_bare_turn_text`：`await self._build_and_run_agent(` 的调用方（基线
+  2026-09-11：本类 `_handle_message` 与 [[lark_trigger]]，都只写 inbox）与 `async def _build_and_run_agent(` 覆写
+  （本类 / lark / matrix）按文件计数登记，新增即红；覆写方必须出现 `_circuit_admission(` 或 `self._run_agent_turn(`。
   锁：`test_a_group_hears_the_refusal_once_per_breaker_window` / `test_a_failed_group_refusal_send_hands_the_window_back` /
   `test_a_private_chat_is_told_every_time` / `test_matrix_group_refusal_is_sent_once_per_window` / `test_matrix_atomic_*`。
 

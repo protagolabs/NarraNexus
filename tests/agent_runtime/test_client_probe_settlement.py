@@ -30,7 +30,12 @@ from narranexus.platform.agent_runtime.client import InProcessAgentRuntimeClient
 from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+from narranexus.platform.schema import (
+    OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+    CbStatus,
+    ErrorCategory,
+    PausedReason,
+)
 from narranexus.platform.schema.runtime_message import MessageType
 from narranexus.platform.utils.timezone import utc_now
 
@@ -249,3 +254,25 @@ async def test_an_ordinary_stream_never_touches_the_breaker(wire, db_client):
     wire(_Runtime(_fatal("AuthenticationError", "401 invalid api key")))
     await _stream()
     assert await AgentCircuitBreakerRepository(db_client).get(AGENT) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streamed", [False, True])
+async def test_an_output_budget_probe_is_released_without_verdict(wire, db_client, streamed):
+    """#396 x #394: output-budget exhaustion is now a real fatal (the run is
+    finalized FAILED) but exempt from the breaker. As a probe outcome it is
+    no verdict on the paused credential: not a failed probe (no streak +1,
+    no doubled delay) and not a success (no ACTIVE) — the claim is handed
+    back, PAUSED with the same streak and the token cleared."""
+    token = await _paused_and_claimed(db_client)
+    wire(_Runtime(_fatal(OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+                         "model output truncated: thinking exhausted the output budget")))
+    if streamed:
+        await _stream(probe_token=token)
+    else:
+        result = await _run(probe_token=token)
+        assert result.is_fatal
+    row = await AgentCircuitBreakerRepository(db_client).get(AGENT)
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD
+    assert row.probe_token is None

@@ -8,6 +8,7 @@ last_verified: 2026-09-11
 
 `test_base_managed_silent_ingest_drives_native_batch` 增加负例：静默批返回没跑成的原因时，
 `managed_silent_ingest` 的回执是 `(silent group message not ingested - <reason>)`，不含 "ingested to memory"。
+第六轮 M-3 起 reason 是稳定短码（用例用 `runtime_error`），不再带异常类名 / error_type。
 
 ## 2026-08-28（接线）— 托管面的熔断与铁律 #16 门槛
 

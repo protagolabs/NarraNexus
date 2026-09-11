@@ -4,6 +4,21 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11（PR #394 rebase 到 #396 之后）— 探测结算与三道豁免并存
+
+`record_failure` 的早退改用 #396 的 `breaker_exemption(error_type, error_message)`（三道：self-serviceable /
+executor-infra / output-budget exhaustion），仍在读库**之前**判定（普通 turn 的豁免失败零读库）；命中时持 token
+的 turn 调 `release_probe` 把探测**无结论归还**（PAUSED、streak 不变、同一延迟、token 清空）——不能按探测失败
+（streak+1、延迟翻倍），也不能按成功（ACTIVE）：输出预算耗尽只说明预算/模型组合，说明不了被暂停的凭据好没好。
+#396 让 NexusPower 终态失败变成真正的 fatal（此前落 recoverable，会被探测当成功关掉熔断器），两条结算路径
+（[[client]] `settle_probe` 读 `RunErrorTracker`/`is_fatal`、[[background_run]] 读 `had_fatal_error`）对这类 run
+都走 `record_failure` → 豁免 → 归还。「已交付回复后失败」（`recovered_after_reply`）两条路径都按非致命记成功，一致。
+锁：`test_exempt_failures_still_settle_a_probing_row[output_budget_exhausted-…]`、
+`test_client_probe_settlement.py::test_an_output_budget_probe_is_released_without_verdict[False/True]`、
+`test_background_run_circuit_breaker.py::test_an_output_budget_probe_is_released_without_verdict`、
+`test_exempt_failure_of_an_ordinary_turn_reads_nothing`（含 output-budget）。#396 的
+`test_output_budget_exhaustion_does_not_advance_breaker` 断言改为 `GateVerdict` 字段形式（`should_skip` 已不返回元组）。
+
 ## 2026-09-11 — 输出预算耗尽不推进熔断；三道豁免收成一张表
 
 「完全不碰熔断器」的失败类收进 `_BREAKER_EXEMPTIONS`（名字 + 谓词，按序：self-serviceable →
@@ -16,22 +31,23 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
-## 2026-09-11（PR #394 review 第五轮 I-B / M-A）— 静默批不把 COOLING 当 held；入口门禁按构造点计数
-
 ## 2026-09-11（PR #394 review 第五轮 N-1 / M-2 / M-5，含第四轮 M-A）— 静默批不过闸门；拒绝带窗口；入口门禁按构造点计数
 
 - 入口表静默批一行更正为**不过闸门**：`silent=True` 走 `SilentAct`（跳过 step_3，零 agent LLM 调用），
-  记忆/叙事写入走 helper 槽，根本不碰熔断器扣住的那把凭据；它又没有重试队列，任何状态下跳过都只会
-  永久丢记忆、什么也省不下。它不传 `probe_token`，所以绝不认领/结算探测。`peek_skip` 契约不变，
+  而熔断器守的是**会花 agent 槽凭据的 turn**，`SilentAct` 一次都不起；它又没有重试/补偿队列，任何状态下
+  跳过都是**永久**丢记忆。记忆/叙事写入走 helper 槽——默认单 key 配置下 helper 槽**就是**熔断器可能扣住的
+  那把凭据，暂停期间这些调用同样可能失败；helper 槽的健康归 helper 侧自己管，不在本熔断器职责内（第六轮 I-2
+  订正：此前写的「不碰被扣住的凭据」不成立）。它不传 `probe_token`，所以绝不认领/结算探测。`peek_skip` 契约不变，
   现在只剩 [[module_poller]] Path A（真 turn、给不出结果信号）一个调用方。
 - `TurnAdmission` 新增 `window: Optional[str]`：每个拒绝都带上产生该 `reason` 的**同一次读行**的窗口键
   `cb_status|cooldown_until`（`_window_of(row)`），供 [[channel_trigger_base]] 按窗口节流拒绝提示而不必再读一次行。
   `admit_turn` 的 `should_skip` 拒绝取 `verdict.row`，`try_begin_probe` 的拒绝（含 CAS 写失败、输掉竞争）取它读到的行；
   放行时为 None。锁：`test_channel_circuit_breaker_gate.py::test_the_refusal_window_comes_from_the_gate_read`。
-- `test_every_turn_entry_passes_the_breaker_gate`：`_GATED_TURN_CONSTRUCTORS` 按文件登记构造点个数
-  （2026-09-11 实数）；`_UNGATED_TURN_CONSTRUCTORS` 也改为 `{rel: (count, reason)}` 等值对账
-  （client 4 / background_run 1 / agent_runtime 2 / job_trigger 1 / skill routes 1），豁免文件里长出新构造点同样即红。
-  `channel_trigger_base.py` 仍登记 2 个构造点：`_run_agent_turn`（`admit_turn`）+ 故意不设闸门的静默批。
+- `test_every_turn_entry_passes_the_breaker_gate`：一张表 `_TURN_CONSTRUCTORS = {rel: (gated, ungated, why)}`
+  按文件登记构造点的「过闸门 / 故意不过」拆分（2026-09-11 实数；第六轮 M-2 把原来 gated / ungated 两张按文件键的表合一，
+  因为同一文件可以两种都有）。`channel_trigger_base.py` 记 `(1, 1)`：`_run_agent_turn`（`admit_turn`）+ 静默批；
+  client `(0, 4)` / background_run `(0, 1)` / agent_runtime `(0, 2)` / job_trigger `(0, 1)` / skill routes `(0, 1)`。
+  总数等值对账，gated>0 的文件必须出现闸门调用，ungated>0 必须写理由；任何文件长出新构造点即红。
 
 ## 2026-09-10（PR #394 review 第四轮）— 认领者自报 run id：活性按身份而非时间
 
@@ -74,7 +90,7 @@ True，行被无界地焊死在 PROBING。现在认领者给自己的 run 落一
 | [[message_bus_trigger]] lane / patrol → `run_and_collect` | 同上 | `run_and_collect` + 出口 release |
 | [[module_poller]] Path A `AgentRuntime()` | `peek_skip`（无结果信号，不认领） | — |
 | [[channel_trigger_base]] `_build_and_run_agent`（WeChat/Telegram/Slack/Discord/Matrix atomic…） | **新** `_circuit_admission` → `admit_turn` | `run_and_collect` + 出口 release |
-| [[channel_trigger_base]] 静默批 `_build_and_run_agent_silent_batch` | **无闸门**（`silent=True` → `SilentAct`，零 agent LLM 调用，不碰被扣住的凭据；不传 token，不认领） | — |
+| [[channel_trigger_base]] 静默批 `_build_and_run_agent_silent_batch` | **无闸门**（`silent=True` → `SilentAct`，不起花 agent 槽凭据的 turn；无重试队列，跳过即永久丢记忆；不传 token，不认领） | — |
 | [[lark_trigger]] 整体覆写的 `_build_and_run_agent` | **新** `_circuit_admission` | 同上 |
 | [[matrix_trigger]] `_build_and_run_agent_streaming` → `run_stream` | **新** `_circuit_admission` | **新** `run_stream(probe_token=)` + 出口 release |
 | [[chat_trigger]] A2A `tasks/send` → `run_and_collect` | **新** `admit_turn` | `run_and_collect` + 出口 release |
@@ -90,7 +106,8 @@ channel 入口只记探测结论、不记普通 streak（与 bus 一致）；被
 
 **新入口契约（取代第三轮版本）**：先过完所有「不起 turn」分支，再 `admit_turn`（或两步分开，
 中间有分支时）→ 把 `probe_token` 交给 `BackgroundRun` / `run_and_collect` / `run_stream` →
-出口 `release_probe(token)` 兜底。给不出结果信号的真 turn 只能 `peek_skip`；不调 agent LLM 的静默批不过闸门。
+出口 `release_probe(token)` 兜底。给不出结果信号的真 turn 只能 `peek_skip`。判据是**是否起花 agent 槽凭据的 turn**（不是「调不调 LLM」、
+更不是「碰不碰那把凭据」——单 key 下 helper 调用也用它）：不起这种 turn 的静默批不过闸门。
 
 **Minor。** M-1 见 [[openai_compat]]（认领后 run 起来前抛异常即归还）。M-3（`probe_claimed_at` 的
 NULL 回退）与 M-5（投影多带 `event_id`）随 I-1 消失。M-4：`peek_skip` 仍返回裸

@@ -1346,12 +1346,12 @@ async def test_base_managed_silent_ingest_drives_native_batch(monkeypatch):
 
     # A pass that did not run must not be receipted as ingested.
     async def failed_batch(credential, messages, sender_name_by_id=None, *, attachments_by_index=None):
-        return "runtime error AuthenticationError"
+        return "runtime_error"
 
     monkeypatch.setattr(trig, "_build_and_run_agent_silent_batch", failed_batch)
     failed = await trig.managed_silent_ingest(agent_id="a1", message=msg, db=object())
     assert "ingested to memory" not in failed
-    assert failed == "(silent group message not ingested - runtime error AuthenticationError)"
+    assert failed == "(silent group message not ingested - runtime_error)"
     monkeypatch.setattr(trig, "_build_and_run_agent_silent_batch", fake_batch)
 
     async def no_cred(agent_id):

@@ -17,8 +17,6 @@ stub: false
 测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
 （failed 保留、cancelled 不写）。
 
-## 2026-09-10（PR #394 review I4）— 活性规则搬到叶子模块 `utils.run_liveness`
-
 ## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 替探测认领者报出 run id
 
 `RunRecorder(..., agent_id=None, probe_token=None)`：run 携带半开探测认领时，`_bind_run_id`

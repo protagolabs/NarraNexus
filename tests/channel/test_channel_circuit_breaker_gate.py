@@ -26,6 +26,10 @@ import pytest
 
 import narranexus.platform.agent_framework.loop.circuit_breaker as cb
 from narranexus.platform.agent_runtime.run_collector import RunCollection
+from narranexus.platform.channel.channel_trigger_base import (
+    SILENT_BATCH_EMPTY,
+    SILENT_BATCH_RUNTIME_RAISED,
+)
 from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
@@ -311,9 +315,10 @@ async def test_the_silent_batch_never_claims_the_probe(client, db_client):
 async def test_the_silent_batch_runs_whatever_the_breaker_holds(
     client, db_client, status, due
 ):
-    """#394 fifth review N-1: ``silent=True`` runs SilentAct — zero agent
-    LLM calls, so the held credential is never touched, and the batch has
-    no retry queue: skipping it would lose the room from memory for good."""
+    """#394 fifth review N-1 / sixth review I-2: ``silent=True`` runs
+    SilentAct, which starts no agent-slot turn (zero agent LLM calls) — the
+    kind of turn the breaker guards — and the batch has no retry queue:
+    skipping it would lose the room from memory for good."""
     trigger = _Trigger()
     trigger._db = db_client
     await _set(db_client, status, due=due)
@@ -330,7 +335,12 @@ async def test_the_silent_batch_reports_a_pass_that_did_not_run(client, db_clien
     trigger._db = db_client
     client["client"] = _Client(db_client, raises=RuntimeError("boom"))
     why = await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
-    assert why == "runtime raised RuntimeError"
+    # A stable code (#394 sixth review M-3): the exception class stays in
+    # the log, never in the platform-facing receipt.
+    assert why == SILENT_BATCH_RUNTIME_RAISED == "runtime_raised"
+    assert await trigger._build_and_run_agent_silent_batch(
+        trigger._credential, []
+    ) == SILENT_BATCH_EMPTY
 
 
 # ── LarkTrigger overrides _build_and_run_agent wholesale ────────────────
@@ -579,3 +589,58 @@ async def test_a2a_subscribe_closed_mid_stream_hands_the_claim_back(client, db_c
     await frames.aclose()
     after = await _row(db_client)
     assert after.cb_status == CbStatus.PAUSED.value and after.probe_token is None
+
+
+# ── Who may consume _build_and_run_agent's bare text ────────────────────
+
+# Callers of ``_build_and_run_agent`` (which returns the text only and so
+# drops ``ChannelTurnOutput.refused``), each with its call count and what it
+# does with the text. Baseline counted on 2026-09-11 with ``_CALL`` below
+# over plugins/**/src and src/narranexus/platform/channel (#394 sixth review
+# M-1): the base ``_handle_message`` and Lark's ``_handle_message`` both
+# only write the text to the inbox. A caller that SENDS the text to the chat
+# must call ``_run_agent_turn`` instead and skip the send when ``refused``
+# (the gate already delivered or throttled the refusal) — the Matrix atomic
+# path double-sent before it did (fifth review N-3).
+_BARE_TEXT_CALLERS = {
+    "src/narranexus/platform/channel/channel_trigger_base.py": (1, "inbox only"),
+    "plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py": (
+        1, "inbox only"),
+}
+# Overrides of ``_build_and_run_agent`` (same baseline and scope): an
+# override replaces the gated base body, so it must gate its own turn (Lark,
+# via ``_circuit_admission``) or delegate to ``_run_agent_turn`` (Matrix).
+_OVERRIDES = {
+    "src/narranexus/platform/channel/channel_trigger_base.py": 1,
+    "plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py": 1,
+    "plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py": 1,
+}
+_CALL = r"await self\._build_and_run_agent\("
+_DEF = r"async def _build_and_run_agent\("
+
+
+def test_only_registered_channels_consume_the_bare_turn_text():
+    """A new caller or override of ``_build_and_run_agent`` fails until the
+    author confirms it does not send the returned text itself (or switches
+    to ``_run_agent_turn``) and registers it above."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    files = [p for p in root.joinpath("plugins").rglob("*.py") if "/src/" in p.as_posix()]
+    files += list(root.joinpath("src/narranexus/platform/channel").rglob("*.py"))
+    calls, overrides = {}, {}
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(root).as_posix()
+        if n := len(re.findall(_CALL, text)):
+            calls[rel] = n
+        if n := len(re.findall(_DEF, text)):
+            overrides[rel] = n
+    assert calls == {rel: n for rel, (n, _what) in _BARE_TEXT_CALLERS.items()}
+    assert overrides == _OVERRIDES
+    for rel in _OVERRIDES:
+        if rel.endswith("channel_trigger_base.py"):
+            continue
+        text = root.joinpath(rel).read_text(encoding="utf-8")
+        assert "_circuit_admission(" in text or "self._run_agent_turn(" in text, rel

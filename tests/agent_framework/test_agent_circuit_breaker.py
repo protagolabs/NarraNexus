@@ -15,11 +15,10 @@ import pytest
 from narranexus.platform.agent_framework.loop import circuit_breaker as cb
 from narranexus.platform.agent_framework.loop.circuit_breaker import (
     AUTH_QUOTA_PAUSE_THRESHOLD,
-    breaker_exemption,
-
     PAUSE_HALF_OPEN_BASE_SECONDS,
     PAUSE_HALF_OPEN_CAP_SECONDS,
     PROBE_GRANT_SECONDS,
+    breaker_exemption,
     classify_agent_error,
     record_failure,
     record_success,
@@ -220,7 +219,8 @@ async def test_output_budget_exhaustion_does_not_advance_breaker(db_client):
     await record_failure(aid, OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, message, db=db_client)
     await record_failure(aid, OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, message, db=db_client)
     assert await repo.get(aid) is None  # no cooling/pause row created
-    assert await should_skip(aid, db=db_client) == (False, None)
+    verdict = await should_skip(aid, db=db_client)
+    assert verdict.skip is False and verdict.reason is None
 
 
 @pytest.mark.asyncio
@@ -673,11 +673,16 @@ async def test_probe_failing_for_a_non_auth_reason_keeps_the_pause(db_client):
 @pytest.mark.parametrize("error_type,message", [
     ("config_actionable", "the selected model's context window is too small; must be <= 32769"),
     ("infra_transient", "This turn could not run: your execution container is temporarily unreachable."),
+    (OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+     "model output truncated: thinking exhausted the output budget (max_tokens=8192)"),
 ])
 async def test_exempt_failures_still_settle_a_probing_row(db_client, error_type, message):
-    """The two breaker exemptions (self-serviceable / executor-infra) leave a
-    streak untouched — but a PROBING row must still be settled back to
-    PAUSED, or it hangs until the grant expires."""
+    """Every breaker exemption (self-serviceable / executor-infra /
+    output-budget exhaustion) leaves a streak untouched — but a held probe
+    must still be released back to PAUSED without a verdict (same streak,
+    same delay, token cleared), or it hangs until the grant expires. The
+    exemption must not read as a probe success either: an output-budget
+    failure says nothing about whether the paused credential works."""
     repo = AgentCircuitBreakerRepository(db_client)
     aid = f"ag_ho_exempt_{error_type}"
     await repo.upsert_state(aid, _paused_row())
@@ -997,12 +1002,16 @@ async def test_claim_reuses_the_gate_read(db_client):
 
 @pytest.mark.asyncio
 async def test_exempt_failure_of_an_ordinary_turn_reads_nothing(db_client):
-    """#394 review M2: the self-serviceable / executor-infra exemptions are
-    decided before any read, so the common exempt failure costs no round
-    trip; only a probe holder reads, to settle."""
+    """#394 review M2: the breaker exemptions (self-serviceable /
+    executor-infra / output-budget exhaustion) are decided before any read,
+    so the common exempt failure costs no round trip; only a probe holder
+    reads, to settle."""
     db = _CountingDb(db_client)
     await record_failure(
         "m2", "ContextWindowExceededError", "inputs 75307 > 32769", db=db,
+    )
+    await record_failure(
+        "m2", OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE, "thinking exhausted the budget", db=db,
     )
     assert db.breaker_reads == 0
 
@@ -1191,45 +1200,49 @@ def test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker():
     assert classify_agent_error("X", "request forbidden by upstream policy") == ErrorCategory.AUTH
 
 
-# Files that construct a turn but are deliberately NOT gated: (number of
-# construction points, reason). Counted like the gated table below (#394
-# fifth review M-5): a second construction point in an exempt file fails
-# until the author confirms it belongs to the same exemption.
-_UNGATED_TURN_CONSTRUCTORS = {
+# Every production file that constructs a turn, as (gated, ungated, why):
+# how many of its construction points pass a breaker gate, how many are
+# deliberately ungated, and the reason for the ungated ones (None when there
+# are none). Counted with the regex in the test below on 2026-09-11 (#394
+# fourth review M-A, fifth review M-5, sixth review M-2). One table, because
+# a file can hold both kinds: keyed by file alone, a gated point and an
+# exempt one in the same file could only be registered as "gated" with a
+# comment, and the gate check degraded to "a gate exists somewhere in the
+# file". A changed count fails until the author confirms which kind the new
+# point is and updates the numbers here.
+_TURN_CONSTRUCTORS = {
+    "backend/routes/openai_compat.py": (1, 0, None),
+    "backend/routes/websocket.py": (1, 0, None),
+    "plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py": (1, 0, None),
+    "plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py": (1, 0, None),
+    # A2A tasks/send and tasks/sendSubscribe.
+    "plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_trigger.py": (2, 0, None),
+    # _run_agent_turn (admit_turn) is gated. The silent memory batch is not:
+    # the breaker guards turns that spend the agent-slot credential, and
+    # silent=True runs SilentAct, which starts none (zero agent LLM calls).
+    # It has no retry queue, so skipping it in any state loses the room's
+    # messages from memory for good. Its memory/narrative calls use the
+    # helper slot, which in the default one-key setup is the SAME credential;
+    # helper health is the helper side's concern, not this breaker's
+    # (#394 fifth review N-1, sixth review I-2).
+    "src/narranexus/platform/channel/channel_trigger_base.py": (
+        1, 1, "silent memory batch: no agent-slot turn, no retry queue"),
+    "src/narranexus/platform/message_bus/message_bus_trigger.py": (1, 0, None),
+    "src/narranexus/platform/services/module_poller.py": (1, 0, None),
     # The runtime seams themselves: they settle a probe their caller won,
     # they never decide whether a turn may start.
-    "src/narranexus/platform/agent_runtime/client.py": (4, "runtime client seam"),
-    "src/narranexus/platform/agent_runtime/background_run.py": (1, "run object built after the WS/openai gate"),
-    "src/narranexus/platform/agent_runtime/agent_runtime.py": (2, "the runtime (plus its dev-only demo function)"),
+    "src/narranexus/platform/agent_runtime/client.py": (0, 4, "runtime client seam"),
+    "src/narranexus/platform/agent_runtime/background_run.py": (
+        0, 1, "run object built after the WS/openai gate"),
+    "src/narranexus/platform/agent_runtime/agent_runtime.py": (
+        0, 2, "the runtime (plus its dev-only demo function)"),
     # Jobs are scheduled work with their own consecutive-failure breaker
     # (job_trigger); the real-time breaker gates dialogue turns only.
-    "plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py": (1, "own job breaker"),
+    "plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py": (0, 1, "own job breaker"),
     # Skill study is a one-shot run the owner starts from the Skills panel;
     # nothing re-triggers it, so there is no retry storm to hold off.
-    "plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py": (1, "owner-initiated one-shot"),
-}
-
-
-# Files that construct a turn AND gate it, with how many construction
-# points each has (counted with the regex below on 2026-09-11, #394 fourth
-# review M-A). The count is the point: a gate anywhere in a file used to
-# pass the whole file, so a second, ungated construction point added next to
-# a gated one stayed green. A changed count fails until the author confirms
-# the new point is gated and updates the number here.
-_GATED_TURN_CONSTRUCTORS = {
-    "backend/routes/openai_compat.py": 1,
-    "backend/routes/websocket.py": 1,
-    "plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py": 1,
-    "plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py": 1,
-    # A2A tasks/send and tasks/sendSubscribe.
-    "plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_trigger.py": 2,
-    # _run_agent_turn (admit_turn), plus the silent memory batch, which is
-    # deliberately ungated: silent=True runs SilentAct, zero agent LLM calls,
-    # so it never touches the credential the breaker holds (#394 fifth
-    # review N-1).
-    "src/narranexus/platform/channel/channel_trigger_base.py": 2,
-    "src/narranexus/platform/message_bus/message_bus_trigger.py": 1,
-    "src/narranexus/platform/services/module_poller.py": 1,
+    "plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py": (
+        0, 1, "owner-initiated one-shot"),
 }
 
 
@@ -1237,10 +1250,11 @@ def test_every_turn_entry_passes_the_breaker_gate():
     """#394 second review I-3: the sweep is by TURN CONSTRUCTION POINT, not
     by existing gate — the first sweep missed channel_trigger_base (and the
     Lark / NarraMessenger / A2A entries) because it looked where gates
-    already were. Every production file that starts a turn must call a gate
-    (the two steps, ``admit_turn``, the channel helper, or ``peek_skip`` for
-    entries that cannot settle) and be registered above with its number of
-    construction points, or be listed as ungated with its reason."""
+    already were. Every production file that starts a turn must be
+    registered above with its gated / ungated split (and a reason for any
+    ungated point); a file with a gated point must call a gate (the two
+    steps, ``admit_turn``, the channel helper, or ``peek_skip`` for entries
+    that cannot settle)."""
     import re
     from pathlib import Path
 
@@ -1250,19 +1264,19 @@ def test_every_turn_entry_passes_the_breaker_gate():
     files = [*root.joinpath("src").rglob("*.py"), *root.joinpath("backend").rglob("*.py")]
     files += [p for p in root.joinpath("plugins").rglob("*.py") if "/src/" in p.as_posix()]
     found = {}
-    exempt = {}
     for path in files:
         text = path.read_text(encoding="utf-8")
         count = len(construct.findall(text))
         if not count:
             continue
         rel = path.relative_to(root).as_posix()
-        if rel in _UNGATED_TURN_CONSTRUCTORS:
-            exempt[rel] = count
-            continue
-        assert gate.search(text), f"{rel} starts a turn with no breaker gate"
+        assert rel in _TURN_CONSTRUCTORS, f"{rel} starts a turn and is not registered"
+        gated, _ungated, _why = _TURN_CONSTRUCTORS[rel]
+        if gated:
+            assert gate.search(text), f"{rel} starts a turn with no breaker gate"
         found[rel] = count
-    assert found == _GATED_TURN_CONSTRUCTORS
-    # The exemption list is counted too, and must not rot: every entry
-    # still constructs exactly the registered number of turns.
-    assert exempt == {rel: n for rel, (n, _why) in _UNGATED_TURN_CONSTRUCTORS.items()}
+    # Every entry still constructs exactly the registered number of turns,
+    # and every ungated point is explained.
+    assert found == {rel: g + u for rel, (g, u, _why) in _TURN_CONSTRUCTORS.items()}
+    for rel, (_g, ungated, why) in _TURN_CONSTRUCTORS.items():
+        assert (ungated > 0) == (why is not None), rel

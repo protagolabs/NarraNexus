@@ -179,3 +179,50 @@ async def test_only_the_claiming_run_settles_the_probe(db_client, monkeypatch):
     probe.state = STATE_COMPLETED
     await probe._record_circuit_breaker()
     assert (await repo.get("ag_1")).cb_status == CbStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_an_output_budget_probe_is_released_without_verdict(db_client, monkeypatch):
+    """#396 x #394: a probe run that ends fatal on output-budget exhaustion
+    (drive() lands it STATE_FAILED, error_type ``output_budget_exhausted``)
+    is exempt from the breaker — it must neither re-PAUSE with a doubled
+    delay (a failed-probe verdict) nor close the breaker (a success). The
+    claim is handed back: PAUSED, same streak, token cleared."""
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb
+    from datetime import timedelta
+
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import (
+        OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+        CbStatus,
+        PausedReason,
+    )
+    from narranexus.platform.utils.timezone import utc_now
+
+    async def _db():
+        return db_client
+    monkeypatch.setattr(cb, "get_db_client", _db)
+    repo = AgentCircuitBreakerRepository(db_client)
+    await repo.upsert_state("ag_1", {
+        "cb_status": CbStatus.PAUSED.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": "auth",
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now() - timedelta(seconds=1),
+    })
+    adm = await cb.try_begin_probe("ag_1", db=db_client)
+    assert adm.probe_token
+
+    probe = BackgroundRun(agent_id="ag_1", user_id="u_1", input_preview="hi",
+                          db=db_client, active_runs={}, probe_token=adm.probe_token)
+    probe.state = STATE_FAILED
+    probe.recorder.had_fatal_error = True
+    probe.recorder.last_error_type = OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+    probe.recorder.last_error_message = "thinking exhausted the output budget"
+    await probe._record_circuit_breaker()
+    row = await repo.get("ag_1")
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.consecutive_failure_count == 3
+    assert row.probe_token is None
