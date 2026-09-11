@@ -58,11 +58,20 @@ class ModelMeta:
 # =============================================================================
 
 _KNOWN_MODELS: dict[str, ModelMeta] = {}
+# Lower-cased LAST path segment of every registered id -> the entries sharing
+# it. Lets ``get_model_meta`` recognise a self-entered spelling of a catalog
+# model ("deepseek-v4-pro", "netmind/deepseek-ai/DeepSeek-V4-Pro").
+_KNOWN_MODELS_BY_NAME: dict[str, list[ModelMeta]] = {}
+
+
+def _model_name_key(model_id: str) -> str:
+    return model_id.rsplit("/", 1)[-1].lower()
 
 
 def _register(*models: ModelMeta) -> None:
     for m in models:
         _KNOWN_MODELS[m.model_id] = m
+        _KNOWN_MODELS_BY_NAME.setdefault(_model_name_key(m.model_id), []).append(m)
 
 
 # --- NetMind models ---
@@ -440,6 +449,14 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     entry: two independent lookups can each fall back differently and
     pair one row's ceiling with another row's window.
 
+    Beyond that, a user-entered id is matched case-insensitively on its
+    LAST path segment ("deepseek-v4-pro", "DeepSeek-V4-Pro" and
+    "netmind/deepseek-ai/DeepSeek-V4-Pro" all name the catalog's
+    "deepseek-ai/DeepSeek-V4-Pro"). That fallback only answers when every
+    catalog entry sharing the name agrees on the facts consumers read
+    (ceiling, window, thinks_by_default); a name whose entries disagree
+    is ambiguous and stays unknown rather than borrowing one row's numbers.
+
     The normalization lives here rather than in a caller so every
     consumer inherits it; a copy per caller is the duplication this
     catalog exists to prevent.
@@ -449,6 +466,14 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     meta = _KNOWN_MODELS.get(model_id)
     if meta is None and "/" in model_id:
         meta = _KNOWN_MODELS.get(model_id.split("/", 1)[1])
+    if meta is None:
+        candidates = _KNOWN_MODELS_BY_NAME.get(_model_name_key(model_id), [])
+        facts = {
+            (m.max_output_tokens, m.context_window, m.thinks_by_default)
+            for m in candidates
+        }
+        if len(facts) == 1:
+            meta = candidates[0]
     return meta
 
 

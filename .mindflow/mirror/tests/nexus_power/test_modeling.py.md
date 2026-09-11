@@ -1,6 +1,6 @@
 ---
 code_file: tests/nexus_power/test_modeling.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -23,3 +23,9 @@ V3、gpt-5.5、未知模型为 False）。
 **抬高上限需同时有实测 window 而压低不需要**、以及钳制(`output_budget`)的边界行为。
 这批断言含具体数字(115_200 / 57_600 / 8_192),catalog 改数时会一起红——那是有意的,
 它们就是防止两处数字悄悄分叉的哨兵。
+
+## 2026-09-11 — 自填 id 归一化与 `requested_max_tokens`
+
+`deepseek-v4-pro` / `DeepSeek-V4-Pro` / `netmind/deepseek-ai/DeepSeek-V4-Pro` 均得 `thinks_by_default=True` 与
+8_192 地板；未知名、非思考模型的自填拼法、近似名仍为 False/None；同名行事实不一致时歧义返回 None。
+client 实际发送的 `max_tokens` 恰等于 `requested_max_tokens`（未钉 ×1/×2、钉住值在任意乘数下不变）。

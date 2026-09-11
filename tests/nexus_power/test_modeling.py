@@ -15,6 +15,7 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     CachePlan,
     ModelParams,
     ModelRequest,
+    ProviderProfile,
 )
 from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolResult
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
@@ -27,6 +28,7 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.m
 )
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     output_budget,
+    requested_max_tokens,
     resolve_profile,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import (
@@ -221,6 +223,51 @@ def test_catalog_thinks_by_default_overlay_is_honest_per_model():
 
 @pytest.mark.parametrize(
     "model",
+    ["deepseek-v4-pro", "DeepSeek-V4-Pro", "netmind/deepseek-ai/DeepSeek-V4-Pro"],
+)
+def test_self_entered_spellings_of_a_thinking_model_still_think(model):
+    """B-03 must not depend on the user typing the catalog's exact id: a
+    BYOK / custom-base_url user writing DeepSeek-V4-Pro any other way
+    still gets the thinking floor. None of these ids is registered, so
+    only ``get_model_meta``'s last-segment, case-insensitive fallback can
+    resolve them."""
+    assert model not in _KNOWN_MODELS
+    assert resolve_profile(model, "openai").thinks_by_default is True
+    assert output_budget(resolve_profile(model, "openai"), 99_000) == 8_192
+
+
+def test_name_fallback_does_not_widen_unknown_or_non_thinking_models():
+    """Negative cases for the same fallback: an unknown name stays
+    unknown (False), a self-entered spelling of a NON-thinking catalog
+    model stays False, and a near-miss name is not fuzzily matched."""
+    assert get_model_meta("my-custom-model") is None
+    assert resolve_profile("my-custom-model", "openai").thinks_by_default is False
+    assert resolve_profile("deepseek-v3", "openai").thinks_by_default is False
+    assert get_model_meta("deepseek-v4-pro-experimental") is None
+
+
+def test_name_fallback_refuses_names_whose_entries_disagree(monkeypatch):
+    """Two catalog rows sharing a last segment but carrying different
+    facts make the bare name ambiguous: resolve nothing rather than pair
+    a user's model with one arbitrary row's numbers."""
+    from narranexus.platform.agent_framework.providers import model_catalog
+
+    a = model_catalog.ModelMeta(
+        model_id="vendor-a/twin", display_name="a", max_output_tokens=1_000,
+        context_window=10_000,
+    )
+    b = model_catalog.ModelMeta(
+        model_id="vendor-b/twin", display_name="b", max_output_tokens=2_000,
+        context_window=10_000,
+    )
+    monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a, b])
+    assert get_model_meta("custom/Twin") is None
+    monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a])
+    assert get_model_meta("custom/Twin") is a
+
+
+@pytest.mark.parametrize(
+    "model",
     ["deepseek-ai/DeepSeek-V4-Pro", "Qwen/Qwen2.5-7B-Instruct", "unmeasured-model"],
 )
 def test_the_clamp_never_undercuts_the_window_we_manage(model):
@@ -408,6 +455,37 @@ async def test_stream_translation_text_tool_usage():
     # Anthropic-protocol routing for custom endpoints.
     fake = client._client
     assert fake.last_kwargs["model"] == "anthropic/claude-x"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("extra", "multiplier"),
+    [({}, 1), ({}, 2), ({"max_tokens": 777}, 1), ({"max_tokens": 777}, 2)],
+)
+async def test_client_sends_exactly_requested_max_tokens(extra, multiplier):
+    """One source of truth for the ``max_tokens`` a request carries: the
+    client sends ``requested_max_tokens`` verbatim, which is the same
+    function loop.py's truncation retry reads to decide whether a doubled
+    floor would ask for more. A pinned value wins at any multiplier —
+    that equality is what rules a byte-identical replay out."""
+    profile = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=1_000, max_output_tokens=100_000,
+    )
+    fake = _FakeLitellm([_chunk(finish="stop")])
+    client = LiteLLMModelClient(profile, fake)
+    params = ModelParams(model="m", extra=dict(extra))
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}], tools=[], params=params,
+        input_tokens_estimate=500, floor_multiplier=multiplier,
+    )
+    _ = [e async for e in client.stream_step(request)]
+    sent = fake.last_kwargs["extra"]["max_tokens"]
+    assert sent == requested_max_tokens(
+        profile, params.extra, 500, floor_multiplier=multiplier
+    )
+    assert sent == (777 if extra else 8_192 * multiplier)
+    assert "max_tokens" not in params.extra or extra  # caller dict untouched
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_catalog.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -10,6 +10,16 @@ CLI 家族别名原样保留的判定原先手写 `("oauth", "oauth_token")` 字
 `narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
 运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
 （扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
+## 2026-09-11 — `get_model_meta` 末段、大小写不敏感回退
+
+精确 id → 剥一层前缀之后，再按 id 的**最后一段**（小写）查 `_KNOWN_MODELS_BY_NAME`（`_register` 同步维护）。
+让 BYOK / 自填 base_url 的用户写成 `deepseek-v4-pro`、`DeepSeek-V4-Pro`、`netmind/deepseek-ai/DeepSeek-V4-Pro`
+也能拿到同一行事实（否则 `thinks_by_default` 只认下拉里的精确 id，B-03 对手填用户复现）。只有同名的所有行
+在消费方读的事实（ceiling / window / thinks_by_default）上一致才返回，不一致即歧义、返回 None；不做模糊匹配
+（`deepseek-v4-pro-experimental` 仍未知）。所有消费方（nexus_power profiles、openai_agents、anthropic_helper 的
+`get_max_output_tokens`、`get_context_window`）都随之生效；`get_model_display_name` 仍精确匹配。
+测试在 `tests/nexus_power/test_modeling.py`（正例三种拼法 + 未知/非思考/近似名负例 + 歧义负例）。
+
 ## 2026-09-10（B-03）— `ModelMeta.thinks_by_default`
 
 新增 `thinks_by_default: bool = False`，本表是这个事实的唯一来源；消费方是 nexus_power
