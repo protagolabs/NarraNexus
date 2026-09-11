@@ -31,6 +31,7 @@ from narranexus.platform.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
 from narranexus.contracts.agent_events import (
+    cli_error_self_serviceable,
     DATA_TYPE_DONE,
     DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,
@@ -44,7 +45,11 @@ from narranexus.contracts.agent_events import (
 from narranexus.platform.utils.logging import timed
 
 from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
-from narranexus.platform.agent_framework.api_config import claude_config
+from narranexus.platform.agent_framework.api_config import (
+    CLI_MAX_TOOL_USE_CONCURRENCY_ENV,
+    claude_config,
+)
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.platform.agent_framework.providers.model_catalog import resolve_cli_alias
 from narranexus.platform.agent_framework.adapters import build_tool_policy_guard
 from narranexus_plugins.frameworks_claude_code.cli_binary import (
@@ -59,6 +64,7 @@ from narranexus_plugins.frameworks_claude_code.transcript import (
 )
 from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
+    task_list_tools_notice,
 )
 from narranexus.platform.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
@@ -395,6 +401,9 @@ def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
                 "The coding agent produced no output (0 messages)."
                 + _stderr_tail_detail(cli_stderr_lines)
             ),
+            # The adapter's own marker: a crashed / silent CLI is never
+            # something the user clears by waiting or paying.
+            "self_serviceable": cli_error_self_serviceable("no_output"),
         },
     }
 
@@ -452,14 +461,61 @@ def _inline_assistant_error_event(
     detail = _stderr_tail_detail(cli_stderr_lines)
     text = assistant_text.strip()
     message = text if text else f"Claude API error: {enum}"
-    return {
-        "type": TYPE_RAW_RESPONSE_EVENT,
-        "data": {
-            "type": DATA_TYPE_ERROR,
-            "error_type": enum,
-            "error_message": message + detail,
-        },
+    data: dict[str, Any] = {
+        "type": DATA_TYPE_ERROR,
+        "error_type": enum,
+        "error_message": message + detail,
     }
+    # Keyed on the enum, so it survives the detail folding above. No verdict
+    # (``unknown``) -> the key stays absent, never a fabricated False.
+    self_serviceable = cli_error_self_serviceable(enum)
+    if self_serviceable is not None:
+        data["self_serviceable"] = self_serviceable
+    return {"type": TYPE_RAW_RESPONSE_EVENT, "data": data}
+
+
+# ---------------------------------------------------------------------------
+# CLI task-list tools — pinned off on every run (defence in depth)
+# ---------------------------------------------------------------------------
+# The bundled CLI (2.1.56 for SDK 0.1.43) ships a task LIST feature —
+# TaskCreate / TaskGet / TaskList / TaskUpdate — whose store lives only in
+# the CLI process; nothing on the platform reads it. The platform's
+# primitive for work that outlives a run is the Job module; the prompt
+# notice built from this tuple (prompts.task_list_tools_notice) says so.
+#
+# What the binary actually does (read 2026-09-09/10): the four tools are the
+# only ones gated on ``isEnabled(){return T4()}``, and
+#   T4() = ENABLE_TASKS env says off → false; env says on → true;
+#          not interactive → false; else true
+# where "not interactive" is ``--print`` / ``--init-only`` / ``--sdk-url`` /
+# ``!process.stdout.isTTY``. claude_agent_sdk spawns the CLI over pipes, so
+# T4() is ALREADY false on every platform run and these four tools have
+# never been offered to the model here. The env + disallow below therefore
+# change nothing today; they pin the gate against a CLI default flip or a
+# skill env that sets CLAUDE_CODE_ENABLE_TASKS=true (which the T4 order
+# above would honour). The in-run list the model DOES hold is TodoWrite
+# (``isEnabled(){return!T4()}``, the complement gate): a per-run planning
+# aid, also never read by the platform, and deliberately left enabled —
+# disabling it would change the model's own working style and remove the
+# progress view the frontend renders from it. The notice names it as
+# run-scoped instead.
+# NOT in this set, on purpose:
+#   * TaskOutput (aliases AgentOutputTool / BashOutputTool) and TaskStop
+#     (alias KillShell) — they read / stop a ``Bash(run_in_background)``
+#     command inside the SAME run; the model itself is their reader.
+#   * Task — the sub-agent launch, a platform-visible mechanism.
+#   * TodoWrite — see above.
+# Two layers: CLI_ENABLE_TASKS_ENV=false disables the family at the source
+# (schemas never built), and the names ride disallowed_tools as well so a
+# CLI that ignores the env still cannot expose them. Both propagate into
+# subagents, where PreToolUse hooks do not run.
+TASK_LIST_TOOLS: tuple[str, ...] = (
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskUpdate",
+)
+CLI_ENABLE_TASKS_ENV = "CLAUDE_CODE_ENABLE_TASKS"
 
 
 # ---------------------------------------------------------------------------
@@ -483,10 +539,6 @@ def _inline_assistant_error_event(
 # billing, invalid_request, unknown, the adapter's own ``no_output`` — is
 # either deterministic or ours, and retrying would only delay the real error.
 _TRANSIENT_CLI_ERROR_TYPES: frozenset[str] = frozenset({"rate_limit", "server_error"})
-
-# Auth transports the CLI treats as a subscription (see ``fI()`` in the CLI):
-# the only ones where the CLI skips its own 429 retry.
-_SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset({"oauth", "oauth_token"})
 
 # What the retry run is asked. It lives ONLY in this turn's CLI session — the
 # platform's history is rebuilt from observed events each turn, so the nudge
@@ -954,6 +1006,12 @@ class ClaudeAgentSDK:
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
         )
+        # Where work that outlives a run goes on this platform (the CLI's
+        # task-list family is pinned off below and its TodoWrite list is
+        # run-scoped). Constant bytes per run, appended to the BASE prompt
+        # so both the cold-start and the stale-handle cold retry (which
+        # re-assembles from the same base) carry it.
+        base_system_prompt += task_list_tools_notice(TASK_LIST_TOOLS)
 
         # Reply-surface reminder — the platform's declared delivery tools for
         # THIS turn's origin (TurnInput.expressive_tools), rendered at the end
@@ -1020,7 +1078,7 @@ class ClaudeAgentSDK:
         # haiku), which doesn't start with "claude-", so key off auth_type too.
         _model = (claude_config.model or "")
         _is_claude_native = (
-            claude_config.auth_type in ("oauth", "oauth_token")
+            claude_config.auth_type in SUBSCRIPTION_AUTH_TYPES
             or _model.startswith("claude-")
             or _model in ("opus", "sonnet", "haiku")
         )
@@ -1097,6 +1155,20 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
+        # AFTER the skill env merge so no skill can switch the task-list
+        # feature on (fail-closed): the CLI honours an explicit "true" ahead
+        # of its headless default. See TASK_LIST_TOOLS.
+        cli_env[CLI_ENABLE_TASKS_ENV] = "false"
+
+        # Same order, same reason, for the subscription parallel-tool cap:
+        # to_cli_env set it before the merge, and a skill env carrying
+        # CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=50 (or "") would have raised /
+        # erased it. One predicate (cli_tool_concurrency_cap) decides on both
+        # sites, so keyed auth still gets nothing injected here.
+        _tool_cap = claude_config.cli_tool_concurrency_cap()
+        if _tool_cap is not None:
+            cli_env[CLI_MAX_TOOL_USE_CONCURRENCY_ENV] = str(_tool_cap)
+
         # Observability (#1): log the provider the subprocess will ACTUALLY use
         # — the EFFECTIVE env after every override, not just the configured
         # intent (logged above). A personal ~/.claude/settings.json env block
@@ -1129,12 +1201,15 @@ class ClaudeAgentSDK:
             supports_server_tools=supports_server_tools,
         )
 
+        # The CLI's task-list family is never wired to the platform (see
+        # TASK_LIST_TOOLS) — pinned off on every run, every provider, even
+        # though the headless spawn already leaves it disabled.
+        disallowed_tools: list[str] = list(TASK_LIST_TOOLS)
         # Defense-in-depth: when the provider doesn't speak the server-tool
         # protocol, also disallow WebSearch at the CLI level. Hooks cover
         # the main session but do NOT propagate into Task-spawned subagent
         # subprocesses; the CLI flag does. Without this, a subagent could
         # still call WebSearch and hang the whole run.
-        disallowed_tools: list[str] = []
         if not supports_server_tools:
             disallowed_tools.append("WebSearch")
 
@@ -1547,7 +1622,7 @@ class ClaudeAgentSDK:
             max_attempts = max(0, int(_s.claude_transient_retry_attempts))
             eligible = (
                 max_attempts > 0
-                and claude_config.auth_type in _SUBSCRIPTION_AUTH_TYPES
+                and claude_config.auth_type in SUBSCRIPTION_AUTH_TYPES
             )
             nonlocal transient_retry_attempt
             kwargs = dict(run_kwargs)

@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/output_transfer.py
-last_verified: 2026-09-03
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+claude 内联错误事件在 `cli_error_self_serviceable(enum)` 为 None（`unknown`）时**不写** `self_serviceable` 键，
+与契约「只有会分类才带」一致；True/False 照旧写。测试 `test_output_transfer_inline_error_carries_the_flag`（`unknown` → 键缺席）。
+
+## 2026-09-09 — claude 内联错误事件带 `self_serviceable`
+
+`_convert_assistant_to_stream_events` 在 `AssistantMessage.error` 分支构造的 `response.error`
+多一个 `self_serviceable`（`contracts.agent_events.cli_error_self_serviceable(enum)`）。这是
+sdk.py 没有 stderr / 正文可折叠时走到的那条路，与 sdk.py 自己的两个构造器口径一致——三处都按
+枚举判，缺一处前端就会在同一类错误上时有时无。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

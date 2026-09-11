@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/response_processor.py
-last_verified: 2026-09-03
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `ErrorMessage.self_serviceable` 出线
+
+`response.error` 分支读 `data.get("self_serviceable")`：有值则 bool 化带到 recoverable 的
+`ErrorMessage` 上，缺省保持 `None`（codex / nexus_power 不分类，**不**伪造 False）。
+`auth_expired` 与 `config_actionable` 两个 fatal 分支按定义直接写 `True`（重新登录 / 改配置
+本来就是用户的事）。同类的另一个出口是 [[step_3_agent_loop]] 的 raw-exception 路径
+（`_raw_exception_error`，config_actionable → True、infra_transient → None），两处口径一致。
+分类口径在契约包，本文件只搬运。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

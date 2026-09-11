@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/schema/runtime_message.py
-last_verified: 2026-08-26
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `ErrorMessage.self_serviceable: Optional[bool]`
+
+用户能否自己清掉这个错（等/升级 rate limit、重登、充值）。**第一步只出线 True 侧**：
+`auth_expired` / `config_actionable` 按构造为 True（response_processor 的 inline 出口与
+step_3 的 raw-exception 出口两处都打，`_raw_exception_error` 钉住）；claude driver 分类过的
+`rate_limit` / `authentication_failed` / `billing_error` 为 True，`server_error` 等为 False；
+`None` = driver 没分类（codex / nexus_power）**或** `infra_transient`（executor OOM / 不可达）——
+后者是「平台坏了」这一侧的对照组，按「绝不伪造 False」原则暂时保持 None，所以 UI 目前只能
+分辨「你能修」，还不能主动说「这不是你的问题」；要补 False 侧得连同这条原则一起改。与
+`action_reason` 一样随 `model_dump()` 直接上 WS / inbox 行（`run_recorder` 的 `event_to_wire`
+全字段透传），前端类型 [[messages.ts]] 同步加 `self_serviceable?: boolean`。
 
 ## 2026-08-26 — Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
 

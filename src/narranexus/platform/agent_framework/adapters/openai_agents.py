@@ -10,10 +10,11 @@ Supports two modes:
    return <think> blocks and ignore response_format)
 """
 
+import hashlib
 import json
 import re
 from contextvars import ContextVar
-from typing import AsyncGenerator, Optional, Type
+from typing import AsyncGenerator, Callable, Optional, Type
 
 from loguru import logger
 
@@ -210,6 +211,67 @@ _response_format_capability: dict[tuple[str, str], set[str]] = {}
 
 def _capability_key(model_name: str) -> tuple[str, str]:
     return ((openai_config.base_url or "").rstrip("/"), model_name)
+
+
+def build_strict_json_schema(output_type: Type[BaseModel]) -> dict:
+    """The JSON schema the ``json_schema`` (strict) rung sends for ``output_type``.
+
+    OpenAI's strict validator accepts a schema only if EVERY object node has
+    ``additionalProperties: false`` and lists every property in ``required``;
+    a raw ``model_json_schema()`` satisfies neither (Pydantic leaves objects
+    open and keeps defaulted fields optional). Sending the raw schema is what
+    produced the 2026-08-25 400 storm (104 rejections in a day with the helper
+    slot on gpt-5.4-mini): the rung was marked unsupported and every call fell
+    to ``json_object`` — the level the ladder exists to prefer was unreachable.
+
+    ``ensure_strict_json_schema`` (public in ``openai-agents``, the same
+    rewrite the OpenAI SDK applies for ``client.beta.chat.completions.parse``)
+    closes every object, promotes every property to required, inlines
+    ``$ref``s that carry siblings and drops ``None`` defaults. Applying it here
+    — one seam for all helper models — is preferred over ``extra="forbid"`` on
+    each model: strictness is a PROVIDER-side guarantee for THIS rung only.
+    The prompt hint and the ``json_object`` / prompt-only rungs keep the raw
+    Pydantic schema, so a weaker model may still omit a defaulted field and
+    client-side parsing stays lenient to a stray key. Pure per call: a fresh
+    ``model_json_schema()`` dict is rewritten each time.
+
+    Raises ``agents.exceptions.UserError`` for a schema strict mode cannot
+    express — an open object such as a ``dict[str, ...]`` field or
+    ``extra="allow"`` (``additionalProperties`` already set) — the rewrite is
+    a rejection, not a 400 from the provider. ``_fallback_chat_completion``
+    treats that exactly like a provider rejection of the rung: it skips
+    ``json_schema`` for THAT output type and continues down the ladder.
+
+    Function-level import: pulling ``agents`` in at module import costs ~0.8s
+    (the whole package, ~190 modules) in every process that loads this
+    adapter, and the rest of the file already defers ``from agents import``
+    to call time for the same reason.
+    """
+    from agents.strict_schema import ensure_strict_json_schema
+
+    return ensure_strict_json_schema(output_type.model_json_schema())
+
+
+# Output types whose strict rewrite raised (see build_strict_json_schema).
+# Keyed on the TYPE, not on (base_url, model): the failure is a property of the
+# schema alone, so caching it on the model's capability set would demote every
+# other output type on that model to json_object — undoing the rung the
+# 2026-08-25 fix exists to reach. Process-local, like the capability cache.
+# Keyed by the type's qualified name plus a fingerprint of its JSON schema
+# (not the class object) so a plugin that builds throwaway output models per
+# call cannot pin those classes in memory, and two models that share a name
+# (``pydantic.create_model("Foo", ...)`` twice in one module) but differ in
+# shape do not share a verdict. Identical shapes still collapse to one key.
+_strict_rewrite_unsupported: set[str] = set()
+
+
+def _strict_rewrite_key(output_type: type) -> str:
+    name = f"{output_type.__module__}.{output_type.__qualname__}"
+    try:
+        schema = json.dumps(output_type.model_json_schema(), sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001 - a schema that cannot render keys on its name
+        return name
+    return f"{name}#{hashlib.sha256(schema.encode()).hexdigest()[:16]}"
 
 
 def _allowed_levels(key: tuple[str, str]) -> set[str]:
@@ -600,6 +662,9 @@ class OpenAIAgentsSDK:
         """
         # ── 1. Build messages (schema hint goes into the prompt either way —
         # cheap insurance, especially for the level-3 prompt-only path).
+        # The hint is the RAW Pydantic schema: defaulted fields stay optional
+        # for the json_object / prompt-only rungs. Only the json_schema rung
+        # sends the strict rewrite (see build_strict_json_schema).
         system_prompt = instructions
         schema_obj: Optional[dict] = None
         if output_type:
@@ -657,26 +722,62 @@ class OpenAIAgentsSDK:
         if output_type and schema_obj is not None:
             key = _capability_key(model_name)
             allowed = _allowed_levels(key)
-            ladder: list[tuple[str, dict]] = []
-            if "json_schema" in allowed:
-                ladder.append((
-                    "json_schema",
-                    {"response_format": {
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": output_type.__name__,
-                            "strict": True,
-                            "schema": schema_obj,
-                        },
-                    }},
-                ))
-            if "json_object" in allowed:
-                ladder.append((
-                    "json_object",
-                    {"response_format": {"type": "json_object"}},
-                ))
 
-            for level, extra in ladder:
+            def _json_schema_extra() -> dict:
+                return {"response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": output_type.__name__,
+                        "strict": True,
+                        "schema": build_strict_json_schema(output_type),
+                    },
+                }}
+
+            def _json_object_extra() -> dict:
+                return {"response_format": {"type": "json_object"}}
+
+            # Rungs are built LAZILY, inside the loop: the strict rewrite can
+            # raise for an open-object schema, and that must read as "this
+            # rung is not available for this output type", never as a
+            # failure of the whole call — the ladder only ever degrades.
+            ladder: list[tuple[str, Callable[[], dict]]] = []
+            if (
+                "json_schema" in allowed
+                and _strict_rewrite_key(output_type) not in _strict_rewrite_unsupported
+            ):
+                ladder.append(("json_schema", _json_schema_extra))
+            if "json_object" in allowed:
+                ladder.append(("json_object", _json_object_extra))
+
+            for level, build_extra in ladder:
+                try:
+                    extra = build_extra()
+                except Exception as e:
+                    # Local rejection of the schema (no request was sent).
+                    # Only the strict rung is cached per output type (a
+                    # future rung with its own builder must not switch the
+                    # strict rung off); audited like a provider downgrade,
+                    # then on to the next rung.
+                    if level == "json_schema":
+                        _strict_rewrite_unsupported.add(
+                            _strict_rewrite_key(output_type)
+                        )
+                    logger.warning(
+                        f"[StructuredFallback] {level} rung skipped for "
+                        f"{output_type.__name__}: strict schema rewrite "
+                        f"rejected it ({e!r}); continuing with the next rung"
+                    )
+                    await _audit_framework_downgrade(
+                        "strict_schema_rewrite_rejected",
+                        {
+                            "base_url": key[0],
+                            "model": key[1],
+                            "level": level,
+                            "output_type": output_type.__name__,
+                            "error": str(e)[:500],
+                        },
+                    )
+                    continue
                 try:
                     resp = await _do_call(extra)
                     chosen_level = level

@@ -1,8 +1,59 @@
 ---
 code_file: plugins/builtin.frameworks.claude_code/src/narranexus_plugins/frameworks_claude_code/sdk.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+`_inline_assistant_error_event` 在 `unknown` 时不写 `self_serviceable` 键（契约返回 None = 无判决），
+`_zero_output_error_event`（`no_output`）仍写 False。测试 `test_inline_error_event_carries_the_flag`。
+
+## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
+
+`_is_claude_native` 的订阅判定原先手写 `("oauth", "oauth_token")` 字面量，改为 import
+`narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
+运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
+（扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
+
+## 2026-09-09 — `response.error` 带 `self_serviceable`
+
+`_inline_assistant_error_event` / `_zero_output_error_event` 的 data 里新增布尔键，值由契约包
+`cli_error_self_serviceable(enum)` 给出（rate_limit / authentication_failed / billing_error → True；
+其余含 `no_output` → False；`unknown` 自 09-10 起无判决、键缺席）。按枚举判、不看正文（正文自 PR #379 起是 provider 原样文本）。
+第三个构造点在 [[output_transfer]]（无 stderr/正文可折叠时走的那条），口径一致。
+`response_processor` 把它带上 `ErrorMessage.self_serviceable` 出线。测试
+`tests/agent_framework/test_cli_error_self_serviceable.py`。
+
+## 2026-09-09 — CLI 任务清单工具族（TaskCreate/Get/List/Update）每 run 钉死关闭（纵深防御，2026-09-10 改口径）
+
+`TASK_LIST_TOOLS` 只含 **TaskCreate / TaskGet / TaskList / TaskUpdate**。从 2.1.56 二进制核过：
+这四个是唯一 `isEnabled(){return T4()}` 的工具；它们的清单只活在 CLI 进程里，平台无读取方。
+
+**二轮 review I2 纠正的前提**：`T4()` 的完整判据是「`CLAUDE_CODE_ENABLE_TASKS` 明示关 → false；明示开 → true；
+非交互（`--print` / `--init-only` / `--sdk-url` / `!process.stdout.isTTY`）→ false；否则 true」。
+`claude_agent_sdk` 用管道 spawn CLI（stdout 非 TTY），所以**本平台每次 run 里 `T4()` 本来就是 false，这四个
+工具从未提供给模型**；初版 mirror/commit 写的「模型排进去的工作在 run 结束即孤儿化（#74）」不成立，本改动
+**今天不改变任何行为**。它是纵深防御：把门钉死，防 CLI 日后把默认改成开、防 skill env 注入
+`CLAUDE_CODE_ENABLE_TASKS=true`（按上面的顺序 CLI 会认明示 true）。模型实际持有的 run 内清单是
+**TodoWrite**（互补门 `isEnabled(){return!T4()}`，二进制里 2 处）：同样只活在 run 内、平台同样不读；
+**故意不禁**——它是模型自己的规划/进度表，前端也据此渲染进度，禁掉属于改变模型工作方式（铁律 #15/#16）；
+notice 改为如实告诉模型它是 run 内的。若 #74 确有「模型说排了任务没人接」的现象，可达载体只能是
+TodoWrite 的语义误解，本改动不针对它做任何限制。
+**故意不在集合里**：`TaskOutput`（别名 AgentOutputTool/BashOutputTool）与 `TaskStop`（别名
+KillShell）——它们读取/停止**本 run 内** `Bash(run_in_background)` 的命令，读者是模型自己，
+禁掉等于砍掉一个在用的能力（首轮 review C1 抓到的错归类）；`Task`（起 sub-agent）也不在；`TodoWrite` 见上。
+两层生效：`cli_env[CLAUDE_CODE_ENABLE_TASKS]="false"` 从源头关（schema 根本不建），且**放在
+`extra_env` 合并之后**，skill 注入的 env 改不回来（fail-closed；2026-09-10 起订阅账号的并行工具上限
+`CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` 也在同一位置按 `claude_config.cli_tool_concurrency_cap()` 再落一次，
+同一判据、同一顺序，见 [[api_config]]）；四个名字同时进
+`disallowed_tools` 起始列表，CLI 若忽略 env 也暴露不出来。WebSearch 守卫与 kwargs 合并逻辑不变。
+`base_system_prompt` 末尾拼 `prompts.task_list_tools_notice(...)`：清单工具**不可用**（不是「被禁」）、
+TodoWrite 只在本 run 内、本 run 内后台命令照常、跨 run 的工作走 Job module；拼在 BASE prompt 上，
+冷启动与陈旧句柄冷重试共用。改文案改了 base prompt 字节 → prompt cache 前缀变一次，预期内。
+测试 `tests/agent_framework/test_claude_task_list_tools.py`：名字与 env 门对二进制核对、env 值、
+skill env 覆盖不了、disallow/merge（TodoWrite 不在 disallow 里）、notice 文案（含 "not available"、
+不含 "disabled"、点名 TodoWrite；去掉 env 注入 / 起始列表 / 拼接 → 红）。
 
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 
@@ -35,7 +86,7 @@ store·pipeline·secret-box / `agent_framework.llm.prompt_probe_emit` /
 2. 新增 `_run_with_transient_retry(run_kwargs)` 包住 `_run_once`，冷启动 / resume /
    resume 被拒后的冷重试三处调用点统一改走它：
    * 门：`settings.claude_transient_retry_attempts > 0` 且 `claude_config.auth_type ∈
-     _SUBSCRIPTION_AUTH_TYPES` 且错误枚举 ∈ `_TRANSIENT_CLI_ERROR_TYPES`（rate_limit /
+     SUBSCRIPTION_AUTH_TYPES`（2026-09-10 起从 [[provider_schema]] import——唯一定义处；不再有私有副本）且错误枚举 ∈ `_TRANSIENT_CLI_ERROR_TYPES`（rate_limit /
      server_error）且拿得到 session id。任一不满足 → 事件原样透传（改前行为）。
    * 看到可重试错误先**扣住**，继续读该次 run 的尾巴：出现实质事件（工具调用 / 非空文本 /
      reply delta，`_is_substantive_event`）说明 CLI 自己续上了 → 按原顺序放行、不重试；

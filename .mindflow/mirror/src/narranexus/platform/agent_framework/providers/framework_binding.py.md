@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/framework_binding.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `SUBSCRIPTION_AUTH_TYPES` 改为 re-export
+
+常量本体回到 [[provider_schema]]（`AuthType` 旁，枚举值子集，不是注册表规则），本文件 import 后保留在
+`__all__` 里 re-export，`framework_can_drive_provider` 继续用它。理由见 provider_schema 2026-09-10 条目：
+`api_config` 与 claude driver 也要用同一集合，而本文件顶层 import `loop.driver`，让 `api_config` 反向 import
+本文件会把框架注册表拉进配置层。
 
 # framework_binding.py — which card may be bound to which slot
 

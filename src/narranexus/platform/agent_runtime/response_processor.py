@@ -473,6 +473,11 @@ class ResponseProcessor:
             # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
+            # Driver-side verdict (claude stamps it on every response.error);
+            # absent → None, never a fabricated False.
+            self_serviceable_flag = data.get("self_serviceable")
+            if self_serviceable_flag is not None:
+                self_serviceable_flag = bool(self_serviceable_flag)
 
             # Auth failures are NOT recoverable by retrying or by a helper
             # reply — the credentials are dead. Surface a fatal, actionable
@@ -490,6 +495,7 @@ class ResponseProcessor:
                         error_message=_AUTH_EXPIRED_USER_MESSAGE,
                         error_type=AUTH_EXPIRED_ERROR_TYPE,
                         severity="fatal",
+                        self_serviceable=True,  # re-login is the user's to do
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
@@ -518,6 +524,7 @@ class ResponseProcessor:
                         error_type=SELF_SERVICEABLE_ERROR_TYPE,
                         severity="fatal",
                         action_reason=self_serviceable,
+                        self_serviceable=True,  # by definition of the class
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
@@ -529,6 +536,7 @@ class ResponseProcessor:
                     error_message=error_message,
                     error_type=error_type,
                     severity="recoverable",
+                    self_serviceable=self_serviceable_flag,
                 ),
                 state_update={"method": "increment_response", "args": {}}
             )

@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from narranexus.contracts import UnknownEntry
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.platform.agent_framework.api_config import (
     CodexConfig,
     ClaudeConfig,
@@ -156,7 +157,7 @@ def _resolve_slot_target(
         # same CLI as the agent, so a single login/token covers both slots.
         # Checked before protocol because a subscription card still carries
         # anthropic/openai as its nominal protocol.
-        if (card.auth_type or "").lower() in ("oauth", "oauth_token"):
+        if (card.auth_type or "").lower() in SUBSCRIPTION_AUTH_TYPES:
             return "build_cli_helper_config", "cli_helper"
         if (card.protocol or "").lower() == "anthropic":
             return "build_anthropic_helper_config", "helper_anthropic"

@@ -47,6 +47,7 @@ from narranexus.platform.channel.channel_sender_registry import (
     ChannelSenderRegistry,
 )
 from narranexus.platform.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
+from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
 from narranexus.platform.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
     MessageSourceRegistry,
@@ -178,7 +179,7 @@ def _framework_override_viable(
     # conditions: a non-empty claude.model means codex is never consulted,
     # so an oauth claude slot is non-viable even if codex carries a model.
     if claude.model:
-        return (claude.auth_type or "api_key") not in ("oauth", "oauth_token")
+        return (claude.auth_type or "api_key") not in SUBSCRIPTION_AUTH_TYPES
     return bool(codex.model)
 
 
@@ -1089,6 +1090,30 @@ def _fallback_skip_decision(
         if reason is not None:
             return "raw_exception", reason, SELF_SERVICEABLE_ERROR_TYPE
     return None, None, None
+
+
+def _raw_exception_error(
+    message: str,
+    skip_target_type: str,
+    severity: str,
+    action_reason: str | None,
+) -> ErrorMessage:
+    """The ``ErrorMessage`` for a raw-exception fallback skip, mirroring what
+    ``response_processor`` emits for the inline shape — including
+    ``self_serviceable``: True for ``config_actionable`` (by definition of
+    the class: only the user's own config clears it), None for
+    ``infra_transient`` (the platform-side control group — never a
+    fabricated verdict either way). Kept as its own function so the two
+    exits stay in step and can be pinned by one test."""
+    return ErrorMessage(
+        error_message=message,
+        error_type=skip_target_type,
+        severity=severity,
+        action_reason=action_reason,
+        self_serviceable=(
+            True if skip_target_type == SELF_SERVICEABLE_ERROR_TYPE else None
+        ),
+    )
 
 
 NO_REPLY_NEEDED_SENTINEL = "<<<NO_REPLY_NEEDED>>>"
@@ -2290,11 +2315,8 @@ async def step_3_agent_loop(
             if _has_organic_reply(agent_loop_response, ctx.working_source or "")
             else "fatal"
         )
-        err = ErrorMessage(
-            error_message=message,
-            error_type=skip_target_type,
-            severity=severity,
-            action_reason=skip_reason_detail,
+        err = _raw_exception_error(
+            message, skip_target_type, severity, skip_reason_detail
         )
         agent_loop_response.append(err)
         yield err

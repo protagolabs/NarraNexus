@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `ErrorMessage.self_serviceable?: boolean`
+
+后端 `ErrorMessage.self_serviceable` 的镜像：用户能否自己清掉这个错（等/升级 rate limit、
+重登、充值）。claude driver 每条 `response.error` 都打；`auth_expired` / `config_actionable`
+按构造为 true（两条后端出口都打）；`undefined` = driver 没分类（codex / nexus_power）或
+`infra_transient`，绝不是伪造的 false——所以**第一步只交付 True 侧**，UI 能说「你能修」，
+还不能说「这不是你的问题」。本次只加类型，UI 还没消费。
 
 ## 2026-08-30 — 两个 monologue 字段，类型不同，别当成一个
 

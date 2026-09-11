@@ -1,8 +1,34 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-08-14
+last_verified: 2026-09-10
 ---
+## 2026-09-09 — 未知 +shortcut 翻译成「该域合法 shortcut 列表」
+
+Agent 会编造不存在的 +shortcut（`docs +get`、`calendar +events-list`）。lark-cli 只回一句
+`unknown subcommand "+get" for "lark-cli docs"` + 「去跑 --help」的提示（rc=2，JSON 信封
+`error.type=validation / subtype=invalid_argument / params[].reason="unknown subcommand"`），
+agent 拿到后只能再盲猜一次。`_exec_lark_cli` 在非零退出分支识别这个形状
+（`_unknown_subcommand`：正文正则 + params reason 交叉核对——params 存在但 reason 不是 `unknown subcommand`
+的无关错误不翻译，测试有负例），用**同一 executable / env / cwd**
+跑一次 `lark-cli <domain> --help`（`_domain_shortcuts`，按 `(executable, domain)` 缓存于
+`_SHORTCUT_CACHE`——per-agent `LARK_CLI_BIN` 或本地原地升级 CLI 不会拿到过期列表；**探测成功就缓存，
+含空元组**（该域没有 +shortcut、或 help 走了 JSON 没有 `raw_output`：2026-09-10 二轮 review Minor 1/M4，
+之前空结果不缓存 = 每次盲猜都多 spawn 一次探测，且静默；现在空结果打一条 warning 并缓存）；探测**失败**不永久缓存：
+失败时刻记进 `_SHORTCUT_PROBE_FAILED_AT`，`_SHORTCUT_PROBE_RETRY_SEC`（60s）内同 key 再撞直接不探测（PR#392 复审 M5：
+否则 `--help` 坏掉时 agent 每次幻觉都多一次 spawn + 最多 15s 等待），窗口过后下一次重试，探测成功即清掉失败记录
+（`test_probe_that_fails_the_same_way_does_not_recurse` 钉 2→3→5 次 spawn）；超时取 `min(触发调用的 timeout, 15s)`；探测本身以 `translate_unknown=False` 调
+`_exec_lark_cli`——**递归守卫**：若某 CLI 对 `--help` 也回同形状错误，不加守卫就是无界递归，
+测试用 `broken` 域钉住「恰好两次 spawn、返回 ()」），`_parse_help_shortcuts` 只取 `Available Commands:` 块里以 `+` 开头的行
+（`service.resource` 原始资源行不算——agent 用的是 `+` 语法），返回结构化错误：`error` 正文列出
+合法 shortcut 并叫它别再发明，`error_data` 多 `domain`（`setdefault`，不覆盖 CLI 自带键）与 `valid_shortcuts`；探测失败时**不写**
+`valid_shortcuts` 而写 `shortcuts_unavailable: True`，消费方能分辨「没有 shortcut」和「读不到」。其他错误
+（missing_scope 等）原样不动。顺手修的同类坑：CLI 自身的校验错误（未知子命令、坏 flag）把 JSON 信封写在
+**stderr**（rc=2），API 错误才在 stdout；非零退出分支现在两条流都试着解析，此前 agent 拿到的是整个
+原始信封字符串。放在 `_exec_lark_cli` 而非 MCP tool 层：`_run_with_agent_id` /
+`_run_with_home` 两条入口都受益，且能用 `LARK_CLI_BIN` 指向假 CLI 做真子进程测试
+（`tests/lark_module/test_lark_unknown_subcommand.py`）。
+
 ## 2026-08-14 — regression fix: undefined `db`/`mgr` after the seam migration
 
 The 2026-08-11 zero-creds migration removed the local `db`/`mgr` bindings
