@@ -4,6 +4,17 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — the rename once-guard is a ref, not the `renaming` state
+
+Enter/Escape unmount the inline input; WebKit (the Tauri webviews) dispatches
+blur on removal, and that blur handler runs from the same render's closure,
+where `renaming` is still true — so a state-based guard let Enter-then-blur
+send two renames. `renameSettledRef` is set by the first settle (commit OR
+Escape cancel) and reset by `startRename`; Escape sets it too, otherwise the
+unmount blur after Escape would commit the discarded draft. Pinned by
+`agentGroupSection.test.tsx` (Enter+blur and Escape+blur fired inside one
+`act()`, i.e. with no render in between).
+
 ## 2026-09-11 — owner rows get the ⋯ menu again + inline rename (OWNER-REQUIRED)
 
 Reverses the "rows are display-only" state from #383: an agent row the viewer

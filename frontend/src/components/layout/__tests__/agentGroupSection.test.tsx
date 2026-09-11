@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import { AgentGroupSection } from '../AgentGroupSection';
@@ -221,6 +221,34 @@ describe('agent row ⋯ menu', () => {
     fireEvent.change(screen.getByLabelText('Rename'), { target: { value: '   ' } });
     fireEvent.blur(screen.getByLabelText('Rename'));
     expect(actions.onRename).not.toHaveBeenCalled();
+  });
+
+  it('a blur fired by the unmounting input does not commit a second time (WebKit)', () => {
+    // WebKit dispatches blur when the focused input is removed; that handler
+    // runs before React re-renders, from the same closure as Enter/Escape.
+    // Firing both inside one act() reproduces it (no render in between).
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('Rename');
+    fireEvent.change(input, { target: { value: 'Chief Analyst' } });
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.blur(input);
+    });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+
+    // Escape followed by the same unmount blur must not commit the draft.
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const again = screen.getByLabelText('Rename');
+    fireEvent.change(again, { target: { value: 'Discarded' } });
+    act(() => {
+      fireEvent.keyDown(again, { key: 'Escape' });
+      fireEvent.blur(again);
+    });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
   });
 
   it('no host actions → no menu at all', () => {

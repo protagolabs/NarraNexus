@@ -11,7 +11,7 @@
  * display-only. The actions themselves are the host's (AgentList).
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
@@ -270,14 +270,25 @@ function AgentRow({
   const isOwner = agent.created_by === currentUserId;
   const showMenu = isOwner && !!rowActions;
 
+  // Whether the current rename session has already been settled (committed or
+  // cancelled). A ref, not the `renaming` state: Enter/Escape unmount the
+  // input, and engines that dispatch blur on removal (WebKit — the Tauri
+  // webviews) run the blur handler from the SAME render's closure, where
+  // `renaming` is still true. Only a ref sees the first settle.
+  const renameSettledRef = useRef(false);
   const startRename = () => {
+    renameSettledRef.current = false;
     setNameDraft(displayName);
     setRenaming(true);
   };
+  const cancelRename = () => {
+    renameSettledRef.current = true;
+    setRenaming(false);
+  };
   const commitRename = () => {
-    // Enter and the blur it triggers (the input unmounts) both land here —
-    // only the first may act.
-    if (!renaming) return;
+    // Enter and the blur it triggers both land here — only the first may act.
+    if (renameSettledRef.current) return;
+    renameSettledRef.current = true;
     const next = nameDraft.trim();
     setRenaming(false);
     if (next && next !== displayName) rowActions?.onRename(agent.agent_id, next);
@@ -339,7 +350,7 @@ function AgentRow({
               onKeyDown={(e) => {
                 e.stopPropagation();
                 if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
-                if (e.key === 'Escape') { e.preventDefault(); setRenaming(false); }
+                if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
               }}
               onBlur={commitRename}
               className="w-full px-2 py-0.5 text-sm text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
