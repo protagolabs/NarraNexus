@@ -42,6 +42,18 @@ from narranexus.platform.schema import (
 from narranexus.platform.utils.timezone import utc_now
 
 
+async def _gate(agent_id: str, db) -> tuple:
+    """``should_skip``'s verdict as the (skip, reason) pair most tests assert."""
+    verdict = await should_skip(agent_id, db=db)
+    return (verdict.skip, verdict.reason)
+
+
+async def _claim(agent_id: str, db) -> tuple:
+    """``try_begin_probe``'s admission as an (allowed, reason) pair."""
+    admission = await try_begin_probe(agent_id, db=db)
+    return (admission.allowed, admission.reason)
+
+
 async def _seed_agent(db, agent_id: str, owner: str) -> None:
     await db.insert("agents", {
         "agent_id": agent_id,
@@ -144,7 +156,7 @@ async def test_self_serviceable_does_not_advance_breaker(db_client):
         aid, "ContextWindowExceededError", "inputs 75307 > 32769", db=db_client,
     )
     assert await repo.get(aid) is None
-    assert await should_skip(aid, db=db_client) == (False, None)
+    assert await _gate(aid, db=db_client) == (False, None)
 
 
 @pytest.mark.asyncio
@@ -170,7 +182,7 @@ async def test_executor_infra_does_not_advance_breaker(db_client):
         db=db_client,
     )
     assert await repo.get(aid) is None
-    assert await should_skip(aid, db=db_client) == (False, None)
+    assert await _gate(aid, db=db_client) == (False, None)
 
 
 @pytest.mark.asyncio
@@ -372,34 +384,34 @@ async def test_should_skip_states(db_client):
     repo = AgentCircuitBreakerRepository(db_client)
 
     # missing row → allow
-    assert await should_skip("ghost", db=db_client) == (False, None)
+    assert await _gate("ghost", db=db_client) == (False, None)
 
     # paused, half-open delay still running → skip
     await repo.upsert_state("p", {"cb_status": CbStatus.PAUSED.value,
                                   "paused_reason": PausedReason.AUTH.value,
                                   "cooldown_until": utc_now() + timedelta(minutes=5)})
-    skip, reason = await should_skip("p", db=db_client)
+    skip, reason = await _gate("p", db=db_client)
     assert skip and reason.startswith("paused:auth")
 
     # paused with NO deadline at all → fail-safe toward the probe (a row
     # nobody could ever probe would be a permanent dead end).
     await repo.upsert_state("p_null", {"cb_status": CbStatus.PAUSED.value,
                                        "paused_reason": PausedReason.AUTH.value})
-    assert await should_skip("p_null", db=db_client) == (False, None)
+    assert await _gate("p_null", db=db_client) == (False, None)
 
     # cooling in the future → skip
     await repo.upsert_state("c_future", {
         "cb_status": CbStatus.COOLING.value,
         "cooldown_until": utc_now() + timedelta(minutes=5),
     })
-    assert await should_skip("c_future", db=db_client) == (True, "cooling")
+    assert await _gate("c_future", db=db_client) == (True, "cooling")
 
     # cooling already elapsed → allow (lazy expiry)
     await repo.upsert_state("c_past", {
         "cb_status": CbStatus.COOLING.value,
         "cooldown_until": utc_now() - timedelta(minutes=5),
     })
-    assert await should_skip("c_past", db=db_client) == (False, None)
+    assert await _gate("c_past", db=db_client) == (False, None)
 
 
 # --------------------------------------------------------------------------
@@ -426,9 +438,9 @@ async def test_paused_before_timeout_stays_skipped(db_client):
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_ho_early"
     await repo.upsert_state(aid, _paused_row(cooldown_until=utc_now() + timedelta(minutes=5)))
-    skip, reason = await should_skip(aid, db=db_client)
+    skip, reason = await _gate(aid, db=db_client)
     assert skip and reason.startswith("paused:auth")
-    allowed, reason = await try_begin_probe(aid, db=db_client)
+    allowed, reason = await _claim(aid, db_client)
     assert allowed is False and reason == "paused:auth"
     assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
 
@@ -442,7 +454,7 @@ async def test_should_skip_is_a_pure_read_and_never_claims(db_client):
     aid = "ag_ho_read"
     await repo.upsert_state(aid, _paused_row())
     for _ in range(3):
-        assert await should_skip(aid, db=db_client) == (False, None)
+        assert await _gate(aid, db=db_client) == (False, None)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.probe_token is None
@@ -457,14 +469,14 @@ async def test_try_begin_probe_claims_exactly_once(db_client):
     aid = "ag_ho"
     await repo.upsert_state(aid, _paused_row())
     before = utc_now()
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
+    assert await _claim(aid, db_client) == (True, None)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PROBING.value
     assert row.probe_token
     grant = (row.cooldown_until.replace(tzinfo=None) - before.replace(tzinfo=None)).total_seconds()
     assert grant == pytest.approx(PROBE_GRANT_SECONDS, abs=2)
-    assert await try_begin_probe(aid, db=db_client) == (False, "probing")
-    assert await should_skip(aid, db=db_client) == (True, "probing")
+    assert await _claim(aid, db_client) == (False, "probing")
+    assert await _gate(aid, db=db_client) == (True, "probing")
 
 
 @pytest.mark.asyncio
@@ -475,7 +487,7 @@ async def test_concurrent_claims_on_open_window_let_exactly_one_through(db_clien
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_ho_race"
     await repo.upsert_state(aid, _paused_row())
-    results = await asyncio.gather(*[try_begin_probe(aid, db=db_client) for _ in range(4)])
+    results = await asyncio.gather(*[_claim(aid, db_client) for _ in range(4)])
     assert results.count((True, None)) == 1
     assert results.count((False, "probing")) == 3
 
@@ -490,7 +502,7 @@ async def test_concurrent_reclaims_of_stale_probing_let_exactly_one_through(db_c
     await repo.upsert_state(aid, _paused_row(
         cb_status=CbStatus.PROBING.value, probe_token="old-token",
     ))
-    results = await asyncio.gather(*[try_begin_probe(aid, db=db_client) for _ in range(4)])
+    results = await asyncio.gather(*[_claim(aid, db_client) for _ in range(4)])
     assert results.count((True, None)) == 1
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PROBING.value
@@ -506,9 +518,9 @@ async def test_probing_row_with_expired_grant_self_heals(db_client):
     await repo.upsert_state(aid, _paused_row(
         cb_status=CbStatus.PROBING.value, probe_token="dead-probe",
     ))
-    assert await should_skip(aid, db=db_client) == (False, None)
+    assert await _gate(aid, db=db_client) == (False, None)
     before = utc_now()
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
+    assert await _claim(aid, db_client) == (True, None)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PROBING.value
     assert row.probe_token != "dead-probe"
@@ -536,12 +548,12 @@ async def test_expired_grant_with_live_run_is_not_reclaimed(db_client):
         "started_at": utc_now() - timedelta(hours=3),
         "last_event_at": utc_now(),  # fresh heartbeat
     })
-    assert await try_begin_probe(aid, db=db_client) == (False, "probing")
+    assert await _claim(aid, db_client) == (False, "probing")
     assert (await repo.get(aid)).probe_token == "long-probe"
     # Once the heartbeat is stale the run counts as dead → re-claimable.
     await db_client.update("events", {"event_id": "evt_long_probe"},
                            {"last_event_at": utc_now() - timedelta(hours=1)})
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
+    assert await _claim(aid, db_client) == (True, None)
 
 
 @pytest.mark.asyncio
@@ -554,8 +566,8 @@ async def test_probing_row_with_live_grant_stays_skipped(db_client):
         cb_status=CbStatus.PROBING.value, probe_token="t",
         cooldown_until=utc_now() + timedelta(minutes=5),
     ))
-    assert await should_skip(aid, db=db_client) == (True, "probing")
-    assert await try_begin_probe(aid, db=db_client) == (False, "probing")
+    assert await _gate(aid, db=db_client) == (True, "probing")
+    assert await _claim(aid, db_client) == (False, "probing")
 
 
 @pytest.mark.asyncio
@@ -571,7 +583,7 @@ async def test_cas_write_failure_counts_as_not_claimed(db_client, monkeypatch):
         raise RuntimeError("lock wait timeout")
     monkeypatch.setattr(AgentCircuitBreakerRepository, "try_claim_probe", boom)
 
-    assert await try_begin_probe(aid, db=db_client) == (False, "probing")
+    assert await _claim(aid, db_client) == (False, "probing")
     assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
 
 
@@ -582,8 +594,9 @@ async def test_half_open_probe_success_closes_breaker(db_client):
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_ho_ok"
     await repo.upsert_state(aid, _paused_row())
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
-    await record_success(aid, db=db_client)
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
+    await record_success(aid, db=db_client, probe_token=adm.probe_token)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.ACTIVE.value
     assert row.consecutive_failure_count == 0
@@ -612,10 +625,11 @@ async def test_half_open_probe_failure_repauses_with_longer_timeout(db_client, m
     assert len(alerts) == 1
 
     await repo.upsert_state(aid, {"cooldown_until": utc_now() - timedelta(seconds=1)})
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
 
     before_fail = utc_now()
-    await record_failure(aid, "auth_expired", "still dead", db=db_client)
+    await record_failure(aid, "auth_expired", "still dead", db=db_client, probe_token=adm.probe_token)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.probe_token is None
@@ -637,10 +651,11 @@ async def test_probe_failing_for_a_non_auth_reason_keeps_the_pause(db_client):
     for _ in range(AUTH_QUOTA_PAUSE_THRESHOLD):
         await record_failure(aid, "auth_expired", "login expired", db=db_client)
     await repo.upsert_state(aid, {"cooldown_until": utc_now() - timedelta(seconds=1)})
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
 
     before = utc_now()
-    await record_failure(aid, "TimeoutError", "read timed out", db=db_client)
+    await record_failure(aid, "TimeoutError", "read timed out", db=db_client, probe_token=adm.probe_token)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.paused_reason == PausedReason.AUTH.value
@@ -650,7 +665,7 @@ async def test_probe_failing_for_a_non_auth_reason_keeps_the_pause(db_client):
     delay = (row.cooldown_until.replace(tzinfo=None) - before.replace(tzinfo=None)).total_seconds()
     assert delay == pytest.approx(PAUSE_HALF_OPEN_BASE_SECONDS, abs=2)
     # and the gate is closed again until that delay elapses
-    assert (await should_skip(aid, db=db_client))[0] is True
+    assert (await _gate(aid, db=db_client))[0] is True
 
 
 @pytest.mark.asyncio
@@ -665,8 +680,9 @@ async def test_exempt_failures_still_settle_a_probing_row(db_client, error_type,
     repo = AgentCircuitBreakerRepository(db_client)
     aid = f"ag_ho_exempt_{error_type}"
     await repo.upsert_state(aid, _paused_row())
-    assert await try_begin_probe(aid, db=db_client) == (True, None)
-    await record_failure(aid, error_type, message, db=db_client)
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
+    await record_failure(aid, error_type, message, db=db_client, probe_token=adm.probe_token)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD
@@ -679,51 +695,252 @@ def _elapsed_now(value) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_release_probe_settles_only_probing_rows(db_client):
-    """A cancelled / lost probe turn releases the claim (→ PAUSED, same
-    delay); a row that is not PROBING is left alone."""
+async def test_release_probe_settles_only_its_own_claim(db_client):
+    """release_probe is keyed on the claim's identity: a wrong or missing
+    token is a no-op (the row stays PROBING under its real claimant), the
+    right one hands the probe back (→ PAUSED, same delay), and a repeat is a
+    no-op — so every admitted turn may call it unconditionally at its end.
+    A row that is not PROBING is never touched."""
     repo = AgentCircuitBreakerRepository(db_client)
     await repo.upsert_state("rel_p", _paused_row(cb_status=CbStatus.PROBING.value, probe_token="t"))
     await repo.upsert_state("rel_c", {"cb_status": CbStatus.COOLING.value,
                                       "consecutive_failure_count": 1,
                                       "cooldown_until": utc_now() + timedelta(minutes=1)})
-    assert await release_probe("rel_p", db=db_client) is True
+    assert await release_probe("rel_p", "someone-else", db=db_client) is False
+    assert await release_probe("rel_p", None, db=db_client) is False
+    assert (await repo.get("rel_p")).probe_token == "t"
+
+    assert await release_probe("rel_p", "t", db=db_client) is True
     row = await repo.get("rel_p")
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.probe_token is None
+    assert row.probe_claimed_at is None
     assert not _elapsed_now(row.cooldown_until)
-    assert await release_probe("rel_c", db=db_client) is False
+    assert await release_probe("rel_p", "t", db=db_client) is False  # idempotent
+
+    assert await release_probe("rel_c", "t", db=db_client) is False
     assert (await repo.get("rel_c")).cb_status == CbStatus.COOLING.value
-    assert await release_probe("rel_missing", db=db_client) is False
+    assert await release_probe("rel_missing", "t", db=db_client) is False
 
 
-@pytest.mark.asyncio
-async def test_release_probe_leaves_another_live_runs_claim_alone(db_client):
-    """A cancelled/lost turn must not return a claim that belongs to a
-    DIFFERENT, still-live probe turn of the same agent: with a heartbeat-
-    fresh running row present the call is a no-op and the row stays
-    PROBING; once that run is gone the claim is released."""
-    repo = AgentCircuitBreakerRepository(db_client)
-    aid = "rel_live"
-    await repo.upsert_state(aid, _paused_row(cb_status=CbStatus.PROBING.value, probe_token="live"))
-    await db_client.insert("events", {
-        "event_id": "evt_rel_live",
-        "agent_id": aid,
+async def _insert_running(db, event_id: str, agent_id: str, *, started_at, last_event_at) -> None:
+    await db.insert("events", {
+        "event_id": event_id,
+        "agent_id": agent_id,
         "user_id": "u",
         "trigger": "chat",
         "trigger_source": "websocket",
         "state": "running",
-        "started_at": utc_now() - timedelta(minutes=10),
-        "last_event_at": utc_now(),  # fresh heartbeat: the probe is running
+        "started_at": started_at,
+        "last_event_at": last_event_at,
     })
-    assert await release_probe(aid, db=db_client) is False
+
+
+@pytest.mark.asyncio
+async def test_a_long_run_that_predates_the_claim_cannot_weld_the_probe(db_client):
+    """#394 review I1: run A (hours long, binding rule #14) is live; run C
+    claims the probe and is cancelled. C's release carries its token, so A's
+    liveness is irrelevant — the row goes back to PAUSED instead of staying
+    PROBING for as long as A runs. And once the grant is stale, A still does
+    not block a re-claim: only a run that started after the claim can be
+    the claimant."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "weld"
+    await repo.upsert_state(aid, _paused_row())
+    await _insert_running(db_client, "evt_weld_a", aid,
+                          started_at=utc_now() - timedelta(hours=3),
+                          last_event_at=utc_now())
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
+    assert (await repo.get(aid)).probe_claimed_at is not None
+
+    assert await release_probe(aid, adm.probe_token, db=db_client) is True
+    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+
+    # A crashed claimant (no token to release with): the stale grant is
+    # re-claimable although A is still beating.
+    await repo.upsert_state(aid, {"cooldown_until": utc_now() - timedelta(seconds=1)})
+    lost = await try_begin_probe(aid, db=db_client)
+    assert lost.allowed
+    await repo.upsert_state(aid, {"cooldown_until": utc_now() - timedelta(seconds=1)})
+    again = await try_begin_probe(aid, db=db_client)
+    assert again.allowed and again.probe_token != lost.probe_token
+
+
+@pytest.mark.asyncio
+async def test_expired_grant_with_a_run_started_after_the_claim_is_not_reclaimed(db_client):
+    """The counterpart: a heartbeat-fresh run that started AFTER the claim
+    may be the long-running probe itself, so its stale grant is not
+    re-claimed (binding rule #14); once its heartbeat dies it is."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "claimant_live"
+    claimed = utc_now() - timedelta(minutes=30)
+    await repo.upsert_state(aid, _paused_row(
+        cb_status=CbStatus.PROBING.value, probe_token="c", probe_claimed_at=claimed,
+    ))
+    await _insert_running(db_client, "evt_claimant", aid,
+                          started_at=claimed + timedelta(seconds=1),
+                          last_event_at=utc_now())
+    assert await _claim(aid, db_client) == (False, "probing")
+    assert await cb.release_orphaned_probe(aid, db=db_client) is False
+    await db_client.update("events", {"event_id": "evt_claimant"},
+                           {"last_event_at": utc_now() - timedelta(hours=1)})
+    assert await cb.release_orphaned_probe(aid, db=db_client) is True
+    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+
+
+@pytest.mark.asyncio
+async def test_release_orphaned_probe_ignores_runs_that_predate_the_claim(db_client):
+    """The sweep's fallback releases a PROBING row whose claimant is gone
+    even while an older, unrelated run of the agent is alive."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "orphan"
+    await repo.upsert_state(aid, _paused_row(
+        cb_status=CbStatus.PROBING.value, probe_token="gone",
+        probe_claimed_at=utc_now() - timedelta(minutes=2),
+        cooldown_until=utc_now() + timedelta(minutes=3),
+    ))
+    await _insert_running(db_client, "evt_old", aid,
+                          started_at=utc_now() - timedelta(hours=2),
+                          last_event_at=utc_now())
+    assert await cb.release_orphaned_probe(aid, db=db_client) is True
+    row = await repo.get(aid)
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.probe_token is None
+
+
+@pytest.mark.asyncio
+async def test_a_turn_that_did_not_claim_cannot_settle_the_probe(db_client, monkeypatch):
+    """#394 review I1/I5: while another turn holds the probe, a success or a
+    failure from a turn WITHOUT the token (a run that predates the claim, an
+    entry that never claimed) must not decide it — the row stays PROBING
+    under its claimant, streak untouched. The claimant then settles it."""
+    alerts = []
+
+    async def fake_alert(**kw):
+        alerts.append(kw)
+    monkeypatch.setattr(cb, "alert_agent_paused", fake_alert)
+
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "not_mine"
+    await repo.upsert_state(aid, _paused_row())
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token
+
+    await record_success(aid, db=db_client)
+    await record_failure(aid, "auth_expired", "login expired", db=db_client)
+    await record_success(aid, db=db_client, probe_token="stale-token")
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.PROBING.value
-    assert row.probe_token == "live"
+    assert row.probe_token == adm.probe_token
+    assert row.consecutive_failure_count == AUTH_QUOTA_PAUSE_THRESHOLD
 
-    await db_client.update("events", {"event_id": "evt_rel_live"}, {"state": "failed"})
-    assert await release_probe(aid, db=db_client) is True
-    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+    await record_success(aid, db=db_client, probe_token=adm.probe_token)
+    assert (await repo.get(aid)).cb_status == CbStatus.ACTIVE.value
+    assert alerts == []
+
+
+@pytest.mark.asyncio
+async def test_a_probe_verdict_does_not_land_on_a_row_reset_meanwhile(db_client, monkeypatch):
+    """The probe's failure is written by the token CAS: if the owner reset
+    the row between the settlement's read and its write, the (now stale)
+    verdict must not re-pause a breaker the owner just cleared."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "reset_mid_probe"
+    await repo.upsert_state(aid, _paused_row())
+    adm = await try_begin_probe(aid, db=db_client)
+
+    real_get = AgentCircuitBreakerRepository.get
+
+    async def get_then_owner_resets(self, agent_id):
+        row = await real_get(self, agent_id)
+        await self.upsert_state(agent_id, dict(cb._CLEAN_STATE))
+        return row
+    monkeypatch.setattr(AgentCircuitBreakerRepository, "get", get_then_owner_resets)
+    await record_failure(aid, "auth_expired", "still dead", db=db_client,
+                         probe_token=adm.probe_token)
+    monkeypatch.setattr(AgentCircuitBreakerRepository, "get", real_get)
+
+    row = await repo.get(aid)
+    assert row.cb_status == CbStatus.ACTIVE.value
+    assert row.consecutive_failure_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("succeeded,error_type,expected_status,expected_count", [
+    (True, None, CbStatus.ACTIVE.value, 0),
+    (False, "auth_expired", CbStatus.PAUSED.value, AUTH_QUOTA_PAUSE_THRESHOLD + 1),
+    (False, "TimeoutError", CbStatus.PAUSED.value, AUTH_QUOTA_PAUSE_THRESHOLD),
+    (None, None, CbStatus.PAUSED.value, AUTH_QUOTA_PAUSE_THRESHOLD),
+])
+async def test_settle_probe_settles_through_the_shared_record_path(
+    db_client, succeeded, error_type, expected_status, expected_count
+):
+    """The trigger paths' settlement seam: success closes the breaker, an
+    auth failure re-pauses with streak +1 (so the delay doubles — the ladder
+    the bus lane never climbed before #394 C1), a non-auth failure and a
+    no-verdict both re-arm the same pause."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = f"settle_{succeeded}_{error_type}"
+    await repo.upsert_state(aid, _paused_row())
+    adm = await try_begin_probe(aid, db=db_client)
+    await cb.settle_probe(
+        aid, adm.probe_token, succeeded=succeeded,
+        error_type=error_type, error_message=error_type or "", db=db_client,
+    )
+    row = await repo.get(aid)
+    assert row.cb_status == expected_status
+    assert row.consecutive_failure_count == expected_count
+    assert row.probe_token is None
+
+
+@pytest.mark.asyncio
+async def test_settle_probe_without_a_claim_leaves_the_breaker_alone(db_client):
+    """The trigger paths record probe outcomes ONLY: an ordinary turn (no
+    token) never feeds a streak there, exactly as before #117."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    await cb.settle_probe("ordinary", None, succeeded=False,
+                          error_type="auth_expired", error_message="x", db=db_client)
+    assert await repo.get("ordinary") is None
+
+
+class _CountingDb:
+    """Delegates to a real client and counts breaker-table reads."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.breaker_reads = 0
+
+    async def get_one(self, table, filters, *a, **k):
+        if table == AgentCircuitBreakerRepository.table_name:
+            self.breaker_reads += 1
+        return await self._inner.get_one(table, filters, *a, **k)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_claim_reuses_the_gate_read(db_client):
+    """#394 review M1: an entry point's should_skip read is handed to
+    try_begin_probe (prior=), so an ordinary turn costs ONE breaker read."""
+    db = _CountingDb(db_client)
+    verdict = await should_skip("m1_active", db=db)
+    admission = await try_begin_probe("m1_active", db=db, prior=verdict)
+    assert admission.allowed and admission.probe_token is None
+    assert db.breaker_reads == 1
+
+
+@pytest.mark.asyncio
+async def test_exempt_failure_of_an_ordinary_turn_reads_nothing(db_client):
+    """#394 review M2: the self-serviceable / executor-infra exemptions are
+    decided before any read, so the common exempt failure costs no round
+    trip; only a probe holder reads, to settle."""
+    db = _CountingDb(db_client)
+    await record_failure(
+        "m2", "ContextWindowExceededError", "inputs 75307 > 32769", db=db,
+    )
+    assert db.breaker_reads == 0
 
 
 def test_half_open_delay_doubles_then_caps():

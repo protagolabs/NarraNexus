@@ -241,31 +241,14 @@ def _fresh_run_drive_kwargs(
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
     """Build the WS error frame shown when the Agent circuit-breaker skips a
     fresh run. ``cb_reason`` is the reason ``should_skip`` / ``try_begin_probe``
-    returned ("paused:auth" / "paused:quota" / "cooling" / "probing"). Pure —
-    unit-tested.
+    returned ("paused:auth" / "paused:quota" / "cooling" / "probing"); the
+    copy is ``circuit_breaker.describe_skip_reason``, shared with the
+    OpenAI-compatible endpoint. Pure — unit-tested."""
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        describe_skip_reason,
+    )
 
-    "probing" (GitHub #117 half-open) means another turn holds — or just won
-    — the single probe slot, so this request lost the race: not a hard
-    pause, so it falls through to the same "try again shortly" copy as
-    cooling rather than telling the user to go re-authenticate."""
-    reason = cb_reason or ""
-    if reason.startswith("paused:quota"):
-        msg = (
-            "This agent is paused after repeated quota/balance failures. "
-            "Top up or reassign the Agent slot's provider, then resume the "
-            "agent in Settings."
-        )
-    elif reason.startswith("paused"):
-        msg = (
-            "This agent is paused after repeated authentication failures. "
-            "Re-authenticate (codex/claude login) or assign a working API-key "
-            "provider to the Agent slot, then resume the agent in Settings."
-        )
-    else:  # cooling / probing
-        msg = (
-            "This agent recently failed and is briefly cooling down before it "
-            "will accept new messages. Please try again shortly."
-        )
+    msg = describe_skip_reason(cb_reason)
     return {
         "type": "error",
         "error_message": msg,
@@ -1029,18 +1012,19 @@ async def websocket_agent_run(websocket: WebSocket):
             should_skip,
             try_begin_probe,
         )
-        cb_skip, cb_reason = await should_skip(request.agent_id)
-        if cb_skip:
-            await websocket.send_json(_circuit_open_frame(cb_reason))
+        cb_gate = await should_skip(request.agent_id)
+        if cb_gate.skip:
+            await websocket.send_json(_circuit_open_frame(cb_gate.reason))
             await websocket.close()
             return
         # The half-open probe is claimed HERE — the last gate before the run
         # is recorded and created — never inside should_skip, so an entry
         # point that asks and then does not run a turn cannot burn the single
-        # probe grant. A lost race answers with the "probing" copy.
-        cb_allowed, cb_reason = await try_begin_probe(request.agent_id)
-        if not cb_allowed:
-            await websocket.send_json(_circuit_open_frame(cb_reason))
+        # probe grant. A lost race answers with the "probing" copy. The gate's
+        # own read is reused (prior=), so an ordinary turn costs one read.
+        cb_admission = await try_begin_probe(request.agent_id, prior=cb_gate)
+        if not cb_admission.allowed:
+            await websocket.send_json(_circuit_open_frame(cb_admission.reason))
             await websocket.close()
             return
 
@@ -1194,6 +1178,8 @@ async def websocket_agent_run(websocket: WebSocket):
                 active_runs=websocket.app.state.active_runs,
                 cancellation=cancellation,
                 steering=steer_channel,
+                # A won probe claim rides the run to its settlement.
+                probe_token=cb_admission.probe_token,
             )
 
             # Kick off the agent run task. It self-registers in
@@ -1305,6 +1291,21 @@ async def websocket_agent_run(websocket: WebSocket):
             pass
 
     finally:
+        # A half-open probe this handler won but never handed to a
+        # BackgroundRun (setup threw between the claim and the run) is handed
+        # back by its token — else every entry point is refused until the
+        # grant expires. Once `bg` exists the run owns the token and settles
+        # it itself; releasing then would re-pause under a live probe.
+        if (
+            "cb_admission" in locals()
+            and cb_admission.probe_token
+            and "bg" not in locals()
+        ):
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                release_probe,
+            )
+
+            await release_probe(request.agent_id, cb_admission.probe_token)
         # Dashboard v2 (TDR-2): remove session on every exit path. `_session_id`
         # may be unset if we exited before the registry add (auth failure, bad
         # payload) — guard against NameError.

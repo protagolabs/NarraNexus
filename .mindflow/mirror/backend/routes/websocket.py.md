@@ -4,14 +4,19 @@ last_verified: 2026-09-10
 stub: false
 ---
 
-## 2026-09-10 — fresh-run 路径两步熔断门：`should_skip`（纯读）+ `try_begin_probe`（认领）
+## 2026-09-10 — fresh-run 路径两步熔断门，赢得的探测随 run 走
 
-[[circuit_breaker]] 把半开探测的认领从 `should_skip` 里拆出来后，WS 在 `should_skip`
-放行之后、`_record_message_accepted` 之前再调 `try_begin_probe(agent_id)`；被拒
-（`(False, "probing")`，另一个 turn 正持有/刚抢到探测）就发同一种 `agent_circuit_open`
-帧（probing → cooling 文案）并关 socket，run 不记录、不创建。认领点放在这里是因为
-它是 WS 路径上"turn 一定会起"的最后一道门。`test_ws_claims_the_half_open_probe_before_recording_the_run`
-钉住"被拒即不记录"。
+[[circuit_breaker]] 的 `should_skip`（纯读，返回 `GateVerdict`）放行之后、
+`_record_message_accepted` 之前调 `try_begin_probe(agent_id, prior=cb_gate)`（复用同一次
+读，普通 turn 只读一次，PR #394 M1）；被拒（`reason="probing"` 等）就发同一种
+`agent_circuit_open` 帧并关 socket，run 不记录、不创建。赢得认领时
+`cb_admission.probe_token` 交给 `BackgroundRun(probe_token=...)`，由 run 在终态按 token
+结算（PR #394 I1）。认领之后、`bg` 建出来之前抛异常（会话登记、消息受理记录等）时，外层
+`finally` 按 token `release_probe` 归还；`bg` 已存在则不归还——run 持有 token，此时归还会在
+活探测下误重挂。`_circuit_open_frame` 的文案改由 `circuit_breaker.describe_skip_reason`
+提供（与 [[openai_compat]] 共用一份）。锁：
+`test_ws_claims_the_half_open_probe_before_recording_the_run`、
+`test_ws_hands_back_a_won_probe_when_setup_throws_before_the_run`。
 
 ## 2026-09-09 — `_circuit_open_frame` 补上 `should_skip` 的第四个原因 `probing`
 

@@ -34,14 +34,17 @@ def _make_run() -> BackgroundRun:
 def spy(monkeypatch):
     calls = {"failure": [], "success": [], "release": []}
 
-    async def fake_failure(agent_id, error_type, error_message, db=None):
+    async def fake_failure(agent_id, error_type, error_message, db=None, *, probe_token=None):
         calls["failure"].append((agent_id, error_type, error_message))
+        calls["token"] = probe_token
 
-    async def fake_success(agent_id, db=None):
+    async def fake_success(agent_id, db=None, *, probe_token=None):
         calls["success"].append(agent_id)
+        calls["token"] = probe_token
 
-    async def fake_release(agent_id, db=None):
+    async def fake_release(agent_id, probe_token, db=None):
         calls["release"].append(agent_id)
+        calls["token"] = probe_token
         return True
 
     import narranexus.platform.agent_framework.loop.circuit_breaker as cb
@@ -121,3 +124,58 @@ async def test_cancelled_run_releases_a_probe_without_touching_the_streak(spy):
     assert spy["failure"] == []
     assert spy["success"] == []
     assert spy["release"] == ["ag_1"]
+
+
+@pytest.mark.asyncio
+async def test_every_settlement_carries_the_runs_probe_token(spy):
+    """The claim's identity rides the run: record_failure / record_success /
+    release_probe all receive the token the entry point won (#394 I1)."""
+    for state, fatal in ((STATE_FAILED, False), (STATE_COMPLETED, False),
+                         (STATE_CANCELLED, False)):
+        run = BackgroundRun(agent_id="ag_1", user_id="u_1", input_preview="hi",
+                            db=None, active_runs={}, probe_token="tok-1")
+        run.state = state
+        run.recorder.had_fatal_error = fatal
+        spy["token"] = None
+        await run._record_circuit_breaker()
+        assert spy["token"] == "tok-1", state
+
+
+@pytest.mark.asyncio
+async def test_only_the_claiming_run_settles_the_probe(db_client, monkeypatch):
+    """Against the real breaker: an ordinary run completing while another
+    run holds the probe leaves the row PROBING; the claiming run's success
+    closes it."""
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb
+    from datetime import timedelta
+
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import CbStatus, PausedReason
+    from narranexus.platform.utils.timezone import utc_now
+
+    async def _db():
+        return db_client
+    monkeypatch.setattr(cb, "get_db_client", _db)
+    repo = AgentCircuitBreakerRepository(db_client)
+    await repo.upsert_state("ag_1", {
+        "cb_status": CbStatus.PAUSED.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": "auth",
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now() - timedelta(seconds=1),
+    })
+    adm = await cb.try_begin_probe("ag_1", db=db_client)
+    assert adm.probe_token
+
+    ordinary = _make_run()
+    ordinary.state = STATE_COMPLETED
+    await ordinary._record_circuit_breaker()
+    assert (await repo.get("ag_1")).cb_status == CbStatus.PROBING.value
+
+    probe = BackgroundRun(agent_id="ag_1", user_id="u_1", input_preview="hi",
+                          db=db_client, active_runs={}, probe_token=adm.probe_token)
+    probe.state = STATE_COMPLETED
+    await probe._record_circuit_breaker()
+    assert (await repo.get("ag_1")).cb_status == CbStatus.ACTIVE.value

@@ -72,12 +72,15 @@ def _trigger(bus, channel_type="group", channel_owner="owner"):
     t._bus = bus
     t._rate_counters = {}
     t.batches = []
+    t.probe_tokens = []
 
     async def _channel_info(channel_id):
         return (channel_type, channel_owner)
 
-    async def _batch(agent_id, channel_id, messages, trigger_msg, channel_owner=""):
+    async def _batch(agent_id, channel_id, messages, trigger_msg, channel_owner="",
+                     probe_token=None):
         t.batches.append((agent_id, channel_id, messages))
+        t.probe_tokens.append(probe_token)
 
     t._get_channel_info = _channel_info
     t._handle_channel_batch = _batch
@@ -88,9 +91,11 @@ def _probe_spy(monkeypatch, allowed=True):
     """Stub the claim and count how often the lane tried to take it."""
     calls = []
 
-    async def fake_probe(agent_id, db=None):
+    async def fake_probe(agent_id, db=None, *, prior=None):
         calls.append(agent_id)
-        return (True, None) if allowed else (False, "probing")
+        if allowed:
+            return cb.TurnAdmission(allowed=True, reason=None, probe_token="tok-lane")
+        return cb.TurnAdmission(allowed=False, reason="probing")
     monkeypatch.setattr(cb, "try_begin_probe", fake_probe)
     return calls
 
@@ -98,7 +103,7 @@ def _probe_spy(monkeypatch, allowed=True):
 @pytest.mark.asyncio
 async def test_paused_agent_skipped_without_touching_bus(monkeypatch):
     async def fake_skip(agent_id, db=None):
-        return (True, "paused:auth")
+        return cb.GateVerdict(skip=True, reason="paused:auth")
     monkeypatch.setattr(cb, "should_skip", fake_skip)
 
     bus = _SpyBus()
@@ -112,7 +117,7 @@ async def test_paused_agent_skipped_without_touching_bus(monkeypatch):
 @pytest.mark.asyncio
 async def test_healthy_agent_falls_through_to_bus(monkeypatch):
     async def fake_skip(agent_id, db=None):
-        return (False, None)
+        return cb.GateVerdict(skip=False, reason=None)
     monkeypatch.setattr(cb, "should_skip", fake_skip)
 
     bus = _SpyBus()
@@ -129,7 +134,8 @@ async def test_mention_filtered_batch_does_not_claim_the_probe(monkeypatch):
     """Group room, the agent is not @mentioned: the batch is acked without a
     turn — and the probe grant must NOT have been taken on the way."""
     async def fake_skip(agent_id, db=None):
-        return (False, None)  # PAUSED but window open: the read gate passes
+        # PAUSED but window open: the read gate passes
+        return cb.GateVerdict(skip=False, reason=None)
     monkeypatch.setattr(cb, "should_skip", fake_skip)
     probe_calls = _probe_spy(monkeypatch)
 
@@ -147,7 +153,7 @@ async def test_refused_probe_leaves_relevant_batch_queued(monkeypatch):
     """A relevant batch whose claim loses the race is NOT run and NOT acked —
     it stays queued for the next poll, exactly like a should_skip skip."""
     async def fake_skip(agent_id, db=None):
-        return (False, None)
+        return cb.GateVerdict(skip=False, reason=None)
     monkeypatch.setattr(cb, "should_skip", fake_skip)
     probe_calls = _probe_spy(monkeypatch, allowed=False)
 
@@ -165,7 +171,7 @@ async def test_granted_probe_runs_the_relevant_batch(monkeypatch):
     """The allowed case: the claim is taken exactly once, right before the
     batch runs."""
     async def fake_skip(agent_id, db=None):
-        return (False, None)
+        return cb.GateVerdict(skip=False, reason=None)
     monkeypatch.setattr(cb, "should_skip", fake_skip)
     probe_calls = _probe_spy(monkeypatch, allowed=True)
 
@@ -175,6 +181,8 @@ async def test_granted_probe_runs_the_relevant_batch(monkeypatch):
 
     assert probe_calls == ["ag_paused"]
     assert len(t.batches) == 1
+    # The won claim rides the turn so the runtime client can settle it.
+    assert t.probe_tokens == ["tok-lane"]
 
 
 @pytest.mark.asyncio
@@ -183,7 +191,7 @@ async def test_held_multipart_batch_does_not_claim_the_probe(monkeypatch):
     turn) — and the hold branch sits BEFORE the claim, so the poller does
     not burn the probe on a fragment it will not run."""
     async def fake_skip(agent_id, db=None):
-        return (False, None)
+        return cb.GateVerdict(skip=False, reason=None)
     monkeypatch.setattr(cb, "should_skip", fake_skip)
     probe_calls = _probe_spy(monkeypatch)
 
@@ -194,3 +202,69 @@ async def test_held_multipart_batch_does_not_claim_the_probe(monkeypatch):
     assert bus.acks == []  # held, not acked
     assert probe_calls == []  # grant untouched
     assert t.batches == []
+
+
+@pytest.mark.asyncio
+async def test_a_claim_the_turn_never_settled_is_handed_back(monkeypatch, db_client):
+    """#394 review C1: if the batch dies before the runtime client could
+    settle the probe (here: it throws while building the turn), the lane
+    hands the claim back by its token — the row returns to PAUSED instead of
+    sitting PROBING, refusing every entry point, until the grant expires."""
+    from datetime import timedelta
+
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import CbStatus, PausedReason
+    from narranexus.platform.utils.timezone import utc_now
+
+    async def _db():
+        return db_client
+    monkeypatch.setattr(cb, "get_db_client", _db)
+    repo = AgentCircuitBreakerRepository(db_client)
+    await repo.upsert_state("ag_lane", {
+        "cb_status": CbStatus.PAUSED.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": "auth",
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now() - timedelta(seconds=1),
+    })
+
+    bus = _SpyBus([_msg(mentions=["ag_lane"])])
+    t = _trigger(bus)
+    seen = []
+
+    async def _boom(agent_id, channel_id, messages, trigger_msg, channel_owner="",
+                    probe_token=None):
+        seen.append((await repo.get(agent_id)).cb_status)
+        raise RuntimeError("prompt build failed")
+    t._handle_channel_batch = _boom
+
+    assert await t._process_lane("ag_lane", "ch_room") is False
+    assert seen == [CbStatus.PROBING.value]  # the lane really held the probe
+    row = await repo.get("ag_lane")
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.probe_token is None
+    assert row.consecutive_failure_count == 3
+
+
+@pytest.mark.asyncio
+async def test_invoke_runtime_hands_the_token_to_the_client(monkeypatch):
+    """The lane/patrol claim reaches run_and_collect, the settlement seam."""
+    from narranexus.platform.agent_runtime import client as client_mod
+    from narranexus.platform.agent_runtime.run_collector import RunCollection
+
+    got = {}
+
+    class _Client:
+        async def run_and_collect(self, **kw):
+            got.update(kw)
+            return RunCollection(output_text="hi")
+    monkeypatch.setattr(client_mod, "get_agent_runtime_client", lambda: _Client())
+
+    t = _trigger(_SpyBus())
+    await t._invoke_runtime(
+        agent_id="ag", sender_agent_id="peer", prompt="p", channel_id="ch",
+        probe_token="tok-invoke",
+    )
+    assert got["probe_token"] == "tok-invoke"

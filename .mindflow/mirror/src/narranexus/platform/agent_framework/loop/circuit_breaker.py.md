@@ -16,71 +16,117 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
+## 2026-09-10（PR #394 review 第三轮）— 探测身份随 turn 走；只有能结算的入口才认领
+
+上一轮把认领下移到了 turn 起点，但 #394 预审指出两个根问题，本轮定案如下（上一轮条目中与
+此冲突的说法已一并改写，以本条为准）。
+
+**1. 认领有身份：`probe_token` 交给赢得认领的 turn，结算一律按 token CAS（I1）。**
+`try_begin_probe(agent_id, db=None, *, prior=None) -> TurnAdmission(allowed, reason,
+probe_token)`；赢了才有 `probe_token`，turn 必须把它带到结算。`record_success` /
+`record_failure` 新增关键字参数 `probe_token`：行是 PROBING 且 token 匹配 → 按探测语义结算，
+写入走仓储的 `settle_probe(agent_id, token, updates)`（过滤
+`cb_status=probing AND probe_token=token`，MySQL CHANGED 行计数下也可靠，因为 token 列必变）；
+行是 PROBING 但 token 不匹配（认领之前就在跑的长 run、从未认领的入口）→ **完全不动**，留给
+认领者结算；其余状态照常记普通 streak。于是「一个从没认领的 turn 替探测下结论」（旧的
+`record_success` 只看 `cb_status==PROBING` 就清 ACTIVE、`record_failure` 的 `was_probing`
+分支把别人的失败当探测结论）不再可能。`release_probe(agent_id, probe_token, db=None)` 同样
+按 token CAS，不匹配即 no-op、可幂等——所以每个被放行的 turn 可以在结束处无条件调用。
+
+旧的「该 agent 有没有存活 run」代理判定（`_agent_has_live_run`）已删除：它会把行焊死在
+PROBING（长 run A 在跑、探测 C 被取消 → release 因 A 存活而 no-op → grant 过期后又因 A 存活
+拒绝重认领）。崩溃窗口（认领者死了、token 随进程消失）的兜底改为 `_claimant_may_be_live`：
+只有 **在认领之后才开始**（`started_at >= probe_claimed_at - 5s` 时钟容差）且心跳新鲜的
+running 行才可能是认领者。新增列 `probe_claimed_at`（与 `probe_token` 同写同清，见
+[[schema_registry]]）；老行没有该列值时退回「任一存活 run」这个保守答案。它被两处使用：
+`try_begin_probe` 的过期 grant 重认领、`release_orphaned_probe`（[[run_recorder]]
+`sweep_stale_runs` 翻掉丢失 run 后调用）。
+
+**2. 每个认领入口都有结算；不能结算的入口不认领（C1）。** bus lane / patrol 不经
+`BackgroundRun`，上一轮只认领不结算：死凭据每个 grant 周期（5min）重跑一个真 turn、
+streak 不涨、延迟永不翻倍；修好的凭据也回不到 ACTIVE。现在：
+- 共享结算接缝 `settle_probe(agent_id, probe_token, *, succeeded, error_type,
+  error_message)`：`True`→`record_success`，`False`→`record_failure`，`None`→
+  `release_probe`，全部带同一个 token——与 WS 路径同一组函数。只在 token 仍是活认领时生效，
+  无 token 直接返回：这些入口**只记探测结论，不记普通 streak**（与 #117 之前一致）。
+- [[client]] `InProcessAgentRuntimeClient.run_and_collect(probe_token=...)` 在 events 行
+  终态之后调用它：`RunCollection.is_fatal` → 失败，错误类型/文案取 runtime 自己的 error
+  帧（`classify_agent_error` 认得的词表；bus 的 `str(e)` 会被分成 transient、原样重挂延迟，
+  等于换条路回到同一个循环）；抛异常 → 失败（异常类型名）；`CancelledByUser` → 归还。
+- [[message_bus_trigger]] lane 与 patrol 把 token 一路传到 `run_and_collect`，并在各自出口
+  无条件 `release_probe`（lane 用 `try/finally`，patrol 挂在 `AsyncExitStack`）兜住「turn
+  还没到结算就抛了/被取消」；已结算时 CAS 不匹配，no-op。
+- [[module_poller]] Path A 的 `_execute_callback_instance` 吞掉所有失败、没有结果信号，
+  **改为只用 `peek_skip`**：PAUSED（含半开窗口已开）/PROBING 一律不跑、不认领。
+- [[openai_compat]] 是第五个起真 turn 的入口，原来零闸门却由 `BackgroundRun` 记账（I5）：
+  补上同样两步，放在 run-job / managed deny / 群聊静默入库这些「不起 turn」分支之后，
+  拒绝时回 OpenAI 形状的 503（`type=agent_circuit_open`、`code=<reason>`），赢得的 token
+  交给 `BackgroundRun(probe_token=...)`。
+- [[websocket.py]] 同样把 token 交给 `BackgroundRun`；认领后、`bg` 建出来之前抛异常时，外层
+  `finally` 按 token 归还（`bg` 已存在则由 run 自己结算，此时归还会在活探测下误重挂）。
+
+**入口契约（新入口照此办理）**：`verdict = should_skip(...)` → 所有「不起 turn」分支 →
+`admission = try_begin_probe(..., prior=verdict)` → 把 `admission.probe_token` 交给 turn 的
+结算（`BackgroundRun` 或 `run_and_collect`），出口兜底 `release_probe(token)`。给不出结果
+信号的入口只能用 `peek_skip`，不许认领。扫描口径：`git grep -n "should_skip\|try_begin_probe\|
+peek_skip\|BackgroundRun(\|run_and_collect("`（按「起 turn 的构造点」扫，而不是按已有闸门扫）。
+
+**3. 其余。** `should_skip` 返回 `GateVerdict(skip, reason, row, row_known)`，入口把它作为
+`prior=` 交给 `try_begin_probe`，普通 turn 只读一次（M1；bus lane 的读与认领之间隔着锁和
+信号量，重用旧读是安全的：认领是 token CAS，旧 PAUSED 读只会输；旧 ACTIVE 读放行与 #117
+之前 bus 只有顶部一次读的行为相同；patrol 的派发读已隔一个周期，认领时重读）。
+`record_failure` 的两条豁免（自助类 / executor-infra）现在在任何读之前判定，普通 turn 的
+豁免失败零 DB 往返，只有持 token 者才读并归还（M2）。`reset_for_owner(provider_id=...)` 的
+绑定判定改用 providers 层唯一的覆盖规则 `model_identity.resolve_agent_config_slot`（I3，
+provider 规则：`agent_slots` 行有非空 `provider_id` 即胜出，**不是** identity 规则
+`slot_rebinds`），本模块不再直读 slot 表。活性规则从 `utils.run_liveness` 模块级导入（I4），
+与 `sweep_stale_runs` 用同一个 `run_is_live` 对象。拒绝文案抽成
+`describe_skip_reason(reason)`，WS 帧与 openai_compat 共用。
+
+锁住这些的测试：`test_agent_circuit_breaker.py`（`test_release_probe_settles_only_its_own_claim`、
+`test_a_long_run_that_predates_the_claim_cannot_weld_the_probe`、
+`test_a_turn_that_did_not_claim_cannot_settle_the_probe`、
+`test_a_probe_verdict_does_not_land_on_a_row_reset_meanwhile`、
+`test_settle_probe_*`、`test_claim_reuses_the_gate_read`、
+`test_exempt_failure_of_an_ordinary_turn_reads_nothing`）、真 MySQL twin 的
+`test_settlement_cas_wins_only_with_the_live_token` /
+`test_claimant_liveness_compares_mysql_datetimes`、
+`tests/agent_runtime/test_client_probe_settlement.py`（死凭据探测 streak+1 且下次延迟翻倍）。
+
 ## 2026-09-10 — 半开机制第二轮：读判断与认领分离、probe_token CAS、探测按探测语义结算
 
-两轮预审（GitHub #117 修复分支）把上一版半开机制打回，三个根问题及本轮的定案：
+两轮预审（GitHub #117 修复分支）把上一版半开机制打回，三个根问题及该轮的定案（认领身份、
+结算入口与活性兜底已被上面的第三轮条目取代）：
 
 **1. `should_skip` 恢复纯读，认领单独放在 `try_begin_probe`。** 上一版在
 `should_skip` 里做 CAS 认领，而 bus 的 `_process_lane` 在 `should_skip` 之后还有
 IM 前缀 ack、@mention 过滤 ack、限流 ack 三条"不跑 turn 就返回"的路径——群聊房间里
-@mention 过滤是常态路径，3 秒一轮的 poller 几乎必然先抢到探测名额再白白扔掉，行卡在
-PROBING 整个 grant 期，真人用户拿到的是误导性的 "cooling down" 帧。现在
-`should_skip` 只读不写（PAUSED 且半开延迟已到 / PROBING 且 grant 已过期 → 返回
-`(False, None)` 表示"窗口可能开着，继续往认领点走"），四个入口
-（[[websocket.py]] fresh-run、[[message_bus_trigger]] 的 `_process_lane` 与
-`_patrol_body`、[[module_poller]] Path A）各自在**真正要起 turn 的那一点**再调
-`try_begin_probe(agent_id) -> (allowed, reason)`；被拒（`(False, "probing")`）与
-skip 同义——bus 不 ack、WS 发 probing 帧、poller 不建 runtime。任何未来新入口都要走
-这个两步契约。PR #389 的只读 `peek_skip`（回执预检用）与之并存，见其条目。
+@mention 过滤是常态路径，3 秒一轮的 poller 几乎必然先抢到探测名额再白白扔掉。现在
+`should_skip` 只读不写，认领只在真正要起 turn 的那一点做；被拒与 skip 同义——bus 不 ack、
+WS 发 probing 帧。PR #389 的只读 `peek_skip`（回执预检用）与之并存，见其条目。
 
 **2. CAS 键是新增列 `probe_token`，不是 `cb_status`。** 等值过滤
 `cb_status=from_status` 只在写入值≠读到值时才是 CAS；stale-PROBING 自愈是
-probing→probing，过滤条件对所有后来者恒真——上一版 mirror 里"CAS 本身保证只有一个
-turn 通过"是**错误声明，本轮撤回**（真 MySQL 与 SQLite 实测 N 个并发全放行）。
-`try_claim_probe(agent_id, from_status, expected_probe_token, grant_until)` 现在按
+probing→probing，过滤条件对所有后来者恒真（真 MySQL 与 SQLite 实测 N 个并发全放行）。
+`try_claim_probe(agent_id, from_status, expected_probe_token, grant_until)` 按
 `probe_token`（读到的值，首次认领为 NULL → `IS NULL`）做等值过滤、写入新随机值；行写回
-PAUSED/COOLING/ACTIVE 时一律置 NULL。列走 `schema_registry` additive 注册（双方言、
-nullable、无回填）。并发证明用 `asyncio.gather`（顺序调用证明不了任何东西）：
+PAUSED/COOLING/ACTIVE 时一律置 NULL。并发证明用 `asyncio.gather`：
 `test_concurrent_claims_on_open_window_let_exactly_one_through`、
 `test_concurrent_reclaims_of_stale_probing_let_exactly_one_through`，并配真 MySQL twin
-`test_agent_circuit_breaker_probe_mysql.py`（aiomysql rowcount=CHANGED 行、`IS NULL`
-首次认领两处方言敏感点）。把过滤里的 `probe_token` 拿掉，这四条在两种方言上都变红。
+`test_agent_circuit_breaker_probe_mysql.py`。
 
-**3. 探测结果按探测语义结算（`record_failure` 看到行是 PROBING）。**
-auth/quota 失败 → 沿用原 streak（+1、保留原 `paused_reason`/`failure_category`，即使这
-次分类成另一个 pausing 类别）、重新 PAUSED、半开延迟翻倍、**不再重复告警 owner**（同一场
-故障的延续，不是新事件）。transient/business 失败 → 什么也没证明：保持 PAUSED、streak/
-类别/reason 全部不变、同样长度的延迟重新起算（`_rearm_pause_without_verdict`）——上一版
-会走类别切换重置逻辑把 PAUSED 降级成 60s COOLING 循环，正是熔断器要消灭的重触发风暴；
-且**故意不 +1**（铁律 #15：网络抖动不能把 owner 推向 6h 上限）。顶部两个豁免（自助类、
-executor-infra）保留"不动 streak"，但 PROBING 行同样要结算回 PAUSED，否则挂到 grant 过期。
+**3. 探测结果按探测语义结算。** auth/quota 失败 → 沿用原 streak（+1、保留原
+`paused_reason`/`failure_category`）、重新 PAUSED、半开延迟翻倍、不再重复告警 owner。
+transient/business 失败 → 什么也没证明：保持 PAUSED、streak/类别/reason 全部不变、同样
+长度的延迟重新起算（`_rearm_pause_without_verdict`），故意不 +1（铁律 #15）。两个豁免
+（自助类、executor-infra）保留"不动 streak"，但持有中的探测同样要结算回 PAUSED。
 
-**grant 不是 turn 时长上限（铁律 #14）。** `PROBE_GRANT_SECONDS`(5min) 只界定"认领
-到 run 行存在"这段窗口；stale-PROBING 重认领额外要求 `_agent_has_live_run` 为假（events
-里没有心跳新鲜的 running 行——与 `run_recorder.sweep_stale_runs` 同一条活性规则，同一个
-`utils.run_liveness.run_is_live` 对象，PR #394 I4 起模块级导入，不再 lazy import
-`run_recorder`）。跑
-几小时的探测 turn 不会被第二个探测叠上。探测永远不结算的三个口子由 `release_probe`
-兜住：用户取消（[[background_run]] CANCELLED 分支）、进程死亡（[[run_recorder]]
-`sweep_stale_runs` 翻 run 时顺带释放）、上述豁免。`release_probe` **只在该 agent 没有存活
-run 时才归还**（同一条 `_agent_has_live_run` 活性规则；两个调用方都先把自己的 events 行
-finalize/翻掉再调）——否则一个被取消的普通 turn 会把另一个仍在跑的探测 turn 的名额还回去，
-放第二个探测进来。`test_release_probe_leaves_another_live_runs_claim_alone` 钉住。
+**grant 不是 turn 时长上限（铁律 #14）。** `PROBE_GRANT_SECONDS`(5min) 只界定崩溃窗口；
+过期 grant 的重认领还要求认领者不再存活（第三轮起为 `_claimant_may_be_live`）。
 
-**`reset_for_owner` 的 provider 维度**：`reset_for_owner(user_id, provider_id=None)`。
-带 `provider_id` 时只清有效 `agent` slot 绑在该 provider 上的 agent（`agent_slots` 覆盖
-优先，否则 `user_slots` 默认；2026-09-10 PR #394 I3 起经 providers 层唯一的覆盖规则
-`model_identity.resolve_agent_config_slot` 判定——provider 规则，不是 identity 规则
-`slot_rebinds`——本模块不再直读 slot 表）；`POST /{provider_id}/test`
-成功走这条。四个重配置调用点不传 = 全量，语义是"用户变得可运行了"（slot 可能刚被改到
-这个 provider 上），故意不收窄。
-
-**其他**：CAS 写失败按"没抢到"处理（`(False, "probing")`，fail-closed，日志文案与读失败的
-fail-open 区分）；`cooldown_until` 为 NULL 视为已到期（fail-safe 向探测倾斜，避免永远
-探不到的行）；认领成功 / 探测成功 / 探测失败各打一条 `[agent-cb]` 日志；
-`_compute_half_open_delay_seconds` 先夹指数再取幂；`_CLEAN_STATE` 含 `probe_token=None`。
-`cooldown_until` 仍承载三种语义（COOLING 到期 / PAUSED 半开延迟 / PROBING grant 到期），
-`probe_token` 只承担 CAS 键，不再往这列上叠第四种含义。
+**其他**：CAS 写失败按"没抢到"处理（fail-closed，日志文案与读失败的 fail-open 区分）；
+`cooldown_until` 为 NULL 视为已到期；`_compute_half_open_delay_seconds` 先夹指数再取幂。
+`cooldown_until` 仍承载三种语义（COOLING 到期 / PAUSED 半开延迟 / PROBING grant 到期）。
 
 ## 2026-09-09 — 半开（half-open）：PAUSED 不再是死胡同（GitHub #117）
 
@@ -160,7 +206,7 @@ COOLING 未到期 → held、已到期 → 不 held（下一真 turn 会放行�
 与 2026-09-10 条的关系（两分支合并后的口径）：`should_skip` 现在也是纯读，探针只由
 `try_begin_probe` 在 turn 起点消耗；`peek_skip` 与 `should_skip` 的唯一差别是对"半开延迟
 已过的 PAUSED 行"的读法——前者读作 held（预检不会起 turn），后者返回 `(False, None)` 让
-调用方去 `try_begin_probe`。锁：`test_agent_circuit_breaker.py::test_peek_skip_*`、
+调用方去 `try_begin_probe`（现为 `GateVerdict(skip=False)`）。锁：`test_agent_circuit_breaker.py::test_peek_skip_*`、
 `test_delivery_receipts.py::test_pre_flight_never_calls_the_turn_gate`（monkeypatch
 `should_skip` 为必炸）。
 
@@ -189,20 +235,24 @@ COOLING 未到期 → held、已到期 → 不 held（下一真 turn 会放行�
 owner 修不了）→ **只报平台方**（内部审计 + loud log），**绝不发 owner**。每段连击一次
 （成功即清零）。
 
-`record_success` 清零；`should_skip` 是**纯读、fail-open** 的预过滤闸门（读错→放行）：
-PAUSED 且半开延迟未到→skip，已到→`(False, None)` 让调用方走向认领；PROBING 且 grant 未过
-→skip("probing")，已过→同样放行去认领；COOLING 且 `cooldown_until>now`→skip，到期→惰性
-放行。`try_begin_probe` 是唯一写 PROBING 的地方（`probe_token` CAS），只在 turn 真正要
-起的那一点调用。`reset_agent`（手动）/`reset_for_owner`（换 key 自动恢复，清
-PAUSED/PROBING + auth/quota 的 cooling 连击，不动 transient 冷却）。`release_probe` 供
-取消/丢失的探测 turn 归还名额。
+`record_success` 清零（PROBING 时只有持 token 的认领者能清）；`should_skip` 是**纯读、
+fail-open** 的预过滤闸门，返回 `GateVerdict`（读错→放行）：PAUSED 且半开延迟未到→skip，
+已到→不 skip 让调用方走向认领；PROBING 且 grant 未过→skip("probing")，已过→同样放行去
+认领；COOLING 且 `cooldown_until>now`→skip，到期→惰性放行。`try_begin_probe` 是唯一写
+PROBING 的地方（`probe_token` CAS），只在 turn 真正要起的那一点调用，返回 `TurnAdmission`。
+`reset_agent`（手动）/`reset_for_owner`（换 key 自动恢复，清 PAUSED/PROBING + auth/quota
+的 cooling 连击，不动 transient 冷却）。`release_probe(token)` 供取消/没到结算的探测 turn
+归还名额，`release_orphaned_probe` 供丢失 run 的清扫兜底，`settle_probe` 是不经
+`BackgroundRun` 的触发路径的结算接缝。
 
 ## 上下游关系
 
-被 `agent_runtime/background_run._record_circuit_breaker`（记账 + 取消时 `release_probe`）、
-`agent_runtime/run_recorder.sweep_stale_runs`（丢失 run 时 `release_probe`）、
-`backend/routes/websocket.py` + `message_bus/message_bus_trigger.py` +
-`services/module_poller.py`（`should_skip` 读闸门 + `try_begin_probe` 认领）、
+被 `agent_runtime/background_run._record_circuit_breaker`（带 token 记账 + 取消时
+`release_probe`）、`agent_runtime/client.run_and_collect`（`settle_probe`）、
+`agent_runtime/run_recorder.sweep_stale_runs`（丢失 run 时 `release_orphaned_probe`）、
+`backend/routes/websocket.py` + `backend/routes/openai_compat.py` +
+`message_bus/message_bus_trigger.py`（`should_skip` 读闸门 + `try_begin_probe` 认领）、
+`services/module_poller.py`（只用 `peek_skip`）、
 `backend/routes/providers.py`（reset_for_owner 自动恢复）、`backend/routes/agents/circuit_breaker.py`
 （reset_agent 手动）调用。分类复用 `llm.failure.is_credential_error` +
 `response_processor._is_auth_failure`；告警复用 `services/background_llm_alerts`。
@@ -215,5 +265,5 @@ PAUSED/PROBING + auth/quota 的 cooling 连击，不动 transient 冷却）。`r
   transient。
 - 铁律 #14/#15：只对**已结束且失败**的 turn 记账，闸门只挡**新 turn 的调度**，绝不 kill
   在飞 loop、不设 loop 长度上限。
-- 全部写操作在调用方（background_run）以 best-effort 包裹：熔断器是观察者，绝不能弄坏被
+- 全部写操作在调用方（background_run / runtime client）以 best-effort 包裹：熔断器是观察者，绝不能弄坏被
   观察的 turn 收尾。

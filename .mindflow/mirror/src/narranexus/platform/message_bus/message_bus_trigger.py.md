@@ -4,6 +4,36 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 review C1/M1）— lane 与 patrol 认领的探测现在有人结算
+
+上一版两处认领点只认领不结算（bus 路径不经 `BackgroundRun`）：死凭据每 5 分钟重跑一个真
+turn 且延迟永不翻倍，修好的凭据回不到 ACTIVE。现在 `try_begin_probe` 返回的
+`probe_token` 经 `_handle_channel_batch(probe_token=)` / `_patrol_body` → `_invoke_runtime(
+probe_token=)` → `run_and_collect(probe_token=)`，由 [[client]] 在 events 行终态后按 run 结果
+结算（fatal → 带 runtime 原始 error_type 的失败；成功 → 关闭熔断；用户停止 → 归还）。两处出口
+都兜一次 `release_probe(agent_id, token)`：lane 用 `try/finally`，patrol 用
+`stack.push_async_callback`——turn 没走到结算就抛了/被取消时把名额还回去，已结算则 CAS 不匹配
+no-op。普通 turn（无 token）仍不喂熔断器，与 #117 之前一致。lane 顶部 `should_skip` 的
+`GateVerdict` 作为 `prior=` 交给认领，普通 turn 只读一次；patrol 的派发读隔了一个周期，认领时
+重读。锁：`test_bus_circuit_breaker_gate.py::test_a_claim_the_turn_never_settled_is_handed_back`
+（真熔断器）、`test_invoke_runtime_hands_the_token_to_the_client`、
+`test_granted_probe_runs_the_relevant_batch`（token 随 batch 走）；结算本身见
+`tests/agent_runtime/test_client_probe_settlement.py`。
+
+## 2026-09-10 — 半开探测认领下移到真正起 turn 的那一点
+
+[[circuit_breaker]] 的 `should_skip` 现在是纯读；探测名额由 `try_begin_probe` 认领。
+上一版把认领放在 `should_skip` 里时，`_process_lane` 后面的 IM 前缀 ack、@mention 过滤
+ack、限流 ack 三条"不跑 turn 就返回"的路径会把 3 秒一轮的 poller 变成探测名额的头号
+浪费者（群聊房间里 @mention 过滤是常态路径）。现在两处认领点：`_process_lane` 在
+`_assemble_lane_batch` 的 multipart hold 分支与限流检查之后、`_handle_channel_batch`
+之前（一条还在分段到达的长消息 hold 住 lane 时同样不消耗探针）；`_patrol_body` 在 speech cap 之后、拼 prompt 之前
+（sweep 的 `should_skip` 仍在 `_dispatch_patrols`）。被拒与 skip 同义：消息不 ack、留队；
+patrol 走 `finally` 的 `mark_patrolled`，不会变成热候选。
+`test_mention_filtered_batch_does_not_claim_the_probe` / `test_held_multipart_batch_does_not_claim_the_probe`
+/ `test_refused_probe_leaves_relevant_batch_queued` 钉住"过滤/hold 路径不认领、被拒不 ack"；
+这些测试用真 `BusMessage`（lane 会读 part_* 字段做 multipart 组装，薄替身会在那一步炸掉）。
+
 ## 2026-09-10（PR #389 M3/M6）— drop 通知与 arm 包进 try；三段 assemble 抽成 `_assemble_lane_batch`
 
 `_wake_sender_on_drop` 的 `announce_processing_failure` + `arm` 原本在 `except` 处理块里裸 await，
@@ -142,19 +172,6 @@ channel：对 B 沉默与对 C 沉默是两件事，通知正文本来就点名 
 重发；多容器各自为政。窗口读失败 **fail-open 照样通知**（重复比漏发便宜），
 `arm` 仍只在收件箱写成功之后。锁：`test_failure_notification.py` 新增
 per-channel 与「换一个 trigger 实例仍被压制」两条。
-## 2026-09-10 — 半开探测认领下移到真正起 turn 的那一点
-
-[[circuit_breaker]] 的 `should_skip` 现在是纯读；探测名额由 `try_begin_probe` 认领。
-上一版把认领放在 `should_skip` 里时，`_process_lane` 后面的 IM 前缀 ack、@mention 过滤
-ack、限流 ack 三条"不跑 turn 就返回"的路径会把 3 秒一轮的 poller 变成探测名额的头号
-浪费者（群聊房间里 @mention 过滤是常态路径）。现在两处认领点：`_process_lane` 在
-`_assemble_lane_batch` 的 multipart hold 分支与限流检查之后、`_handle_channel_batch`
-之前（一条还在分段到达的长消息 hold 住 lane 时同样不消耗探针）；`_patrol_body` 在 speech cap 之后、拼 prompt 之前
-（sweep 的 `should_skip` 仍在 `_dispatch_patrols`）。被拒与 skip 同义：消息不 ack、留队；
-patrol 走 `finally` 的 `mark_patrolled`，不会变成热候选。
-`test_mention_filtered_batch_does_not_claim_the_probe` / `test_held_multipart_batch_does_not_claim_the_probe`
-/ `test_refused_probe_leaves_relevant_batch_queued` 钉住"过滤/hold 路径不认领、被拒不 ack"；
-这些测试用真 `BusMessage`（lane 会读 part_* 字段做 multipart 组装，薄替身会在那一步炸掉）。
 
 ## 2026-09-07 — 两处消费方跟着注册表视图走
 

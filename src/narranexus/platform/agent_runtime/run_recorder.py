@@ -72,7 +72,9 @@ from narranexus.platform.utils.run_liveness import (
 # A plain downward import: the breaker no longer imports this module (the
 # liveness rule both share lives in utils.run_liveness), so there is no cycle
 # to hide behind a function-local import any more.
-from narranexus.platform.agent_framework.loop.circuit_breaker import release_probe
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    release_orphaned_probe,
+)
 
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
@@ -194,14 +196,15 @@ async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
                 f"[run-sweep] failed to mark stale run {row.get('event_id')!r}: {e}"
             )
             continue
-        # A lost run never reaches BackgroundRun._finalize, so its
-        # circuit-breaker settlement never happens either. If it was the
-        # agent's half-open probe, release the claim now (best-effort, no
-        # verdict on the credential) — otherwise the row stays PROBING and
-        # `try_begin_probe` keeps refusing every entry point while the
-        # (now dead) run's row still read as live.
+        # A lost run never reaches its settlement (BackgroundRun._finalize or
+        # the runtime client's), so its probe token died with it. If the
+        # agent is PROBING and no run that started after the claim is still
+        # alive, the dead run was the claimant: release it now (best-effort,
+        # no verdict on the credential) instead of leaving every entry point
+        # refused until the grant expires. A live run that predates the claim
+        # does not keep the row PROBING (circuit_breaker._claimant_may_be_live).
         if row.get("agent_id"):
-            await release_probe(row["agent_id"], db=db)
+            await release_orphaned_probe(row["agent_id"], db=db)
     if flipped:
         logger.info(f"[run-sweep] flipped {flipped} stale 'running' rows to 'failed'")
     return flipped

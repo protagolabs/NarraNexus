@@ -15,6 +15,16 @@ stub: false
 被 `agent_circuit_breaker` 服务和 `backend/routes/agents/circuit_breaker.py`（GET 状态）
 调用。继承 `BaseRepository[AgentCircuitBreaker]`，`id_field="agent_id"`。
 
+## 2026-09-10（PR #394 review I1）— `settle_probe`：结算一侧的 token CAS；认领写 `probe_claimed_at`
+
+`settle_probe(agent_id, probe_token, updates) -> bool`：`UPDATE ... WHERE agent_id=? AND
+cb_status='probing' AND probe_token=?`，只有持该 token 的 turn 能写，已结算 / 被 owner 重置 /
+被别人重认领的认领都写不进。`updates` 必须离开 PROBING 并清空 token（服务层所有调用都如此），
+这也保证 MySQL 的 CHANGED 行计数在赢时必 > 0。`try_claim_probe` 在认领时同时写
+`probe_claimed_at`（与 `updated_at` 同一时刻），供服务层的崩溃窗口兜底判断「认领之后才开始
+的 run」。两方言 twin：`test_settlement_cas_wins_only_with_the_live_token`、
+`test_claimant_liveness_compares_mysql_datetimes`。
+
 ## 2026-09-10 — `try_claim_probe`：半开探测的 compare-and-swap（GitHub #117）
 
 `try_claim_probe(agent_id, from_status, expected_probe_token, grant_until)` 用一条等值过滤

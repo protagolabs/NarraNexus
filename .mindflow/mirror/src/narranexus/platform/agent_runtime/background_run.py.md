@@ -17,12 +17,18 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 
 ## 2026-09-10 — CANCELLED 的 turn 归还半开探测名额
 
-`_record_circuit_breaker` 对 CANCELLED 仍不记成功/失败（用户主动停，不是 agent 的错），
-但改为调 [[circuit_breaker]] 的 `release_probe(agent_id)`：若这个 turn 恰是半开探测，
-行从 PROBING 回到 PAUSED（同样延迟重新起算），否则 no-op；且只在该 agent 没有别的存活
-run 时归还（`recorder.finalize` 先于这一步写终态行，所以本 run 自己不算存活）——被取消的
-普通 turn 不能把仍在跑的探测 turn 的名额还回去。不加这条，被取消的探测会让行
-卡在 PROBING、所有入口都被拒，直到 grant 过期且没有存活 run。
+## 2026-09-10（PR #394 review I1）— run 携带探测身份 `probe_token`
+
+`__init__` 新增 `probe_token: Optional[str] = None`：入口（[[websocket.py]]、
+[[openai_compat]]）在 `try_begin_probe` 赢得半开探测时把 token 交进来。
+`_record_circuit_breaker` 的三条结算全部带上它：失败 `record_failure(..., probe_token=)`、
+成功 `record_success(..., probe_token=)`、CANCELLED `release_probe(agent_id, probe_token)`。
+[[circuit_breaker]] 只让持 token 的 run 结算探测（token CAS）：普通 run 在别人持有探测时结束，
+既不能替它清 ACTIVE、也不能把它的失败算成探测结论；被取消的探测 run 按 token 归还，与该
+agent 还有没有别的存活 run 无关（旧的「无存活 run 才归还」代理判定会把行焊死在 PROBING）。
+`recorder.finalize` 仍先于这一步。锁：
+`test_background_run_circuit_breaker.py::test_every_settlement_carries_the_runs_probe_token`、
+`::test_only_the_claiming_run_settles_the_probe`（真熔断器）。
 
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
 

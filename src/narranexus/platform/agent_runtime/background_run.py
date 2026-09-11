@@ -194,8 +194,14 @@ class BackgroundRun:
         active_runs: dict,
         cancellation: Optional[CancellationToken] = None,
         steering: Optional[Any] = None,
+        probe_token: Optional[str] = None,
     ) -> None:
         self.agent_id = agent_id
+        # The half-open probe claim this run won at its entry point
+        # (``circuit_breaker.try_begin_probe``), or None for an ordinary run.
+        # The claim's identity: only a run carrying it may settle the probe
+        # (#394 review I1), so it rides the run to ``_record_circuit_breaker``.
+        self.probe_token = probe_token
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
@@ -562,6 +568,10 @@ class BackgroundRun:
             back to PAUSED (release_probe), or the row would sit PROBING,
             refusing every entry point, until its grant expired.
 
+        Every call carries ``self.probe_token``: the probe's outcome is
+        decided only by the run that claimed it, by token CAS; an ordinary
+        run finishing while another run holds the probe leaves it alone.
+
         Wrapped whole in try/except: the breaker is an observer and must never
         break turn finalization (incident lesson #3's corollary). Lazy import
         avoids any import-time coupling.
@@ -579,15 +589,16 @@ class BackgroundRun:
             if not (is_failure or is_success):
                 # Cancelled: the streak is untouched, but a probe that never
                 # reported must not stay claimed.
-                await cb.release_probe(self.agent_id)
+                await cb.release_probe(self.agent_id, self.probe_token)
             elif is_failure:
                 await cb.record_failure(
                     self.agent_id,
                     self.recorder.last_error_type,
                     self.recorder.last_error_message,
+                    probe_token=self.probe_token,
                 )
             else:
-                await cb.record_success(self.agent_id)
+                await cb.record_success(self.agent_id, probe_token=self.probe_token)
         except Exception as e:  # noqa: BLE001 — observer never breaks observed
             logger.warning(
                 f"[BackgroundRun {self.run_id}] circuit-breaker record failed: {e}"

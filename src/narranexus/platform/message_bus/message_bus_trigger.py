@@ -919,10 +919,10 @@ class MessageBusTrigger:
             # (returns (False, None) on any read error), so wrapping it would
             # be a handler that can never run — and dead handlers read as
             # "this can throw", which is worse than none.
-            cb_skip, cb_reason = await should_skip(lead_agent_id)
-            if cb_skip:
+            cb_gate = await should_skip(lead_agent_id)
+            if cb_gate.skip:
                 logger.info(
-                    f"[patrol] skipping {lead_agent_id} (circuit-breaker: {cb_reason})"
+                    f"[patrol] skipping {lead_agent_id} (circuit-breaker: {cb_gate.reason})"
                 )
                 # The cursor still moves: leaving it stale would make this team
                 # a candidate on every single cycle for as long as it is broken.
@@ -1048,14 +1048,15 @@ class MessageBusTrigger:
         # temporarily-broken agent would be silent data loss; the backlog
         # converges once the owner reconfigures and the breaker re-arms.
         from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            release_probe,
             should_skip,
             try_begin_probe,
         )
-        cb_skip, cb_reason = await should_skip(agent_id)
-        if cb_skip:
+        cb_gate = await should_skip(agent_id)
+        if cb_gate.skip:
             logger.debug(
                 f"MessageBusTrigger: skipping agent {agent_id} "
-                f"(circuit-breaker: {cb_reason})"
+                f"(circuit-breaker: {cb_gate.reason})"
             )
             return False
 
@@ -1160,19 +1161,30 @@ class MessageBusTrigger:
                 # bus poller cannot burn the agent's single probe grant on a
                 # batch it was never going to run. A refusal leaves the
                 # relevant messages queued (no ack) exactly like the
-                # should_skip gate at the top.
-                cb_allowed, cb_reason = await try_begin_probe(agent_id)
-                if not cb_allowed:
+                # should_skip gate at the top. The gate's read is reused
+                # (prior=); the CAS makes its age harmless.
+                cb_admission = await try_begin_probe(agent_id, prior=cb_gate)
+                if not cb_admission.allowed:
                     logger.debug(
                         f"MessageBusTrigger: not starting turn for {agent_id} "
-                        f"(circuit-breaker: {cb_reason})"
+                        f"(circuit-breaker: {cb_admission.reason})"
                     )
                     return False
 
                 trigger_msg = relevant[-1]
-                await self._handle_channel_batch(
-                    agent_id, channel_id, relevant, trigger_msg, channel_owner
-                )
+                try:
+                    # A won claim rides the turn to the runtime client, which
+                    # settles it from the run's outcome (#394 review C1).
+                    await self._handle_channel_batch(
+                        agent_id, channel_id, relevant, trigger_msg, channel_owner,
+                        probe_token=cb_admission.probe_token,
+                    )
+                finally:
+                    # Belt for every exit that never reached that settlement
+                    # (the batch threw while building the prompt, the task
+                    # was cancelled). No-op once settled: the token CAS no
+                    # longer matches.
+                    await release_probe(agent_id, cb_admission.probe_token)
                 return True
             except Exception as e:
                 logger.exception(
@@ -1631,9 +1643,14 @@ class MessageBusTrigger:
         messages: List[BusMessage],
         trigger_message: BusMessage,
         channel_owner: str = "",
+        probe_token: Optional[str] = None,
     ) -> None:
         """
         Handle a batch of messages from a single channel for an agent.
+
+        ``probe_token`` is the circuit-breaker half-open probe claim
+        ``_process_lane`` won for this turn (None for an ordinary turn); it
+        is handed to ``_invoke_runtime`` so the runtime client settles it.
 
         Builds a prompt, invokes AgentRuntime, and on success advances the
         processing cursor. On failure, records the failure for retry tracking.
@@ -1922,6 +1939,9 @@ class MessageBusTrigger:
                     on_event_id=on_event_id,
                     cancellation=cancellation,
                     steering=steer_channel,
+                    # The half-open probe claim, if this turn holds it; the
+                    # runtime client settles it (None: ordinary turn).
+                    probe_token=probe_token,
                     # No monologue harvest on a reply turn: a team reply is a
                     # tool call (`message_team`) now, so `include_monologue`
                     # stays False here and is passed only by the patrol path.
@@ -2615,15 +2635,28 @@ class MessageBusTrigger:
         # sweep never consumes the lead's single probe grant. The cursor
         # still moves (the caller's `finally`), so a refused lead is not a
         # hot candidate.
-        from narranexus.platform.agent_framework.loop.circuit_breaker import try_begin_probe
+        # The claim re-reads the row (no prior=): the dispatch-time read is a
+        # whole sweep cycle old by now, and patrols are rare enough that one
+        # read per sweep is not the M1 hot path the message lane is.
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            release_probe,
+            try_begin_probe,
+        )
 
-        cb_allowed, cb_reason = await try_begin_probe(lead_agent_id)
-        if not cb_allowed:
+        cb_admission = await try_begin_probe(lead_agent_id)
+        if not cb_admission.allowed:
             logger.info(
                 f"[patrol] not starting sweep for {lead_agent_id} "
-                f"(circuit-breaker: {cb_reason})"
+                f"(circuit-breaker: {cb_admission.reason})"
             )
             return
+        # A won claim is settled by the runtime client from the turn's outcome
+        # (probe_token below); this callback is the belt for every exit that
+        # never reaches it (a throw while assembling the prompt, cancellation).
+        # No-op once settled — the token CAS no longer matches.
+        stack.push_async_callback(
+            release_probe, lead_agent_id, cb_admission.probe_token
+        )
 
         roster = await self._team_roster(channel_id)
         member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
@@ -2720,6 +2753,7 @@ class MessageBusTrigger:
             # which room they are in — tools must learn that from the server,
             # never from a model parameter.
             team_id=team_id,
+            probe_token=cb_admission.probe_token,
         )
         text = (turn.text or "").strip()
         if not text:
@@ -3687,6 +3721,7 @@ class MessageBusTrigger:
         cancellation=None,
         root_run_id: str = "",
         steering=None,
+        probe_token: Optional[str] = None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -3711,6 +3746,12 @@ class MessageBusTrigger:
         harvesting an agent's plain text when the room became a tool call, so
         there is nothing to accumulate mid-run. `run_collector` still accepts the
         argument for its own callers.
+
+        ``probe_token`` is the circuit-breaker half-open probe claim the
+        caller won for this turn (lane or patrol), or None. It goes to
+        ``run_and_collect``, which settles the probe from the run's outcome
+        through the same ``record_success`` / ``record_failure`` the WS path
+        uses — the bus paths have no other breaker feed.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE
@@ -3805,6 +3846,8 @@ class MessageBusTrigger:
             # this was always the runtime's own no-op token, which is why a
             # bus run could not be stopped from anywhere.
             cancellation=cancellation,
+            # Settled by the client after the run's events row is terminal.
+            probe_token=probe_token,
             # Same explicit seam as cancellation: a live SteerChannel this run
             # drains at each step boundary. None on non-steerable runs (no
             # mid-turn injection). See run_registry / steer_channel.

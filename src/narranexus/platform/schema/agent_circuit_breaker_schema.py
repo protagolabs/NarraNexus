@@ -40,9 +40,10 @@ class CbStatus(str, Enum):
     PAUSED = "paused"      # hard stop; only auth/quota reach this. Needs reset,
                            # OR a half-open probe once cooldown_until elapses.
     PROBING = "probing"    # exactly one turn is in flight as a half-open probe;
-                           # every other should_skip caller is rejected while
-                           # this holds. Resolves to ACTIVE (probe succeeded)
-                           # or back to PAUSED (probe failed, longer timeout).
+                           # every other entry point is rejected while this
+                           # holds. Only the turn holding ``probe_token``
+                           # settles it: ACTIVE (probe succeeded) or back to
+                           # PAUSED (probe failed / ended without a verdict).
 
 
 class PausedReason(str, Enum):
@@ -100,6 +101,12 @@ class AgentCircuitBreaker(BaseModel):
     # ``AgentCircuitBreakerRepository.try_claim_probe`` for why cb_status
     # alone cannot be the CAS key on the stale-PROBING self-heal branch.
     probe_token: Optional[str] = None
+    # When the live claim was taken (2026-09-10, #394 review I1). NULL whenever
+    # probe_token is NULL. Lets the crash-window fallback ask "is a run that
+    # STARTED AFTER this claim still alive?" instead of "is ANY run of this
+    # agent alive?" — the latter let an unrelated long run weld the row in
+    # PROBING. The token itself is carried in-process by the claiming turn.
+    probe_claimed_at: Optional[datetime] = None
     last_error: Optional[str] = None  # already redacted before it lands here
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

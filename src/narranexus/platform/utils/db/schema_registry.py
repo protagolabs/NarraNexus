@@ -601,6 +601,11 @@ _register(
             # value that differs before vs. after a real claim — additive,
             # nullable, no backfill needed.
             Column("probe_token", "TEXT", "VARCHAR(64)"),
+            # 2026-09-10 (#394 review I1): when the live claim was taken; NULL
+            # together with probe_token. The crash-window fallback only counts
+            # runs that started after this instant as possibly the claimant's.
+            # Additive, nullable, no backfill.
+            Column("probe_claimed_at", "TEXT", "DATETIME(6)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

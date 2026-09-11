@@ -36,6 +36,7 @@ in-flight loop or caps loop length.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional, Tuple
 
@@ -54,6 +55,7 @@ from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
 from narranexus.platform.schema import (
+    AgentCircuitBreaker,
     CbStatus,
     ErrorCategory,
     PAUSING_CATEGORIES,
@@ -67,7 +69,11 @@ from narranexus.platform.services.background_llm_alerts import (
 )
 from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.run_liveness import STATE_RUNNING, run_is_live
+from narranexus.platform.utils.run_liveness import (
+    STATE_RUNNING,
+    parse_db_utc,
+    run_is_live,
+)
 from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on
@@ -89,13 +95,21 @@ _HALF_OPEN_MAX_DOUBLINGS = (PAUSE_HALF_OPEN_CAP_SECONDS // PAUSE_HALF_OPEN_BASE_
 # How long a claimed probe grant is honored on the WALL CLOCK before the row
 # is even considered for re-claim. This is NOT a turn-length ceiling (binding
 # rule #14 forbids one): a stale grant is re-claimable only when, in addition,
-# the agent has NO live run (``_agent_has_live_run`` — heartbeat-fresh
-# ``events`` row, the same liveness rule ``run_recorder.sweep_stale_runs``
-# uses). A probe turn that runs for hours keeps its grant for hours. The
-# timer therefore only bounds the window between "claimed" and "the run row
-# exists" (a crash in between leaves no heartbeat to consult), which is
-# seconds — 5 minutes is generous for THAT, not for a turn.
+# no run that STARTED AFTER the claim is still alive
+# (``_claimant_may_be_live`` — heartbeat-fresh ``events`` row, the same
+# ``run_is_live`` rule ``run_recorder.sweep_stale_runs`` uses). A probe turn
+# that runs for hours keeps its grant for hours. The timer therefore only
+# bounds the crash window — the claiming turn died before it could settle
+# with its token — which is seconds; 5 minutes is generous for THAT, not for
+# a turn.
 PROBE_GRANT_SECONDS = 300
+
+# Clock slack when matching "a run that started after the claim": the claim
+# and the run's started_at are stamped by different statements (possibly
+# different containers). A run that started this long before the claim is
+# still treated as possibly the claimant's — erring toward "may be live",
+# which only delays a re-claim, never double-probes.
+_CLAIM_START_SLACK_SECONDS = 5
 
 # Neither TRANSIENT nor BUSINESS ever pauses; after this many consecutive we
 # raise an alert so a chronically-failing agent isn't invisible. For TRANSIENT
@@ -311,65 +325,127 @@ def breaker_exemption(
     return None
 
 
+@dataclass(frozen=True)
+class GateVerdict:
+    """``should_skip``'s answer, plus the row it read.
+
+    ``row`` / ``row_known`` let the same entry point hand the read straight to
+    ``try_begin_probe(prior=...)`` instead of reading the row a second time on
+    every turn (#394 review M1). Reusing a slightly old read is safe: the
+    probe claim is a ``probe_token`` compare-and-swap, so a stale PAUSED row
+    can only lose the claim, never double-win it; an ACTIVE row gates nothing
+    either way. ``row_known`` is False when the read failed (fail-open) — the
+    claim then re-reads.
+    """
+
+    skip: bool
+    reason: Optional[str]
+    row: Optional[AgentCircuitBreaker] = None
+    row_known: bool = False
+
+
+@dataclass(frozen=True)
+class TurnAdmission:
+    """``try_begin_probe``'s answer.
+
+    ``probe_token`` is set ONLY when this turn won the half-open probe. The
+    turn must carry it to its settlement — ``record_success`` /
+    ``record_failure`` / ``settle_probe`` / ``release_probe`` — because the
+    token is the claim's identity: nothing without it may settle the probe.
+    """
+
+    allowed: bool
+    reason: Optional[str]
+    probe_token: Optional[str] = None
+
+
+def _holds_probe(row: Optional[AgentCircuitBreaker], probe_token: Optional[str]) -> bool:
+    """Whether ``probe_token`` is the live claim on ``row``."""
+    return (
+        probe_token is not None
+        and row is not None
+        and row.cb_status == CbStatus.PROBING.value
+        and row.probe_token == probe_token
+    )
+
+
 async def record_failure(
     agent_id: str,
     error_type: Optional[str],
     error_message: Optional[str],
     db=None,
+    *,
+    probe_token: Optional[str] = None,
 ) -> None:
     """Record one FAILED real-time turn and advance the breaker state.
 
     Callers MUST treat this as best-effort (wrap in try/except) — a breaker
     write must never break turn finalization.
 
-    A failure recorded while the row is PROBING is the half-open probe's
-    OUTCOME and is settled by probe semantics (GitHub #117 review), never as
-    an ordinary new failure:
+    ``probe_token`` is the claim this turn won in ``try_begin_probe`` (None
+    for an ordinary turn). The probe's outcome is decided ONLY by the turn
+    holding the live claim (#394 review I1/I5):
+
+      * row PROBING and this turn holds the token → the half-open probe's
+        OUTCOME, settled by probe semantics (below), written by a token CAS.
+      * row PROBING and this turn does NOT hold it (an unrelated long run
+        that started before the claim, a turn from another entry) → the
+        breaker is left untouched; the claimant will settle.
+      * any other status → the ordinary streak rules.
+
+    Probe semantics (GitHub #117 review):
 
       * auth/quota → the credential is still dead: re-PAUSE, streak +1, so
         the half-open delay doubles (``_compute_half_open_delay_seconds``).
       * anything else (transient blip, our own bug) → the probe proved
         NOTHING about the credential: stay PAUSED with the streak, category
         and paused_reason UNCHANGED and the SAME half-open delay re-armed.
-        Before this rule a probe landing on a network hiccup went through the
-        normal category-change reset (count=1 → COOLING 60s), dismantling a
-        pause that had proven the key dead three times — back to the
-        fast-retry loop the breaker exists to stop. The streak is NOT
-        advanced on purpose (binding rule #15): a blip must not push the
-        owner's delay toward the 6h cap.
-      * the ``_BREAKER_EXEMPTIONS`` classes normally
-        leave the breaker untouched, but a PROBING row must still be
-        settled or it would hang until the grant expires — same "no verdict"
-        re-arm as the non-auth case.
+        The streak is NOT advanced on purpose (binding rule #15): a blip must
+        not push the owner's delay toward the 6h cap.
+      * the ``_BREAKER_EXEMPTIONS`` classes (self-serviceable, executor-infra,
+        output-budget exhaustion) leave the breaker untouched, but a held
+        probe must still be settled or it would hang until the grant
+        expires — it is released without a verdict.
+
+    The exemptions are decided BEFORE any read, so an exempt failure of an
+    ordinary turn (the common case) costs no database round-trip; only a
+    probe holder reads, to settle (#394 review M2).
     """
+    # Exempt classes (``_BREAKER_EXEMPTIONS``: self-serviceable, executor-
+    # infra, output-budget exhaustion) never advance the breaker — no cool,
+    # no pause, no counter change. A held probe is released without verdict.
+    exempt_why = breaker_exemption(error_type, error_message)
+    if exempt_why is not None:
+        logger.debug(
+            f"[agent-cb] agent {agent_id} {exempt_why} failure ({error_type}) — "
+            f"breaker not advanced"
+        )
+        if probe_token is not None:
+            await release_probe(agent_id, probe_token, db=db)
+        return
+
     db = db or await get_db_client()
     repo = AgentCircuitBreakerRepository(db)
     row = await repo.get(agent_id)
-    was_probing = row is not None and row.cb_status == CbStatus.PROBING.value
-
-    # Exempt failure classes (see _BREAKER_EXEMPTIONS) never advance the
-    # breaker — but a PROBING row must still be settled (no verdict).
-    exemption = breaker_exemption(error_type, error_message)
-    if exemption is not None:
+    holds = _holds_probe(row, probe_token)
+    if row is not None and row.cb_status == CbStatus.PROBING.value and not holds:
         logger.debug(
-            f"[agent-cb] agent {agent_id} {exemption} failure "
-            f"({error_type}) — breaker not advanced"
+            f"[agent-cb] agent {agent_id} failure from a turn that does not "
+            f"hold the half-open probe — left for the claimant to settle"
         )
-        if was_probing:
-            await _rearm_pause_without_verdict(repo, row, f"{exemption} failure")
         return
 
     category = classify_agent_error(error_type, error_message)
     prev_count = row.consecutive_failure_count if row else 0
     prev_category = row.failure_category if row else None  # stored as str value
 
-    if was_probing and category not in PAUSING_CATEGORIES:
+    if holds and category not in PAUSING_CATEGORIES:
         await _rearm_pause_without_verdict(
-            repo, row, f"{category.value} failure", last_error=error_message
+            repo, row, probe_token, f"{category.value} failure", last_error=error_message
         )
         return
 
-    if was_probing:
+    if holds:
         # The probe failed for the reason it was paused: continue THAT streak.
         # The original category/reason is kept even if this turn classified
         # as the other pausing category (auth vs quota) — the pause is one
@@ -399,9 +475,7 @@ async def record_failure(
             "cooldown_until": now + timedelta(
                 seconds=_compute_half_open_delay_seconds(count)
             ),
-            # A fresh pause has no live claim: the next probe is claimed
-            # against NULL (see AgentCircuitBreakerRepository.try_claim_probe).
-            "probe_token": None,
+            **_NO_CLAIM,
         }
     else:
         updates = {
@@ -412,13 +486,23 @@ async def record_failure(
             "cb_status": CbStatus.COOLING.value,
             "paused_reason": None,
             "paused_at": None,
-            "probe_token": None,
+            **_NO_CLAIM,
         }
 
-    await repo.upsert_state(agent_id, updates)
+    if holds:
+        # Token CAS: if the owner reset the row (or it was otherwise settled)
+        # since the read above, this verdict is stale and must not land.
+        if not await repo.settle_probe(agent_id, probe_token, updates):
+            logger.info(
+                f"[agent-cb] agent {agent_id} probe claim no longer live; "
+                f"failed probe outcome dropped"
+            )
+            return
+    else:
+        await repo.upsert_state(agent_id, updates)
 
     if is_pause:
-        if was_probing:
+        if holds:
             # The owner was alerted when the pause first tripped; a failed
             # probe is that same outage continuing, not a new event — one
             # log line, no repeat alert every 5min..6h.
@@ -463,80 +547,169 @@ async def record_failure(
 
 async def _rearm_pause_without_verdict(
     repo: AgentCircuitBreakerRepository,
-    row,
+    row: AgentCircuitBreaker,
+    probe_token: str,
     why: str,
     *,
     last_error: Optional[str] = None,
-) -> None:
-    """A PROBING row whose probe ended WITHOUT a verdict on the credential
-    (non-auth failure, exempt failure, user cancel, lost run) goes back to
-    PAUSED exactly as it was — same streak, category and paused_reason —
-    with the same half-open delay re-armed from now. Nothing is learned, so
-    nothing escalates and nobody is re-alerted."""
+) -> bool:
+    """A held probe that ended WITHOUT a verdict on the credential (non-auth
+    failure, exempt failure, user cancel, lost run) goes back to PAUSED
+    exactly as it was — same streak, category and paused_reason — with the
+    same half-open delay re-armed from now. Nothing is learned, so nothing
+    escalates and nobody is re-alerted. Written by the ``probe_token`` CAS;
+    returns False (and writes nothing) when that claim is no longer live."""
     count = row.consecutive_failure_count
     updates: dict = {
         "cb_status": CbStatus.PAUSED.value,
         "cooldown_until": utc_now()
         + timedelta(seconds=_compute_half_open_delay_seconds(count)),
-        "probe_token": None,
+        **_NO_CLAIM,
     }
     if last_error is not None:
         updates["last_error"] = redact_secrets(last_error)
-    await repo.upsert_state(row.agent_id, updates)
+    if not await repo.settle_probe(row.agent_id, probe_token, updates):
+        return False
     logger.info(
         f"[agent-cb] agent {row.agent_id} half-open probe ended without a "
         f"verdict ({why}); re-PAUSED with the same delay "
         f"({_compute_half_open_delay_seconds(count)}s), streak={count}"
     )
+    return True
 
 
-async def release_probe(agent_id: str, db=None) -> bool:
-    """Settle a PROBING row whose probe turn will never report an outcome —
+async def release_probe(agent_id: str, probe_token: Optional[str], db=None) -> bool:
+    """Hand back a half-open probe claim whose turn ends without a verdict —
     the user cancelled it (``background_run`` leaves CANCELLED turns out of
-    the breaker) or the driving process died (``run_recorder.sweep_stale_runs``
-    flipped the run). Without this the row would sit PROBING, refusing every
-    entry point, until the grant expired AND no live run remained.
+    the breaker), the entry point bailed out before the turn started, or the
+    turn never reported. Back to PAUSED, same streak, same delay.
 
-    No-op (returns False) unless the row is PROBING AND the agent has no
-    heartbeat-fresh running row: the claim may belong to a different, still
-    live turn than the one being settled (both callers finalize / flip
-    their own events row before calling), and returning another run's
-    claim would let a second probe in behind it. Best-effort by contract:
-    never raises.
+    Keyed on the claim's identity (#394 review I1): a no-op returning False
+    unless the row is PROBING under exactly ``probe_token``. So it is safe —
+    and idempotent — to call unconditionally at the end of every turn that
+    was admitted: once the claim was settled (ACTIVE / re-PAUSED, token
+    cleared), reset by the owner, or re-claimed by someone else, this writes
+    nothing. It never touches a claim it does not hold, however many other
+    runs the agent has alive. Best-effort by contract: never raises.
     """
+    if probe_token is None:
+        return False
     try:
         db = db or await get_db_client()
         repo = AgentCircuitBreakerRepository(db)
         row = await repo.get(agent_id)
-        if row is None or row.cb_status != CbStatus.PROBING.value:
+        if not _holds_probe(row, probe_token):
             return False
-        if await _agent_has_live_run(db, agent_id):
-            return False  # the claim is another live run's — leave it
-        await _rearm_pause_without_verdict(repo, row, "probe turn never settled")
-        return True
+        return await _rearm_pause_without_verdict(
+            repo, row, probe_token, "probe turn never reported an outcome"
+        )
     except Exception as e:  # noqa: BLE001 — observer never breaks the observed
         logger.warning(f"[agent-cb] release_probe({agent_id}) failed: {e}")
         return False
 
 
-async def record_success(agent_id: str, db=None) -> None:
+async def release_orphaned_probe(agent_id: str, db=None) -> bool:
+    """Crash-window fallback for a claim whose holder DIED and so can never
+    settle it with its token (``run_recorder.sweep_stale_runs`` calls this
+    after flipping a lost run). Releases the PROBING row only when no run
+    that started after the claim is still alive (``_claimant_may_be_live``);
+    a live run that predates the claim — the long-running turn binding rule
+    #14 protects — is never mistaken for the claimant. Best-effort: never
+    raises."""
+    try:
+        db = db or await get_db_client()
+        repo = AgentCircuitBreakerRepository(db)
+        row = await repo.get(agent_id)
+        if row is None or row.cb_status != CbStatus.PROBING.value or not row.probe_token:
+            return False
+        if await _claimant_may_be_live(db, row):
+            return False
+        return await _rearm_pause_without_verdict(
+            repo, row, row.probe_token, "probe turn lost (no live claimant run)"
+        )
+    except Exception as e:  # noqa: BLE001 — observer never breaks the observed
+        logger.warning(f"[agent-cb] release_orphaned_probe({agent_id}) failed: {e}")
+        return False
+
+
+async def record_success(
+    agent_id: str, db=None, *, probe_token: Optional[str] = None
+) -> None:
     """Record a successful turn — clears any failure streak / pause.
 
     Best-effort at the call site. A no-op when the agent is already clean.
+
+    While the row is PROBING only the claim holder (``probe_token``) may
+    close the breaker, by token CAS: a success from a turn that never
+    claimed the probe (a run that predates the claim, an ungated entry) must
+    not answer for it — that is exactly the "one probe decides" invariant.
     """
     db = db or await get_db_client()
     repo = AgentCircuitBreakerRepository(db)
     row = await repo.get(agent_id)
     if row is None:
         return
+    if row.cb_status == CbStatus.PROBING.value:
+        if not _holds_probe(row, probe_token):
+            logger.debug(
+                f"[agent-cb] agent {agent_id} success from a turn that does not "
+                f"hold the half-open probe — left for the claimant to settle"
+            )
+            return
+        if await repo.settle_probe(agent_id, probe_token, _CLEAN_STATE):
+            logger.info(
+                f"[agent-cb] agent {agent_id} half-open probe SUCCEEDED; "
+                f"breaker closed (was paused:{row.paused_reason})"
+            )
+        return
     if row.cb_status == CbStatus.ACTIVE.value and row.consecutive_failure_count == 0:
         return  # already clean — skip a pointless write
-    if row.cb_status == CbStatus.PROBING.value:
-        logger.info(
-            f"[agent-cb] agent {agent_id} half-open probe SUCCEEDED; "
-            f"breaker closed (was paused:{row.paused_reason})"
-        )
     await repo.upsert_state(agent_id, _CLEAN_STATE)
+
+
+async def settle_probe(
+    agent_id: str,
+    probe_token: Optional[str],
+    *,
+    succeeded: Optional[bool],
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    db=None,
+) -> None:
+    """Settle a half-open probe from an entry point that does NOT otherwise
+    feed the breaker (the trigger paths behind ``AgentRuntimeClient`` — bus
+    lane, patrol). The one settlement seam those paths share (#394 review
+    C1): the SAME ``record_success`` / ``record_failure`` / ``release_probe``
+    the WS/openai ``BackgroundRun`` path uses, with the same token.
+
+    ``succeeded``: True → the probe proved the credential; False → the turn
+    failed with ``error_type`` / ``error_message`` (the runtime's own error
+    frame or exception type, so ``classify_agent_error`` sees the vocabulary
+    it knows); None → no verdict (cancelled / interrupted).
+
+    Only acts while this turn still holds the claim: an ordinary turn of
+    these paths (no token) and a claim that was reset or re-claimed meanwhile
+    both leave the breaker untouched — these entries record probe outcomes
+    only, never ordinary streaks, exactly as before #117. Never raises.
+    """
+    if probe_token is None:
+        return
+    try:
+        db = db or await get_db_client()
+        if succeeded is None:
+            await release_probe(agent_id, probe_token, db=db)
+            return
+        row = await AgentCircuitBreakerRepository(db).get(agent_id)
+        if not _holds_probe(row, probe_token):
+            return
+        if succeeded:
+            await record_success(agent_id, db=db, probe_token=probe_token)
+        else:
+            await record_failure(
+                agent_id, error_type, error_message, db=db, probe_token=probe_token
+            )
+    except Exception as e:  # noqa: BLE001 — observer never breaks the observed
+        logger.warning(f"[agent-cb] settle_probe({agent_id}) failed: {e}")
 
 
 def _elapsed(value: Optional[datetime]) -> bool:
@@ -547,55 +720,52 @@ def _elapsed(value: Optional[datetime]) -> bool:
     return until is None or until <= utc_now()
 
 
-async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
+async def should_skip(agent_id: str, db=None) -> GateVerdict:
     """Should the given agent's next real-time turn be skipped?
 
     PURE READ — never writes. Every trigger entry point asks this first as a
     cheap pre-filter; the scarce half-open probe is claimed separately by
-    ``try_begin_probe`` at the exact point a turn is about to start. The two
-    are split on purpose (GitHub #117 review): when the claim lived here,
-    any caller that asked and then did NOT run a turn burned the single
-    probe grant. ``message_bus_trigger._process_lane`` asks before several
-    ack-and-return branches (IM-prefix skip, the @mention filter, rate
-    limiting), so in an active team room the 3s bus poller reliably won the
-    probe and threw it away, and the user's own message then got a
-    misleading "cooling down" frame for the whole grant window.
+    ``try_begin_probe`` at the exact point a turn is about to start (pass
+    this verdict as ``prior=`` so the claim does not re-read the row). The
+    two are split on purpose (GitHub #117 review): when the claim lived
+    here, any caller that asked and then did NOT run a turn burned the
+    single probe grant. ``message_bus_trigger._process_lane`` asks before
+    several ack-and-return branches (IM-prefix skip, the @mention filter,
+    rate limiting), so in an active team room the 3s bus poller reliably won
+    the probe and threw it away.
 
-    Returns ``(skip, reason)``. FAIL-OPEN: any read error returns
-    ``(False, None)`` — a breaker glitch must never block a healthy turn.
+    FAIL-OPEN: any read error returns ``skip=False`` with ``row_known=False``
+    — a breaker glitch must never block a healthy turn.
 
       * PAUSED, half-open delay not elapsed → skip ``paused:<reason>``.
-      * PAUSED, delay elapsed → ``(False, None)``: the window MAY be open;
-        the caller proceeds and ``try_begin_probe`` decides for real.
+      * PAUSED, delay elapsed → not skipped: the window MAY be open; the
+        caller proceeds and ``try_begin_probe`` decides for real.
       * PROBING, grant still live → skip ``probing`` (someone holds the
         probe).
-      * PROBING, grant expired → ``(False, None)``: possibly abandoned;
-        ``try_begin_probe`` re-claims it only if no live run exists.
+      * PROBING, grant expired → not skipped: possibly abandoned;
+        ``try_begin_probe`` re-claims it only if its claimant is not live.
       * COOLING → skip until ``cooldown_until``; lazy expiry after that (no
         claim needed — several turns passing once a cooldown elapses was the
         accepted behavior long before #117).
     """
     try:
         db = db or await get_db_client()
-        repo = AgentCircuitBreakerRepository(db)
-        row = await repo.get(agent_id)
-        if row is None:
-            return (False, None)
-        if row.cb_status == CbStatus.PAUSED.value:
-            if _elapsed(row.cooldown_until):
-                return (False, None)
-            return (True, f"paused:{row.paused_reason or 'unknown'}")
-        if row.cb_status == CbStatus.PROBING.value:
-            if _elapsed(row.cooldown_until):
-                return (False, None)
-            return (True, "probing")
-        if row.cb_status == CbStatus.COOLING.value:
-            if not _elapsed(row.cooldown_until):
-                return (True, "cooling")
-        return (False, None)
+        row = await AgentCircuitBreakerRepository(db).get(agent_id)
     except Exception as e:  # noqa: BLE001 — fail open, never block a turn
         logger.warning(f"[agent-cb] should_skip read failed for {agent_id}: {e}")
-        return (False, None)
+        return GateVerdict(skip=False, reason=None)
+    reason: Optional[str] = None
+    if row is not None:
+        if row.cb_status == CbStatus.PAUSED.value:
+            if not _elapsed(row.cooldown_until):
+                reason = f"paused:{row.paused_reason or 'unknown'}"
+        elif row.cb_status == CbStatus.PROBING.value:
+            if not _elapsed(row.cooldown_until):
+                reason = "probing"
+        elif row.cb_status == CbStatus.COOLING.value:
+            if not _elapsed(row.cooldown_until):
+                reason = "cooling"
+    return GateVerdict(skip=reason is not None, reason=reason, row=row, row_known=True)
 
 
 async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
@@ -609,7 +779,10 @@ async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
 
     Exists because the turn path may CONSUME the half-open probe
     (``try_begin_probe``, GitHub #117); a send-side pre-flight such as the bus
-    receipt must never consume what only a turn may consume. Note the one
+    receipt must never consume what only a turn may consume. It is also the
+    whole gate for an entry point that runs a turn but can never SETTLE a
+    probe (``module_poller`` Path A reports no outcome): such an entry must
+    not claim one, so it runs nothing while the agent is paused or probing. Note the one
     deliberate divergence from ``should_skip``: an expired-PAUSED row reads as
     held here ("paused:<reason>") while ``should_skip`` lets exactly one turn
     through to try the probe. Deliberately small: it reads the row and
@@ -638,20 +811,28 @@ async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
         return (False, None)
 
 
-async def try_begin_probe(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
+async def try_begin_probe(
+    agent_id: str, db=None, *, prior: Optional[GateVerdict] = None
+) -> TurnAdmission:
     """Claim the half-open probe for a turn that is about to START.
 
     The ONLY writer of PROBING. Call it after every "ack and don't run a
     turn" branch has already returned, immediately before the turn is
-    created. Returns ``(allowed, reason)`` with the same reason vocabulary as
-    ``should_skip``: ``(True, None)`` means run the turn; ``(False, reason)``
-    means treat it exactly like a skip (leave pending work un-acked).
+    created. ``allowed`` means run the turn; a refusal carries the same
+    reason vocabulary as ``should_skip`` and is treated exactly like a skip
+    (leave pending work un-acked). When this turn wins the probe,
+    ``probe_token`` is set and the turn MUST carry it to its settlement
+    (see ``TurnAdmission``).
+
+    ``prior`` is the entry point's own ``should_skip`` verdict; when it read
+    the row successfully the claim reuses that read instead of reading again
+    (#394 review M1) — the CAS below makes a stale read harmless.
 
     FAIL-OPEN on READ errors and for rows that gate nothing (no row, ACTIVE,
     COOLING — COOLING's lazy expiry is ``should_skip``'s call, not repeated
     here). The CAS WRITE is the exception: a write error counts as "did not
-    win" (fail-CLOSED, ``(False, "probing")``), because letting a known-dead
-    agent through whenever the database is unhealthy is the wrong failure
+    win" (fail-CLOSED, ``"probing"``), because letting a known-dead agent
+    through whenever the database is unhealthy is the wrong failure
     direction — and it is logged distinctly from the read fail-open so the
     two are never confused on-call.
 
@@ -659,33 +840,40 @@ async def try_begin_probe(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
     ``"probing"``, i.e. the "try again shortly" copy, not "go re-login":
     another turn is testing the credential right now.
 
-    PROBING with an expired grant is re-claimable ONLY when the agent has no
-    heartbeat-fresh running row (binding rule #14: a probe turn may run for
-    hours; the grant timer alone would double-probe it).
+    PROBING with an expired grant is re-claimable ONLY when its claimant may
+    no longer be running (``_claimant_may_be_live``; binding rule #14: a
+    probe turn may run for hours; the grant timer alone would double-probe
+    it).
     """
     try:
         db = db or await get_db_client()
         repo = AgentCircuitBreakerRepository(db)
-        row = await repo.get(agent_id)
+        if prior is not None and prior.row_known:
+            row = prior.row
+        else:
+            row = await repo.get(agent_id)
         if row is None:
-            return (True, None)
+            return TurnAdmission(allowed=True, reason=None)
         if row.cb_status == CbStatus.PAUSED.value:
             if not _elapsed(row.cooldown_until):
-                return (False, f"paused:{row.paused_reason or 'unknown'}")
+                return TurnAdmission(
+                    allowed=False, reason=f"paused:{row.paused_reason or 'unknown'}"
+                )
             from_status = CbStatus.PAUSED.value
         elif row.cb_status == CbStatus.PROBING.value:
             if not _elapsed(row.cooldown_until):
-                return (False, "probing")
-            if await _agent_has_live_run(db, agent_id):
+                return TurnAdmission(allowed=False, reason="probing")
+            if await _claimant_may_be_live(db, row):
                 # The grant timer ran out but the probe is still running
                 # (long turn) — it will settle itself; do not double-probe.
-                return (False, "probing")
+                return TurnAdmission(allowed=False, reason="probing")
             from_status = CbStatus.PROBING.value
         else:
-            return (True, None)  # ACTIVE / COOLING — nothing to claim
+            # ACTIVE / COOLING — nothing to claim
+            return TurnAdmission(allowed=True, reason=None)
     except Exception as e:  # noqa: BLE001 — fail open on READ, never block a turn
         logger.warning(f"[agent-cb] try_begin_probe read failed for {agent_id}: {e}")
-        return (True, None)
+        return TurnAdmission(allowed=True, reason=None)
 
     grant_until = utc_now() + timedelta(seconds=PROBE_GRANT_SECONDS)
     try:
@@ -697,23 +885,79 @@ async def try_begin_probe(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
             f"[agent-cb] try_begin_probe CAS write failed for {agent_id}; "
             f"treating as not claimed (fail-closed): {e}"
         )
-        return (False, "probing")
+        return TurnAdmission(allowed=False, reason="probing")
     if token is None:
-        return (False, "probing")
+        return TurnAdmission(allowed=False, reason="probing")
     logger.info(
         f"[agent-cb] agent {agent_id} half-open probe claimed "
         f"(from={from_status}, paused:{row.paused_reason}, streak="
         f"{row.consecutive_failure_count}, grant_until={grant_until.isoformat()})"
     )
-    return (True, None)
+    return TurnAdmission(allowed=True, reason=None, probe_token=token)
 
 
-async def _agent_has_live_run(db, agent_id: str) -> bool:
-    """Whether the agent has a 'running' events row with a fresh heartbeat —
-    the one cross-process liveness rule (``utils.run_liveness.run_is_live``,
-    shared with ``run_recorder.sweep_stale_runs``)."""
-    rows = await db.get("events", filters={"agent_id": agent_id, "state": STATE_RUNNING})
-    return any(run_is_live(r) for r in rows or [])
+async def _claimant_may_be_live(db, row: AgentCircuitBreaker) -> bool:
+    """Whether the run holding ``row``'s probe claim may still be running.
+
+    The claimant carries its token in-process and settles with it; this is
+    only asked when that cannot have happened yet — the grant expired, or a
+    lost run was swept. Identity is approximated by TIME, not by "does the
+    agent have any live run": only a heartbeat-fresh ``events`` row that
+    started after the claim (minus clock slack) can be the claimant. A run
+    that predates the claim — e.g. a legitimate hours-long turn (binding
+    rule #14) — can therefore no longer keep the row PROBING forever (#394
+    review I1). A row without ``probe_claimed_at`` (claimed by a build that
+    did not stamp it) falls back to "any live run", the conservative answer.
+    """
+    rows = await db.get(
+        "events",
+        filters={"agent_id": row.agent_id, "state": STATE_RUNNING},
+        fields=["event_id", "last_event_at", "started_at"],
+    )
+    claimed_at = _as_aware_utc(row.probe_claimed_at)
+    earliest = (
+        claimed_at - timedelta(seconds=_CLAIM_START_SLACK_SECONDS)
+        if claimed_at is not None
+        else None
+    )
+    for r in rows or []:
+        if not run_is_live(r):
+            continue
+        if earliest is None:
+            return True
+        started = parse_db_utc(r.get("started_at"))
+        # An unparseable start cannot be ruled out as the claimant.
+        if started is None or started >= earliest:
+            return True
+    return False
+
+
+def describe_skip_reason(cb_reason: Optional[str]) -> str:
+    """User-facing copy for a refused turn, shared by every entry point that
+    tells the caller why (WS error frame, OpenAI-compatible HTTP error).
+    ``cb_reason`` is ``should_skip`` / ``try_begin_probe``'s reason.
+
+    "probing" means another turn holds — or just won — the single half-open
+    probe slot, so this request lost the race: not a hard pause, so it gets
+    the same "try again shortly" copy as cooling rather than "go
+    re-authenticate"."""
+    reason = cb_reason or ""
+    if reason.startswith("paused:quota"):
+        return (
+            "This agent is paused after repeated quota/balance failures. "
+            "Top up or reassign the Agent slot's provider, then resume the "
+            "agent in Settings."
+        )
+    if reason.startswith("paused"):
+        return (
+            "This agent is paused after repeated authentication failures. "
+            "Re-authenticate (codex/claude login) or assign a working API-key "
+            "provider to the Agent slot, then resume the agent in Settings."
+        )
+    return (  # cooling / probing
+        "This agent recently failed and is briefly cooling down before it "
+        "will accept new messages. Please try again shortly."
+    )
 
 
 async def reset_agent(agent_id: str, db=None) -> None:
@@ -800,6 +1044,10 @@ async def _owner_agent_ids(db, user_id: str) -> set[str]:
     return {r["agent_id"] for r in rows if r and r.get("agent_id")}
 
 
+# "No live probe claim" — every write that leaves PROBING (or never enters it)
+# clears the claim's identity and its timestamp together.
+_NO_CLAIM: dict = {"probe_token": None, "probe_claimed_at": None}
+
 # Canonical "healthy / no streak" write, shared by success + reset paths.
 _CLEAN_STATE: dict = {
     "cb_status": CbStatus.ACTIVE.value,
@@ -808,5 +1056,5 @@ _CLEAN_STATE: dict = {
     "cooldown_until": None,
     "paused_reason": None,
     "paused_at": None,
-    "probe_token": None,
+    **_NO_CLAIM,
 }

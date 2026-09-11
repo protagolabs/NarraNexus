@@ -58,6 +58,11 @@ from backend.routes.manyfold.sync import (
     parse_run_job_control,
     retag_managed_input,
 )
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    describe_skip_reason,
+    should_skip,
+    try_begin_probe,
+)
 from narranexus.platform.agent_runtime.background_run import BackgroundRun
 from narranexus.platform.agent_runtime.cancellation import CancellationToken
 from narranexus.platform.channel.message_source_handler import (
@@ -689,6 +694,31 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 stream=body.stream,
             )
 
+    # Circuit-breaker gate — the same two steps every turn-starting entry
+    # point takes (should_skip, then try_begin_probe at the last moment before
+    # the run exists). Placed AFTER every branch that answers without a turn
+    # (run-job control, managed-ingress deny, silent group ingest) so none of
+    # them can burn the single half-open probe grant. Without it this entry
+    # ran turns against a paused agent, and — because BackgroundRun feeds the
+    # breaker — an unclaimed turn here could decide another turn's probe.
+    cb_gate = await should_skip(agent_id, db=db)
+    cb_admission = (
+        await try_begin_probe(agent_id, db=db, prior=cb_gate)
+        if not cb_gate.skip
+        else None
+    )
+    if cb_admission is None or not cb_admission.allowed:
+        cb_reason = cb_gate.reason if cb_admission is None else cb_admission.reason
+        return JSONResponse(
+            status_code=503,
+            content=_openai_error(
+                describe_skip_reason(cb_reason),
+                etype="agent_circuit_open",
+                code=cb_reason,
+                model_echo=agent_id,
+            ),
+        )
+
     active_runs = request.app.state.active_runs
     cancellation = CancellationToken()
     bg = BackgroundRun(
@@ -698,6 +728,8 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         db=db,
         active_runs=active_runs,
         cancellation=cancellation,
+        # A won probe claim rides the run to its settlement.
+        probe_token=cb_admission.probe_token,
     )
 
     # Kick off the background agent run.

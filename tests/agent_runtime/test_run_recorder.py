@@ -539,6 +539,43 @@ async def test_sweep_releases_the_lost_runs_half_open_probe(db_client):
     assert (await repo.get("agent_cooling")).cb_status == CbStatus.COOLING.value
 
 
+@pytest.mark.asyncio
+async def test_sweep_releases_a_lost_probe_despite_an_older_live_run(db_client):
+    """#394 review I1: the claimant died, but the agent also has an older,
+    hours-long run that is still beating. The sweep must still release the
+    probe — that older run started before the claim, so it cannot be the
+    claimant and must not keep the row PROBING for as long as it runs."""
+    from datetime import timedelta as _td
+
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+
+    repo = AgentCircuitBreakerRepository(db_client)
+    claimed = utc_now() - _td(minutes=5)
+    await repo.upsert_state("agent_weld", {
+        "cb_status": CbStatus.PROBING.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": ErrorCategory.AUTH.value,
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now() + _td(minutes=1),
+        "probe_token": "dead-claimant",
+        "probe_claimed_at": claimed,
+    })
+    await _seed_events_row(db_client, "evt_weld_old", agent_id="agent_weld",
+                           state="running", started_at=utc_now() - _td(hours=3),
+                           last_event_at=utc_now())
+    await _seed_events_row(db_client, "evt_weld_claimant", agent_id="agent_weld",
+                           state="running", started_at=claimed + _td(seconds=1),
+                           last_event_at=utc_now() - _td(minutes=3))
+
+    assert await sweep_stale_runs(db_client) == 1
+    row = await repo.get("agent_weld")
+    assert row.cb_status == CbStatus.PAUSED.value
+    assert row.probe_token is None
+
+
 def test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle():
     """#394 review I4: the breaker's probe-claimant check and the stale sweep
     must use the SAME run_is_live object, and the breaker must get it from

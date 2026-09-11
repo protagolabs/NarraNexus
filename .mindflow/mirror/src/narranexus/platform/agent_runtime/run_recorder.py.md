@@ -19,21 +19,20 @@ stub: false
 
 ## 2026-09-10（PR #394 review I4）— 活性规则搬到叶子模块 `utils.run_liveness`
 
+## 2026-09-10（PR #394 review I1/I4）— 活性规则搬到叶子模块；清扫改调 `release_orphaned_probe`
+
 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
-`run_is_live` 移到 [[run_liveness]]，本模块原样 re-export（同一对象、`__all__` 不变），
-既有调用方（agents 列表、observe 端点、`message_bus_trigger._member_status`）不受影响。
-熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级下行导入——
-原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。锁：
+`run_is_live` 移到 [[run_liveness]]（`utils` 叶子），本模块原样 re-export（同一对象、
+`__all__` 不变），既有调用方（agents 列表、observe 端点、`message_bus_trigger._member_status`）
+不受影响。熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级
+下行导入——原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。
+
+`sweep_stale_runs` 每翻一行（failed 或 cancelled）对该 `agent_id` 调
+`release_orphaned_probe`：丢失的 run 带着 token 死了，只能靠时间判身份——行是 PROBING 且
+没有「认领之后才开始」的存活 run 时才归还（同 agent 更早就在跑的长 run 不再能把行焊在
+PROBING）。锁：`test_sweep_releases_the_lost_runs_half_open_probe`、
+`test_sweep_releases_a_lost_probe_despite_an_older_live_run`、
 `test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle`。
-
-## 2026-09-10 — `sweep_stale_runs` 翻掉丢失 run 时顺带释放半开探测
-
-进程死亡的 run 永远走不到 `BackgroundRun._finalize`，熔断器结算也就不会发生。现在每翻一
-行（failed 或 cancelled）都对该 `agent_id` 调 [[circuit_breaker]] 的 `release_probe`
-（best-effort，只对 PROBING 行生效，且只在该 agent 已无存活 run 时归还——本 sweep 先翻
-状态再调，所以刚翻掉的这一行不再算存活；若同 agent 另有心跳新鲜的 run，名额是它的，不动）。这也是 `try_begin_probe` 能用"events 里有心跳新鲜的
-running 行"当作"探测还活着"的前提：活性规则两边共用 `run_is_live`，丢失的 run 在
-~RUN_STALE_AFTER_S + 一个 sweep 周期内既翻状态又归还名额。
 
 ## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
 

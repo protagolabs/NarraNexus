@@ -4,11 +4,14 @@ last_verified: 2026-09-10
 stub: false
 ---
 
-## 2026-09-10 — Path A 闸门改成两步（`should_skip` 读 + `try_begin_probe` 认领）
+## 2026-09-10（PR #394 review C1）— Path A 只用 `peek_skip`，不认领半开探测
 
-与其他三个触发入口同一契约（[[circuit_breaker]] 2026-09-10）：`should_skip` 纯读放行后，
-在构造 `AgentRuntime` 之前再 `try_begin_probe(agent_id)`，被拒就不建 runtime。Path A 仍
-休眠，但契约必须一致，不能留一个用旧口径的入口。
+`_execute_callback_instance` 吞掉所有失败、不报结果，本入口永远结算不了探测；而一个没人
+结算的认领会让死凭据每个 grant 周期重跑一次（C1）。所以 Path A 不再走
+`should_skip`+`try_begin_probe` 两步，改为 [[circuit_breaker]] 的只读 `peek_skip`：
+PAUSED（含半开窗口已开）/PROBING/未到期 COOLING 一律不建 runtime、不写行；探测留给能结算
+的入口。fail-open 不变。锁：`test_module_poller_circuit_breaker_gate.py`（真熔断器，三种
+held 状态均不跑且行不变；健康 agent 照跑）。
 
 ## 2026-09-10（review r3 C1/I2）— 发现查询补 narrative-less 半边；对账只扫无 link 的 BLOCKED
 

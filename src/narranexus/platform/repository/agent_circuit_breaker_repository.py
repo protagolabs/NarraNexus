@@ -98,6 +98,7 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
         or None if it lost.
         """
         new_token = _generate_probe_token()
+        now = utc_now()
         rowcount = await self._db.update(
             self.table_name,
             {
@@ -108,11 +109,42 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
             {
                 "cb_status": CbStatus.PROBING.value,
                 "probe_token": new_token,
+                "probe_claimed_at": now,
                 "cooldown_until": grant_until,
-                "updated_at": utc_now(),
+                "updated_at": now,
             },
         )
         return new_token if rowcount > 0 else None
+
+    async def settle_probe(
+        self, agent_id: str, probe_token: str, updates: Dict[str, Any]
+    ) -> bool:
+        """Write ``updates`` ONLY if the row is still PROBING under
+        ``probe_token`` — the settlement half of the claim CAS.
+
+        Only the turn that won ``try_claim_probe`` holds the token, so a
+        settlement can never be written by a turn that did not claim (an
+        unrelated long run, an ungated entry point) nor land on a claim that
+        was already settled, reset by the owner, or re-claimed after going
+        stale. ``updates`` must move the row out of PROBING and clear
+        ``probe_token`` (every caller writes PAUSED/ACTIVE with a NULL
+        token), which is also what makes the MySQL changed-rows rowcount
+        reliable here: the token column always changes on a win.
+
+        Returns True iff this call settled the claim.
+        """
+        data = dict(updates)
+        data["updated_at"] = utc_now()
+        rowcount = await self._db.update(
+            self.table_name,
+            {
+                "agent_id": agent_id,
+                "cb_status": CbStatus.PROBING.value,
+                "probe_token": probe_token,
+            },
+            data,
+        )
+        return rowcount > 0
 
     async def find_paused(self) -> List[AgentCircuitBreaker]:
         """All agents currently in PAUSED state (any reason)."""

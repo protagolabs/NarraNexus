@@ -72,9 +72,16 @@ class AgentRuntimeClient(Protocol):
         user_id: str,
         input_content: str,
         working_source: Any,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> "RunCollection":
-        """Drive one run to completion, return its grouped output."""
+        """Drive one run to completion, return its grouped output.
+
+        ``probe_token`` is the circuit-breaker half-open probe claim the
+        caller won (``circuit_breaker.try_begin_probe``) for THIS run, or
+        None. When given, the client settles the probe from the run's
+        outcome after the run's events row is terminal — it is not forwarded
+        to the runtime."""
         ...
 
     def run_stream(
@@ -227,8 +234,12 @@ class InProcessAgentRuntimeClient:
         user_id: str,
         input_content: str,
         working_source: Any,
+        probe_token: Optional[str] = None,
         **extra_kwargs: Any,
     ) -> "RunCollection":
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            settle_probe,
+        )
         from narranexus.platform.agent_runtime.admission import (
             get_admission_controller,
         )
@@ -261,11 +272,28 @@ class InProcessAgentRuntimeClient:
                 )
             if recorder is not None:
                 await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
+            # Half-open probe settlement — the SAME record_success /
+            # record_failure the WS/openai BackgroundRun path feeds, keyed by
+            # the same token, and after the events row is terminal. A fatal
+            # collection is a failed probe carrying the runtime's own error
+            # type/message, which is the vocabulary classify_agent_error
+            # knows (a bare str(e) would read as transient and re-arm the
+            # same delay forever). No-op without a token.
+            err = result.error
+            await settle_probe(
+                agent_id,
+                probe_token,
+                succeeded=not result.is_fatal,
+                error_type=err.error_type if err is not None else None,
+                error_message=err.error_message if err is not None else None,
+            )
             return result
         except CancelledByUser as e:
             if recorder is not None:
                 with suppress(Exception):
                     await recorder.finalize(STATE_CANCELLED, cancel_reason=e.reason)
+            # A stop says nothing about the credential: hand the probe back.
+            await settle_probe(agent_id, probe_token, succeeded=None)
             raise
         except Exception as e:
             if recorder is not None:
@@ -275,6 +303,13 @@ class InProcessAgentRuntimeClient:
                         error_type=type(e).__name__,
                         error_message=str(e),
                     )
+            await settle_probe(
+                agent_id,
+                probe_token,
+                succeeded=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             raise
         finally:
             # Host task cancelled mid-run (deploy restart, trigger

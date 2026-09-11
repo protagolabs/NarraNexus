@@ -2989,6 +2989,13 @@
         false
       ],
       [
+        "probe_claimed_at",
+        "TEXT",
+        "DATETIME(6)",
+        true,
+        false
+      ],
+      [
         "created_at",
         "TEXT",
         "DATETIME(6)",

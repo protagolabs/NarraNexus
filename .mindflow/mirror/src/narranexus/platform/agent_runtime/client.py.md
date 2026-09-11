@@ -24,6 +24,18 @@ events 行落地 `state=completed` + `error_message` 为空,Run-observation
 `test_run_and_collect_finalizes_failed_on_fatal_error_without_exception` +
 `test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
 
+
+## 2026-09-10（PR #394 review C1）— `run_and_collect(probe_token=)`：触发路径的探测结算接缝
+
+bus lane 与 patrol 会认领熔断器的半开探测，但不经 `BackgroundRun`，此前没人结算：死凭据
+每个 grant 周期重跑、延迟永不翻倍，修好的凭据回不到 ACTIVE。现在 `run_and_collect` 多一个
+显式参数 `probe_token`（不透传给 runtime），在 recorder 把 events 行写成终态**之后**调
+[[circuit_breaker]] 的 `settle_probe`：正常返回按 `RunCollection.is_fatal` 判成败，失败时的
+error_type/error_message 取 runtime 自己的 error 帧（熔断器分类认得的词表）；抛异常 → 失败
+（异常类名 + 文本）；`CancelledByUser` → 无结论归还。宿主 task 被 cancel 的出口不在这里结算，
+由调用方出口的 `release_probe` 兜住。无 token 时完全不碰熔断器（这些路径不记普通 streak）。
+锁：`tests/agent_runtime/test_client_probe_settlement.py`（死凭据 streak+1 且下次延迟翻倍、
+修好即 ACTIVE、抛异常算失败、停止即归还、无 token 不建行）。
 ## 2026-08-07 — 把触发树交给 recorder
 
 新增 `_inherited_root_run_id(extra_kwargs)`:从 `trigger_extra_data` 读出

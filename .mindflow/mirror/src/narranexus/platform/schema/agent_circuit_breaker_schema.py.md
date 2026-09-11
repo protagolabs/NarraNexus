@@ -26,6 +26,13 @@ Pydantic 定义，落在**独立表** `instance_agent_circuit_breaker`（键 age
 `BUSINESS` 是真正的残余桶（我们的 bug / 永久客户端错 / 认不出的），持续失败时**只报平台方、
 不发 owner**——把"我们的 bug"和"用户 provider 侧的问题"分开，避免拿自己的缺陷去骚扰用户。
 
+## 2026-09-10（PR #394 review I1）— 新增 `probe_claimed_at`；PROBING 只由持 token 者结算
+
+`probe_claimed_at: Optional[datetime]`：认领时刻，与 `probe_token` 同写同清。token 本身由
+赢得认领的 turn 在进程内携带并用于结算；这一列只服务崩溃窗口（认领者死了、token 随之消失）
+的兜底——只把「认领之后才开始」的存活 run 当作可能的认领者。`CbStatus.PROBING` 的注释改为
+「只有持 `probe_token` 的 turn 能结算」。
+
 ## 2026-09-10 — 状态机加 PROBING（半开）与 `probe_token`
 
 `CbStatus` 四态：ACTIVE → COOLING（退避）→ PAUSED（auth/quota 连续 3 次）→ **PROBING**
