@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 
 # Validate format of Lark identifiers (message_id, file_key, image_key)
 # before they enter the resource-fetch URL. Lark's actual IDs are
@@ -148,6 +149,12 @@ def _resolve_lark_cli() -> tuple[str, tuple[str, ...]]:
 # Keyed by (executable, domain): a per-agent LARK_CLI_BIN or an in-place CLI
 # upgrade under a long-lived local process must not serve a stale list.
 _SHORTCUT_CACHE: dict[tuple[str, str], tuple[str, ...]] = {}
+# A FAILED probe is remembered only briefly (monotonic time of the failure):
+# an agent looping on the same hallucinated domain while `--help` is broken
+# must not pay an extra spawn and up to _HELP_PROBE_TIMEOUT on every call,
+# yet a CLI repaired mid-process is picked up again after the window.
+_SHORTCUT_PROBE_FAILED_AT: dict[tuple[str, str], float] = {}
+_SHORTCUT_PROBE_RETRY_SEC = 60.0
 # Ceiling for the --help probe; the probe never waits longer than the call
 # that triggered it.
 _HELP_PROBE_TIMEOUT = 15.0
@@ -547,13 +554,17 @@ class LarkCLIClient:
         and never a longer wait than that call. A SUCCESSFUL probe is cached
         whatever it yielded — including an empty tuple (a domain without
         +shortcuts) — so a domain that has none does not cost a spawn on
-        every hallucinated call; a FAILED probe is not cached: the next
-        unknown-subcommand hit retries it. The probe runs with
+        every hallucinated call; a FAILED probe is not cached for good: hits
+        within ``_SHORTCUT_PROBE_RETRY_SEC`` of the failure skip the probe,
+        the first hit after that retries it. The probe runs with
         ``translate_unknown=False`` — the recursion guard."""
         key = (executable, domain)
         cached = _SHORTCUT_CACHE.get(key)
         if cached is not None:
             return cached
+        failed_at = _SHORTCUT_PROBE_FAILED_AT.get(key)
+        if failed_at is not None and time.monotonic() - failed_at < _SHORTCUT_PROBE_RETRY_SEC:
+            return ()
         probe = await self._exec_lark_cli(
             [executable, domain, "--help"],
             "",
@@ -567,7 +578,9 @@ class LarkCLIClient:
                 f"[lark-cli] could not read `{domain} --help` for the shortcut "
                 f"list: {probe.get('error')}"
             )
+            _SHORTCUT_PROBE_FAILED_AT[key] = time.monotonic()
             return ()
+        _SHORTCUT_PROBE_FAILED_AT.pop(key, None)
         data = probe.get("data")
         text = data.get("raw_output", "") if isinstance(data, dict) else ""
         shortcuts = _parse_help_shortcuts(text)

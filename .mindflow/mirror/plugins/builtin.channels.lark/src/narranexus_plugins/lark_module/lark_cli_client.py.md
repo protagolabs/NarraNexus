@@ -14,8 +14,10 @@ agent 拿到后只能再盲猜一次。`_exec_lark_cli` 在非零退出分支识
 跑一次 `lark-cli <domain> --help`（`_domain_shortcuts`，按 `(executable, domain)` 缓存于
 `_SHORTCUT_CACHE`——per-agent `LARK_CLI_BIN` 或本地原地升级 CLI 不会拿到过期列表；**探测成功就缓存，
 含空元组**（该域没有 +shortcut、或 help 走了 JSON 没有 `raw_output`：2026-09-10 二轮 review Minor 1/M4，
-之前空结果不缓存 = 每次盲猜都多 spawn 一次探测，且静默；现在空结果打一条 warning 并缓存）；探测**失败**不缓存
-下次重试；超时取 `min(触发调用的 timeout, 15s)`；探测本身以 `translate_unknown=False` 调
+之前空结果不缓存 = 每次盲猜都多 spawn 一次探测，且静默；现在空结果打一条 warning 并缓存）；探测**失败**不永久缓存：
+失败时刻记进 `_SHORTCUT_PROBE_FAILED_AT`，`_SHORTCUT_PROBE_RETRY_SEC`（60s）内同 key 再撞直接不探测（PR#392 复审 M5：
+否则 `--help` 坏掉时 agent 每次幻觉都多一次 spawn + 最多 15s 等待），窗口过后下一次重试，探测成功即清掉失败记录
+（`test_probe_that_fails_the_same_way_does_not_recurse` 钉 2→3→5 次 spawn）；超时取 `min(触发调用的 timeout, 15s)`；探测本身以 `translate_unknown=False` 调
 `_exec_lark_cli`——**递归守卫**：若某 CLI 对 `--help` 也回同形状错误，不加守卫就是无界递归，
 测试用 `broken` 域钉住「恰好两次 spawn、返回 ()」），`_parse_help_shortcuts` 只取 `Available Commands:` 块里以 `+` 开头的行
 （`service.resource` 原始资源行不算——agent 用的是 `+` 语法），返回结构化错误：`error` 正文列出

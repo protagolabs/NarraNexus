@@ -100,6 +100,7 @@ def fake_cli(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(mod, "_LARK_CLI_BIN", None)
     monkeypatch.setattr(mod, "_LARK_EXTRA_PATH", None)
     monkeypatch.setattr(mod, "_SHORTCUT_CACHE", {})
+    monkeypatch.setattr(mod, "_SHORTCUT_PROBE_FAILED_AT", {})
     yield tmp_path
 
 
@@ -149,9 +150,15 @@ async def test_probe_that_fails_the_same_way_does_not_recurse(fake_cli):
     assert result["error_data"]["shortcuts_unavailable"] is True
     assert result["error_data"]["domain"] == "broken"
     assert _spawns(fake_cli) == 2
-    # Not cached: a later hit probes again (still bounded to one probe).
+    # Within the retry window a later hit does not re-probe: one spawn.
     await _run(["broken", "+again"])
-    assert _spawns(fake_cli) == 4
+    assert _spawns(fake_cli) == 3
+    # Not cached for good: once the window has passed, the next hit probes
+    # again (still bounded to one probe).
+    for key in list(mod._SHORTCUT_PROBE_FAILED_AT):
+        mod._SHORTCUT_PROBE_FAILED_AT[key] -= mod._SHORTCUT_PROBE_RETRY_SEC
+    await _run(["broken", "+later"])
+    assert _spawns(fake_cli) == 5
 
 
 @pytest.mark.asyncio
