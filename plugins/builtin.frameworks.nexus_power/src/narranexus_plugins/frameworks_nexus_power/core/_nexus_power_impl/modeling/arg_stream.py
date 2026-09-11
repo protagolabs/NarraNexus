@@ -26,6 +26,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+def scrub_surrogates(text: str) -> str:
+    """Make ``text`` strictly UTF-8 encodable: join adjacent surrogate
+    halves into their astral char, replace unpaired halves with U+FFFD.
+
+    ``json.loads`` keeps a lone ``\\uD8XX`` escape as a lone surrogate;
+    every ``ensure_ascii=False`` writer then dies on it with
+    ``'utf-8' codec can't encode ... surrogates not allowed``.
+    """
+    if not any("\ud800" <= ch <= "\udfff" for ch in text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
 @dataclass(frozen=True)
 class FieldDelta:
     """One newly-safe fragment of a declared argument field."""
@@ -34,6 +47,10 @@ class FieldDelta:
     field_path: str
     text: str
 
+
+#: What an unpaired UTF-16 surrogate decodes to — mirrors
+#: ``scrub_surrogates`` so streamed text still equals the scrubbed final.
+_REPLACEMENT = "\ufffd"
 
 _ESCAPES = {
     '"': '"',
@@ -70,6 +87,12 @@ class StreamingArgExtractor:
         self._streaming_field: str | None = None
         self._escape = False
         self._unicode_hex: list[str] | None = None  # collecting \uXXXX digits
+        # High half of a UTF-16 surrogate pair awaiting its low half.
+        # Providers that ASCII-escape tool arguments (MiniMax) send every
+        # astral char (emoji) as ``\ud83d\udc4b``; decoding each escape
+        # alone yields lone surrogates that crash any strict UTF-8 encode
+        # downstream (event log, stdout pipe, Matrix send).
+        self._pending_high: int | None = None
         self._expect_key = False
 
     @property
@@ -149,6 +172,7 @@ class StreamingArgExtractor:
             final = complete_args.get(field)
             if not isinstance(final, str):
                 continue
+            final = scrub_surrogates(final)
             emitted = self._emitted.get(field, "")
             if final.startswith(emitted) and len(final) > len(emitted):
                 remainder = final[len(emitted):]
@@ -170,26 +194,49 @@ class StreamingArgExtractor:
             self._unicode_hex.append(ch)
             if len(self._unicode_hex) == 4:
                 try:
-                    decoded = chr(int("".join(self._unicode_hex), 16))
+                    code = int("".join(self._unicode_hex), 16)
                 except ValueError:
-                    decoded = ""
+                    code = None
                 self._unicode_hex = None
-                self._emit_char(decoded, out)
+                if code is None:
+                    self._flush_pending_high(out)
+                elif 0xD800 <= code <= 0xDBFF:
+                    self._flush_pending_high(out)
+                    self._pending_high = code
+                elif 0xDC00 <= code <= 0xDFFF and self._pending_high is not None:
+                    high, self._pending_high = self._pending_high, None
+                    self._emit_char(
+                        chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00)), out
+                    )
+                elif 0xDC00 <= code <= 0xDFFF:
+                    self._emit_char(_REPLACEMENT, out)
+                else:
+                    self._flush_pending_high(out)
+                    self._emit_char(chr(code), out)
             return
         if self._escape:
             self._escape = False
             if ch == "u":
                 self._unicode_hex = []
                 return
+            self._flush_pending_high(out)
             self._emit_char(_ESCAPES.get(ch, ch), out)
             return
         if ch == "\\":
             self._escape = True
             return
+        self._flush_pending_high(out)
         if ch == '"':
             self._in_string = False
             return
         self._emit_char(ch, out)
+
+    def _flush_pending_high(self, out: list[str]) -> None:
+        """A high surrogate not followed by its low half is unencodable:
+        surface U+FFFD instead of a lone surrogate."""
+        if self._pending_high is not None:
+            self._pending_high = None
+            self._emit_char(_REPLACEMENT, out)
 
     def _emit_char(self, ch: str, out: list[str]) -> None:
         if self._string_is_key:

@@ -19,6 +19,9 @@ from dataclasses import asdict
 from typing import Any, Awaitable, Callable
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.events import LoopEvent
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+    scrub_surrogates,
+)
 
 AsyncSink = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -62,8 +65,11 @@ class NullEventLogWriter:
 
 
 def ndjson_line(row: dict[str, Any]) -> str:
-    """One NDJSON line (no length assumptions — readers must buffer)."""
-    return json.dumps(row, ensure_ascii=False, default=str)
+    """One NDJSON line (no length assumptions — readers must buffer).
+
+    Scrubbed so a lone surrogate anywhere in a payload can never make the
+    UTF-8 file write raise and kill the turn — logging is pass-through."""
+    return scrub_surrogates(json.dumps(row, ensure_ascii=False, default=str))
 
 
 #: How many turn logs a directory keeps. One file per turn accumulates in

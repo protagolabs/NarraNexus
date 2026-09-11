@@ -205,6 +205,9 @@ def main() -> None:
     from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
         QueueSteeringInlet,
     )
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
+        ndjson_line,
+    )
 
     async def _run() -> int:
         # This process runs the turn: the framework's own seats
@@ -236,7 +239,7 @@ def main() -> None:
 
         async def write_line(obj: dict[str, Any]) -> None:
             async with writer_lock:
-                sys.stdout.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
+                sys.stdout.write(ndjson_line(obj) + "\n")
                 sys.stdout.flush()
 
         # Live steering: a daemon thread does the blocking reads of any FURTHER
