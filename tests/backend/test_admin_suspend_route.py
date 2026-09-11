@@ -177,7 +177,7 @@ async def test_reinstate_restores_active_and_audits(db_client, monkeypatch):
     )
 
     assert resp.status_code == 200
-    assert resp.json() == {"reinstated": True}
+    assert resp.json() == {"reinstated": True, "jobs_resumed": 0, "jobs_resume_error": None}
 
     row = await db_client.get_one("users", {"user_id": UID})
     assert row["status"] == "active"
@@ -295,20 +295,26 @@ async def test_secret_not_configured_is_503(db_client, monkeypatch):
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 
 
-async def _seed_job(db_client, job_id, user_id, status="active", related_entity_id=None):
+async def _seed_job(db_client, job_id, user_id, status="active", related_entity_id=None,
+                    paused_reason=None, trigger_config=SCHEDULED_TRIGGER, job_type="scheduled"):
     row = {
         "job_id": job_id,
         "instance_id": f"ins_{job_id}",
         "agent_id": "agent_1",
         "user_id": user_id,
         "title": "t", "description": "d", "payload": "p",
-        "job_type": "scheduled",
-        "trigger_config": SCHEDULED_TRIGGER,
+        "job_type": job_type,
+        "trigger_config": trigger_config,
         "status": status,
         "notification_method": "inbox",
+        # A stale fire from before the suspension: a blind ACTIVE flip would
+        # make get_due_jobs replay it immediately.
+        "next_run_time": "2020-01-01 00:00:00",
     }
     if related_entity_id:
         row["related_entity_id"] = related_entity_id
+    if paused_reason is not None:
+        row["paused_reason"] = paused_reason
     await db_client.insert("instance_jobs", row)
 
 
@@ -465,3 +471,131 @@ async def test_suspend_survives_a_job_pause_failure_and_still_audits(db_client, 
     # The job is left for the poller's own account gate.
     job = await db_client.get_one("instance_jobs", {"job_id": "job_1"})
     assert job["status"] == "active"
+
+
+
+# ---- review r2 I-B: reinstate undoes exactly what suspend paused ----
+
+async def _reinstate(app, uid=UID):
+    return await _post(
+        app, "/api/admin/reinstate", json={"user_id": uid}, headers={"X-Admin-Secret": SECRET},
+    )
+
+
+async def _job(db_client, job_id):
+    return await db_client.get_one("instance_jobs", {"job_id": job_id})
+
+
+@pytest.mark.asyncio
+async def test_suspend_then_reinstate_resumes_the_paused_jobs_forward(db_client, monkeypatch):
+    from datetime import datetime, timezone
+
+    await _seed_user(db_client)
+    await _seed_user(db_client, user_id="u_owner_ok")
+    await _seed_job(db_client, "job_own", UID, status="active")
+    await _seed_job(db_client, "job_delegated", "u_owner_ok", status="pending", related_entity_id=UID)
+    await _seed_job(db_client, "job_user_paused", UID, status="paused", paused_reason="user")
+    app = _make_app(db_client, monkeypatch)
+
+    suspended = await _post(
+        app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+    assert suspended.json()["jobs_paused"] == 2
+
+    resp = await _reinstate(app)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"reinstated": True, "jobs_resumed": 2, "jobs_resume_error": None}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for job_id in ("job_own", "job_delegated"):
+        row = await _job(db_client, job_id)
+        assert row["status"] == "active"
+        assert row["paused_reason"] is None
+        # Scheduled forward from now: the fires missed while suspended are
+        # not replayed (the seeded 2020 next_run_time is gone).
+        nrt = row["next_run_time"]
+        nrt = datetime.fromisoformat(str(nrt)) if not isinstance(nrt, datetime) else nrt
+        assert nrt.replace(tzinfo=None) > now
+    # The user's own pause survives both halves.
+    row = await _job(db_client, "job_user_paused")
+    assert (row["status"], row["paused_reason"]) == ("paused", "user")
+
+
+@pytest.mark.asyncio
+async def test_reinstate_leaves_non_suspension_pauses_alone(db_client, monkeypatch):
+    await _seed_user(db_client, status="banned")
+    await _seed_user(db_client, user_id="u_principal_ok")
+    await _seed_job(db_client, "job_user", UID, status="paused", paused_reason="user")
+    await _seed_job(db_client, "job_null", UID, status="paused")
+    await _seed_job(db_client, "job_quota", UID, status="paused_no_quota")
+    await _seed_job(db_client, "job_runs_as_other", UID, status="paused", paused_reason="banned",
+                    related_entity_id="u_principal_ok")
+    await _seed_job(db_client, "job_gate_banned", UID, status="paused", paused_reason="banned")
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _reinstate(app)
+
+    assert resp.json()["jobs_resumed"] == 1
+    assert (await _job(db_client, "job_gate_banned"))["status"] == "active"
+    assert (await _job(db_client, "job_user"))["status"] == "paused"
+    assert (await _job(db_client, "job_null"))["status"] == "paused"
+    assert (await _job(db_client, "job_quota"))["status"] == "paused_no_quota"
+    assert (await _job(db_client, "job_runs_as_other"))["status"] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_reinstate_completes_a_job_already_past_its_end_at(db_client, monkeypatch):
+    await _seed_user(db_client, status="banned")
+    await _seed_job(
+        db_client, "job_expired", UID, status="paused", paused_reason="banned",
+        trigger_config='{"cron":"0 8 * * *","timezone":"Asia/Shanghai","end_at":"2021-01-01T00:00:00"}',
+    )
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _reinstate(app)
+
+    assert resp.json()["jobs_resumed"] == 0
+    row = await _job(db_client, "job_expired")
+    assert row["status"] == "completed"
+    assert row["next_run_time"] is None
+
+
+@pytest.mark.asyncio
+async def test_reinstate_survives_a_job_resume_failure_and_still_audits(db_client, monkeypatch):
+    from narranexus.platform.repository.job_repository import JobRepository
+
+    await _seed_user(db_client, status="banned")
+    await _seed_job(db_client, "job_1", UID, status="paused", paused_reason="banned")
+    app = _make_app(db_client, monkeypatch)
+
+    async def _boom(self, *args, **kwargs):
+        raise RuntimeError("instance_jobs unavailable")
+
+    monkeypatch.setattr(JobRepository, "get_jobs_paused_for_execution_principal", _boom)
+
+    resp = await _reinstate(app)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reinstated"] is True and body["jobs_resumed"] == 0
+    assert "instance_jobs unavailable" in body["jobs_resume_error"]
+    assert (await db_client.get_one("users", {"user_id": UID}))["status"] == "active"
+    audit = await db_client.get("ban_audit", {"user_id": UID})
+    assert [a["action"] for a in audit] == ["reinstate"]
+    assert (await _job(db_client, "job_1"))["status"] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_reinstate_reports_when_builtin_job_is_not_loaded(db_client, monkeypatch):
+    import backend.routes.admin.suspend as mod
+
+    await _seed_user(db_client, status="banned")
+    await _seed_job(db_client, "job_1", UID, status="paused", paused_reason="banned")
+    app = _make_app(db_client, monkeypatch)
+    monkeypatch.setattr(mod, "try_job_resume_for_principal", lambda: None)
+
+    resp = await _reinstate(app)
+
+    body = resp.json()
+    assert body["reinstated"] is True and body["jobs_resumed"] == 0
+    assert "builtin.job is not loaded" in body["jobs_resume_error"]

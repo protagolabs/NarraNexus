@@ -4,6 +4,26 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r2 I-B + M-b）— reinstate 的读半边 + pause 不再改写已暂停 job 的 reason
+
+- 新 `get_jobs_paused_for_execution_principal(user_id, paused_reasons)`：
+  `WHERE (与 pause 逐字相同的执行主体谓词) AND status = 'paused' AND paused_reason IN (...) ORDER BY id`，
+  无行数上限（调用方要恢复的是整批）。status 与 reason **同时钉住**：用户自停（`'user'`）、NULL / 空串
+  reason、quota/spend 暂停、其它执行主体都不会被选中；`paused_reasons` 为空直接返回 `[]`。供
+  [[job_recovery]] 的 `resume_jobs_paused_for_principal`（admin reinstate）使用。
+- `pause_jobs_for_execution_principal` 的排除条件从「终态 + 已因同一 reason 暂停（COALESCE）」改为
+  「终态 + **任何** `paused`」：r1 会把用户自停/NULL reason 的 job 改写成 `banned`，配上 reinstate 的
+  reason 过滤就等于解封时把用户自己的暂停一并恢复。COALESCE 分支随之删除。
+- **M-b SQLite 前提**：`paused_at` / `updated_at` 以 `to_datetime6_literal` 写成
+  `YYYY-MM-DD HH:MM:SS.ffffff`（空格），而 SQLite 下其它 `updated_at` 写入走 ISO-8601 adapter（带 `T`）；
+  同列两种文本形态按字符串排序时 `' ' < 'T'`，所以**仅 SQLite** 上 `get_jobs_by_entity_id` /
+  `get_jobs_by_status` 的 `ORDER BY updated_at` 对这些行的相对位置可能偏。MySQL 是真 DATETIME(6)，
+  dev/prod 不受影响。
+锁：`tests/repository/test_job_repository_pause_principal.py`（`test_already_paused_jobs_keep_their_own_reason`、
+`test_reinstate_read_*` 三条、含 `related_entity_id=''`/NULL 与空串/NULL reason）+ `_mysql` twin
+（`test_reinstate_read_on_mysql`，pause 断言改为已暂停行保持原 reason）。
+
+
 ## 2026-09-10（review r1 I5）— 四个「活跃 job」读改用 `LIVE_JOB_STATUSES`
 
 `find_active_by_title` / `get_active_jobs_by_narrative` / `get_active_jobs_by_agent` /
@@ -24,12 +44,11 @@ admin suspend（[[suspend]]）原来 `get_jobs_by_user(user_id, limit=500)` 再�
 `banned`，两个组件对同一条 job 判断相反；(b) 静默截断 500（刷 job 的马甲正是超 500 的那种）
 且 N 次往返。新方法一条语句：
 `WHERE (related_entity_id = ? OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = ?))
-AND status NOT IN (三终态) AND NOT (status = 'paused' AND COALESCE(paused_reason,'') = ?)`，
-返回 rowcount。`COALESCE` 是必须的：`paused_reason` 为 NULL 时 `NOT (… AND NULL = ?)` 是三值逻辑的
-NULL，会把这行悄悄漏掉。已经因同一 reason 暂停的行跳过（保留原 `paused_at`）；`paused_at` /
+AND status NOT IN (三终态)` + 「已暂停」排除（r1 为 COALESCE 同 reason 排除，r2 I-B 改为排除任何 `paused`，见顶部），
+返回 rowcount。`paused_at` /
 `updated_at` 用 `to_datetime6_literal` 字面量传参，两方言都不依赖驱动侧 datetime adapter。
 裸 SQL 配双方言：`tests/repository/test_job_repository_pause_principal.py`（含 520 行无上限、
-NULL reason 重贴标签、委托执行正反两例）+ `_mysql` twin（谓词 / COALESCE / 字面量 / rowcount）。
+委托执行正反两例）+ `_mysql` twin（谓词 / 字面量 / rowcount）。
 
 ## 2026-09-09 — B-16：`create_job` 加 `status` 参数 + BLOCKED 纳入激活集合
 

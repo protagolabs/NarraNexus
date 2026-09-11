@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/utils/plugin_services.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 I-B）— `try_job_resume_for_principal()`
+
+与 `try_job_run_once` 同形：`try_require(JOB_RESUME_FOR_PRINCIPAL)`，builtin.job 关闭时返回 None。唯一调用方是
+`backend/routes/admin/suspend.py` 的 reinstate（恢复封号暂停的 job）。
+
 
 ## 2026-09-07 — 文档改回事实：服务由 boot 注册，没 boot 就响亮地报错
 

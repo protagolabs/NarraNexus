@@ -13,7 +13,7 @@ Responsibilities:
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Any, Iterable, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -511,14 +511,21 @@ class JobRepository(BaseRepository[JobModel]):
 
         Skips terminal jobs (they never run again; overwriting COMPLETED /
         CANCELLED / FAILED with PAUSED would misreport why they stopped) and
-        jobs already paused for this very reason (keeps their original
-        `paused_at`; `COALESCE` so a paused row with a NULL reason is still
-        re-labelled rather than dropped by three-valued logic).
+        every job already in `status='paused'`, whatever its reason (review r2
+        I-B): a paused job does not run anyway, and keeping its own
+        `paused_reason` (e.g. 'user') is what lets reinstate resume ONLY the
+        jobs this suspension paused (`get_jobs_paused_for_execution_principal`
+        pins the reason). Relabelling a user-paused job to the suspension
+        reason would make reinstate un-pause something the user paused.
 
-        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders,
-        `COALESCE`); timestamps travel as DATETIME(6) literals so neither
-        backend depends on a driver-side datetime adapter. Twins:
-        tests/repository/test_job_repository_pause_principal.py + `_mysql`.
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders);
+        timestamps travel as DATETIME(6) literals so neither backend depends
+        on a driver-side datetime adapter. SQLite caveat: those literals are
+        `YYYY-MM-DD HH:MM:SS.ffffff` (space) while the SQLite adapter writes
+        other `updated_at` values as ISO-8601 (`T`), so on SQLite only, text
+        `ORDER BY updated_at` can misplace these rows relative to others
+        (' ' < 'T'). MySQL stores a real DATETIME(6) and is unaffected.
+        Twins: tests/repository/test_job_repository_pause_principal.py + `_mysql`.
         """
         logger.debug(f"    → JobRepository.pause_jobs_for_execution_principal({user_id})")
         stamp = to_datetime6_literal(paused_at or utc_now())
@@ -529,8 +536,7 @@ class JobRepository(BaseRepository[JobModel]):
                 related_entity_id = %s
                 OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
             )
-            AND status NOT IN (%s, %s, %s)
-            AND NOT (status = %s AND COALESCE(paused_reason, '') = %s)
+            AND status NOT IN (%s, %s, %s, %s)
         """
         result = await self._db.execute(
             query,
@@ -545,11 +551,54 @@ class JobRepository(BaseRepository[JobModel]):
                 JobStatus.CANCELLED.value,
                 JobStatus.FAILED.value,
                 JobStatus.PAUSED.value,
-                paused_reason,
             ),
             fetch=False,
         )
         return result if isinstance(result, int) else 0
+
+    async def get_jobs_paused_for_execution_principal(
+        self,
+        user_id: str,
+        paused_reasons: Iterable[str],
+    ) -> List[JobModel]:
+        """Every job that would EXECUTE as `user_id` and sits in
+        `status='paused'` with a `paused_reason` in `paused_reasons` — the
+        read half of undoing an account suspension (review r2 I-B).
+
+        The principal predicate is character-for-character the one
+        `pause_jobs_for_execution_principal` uses (`related_entity_id`, else
+        `user_id` when related_entity_id is NULL or ''), so reinstate selects
+        exactly the population suspend paused and nothing else. Both the
+        status AND the reason are pinned: a job the user paused themselves
+        (`paused_reason='user'`), one paused for quota / spend / anything
+        else, or one with a NULL reason (never written by a suspension; NULL
+        never matches `IN (...)`) is never returned. No row ceiling: the
+        caller must see the whole set it is about to resume.
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders).
+        Twins: tests/repository/test_job_repository_pause_principal.py + `_mysql`.
+        """
+        reasons = sorted({r for r in paused_reasons if r})
+        if not reasons:
+            return []
+        logger.debug(f"    → JobRepository.get_jobs_paused_for_execution_principal({user_id})")
+        placeholders = ", ".join(["%s"] * len(reasons))
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE (
+                related_entity_id = %s
+                OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
+            )
+            AND status = %s
+            AND paused_reason IN ({placeholders})
+            ORDER BY id ASC
+        """
+        rows = await self._db.execute(
+            query,
+            params=(user_id, user_id, JobStatus.PAUSED.value, *reasons),
+            fetch=True,
+        )
+        return [self._row_to_entity(row) for row in rows] if rows else []
 
     async def update_job_status(
         self,

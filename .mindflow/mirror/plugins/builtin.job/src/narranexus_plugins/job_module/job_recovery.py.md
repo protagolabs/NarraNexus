@@ -4,6 +4,20 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r2 I-B）— `resume_jobs_paused_for_principal`：解封时恢复封号暂停的 job
+
+`resume_jobs_paused_for_principal(db, user_id, paused_reasons) -> int`，经 `jobs.resume_for_principal`
+服务（[[services]]）暴露给 `POST /api/admin/reinstate`（[[suspend.py]]）。用
+`JobRepository.get_jobs_paused_for_execution_principal` 取「以该用户身份执行、`paused` 且 reason 在给定集合」
+的 job——与 suspend 的暂停人群互为逆。每条都走 job 层恢复，绝不盲翻 ACTIVE（封禁期间 `next_run_time`
+已成过去时，盲翻会被 `get_due_jobs` 立刻捞走补跑）：先 `compute_next_run(last_run_utc=now)`，周期 job 若
+下次触发越过 `end_at`（`past_schedule_horizon`）→ COMPLETED + `clear_next_run` + 实例
+`InstanceRepository.update_status(COMPLETED)`，与 [[job_trigger]] 的 `_rearm_cooled_jobs` /
+`_resume_spend_capped_jobs` 同规则，不计入返回数；其余调用 `resume_job`（重算 next_run、清
+`paused_reason`/`cooldown_until`/失败计数、ACTIVE）。仓库异常直接抛出，best-effort 策略归调用方。
+注：用户手动的 `resume_job` 本身仍不做 `end_at` 判定（既有行为，本次未改）。
+
+
 ## 2026-09-10（review r1 I11）— `_TIME_FIELDS` → `_RESCHEDULE_FIELDS`，从 `TriggerConfig.TIME_BEARING_FIELDS` 派生
 
 不再手抄一份时间字段清单：`_RESCHEDULE_FIELDS = TIME_BEARING_FIELDS − {end_at} + {timezone}`。

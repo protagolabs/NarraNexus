@@ -4,6 +4,31 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r2 I-B）— 封号与解封对称：reinstate 恢复 suspend 暂停的那批 job
+
+r1 之后 suspend 会把执行主体名下所有非终态 job 打成 `paused/banned`，而 reinstate 只翻
+`users.status`，一条都不恢复——误封后即便 5 分钟内解封，用户的晨报/心跳 job 也全部永久停跑且无任何
+信号。**最终语义（两半对称）**：
+- **suspend**（仅当本次请求把账户切进停用态，`not already`）：`JobRepository.pause_jobs_for_execution_principal`
+  暂停以该用户身份执行的非终态、**且当前不是 `paused`** 的 job，写 `paused_reason="banned"`。已经
+  `paused` 的 job（用户自己暂停的 `'user'`、或 reason 为 NULL）**不再被改写 reason**——否则解封时会把
+  用户自己的暂停一并恢复。对已停用账户重复 suspend 不补暂停；仍在跑的 job 由 [[job_trigger]] 的逐 job
+  门在下次到期时拦下（门写入的 reason 是账户实际状态）。
+- **reinstate**（仅 `BANNED → ACTIVE`）：在 `update_user → 审计 → 清缓存` 之后，最后一步 best-effort
+  调 `_resume_jobs_for_reinstated_principal` → builtin.job 的 `jobs.resume_for_principal` 服务
+  （`job_recovery.resume_jobs_paused_for_principal`）。只选 **`status='paused'` 且 `paused_reason ∈
+  NON_TRANSACTING_USER_STATUSES`**（banned/blocked/deleted——suspend 与 poller 门写的全部取值）、执行主体
+  谓词与 pause 逐字相同的 job；每条走 job 层恢复而非盲翻状态：`compute_next_run` 从**现在**起算（封禁期间
+  错过的触发不补跑），越过 `end_at` 的周期 job 改判 COMPLETED（清 `next_run_time`、实例标 completed），
+  其余走 `resume_job`（清暂停/退避状态、ACTIVE）。
+- **响应体**：`ReinstateResponse` 新增 `jobs_resumed: int`、`jobs_resume_error: Optional[str]`（additive）。
+  恢复失败或 builtin.job 未加载时账户照样恢复、审计照写，错误写进 `jobs_resume_error`，不静默；遗留的
+  job 用户仍可在 Jobs 面板逐条恢复。
+锁：`test_suspend_then_reinstate_resumes_the_paused_jobs_forward`（往返 + `next_run_time` 向前 + 用户自停
+保持）、`test_reinstate_leaves_non_suspension_pauses_alone`、`test_reinstate_completes_a_job_already_past_its_end_at`、
+`test_reinstate_survives_a_job_resume_failure_and_still_audits`、`test_reinstate_reports_when_builtin_job_is_not_loaded`。
+
+
 ## 2026-09-10（review r1 I2/I3/I4）— job 暂停改为最后一步、best-effort、按执行主体批量
 
 三条复审意见一次落地：
@@ -35,7 +60,7 @@ stub: false
 **修法**（顺序与选行口径已于 2026-09-10 修订，见上一节）：`suspend_account` 在
 `not already` 时调用 `_pause_jobs_for_suspended_principal(db, user_id)`——同一个请求、
 同一次调用栈内完成，不等下一次 job poll。跳过终态 job（`completed`/`cancelled`/`failed`，反正不会
-再跑）和已经是 `paused_reason="banned"` 的 job（幂等）。用 `JobStatus.PAUSED` +
+再跑）和已经是 `paused_reason="banned"` 的 job（幂等；2026-09-10 r2 I-B 起改为跳过**所有**已 `paused` 的 job，见顶部）。用 `JobStatus.PAUSED` +
 `paused_reason="banned"`，不是新状态值——`paused_reason` 是自由字符串字段
 （`max_length=32`），加一个新取值是纯 additive 变更，不碰 schema。
 

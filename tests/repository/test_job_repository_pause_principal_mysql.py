@@ -3,9 +3,10 @@
 @author: Bin Liang
 @date: 2026-09-10
 @description: Real-MySQL twin for `JobRepository.pause_jobs_for_execution_principal`
-(B-13, review I2/I3): the OR/IS NULL principal predicate, `COALESCE` in the
-NOT(...) clause, the DATETIME(6) literal for paused_at/updated_at and the
-UPDATE rowcount on the real dialect. Enable with NARRANEXUS_MYSQL_TEST_URL.
+(B-13, review I2/I3) and its inverse read
+`get_jobs_paused_for_execution_principal` (review r2 I-B): the OR/IS NULL
+principal predicate, the DATETIME(6) literal for paused_at/updated_at, the
+UPDATE rowcount and the `paused_reason IN (...)` filter on the real dialect. Enable with NARRANEXUS_MYSQL_TEST_URL.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ pytestmark = pytest.mark.skipif(
     not mysql_configured(),
     reason=skip_reason(
         "that the batched principal-scoped UPDATE behind an account suspension "
-        "(OR / IS NULL predicate, COALESCE, DATETIME(6) literals, rowcount) "
+        "(OR / IS NULL predicate, DATETIME(6) literals, rowcount) and the reinstate read "
         "behaves on the real MySQL dialect"
     ),
 )
@@ -83,10 +84,10 @@ async def test_principal_predicate_and_rowcount_on_mysql(mysql_client):
 
     paused = await JobRepository(mysql_client).pause_jobs_for_execution_principal(BANNED, "banned")
 
-    assert paused == 3  # own + delegated + null_reason
+    assert paused == 2  # own + delegated; already-paused rows keep their reason
     assert await _status(mysql_client, "own") == ("paused", "banned")
     assert await _status(mysql_client, "delegated") == ("paused", "banned")
-    assert await _status(mysql_client, "null_reason") == ("paused", "banned")
+    assert await _status(mysql_client, "null_reason") == ("paused", None)
     assert await _status(mysql_client, "runs_as_other") == ("active", None)
     assert (await _status(mysql_client, "done"))[0] == "completed"
     assert await _status(mysql_client, "other") == ("active", None)
@@ -101,3 +102,26 @@ async def test_second_call_is_a_no_op_on_mysql(mysql_client):
 
     assert await repo.pause_jobs_for_execution_principal(BANNED, "banned") == 1
     assert await repo.pause_jobs_for_execution_principal(BANNED, "banned") == 0
+
+
+@pytest.mark.asyncio
+async def test_reinstate_read_on_mysql(mysql_client):
+    await _seed_job(mysql_client, "own", BANNED, status="paused", paused_reason="banned")
+    await _seed_job(mysql_client, "own_empty_rel", BANNED, status="paused", paused_reason="banned",
+                    related_entity_id="")
+    await _seed_job(mysql_client, "delegated", OTHER, status="paused", paused_reason="banned",
+                    related_entity_id=BANNED)
+    await _seed_job(mysql_client, "gate_deleted", BANNED, status="paused", paused_reason="deleted")
+    await _seed_job(mysql_client, "user_paused", BANNED, status="paused", paused_reason="user")
+    await _seed_job(mysql_client, "null_reason", BANNED, status="paused")
+    await _seed_job(mysql_client, "runs_as_other", BANNED, status="paused", paused_reason="banned",
+                    related_entity_id=OTHER)
+    await _seed_job(mysql_client, "active", BANNED, status="active")
+
+    jobs = await JobRepository(mysql_client).get_jobs_paused_for_execution_principal(
+        BANNED, ("banned", "blocked", "deleted"),
+    )
+
+    assert sorted(j.job_id for j in jobs) == sorted(
+        f"{_PREFIX}_{n}" for n in ("own", "own_empty_rel", "delegated", "gate_deleted")
+    )

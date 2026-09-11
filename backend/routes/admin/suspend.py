@@ -9,7 +9,8 @@ caller. This module holds NO policy: it does not decide who should be
 suspended or why. It exposes three self-credentialed operations —
 
     POST /api/admin/suspend           set account state to suspended
-    POST /api/admin/reinstate         return account state to active
+    POST /api/admin/reinstate         return account state to active (and resume
+                                      the jobs the suspension paused)
     GET  /api/admin/account-state/{user_id}   read current account state
 
 — each gated on the platform ``admin_secret_key`` via an ``X-Admin-Secret``
@@ -31,6 +32,7 @@ from pydantic import BaseModel, Field
 # helper reads the same ``settings`` singleton object.
 from narranexus.platform.settings import settings  # noqa: F401
 from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.plugin_services import try_job_resume_for_principal
 from narranexus.platform.utils.timezone import utc_now
 from narranexus.platform.repository.user_repository import UserRepository
 from narranexus.platform.repository.job_repository import JobRepository
@@ -74,10 +76,14 @@ async def _pause_jobs_for_suspended_principal(db, user_id: str) -> tuple[int, Op
     One batched UPDATE selected by execution principal
     (`JobRepository.pause_jobs_for_execution_principal`, review I2/I3) —
     the identity the run would use, which is what the poller judges too.
-    `paused_reason="banned"` marks these as never auto-resumable — the only
-    way back is `POST /api/admin/reinstate` (which does not itself resume
-    jobs; a reinstated user's jobs are resumed the ordinary way, same as any
-    other paused job).
+    `paused_reason="banned"` marks these as never auto-resumable by the
+    poller; `POST /api/admin/reinstate` is the way back and resumes exactly
+    this population (`_resume_jobs_for_reinstated_principal`, review r2 I-B).
+
+    Only called when THIS request moved the account into a suspended state.
+    Re-suspending an account that is already non-transacting pauses nothing
+    here; any of its jobs still live are caught by the poller's per-job gate
+    on their next due cycle.
     """
     try:
         paused = await JobRepository(db).pause_jobs_for_execution_principal(
@@ -87,6 +93,41 @@ async def _pause_jobs_for_suspended_principal(db, user_id: str) -> tuple[int, Op
     except Exception as e:  # noqa: BLE001 — the poller gate is the durable backstop
         err = f"{type(e).__name__}: {e}"
         logger.warning(f"[suspend] job pause failed for {user_id}: {err}")
+        return 0, err
+
+
+async def _resume_jobs_for_reinstated_principal(db, user_id: str) -> tuple[int, Optional[str]]:
+    """Best-effort: resume the jobs an account suspension paused (review r2
+    I-B). Returns `(resumed_count, error)`; never raises.
+
+    The exact inverse of `_pause_jobs_for_suspended_principal`: jobs that
+    execute as `user_id`, in `status='paused'`, whose `paused_reason` is one
+    of the non-transacting account states — the only reasons a suspension
+    writes (this route writes "banned"; the poller's own account gate writes
+    the account's actual status). A job the user paused themselves, or one
+    paused for quota / spend / auth, is never touched.
+
+    Resumed through builtin.job's job-layer resume (the
+    ``jobs.resume_for_principal`` service), not a status flip: next_run is
+    recomputed from now (the fires missed while suspended are not replayed)
+    and a recurring job already past its end_at horizon is completed instead.
+    Last step of the request and wrapped, for the same reason as the pause:
+    the account flip, audit row and cache invalidation must never be lost to
+    a job-table error; the count / error are returned in the response so a
+    partial resume is visible. Jobs left paused here can still be resumed
+    one by one from the Jobs panel.
+    """
+    resume = try_job_resume_for_principal()
+    if resume is None:
+        err = "builtin.job is not loaded; suspension-paused jobs left paused"
+        logger.warning(f"[reinstate] job resume skipped for {user_id}: {err}")
+        return 0, err
+    try:
+        resumed = await resume(db, user_id, NON_TRANSACTING_USER_STATUSES)
+        return resumed, None
+    except Exception as e:  # noqa: BLE001 — the account is reinstated either way
+        err = f"{type(e).__name__}: {e}"
+        logger.warning(f"[reinstate] job resume failed for {user_id}: {err}")
         return 0, err
 
 
@@ -117,6 +158,11 @@ class ReinstateRequest(BaseModel):
 
 class ReinstateResponse(BaseModel):
     reinstated: bool
+    # review r2 I-B: how many suspension-paused jobs this call resumed, and
+    # why the resume step failed if it did (the account is reinstated either
+    # way).
+    jobs_resumed: int = 0
+    jobs_resume_error: Optional[str] = None
 
 
 class AccountStateResponse(BaseModel):
@@ -243,10 +289,21 @@ async def reinstate_account(
     )
     _invalidate_cache(request.user_id)
 
-    logger.info(
-        f"[reinstate] user={request.user_id} actor={request.actor or '-'}"
+    # Last, and best-effort (see the helper): account, audit and cache are safe.
+    jobs_resumed, jobs_resume_error = await _resume_jobs_for_reinstated_principal(
+        db, request.user_id
     )
-    return ReinstateResponse(reinstated=True)
+
+    logger.info(
+        f"[reinstate] user={request.user_id} jobs_resumed={jobs_resumed} "
+        f"actor={request.actor or '-'}"
+        + (f" jobs_resume_error={jobs_resume_error}" if jobs_resume_error else "")
+    )
+    return ReinstateResponse(
+        reinstated=True,
+        jobs_resumed=jobs_resumed,
+        jobs_resume_error=jobs_resume_error,
+    )
 
 
 @router.get("/account-state/{user_id}", response_model=AccountStateResponse)

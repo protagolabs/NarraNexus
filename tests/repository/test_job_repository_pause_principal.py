@@ -110,16 +110,16 @@ async def test_already_paused_for_this_reason_keeps_its_paused_at(db_client):
 
 
 @pytest.mark.asyncio
-async def test_paused_for_another_reason_or_no_reason_is_relabelled(db_client):
-    """A user-paused job and a paused job with a NULL reason are both still
-    non-terminal; the suspension must claim them (NULL must not slip through
-    three-valued logic in the NOT (...) clause)."""
+async def test_already_paused_jobs_keep_their_own_reason(db_client):
+    """Review r2 I-B: a job already paused (by the user, or with no recorded
+    reason) is NOT relabelled — reinstate resumes only reasons a suspension
+    wrote, so relabelling would make reinstate un-pause the user's own pause."""
     await _seed_job(db_client, "user_paused", BANNED, status="paused", paused_reason="user")
     await _seed_job(db_client, "null_reason", BANNED, status="paused")
 
-    assert await JobRepository(db_client).pause_jobs_for_execution_principal(BANNED, "banned") == 2
-    assert await _status(db_client, "user_paused") == ("paused", "banned")
-    assert await _status(db_client, "null_reason") == ("paused", "banned")
+    assert await JobRepository(db_client).pause_jobs_for_execution_principal(BANNED, "banned") == 0
+    assert await _status(db_client, "user_paused") == ("paused", "user")
+    assert await _status(db_client, "null_reason") == ("paused", None)
 
 
 @pytest.mark.asyncio
@@ -134,3 +134,51 @@ async def test_no_row_ceiling(db_client):
         (BANNED, JobStatus.ACTIVE.value), fetch=True,
     )
     assert rows[0]["n"] == 0
+
+
+# ── review r2 I-B: the read half of reinstate ─────────────────────────────────
+
+SUSPENSION_REASONS = ("banned", "blocked", "deleted")
+
+
+async def _ids(db, user_id=BANNED, reasons=SUSPENSION_REASONS):
+    jobs = await JobRepository(db).get_jobs_paused_for_execution_principal(user_id, reasons)
+    return sorted(j.job_id for j in jobs)
+
+
+@pytest.mark.asyncio
+async def test_reinstate_read_selects_suspension_paused_jobs_by_principal(db_client):
+    await _seed_job(db_client, "own", BANNED, status="paused", paused_reason="banned")
+    await _seed_job(db_client, "own_empty_rel", BANNED, status="paused", paused_reason="banned",
+                    related_entity_id="")
+    await _seed_job(db_client, "delegated", OTHER, status="paused", paused_reason="banned",
+                    related_entity_id=BANNED)
+    await _seed_job(db_client, "gate_blocked", BANNED, status="paused", paused_reason="blocked")
+
+    assert await _ids(db_client) == ["delegated", "gate_blocked", "own", "own_empty_rel"]
+
+
+@pytest.mark.asyncio
+async def test_reinstate_read_never_selects_other_pauses_or_principals(db_client):
+    await _seed_job(db_client, "user_paused", BANNED, status="paused", paused_reason="user")
+    await _seed_job(db_client, "null_reason", BANNED, status="paused")
+    await _seed_job(db_client, "empty_reason", BANNED, status="paused", paused_reason="")
+    await _seed_job(db_client, "quota", BANNED, status="paused_no_quota", paused_reason="banned")
+    await _seed_job(db_client, "active", BANNED, status="active")
+    await _seed_job(db_client, "runs_as_other", BANNED, status="paused", paused_reason="banned",
+                    related_entity_id=OTHER)
+    await _seed_job(db_client, "other", OTHER, status="paused", paused_reason="banned")
+
+    assert await _ids(db_client) == []
+    assert await _ids(db_client, reasons=()) == []
+
+
+@pytest.mark.asyncio
+async def test_suspend_then_reinstate_read_is_the_same_population(db_client):
+    await _seed_job(db_client, "a", BANNED, status="active")
+    await _seed_job(db_client, "b", OTHER, status="pending", related_entity_id=BANNED)
+    await _seed_job(db_client, "mine", BANNED, status="paused", paused_reason="user")
+    repo = JobRepository(db_client)
+
+    assert await repo.pause_jobs_for_execution_principal(BANNED, "banned") == 2
+    assert await _ids(db_client) == ["a", "b"]

@@ -21,7 +21,7 @@ the contract package: a ref is a name plus a type, and both sides of the call
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Protocol, TypeVar, runtime_checkable
+from typing import Any, Awaitable, Callable, Generic, Iterable, Mapping, Optional, Protocol, TypeVar, runtime_checkable
 
 from narranexus.contracts._base import PluginError
 from narranexus.contracts.job import JobRunOutcome
@@ -123,11 +123,17 @@ SKILL_WORKSPACES: ServiceRef[Callable[[str, Optional[str]], SkillWorkspace]] = S
 JOB_INSTANCES: ServiceRef[Callable[[Any], Any]] = ServiceRef("jobs.instances")
 #: ``async (agent_id, job_id) -> JobRunOutcome`` — provided by builtin.job.
 JOB_RUN_ONCE: ServiceRef[Callable[[str, str], Awaitable[JobRunOutcome]]] = ServiceRef("jobs.run_once")
+#: ``async (db, user_id, paused_reasons) -> resumed count`` — provided by builtin.job.
+#: Resumes the jobs an account suspension paused (admin reinstate).
+JOB_RESUME_FOR_PRINCIPAL: ServiceRef[Callable[[Any, str, Iterable[str]], Awaitable[int]]] = ServiceRef(
+    "jobs.resume_for_principal"
+)
 #: The request-scoped HTTP host API (``contracts.web.WebHost``) — provided by the backend host.
 WEB_HOST: ServiceRef[WebHost] = ServiceRef("host.web")
 
 __all__ = [
     "JOB_INSTANCES",
+    "JOB_RESUME_FOR_PRINCIPAL",
     "JOB_RUN_ONCE",
     "SKILL_WORKSPACES",
     "WEB_HOST",

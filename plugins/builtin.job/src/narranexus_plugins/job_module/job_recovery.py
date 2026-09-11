@@ -15,18 +15,23 @@ and the jobs poller picks the re-armed jobs up on its next cycle.
 
 This is the PRIMARY recovery path; JobTrigger keeps a low-frequency scan as a
 backstop for missed edges.
+
+Also home of the user-initiated pause / resume / reschedule operations and of
+`resume_jobs_paused_for_principal`, the job half of an admin account reinstate.
 """
 from __future__ import annotations
 
 import asyncio
+from typing import Iterable
 
 from loguru import logger
 from pydantic import ValidationError
 
-from narranexus.platform.repository import JobRepository
+from narranexus.platform.repository import InstanceRepository, JobRepository
+from narranexus.platform.schema.instance_schema import InstanceStatus
 from narranexus.platform.schema.job_schema import JobStatus, JobType, TriggerConfig
 from narranexus.platform.agent_framework.providers.readiness import ProviderReadiness
-from narranexus.platform.utils.job_scheduling import compute_next_run
+from narranexus.platform.utils.job_scheduling import compute_next_run, past_schedule_horizon
 from narranexus.platform.utils import utc_now
 
 
@@ -132,6 +137,66 @@ async def resume_job(job_id: str, db) -> tuple[bool, str]:
         "consecutive_failure_count": 0,
     })
     return True, job.status.value
+
+
+async def resume_jobs_paused_for_principal(
+    db, user_id: str, paused_reasons: Iterable[str]
+) -> int:
+    """Undo an account suspension's job pause (review r2 I-B): resume every
+    job that executes as `user_id` and is `paused` with a `paused_reason` in
+    `paused_reasons` (the reasons a suspension writes). Returns how many were
+    brought back to ACTIVE. Exposed as the ``jobs.resume_for_principal``
+    service; `POST /api/admin/reinstate` calls it after the account flip.
+
+    Selection is the mirror of `JobRepository.pause_jobs_for_execution_principal`
+    (same execution-principal predicate), pinned to BOTH status='paused' and
+    the reason, so a job the user paused themselves stays paused.
+
+    Each job goes through the ordinary job-layer resume, never a blind status
+    flip: a recurring job whose next fire (computed from NOW, so the fires
+    missed while suspended are not replayed) would land past its `end_at`
+    horizon is COMPLETED instead — `next_run_time` cleared and its module
+    instance marked completed, as every other re-arm path does — and every
+    other job goes through `resume_job` (recompute next_run from now, clear
+    pause/backoff state, ACTIVE). Completed-by-horizon jobs are not counted.
+
+    Raises on a repository error; the caller owns the best-effort policy.
+    """
+    repo = JobRepository(db)
+    jobs = await repo.get_jobs_paused_for_execution_principal(user_id, paused_reasons)
+    resumed = 0
+    for job in jobs:
+        next_run = compute_next_run(
+            job_type=job.job_type,
+            trigger_config=job.trigger_config,
+            last_run_utc=utc_now(),
+        )
+        if next_run and job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+            job.trigger_config, next_run.utc
+        ):
+            await repo.update_job(job.job_id, {
+                "status": JobStatus.COMPLETED.value,
+                "paused_reason": None,
+                "paused_at": None,
+            })
+            await repo.clear_next_run(job.job_id)
+            if job.instance_id:
+                await InstanceRepository(db).update_status(
+                    job.instance_id, InstanceStatus.COMPLETED, completed_at=utc_now(),
+                )
+            logger.info(
+                f"Job {job.job_id} completed instead of resumed "
+                f"(reinstate of {user_id}: next fire past end_at horizon)"
+            )
+            continue
+        ok, _ = await resume_job(job.job_id, db)
+        if ok:
+            resumed += 1
+    if jobs:
+        logger.info(
+            f"Reinstate: resumed {resumed} of {len(jobs)} suspension-paused job(s) for {user_id}"
+        )
+    return resumed
 
 
 # A reschedule may touch any editable job EXCEPT one that is mid-execution
