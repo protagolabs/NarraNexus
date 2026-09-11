@@ -78,12 +78,14 @@ from narranexus.platform.repository import (
 # L2 observability — see services/service_audit.py
 from narranexus.platform.services.service_audit import ServiceAuditor
 
-# Dependency activation is edge-triggered (a completion the poller SEES). The
-# reconciliation below is the backstop for the edges it cannot see — an
-# upstream that finished before its dependent's BLOCKED row was written, or
-# a completion lost to a restart / a failed callback — and runs at this low
-# cadence, not every 5-second cycle (review I10). Each pass walks every
-# BLOCKED row in keyset pages; a page bounds each query and each handler call.
+# Dependency activation is edge-triggered (a completion the poller SEES, via
+# `_find_completed_instances`, for narrative-bound AND narrative-less
+# instances). The reconciliation below is the backstop for the narrative-less
+# edges it cannot see — an upstream that finished before its dependent's
+# BLOCKED row was written, or a completion lost to a restart / a failed
+# callback — and runs at this low cadence, not every 5-second cycle (review
+# I10). Each pass walks every narrative-less BLOCKED row in keyset pages; a
+# page bounds each query and each handler call.
 _BLOCKED_RECONCILE_INTERVAL_S = 900  # 15 minutes
 _BLOCKED_RECONCILE_PAGE = 200  # rows per keyset page (query + handler call bound)
 
@@ -92,7 +94,10 @@ _BLOCKED_RECONCILE_PAGE = 200  # rows per keyset page (query + handler call boun
 class CompletedInstanceInfo:
     """Completed Instance info (used for queue passing)"""
     instance_id: str
-    narrative_id: str
+    # None for a narrative-less instance (no instance_narrative_links row at
+    # all, e.g. a /api/jobs/complex Job) — resolved by
+    # `InstanceHandler.handle_completion_no_narrative`.
+    narrative_id: Optional[str]
     agent_id: str
     user_id: Optional[str]
     module_class: str
@@ -362,15 +367,22 @@ class ModulePoller:
             logger.exception(f"Error in poll_and_enqueue: {e}")
 
     async def _reconcile_blocked_instances(self) -> int:
-        """Activate BLOCKED instances whose dependencies are all terminal but
-        that no completion event ever unblocked (review I10).
+        """Activate narrative-less BLOCKED instances whose dependencies are all
+        terminal but that no completion event ever unblocked (review I10).
 
-        Walks the WHOLE BLOCKED set once per round, in keyset pages of
+        Narrative-bound BLOCKED instances are never candidates here
+        (`get_blocked_page` excludes any instance with a narrative link,
+        review r3 I2): `handle_completion`'s link-state rule owns them, and
+        judging them by dependency status as well would be a second answer to
+        the same question.
+
+        Walks the WHOLE narrative-less BLOCKED set once per round, in keyset pages of
         `_BLOCKED_RECONCILE_PAGE` rows ordered by the auto-increment `id`
         (`InstanceRepository.get_blocked_page`). Each page is grouped by agent
         and handed, rows and all, to `InstanceHandler.reconcile_blocked_instances`
-        — the SAME predicate and activation hook the event path uses, so this
-        cannot drift into a second definition of "dependencies satisfied".
+        — the SAME predicate and activation hook the narrative-free event path
+        uses, so this cannot drift into a second definition of "dependencies
+        satisfied".
         The handler does not re-query, so every query and every handler call
         is bounded by the page size; the round as a whole is not, on purpose.
 
@@ -408,8 +420,7 @@ class ModulePoller:
                     if newly:
                         agents.add(agent_id)
                         activated += len(newly)
-                if len(rows) < _BLOCKED_RECONCILE_PAGE:
-                    break
+                # Terminate on an EMPTY page only; the cursor always advances.
                 after_id = rows[-1].id
             if activated:
                 logger.warning(
@@ -425,10 +436,22 @@ class ModulePoller:
         """
         Query instances with status changes
 
-        Conditions:
+        Conditions (both halves):
         - status IN ('completed', 'failed')
         - last_polled_status = 'in_progress'
         - callback_processed = FALSE
+
+        Two halves, each with its own LIMIT 100 (review r3 C1):
+        - narrative-bound: INNER JOIN on an ACTIVE instance_narrative_links row;
+          `narrative_id` is that link's narrative -> `handle_completion`.
+        - narrative-less: instances with NO link row at all
+          (`InstanceRepository.get_unlinked_completed_awaiting_callback`), e.g.
+          every /api/jobs/complex Job; `narrative_id=None` ->
+          `handle_completion_no_narrative`. Before this half existed they were
+          never discovered, and their dependents waited for the 15-minute
+          reconciliation. Kept a separate query so a backlog of these rows
+          cannot push narrative completions out of the narrative window.
+        An instance whose only links are HISTORY is in neither half (unchanged).
 
         Returns:
             List of CompletedInstanceInfo
@@ -469,6 +492,19 @@ class ModulePoller:
 
         except Exception as e:
             logger.exception(f"Error finding completed instances: {e}")
+
+        try:
+            unlinked = await self._get_instance_repo().get_unlinked_completed_awaiting_callback(100)
+            for inst in unlinked:
+                result.append(CompletedInstanceInfo(
+                    instance_id=inst.instance_id,
+                    narrative_id=None,
+                    agent_id=inst.agent_id,
+                    user_id=inst.user_id,
+                    module_class=inst.module_class,
+                ))
+        except Exception as e:
+            logger.exception(f"Error finding completed narrative-less instances: {e}")
 
         return result
 
@@ -514,13 +550,12 @@ class ModulePoller:
             handler = InstanceHandler(agent_id=info.agent_id)
             handler.set_database_client(self.db)
 
-            # B-16: an instance with no narrative_id (e.g. a Job created via
-            # /api/jobs/complex, which never binds one) was never linked into
-            # instance_narrative_links in the first place — handle_completion's
-            # narrative-scoped dependent lookup can never see it, so its
-            # dependents stayed BLOCKED forever no matter how many upstream
-            # jobs completed. Resolve directly from module_instances.dependencies
-            # instead when there is no narrative to scope by.
+            # B-16: a narrative-less instance (no instance_narrative_links row
+            # at all, e.g. a Job created via /api/jobs/complex) is discovered by
+            # the second half of `_find_completed_instances` with
+            # narrative_id=None. handle_completion's narrative-scoped dependent
+            # lookup can never see it, so resolve from
+            # module_instances.dependencies instead.
             if info.narrative_id:
                 newly_activated = await handler.handle_completion(
                     narrative_id=info.narrative_id,

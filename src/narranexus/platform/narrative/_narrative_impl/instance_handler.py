@@ -199,11 +199,24 @@ class InstanceHandler:
         matter how many of its dependencies completed — dependency chains
         "never trigger" (GitHub #114/#109).
 
+        Reached from `ModulePoller._process_completed_instance` for every
+        instance the narrative-less half of `_find_completed_instances`
+        discovers (no `instance_narrative_links` row at all), with
+        `narrative_id=None`.
+
         This resolves purely from `module_instances.dependencies` — the raw
         graph every instance already carries, independent of narrative
         linkage — scoped to this handler's `agent_id` (dependencies are
         instance_ids from the SAME job-complex batch, which is always
-        single-agent).
+        single-agent). Dependent candidates are narrative-less BLOCKED
+        instances only (`get_unlinked_blocked_by_agent`): a narrative-bound
+        dependent is `handle_completion`'s alone (review r3 I2).
+
+        Asymmetry with `handle_completion`, on purpose: there is no link to
+        move to history, and the row's status / `completed_at` are rewritten
+        only when they differ from `new_status` — JobTrigger already wrote
+        the terminal status and its real completion time, and a backlog of
+        old completions drained through here must keep them.
 
         Semantics mirror `handle_completion`/`_check_dependencies_from_db`:
         a dependency counts as resolved once it reaches EITHER terminal
@@ -221,14 +234,15 @@ class InstanceHandler:
             logger.warning(f"Instance {instance_id} not found in database")
             return []
 
-        now = datetime.now(timezone.utc)
-        await instance_repo.update_status(
-            instance_id=instance_id,
-            status=new_status,
-            completed_at=now if new_status in [InstanceStatus.COMPLETED, InstanceStatus.FAILED] else None,
-        )
+        if getattr(db_instance.status, "value", db_instance.status) != new_status.value:
+            now = datetime.now(timezone.utc)
+            await instance_repo.update_status(
+                instance_id=instance_id,
+                status=new_status,
+                completed_at=now if new_status in [InstanceStatus.COMPLETED, InstanceStatus.FAILED] else None,
+            )
 
-        blocked = await instance_repo.get_by_agent(self.agent_id, status=InstanceStatus.BLOCKED)
+        blocked = await instance_repo.get_unlinked_blocked_by_agent(self.agent_id)
         # Only the dependents of the instance that just completed: the event
         # says nothing about the others (the periodic reconciliation below is
         # what catches those).
@@ -244,6 +258,8 @@ class InstanceHandler:
         """
         Periodic backstop for the edge-triggered dependency chain (review I10).
 
+        Candidates are narrative-less BLOCKED instances only (the caller's
+        `get_blocked_page` excludes linked ones, review r3 I2).
         `handle_completion_no_narrative` only ever runs when ModulePoller SEES a
         completion. Two ways a BLOCKED instance is left behind for good:
         `/api/jobs/complex` creates its jobs one by one (upstream fires
@@ -305,8 +321,16 @@ class InstanceHandler:
         db_client: "AsyncDatabaseClient",
     ) -> List[str]:
         """Activate every instance in `blocked` whose dependencies have ALL
-        reached a terminal state. The ONE dependency predicate shared by the
-        completion event path and the periodic reconciliation.
+        reached a terminal state. The ONE dependency predicate for
+        narrative-less instances, shared by the narrative-free completion path
+        and the periodic reconciliation.
+
+        It is never applied to a narrative-bound instance: both callers get
+        their candidates from queries that exclude any instance with a
+        narrative link (`InstanceRepository._NO_NARRATIVE_LINK_SQL`), and
+        narrative-bound dependents are resolved only by `handle_completion`
+        (`_check_dependencies_from_db`, link state). The two populations are
+        disjoint, so each instance has exactly one rule (review r3 I2).
 
         Semantics mirror `handle_completion` / `_check_dependencies_from_db`:
         a dependency counts as resolved once it reaches EITHER terminal state

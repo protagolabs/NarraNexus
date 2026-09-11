@@ -4,6 +4,22 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 C1/I2/M3）— 「无 narrative link」只定义一次 + 两个新候选查询
+
+- `_NO_NARRATIVE_LINK_SQL`：`NOT EXISTS (SELECT 1 FROM instance_narrative_links inl WHERE
+  inl.instance_id = module_instances.instance_id)`——「narrative-less 实例」的唯一定义（任意 link_type 都算有
+  link）。依赖解析分成两个不相交人群：有 link 的只由 `handle_completion`（link 状态规则）判；无 link 的只由
+  narrative-free 路径与对账（依赖 status 规则）判。给 narrative-free 一侧供候选的三条查询都带这句。
+- `get_blocked_page` 加该过滤（对账不再碰 narrative 绑定的 BLOCKED，I2）；M3：`LIMIT` 改 `%s` 占位。
+- 新 `get_unlinked_blocked_by_agent(agent_id)`：`handle_completion_no_narrative` 的依赖方候选（原来是
+  `get_by_agent(BLOCKED)`，会把 narrative 绑定实例也拿去按 status 判）。
+- 新 `get_unlinked_completed_awaiting_callback(limit)`：`status IN (completed, failed) AND
+  last_polled_status='in_progress' AND callback_processed = FALSE AND <无 link> ORDER BY completed_at, id
+  LIMIT %s`——[[module_poller]] 发现查询的 narrative-less 半边（C1）。独立查询、独立 LIMIT，不与 narrative
+  半边共用窗口，积压不会挤掉 narrative 完成事件。
+锁：`tests/repository/test_instance_repository_blocked_page.py`（`test_blocked_page_excludes_instances_with_any_narrative_link`、
+`test_unlinked_blocked_by_agent`、`test_unlinked_completed_awaiting_callback`）+ `_mysql` twin 两条。
+
 ## 2026-09-10（review r2 I-A）— `get_blocked_page(after_id, limit)`：BLOCKED 的 keyset 分页
 
 跨全部 agent 取 `status='blocked' AND id > after_id ORDER BY id ASC LIMIT n`，供 [[module_poller]] 的

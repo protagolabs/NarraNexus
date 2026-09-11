@@ -4,6 +4,25 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 C1/I2）— 发现查询补 narrative-less 半边；对账只扫无 link 的 BLOCKED
+
+**C1**：`_find_completed_instances` 原来只有 `INNER JOIN instance_narrative_links ... link_type='active'`
+一条查询，`/api/jobs/complex` 的 instance 没有任何 link 行，**永远不会被发现**——下文 B-16 段描述的
+`handle_completion_no_narrative` 分支在生产上是走不到的，依赖链实际只靠 15 分钟对账激活。现在发现分两半，
+各自 LIMIT 100：narrative 半边不变；新增 [[instance_repository]] `get_unlinked_completed_awaiting_callback(100)`
+（完全没有 link 行的实例），产出 `CompletedInstanceInfo(narrative_id=None)`（字段改 `Optional[str]`），走
+`handle_completion_no_narrative`。于是 A 完成后 B 在下一个 5 秒 poll 周期激活，对账退回真正的兜底。只有
+HISTORY link 的实例两半都不进（与改动前一致）。上线时历史上已完成、未处理的无 link job 实例会按每轮
+100 条被逐步消化：只会激活依赖全终态的 BLOCKED 依赖方（与对账同一判据），`completed_at` 不被改写。
+**I2**：对账候选（`get_blocked_page`）排除任何有 narrative link 的实例，narrative 绑定的 BLOCKED 由
+`handle_completion` 独占；分页改为「空页才结束」，游标照常推进。
+锁：`tests/services/test_module_poller_no_narrative_dependency.py` 的
+`test_completed_narrative_less_instance_is_discovered_and_unblocks_its_dependent`（走真实发现查询）、
+`test_poll_cycle_activates_the_dependent_without_the_reconcile_backstop`、
+`test_discovery_keeps_narrative_bound_rows_on_the_narrative_path`、
+`test_narrative_free_completion_never_activates_a_narrative_bound_dependent`、
+`test_reconcile_leaves_narrative_bound_blocked_instances_to_handle_completion`。
+
 ## 2026-09-10（review r2 I-A）— 对账改成按 `id` keyset 分页走完整个 BLOCKED 集
 
 r1 版的「限量」是假的：`find(limit=200, created_at ASC)` 只限制了**发现哪些 agent**，handler 随后对每个

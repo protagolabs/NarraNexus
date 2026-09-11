@@ -4,6 +4,18 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 C1/I2）— 两套依赖判据的人群不相交；no-narrative 路径真正可达
+
+- **可达性（C1）**：`handle_completion_no_narrative` 现在由 [[module_poller]] 发现查询的 narrative-less 半边
+  驱动（此前 INNER JOIN link 使它不可达，下文各段「事件路径」的描述自本次起才成立）。
+- **I2**：`_activate_resolved`（依赖 status 终态规则）只作用于**没有任何 narrative link** 的实例；两个调用方的
+  候选都来自带 `_NO_NARRATIVE_LINK_SQL` 的查询——对账用 `get_blocked_page`，事件路径由 `get_by_agent(BLOCKED)`
+  改为 `get_unlinked_blocked_by_agent`（下文 r2 段「保留 get_by_agent」已作废）。narrative 绑定实例只由
+  `handle_completion` 的 link 规则（`_check_dependencies_from_db`）判，人群不相交，每个实例只有一套规则。
+- 与 `handle_completion` 的收尾不对称（写进 docstring）：没有 link 可转 history；状态/`completed_at` 仅在与
+  `new_status` 不同时才改写——JobTrigger 已写过终态和真实完成时间，消化历史积压时不改写。
+锁：见 module_poller 同日段各用例 + 仓库 twin。
+
 ## 2026-09-10（review r2 I-A）— `reconcile_blocked_instances(blocked)` 只判调用方给的行
 
 签名改为接收候选行：由 [[module_poller]] 传入它刚取到的一页 BLOCKED 行（每页 ≤ 200），本方法**不再**

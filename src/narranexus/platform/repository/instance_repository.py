@@ -44,6 +44,21 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
 
     _json_fields = {"dependencies", "config", "state", "keywords"}
 
+    # "This instance has NO row in instance_narrative_links" — the ONE
+    # definition of a narrative-less instance (e.g. every Job created via
+    # /api/jobs/complex, which never binds a narrative). Dependency resolution
+    # has two disjoint populations: an instance WITH a link is resolved only by
+    # `InstanceHandler.handle_completion` (link-state rule); an instance with
+    # NO link is resolved only by the narrative-free path and the periodic
+    # reconciliation (dependency-status rule). Every query that feeds the
+    # narrative-free side filters with this clause, so the two rules can never
+    # be applied to the same instance (review r3 I2). Correlated on the bare
+    # table name (no alias): valid on SQLite and MySQL.
+    _NO_NARRATIVE_LINK_SQL = (
+        "NOT EXISTS (SELECT 1 FROM instance_narrative_links inl "
+        "WHERE inl.instance_id = module_instances.instance_id)"
+    )
+
     # ===== Query Methods =====
 
     async def get_by_instance_id(self, instance_id: str) -> Optional[ModuleInstanceRecord]:
@@ -91,31 +106,98 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
         return await self.find(filters=filters, order_by="created_at DESC")
 
     async def get_blocked_page(self, after_id: int, limit: int) -> List[ModuleInstanceRecord]:
-        """One keyset page of BLOCKED instances across ALL agents: rows whose
-        auto-increment `id` is greater than `after_id`, lowest id first, at
-        most `limit` of them.
+        """One keyset page of narrative-less BLOCKED instances across ALL
+        agents: rows whose auto-increment `id` is greater than `after_id`,
+        lowest id first, at most `limit` of them.
 
         Used by `ModulePoller._reconcile_blocked_instances` to walk the whole
-        BLOCKED set in bounded pages. Keyset on `id` (not `created_at`, not
-        OFFSET) because `id` is unique, monotonic with insertion, indexed as
-        the primary key and a plain integer on both dialects: the next page
-        starts strictly after the last row seen, so there is neither overlap
-        nor a skip when rows activated on this page leave the BLOCKED set
-        (which is exactly what shifts an OFFSET window), and no dependence on
-        how a backend renders DATETIME text.
+        narrative-less BLOCKED set in bounded pages. Keyset on `id` (not
+        `created_at`, not OFFSET) because `id` is unique, monotonic with
+        insertion, indexed as the primary key and a plain integer on both
+        dialects: the next page starts strictly after the last row seen, so
+        there is neither overlap nor a skip when rows activated on this page
+        leave the BLOCKED set (which is exactly what shifts an OFFSET window),
+        and no dependence on how a backend renders DATETIME text.
 
-        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders).
-        Twins: tests/repository/test_instance_repository_blocked_page.py + `_mysql`.
+        Instances with a narrative link are excluded (`_NO_NARRATIVE_LINK_SQL`,
+        review r3 I2): their dependencies are resolved by
+        `handle_completion`'s link-state rule only, never by the
+        reconciliation's dependency-status rule.
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders,
+        LIMIT included). Twins: tests/repository/test_instance_repository_blocked_page.py + `_mysql`.
         """
         logger.debug(f"    → InstanceRepository.get_blocked_page(after_id={after_id}, limit={limit})")
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE status = %s AND id > %s
+            AND {self._NO_NARRATIVE_LINK_SQL}
             ORDER BY id ASC
-            LIMIT {int(limit)}
+            LIMIT %s
         """
         rows = await self._db.execute(
-            query, params=(InstanceStatus.BLOCKED.value, int(after_id)), fetch=True,
+            query,
+            params=(InstanceStatus.BLOCKED.value, int(after_id), int(limit)),
+            fetch=True,
+        )
+        return [self._row_to_entity(row) for row in rows] if rows else []
+
+    async def get_unlinked_blocked_by_agent(self, agent_id: str) -> List[ModuleInstanceRecord]:
+        """Every narrative-less BLOCKED instance of `agent_id`, lowest id
+        first — the dependent candidates of the narrative-free completion
+        path (`InstanceHandler.handle_completion_no_narrative`). Same
+        `_NO_NARRATIVE_LINK_SQL` exclusion as `get_blocked_page`, so neither
+        narrative-free caller ever judges a narrative-bound instance.
+
+        Raw SQL, dialect-portable. Twins: tests/repository/test_instance_repository_blocked_page.py + `_mysql`.
+        """
+        logger.debug(f"    → InstanceRepository.get_unlinked_blocked_by_agent({agent_id})")
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE agent_id = %s AND status = %s
+            AND {self._NO_NARRATIVE_LINK_SQL}
+            ORDER BY id ASC
+        """
+        rows = await self._db.execute(
+            query, params=(agent_id, InstanceStatus.BLOCKED.value), fetch=True,
+        )
+        return [self._row_to_entity(row) for row in rows] if rows else []
+
+    async def get_unlinked_completed_awaiting_callback(self, limit: int) -> List[ModuleInstanceRecord]:
+        """Narrative-less instances that finished (COMPLETED / FAILED) after a
+        run JobTrigger marked `in_progress` and that ModulePoller has not yet
+        processed (`callback_processed = FALSE`) — oldest completion first, at
+        most `limit`.
+
+        The narrative-free half of `ModulePoller._find_completed_instances`
+        (review r3 C1): the narrative half INNER JOINs an active link, so a
+        /api/jobs/complex instance (no link row at all) was never discovered
+        and its dependents waited for the 15-minute reconciliation. A separate
+        query with its own LIMIT, not a LEFT JOIN folded into the narrative
+        one, so a backlog of narrative-less rows can never crowd narrative
+        completions out of the same window.
+
+        Raw SQL, dialect-portable. Twins: tests/repository/test_instance_repository_blocked_page.py + `_mysql`.
+        """
+        logger.debug(f"    → InstanceRepository.get_unlinked_completed_awaiting_callback(limit={limit})")
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE status IN (%s, %s)
+            AND last_polled_status = %s
+            AND callback_processed = FALSE
+            AND {self._NO_NARRATIVE_LINK_SQL}
+            ORDER BY completed_at ASC, id ASC
+            LIMIT %s
+        """
+        rows = await self._db.execute(
+            query,
+            params=(
+                InstanceStatus.COMPLETED.value,
+                InstanceStatus.FAILED.value,
+                InstanceStatus.IN_PROGRESS.value,
+                int(limit),
+            ),
+            fetch=True,
         )
         return [self._row_to_entity(row) for row in rows] if rows else []
 

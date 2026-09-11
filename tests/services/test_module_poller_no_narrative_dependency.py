@@ -2,16 +2,23 @@
 @file_name: test_module_poller_no_narrative_dependency.py
 @author: Bin Liang
 @date: 2026-09-09
-@description: B-16 — ModulePoller._process_completed_instance must resolve
-dependents via the narrative-independent path when the completed instance
-has no narrative_id (e.g. a Job created via /api/jobs/complex).
+@description: B-16 — ModulePoller must DISCOVER a completed narrative-less
+instance (no instance_narrative_links row, e.g. a Job created via
+/api/jobs/complex) and resolve its dependents via the narrative-independent
+path (review r3 C1: the discovery query used to INNER JOIN a link, so this
+path was unreachable). The reconciliation backstop judges narrative-less
+BLOCKED instances only (review r3 I2).
 """
 from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.repository import InstanceRepository
-from narranexus.platform.schema.instance_schema import InstanceStatus, ModuleInstanceRecord
+from narranexus.platform.repository import InstanceNarrativeLinkRepository, InstanceRepository
+from narranexus.platform.schema.instance_schema import (
+    InstanceStatus,
+    LinkType,
+    ModuleInstanceRecord,
+)
 from narranexus.platform.services.module_poller import CompletedInstanceInfo, ModulePoller
 
 AGENT_ID = "agent_1"
@@ -48,7 +55,7 @@ async def test_no_narrative_id_activates_dependent_via_no_narrative_path(db_clie
 
     poller = _make_poller(db_client)
     info = CompletedInstanceInfo(
-        instance_id="job_a", narrative_id="", agent_id=AGENT_ID,
+        instance_id="job_a", narrative_id=None, agent_id=AGENT_ID,
         user_id=None, module_class="JobModule",
     )
 
@@ -213,3 +220,124 @@ async def test_reconcile_pages_are_bounded_and_the_handler_does_not_requery(db_c
     poller = ModulePoller(database_client=db_client)
     assert await poller._reconcile_blocked_instances() == 5
     assert sizes and max(sizes) <= 2 and sum(sizes) == 5
+
+
+# ── review r3 C1: the REAL discovery query must find narrative-less rows ──────
+
+async def _finish_like_job_trigger(db, instance_id):
+    """The two raw-SQL writes JobTrigger makes around a run
+    (`_update_instance_for_execution` then `_update_instance_completed`)."""
+    await db.execute(
+        "UPDATE module_instances SET status = 'in_progress', last_polled_status = 'in_progress', "
+        "callback_processed = FALSE WHERE instance_id = %s", (instance_id,), fetch=False,
+    )
+    await db.execute(
+        "UPDATE module_instances SET status = 'completed', completed_at = %s "
+        "WHERE instance_id = %s", ("2026-09-01 08:00:00", instance_id), fetch=False,
+    )
+
+
+async def _drain(poller):
+    """One discovery pass, then process every discovered row — what the poll
+    loop and its workers do, without the background tasks."""
+    found = await poller._find_completed_instances()
+    for info in found:
+        await poller._process_completed_instance(info)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_completed_narrative_less_instance_is_discovered_and_unblocks_its_dependent(db_client):
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.ACTIVE)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await _finish_like_job_trigger(db_client, "job_a")
+
+    poller = ModulePoller(database_client=db_client)
+    found = await _drain(poller)
+
+    assert [(i.instance_id, i.narrative_id) for i in found] == [("job_a", None)]
+    repo = InstanceRepository(db_client)
+    assert (await repo.get_by_instance_id("job_b")).status == InstanceStatus.ACTIVE.value
+    row = await db_client.get_one("module_instances", {"instance_id": "job_a"})
+    assert row["callback_processed"] in (1, True)
+    # The completion time JobTrigger wrote is kept, not rewritten to "now".
+    assert str(row["completed_at"]).startswith("2026-09-01")
+    # Processed once: the next pass finds nothing.
+    assert await poller._find_completed_instances() == []
+
+
+@pytest.mark.asyncio
+async def test_poll_cycle_activates_the_dependent_without_the_reconcile_backstop(db_client):
+    """The event path alone (backstop suppressed) unblocks the dependent on
+    the next poll cycle — not 15 minutes later."""
+    from datetime import datetime
+
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.ACTIVE)
+    await _seed_instance(db_client, "job_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await _finish_like_job_trigger(db_client, "job_a")
+
+    poller = ModulePoller(database_client=db_client)
+    poller._last_blocked_reconcile = datetime.now()
+    await poller._poll_and_enqueue()
+    info = poller._task_queue.get_nowait()
+    assert (info.instance_id, info.narrative_id) == ("job_a", None)
+    await poller._process_completed_instance(info)
+
+    repo = InstanceRepository(db_client)
+    assert (await repo.get_by_instance_id("job_b")).status == InstanceStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_discovery_keeps_narrative_bound_rows_on_the_narrative_path(db_client):
+    """A row with an ACTIVE link is found once, with its narrative; a row whose
+    only link is HISTORY is in neither half (unchanged behaviour)."""
+    links = InstanceNarrativeLinkRepository(db_client)
+    await _seed_instance(db_client, "bound", status=InstanceStatus.ACTIVE)
+    await links.link("bound", "nar_1", link_type=LinkType.ACTIVE)
+    await _seed_instance(db_client, "history_only", status=InstanceStatus.ACTIVE)
+    await links.link("history_only", "nar_1", link_type=LinkType.HISTORY)
+    await _seed_instance(db_client, "unlinked", status=InstanceStatus.ACTIVE)
+    for iid in ("bound", "history_only", "unlinked"):
+        await _finish_like_job_trigger(db_client, iid)
+
+    found = await ModulePoller(database_client=db_client)._find_completed_instances()
+
+    assert sorted((i.instance_id, i.narrative_id) for i in found) == [
+        ("bound", "nar_1"), ("unlinked", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_narrative_free_completion_never_activates_a_narrative_bound_dependent(db_client):
+    """Review r3 I2: a narrative-bound BLOCKED instance is judged only by
+    handle_completion's link rule, even when its dependency is narrative-less
+    and terminal."""
+    await _seed_instance(db_client, "job_a", status=InstanceStatus.ACTIVE)
+    await _seed_instance(db_client, "bound_b", status=InstanceStatus.BLOCKED, dependencies=["job_a"])
+    await InstanceNarrativeLinkRepository(db_client).link("bound_b", "nar_1", link_type=LinkType.ACTIVE)
+    await _finish_like_job_trigger(db_client, "job_a")
+
+    await _drain(ModulePoller(database_client=db_client))
+
+    row = await InstanceRepository(db_client).get_by_instance_id("bound_b")
+    assert row.status == InstanceStatus.BLOCKED.value
+
+
+@pytest.mark.asyncio
+async def test_reconcile_leaves_narrative_bound_blocked_instances_to_handle_completion(db_client):
+    """Review r3 I2: status says the dependency is terminal but its link is
+    still ACTIVE (handle_completion wrote status, then died before unlink).
+    The link rule says "not satisfied"; the backstop must not overrule it —
+    while a narrative-less sibling with the same dependency IS activated."""
+    links = InstanceNarrativeLinkRepository(db_client)
+    await _seed_instance(db_client, "dep", status=InstanceStatus.COMPLETED)
+    await links.link("dep", "nar_1", link_type=LinkType.ACTIVE)
+    await _seed_instance(db_client, "bound_b", status=InstanceStatus.BLOCKED, dependencies=["dep"])
+    await links.link("bound_b", "nar_1", link_type=LinkType.ACTIVE)
+    await _seed_instance(db_client, "free_b", status=InstanceStatus.BLOCKED, dependencies=["dep"])
+
+    assert await ModulePoller(database_client=db_client)._reconcile_blocked_instances() == 1
+
+    repo = InstanceRepository(db_client)
+    assert (await repo.get_by_instance_id("bound_b")).status == InstanceStatus.BLOCKED.value
+    assert (await repo.get_by_instance_id("free_b")).status == InstanceStatus.ACTIVE.value
