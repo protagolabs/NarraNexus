@@ -1389,7 +1389,11 @@
         "saved": "Enregistré",
         "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
-        "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
+        "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale.",
+        "slotSaveRolledBack": "Le changement de framework a été annulé, rien n'a été enregistré : le modèle de l'agent n'a pas pu être enregistré ({{detail}}).",
+        "frameworkSavedSlotFailed": "Le framework a été changé, mais le modèle de l'agent n'a pas pu être enregistré ({{detail}}). Choisissez un modèle et enregistrez à nouveau.",
+        "agentSavedHelperFailed": "Le modèle de l'agent a été enregistré, mais pas le modèle d'assistance ({{detail}}).",
+        "slotClearedPickModel": "Le framework a été changé ; la carte liée ne peut pas l'exécuter et a été dissociée. Choisissez un fournisseur et un modèle pour l'agent."
       },
       "privacy": {
         "label": "Confidentialité",

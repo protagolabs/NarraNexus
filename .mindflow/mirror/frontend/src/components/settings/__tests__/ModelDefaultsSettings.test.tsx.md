@@ -4,6 +4,23 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — unbound slot, rollback and restore cases (review of PR #399)
+
+- unbound agent slot + framework-only change → Save calls only
+  `setAgentFramework`, no `pickAgentModel` error;
+- codex (drops the anthropic card) → back to claude_code restores `p_own` and
+  the form is clean; a provider picked after the drop is not overwritten;
+- framework lands, agent slot write fails → framework POSTed back to
+  `claude_code`, cleared binding re-PUT (`p_own`), `slotSaveRolledBack`, draft
+  still dirty;
+- same, but the rollback throws → stored state reloaded (codex_cli, empty
+  slot), `frameworkSavedSlotFailed`;
+- framework lands, helper write fails → `agentSavedHelperFailed`, framework
+  shown as saved, helper edit kept, Save still enabled.
+
+Each was checked red by reverting the corresponding branch in `apply()` /
+`onFrameworkChange`.
+
 ## 2026-09-11 — framework-as-draft cases
 
 The old "switching framework drops the binding only when the backend cleared it"

@@ -1807,7 +1807,11 @@
         "pluginRequiredTitle": "Plugin required",
         "pluginRequired": "This framework needs its plugin installed first.",
         "pluginRequiredLink": "Go to Settings › Plugins →",
-        "pluginNotInstalledSuffix": "plugin not installed"
+        "pluginNotInstalledSuffix": "plugin not installed",
+        "slotSaveRolledBack": "The framework change was undone and nothing was saved: the agent model could not be saved ({{detail}}).",
+        "frameworkSavedSlotFailed": "The framework was switched, but the agent model could not be saved ({{detail}}). Pick a model and save again.",
+        "agentSavedHelperFailed": "The agent model was saved, but the helper model could not be saved ({{detail}}).",
+        "slotClearedPickModel": "The framework was switched and the previously bound card cannot run it, so it was unbound. Pick a provider and model for the agent slot."
       },
       "updates": {
         "label": "App updates",

@@ -1388,7 +1388,11 @@
         "saved": "保存しました",
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
-        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
+        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。",
+        "slotSaveRolledBack": "フレームワークの変更は取り消され、何も保存されていません：エージェントモデルを保存できませんでした（{{detail}}）。",
+        "frameworkSavedSlotFailed": "フレームワークは切り替わりましたが、エージェントモデルを保存できませんでした（{{detail}}）。モデルを選び直して保存してください。",
+        "agentSavedHelperFailed": "エージェントモデルは保存されましたが、ヘルパーモデルを保存できませんでした（{{detail}}）。",
+        "slotClearedPickModel": "フレームワークを切り替えました。以前のカードはこのフレームワークで使えないため解除されました。エージェントのプロバイダーとモデルを選んでください。"
       },
       "privacy": {
         "label": "プライバシー",

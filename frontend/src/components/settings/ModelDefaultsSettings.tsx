@@ -12,12 +12,16 @@
  * The framework is a DRAFT like every other field: picking one writes nothing,
  * it makes the form dirty, and Save commits it (framework first, then the
  * slots — set_slot validates the provider against the stored framework).
+ * Framework + agent slot are one unit from the user's view: if the slot write
+ * fails after the framework landed, the framework (and a binding the switch
+ * cleared) is rolled back; if even that fails, the page reloads the stored
+ * state and says which half was saved.
  *
  * Extracted out of ProviderSettings' old "Section ③" so LLM Providers is purely
  * the credential wallet. Option-building is shared via lib/agentFramework so the
  * choices match the per-agent panel + the provider dropdowns.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { api } from '@/lib/api';
@@ -107,7 +111,12 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const [saved, flashSaved] = useFlashFlag(2500);
-  const load = useCallback(async () => {
+  // Provider/model a framework switch dropped from the draft, kept so picking
+  // a framework that can drive them again restores them.
+  const droppedByFrameworkRef = useRef<{ provider_id: string; model: string } | null>(null);
+  // `keepHelperDraft`: after a partial save, reload the stored state but keep
+  // the user's still-unsaved helper edit in the draft.
+  const load = useCallback(async (keepHelperDraft?: HelperDraft) => {
     setLoading(true);
     setError('');
     try {
@@ -130,8 +139,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         reasoning_effort: a?.reasoning_effort || '',
       };
       const helper: HelperDraft = { provider_id: h?.provider_id || '', model: h?.model || '' };
+      droppedByFrameworkRef.current = null;
       setAgentDraft(agent);
-      setHelperDraft(helper);
+      setHelperDraft(keepHelperDraft ?? helper);
       setAgentInitial(agent);
       setHelperInitial(helper);
       if (fwRes?.success) {
@@ -204,20 +214,62 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // framework cannot drive (wrong protocol, or a CLI subscription it cannot
   // redeem) is dropped from the draft — same predicate the provider dropdown
   // filters with — so the user picks one that can; a provider both frameworks
-  // can drive keeps the user's model pick.
+  // can drive keeps the user's model pick. The dropped pair is remembered and
+  // put back when the user picks a framework that can drive it again (only
+  // while no other provider was picked in between).
   const onFrameworkChange = (next: string) => {
     setFramework(next);
     setError('');
     setInstall(null);
     const bound = providers[agentDraft.provider_id];
     if (bound && !providerBacksFramework(bound, next, liveFrameworks)) {
+      droppedByFrameworkRef.current = { provider_id: agentDraft.provider_id, model: agentDraft.model };
       setAgentDraft((d) => ({ ...d, provider_id: '', model: '' }));
+      return;
+    }
+    const dropped = droppedByFrameworkRef.current;
+    if (!agentDraft.provider_id && dropped) {
+      const prov = providers[dropped.provider_id];
+      if (prov && providerBacksFramework(prov, next, liveFrameworks)) {
+        droppedByFrameworkRef.current = null;
+        setAgentDraft((d) => ({ ...d, ...dropped }));
+      }
+    }
+  };
+
+  const errorText = (e: unknown) =>
+    e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed');
+
+  // Undo a framework write whose agent-slot write then failed: the stored
+  // framework goes back, and so does the binding the switch cleared. Returns
+  // false when the undo itself did not land (the caller then reloads).
+  const rollbackFramework = async (bindingCleared: boolean): Promise<boolean> => {
+    try {
+      const back = await api.setAgentFramework(frameworkInitial);
+      if (!back.success) return false;
+      setProbe(back.data.probe);
+      setInstall(null);
+      if (bindingCleared && agentInitial.provider_id) {
+        const r = await api.setProviderSlot('agent', {
+          provider_id: agentInitial.provider_id,
+          model: agentInitial.model,
+          thinking: agentInitial.thinking,
+          reasoning_effort: agentInitial.reasoning_effort,
+        });
+        if (!r.success) return false;
+      }
+      return true;
+    } catch {
+      return false;
     }
   };
 
   const apply = async () => {
     if (!isDirty || applying) return;
-    if ((agentChanged || frameworkChanged) && (!agentDraft.provider_id || !agentDraft.model)) {
+    // Only an agent-slot edit needs a provider + model. A framework change on
+    // its own is saved even while the agent slot is still unbound — the
+    // backend keeps the framework on a stub slot row until one is wired.
+    if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
       setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
@@ -252,20 +304,55 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         }
       }
       if (agentChanged || slotCleared) {
-        const r = await api.setProviderSlot('agent', {
-          provider_id: agentDraft.provider_id,
-          model: agentDraft.model,
-          thinking: agentDraft.thinking,
-          reasoning_effort: agentDraft.reasoning_effort,
-        });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        if (!agentDraft.provider_id || !agentDraft.model) {
+          // The switch unbound a card the draft had no replacement for: the
+          // framework is saved, the slot is now empty. Show that state.
+          await load(helperDraft);
+          setError(t('pages.settings.modelDefaults.slotClearedPickModel'));
+          return;
+        }
+        let failure = '';
+        try {
+          const r = await api.setProviderSlot('agent', {
+            provider_id: agentDraft.provider_id,
+            model: agentDraft.model,
+            thinking: agentDraft.thinking,
+            reasoning_effort: agentDraft.reasoning_effort,
+          });
+          if (!r.success) failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+        } catch (e) {
+          failure = errorText(e);
+        }
+        if (failure) {
+          if (!frameworkChanged) { setError(failure); return; }
+          if (await rollbackFramework(slotCleared)) {
+            // Nothing is stored any more; the draft stays as the user left it.
+            setError(t('pages.settings.modelDefaults.slotSaveRolledBack', { detail: failure }));
+          } else {
+            await load(helperDraft);
+            setError(t('pages.settings.modelDefaults.frameworkSavedSlotFailed', { detail: failure }));
+          }
+          return;
+        }
       }
       if (helperChanged) {
-        const r = await api.setProviderSlot('helper_llm', {
-          provider_id: helperDraft.provider_id,
-          model: helperDraft.model,
-        });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        let failure = '';
+        try {
+          const r = await api.setProviderSlot('helper_llm', {
+            provider_id: helperDraft.provider_id,
+            model: helperDraft.model,
+          });
+          if (!r.success) failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+        } catch (e) {
+          failure = errorText(e);
+        }
+        if (failure) {
+          if (!frameworkChanged && !agentChanged) { setError(failure); return; }
+          // The agent half landed: show it as saved, keep the helper edit.
+          await load(helperDraft);
+          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          return;
+        }
       }
       await load();
       flashSaved();
@@ -286,7 +373,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         /* preview failed — the default is saved; just don't offer the dialog */
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
+      setError(errorText(e));
     } finally {
       setApplying(false);
     }

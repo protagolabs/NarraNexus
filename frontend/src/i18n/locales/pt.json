@@ -1389,7 +1389,11 @@
         "saved": "Salvo",
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
-        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
+        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local.",
+        "slotSaveRolledBack": "A mudança de framework foi desfeita e nada foi salvo: não foi possível salvar o modelo do agente ({{detail}}).",
+        "frameworkSavedSlotFailed": "O framework foi trocado, mas não foi possível salvar o modelo do agente ({{detail}}). Escolha um modelo e salve novamente.",
+        "agentSavedHelperFailed": "O modelo do agente foi salvo, mas o modelo auxiliar não ({{detail}}).",
+        "slotClearedPickModel": "O framework foi trocado e o cartão vinculado não consegue executá-lo, por isso foi desvinculado. Escolha um provedor e um modelo para o agente."
       },
       "privacy": {
         "label": "Privacidade",
