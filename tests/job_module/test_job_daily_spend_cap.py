@@ -33,7 +33,7 @@ ENV_VAR = "NARRANEXUS_USER_DAILY_SPEND_CAP_USD"
 FIXED_NOW = datetime(2026, 9, 10, 20, 0, 0, tzinfo=dt_tz.utc)
 
 
-async def _insert_job(db, job_id, user_id="user_1", status="active"):
+async def _insert_job(db, job_id, user_id="user_1", status="active", trigger_config=SCHEDULED_TRIGGER):
     now = datetime(2026, 9, 9, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
     await db.insert("instance_jobs", {
         "job_id": job_id,
@@ -42,7 +42,7 @@ async def _insert_job(db, job_id, user_id="user_1", status="active"):
         "user_id": user_id,
         "title": "Heartbeat job", "description": "d", "payload": "p",
         "job_type": "scheduled",
-        "trigger_config": SCHEDULED_TRIGGER,
+        "trigger_config": trigger_config,
         "status": status,
         "notification_method": "inbox",
         "next_run_time": "2020-01-01T00:00:00Z",
@@ -259,8 +259,11 @@ async def test_execute_job_pauses_when_spend_is_inside_the_local_day(db_client, 
 
 # ── C1: the cap is a per-day ceiling — the backstop brings the job back ─────
 
-async def _insert_capped_job(db, job_id, user_id="user_1"):
-    await _insert_job(db, job_id, user_id=user_id, status=JobStatus.PAUSED_SPEND_CAP.value)
+async def _insert_capped_job(db, job_id, user_id="user_1", trigger_config=SCHEDULED_TRIGGER):
+    await _insert_job(
+        db, job_id, user_id=user_id, status=JobStatus.PAUSED_SPEND_CAP.value,
+        trigger_config=trigger_config,
+    )
     await db.update("instance_jobs", {"job_id": job_id}, {
         "paused_reason": "spend_cap", "paused_at": FIXED_NOW,
     })
@@ -322,3 +325,58 @@ async def test_poll_cycle_runs_the_spend_cap_backstop(db_client, monkeypatch):
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_via_poll"})
     assert row["status"] == JobStatus.ACTIVE.value
+
+
+# ── review r2 M-d: horizon and per-job timezone in the backstop ─────────────
+
+@pytest.mark.asyncio
+async def test_backstop_completes_a_job_whose_next_fire_is_past_end_at(db_client, monkeypatch):
+    """Under the cap, but the schedule's horizon has passed while the job sat
+    capped: it completes (next_run cleared, instance completed) instead of
+    being re-armed for a fire the schedule no longer owes."""
+    from narranexus.platform.repository import InstanceRepository
+    from narranexus.platform.schema.instance_schema import InstanceStatus, ModuleInstanceRecord
+
+    monkeypatch.setenv(ENV_VAR, "100")
+    await InstanceRepository(db_client).create_instance(ModuleInstanceRecord(
+        instance_id="ins_job_expired", module_class="JobModule", agent_id="agent_1",
+        status=InstanceStatus.ACTIVE, dependencies=[],
+    ))
+    await _insert_capped_job(
+        db_client, "job_expired",
+        trigger_config='{"cron":"0 8 * * *","timezone":"Asia/Shanghai","end_at":"2021-01-01T00:00:00"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+
+    assert await trigger._resume_spend_capped_jobs() == 0
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_expired"})
+    assert row["status"] == JobStatus.COMPLETED.value
+    assert row["paused_reason"] is None
+    assert row["next_run_time"] is None
+    inst = await InstanceRepository(db_client).get_by_instance_id("ins_job_expired")
+    assert inst.status == InstanceStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_backstop_judges_each_jobs_own_timezone(db_client, monkeypatch):
+    """$5 booked at 15:30Z against a $1 cap. For the Asia/Shanghai job that is
+    yesterday (local midnight = 16:00Z) so it resumes; for the UTC job it is
+    today so it stays capped. A single UTC day would treat both the same."""
+    monkeypatch.setenv(ENV_VAR, "1")
+    monkeypatch.setattr(trigger_mod, "utc_now", lambda: FIXED_NOW)
+    await _insert_cost_record(
+        db_client, "user_1", 5.0, created_at=datetime(2026, 9, 10, 15, 30, tzinfo=dt_tz.utc)
+    )
+    await _insert_capped_job(db_client, "job_shanghai")
+    await _insert_capped_job(
+        db_client, "job_utc", trigger_config='{"cron":"0 8 * * *","timezone":"UTC"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+
+    assert await trigger._resume_spend_capped_jobs() == 1
+
+    shanghai = await db_client.get_one("instance_jobs", {"job_id": "job_shanghai"})
+    utc = await db_client.get_one("instance_jobs", {"job_id": "job_utc"})
+    assert shanghai["status"] == JobStatus.ACTIVE.value
+    assert utc["status"] == JobStatus.PAUSED_SPEND_CAP.value

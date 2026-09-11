@@ -823,7 +823,9 @@ class JobTrigger:
         Resumes schedule FORWARD (`compute_next_run` from now): a heartbeat
         job paused for a day must not replay the fires it missed. A recurring
         job whose next fire would land past its end_at horizon completes
-        instead (same rule as the other re-arm paths).
+        instead — the same rule as `_rearm_cooled_jobs` and
+        `_heal_unscheduled_active_jobs` (the no-quota resume,
+        `_resume_eligible_no_quota_jobs`, has no horizon check).
         """
         try:
             repo = self._get_job_repo()

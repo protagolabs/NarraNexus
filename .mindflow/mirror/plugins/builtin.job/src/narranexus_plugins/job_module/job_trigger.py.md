@@ -21,12 +21,14 @@ provider readiness（登录/存 provider 的 edge）恢复，与花费无关，�
 
 恢复向前推而不是补跑：一条停了一天的 2 小时心跳 job 恢复瞬间不能补 12 次。next fire 落在
 `end_at` 之外的周期 job 直接 COMPLETED（与 `_rearm_cooled_jobs` / `_heal_unscheduled_active_jobs`
-同一条规则）。手动恢复也通了：[[job_recovery]] 的 `_RESUMABLE_STATUSES` 与前端 `canResume`
+同一条规则；注意 `_resume_eligible_no_quota_jobs` **没有** horizon 判定，是既有缺口，不在此列）。手动恢复也通了：[[job_recovery]] 的 `_RESUMABLE_STATUSES` 与前端 `canResume`
 同批加入该状态。spend_cap 的 inbox 文案改成说实话（次日自动恢复）。
 
 锁：`test_backstop_resumes_a_spend_capped_job_once_under_the_cap`（含 next_run 必须在未来）、
 `test_backstop_keeps_the_job_paused_while_still_over_the_cap`、
-`test_backstop_resumes_when_ops_disable_the_cap`、`test_poll_cycle_runs_the_spend_cap_backstop`（接线）。
+`test_backstop_resumes_when_ops_disable_the_cap`、`test_poll_cycle_runs_the_spend_cap_backstop`（接线）；
+r2 M-d 补：`test_backstop_completes_a_job_whose_next_fire_is_past_end_at`（COMPLETED + 清 next_run + 实例 completed）、
+`test_backstop_judges_each_jobs_own_timezone`（同一笔花费，Asia/Shanghai 的 job 恢复、UTC 的 job 仍封顶）。
 
 ## 2026-09-10（review r2 I2）— 超长报告分片投递，超预算则明说，绝不静默丢
 
