@@ -601,11 +601,12 @@ _register(
             # value that differs before vs. after a real claim — additive,
             # nullable, no backfill needed.
             Column("probe_token", "TEXT", "VARCHAR(64)"),
-            # 2026-09-10 (#394 review I1): when the live claim was taken; NULL
-            # together with probe_token. The crash-window fallback only counts
-            # runs that started after this instant as possibly the claimant's.
+            # 2026-09-10 (#394 review I-1): the claimant's own run
+            # (events.event_id), bound once its run row exists; NULL together
+            # with probe_token. The crash-window fallback asks whether THIS
+            # run is alive, never whether any run of the agent is.
             # Additive, nullable, no backfill.
-            Column("probe_claimed_at", "TEXT", "DATETIME(6)"),
+            Column("probe_run_id", "TEXT", "VARCHAR(128)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

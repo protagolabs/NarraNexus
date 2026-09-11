@@ -109,7 +109,9 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
             {
                 "cb_status": CbStatus.PROBING.value,
                 "probe_token": new_token,
-                "probe_claimed_at": now,
+                # A fresh claim has no claimant run yet; the winner binds its
+                # own via bind_probe_run once its events row exists.
+                "probe_run_id": None,
                 "cooldown_until": grant_until,
                 "updated_at": now,
             },
@@ -143,6 +145,29 @@ class AgentCircuitBreakerRepository(BaseRepository[AgentCircuitBreaker]):
                 "probe_token": probe_token,
             },
             data,
+        )
+        return rowcount > 0
+
+    async def bind_probe_run(
+        self, agent_id: str, probe_token: str, run_id: str
+    ) -> bool:
+        """Stamp ``probe_run_id`` ONLY if the row is still PROBING under
+        ``probe_token`` — the claimant naming its own run. Unlike
+        ``settle_probe`` it leaves the row PROBING and the token in place.
+
+        Returns True iff a row changed. On MySQL (aiomysql rowcount = CHANGED
+        rows) re-binding the same run id still changes ``updated_at``, but a
+        False here is informational only: callers never branch on it as a
+        CAS verdict — a lost claim simply is not bound.
+        """
+        rowcount = await self._db.update(
+            self.table_name,
+            {
+                "agent_id": agent_id,
+                "cb_status": CbStatus.PROBING.value,
+                "probe_token": probe_token,
+            },
+            {"probe_run_id": run_id, "updated_at": utc_now()},
         )
         return rowcount > 0
 

@@ -19,6 +19,14 @@ stub: false
 
 ## 2026-09-10（PR #394 review I4）— 活性规则搬到叶子模块 `utils.run_liveness`
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 替探测认领者报出 run id
+
+`RunRecorder(..., agent_id=None, probe_token=None)`：run 携带半开探测认领时，`_bind_run_id`
+在「running init」那次写之后调 [[circuit_breaker]] `bind_probe_run`，把本 run 的 event_id
+记为认领者（token CAS，永不抛）。普通 run 两个参数都是 None，什么都不写。这是认领身份唯一的
+落点——WS/openai（[[background_run]]）与触发路径（[[client]] `_new_recorder`）都经过它。
+`sweep_stale_runs` 调 `release_orphaned_probe` 的判定随之变成「被绑定的那条 run 是否还活着」。
+
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则只剩一条 import 路径
 
 本模块不再 re-export 活性规则：只为自身使用导入 `HEARTBEAT_INTERVAL_S` / `STATE_RUNNING` /

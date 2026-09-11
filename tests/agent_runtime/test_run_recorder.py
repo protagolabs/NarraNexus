@@ -518,6 +518,7 @@ async def test_sweep_releases_the_lost_runs_half_open_probe(db_client):
         "consecutive_failure_count": 3,
         "cooldown_until": utc_now() + _td(minutes=4),
         "probe_token": "lost-probe",
+        "probe_run_id": "evt_lost_probe",
     })
     await repo.upsert_state("agent_cooling", {
         "cb_status": CbStatus.COOLING.value,
@@ -541,10 +542,10 @@ async def test_sweep_releases_the_lost_runs_half_open_probe(db_client):
 
 @pytest.mark.asyncio
 async def test_sweep_releases_a_lost_probe_despite_an_older_live_run(db_client):
-    """#394 review I1: the claimant died, but the agent also has an older,
-    hours-long run that is still beating. The sweep must still release the
-    probe — that older run started before the claim, so it cannot be the
-    claimant and must not keep the row PROBING for as long as it runs."""
+    """#394 review I1/I-1: the claimant (the run bound to the claim) died,
+    but the agent also has an older, hours-long run that is still beating.
+    The sweep must still release the probe — only the bound run is the
+    claimant, so no other run keeps the row PROBING for as long as it runs."""
     from datetime import timedelta as _td
 
     from narranexus.platform.repository.agent_circuit_breaker_repository import (
@@ -561,7 +562,7 @@ async def test_sweep_releases_a_lost_probe_despite_an_older_live_run(db_client):
         "consecutive_failure_count": 3,
         "cooldown_until": utc_now() + _td(minutes=1),
         "probe_token": "dead-claimant",
-        "probe_claimed_at": claimed,
+        "probe_run_id": "evt_weld_claimant",
     })
     await _seed_events_row(db_client, "evt_weld_old", agent_id="agent_weld",
                            state="running", started_at=utc_now() - _td(hours=3),
@@ -623,3 +624,43 @@ def test_the_liveness_rule_has_one_import_path():
                 if imported & names:
                     offenders.append(f"{path.relative_to(root)}: {sorted(imported & names)}")
     assert offenders == []
+
+
+@pytest.mark.asyncio
+async def test_a_probe_carrying_recorder_binds_its_run_as_the_claimant(db_client):
+    """#394 second review I-1: the recorder is where every recorded run
+    learns its id, so it is where the claimant names its run. A recorder
+    carrying the claim binds on the running flip; an ordinary one binds
+    nothing, even for the same agent."""
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        try_begin_probe,
+    )
+    from narranexus.platform.repository.agent_circuit_breaker_repository import (
+        AgentCircuitBreakerRepository,
+    )
+    from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+
+    repo = AgentCircuitBreakerRepository(db_client)
+    await repo.upsert_state("agent_bind", {
+        "cb_status": CbStatus.PAUSED.value,
+        "paused_reason": PausedReason.AUTH.value,
+        "failure_category": ErrorCategory.AUTH.value,
+        "consecutive_failure_count": 3,
+        "cooldown_until": utc_now(),
+    })
+    adm = await try_begin_probe("agent_bind", db=db_client)
+    assert adm.probe_token
+
+    await _seed_events_row(db_client, "evt_plain", agent_id="agent_bind")
+    plain = RunRecorder(db=db_client)
+    await plain.record(_step0_progress("evt_plain"))
+    await _stop(plain)
+    assert (await repo.get("agent_bind")).probe_run_id is None
+
+    await _seed_events_row(db_client, "evt_probe", agent_id="agent_bind")
+    rec = RunRecorder(db=db_client, agent_id="agent_bind", probe_token=adm.probe_token)
+    await rec.record(_step0_progress("evt_probe"))
+    await _stop(rec)
+    row = await repo.get("agent_bind")
+    assert row.cb_status == CbStatus.PROBING.value
+    assert row.probe_run_id == "evt_probe"

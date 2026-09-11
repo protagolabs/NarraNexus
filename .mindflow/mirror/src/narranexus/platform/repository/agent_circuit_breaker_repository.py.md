@@ -3,6 +3,18 @@ code_file: src/narranexus/platform/repository/agent_circuit_breaker_repository.p
 last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— `bind_probe_run`；认领清 `probe_run_id`
+
+`bind_probe_run(agent_id, probe_token, run_id) -> bool`：`UPDATE ... SET probe_run_id=?,
+updated_at=? WHERE agent_id=? AND cb_status='probing' AND probe_token=?`——认领者给自己的 run
+落身份；与 `settle_probe` 同样的过滤，但行留在 PROBING、token 不动。返回值只是信息（MySQL 的
+CHANGED 行计数下重复写同一值时 `updated_at` 仍会变，但调用方从不把 False 当 CAS 失败）。
+`try_claim_probe` 不再写 `probe_claimed_at`，改为把 `probe_run_id` 置 NULL。两方言 twin：
+`test_claimant_identity_binds_and_is_judged_on_mysql`、
+`test_bind_probe_run_needs_the_live_token_and_keeps_probing`。下方「认领写 `probe_claimed_at`」
+一句是历史，该列已被 `probe_run_id` 取代。
+
 # agent_circuit_breaker_repository.py — 熔断器状态数据访问
 
 ## 为什么存在

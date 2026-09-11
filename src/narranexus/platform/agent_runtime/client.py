@@ -142,10 +142,18 @@ def _inherited_root_run_id(extra_kwargs: dict) -> Optional[str]:
 
 async def _new_recorder(
     inherited_root_run_id: Optional[str] = None,
+    *,
+    agent_id: Optional[str] = None,
+    probe_token: Optional[str] = None,
 ) -> "Optional[RunRecorder]":
     """Build a recorder for one trigger run, or None when recording is
     off (kill switch) or the DB client cannot be obtained — a run must
-    start regardless of observability."""
+    start regardless of observability.
+
+    ``agent_id`` / ``probe_token``: the half-open probe claim this run
+    carries, so the recorder binds the run as the claimant once its events
+    row exists (see ``RunRecorder``). Without a recorder nothing is bound
+    and the claim is bounded by its grant alone."""
     from narranexus.platform.agent_runtime.run_recorder import (
         RunRecorder,
         recording_enabled,
@@ -158,6 +166,8 @@ async def _new_recorder(
         return RunRecorder(
             db=await get_db_client(),
             inherited_root_run_id=inherited_root_run_id,
+            agent_id=agent_id,
+            probe_token=probe_token,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[RunRecorder] unavailable for this run: {e}")
@@ -253,7 +263,11 @@ class InProcessAgentRuntimeClient:
             TERMINAL_STATES,
         )
 
-        recorder = await _new_recorder(_inherited_root_run_id(extra_kwargs))
+        recorder = await _new_recorder(
+            _inherited_root_run_id(extra_kwargs),
+            agent_id=agent_id,
+            probe_token=probe_token,
+        )
         runtime: Any = AgentRuntime()
         if recorder is not None:
             runtime = _RecordedRuntime(runtime, recorder)

@@ -16,6 +16,34 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
+## 2026-09-10（PR #394 review 第四轮）— 认领者自报 run id：活性按身份而非时间
+
+**I-1：`_claimant_may_be_live` 不再用时间近似。** 第三轮的判定是「认领之后才开始、心跳新鲜的
+running 行都可能是认领者」——接了 IM channel 的 agent 消息不断，重叠的无关 run 会让它永远返回
+True，行被无界地焊死在 PROBING。现在认领者给自己的 run 落一个可断言的身份：
+- 新列 `probe_run_id`（取代 `probe_claimed_at`，见 [[schema_registry]]），进 `_NO_CLAIM`，
+  与 `probe_token` 同清；`try_claim_probe` 认领时也写 NULL，新认领绝不继承上一个认领者的 run。
+- `bind_probe_run(agent_id, probe_token, run_id, db=None) -> bool`：token CAS（仓储
+  `bind_probe_run`，过滤同 `settle_probe`，但**不离开 PROBING、不清 token**）。唯一调用点是
+  [[run_recorder]] `RunRecorder._bind_run_id`——每个被记录的 run（WS/openai 的 `BackgroundRun`、
+  触发路径的 `run_and_collect`）都在这里得知自己的 event_id，于是两条路径都有身份。返回值只作
+  信息，不当 CAS 结论（aiomysql rowcount=CHANGED 的坑见仓储条目）。永不抛。
+- `_claimant_may_be_live(db, row)`：`probe_run_id` 非空 → 只看**那一行**是否仍 `running` 且
+  `run_is_live`（投影只取 `state / last_event_at / started_at`，M-5）；为空 → 认领者还没建行，
+  只在 grant 未过期时算「可能在路上」，过期即视为已死。任何别的 run——更早的长 run、更晚的
+  无关 run、未设闸门入口的 run——都不再参与。M-3 的「老行 NULL 回退」分支随之消失。
+- 已知边界：recording 关掉（`NARRANEXUS_RUN_RECORDING_DISABLED`）的触发路径没有 recorder，
+  不会绑定，认领只靠 grant（5min）兜底——与第三轮在该配置下的行为相同（那时也找不到 events 行）。
+
+锁：`test_unrelated_runs_started_after_the_claim_cannot_weld_the_probe`（死掉的绑定 run + 三条
+认领之后才开始的存活 run → sweep 归还、grant 过期可重认领）、
+`test_expired_grant_with_a_live_bound_claimant_is_not_reclaimed`、
+`test_an_unbound_claim_lives_exactly_as_long_as_its_grant`、
+`test_bind_probe_run_needs_the_live_token_and_keeps_probing`、真 MySQL twin
+`test_claimant_identity_binds_and_is_judged_on_mysql`、
+`test_run_recorder.py::test_a_probe_carrying_recorder_binds_its_run_as_the_claimant`。
+把 `_claimant_may_be_live` 退回「该 agent 任一存活 run」这三条 SQLite 用例变红。
+
 ## 2026-09-10（PR #394 review 第三轮）— 探测身份随 turn 走；只有能结算的入口才认领
 
 上一轮把认领下移到了 turn 起点，但 #394 预审指出两个根问题，本轮定案如下（上一轮条目中与
@@ -35,10 +63,8 @@ probe_token)`；赢了才有 `probe_token`，turn 必须把它带到结算。`re
 
 旧的「该 agent 有没有存活 run」代理判定（`_agent_has_live_run`）已删除：它会把行焊死在
 PROBING（长 run A 在跑、探测 C 被取消 → release 因 A 存活而 no-op → grant 过期后又因 A 存活
-拒绝重认领）。崩溃窗口（认领者死了、token 随进程消失）的兜底改为 `_claimant_may_be_live`：
-只有 **在认领之后才开始**（`started_at >= probe_claimed_at - 5s` 时钟容差）且心跳新鲜的
-running 行才可能是认领者。新增列 `probe_claimed_at`（与 `probe_token` 同写同清，见
-[[schema_registry]]）；老行没有该列值时退回「任一存活 run」这个保守答案。它被两处使用：
+拒绝重认领）。崩溃窗口（认领者死了、token 随进程消失）的兜底改为 `_claimant_may_be_live`
+（本轮的时间近似与 `probe_claimed_at` 列已被第四轮的「认领者自报 run id」取代，见上一节）。它被两处使用：
 `try_begin_probe` 的过期 grant 重认领、`release_orphaned_probe`（[[run_recorder]]
 `sweep_stale_runs` 翻掉丢失 run 后调用）。
 

@@ -101,12 +101,13 @@ class AgentCircuitBreaker(BaseModel):
     # ``AgentCircuitBreakerRepository.try_claim_probe`` for why cb_status
     # alone cannot be the CAS key on the stale-PROBING self-heal branch.
     probe_token: Optional[str] = None
-    # When the live claim was taken (2026-09-10, #394 review I1). NULL whenever
-    # probe_token is NULL. Lets the crash-window fallback ask "is a run that
-    # STARTED AFTER this claim still alive?" instead of "is ANY run of this
-    # agent alive?" — the latter let an unrelated long run weld the row in
+    # The claimant's own run (``events.event_id``), bound by the claiming turn
+    # once its run row exists (2026-09-10, #394 review I-1). NULL whenever
+    # probe_token is NULL, and NULL between a claim and its run row. The
+    # crash-window fallback asks "is THIS run still alive?" — never "is some
+    # run of this agent alive?", which let an unrelated run weld the row in
     # PROBING. The token itself is carried in-process by the claiming turn.
-    probe_claimed_at: Optional[datetime] = None
+    probe_run_id: Optional[str] = None
     last_error: Optional[str] = None  # already redacted before it lands here
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

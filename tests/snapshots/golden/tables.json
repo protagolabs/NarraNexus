@@ -2989,9 +2989,9 @@
         false
       ],
       [
-        "probe_claimed_at",
+        "probe_run_id",
         "TEXT",
-        "DATETIME(6)",
+        "VARCHAR(128)",
         true,
         false
       ],

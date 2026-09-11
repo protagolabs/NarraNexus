@@ -537,6 +537,7 @@ async def test_expired_grant_with_live_run_is_not_reclaimed(db_client):
     aid = "ag_ho_long"
     await repo.upsert_state(aid, _paused_row(
         cb_status=CbStatus.PROBING.value, probe_token="long-probe",
+        probe_run_id="evt_long_probe",
     ))
     await db_client.insert("events", {
         "event_id": "evt_long_probe",
@@ -714,7 +715,7 @@ async def test_release_probe_settles_only_its_own_claim(db_client):
     row = await repo.get("rel_p")
     assert row.cb_status == CbStatus.PAUSED.value
     assert row.probe_token is None
-    assert row.probe_claimed_at is None
+    assert row.probe_run_id is None
     assert not _elapsed_now(row.cooldown_until)
     assert await release_probe("rel_p", "t", db=db_client) is False  # idempotent
 
@@ -752,7 +753,8 @@ async def test_a_long_run_that_predates_the_claim_cannot_weld_the_probe(db_clien
                           last_event_at=utc_now())
     adm = await try_begin_probe(aid, db=db_client)
     assert adm.allowed and adm.probe_token
-    assert (await repo.get(aid)).probe_claimed_at is not None
+    # A fresh claim names no claimant run until its run row exists.
+    assert (await repo.get(aid)).probe_run_id is None
 
     assert await release_probe(aid, adm.probe_token, db=db_client) is True
     assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
@@ -768,19 +770,18 @@ async def test_a_long_run_that_predates_the_claim_cannot_weld_the_probe(db_clien
 
 
 @pytest.mark.asyncio
-async def test_expired_grant_with_a_run_started_after_the_claim_is_not_reclaimed(db_client):
-    """The counterpart: a heartbeat-fresh run that started AFTER the claim
-    may be the long-running probe itself, so its stale grant is not
-    re-claimed (binding rule #14); once its heartbeat dies it is."""
+async def test_expired_grant_with_a_live_bound_claimant_is_not_reclaimed(db_client):
+    """The counterpart: while the run the claimant bound is heartbeat-fresh,
+    the probe is still running (binding rule #14: it may run for hours), so
+    its stale grant is not re-claimed; once that run's heartbeat dies it is."""
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "claimant_live"
-    claimed = utc_now() - timedelta(minutes=30)
-    await repo.upsert_state(aid, _paused_row(
-        cb_status=CbStatus.PROBING.value, probe_token="c", probe_claimed_at=claimed,
-    ))
     await _insert_running(db_client, "evt_claimant", aid,
-                          started_at=claimed + timedelta(seconds=1),
+                          started_at=utc_now() - timedelta(minutes=30),
                           last_event_at=utc_now())
+    await repo.upsert_state(aid, _paused_row(
+        cb_status=CbStatus.PROBING.value, probe_token="c", probe_run_id="evt_claimant",
+    ))
     assert await _claim(aid, db_client) == (False, "probing")
     assert await cb.release_orphaned_probe(aid, db=db_client) is False
     await db_client.update("events", {"event_id": "evt_claimant"},
@@ -790,23 +791,86 @@ async def test_expired_grant_with_a_run_started_after_the_claim_is_not_reclaimed
 
 
 @pytest.mark.asyncio
-async def test_release_orphaned_probe_ignores_runs_that_predate_the_claim(db_client):
-    """The sweep's fallback releases a PROBING row whose claimant is gone
-    even while an older, unrelated run of the agent is alive."""
+async def test_unrelated_runs_started_after_the_claim_cannot_weld_the_probe(db_client):
+    """#394 second review I-1: the claimant is identified by the run it
+    bound, not by time. Its run died (crash, then the sweep flipped it);
+    other runs of the agent that started AFTER the claim — an ungated IM
+    channel's turns arriving back to back — are alive, and must not keep
+    the row PROBING: both the sweep's release and a re-claim go through."""
     repo = AgentCircuitBreakerRepository(db_client)
-    aid = "orphan"
+    aid = "weld_newer"
+    claimed = utc_now() - timedelta(minutes=10)
+    await _insert_running(db_client, "evt_dead_claimant", aid,
+                          started_at=claimed, last_event_at=claimed)
+    await db_client.update("events", {"event_id": "evt_dead_claimant"}, {"state": "failed"})
+    for i in range(3):
+        await _insert_running(db_client, f"evt_im_{i}", aid,
+                              started_at=claimed + timedelta(minutes=i + 1),
+                              last_event_at=utc_now())
     await repo.upsert_state(aid, _paused_row(
-        cb_status=CbStatus.PROBING.value, probe_token="gone",
-        probe_claimed_at=utc_now() - timedelta(minutes=2),
+        cb_status=CbStatus.PROBING.value, probe_token="dead",
+        probe_run_id="evt_dead_claimant",
         cooldown_until=utc_now() + timedelta(minutes=3),
     ))
-    await _insert_running(db_client, "evt_old", aid,
-                          started_at=utc_now() - timedelta(hours=2),
-                          last_event_at=utc_now())
     assert await cb.release_orphaned_probe(aid, db=db_client) is True
+    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+
+    # Same row, grant expired instead of swept: the next turn re-claims.
+    await repo.upsert_state(aid, {
+        "cb_status": CbStatus.PROBING.value, "probe_token": "dead",
+        "probe_run_id": "evt_dead_claimant",
+        "cooldown_until": utc_now() - timedelta(seconds=1),
+    })
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.allowed and adm.probe_token and adm.probe_token != "dead"
+    assert (await repo.get(aid)).probe_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_an_unbound_claim_lives_exactly_as_long_as_its_grant(db_client):
+    """Between the claim and the claimant's run row nothing is bound: the
+    claimant may still be on its way while the grant lasts (the sweep must
+    not release it on behalf of some other lost run), and is presumed gone
+    once the grant has expired — whatever other runs the agent has."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "unbound"
+    await _insert_running(db_client, "evt_unbound_other", aid,
+                          started_at=utc_now(), last_event_at=utc_now())
+    await repo.upsert_state(aid, _paused_row(
+        cb_status=CbStatus.PROBING.value, probe_token="pending",
+        cooldown_until=utc_now() + timedelta(minutes=3),
+    ))
+    assert await cb.release_orphaned_probe(aid, db=db_client) is False
+    assert await _claim(aid, db_client) == (False, "probing")
+    await repo.upsert_state(aid, {"cooldown_until": utc_now() - timedelta(seconds=1)})
+    assert await cb.release_orphaned_probe(aid, db=db_client) is True
+    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+
+
+@pytest.mark.asyncio
+async def test_bind_probe_run_needs_the_live_token_and_keeps_probing(db_client):
+    """The claimant names its run through the token CAS: a wrong or missing
+    token binds nothing, a bind never moves the row out of PROBING, and a
+    settled claim can no longer be bound."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "bind"
+    await repo.upsert_state(aid, _paused_row())
+    adm = await try_begin_probe(aid, db=db_client)
+    assert adm.probe_token
+    assert await cb.bind_probe_run(aid, "not-mine", "evt_x", db=db_client) is False
+    assert await cb.bind_probe_run(aid, None, "evt_x", db=db_client) is False
+    assert (await repo.get(aid)).probe_run_id is None
+
+    assert await cb.bind_probe_run(aid, adm.probe_token, "evt_mine", db=db_client) is True
     row = await repo.get(aid)
-    assert row.cb_status == CbStatus.PAUSED.value
-    assert row.probe_token is None
+    assert row.cb_status == CbStatus.PROBING.value
+    assert row.probe_token == adm.probe_token and row.probe_run_id == "evt_mine"
+
+    assert await release_probe(aid, adm.probe_token, db=db_client) is True
+    row = await repo.get(aid)
+    assert row.probe_run_id is None
+    assert await cb.bind_probe_run(aid, adm.probe_token, "evt_late", db=db_client) is False
+    assert (await repo.get(aid)).probe_run_id is None
 
 
 @pytest.mark.asyncio

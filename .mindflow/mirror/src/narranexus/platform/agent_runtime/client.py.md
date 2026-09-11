@@ -25,6 +25,12 @@ events 行落地 `state=completed` + `error_message` 为空,Run-observation
 `test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
 
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— `_new_recorder` 带上探测认领
+
+`_new_recorder(inherited_root_run_id, *, agent_id=None, probe_token=None)`；`run_and_collect`
+把自己的 `agent_id` / `probe_token` 交进去，recorder 在 run 行 running 时把它绑定为认领者。
+recording 关掉时没有 recorder、不绑定，认领只靠 grant 兜底。
+
 ## 2026-09-10（PR #394 review C1）— `run_and_collect(probe_token=)`：触发路径的探测结算接缝
 
 bus lane 与 patrol 会认领熔断器的半开探测，但不经 `BackgroundRun`，此前没人结算：死凭据

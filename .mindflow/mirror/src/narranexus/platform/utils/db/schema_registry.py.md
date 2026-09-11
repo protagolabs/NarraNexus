@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— `probe_claimed_at` 换成 `probe_run_id`
+
+`instance_agent_circuit_breaker` 的新列改为 `probe_run_id`（TEXT / VARCHAR(128)，与
+`events.event_id` 同宽），additive、nullable、无回填；`probe_claimed_at` 从注册表删除（同一 PR
+引入，未到任何已发布环境；本地已跑过迁移的库留下的空列无害，`auto_migrate` 不删列）。golden
+`tests/snapshots/golden/tables.json` 已用 `NX_UPDATE_SNAPSHOTS=1` 重生成。
+
 ## 2026-09-10（PR #394 review I1）— `instance_agent_circuit_breaker` 加 `probe_claimed_at`
 
 additive、nullable、无回填：半开探测认领时刻（`try_claim_probe` 写，所有离开 PROBING 的写

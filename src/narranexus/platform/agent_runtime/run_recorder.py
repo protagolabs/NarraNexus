@@ -72,6 +72,7 @@ from narranexus.platform.utils.run_liveness import (
 # liveness rule both share lives in utils.run_liveness), so there is no cycle
 # to hide behind a function-local import any more.
 from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    bind_probe_run,
     release_orphaned_probe,
 )
 
@@ -369,8 +370,17 @@ class RunRecorder:
         on_run_id: Optional[Callable[[str], Awaitable[None]]] = None,
         on_thinking_buffer: Optional[Callable[[str, bool], None]] = None,
         inherited_root_run_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        probe_token: Optional[str] = None,
     ) -> None:
         self.db = db
+        # The circuit-breaker half-open probe claim this run carries, if any
+        # (#394 review I-1). When the run's events row goes running, the
+        # recorder names this run as the claimant (``bind_probe_run``), so the
+        # breaker's crash-window fallback can ask about THIS run instead of
+        # guessing from other runs of the agent. Both None for an ordinary run.
+        self._probe_agent_id = agent_id
+        self._probe_token = probe_token
         # The trigger TREE this run belongs to. Non-empty when the trigger knew
         # it was continuing somebody else's tree; otherwise this run IS a root
         # and stamps its own id at bind time. Recorded here rather than in
@@ -589,6 +599,12 @@ class RunRecorder:
             },
             context="running init",
         )
+        if self._probe_token is not None and self._probe_agent_id:
+            # After the running flip, so the claimant is already live by the
+            # time the breaker can see its id. Never raises.
+            await bind_probe_run(
+                self._probe_agent_id, self._probe_token, run_id, db=self.db
+            )
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         if self._on_run_id is not None:
             try:

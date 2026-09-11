@@ -69,11 +69,7 @@ from narranexus.platform.services.background_llm_alerts import (
 )
 from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.run_liveness import (
-    STATE_RUNNING,
-    parse_db_utc,
-    run_is_live,
-)
+from narranexus.platform.utils.run_liveness import STATE_RUNNING, run_is_live
 from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on
@@ -94,22 +90,15 @@ _HALF_OPEN_MAX_DOUBLINGS = (PAUSE_HALF_OPEN_CAP_SECONDS // PAUSE_HALF_OPEN_BASE_
 
 # How long a claimed probe grant is honored on the WALL CLOCK before the row
 # is even considered for re-claim. This is NOT a turn-length ceiling (binding
-# rule #14 forbids one): a stale grant is re-claimable only when, in addition,
-# no run that STARTED AFTER the claim is still alive
-# (``_claimant_may_be_live`` — heartbeat-fresh ``events`` row, the same
-# ``run_is_live`` rule ``run_recorder.sweep_stale_runs`` uses). A probe turn
-# that runs for hours keeps its grant for hours. The timer therefore only
-# bounds the crash window — the claiming turn died before it could settle
-# with its token — which is seconds; 5 minutes is generous for THAT, not for
-# a turn.
+# rule #14 forbids one): once the claiming turn's run row exists it binds its
+# ``event_id`` to the claim (``bind_probe_run``), and from then on the claim
+# lives exactly as long as THAT run is alive (``_claimant_may_be_live`` —
+# heartbeat-fresh ``events`` row, the same ``run_is_live`` rule
+# ``run_recorder.sweep_stale_runs`` uses). A probe turn that runs for hours
+# keeps its grant for hours. The timer therefore only bounds the window
+# between the claim and the run row (or a claimant that died inside it),
+# which is seconds; 5 minutes is generous for THAT, not for a turn.
 PROBE_GRANT_SECONDS = 300
-
-# Clock slack when matching "a run that started after the claim": the claim
-# and the run's started_at are stamped by different statements (possibly
-# different containers). A run that started this long before the claim is
-# still treated as possibly the claimant's — erring toward "may be live",
-# which only delays a re-claim, never double-probes.
-_CLAIM_START_SLACK_SECONDS = 5
 
 # Neither TRANSIENT nor BUSINESS ever pauses; after this many consecutive we
 # raise an alert so a chronically-failing agent isn't invisible. For TRANSIENT
@@ -608,14 +597,40 @@ async def release_probe(agent_id: str, probe_token: Optional[str], db=None) -> b
         return False
 
 
+async def bind_probe_run(
+    agent_id: str, probe_token: Optional[str], run_id: str, db=None
+) -> bool:
+    """Record which run is the claimant: the claiming turn calls this once
+    its ``events`` row exists (``RunRecorder._bind_run_id`` — the one place
+    every recorded run, WS/openai and trigger alike, learns its id).
+
+    Token CAS (``repo.bind_probe_run``): lands only while the row is still
+    PROBING under ``probe_token``, and never moves it out of PROBING. From
+    then on ``_claimant_may_be_live`` asks about THIS run only, so no other
+    run of the agent — an older long turn, an ungated entry's turn, a turn
+    that started after the claim — can keep the claim alive (#394 review
+    I-1). No-op returning False without a token. Best-effort: never raises.
+    """
+    if probe_token is None or not run_id:
+        return False
+    try:
+        db = db or await get_db_client()
+        return await AgentCircuitBreakerRepository(db).bind_probe_run(
+            agent_id, probe_token, run_id
+        )
+    except Exception as e:  # noqa: BLE001 — observer never breaks the observed
+        logger.warning(f"[agent-cb] bind_probe_run({agent_id}) failed: {e}")
+        return False
+
+
 async def release_orphaned_probe(agent_id: str, db=None) -> bool:
     """Crash-window fallback for a claim whose holder DIED and so can never
     settle it with its token (``run_recorder.sweep_stale_runs`` calls this
-    after flipping a lost run). Releases the PROBING row only when no run
-    that started after the claim is still alive (``_claimant_may_be_live``);
-    a live run that predates the claim — the long-running turn binding rule
-    #14 protects — is never mistaken for the claimant. Best-effort: never
-    raises."""
+    after flipping a lost run). Releases the PROBING row only when its
+    claimant cannot still be running (``_claimant_may_be_live``: the bound
+    claimant run is no longer live, or no run was bound and the grant has
+    expired). Any other run of the agent, live or not, is irrelevant.
+    Best-effort: never raises."""
     try:
         db = db or await get_db_client()
         repo = AgentCircuitBreakerRepository(db)
@@ -901,35 +916,27 @@ async def _claimant_may_be_live(db, row: AgentCircuitBreaker) -> bool:
 
     The claimant carries its token in-process and settles with it; this is
     only asked when that cannot have happened yet — the grant expired, or a
-    lost run was swept. Identity is approximated by TIME, not by "does the
-    agent have any live run": only a heartbeat-fresh ``events`` row that
-    started after the claim (minus clock slack) can be the claimant. A run
-    that predates the claim — e.g. a legitimate hours-long turn (binding
-    rule #14) — can therefore no longer keep the row PROBING forever (#394
-    review I1). A row without ``probe_claimed_at`` (claimed by a build that
-    did not stamp it) falls back to "any live run", the conservative answer.
+    lost run was swept. Identity, not time (#394 review I-1): the claimant
+    bound its own ``event_id`` to the claim (``bind_probe_run``), so
+
+      * ``probe_run_id`` set → live iff THAT events row is still running
+        with a fresh heartbeat (``run_is_live``). An hours-long probe
+        (binding rule #14) stays claimed; no other run of the agent — older,
+        newer, gated or not — counts either way.
+      * ``probe_run_id`` NULL → the claimant never got as far as its run
+        row. It may still be on its way there only while the grant lasts;
+        after that it is gone (crashed between the claim and the row, or
+        runs without a recorder, which never binds).
     """
-    rows = await db.get(
-        "events",
-        filters={"agent_id": row.agent_id, "state": STATE_RUNNING},
-        fields=["event_id", "last_event_at", "started_at"],
-    )
-    claimed_at = _as_aware_utc(row.probe_claimed_at)
-    earliest = (
-        claimed_at - timedelta(seconds=_CLAIM_START_SLACK_SECONDS)
-        if claimed_at is not None
-        else None
-    )
-    for r in rows or []:
-        if not run_is_live(r):
-            continue
-        if earliest is None:
-            return True
-        started = parse_db_utc(r.get("started_at"))
-        # An unparseable start cannot be ruled out as the claimant.
-        if started is None or started >= earliest:
-            return True
-    return False
+    if row.probe_run_id:
+        runs = await db.get(
+            "events",
+            filters={"event_id": row.probe_run_id},
+            fields=["state", "last_event_at", "started_at"],
+        )
+        run = (runs or [None])[0]
+        return bool(run) and run.get("state") == STATE_RUNNING and run_is_live(run)
+    return not _elapsed(row.cooldown_until)
 
 
 def describe_skip_reason(cb_reason: Optional[str]) -> str:
@@ -1045,8 +1052,9 @@ async def _owner_agent_ids(db, user_id: str) -> set[str]:
 
 
 # "No live probe claim" — every write that leaves PROBING (or never enters it)
-# clears the claim's identity and its timestamp together.
-_NO_CLAIM: dict = {"probe_token": None, "probe_claimed_at": None}
+# clears the claim's identity and the run bound to it together, so a later
+# claim can never inherit the previous claimant's run.
+_NO_CLAIM: dict = {"probe_token": None, "probe_run_id": None}
 
 # Canonical "healthy / no streak" write, shared by success + reset paths.
 _CLEAN_STATE: dict = {

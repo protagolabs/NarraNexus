@@ -3,6 +3,13 @@ code_file: src/narranexus/platform/schema/agent_circuit_breaker_schema.py
 last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— `probe_claimed_at` 换成 `probe_run_id`
+
+`AgentCircuitBreaker.probe_run_id: Optional[str]`：认领者自己的 run（`events.event_id`），
+由认领的 turn 在 run 行建好后绑定；无认领或尚未建行时为 NULL。崩溃窗口兜底只问「这一行还活着
+吗」，不再问「有没有认领之后才开始的 run」。`probe_claimed_at` 字段删除（本 PR 引入、未发布）。
+
 # agent_circuit_breaker_schema.py — 实时层 Agent 熔断器数据模型
 
 ## 为什么存在

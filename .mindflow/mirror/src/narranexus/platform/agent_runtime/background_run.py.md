@@ -17,6 +17,12 @@ return，events 行照样落 `state=completed`、error_message 空。现在是
 
 ## 2026-09-10 — CANCELLED 的 turn 归还半开探测名额
 
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 带上探测认领
+
+`RunRecorder` 构造时传 `agent_id` 与 `probe_token`：赢得探测的 WS/openai run 在 Step-0 拿到
+event_id 时由 recorder 绑定为认领者（`circuit_breaker.bind_probe_run`）。WS 先认领后建行，所以
+绑定只可能发生在这里。
+
 ## 2026-09-10（PR #394 第二轮 review I-4）— 不再转手导出活性规则
 
 `__all__` 去掉 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /

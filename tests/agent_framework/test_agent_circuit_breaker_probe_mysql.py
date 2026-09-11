@@ -36,6 +36,7 @@ import pytest_asyncio
 
 from narranexus.platform.agent_framework.loop.circuit_breaker import (
     AUTH_QUOTA_PAUSE_THRESHOLD,
+    bind_probe_run,
     release_orphaned_probe,
     release_probe,
     settle_probe,
@@ -175,34 +176,42 @@ async def test_settlement_cas_wins_only_with_the_live_token(mysql_client):
     await settle_probe(aid, adm.probe_token, succeeded=True, db=mysql_client)
     row = await repo.get(aid)
     assert row.cb_status == CbStatus.ACTIVE.value
-    assert row.probe_token is None and row.probe_claimed_at is None
+    assert row.probe_token is None and row.probe_run_id is None
 
 
 @pytest.mark.asyncio
-async def test_claimant_liveness_compares_mysql_datetimes(mysql_client):
-    """probe_claimed_at and events.started_at come back as naive DATETIME(6)
-    on MySQL; the "started after the claim" comparison must still hold: an
-    older live run does not keep the row PROBING, a newer one does."""
+async def test_claimant_identity_binds_and_is_judged_on_mysql(mysql_client):
+    """The claimant names its run through a token CAS that leaves the row
+    PROBING (rowcount = CHANGED rows on aiomysql: the bind must still
+    register), and liveness is then judged on THAT run only — the
+    heartbeat comes back as a naive DATETIME(6) here. A newer, unrelated
+    live run of the agent does not keep the claim alive."""
     repo = AgentCircuitBreakerRepository(mysql_client)
     aid = f"agent_{_PREFIX}_live"
-    claimed = utc_now() - timedelta(minutes=10)
-    await repo.upsert_state(aid, _paused(
-        cb_status=CbStatus.PROBING.value, probe_token="c", probe_claimed_at=claimed,
-    ))
+    await repo.upsert_state(aid, _paused())
+    adm = await try_begin_probe(aid, db=mysql_client)
+    assert adm.probe_token
+    claimant = f"evt_{_PREFIX}_claimant"
     await mysql_client.insert("events", {
-        "event_id": f"evt_{_PREFIX}_old", "agent_id": aid, "user_id": "u",
+        "event_id": claimant, "agent_id": aid, "user_id": "u",
         "trigger": "chat", "trigger_source": "websocket", "state": "running",
-        "started_at": claimed - timedelta(hours=2), "last_event_at": utc_now(),
+        "started_at": utc_now(), "last_event_at": utc_now(),
     })
+    assert await bind_probe_run(aid, "not-the-token", claimant, db=mysql_client) is False
+    assert await bind_probe_run(aid, adm.probe_token, claimant, db=mysql_client) is True
+    row = await repo.get(aid)
+    assert row.cb_status == CbStatus.PROBING.value and row.probe_run_id == claimant
+
     await mysql_client.insert("events", {
-        "event_id": f"evt_{_PREFIX}_new", "agent_id": aid, "user_id": "u",
-        "trigger": "chat", "trigger_source": "websocket", "state": "running",
-        "started_at": claimed + timedelta(seconds=2), "last_event_at": utc_now(),
+        "event_id": f"evt_{_PREFIX}_newer", "agent_id": aid, "user_id": "u",
+        "trigger": "lark", "trigger_source": "lark", "state": "running",
+        "started_at": utc_now(), "last_event_at": utc_now(),
     })
     assert await release_orphaned_probe(aid, db=mysql_client) is False
     await mysql_client.update(
-        "events", {"event_id": f"evt_{_PREFIX}_new"},
+        "events", {"event_id": claimant},
         {"last_event_at": utc_now() - timedelta(hours=1)},
     )
     assert await release_orphaned_probe(aid, db=mysql_client) is True
-    assert (await repo.get(aid)).cb_status == CbStatus.PAUSED.value
+    row = await repo.get(aid)
+    assert row.cb_status == CbStatus.PAUSED.value and row.probe_run_id is None

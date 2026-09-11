@@ -224,6 +224,8 @@ class BackgroundRun:
             db=db,
             on_run_id=self._on_run_id_assigned,
             on_thinking_buffer=self.broadcaster.set_current_thinking_buffer,
+            agent_id=agent_id,
+            probe_token=probe_token,
         )
         self.state: str = STATE_RUNNING
         self._task: Optional[asyncio.Task] = None
