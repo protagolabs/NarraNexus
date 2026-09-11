@@ -1393,6 +1393,8 @@
         "slotSaveRolledBack": "A mudança de framework foi desfeita e nada foi salvo: não foi possível salvar o modelo do agente ({{detail}}).",
         "frameworkSavedSlotFailed": "O framework foi trocado, mas não foi possível salvar o modelo do agente ({{detail}}). Escolha um modelo e salve novamente.",
         "agentSavedHelperFailed": "O modelo do agente foi salvo, mas o modelo auxiliar não ({{detail}}).",
+        "frameworkSavedHelperFailed": "O framework foi trocado, mas o modelo auxiliar não pôde ser salvo ({{detail}}).",
+        "frameworkRestoredBindingLost": "A troca de framework foi desfeita, mas não foi possível salvar o modelo do agente ({{detail}}) nem religar o cartão anterior, então o slot do agente ficou sem vínculo. Escolha um modelo e salve novamente.",
         "slotClearedPickModel": "O framework foi trocado e o cartão vinculado não consegue executá-lo, por isso foi desvinculado. Escolha um provedor e um modelo para o agente."
       },
       "privacy": {

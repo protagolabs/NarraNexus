@@ -4,6 +4,23 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r2) — second review of PR #399
+
+- framework switch empties the agent draft, Save with no card → only
+  `setAgentFramework('codex_cli')`, no slot write, `slotClearedPickModel`, no
+  "Saved", no override-stats fetch; a half-filled agent draft (provider, no
+  model) with a framework change is still refused with nothing written;
+- `getAgentFramework` `success:false` → `loadFailed` shown, Save disabled;
+  a successful load shows no load error;
+- rollback lands but the re-PUT of the cleared binding fails →
+  `frameworkRestoredBindingLost` (not `frameworkSavedSlotFailed`), drafts kept;
+- rollback fails → `frameworkSavedSlotFailed` and the agent pick survives the
+  reload (Save enabled);
+- helper fails after only the framework landed → `frameworkSavedHelperFailed`;
+  after the agent slot landed → `agentSavedHelperFailed`.
+
+Each new case was checked red against the previous component.
+
 ## 2026-09-11 — unbound slot, rollback and restore cases (review of PR #399)
 
 - unbound agent slot + framework-only change → Save calls only
@@ -15,8 +32,8 @@ stub: false
   still dirty;
 - same, but the rollback throws → stored state reloaded (codex_cli, empty
   slot), `frameworkSavedSlotFailed`;
-- framework lands, helper write fails → `agentSavedHelperFailed`, framework
-  shown as saved, helper edit kept, Save still enabled.
+- framework lands, helper write fails → helper edit kept, Save still enabled
+  (message: see r2 above).
 
 Each was checked red by reverting the corresponding branch in `apply()` /
 `onFrameworkChange`.
@@ -28,8 +45,8 @@ case pinned the immediate-persist design (Save disabled after a framework pick) 
 that design IS the Owner bug, so it is replaced by: changing only the framework
 enables Save and Save calls `setAgentFramework` (no slot write when the bound
 provider still backs it); picking the stored framework back makes the form clean;
-a framework the bound provider cannot drive clears the provider in the draft, a
-Save without a provider is refused client-side, and after picking a compatible
+a framework the bound provider cannot drive clears the provider in the draft
+(saving then is covered by the r2 section), and after picking a compatible
 card the framework is written BEFORE the slot (invocation order asserted); a
 rejected framework save shows the error and keeps the draft dirty. The cloud /
 staff cases now assert the pick lands in the draft (select value, Save enabled)

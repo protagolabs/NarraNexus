@@ -1393,6 +1393,8 @@
         "slotSaveRolledBack": "Die Framework-Änderung wurde rückgängig gemacht, nichts wurde gespeichert: Das Agent-Modell konnte nicht gespeichert werden ({{detail}}).",
         "frameworkSavedSlotFailed": "Das Framework wurde gewechselt, aber das Agent-Modell konnte nicht gespeichert werden ({{detail}}). Wähle ein Modell und speichere erneut.",
         "agentSavedHelperFailed": "Das Agent-Modell wurde gespeichert, das Helfer-Modell jedoch nicht ({{detail}}).",
+        "frameworkSavedHelperFailed": "Das Framework wurde gewechselt, das Helfer-Modell konnte jedoch nicht gespeichert werden ({{detail}}).",
+        "frameworkRestoredBindingLost": "Der Framework-Wechsel wurde rückgängig gemacht, aber das Agent-Modell konnte nicht gespeichert werden ({{detail}}) und die vorherige Karte ließ sich nicht erneut verknüpfen – der Agent-Slot ist jetzt leer. Wähle ein Modell und speichere erneut.",
         "slotClearedPickModel": "Das Framework wurde gewechselt; die bisher verknüpfte Karte kann es nicht ausführen und wurde getrennt. Wähle Anbieter und Modell für den Agenten."
       },
       "privacy": {

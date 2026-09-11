@@ -4,30 +4,58 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r2) — second review of PR #399
+
+- **Framework switch that empties the agent draft is saved, then asks for a
+  card.** When a framework change drops the bound card from the draft (the new
+  framework cannot drive it) and the user saves without picking another one,
+  the up-front check no longer refuses: an entirely empty agent draft together
+  with a framework change counts as a framework-only save
+  (`frameworkOnlyAgent`). `apply()` writes the framework, skips the agent-slot
+  write, reloads, and — when the backend reported `slot_cleared` — shows
+  `slotClearedPickModel` instead of "Saved" and does not offer the
+  apply-to-agents dialog (the slot is empty; `dirtySlots` leaves out `agent`
+  whenever the agent draft is empty). A half-filled agent draft (provider
+  without model) is still refused before anything is written
+  (`pickAgentModel`).
+- **`load()` surfaces a soft failure of `GET /agent-framework`** (`success:
+  false`) as `loadFailed`, same as AgentLlmConfigPanel: with no framework list
+  `providerBacksFramework` fails closed and both the framework and agent
+  provider selects would render empty with no explanation. No frontend
+  framework id is invented; `frameworkInitial` stays `''` so Save stays
+  disabled. Later `setError` calls from partial-save paths overwrite it.
+- **Partial-save messages name what actually landed.** `rollbackFramework`
+  returns `'rolled-back' | 'binding-lost' | 'failed'`: `binding-lost` (the
+  framework is back but the cleared binding could not be re-PUT) shows
+  `frameworkRestoredBindingLost`; `failed` (framework still switched) shows
+  `frameworkSavedSlotFailed`. The probe follows the framework as soon as the
+  rollback POST lands. A helper failure after only the framework landed shows
+  `frameworkSavedHelperFailed`; after the agent slot landed,
+  `agentSavedHelperFailed`.
+- **Post-failure reloads keep the user's drafts.** `load(keep?: {framework?,
+  agent?, helper?})` re-reads the stored state as the baseline (`*Initial`)
+  but keeps the given drafts; after `binding-lost` / `failed` all three are
+  kept so Save stays live for a retry, and `droppedByFrameworkRef` is kept
+  whenever an agent draft is kept (switching back still restores the dropped
+  card). Helper-failure reloads keep only the helper draft.
+
 ## 2026-09-11 — framework + agent slot save as one unit (review of PR #399)
 
 - **Framework-only change is savable with an unbound agent slot.** The
-  provider+model check now runs only when the agent slot itself changed
-  (`agentChanged`), not on any framework change — the backend keeps the
-  framework on a stub slot row until a card is wired
-  (`set_user_agent_framework`). The draft still cannot write an empty
-  provider: an agent edit with an empty field is refused.
+  provider+model check runs only when the agent slot itself changed
+  (`agentChanged`) — superseded in part by the r2 section above (an empty
+  draft left by a framework switch is also saved).
 - **No half-commit.** Order is unchanged (framework, agent slot, helper). If
   the agent-slot write fails (`success:false` or throw) after the framework
   landed, `rollbackFramework` POSTs `frameworkInitial` back and, when the
   switch had cleared the binding (`slot_cleared`), re-PUTs `agentInitial`;
   the draft stays as the user left it and the error says nothing was saved
-  (`slotSaveRolledBack`). If the rollback itself fails, `load(helperDraft)`
-  re-reads the stored framework + slots (keeping the unsaved helper edit) and
-  the error names the half that landed (`frameworkSavedSlotFailed`). If the
-  switch cleared a binding the draft has no replacement for, the page reloads
-  and asks for a card (`slotClearedPickModel`). A helper failure after the
-  agent half landed reloads that half as saved, keeps the helper edit, and
-  says so (`agentSavedHelperFailed`); a helper-only failure is the plain error.
+  (`slotSaveRolledBack`). The other outcomes are described in the r2 section.
 - **Switching back restores.** A provider/model the framework switch dropped is
   kept in `droppedByFrameworkRef` and put back when the user picks a framework
   that can drive it (checked with `providerBacksFramework`, never blind) and
-  has not picked another provider in between; `load()` clears it.
+  has not picked another provider in between; `load()` clears it unless it
+  keeps an agent draft.
 
 ## 2026-09-11 — the framework is a draft; Save commits it (Owner bug)
 
@@ -44,7 +72,7 @@ the form clean. Picking a framework the bound agent provider cannot drive
 (`providerBacksFramework`, the dropdown's own predicate) drops provider/model from
 the DRAFT so the user re-picks; a provider both frameworks can drive keeps the
 pick. `apply()` requires a provider+model when the agent slot changed (a
-framework-only change no longer needs one — see the section above), then writes the framework FIRST (set_slot validates the provider against
+framework-only change no longer needs one — see the sections above), then writes the framework FIRST (set_slot validates the provider against
 the stored framework), then the agent slot when it changed or the backend
 reported `slot_cleared`, then the helper. A framework change counts as an agent
 slot change for the apply-to-agents dialog. The auth probe line is hidden while

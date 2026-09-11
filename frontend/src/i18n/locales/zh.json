@@ -1811,6 +1811,8 @@
         "slotSaveRolledBack": "框架改动已撤回，本次什么都没保存：Agent 模型保存失败（{{detail}}）。",
         "frameworkSavedSlotFailed": "框架已切换，但 Agent 模型保存失败（{{detail}}）。请重新选择模型并保存。",
         "agentSavedHelperFailed": "Agent 模型已保存，但辅助模型保存失败（{{detail}}）。",
+        "frameworkSavedHelperFailed": "框架已切换，但辅助模型保存失败（{{detail}}）。",
+        "frameworkRestoredBindingLost": "框架切换已撤销，但 Agent 模型保存失败（{{detail}}），原来的卡也未能重新绑定，Agent 槽位现在是空的。请重新选择模型并保存。",
         "slotClearedPickModel": "框架已切换，原先绑定的卡无法运行该框架，已被解除绑定。请为 Agent 重新选择服务商和模型。"
       },
       "updates": {

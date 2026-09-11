@@ -68,6 +68,13 @@ interface SlotCfg {
   reasoning_effort?: string;
 }
 
+/** Drafts a post-failure reload keeps instead of the stored values. */
+interface KeepDrafts {
+  framework?: string;
+  agent?: AgentDraft;
+  helper?: HelperDraft;
+}
+
 interface Props {
   /** Jump to the LLM Providers settings section (switch the nav tab). */
   onManageProviders?: () => void;
@@ -114,9 +121,10 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // Provider/model a framework switch dropped from the draft, kept so picking
   // a framework that can drive them again restores them.
   const droppedByFrameworkRef = useRef<{ provider_id: string; model: string } | null>(null);
-  // `keepHelperDraft`: after a partial save, reload the stored state but keep
-  // the user's still-unsaved helper edit in the draft.
-  const load = useCallback(async (keepHelperDraft?: HelperDraft) => {
+  // `keep`: after a partial save, reload the stored state as the baseline but
+  // keep the user's still-unsaved edits in the draft (so Save stays live and
+  // nothing the user picked silently disappears).
+  const load = useCallback(async (keep?: KeepDrafts) => {
     setLoading(true);
     setError('');
     try {
@@ -139,17 +147,25 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         reasoning_effort: a?.reasoning_effort || '',
       };
       const helper: HelperDraft = { provider_id: h?.provider_id || '', model: h?.model || '' };
-      droppedByFrameworkRef.current = null;
-      setAgentDraft(agent);
-      setHelperDraft(keepHelperDraft ?? helper);
+      // A kept agent draft keeps the pair a framework switch dropped too, so
+      // switching back still restores it after the reload.
+      if (!keep?.agent) droppedByFrameworkRef.current = null;
+      setAgentDraft(keep?.agent ?? agent);
+      setHelperDraft(keep?.helper ?? helper);
       setAgentInitial(agent);
       setHelperInitial(helper);
       if (fwRes?.success) {
-        setFramework(fwRes.data.framework);
+        setFramework(keep?.framework ?? fwRes.data.framework);
         setFrameworkInitial(fwRes.data.framework);
         setProbe(fwRes.data.probe);
         setFrameworkAvailability(frameworkAvailabilityMap(fwRes.data.frameworks));
         setLiveFrameworks(fwRes.data.frameworks);
+      } else {
+        // A soft failure of the framework endpoint leaves no framework list
+        // (and providerBacksFramework fails closed on it), so both the
+        // framework and the agent-provider selects would render empty with
+        // no explanation. Say the load failed instead.
+        setError(t('pages.settings.modelDefaults.loadFailed'));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
@@ -241,26 +257,34 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed');
 
   // Undo a framework write whose agent-slot write then failed: the stored
-  // framework goes back, and so does the binding the switch cleared. Returns
-  // false when the undo itself did not land (the caller then reloads).
-  const rollbackFramework = async (bindingCleared: boolean): Promise<boolean> => {
+  // framework goes back, and so does the binding the switch cleared.
+  //  - 'rolled-back': nothing is stored any more;
+  //  - 'binding-lost': the framework is back, but the cleared binding could
+  //    not be written back (the slot is now unbound);
+  //  - 'failed': the framework could not be put back (it stays switched).
+  const rollbackFramework = async (
+    bindingCleared: boolean,
+  ): Promise<'rolled-back' | 'binding-lost' | 'failed'> => {
     try {
       const back = await api.setAgentFramework(frameworkInitial);
-      if (!back.success) return false;
+      if (!back.success) return 'failed';
+      // The probe follows the framework the moment it is back.
       setProbe(back.data.probe);
       setInstall(null);
-      if (bindingCleared && agentInitial.provider_id) {
-        const r = await api.setProviderSlot('agent', {
-          provider_id: agentInitial.provider_id,
-          model: agentInitial.model,
-          thinking: agentInitial.thinking,
-          reasoning_effort: agentInitial.reasoning_effort,
-        });
-        if (!r.success) return false;
-      }
-      return true;
     } catch {
-      return false;
+      return 'failed';
+    }
+    if (!bindingCleared || !agentInitial.provider_id) return 'rolled-back';
+    try {
+      const r = await api.setProviderSlot('agent', {
+        provider_id: agentInitial.provider_id,
+        model: agentInitial.model,
+        thinking: agentInitial.thinking,
+        reasoning_effort: agentInitial.reasoning_effort,
+      });
+      return r.success ? 'rolled-back' : 'binding-lost';
+    } catch {
+      return 'binding-lost';
     }
   };
 
@@ -268,8 +292,14 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     if (!isDirty || applying) return;
     // Only an agent-slot edit needs a provider + model. A framework change on
     // its own is saved even while the agent slot is still unbound — the
-    // backend keeps the framework on a stub slot row until one is wired.
-    if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
+    // backend keeps the framework on a stub slot row until one is wired. That
+    // includes the case where the switch emptied the agent draft (the bound
+    // card cannot run the new framework): the framework is saved first and
+    // the page then asks for a card (`slotClearedPickModel`). A half-filled
+    // agent draft is still refused before anything is written.
+    const agentDraftEmpty = !agentDraft.provider_id && !agentDraft.model;
+    const frameworkOnlyAgent = frameworkChanged && agentDraftEmpty;
+    if (agentChanged && !frameworkOnlyAgent && (!agentDraft.provider_id || !agentDraft.model)) {
       setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
@@ -281,8 +311,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     setError('');
     // Capture which slots changed BEFORE load() resets the initial snapshots —
     // only these are offered in the apply-to-agents dialog.
+    // An agent slot emptied by the switch has nothing to push onto agents.
     const dirtySlots: Array<'agent' | 'helper_llm'> = [
-      ...(agentChanged || frameworkChanged ? ['agent' as const] : []),
+      ...((agentChanged || frameworkChanged) && !agentDraftEmpty ? ['agent' as const] : []),
       ...(helperChanged ? ['helper_llm' as const] : []),
     ];
     try {
@@ -303,14 +334,11 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           setFrameworkSaving(false);
         }
       }
-      if (agentChanged || slotCleared) {
-        if (!agentDraft.provider_id || !agentDraft.model) {
-          // The switch unbound a card the draft had no replacement for: the
-          // framework is saved, the slot is now empty. Show that state.
-          await load(helperDraft);
-          setError(t('pages.settings.modelDefaults.slotClearedPickModel'));
-          return;
-        }
+      // The switch unbound a card the draft has no replacement for: the
+      // framework is saved and the slot is now empty — no slot write, the
+      // page ends by asking for a card.
+      const needsCard = frameworkOnlyAgent && slotCleared;
+      if ((agentChanged || slotCleared) && !agentDraftEmpty) {
         let failure = '';
         try {
           const r = await api.setProviderSlot('agent', {
@@ -325,13 +353,21 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         }
         if (failure) {
           if (!frameworkChanged) { setError(failure); return; }
-          if (await rollbackFramework(slotCleared)) {
+          const undo = await rollbackFramework(slotCleared);
+          if (undo === 'rolled-back') {
             // Nothing is stored any more; the draft stays as the user left it.
             setError(t('pages.settings.modelDefaults.slotSaveRolledBack', { detail: failure }));
-          } else {
-            await load(helperDraft);
-            setError(t('pages.settings.modelDefaults.frameworkSavedSlotFailed', { detail: failure }));
+            return;
           }
+          // Something half-landed: reload the stored state as the baseline,
+          // keep every edit the user made so Save can retry it.
+          await load({ framework, agent: agentDraft, helper: helperDraft });
+          setError(t(
+            undo === 'binding-lost'
+              ? 'pages.settings.modelDefaults.frameworkRestoredBindingLost'
+              : 'pages.settings.modelDefaults.frameworkSavedSlotFailed',
+            { detail: failure },
+          ));
           return;
         }
       }
@@ -348,13 +384,23 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         }
         if (failure) {
           if (!frameworkChanged && !agentChanged) { setError(failure); return; }
-          // The agent half landed: show it as saved, keep the helper edit.
-          await load(helperDraft);
-          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          // The other half landed: show it as saved, keep the helper edit, and
+          // name what actually landed (the agent slot, or only the framework).
+          await load({ helper: helperDraft });
+          setError(t(
+            agentChanged && !agentDraftEmpty
+              ? 'pages.settings.modelDefaults.agentSavedHelperFailed'
+              : 'pages.settings.modelDefaults.frameworkSavedHelperFailed',
+            { detail: failure },
+          ));
           return;
         }
       }
       await load();
+      if (needsCard) {
+        setError(t('pages.settings.modelDefaults.slotClearedPickModel'));
+        return;
+      }
       flashSaved();
       // Offer to push the new default onto existing agents (clear-to-inherit).
       // Isolated try/catch: the save already succeeded, so a flaky stats GET
