@@ -422,8 +422,8 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
         f"(verify={verify}, collect={collect})"
     )
     collect_step = steps[collect]
-    assert str(collect_step.get("if", "")).replace(" ", "") == "failure()", (
-        "the log-collection step must run only when the verification failed"
+    assert "failure()" in str(collect_step.get("if", "")), (
+        "the log-collection step must run on failure (job-level), not unconditionally"
     )
     assert "upload-artifact" in str(collect_step.get("uses", "")), (
         "the log-collection step must upload the logs as an artifact"
@@ -446,6 +446,11 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     )
 
     run = str(step.get("run", ""))
+    # Code lines only, for every assertion below that looks for a token the
+    # step's own comments also mention: a guard satisfied by the comment that
+    # explains it is not a guard. (Whole-line comments only — trailing
+    # comments stay, which none of these tokens depend on.)
+    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
     # The three things that make it a real check rather than a re-run of the
     # build-machine smoke: the checkout is moved away, the app's OWN copy of
     # the smoke script runs, and a sidecar is actually launched until it binds.
@@ -468,7 +473,6 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     # own comments quote these very strings (`cannot import name ...`, the
     # grep|grep -q it avoids), and a guard satisfied by the comment explaining
     # it is not a guard: deleting the pattern from the awk would stay green.
-    code = "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
     # Caught-and-logged import failures too (the supervisor and plugin hooks
     # log only the message), iterating the launched sidecars, not a hand-kept
     # third list of names.
@@ -486,8 +490,14 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     assert not re.search(r"grep[^\n|]*\|\s*grep -q", code), (
         "a `grep ... | grep -q` scan can report a real match as clean under pipefail"
     )
-    # awk's own failure must not read as "clean".
-    assert re.search(r"\*\)\s*fail [^\n]*this gate did not run", code), (
+    # Both non-clean outcomes of the awk must fail the step, matched on
+    # structure (branch + `fail`), not on the wording of the message. `0)` is
+    # the one a false red would soften first — `0) ;;` turns the whole scan
+    # into a no-op; `*)` is awk itself not running.
+    assert re.search(r"^\s*0\)\s*fail ", code, re.MULTILINE), (
+        "an awk hit must fail the step — a `0) ;;` turns the whole log scan into a no-op"
+    )
+    assert re.search(r"^\s*\*\)\s*fail ", code, re.MULTILINE), (
         "an awk that fails to run (exit 2) must fail the step, not pass as clean"
     )
     assert 'export PATH="$RES/nodejs/bin' in run and "/usr/bin:/bin:/usr/sbin:/sbin" in run, (
@@ -506,7 +516,7 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     # read from state.rs's bundled_services() via the same reader the lockstep
     # test uses, so a new service there that is not launched here goes red.
     for target in _state_rs_launch_targets():
-        assert target in run, (
+        assert target in code, (
             f"the relocated-app step does not launch {target!r}, which state.rs's "
             "bundled_services() starts — that service's startup is unverified"
         )
@@ -514,8 +524,13 @@ def test_release_workflow_runs_the_shipped_app_without_the_checkout() -> None:
     # Python constants (MCP_PORT default, HEALTHZ_PORT) named next to the loop.
     declared = {service["port"] for service in _state_rs_services() if service["port"]}
     assert declared, "no `port: Some(..)` parsed from state.rs — update the reader"
+    # Each port must appear in a wait_port CALL: the step's comment names all
+    # four numbers, and SQLITE_PROXY_PORT=8100 names one again, so a bare
+    # substring check passes with the wait deleted.
     for port in sorted(declared) + [7801, 47831]:
-        assert str(port) in run, f"the step no longer waits for :{port}"
+        assert re.search(rf"wait_port \w+ {port}\b", code), (
+            f"the step no longer waits for :{port}"
+        )
     assert "/docs" in run, "backend must be probed over HTTP, not only for an open port"
     assert "/healthz" in run, (
         "workers must be gated on its health endpoint, not a fixed sleep"

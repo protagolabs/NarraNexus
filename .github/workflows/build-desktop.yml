@@ -369,9 +369,12 @@ jobs:
           done
           echo "All four sidecars came up from the relocated app with the checkout hidden."
 
-      # Only when the step above failed: its sidecar logs, which live under
-      # $RUNNER_TEMP (not the workspace) and vanish with the runner. fail()
-      # prints the one that failed; this keeps all four, so a failure after
+      # On any failure in this job (`failure()` is job-level, not "the step
+      # above"): the verification's sidecar logs, which live under
+      # $RUNNER_TEMP (not the workspace) and vanish with the runner. If the
+      # failure came earlier and verification never ran, the directory does
+      # not exist and if-no-files-found: ignore makes this a no-op. fail()
+      # prints the log that failed; this keeps all four, so a failure after
       # notarization can be read without paying for another one.
       - name: Collect relocated-app sidecar logs (on failure)
         if: failure()
