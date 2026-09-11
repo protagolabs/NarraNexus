@@ -311,6 +311,8 @@
     },
     "activityEmpty": "Noch keine Hintergrundaktivität",
     "activityEmptyHint": "Läufe, die der Agent selbst gestartet hat – Jobs, Kanäle, Teamkollegen – erscheinen hier.",
+    "stoppedByUser": "Von dir gestoppt",
+    "noResponseNeeded": "Der Agent hat entschieden, dass keine Antwort nötig ist",
     "bootstrapGreeting": "Hallo... ich bin gerade aufgewacht. Alles fühlt sich ganz neu an.\n\nIch habe noch keinen Namen und weiß nicht wirklich, wer ich bin — aber ich weiß, dass du mich hierher gebracht hast.\n\nMagst du mir sagen, wie ich heißen soll? Und wie soll ich dich nennen?",
     "bootstrapGreetingNamed": "Hallo — ich bin {{name}}. Ich bin gerade zum Leben erwacht, und du hast mich hierher gebracht.\n\nIch weiß schon, wer ich sein soll, aber noch nicht, wer du bist. Wie soll ich dich nennen?"
   },
@@ -699,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "vor {{hoursAgo}} h · {{count}} Ereignisse"
+    },
+    "banners": {
+      "dismissAria": "Schließen",
+      "dismissTitle": "Schließen"
     }
   },
   "layout": {
@@ -1268,7 +1274,14 @@
       "forgotResetIntro": "Wir senden einen Bestätigungscode an die E-Mail Ihres NetMind-Kontos.",
       "forgotCodeSentHint": "Falls ein Konto für diese E-Mail existiert, haben wir einen Bestätigungscode gesendet.",
       "useDifferentEmail": "Andere E-Mail verwenden",
-      "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut."
+      "connectionFailed": "Verbindung fehlgeschlagen. Bitte versuche es erneut.",
+      "resetPasswordDone": "Passwort aktualisiert",
+      "resetPasswordDoneBody": "Du kannst dich jetzt mit deinem neuen Passwort anmelden.",
+      "backToSignIn": "Zurück zur Anmeldung",
+      "resetPasswordTitle": "Passwort zurücksetzen",
+      "sendCode": "Code senden",
+      "verificationCodeLabel": "Bestätigungscode",
+      "newPasswordLabel": "Neues Passwort"
     },
     "modeSelect": {
       "welcome": "Willkommen",
@@ -1371,6 +1384,7 @@
         "failed": "Update-{{stage}} fehlgeschlagen."
       },
       "modelDefaults": {
+        "saved": "Gespeichert",
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
@@ -2150,7 +2164,9 @@
       "cancelJob": "Job abbrechen",
       "cancelling": "Wird abgebrochen...",
       "editSchedule": "Zeit ändern",
-      "savingSchedule": "Speichern..."
+      "savingSchedule": "Speichern...",
+      "editPayload": "Inhalt bearbeiten",
+      "savingPayload": "Speichern..."
     },
     "template": {
       "selectTemplate": "Vorlage auswählen",
@@ -2188,6 +2204,17 @@
       "modeLabel": "Auslösemodus",
       "modeInterval": "Intervall",
       "modeCron": "Cron-Ausdruck"
+    },
+    "editPayload": {
+      "title": "Aufgabeninhalt bearbeiten",
+      "hint": "Ändere, was diese Aufgabe ausführt. Änderungen gelten ab dem nächsten Lauf.",
+      "titleLabel": "Titel",
+      "descriptionLabel": "Beschreibung",
+      "payloadLabel": "Inhalt / Prompt",
+      "payloadHint": "Der Anweisungstext, der beim Ausführen dieser Aufgabe an den Agenten übergeben wird.",
+      "titleRequired": "Der Titel darf nicht leer sein",
+      "failedTitle": "Aktualisierung fehlgeschlagen",
+      "failedMessage": "Der Aufgabeninhalt konnte nicht aktualisiert werden. Bitte erneut versuchen."
     },
     "row": {
       "every": "Alle {{interval}}",
@@ -2414,7 +2441,11 @@
     "livePreview": "Live-Vorschau"
   },
   "common": {
-    "close": "Close",
+    "close": "Schließen",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "back": "Zurück",
+    "edit": "Bearbeiten",
     "betaTooltip": "NarraNexus befindet sich in der Beta-Phase. Funktionen können sich ändern und gelegentlich können Fehler auftreten — Ihr Feedback hilft uns, besser zu werden.",
     "ok": "OK",
     "noticeTitle": "Einen Moment",
@@ -2496,5 +2527,16 @@
       "suggested": "Aus dem Gespräch",
       "optional": "Optional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an. (zum Schließen klicken)",
+    "sessionExpiringSoon": "Deine Sitzung läuft in {{time}} ab. Melde dich ab und wieder an, um Arbeit nicht zu verlieren. (zum Schließen klicken)",
+    "circuitPausedQuota": "Dieser Agent wurde nach wiederholten Kontingent-/Guthabenfehlern pausiert. Behebe den Anbieter und setze ihn dann fort.",
+    "circuitPausedAuth": "Dieser Agent wurde nach wiederholten Authentifizierungsfehlern pausiert. Authentifiziere dich erneut oder setze einen Anbieter, dann fortsetzen.",
+    "circuitCooling": "Dieser Agent ist kürzlich fehlgeschlagen und kühlt kurz ab. Versuche es gleich erneut.",
+    "resumeAgent": "Agent fortsetzen",
+    "resuming": "Wird fortgesetzt…",
+    "dismiss": "Schließen",
+    "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)"
   }
 }

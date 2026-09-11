@@ -58,6 +58,11 @@ vi.mock('@/lib/tauri', () => ({ isTauri: () => false, kickUpdaterCheck: vi.fn(),
 vi.mock('@/stores/updaterStore', () => ({ useUpdaterStore: (sel: (s: unknown) => unknown) => sel({ status: 'idle' }) }));
 
 import SettingsPage from '../SettingsPage';
+import {
+  MASTER_DETAIL_ROW_CLASS,
+  MASTER_NAV_CLASS,
+  MASTER_NAV_ITEM_CLASS,
+} from '@/lib/masterDetailNav';
 
 describe('SettingsPage nav', () => {
   beforeEach(() => {
@@ -104,6 +109,20 @@ describe('SettingsPage nav', () => {
     // The tab list is still there: switching back works without leaving.
     fireEvent.click(screen.getByRole('button', { name: /LLM Providers/ }));
     expect(screen.getByTestId('providers-pane')).toBeTruthy();
+  });
+
+  test('the nav column collapses to a horizontal strip below md (GitHub #130)', () => {
+    // The rail's responsive classes live in one shared definition
+    // (lib/masterDetailNav) so this page and its sibling cannot drift; the
+    // breakpoint pin itself is asserted in masterDetailNav.test.ts.
+    render(<SettingsPage />);
+    const nav = screen.getByRole('navigation');
+    expect(nav.className).toBe(MASTER_NAV_CLASS);
+    expect(nav.parentElement?.className).toBe(MASTER_DETAIL_ROW_CLASS);
+    const item = nav.querySelector('button');
+    expect(item?.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(MASTER_NAV_ITEM_CLASS.split(' ')),
+    );
   });
 
   test('personalization pane opens from the nav', () => {

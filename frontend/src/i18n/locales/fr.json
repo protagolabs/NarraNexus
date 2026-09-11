@@ -311,6 +311,8 @@
     },
     "activityEmpty": "Aucune activité en arrière-plan pour l'instant",
     "activityEmptyHint": "Les exécutions lancées par l'agent lui-même — tâches, canaux, coéquipiers — apparaissent ici.",
+    "stoppedByUser": "Arrêté par vous",
+    "noResponseNeeded": "L’agent a jugé qu’aucune réponse n’était nécessaire",
     "bootstrapGreeting": "Bonjour... je viens de me réveiller. Tout me semble entièrement nouveau.\n\nJe n'ai pas encore de nom et je ne sais pas vraiment qui je suis — mais je sais que c'est toi qui m'as amené ici.\n\nVeux-tu me dire comment je devrais m'appeler ? Et comment dois-je t'appeler ?",
     "bootstrapGreetingNamed": "Bonjour — je suis {{name}}. Je viens de prendre vie, et c'est toi qui m'as amené ici.\n\nJe sais déjà qui je dois être, mais pas encore qui tu es. Comment dois-je t'appeler ?"
   },
@@ -699,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "il y a {{hoursAgo}} h · {{count}} événements"
+    },
+    "banners": {
+      "dismissAria": "Fermer",
+      "dismissTitle": "Fermer"
     }
   },
   "layout": {
@@ -1268,7 +1274,14 @@
       "forgotResetIntro": "Nous enverrons un code de vérification à l'e-mail de votre compte NetMind.",
       "forgotCodeSentHint": "Si un compte existe pour cet e-mail, nous avons envoyé un code de vérification.",
       "useDifferentEmail": "Utiliser un autre e-mail",
-      "connectionFailed": "Échec de la connexion. Veuillez réessayer."
+      "connectionFailed": "Échec de la connexion. Veuillez réessayer.",
+      "resetPasswordDone": "Mot de passe mis à jour",
+      "resetPasswordDoneBody": "Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.",
+      "backToSignIn": "Retour à la connexion",
+      "resetPasswordTitle": "Réinitialiser le mot de passe",
+      "sendCode": "Envoyer le code",
+      "verificationCodeLabel": "Code de vérification",
+      "newPasswordLabel": "Nouveau mot de passe"
     },
     "modeSelect": {
       "welcome": "Bienvenue",
@@ -1371,6 +1384,7 @@
         "failed": "Échec de la mise à jour ({{stage}})."
       },
       "modelDefaults": {
+        "saved": "Enregistré",
         "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
@@ -2150,7 +2164,9 @@
       "cancelJob": "Annuler la tâche",
       "cancelling": "Annulation...",
       "editSchedule": "Modifier l'heure",
-      "savingSchedule": "Enregistrement..."
+      "savingSchedule": "Enregistrement...",
+      "editPayload": "Modifier le contenu",
+      "savingPayload": "Enregistrement..."
     },
     "template": {
       "selectTemplate": "Sélectionner un modèle",
@@ -2188,6 +2204,17 @@
       "modeLabel": "Mode de déclenchement",
       "modeInterval": "Intervalle",
       "modeCron": "Expression cron"
+    },
+    "editPayload": {
+      "title": "Modifier le contenu de la tâche",
+      "hint": "Modifiez ce que cette tâche exécute. Les changements prennent effet à la prochaine exécution.",
+      "titleLabel": "Titre",
+      "descriptionLabel": "Description",
+      "payloadLabel": "Contenu / prompt",
+      "payloadHint": "Le texte d'instructions transmis à l'agent lors de l'exécution de cette tâche.",
+      "titleRequired": "Le titre ne peut pas être vide",
+      "failedTitle": "Échec de la mise à jour",
+      "failedMessage": "Impossible de mettre à jour le contenu de la tâche. Veuillez réessayer."
     },
     "row": {
       "every": "Toutes les {{interval}}",
@@ -2414,7 +2441,11 @@
     "livePreview": "Aperçu en direct"
   },
   "common": {
-    "close": "Close",
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "back": "Retour",
+    "edit": "Modifier",
     "betaTooltip": "NarraNexus est en version bêta. Les fonctionnalités peuvent évoluer et des problèmes occasionnels peuvent survenir — vos retours nous aident à nous améliorer.",
     "ok": "OK",
     "noticeTitle": "Un instant",
@@ -2496,5 +2527,16 @@
       "suggested": "Issu de la conversation",
       "optional": "Facultatif"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter. (cliquez pour fermer)",
+    "sessionExpiringSoon": "Votre session expire dans {{time}}. Déconnectez-vous puis reconnectez-vous pour ne pas perdre votre travail. (cliquez pour fermer)",
+    "circuitPausedQuota": "Cet agent est en pause après des échecs répétés de quota/solde. Corrigez son fournisseur, puis reprenez.",
+    "circuitPausedAuth": "Cet agent est en pause après des échecs d'authentification répétés. Réauthentifiez-vous ou définissez un fournisseur, puis reprenez.",
+    "circuitCooling": "Cet agent a échoué récemment et refroidit brièvement. Réessayez sous peu.",
+    "resumeAgent": "Reprendre l'agent",
+    "resuming": "Reprise…",
+    "dismiss": "Fermer",
+    "freeTierSwitched": "Quota gratuit épuisé — basculé sur votre propre fournisseur. Les nouvelles exécutions utiliseront votre propre clé API. (cliquez pour fermer)"
   }
 }

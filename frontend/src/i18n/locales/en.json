@@ -43,6 +43,8 @@
     "accountTitle": "Account"
   },
   "chat": {
+    "stoppedByUser": "Stopped by you",
+    "noResponseNeeded": "The agent decided no reply was needed",
     "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
     "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
@@ -776,6 +778,10 @@
     "sparkline": {
       "unavailable": "{{hours}}h · —",
       "barTitle": "{{hoursAgo}}h ago · {{count}} events"
+    },
+    "banners": {
+      "dismissAria": "Dismiss",
+      "dismissTitle": "Dismiss"
     }
   },
   "layout": {
@@ -1629,7 +1635,14 @@
       "forgotResetIntro": "We'll email a verification code to your NetMind account.",
       "forgotCodeSentHint": "If an account exists for that email, we've sent a verification code.",
       "useDifferentEmail": "Use a different email",
-      "connectionFailed": "Connection failed. Please try again."
+      "connectionFailed": "Connection failed. Please try again.",
+      "resetPasswordDone": "Password updated",
+      "resetPasswordDoneBody": "You can now sign in with your new password.",
+      "backToSignIn": "Back to sign in",
+      "resetPasswordTitle": "Reset password",
+      "sendCode": "Send code",
+      "verificationCodeLabel": "Verification code",
+      "newPasswordLabel": "New password"
     },
     "modeSelect": {
       "welcome": "Welcome",
@@ -2609,7 +2622,9 @@
       "cancelJob": "Cancel Job",
       "cancelling": "Cancelling...",
       "editSchedule": "Edit Time",
-      "savingSchedule": "Saving..."
+      "savingSchedule": "Saving...",
+      "editPayload": "Edit Content",
+      "savingPayload": "Saving..."
     },
     "template": {
       "selectTemplate": "Select Template",
@@ -2647,6 +2662,17 @@
       "modeLabel": "Trigger mode",
       "modeInterval": "Interval",
       "modeCron": "Cron expression"
+    },
+    "editPayload": {
+      "title": "Edit Job Content",
+      "hint": "Change what this job runs. Changes take effect on the next run.",
+      "titleLabel": "Title",
+      "descriptionLabel": "Description",
+      "payloadLabel": "Payload / prompt",
+      "payloadHint": "The instruction text passed to the agent when this job runs.",
+      "titleRequired": "Title cannot be empty",
+      "failedTitle": "Update failed",
+      "failedMessage": "Could not update the job content. Please try again."
     },
     "row": {
       "every": "Every {{interval}}",
@@ -2932,6 +2958,7 @@
   "common": {
     "close": "Close",
     "cancel": "Cancel",
+    "save": "Save",
     "back": "Back",
     "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve.",
     "ok": "OK",
@@ -3015,5 +3042,16 @@
       "suggested": "From the conversation",
       "optional": "Optional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Your session expired. Please sign in again. (click to dismiss)",
+    "sessionExpiringSoon": "Your session expires in {{time}}. Sign out and back in to avoid losing work. (click to dismiss)",
+    "circuitPausedQuota": "This agent is paused after repeated quota/balance failures. Fix its provider, then resume.",
+    "circuitPausedAuth": "This agent is paused after repeated authentication failures. Re-authenticate or set a provider, then resume.",
+    "circuitCooling": "This agent recently failed and is briefly cooling down. Try again shortly.",
+    "resumeAgent": "Resume agent",
+    "resuming": "Resuming…",
+    "dismiss": "Dismiss",
+    "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)"
   }
 }

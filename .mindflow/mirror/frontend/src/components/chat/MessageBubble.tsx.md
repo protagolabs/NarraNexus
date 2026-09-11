@@ -1,7 +1,21 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
+---
+
+## 2026-09-11 — no-reply markers are localized on render (GitHub #87)
+
+`visibleContent` (the single text source for the bubble, copy and
+download) now runs assistant content through `localizeTurnMarker` from
+[[turnMarkers]] after `stripAgentDraft`: content exactly equal to
+`(Interrupted by user)` renders `chat.stoppedByUser`, content exactly equal
+to `(Agent decided no response needed)` renders `chat.noResponseNeeded`;
+anything else passes through. The store and the backend both keep the
+English marker as the stored content, so a live bubble and its reloaded
+history row read the same in the viewer's language. Test:
+`__tests__/MessageBubble.turnMarkers.test.tsx`.
+
 ---
 
 ## 2026-09-07 — a throwing plugin message renderer is isolated (I-6)

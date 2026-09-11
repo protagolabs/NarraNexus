@@ -43,6 +43,8 @@
     "accountTitle": "账户"
   },
   "chat": {
+    "stoppedByUser": "已被你停止",
+    "noResponseNeeded": "Agent 判断无需回复",
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
@@ -776,6 +778,10 @@
     "sparkline": {
       "unavailable": "{{hours}} 小时 · —",
       "barTitle": "{{hoursAgo}} 小时前 · {{count}} 个事件"
+    },
+    "banners": {
+      "dismissAria": "关闭",
+      "dismissTitle": "关闭"
     }
   },
   "layout": {
@@ -1629,7 +1635,14 @@
       "forgotResetIntro": "我们会向你的 NetMind 账号邮箱发送验证码。",
       "forgotCodeSentHint": "如果该邮箱已注册，我们已发送验证码。",
       "useDifferentEmail": "换个邮箱",
-      "connectionFailed": "连接失败，请重试。"
+      "connectionFailed": "连接失败，请重试。",
+      "resetPasswordDone": "密码已更新",
+      "resetPasswordDoneBody": "现在可以用新密码登录了。",
+      "backToSignIn": "返回登录",
+      "resetPasswordTitle": "重置密码",
+      "sendCode": "发送验证码",
+      "verificationCodeLabel": "验证码",
+      "newPasswordLabel": "新密码"
     },
     "modeSelect": {
       "welcome": "欢迎",
@@ -2609,7 +2622,9 @@
       "cancelJob": "取消任务",
       "cancelling": "正在取消…",
       "editSchedule": "改时间",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "编辑内容",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "选择模板",
@@ -2647,6 +2662,17 @@
       "modeLabel": "触发方式",
       "modeInterval": "间隔",
       "modeCron": "Cron 表达式"
+    },
+    "editPayload": {
+      "title": "编辑任务内容",
+      "hint": "修改此任务的执行内容，下次运行时生效。",
+      "titleLabel": "标题",
+      "descriptionLabel": "描述",
+      "payloadLabel": "内容 / 提示词",
+      "payloadHint": "任务运行时传给智能体的指令文本。",
+      "titleRequired": "标题不能为空",
+      "failedTitle": "更新失败",
+      "failedMessage": "无法更新任务内容，请重试。"
     },
     "row": {
       "every": "每 {{interval}}",
@@ -2932,6 +2958,7 @@
   "common": {
     "close": "Close",
     "cancel": "取消",
+    "save": "保存",
     "back": "返回",
     "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。",
     "ok": "好",
@@ -3015,5 +3042,16 @@
       "suggested": "来自对话",
       "optional": "可选"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "登录已过期，请重新登录。（点击关闭）",
+    "sessionExpiringSoon": "登录将在 {{time}} 后过期。请重新登录以免丢失工作内容。（点击关闭）",
+    "circuitPausedQuota": "该智能体因多次额度/余额失败已暂停，修复其服务商配置后即可恢复。",
+    "circuitPausedAuth": "该智能体因多次身份验证失败已暂停，请重新验证或设置服务商后恢复。",
+    "circuitCooling": "该智能体最近运行失败，正在短暂冷却，请稍后重试。",
+    "resumeAgent": "恢复运行",
+    "resuming": "恢复中…",
+    "dismiss": "关闭",
+    "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
   }
 }

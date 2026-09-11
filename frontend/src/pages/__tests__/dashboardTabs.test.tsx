@@ -80,6 +80,11 @@ vi.mock('@/pages/BundleExportPage', () => ({ default: () => <div>export-wizard-s
 
 import DashboardPage from '../DashboardPage';
 import { api } from '@/lib/api';
+import {
+  MASTER_DETAIL_ROW_CLASS,
+  MASTER_NAV_CLASS,
+  MASTER_NAV_ITEM_CLASS,
+} from '@/lib/masterDetailNav';
 
 const renderAt = (path: string) =>
   render(<MemoryRouter initialEntries={[path]}><DashboardPage /></MemoryRouter>);
@@ -97,6 +102,20 @@ describe('Dashboard left-rail tabs (#1)', () => {
     expect(screen.getByRole('button', { name: /team management/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^export$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create agent/i })).toBeInTheDocument();
+  });
+
+  it('the left rail collapses to a horizontal strip below md (GitHub #130)', () => {
+    // The rail's responsive classes live in one shared definition
+    // (lib/masterDetailNav) so this page and its sibling cannot drift; the
+    // breakpoint pin itself is asserted in masterDetailNav.test.ts.
+    renderAt('/app/dashboard');
+    const nav = screen.getByRole('navigation');
+    expect(nav.className).toBe(MASTER_NAV_CLASS);
+    expect(nav.parentElement?.className).toBe(MASTER_DETAIL_ROW_CLASS);
+    const item = nav.querySelector('button');
+    expect(item?.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(MASTER_NAV_ITEM_CLASS.split(' ')),
+    );
   });
 
   it('the Create Agent button invokes useCreateAgent().createAgent', () => {

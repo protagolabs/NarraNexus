@@ -48,6 +48,7 @@
 import type { SimpleChatMessage } from '@/types/api';
 import type { ChatMessage, AgentToolCall, Attachment, TurnEvent } from '@/types';
 import { isBlankText } from './isBlankText';
+import { NO_RESPONSE_MARKER } from './turnMarkers';
 
 /** Unified message item for the single timeline. */
 export interface TimelineItem {
@@ -130,7 +131,7 @@ export function buildUnifiedTimeline(
     // Filter out legacy junk: a non-chat working source that persisted the
     // "no response needed" sentinel as if it were a real message.
     const isNonChat = msg.working_source && msg.working_source !== 'chat';
-    if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
+    if (isNonChat && msg.content === NO_RESPONSE_MARKER) continue;
 
     // Blank-bubble guard: rows already persisted with whitespace-only
     // content (pre-strip-guard history) render as empty bubbles. Skip

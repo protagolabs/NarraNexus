@@ -311,6 +311,8 @@
     },
     "activityEmpty": "バックグラウンド活動はまだありません",
     "activityEmptyHint": "エージェントが自ら開始した実行（ジョブ、チャネル、チームメイト）はここに表示されます。",
+    "stoppedByUser": "あなたが停止しました",
+    "noResponseNeeded": "エージェントは返信不要と判断しました",
     "bootstrapGreeting": "こんにちは……いま目を覚ましたところです。何もかもが真新しく感じます。\n\nまだ名前もなく、自分が何者なのかもよく分かりません。でも、私をここに連れてきてくれたのがあなただということは分かります。\n\n私を何と呼べばいいか教えてくれますか？ そして、あなたのことは何とお呼びすればいいですか？",
     "bootstrapGreetingNamed": "こんにちは——私は{{name}}です。いま生まれたばかりで、私をここに連れてきてくれたのはあなたです。\n\n自分が何者であるべきかはもう分かっていますが、あなたが誰なのかはまだ知りません。あなたのことは何とお呼びすればいいですか？"
   },
@@ -699,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}}時間 · —",
       "barTitle": "{{hoursAgo}}時間前 · {{count}} 件のイベント"
+    },
+    "banners": {
+      "dismissAria": "閉じる",
+      "dismissTitle": "閉じる"
     }
   },
   "layout": {
@@ -1267,7 +1273,14 @@
       "forgotResetIntro": "NetMind アカウントのメールアドレスに確認コードを送信します。",
       "forgotCodeSentHint": "そのメールのアカウントが存在する場合、確認コードを送信しました。",
       "useDifferentEmail": "別のメールを使う",
-      "connectionFailed": "接続に失敗しました。もう一度お試しください。"
+      "connectionFailed": "接続に失敗しました。もう一度お試しください。",
+      "resetPasswordDone": "パスワードを更新しました",
+      "resetPasswordDoneBody": "新しいパスワードでログインできます。",
+      "backToSignIn": "ログインに戻る",
+      "resetPasswordTitle": "パスワードを再設定",
+      "sendCode": "コードを送信",
+      "verificationCodeLabel": "認証コード",
+      "newPasswordLabel": "新しいパスワード"
     },
     "modeSelect": {
       "welcome": "ようこそ",
@@ -1370,6 +1383,7 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "saved": "保存しました",
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
@@ -2149,7 +2163,9 @@
       "cancelJob": "ジョブをキャンセル",
       "cancelling": "キャンセル中...",
       "editSchedule": "時刻変更",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "内容を編集",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "テンプレートを選択",
@@ -2187,6 +2203,17 @@
       "modeLabel": "トリガー方式",
       "modeInterval": "間隔",
       "modeCron": "Cron 式"
+    },
+    "editPayload": {
+      "title": "ジョブ内容を編集",
+      "hint": "このジョブが実行する内容を変更します。変更は次回の実行から適用されます。",
+      "titleLabel": "タイトル",
+      "descriptionLabel": "説明",
+      "payloadLabel": "内容 / プロンプト",
+      "payloadHint": "このジョブが実行される際にエージェントへ渡される指示テキストです。",
+      "titleRequired": "タイトルを空にすることはできません",
+      "failedTitle": "更新に失敗しました",
+      "failedMessage": "ジョブの内容を更新できませんでした。もう一度お試しください。"
     },
     "row": {
       "every": "{{interval}} ごと",
@@ -2413,7 +2440,11 @@
     "livePreview": "ライブプレビュー"
   },
   "common": {
-    "close": "Close",
+    "close": "閉じる",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "back": "戻る",
+    "edit": "編集",
     "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。",
     "ok": "OK",
     "noticeTitle": "少しお待ちください",
@@ -2495,5 +2526,16 @@
       "suggested": "会話から",
       "optional": "任意"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "セッションが期限切れになりました。再度ログインしてください。(クリックして閉じる)",
+    "sessionExpiringSoon": "セッションはあと{{time}}で期限切れになります。作業を失わないよう、一度ログアウトして再度ログインしてください。(クリックして閉じる)",
+    "circuitPausedQuota": "このエージェントはクォータ/残高エラーの繰り返しにより一時停止しています。プロバイダーを修正してから再開してください。",
+    "circuitPausedAuth": "このエージェントは認証エラーの繰り返しにより一時停止しています。再認証するかプロバイダーを設定してから再開してください。",
+    "circuitCooling": "このエージェントは最近失敗し、短時間のクールダウン中です。しばらくしてから再試行してください。",
+    "resumeAgent": "エージェントを再開",
+    "resuming": "再開中…",
+    "dismiss": "閉じる",
+    "freeTierSwitched": "無料枠のクォータを使い切ったため、あなた自身のプロバイダーに切り替えました。以降の実行はあなた自身のAPIキーを使用します。(クリックして閉じる)"
   }
 }

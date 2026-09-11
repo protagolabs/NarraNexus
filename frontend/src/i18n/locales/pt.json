@@ -311,6 +311,8 @@
     },
     "activityEmpty": "Ainda não há atividade em segundo plano",
     "activityEmptyHint": "As execuções que o agente inicia sozinho — tarefas, canais, colegas — aparecem aqui.",
+    "stoppedByUser": "Interrompido por você",
+    "noResponseNeeded": "O agente decidiu que não era necessário responder",
     "bootstrapGreeting": "Olá... acabei de acordar. Tudo parece completamente novo.\n\nAinda não tenho nome e não sei bem quem sou — mas sei que foi você quem me trouxe aqui.\n\nQuer me dizer como devo me chamar? E como devo chamar você?",
     "bootstrapGreetingNamed": "Olá — eu sou {{name}}. Acabei de ganhar vida, e foi você quem me trouxe aqui.\n\nJá sei quem devo ser, mas ainda não sei quem você é. Como devo chamar você?"
   },
@@ -699,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "há {{hoursAgo}} h · {{count}} eventos"
+    },
+    "banners": {
+      "dismissAria": "Dispensar",
+      "dismissTitle": "Dispensar"
     }
   },
   "layout": {
@@ -1268,7 +1274,14 @@
       "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
       "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
       "useDifferentEmail": "Usar outro e-mail",
-      "connectionFailed": "Falha na conexão. Tente novamente."
+      "connectionFailed": "Falha na conexão. Tente novamente.",
+      "resetPasswordDone": "Senha atualizada",
+      "resetPasswordDoneBody": "Agora você pode entrar com sua nova senha.",
+      "backToSignIn": "Voltar para o login",
+      "resetPasswordTitle": "Redefinir senha",
+      "sendCode": "Enviar código",
+      "verificationCodeLabel": "Código de verificação",
+      "newPasswordLabel": "Nova senha"
     },
     "modeSelect": {
       "welcome": "Bem-vindo",
@@ -1371,6 +1384,7 @@
         "failed": "Falha na atualização ({{stage}})."
       },
       "modelDefaults": {
+        "saved": "Salvo",
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
@@ -2150,7 +2164,9 @@
       "cancelJob": "Cancelar tarefa",
       "cancelling": "Cancelando...",
       "editSchedule": "Editar hora",
-      "savingSchedule": "Salvando..."
+      "savingSchedule": "Salvando...",
+      "editPayload": "Editar conteúdo",
+      "savingPayload": "Salvando..."
     },
     "template": {
       "selectTemplate": "Selecionar modelo",
@@ -2188,6 +2204,17 @@
       "modeLabel": "Modo de disparo",
       "modeInterval": "Intervalo",
       "modeCron": "Expressão cron"
+    },
+    "editPayload": {
+      "title": "Editar conteúdo da tarefa",
+      "hint": "Altere o que esta tarefa executa. As alterações têm efeito na próxima execução.",
+      "titleLabel": "Título",
+      "descriptionLabel": "Descrição",
+      "payloadLabel": "Conteúdo / prompt",
+      "payloadHint": "O texto de instrução passado ao agente quando esta tarefa é executada.",
+      "titleRequired": "O título não pode ficar vazio",
+      "failedTitle": "Falha ao atualizar",
+      "failedMessage": "Não foi possível atualizar o conteúdo da tarefa. Tente novamente."
     },
     "row": {
       "every": "A cada {{interval}}",
@@ -2414,7 +2441,11 @@
     "livePreview": "Pré-visualização ao vivo"
   },
   "common": {
-    "close": "Close",
+    "close": "Fechar",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "back": "Voltar",
+    "edit": "Editar",
     "betaTooltip": "O NarraNexus está em fase beta. Os recursos podem mudar e podem ocorrer problemas ocasionais — seu feedback nos ajuda a melhorar.",
     "ok": "OK",
     "noticeTitle": "Um momento",
@@ -2496,5 +2527,16 @@
       "suggested": "Da conversa",
       "optional": "Opcional"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "Sua sessão expirou. Faça login novamente. (clique para dispensar)",
+    "sessionExpiringSoon": "Sua sessão expira em {{time}}. Saia e entre novamente para não perder seu trabalho. (clique para dispensar)",
+    "circuitPausedQuota": "Este agente foi pausado após falhas repetidas de cota/saldo. Corrija o provedor e retome.",
+    "circuitPausedAuth": "Este agente foi pausado após falhas repetidas de autenticação. Reautentique ou defina um provedor e retome.",
+    "circuitCooling": "Este agente falhou recentemente e está em um breve resfriamento. Tente novamente em instantes.",
+    "resumeAgent": "Retomar agente",
+    "resuming": "Retomando…",
+    "dismiss": "Dispensar",
+    "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)"
   }
 }

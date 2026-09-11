@@ -37,6 +37,7 @@ import { JobExecutionTimeline } from './JobExecutionTimeline';
 import { JobDetailPanel } from './JobDetailPanel';
 import { JobExpandedDetail } from './JobExpandedDetail';
 import { JobScheduleEditDialog } from './JobScheduleEditDialog';
+import { JobPayloadEditDialog } from './JobPayloadEditDialog';
 import { JobStatusMeter } from './JobStatusMeter';
 import { JobRow } from './JobRow';
 import { statusVisual } from './jobStatusVisuals';
@@ -103,6 +104,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const [pausingJobId, setPausingJobId] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [editingPayloadJob, setEditingPayloadJob] = useState<Job | null>(null);
+  const [savingPayload, setSavingPayload] = useState(false);
   const [failedExpanded, setFailedExpanded] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -225,6 +228,40 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     }
   };
 
+  const handleEditPayload = (e: React.MouseEvent, job: Job) => {
+    e.stopPropagation();
+    setEditingPayloadJob(job);
+  };
+
+  const handleSavePayload = async (
+    fields: { title?: string; description?: string; payload?: string },
+  ) => {
+    if (!editingPayloadJob) return;
+    setSavingPayload(true);
+    try {
+      const res = await api.updateJob(editingPayloadJob.job_id, editingPayloadJob.agent_id, fields);
+      if (!res.success) {
+        await alert({
+          title: t('jobs.editPayload.failedTitle'),
+          message: res.message || t('jobs.editPayload.failedMessage'),
+          danger: true,
+        });
+        return;
+      }
+      setEditingPayloadJob(null);
+      refreshJobs(agentId, userId);
+    } catch (err) {
+      console.error('Update job payload error:', err);
+      await alert({
+        title: t('jobs.editPayload.failedTitle'),
+        message: err instanceof Error ? err.message : t('jobs.editPayload.failedMessage'),
+        danger: true,
+      });
+    } finally {
+      setSavingPayload(false);
+    }
+  };
+
   const handlePauseJob = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
     setPausingJobId(jobId);
@@ -303,6 +340,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         onPause={handlePauseJob}
         canEdit={canEdit(job.status)}
         onEdit={handleEditSchedule}
+        onEditPayload={handleEditPayload}
       />
     </JobRow>
   );
@@ -317,6 +355,15 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
           saving={savingSchedule}
           onClose={() => setEditingJob(null)}
           onSave={handleSaveSchedule}
+        />
+      )}
+      {editingPayloadJob && (
+        <JobPayloadEditDialog
+          job={editingPayloadJob}
+          isOpen={!!editingPayloadJob}
+          saving={savingPayload}
+          onClose={() => setEditingPayloadJob(null)}
+          onSave={handleSavePayload}
         />
       )}
 

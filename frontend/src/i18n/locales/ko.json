@@ -311,6 +311,8 @@
     },
     "activityEmpty": "아직 백그라운드 활동이 없습니다",
     "activityEmptyHint": "에이전트가 스스로 시작한 실행(작업, 채널, 팀원)이 여기에 표시됩니다.",
+    "stoppedByUser": "회원님이 중지함",
+    "noResponseNeeded": "에이전트가 응답이 필요 없다고 판단했습니다",
     "bootstrapGreeting": "안녕하세요... 방금 깨어났어요. 모든 것이 완전히 새롭게 느껴져요.\n\n아직 이름도 없고 제가 누구인지도 잘 모르지만, 저를 이곳으로 데려온 사람이 당신이라는 건 알아요.\n\n저를 뭐라고 부르면 좋을지 알려주시겠어요? 그리고 당신은 뭐라고 부르면 될까요?",
     "bootstrapGreetingNamed": "안녕하세요 — 저는 {{name}}이에요. 방금 태어났고, 저를 이곳으로 데려온 사람은 당신이에요.\n\n제가 누구여야 하는지는 이미 알지만, 당신이 누구인지는 아직 몰라요. 당신을 뭐라고 부르면 될까요?"
   },
@@ -699,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}}시간 · —",
       "barTitle": "{{hoursAgo}}시간 전 · 이벤트 {{count}}개"
+    },
+    "banners": {
+      "dismissAria": "닫기",
+      "dismissTitle": "닫기"
     }
   },
   "layout": {
@@ -1267,7 +1273,14 @@
       "forgotResetIntro": "NetMind 계정 이메일로 인증 코드를 보내드립니다.",
       "forgotCodeSentHint": "해당 이메일의 계정이 있으면 인증 코드를 보냈습니다.",
       "useDifferentEmail": "다른 이메일 사용",
-      "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요."
+      "connectionFailed": "연결에 실패했습니다. 다시 시도해 주세요.",
+      "resetPasswordDone": "비밀번호가 변경되었습니다",
+      "resetPasswordDoneBody": "이제 새 비밀번호로 로그인할 수 있습니다.",
+      "backToSignIn": "로그인으로 돌아가기",
+      "resetPasswordTitle": "비밀번호 재설정",
+      "sendCode": "코드 보내기",
+      "verificationCodeLabel": "인증 코드",
+      "newPasswordLabel": "새 비밀번호"
     },
     "modeSelect": {
       "welcome": "환영합니다",
@@ -1370,6 +1383,7 @@
         "failed": "업데이트 {{stage}} 실패."
       },
       "modelDefaults": {
+        "saved": "저장됨",
         "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
         "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
@@ -2149,7 +2163,9 @@
       "cancelJob": "작업 취소",
       "cancelling": "취소 중...",
       "editSchedule": "시간 변경",
-      "savingSchedule": "저장 중..."
+      "savingSchedule": "저장 중...",
+      "editPayload": "내용 편집",
+      "savingPayload": "저장 중..."
     },
     "template": {
       "selectTemplate": "템플릿 선택",
@@ -2187,6 +2203,17 @@
       "modeLabel": "트리거 방식",
       "modeInterval": "간격",
       "modeCron": "Cron 표현식"
+    },
+    "editPayload": {
+      "title": "작업 내용 편집",
+      "hint": "이 작업이 실행할 내용을 변경합니다. 변경 사항은 다음 실행부터 적용됩니다.",
+      "titleLabel": "제목",
+      "descriptionLabel": "설명",
+      "payloadLabel": "내용 / 프롬프트",
+      "payloadHint": "이 작업이 실행될 때 에이전트에 전달되는 지시 텍스트입니다.",
+      "titleRequired": "제목은 비워둘 수 없습니다",
+      "failedTitle": "업데이트 실패",
+      "failedMessage": "작업 내용을 업데이트할 수 없습니다. 다시 시도해 주세요."
     },
     "row": {
       "every": "{{interval}}마다",
@@ -2413,7 +2440,11 @@
     "livePreview": "실시간 미리보기"
   },
   "common": {
-    "close": "Close",
+    "close": "닫기",
+    "cancel": "취소",
+    "save": "저장",
+    "back": "뒤로",
+    "edit": "편집",
     "betaTooltip": "NarraNexus는 현재 베타 버전입니다. 기능이 변경될 수 있고 간헐적으로 문제가 발생할 수 있습니다. 피드백을 환영합니다.",
     "ok": "확인",
     "noticeTitle": "잠시만요",
@@ -2495,5 +2526,16 @@
       "suggested": "대화에서",
       "optional": "선택"
     }
+  },
+  "appBanners": {
+    "sessionExpired": "세션이 만료되었습니다. 다시 로그인해 주세요. (클릭하여 닫기)",
+    "sessionExpiringSoon": "세션이 {{time}} 후 만료됩니다. 작업 내용을 잃지 않으려면 로그아웃 후 다시 로그인하세요. (클릭하여 닫기)",
+    "circuitPausedQuota": "이 에이전트는 반복된 할당량/잔액 실패로 일시 중지되었습니다. 공급자를 수정한 후 재개하세요.",
+    "circuitPausedAuth": "이 에이전트는 반복된 인증 실패로 일시 중지되었습니다. 재인증하거나 공급자를 설정한 후 재개하세요.",
+    "circuitCooling": "이 에이전트는 최근 실패하여 잠시 대기 중입니다. 잠시 후 다시 시도하세요.",
+    "resumeAgent": "에이전트 재개",
+    "resuming": "재개 중…",
+    "dismiss": "닫기",
+    "freeTierSwitched": "무료 할당량을 모두 사용하여 사용자 지정 공급자로 전환되었습니다. 이후 실행은 사용자의 API 키를 사용합니다. (클릭하여 닫기)"
   }
 }

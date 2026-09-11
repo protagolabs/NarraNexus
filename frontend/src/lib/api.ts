@@ -1646,11 +1646,6 @@ class ApiClient {
     data?: {
       agent_id: string;
       slots: Record<string, AgentSlotView>;
-      // While the owner's cloud free tier has budget, runs are pinned to the
-      // fixed system model and per-agent overrides are ignored (see backend
-      // ProviderResolver SYSTEM_OK branch). `active` lets the UI render an
-      // honest read-only model chip; `model` is what actually runs meanwhile.
-      free_tier?: { active: boolean; model: string | null };
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
@@ -1773,6 +1768,23 @@ class ApiClient {
     return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/schedule`, {
       method: 'PUT',
       body: JSON.stringify(fields),
+    });
+  }
+
+  /** Edit a job's content fields (title/description/payload) — the seam
+   *  route PUT /api/jobs/{job_id}, which mirrors the job_update MCP tool
+   *  exactly. Only send the changed fields; omitted fields (undefined) keep
+   *  their existing value server-side. `agentId` is the owning agent, used
+   *  for ownership scoping (assert_owned), not the job's own id. */
+  async updateJob(
+    jobId: string,
+    agentId: string,
+    fields: { title?: string; description?: string; payload?: string },
+  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string }> {
+    return this.request(`/api/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, ...fields }),
     });
   }
 
