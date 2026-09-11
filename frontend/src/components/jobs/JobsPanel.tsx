@@ -243,7 +243,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
       if (!res.success) {
         await alert({
           title: t('jobs.editPayload.failedTitle'),
-          message: res.detail || res.message || t('jobs.editPayload.failedMessage'),
+          message: res.message || t('jobs.editPayload.failedMessage'),
           danger: true,
         });
         return;
@@ -340,7 +340,6 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         onPause={handlePauseJob}
         canEdit={canEdit(job.status)}
         onEdit={handleEditSchedule}
-        canEditPayload={canEdit(job.status)}
         onEditPayload={handleEditPayload}
       />
     </JobRow>

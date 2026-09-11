@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogFooter, Input, Button } from '@/components/ui';
+import { Dialog, DialogContent, DialogFooter, Input, Textarea, Button } from '@/components/ui';
 import type { Job } from '@/types/api';
 
 interface JobPayloadEditDialogProps {
@@ -73,11 +73,14 @@ export function JobPayloadEditDialog({ job, isOpen, saving, onClose, onSave }: J
 
           <label className="block space-y-1">
             <span className="text-xs text-[var(--text-secondary)]">{t('jobs.editPayload.payloadLabel')}</span>
-            <textarea
+            {/* Fixed-height form field: autoResize would grow the box past the
+                md dialog as a long prompt is typed. */}
+            <Textarea
               value={payload}
               onChange={(e) => setPayload(e.target.value)}
               rows={6}
-              className="w-full rounded-[var(--radius-lg)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--border-strong)] outline-none resize-y font-mono"
+              autoResize={false}
+              className="font-mono"
             />
             <span className="text-[10px] text-[var(--text-tertiary)]">{t('jobs.editPayload.payloadHint')}</span>
           </label>

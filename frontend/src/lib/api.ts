@@ -1785,7 +1785,7 @@ class ApiClient {
     jobId: string,
     agentId: string,
     fields: { title?: string; description?: string; payload?: string },
-  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string; detail?: string }> {
+  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string }> {
     return this.request(`/api/jobs/${encodeURIComponent(jobId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

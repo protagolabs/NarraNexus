@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/jobs/JobPayloadEditDialog.tsx
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -22,7 +22,7 @@ paths for no benefit.
 ## Upstream / downstream
 
 - Opened by `JobExpandedDetail`'s "Edit Content" button
-  (`canEditPayload`/`onEditPayload` props), gated by the same
+  (`onEditPayload` prop), gated by the same `canEdit` prop /
   `canEdit(status)` predicate JobsPanel already uses for the schedule
   editor — editing either the timing or the content of a
   running/terminal job is equally meaningless.
@@ -43,6 +43,12 @@ paths for no benefit.
 - `saving`/error display follow the same prop contract as
   JobScheduleEditDialog: this component holds no network state of its
   own, the parent (`JobsPanel`) owns success/failure handling.
+
+- The payload field is the shared `ui/Textarea` with
+  `autoResize={false}` (fixed 6-row form field): the primitive exists so
+  macOS WKWebView never draws its wide native scroller on an idle box,
+  and auto-resize is off because a long prompt would otherwise grow the
+  box past the `md` dialog.
 
 ## Gotcha
 

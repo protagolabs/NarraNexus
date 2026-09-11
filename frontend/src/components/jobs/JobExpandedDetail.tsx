@@ -49,12 +49,10 @@ interface JobExpandedDetailProps {
   canEdit?: boolean;
   /** Edit-execution-time callback */
   onEdit?: (e: React.MouseEvent, job: Job) => void;
-  /** Whether this status allows editing title/description/payload — same
-   *  guard as canEdit (non-running, non-terminal): a running job's payload
-   *  edit would not affect the run already in flight, and a terminal job's
-   *  content no longer matters. */
-  canEditPayload?: boolean;
-  /** Edit-content (title/description/payload) callback */
+  /** Edit-content (title/description/payload) callback. Gated by the same
+   *  canEdit (non-running, non-terminal): a running job's payload edit would
+   *  not affect the run already in flight, and a terminal job's content no
+   *  longer matters. */
   onEditPayload?: (e: React.MouseEvent, job: Job) => void;
 }
 
@@ -111,7 +109,6 @@ export function JobExpandedDetail({
   onPause,
   canEdit = false,
   onEdit,
-  canEditPayload = false,
   onEditPayload,
 }: JobExpandedDetailProps) {
   const { t } = useTranslation();
@@ -358,9 +355,9 @@ export function JobExpandedDetail({
       )}
 
       {/* 9. Actions */}
-      {(canCancel || canResume || canPause || canEdit || canEditPayload) && (
+      {(canCancel || canResume || canPause || canEdit) && (
         <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center gap-2">
-          {canEditPayload && onEditPayload && (
+          {canEdit && onEditPayload && (
             <Button
               variant="ghost"
               size="sm"

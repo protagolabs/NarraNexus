@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -16,8 +16,11 @@ backend's None-means-unchanged `JobUpdateFields` semantics). Sibling of
 the existing `updateJobSchedule` (a different route,
 `/api/dashboard/jobs/{id}/schedule`, for trigger/timing fields only —
 content and schedule were always two separate routes, so they stay two
-separate client methods). Test: `__tests__/api.updateJob.test.ts`
-asserts the exact method/URL/body shape.
+separate client methods). The return type is the backend's
+`JobUpdateResponse` (`success`/`job_id`/`updated_fields`/`message`); a
+non-2xx surfaces as a thrown `ApiError`, never a returned `detail`.
+Test: `__tests__/api.updateJob.test.ts` asserts the exact
+method/URL/body shape.
 
 ## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
 

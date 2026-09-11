@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 ---
 
 ## 2026-09-10 — `canResume` + `paused_spend_cap`
@@ -16,10 +16,17 @@ covered the job's execution time; added the identical shape for content
 `handleEditPayload`/`handleSavePayload` handlers calling the new
 `api.updateJob`, and `<JobPayloadEditDialog>` rendered alongside
 `<JobScheduleEditDialog>`. Reuses the existing `canEdit(status)`
-predicate for the gate (`canEditPayload`) rather than inventing a
-second one — editing either the schedule or the content of a
-running/terminal job is equally meaningless, so the same non-running,
-non-terminal guard applies to both.
+predicate (passed once as `canEdit`, which gates both buttons) rather
+than inventing a second one — editing either the schedule or the
+content of a running/terminal job is equally meaningless, so the same
+non-running, non-terminal guard applies to both.
+
+`handleSavePayload` sends the job's OWN `agent_id` (not the panel's
+focused `agentId`; the backend's ownership check keys on the job's
+owner), closes the dialog and refreshes only on `success`, and on a
+`{success:false}` result (its `message`) or a thrown `ApiError` keeps
+the dialog open behind a `useConfirm` alert so the user can retry.
+Test: `__tests__/JobsPanel.editPayload.test.tsx`.
 
 ## 2026-08-27 — 密度重构：band 按数据条件渲染
 
