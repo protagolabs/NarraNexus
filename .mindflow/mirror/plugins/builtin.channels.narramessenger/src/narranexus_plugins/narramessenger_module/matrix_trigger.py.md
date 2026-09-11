@@ -1,14 +1,20 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 ---
+
+## 2026-09-11（PR #394 review 第五轮 I-C）— 拒绝提示改走基类钩子
+
+覆写 [[channel_trigger_base]] 的 `_send_circuit_refusal` 为 `_send_matrix_reply(credential, message.chat_id, text)`；
+流式路径被拒时不再自己发，只返回 `refusal`——发送由基类 `_circuit_admission` 统一做，群聊房间因此与其他渠道
+一样每个熔断窗口只提示一次。
 
 ## 2026-09-10（PR #394 review 第四轮 I-3）— 流式路径过熔断器闸门
 
 `_build_and_run_agent_streaming` 用 `run_stream` 而不是基类的 `run_and_collect`，所以在
 `run_stream` 之前自己调基类 `_circuit_admission`。本 channel 的 `send_channel_reply` 是基类 no-op，
-被拒时由这里经 `_send_matrix_reply` 发回拒绝文案并返回；放行 → `run_stream(probe_token=)`
+被拒时拒绝文案经基类钩子 `_send_circuit_refusal`（本类覆写为 `_send_matrix_reply`）发回并返回；放行 → `run_stream(probe_token=)`
 （[[client]] 按流的错误结论结算），消费循环的 `finally` 里 `_release_unsettled_probe` 兜底。
 atomic 路径走基类方法，闸门随之生效（返回的拒绝文案由 atomic 照常发送）。语音 drain 循环每个
 批次各过一次闸门。锁：`test_matrix_streaming_refuses_a_paused_agent`、

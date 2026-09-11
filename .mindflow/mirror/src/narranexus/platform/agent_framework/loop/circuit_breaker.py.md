@@ -16,6 +16,14 @@ None，`record_failure` 只剩一处早退（debug 日志带豁免名）。各�
 测试：`test_output_budget_exhaustion_does_not_advance_breaker`、`test_budget_phrase_in_message_alone_does_not_exempt`
 （message 含该短语但 error_type 是 `invalid_request` → 仍 COOLING）、`test_breaker_exemptions_name_each_class_and_nothing_else`。
 
+## 2026-09-11（PR #394 review 第五轮 I-B / M-A）— 静默批不把 COOLING 当 held；入口门禁按构造点计数
+
+- 入口表静默批一行更正：`peek_skip` 只在 `paused:*` / `probing` / 未知状态时跳过，COOLING 照常跑（凭据没坏、
+  静默批无重试队列，跳过即永久丢记忆）。`peek_skip` 本身契约不变（COOLING 仍返回 `(True, "cooling")`），
+  是调用方按 reason 收窄。
+- `tests/agent_framework/test_agent_circuit_breaker.py::test_every_turn_entry_passes_the_breaker_gate` 从「文件里有闸门即过」
+  升级为 `_GATED_TURN_CONSTRUCTORS` 按文件登记构造点个数（2026-09-11 实数）：同文件新增第二个构造点、计数变了即红。
+
 ## 2026-09-10（PR #394 review 第四轮）— 认领者自报 run id：活性按身份而非时间
 
 **I-1：`_claimant_may_be_live` 不再用时间近似。** 第三轮的判定是「认领之后才开始、心跳新鲜的
@@ -57,7 +65,7 @@ True，行被无界地焊死在 PROBING。现在认领者给自己的 run 落一
 | [[message_bus_trigger]] lane / patrol → `run_and_collect` | 同上 | `run_and_collect` + 出口 release |
 | [[module_poller]] Path A `AgentRuntime()` | `peek_skip`（无结果信号，不认领） | — |
 | [[channel_trigger_base]] `_build_and_run_agent`（WeChat/Telegram/Slack/Discord/Matrix atomic…） | **新** `_circuit_admission` → `admit_turn` | `run_and_collect` + 出口 release |
-| [[channel_trigger_base]] 静默批 `_build_and_run_agent_silent_batch` | **新** `peek_skip`（不回复任何人，不值得占探测名额） | — |
+| [[channel_trigger_base]] 静默批 `_build_and_run_agent_silent_batch` | **新** `peek_skip`（不回复任何人，不值得占探测名额；只在 paused/probing 跳过，COOLING 照跑） | — |
 | [[lark_trigger]] 整体覆写的 `_build_and_run_agent` | **新** `_circuit_admission` | 同上 |
 | [[matrix_trigger]] `_build_and_run_agent_streaming` → `run_stream` | **新** `_circuit_admission` | **新** `run_stream(probe_token=)` + 出口 release |
 | [[chat_trigger]] A2A `tasks/send` → `run_and_collect` | **新** `admit_turn` | `run_and_collect` + 出口 release |

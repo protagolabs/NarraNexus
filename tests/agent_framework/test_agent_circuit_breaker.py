@@ -1207,13 +1207,34 @@ _UNGATED_TURN_CONSTRUCTORS = {
 }
 
 
+# Files that construct a turn AND gate it, with how many construction
+# points each has (counted with the regex below on 2026-09-11, #394 fourth
+# review M-A). The count is the point: a gate anywhere in a file used to
+# pass the whole file, so a second, ungated construction point added next to
+# a gated one stayed green. A changed count fails until the author confirms
+# the new point is gated and updates the number here.
+_GATED_TURN_CONSTRUCTORS = {
+    "backend/routes/openai_compat.py": 1,
+    "backend/routes/websocket.py": 1,
+    "plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py": 1,
+    "plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py": 1,
+    # A2A tasks/send and tasks/sendSubscribe.
+    "plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_trigger.py": 2,
+    # _build_and_run_agent (admit_turn) and the silent batch (peek_skip).
+    "src/narranexus/platform/channel/channel_trigger_base.py": 2,
+    "src/narranexus/platform/message_bus/message_bus_trigger.py": 1,
+    "src/narranexus/platform/services/module_poller.py": 1,
+}
+
+
 def test_every_turn_entry_passes_the_breaker_gate():
     """#394 second review I-3: the sweep is by TURN CONSTRUCTION POINT, not
     by existing gate — the first sweep missed channel_trigger_base (and the
     Lark / NarraMessenger / A2A entries) because it looked where gates
     already were. Every production file that starts a turn must call a gate
     (the two steps, ``admit_turn``, the channel helper, or ``peek_skip`` for
-    entries that cannot settle) or be listed above with its reason."""
+    entries that cannot settle) and be registered above with its number of
+    construction points, or be listed as ungated with its reason."""
     import re
     from pathlib import Path
 
@@ -1222,16 +1243,18 @@ def test_every_turn_entry_passes_the_breaker_gate():
     gate = re.compile(r"\b(should_skip|try_begin_probe|admit_turn|peek_skip|_circuit_admission)\(")
     files = [*root.joinpath("src").rglob("*.py"), *root.joinpath("backend").rglob("*.py")]
     files += [p for p in root.joinpath("plugins").rglob("*.py") if "/src/" in p.as_posix()]
-    ungated = []
+    found = {}
     for path in files:
         text = path.read_text(encoding="utf-8")
-        if not construct.search(text):
+        count = len(construct.findall(text))
+        if not count:
             continue
         rel = path.relative_to(root).as_posix()
-        if rel in _UNGATED_TURN_CONSTRUCTORS or gate.search(text):
+        if rel in _UNGATED_TURN_CONSTRUCTORS:
             continue
-        ungated.append(rel)
-    assert ungated == []
+        assert gate.search(text), f"{rel} starts a turn with no breaker gate"
+        found[rel] = count
+    assert found == _GATED_TURN_CONSTRUCTORS
     # The exemption list must not rot: every entry still constructs a turn.
     for rel in _UNGATED_TURN_CONSTRUCTORS:
         assert construct.search((root / rel).read_text(encoding="utf-8")), rel

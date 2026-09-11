@@ -29,7 +29,7 @@ from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
 from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
-from narranexus.platform.schema.parsed_message import ParsedMessage
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 from narranexus.platform.utils.timezone import utc_now
 from tests.channel.test_mock_channel_trigger_integration import (
     _FakeCredential,
@@ -80,11 +80,21 @@ class _Trigger(_FakeTrigger):
         self.sent.append(text)
 
 
-def _msg() -> ParsedMessage:
+def _msg(chat_type: ChatType = ChatType.PRIVATE, chat_id: str = "C1") -> ParsedMessage:
     return ParsedMessage(
-        message_id="m1", chat_id="C1", sender_id="u1",
+        message_id="m1", chat_id=chat_id, sender_id="u1",
         sender_name="Alice", content="hi", timestamp_ms=1,
+        chat_type=chat_type,
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_refusal_windows():
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+
+    ChannelTriggerBase._circuit_refusal_windows.clear()
+    yield
+    ChannelTriggerBase._circuit_refusal_windows.clear()
 
 
 @pytest.fixture
@@ -120,10 +130,10 @@ async def _row(db):
     return await AgentCircuitBreakerRepository(db).get(AGENT)
 
 
-async def _run_base(trigger, db):
+async def _run_base(trigger, db, msg: ParsedMessage | None = None):
     trigger._db = db
     return await trigger._build_and_run_agent(
-        trigger._credential, _msg(), "Alice", attachments=[]
+        trigger._credential, msg or _msg(), "Alice", attachments=[]
     )
 
 
@@ -189,6 +199,42 @@ async def test_a_probe_whose_runtime_call_raises_is_handed_back(client, db_clien
     assert row.consecutive_failure_count == 3
 
 
+# ── refusal notice throttling (#394 fourth review I-C) ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_group_hears_the_refusal_once_per_breaker_window(client, db_client):
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    trigger = _Trigger()
+    first = await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    second = await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert client["client"].calls == []
+    # Only the send is throttled: both turns still return the refusal
+    # as their output, so the inbox records each of them.
+    assert first == second and "paused" in first.lower()
+    assert trigger.sent == [first]
+
+    # Another group of the same agent is a different conversation.
+    await _run_base(trigger, db_client, _msg(ChatType.GROUP, chat_id="C2"))
+    assert len(trigger.sent) == 2
+
+    # A new window (a failed probe doubled the backoff) is told again.
+    await AgentCircuitBreakerRepository(db_client).upsert_state(AGENT, {
+        "cooldown_until": utc_now() + timedelta(minutes=10),
+    })
+    await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert len(trigger.sent) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_private_chat_is_told_every_time(client, db_client):
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    trigger = _Trigger()
+    await _run_base(trigger, db_client, _msg(ChatType.PRIVATE))
+    await _run_base(trigger, db_client, _msg(ChatType.PRIVATE))
+    assert len(trigger.sent) == 2
+
+
 # ── silent memory batch: peek only ──────────────────────────────────────
 
 
@@ -206,6 +252,28 @@ async def test_the_silent_batch_never_claims_the_probe(client, db_client):
     (call,) = client["client"].calls
     assert call["silent"] is True
     assert "probe_token" not in call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "due", "runs"),
+    [
+        # Cooling is a transient backoff, the credential is fine, and the
+        # batch has no retry queue: skipping would lose the room from memory.
+        (CbStatus.COOLING, False, True),
+        (CbStatus.PAUSED, False, False),
+        (CbStatus.PROBING, False, False),
+    ],
+)
+async def test_the_silent_batch_skips_only_a_held_credential(
+    client, db_client, status, due, runs
+):
+    trigger = _Trigger()
+    trigger._db = db_client
+    await _set(db_client, status, due=due)
+    await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
+    assert len(client["client"].calls) == (1 if runs else 0)
+    assert (await _row(db_client)).cb_status == status.value
 
 
 # ── LarkTrigger overrides _build_and_run_agent wholesale ────────────────
@@ -267,7 +335,7 @@ async def test_lark_claims_an_open_window(client, db_client, monkeypatch):
 # ── NarraMessenger streaming path ───────────────────────────────────────
 
 
-async def _run_matrix(monkeypatch, db):
+async def _run_matrix(monkeypatch, db, *, chat_type=ChatType.PRIVATE, times=1):
     from narranexus_plugins.narramessenger_module.matrix_trigger import MatrixTrigger
 
     trigger = MatrixTrigger()
@@ -279,9 +347,11 @@ async def _run_matrix(monkeypatch, db):
     cred = SimpleNamespace(agent_id=AGENT)
     msg = SimpleNamespace(
         chat_id="!r", message_id="$e", sender_id="@u:h", content="hi",
-        raw={}, timestamp_ms=0, sender_name="U",
+        raw={}, timestamp_ms=0, sender_name="U", chat_type=chat_type,
     )
-    out = await trigger._build_and_run_agent_streaming(cred, msg, "U", attachments=None)
+    out = None
+    for _ in range(times):
+        out = await trigger._build_and_run_agent_streaming(cred, msg, "U", attachments=None)
     return sends, out
 
 
@@ -292,6 +362,15 @@ async def test_matrix_streaming_refuses_a_paused_agent(client, db_client, monkey
     assert client["client"].calls == []
     sends.assert_awaited_once()
     assert sends.await_args.args[2] == out and "paused" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_matrix_group_refusal_is_sent_once_per_window(client, db_client, monkeypatch):
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    sends, out = await _run_matrix(monkeypatch, db_client, chat_type=ChatType.GROUP, times=2)
+    assert client["client"].calls == []
+    sends.assert_awaited_once()
+    assert "paused" in out.lower()
 
 
 @pytest.mark.asyncio
@@ -344,3 +423,61 @@ async def test_a2a_send_claims_an_open_window_and_runs_healthy(client, db_client
     await _a2a_send(db_client)
     assert len(client["client"].calls) == 2
     assert client["client"].calls[-1]["probe_token"] is None
+
+
+# ── A2A server (tasks/sendSubscribe, SSE) ───────────────────────────────
+
+
+class _DeltaClient(_Client):
+    def run_stream(self, **kw):
+        self.calls.append(kw)
+
+        async def _gen():
+            await self._snapshot()
+            yield SimpleNamespace(delta="he")
+            yield SimpleNamespace(delta="llo")
+        return _gen()
+
+
+async def _a2a_subscribe(db):
+    from narranexus_plugins.chat_module.chat_trigger import A2AServer
+
+    server = A2AServer(database_client=db)
+    resp = await server._handle_tasks_send_subscribe("1", _a2a_params(), None)
+    return resp.body_iterator
+
+
+@pytest.mark.asyncio
+async def test_a2a_subscribe_refuses_a_paused_agent(client, db_client):
+    import json
+
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    before = await _row(db_client)
+    frames = [f async for f in await _a2a_subscribe(db_client)]
+    assert client["client"].calls == []
+    last = json.loads(frames[-1]["data"])
+    assert last["final"] is True and last["status"]["state"] == "failed"
+    after = await _row(db_client)
+    assert (after.cb_status, after.probe_token, after.cooldown_until) == (
+        before.cb_status, before.probe_token, before.cooldown_until,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a2a_subscribe_closed_mid_stream_hands_the_claim_back(client, db_client):
+    """The client disconnects after the gate claimed the probe and before
+    the stream ended: the generator's exit belt returns the claim instead
+    of leaving every entry refused until the grant expires."""
+    await _set(db_client, CbStatus.PAUSED, due=True)
+    client["client"] = _DeltaClient(db_client)
+    frames = await _a2a_subscribe(db_client)
+    seen = []
+    async for frame in frames:
+        seen.append(frame)
+        if frame["event"] == "taskArtifactUpdate":
+            break
+    (row_at_call,) = client["client"].rows_at_call
+    assert row_at_call.cb_status == CbStatus.PROBING.value
+    await frames.aclose()
+    after = await _row(db_client)
+    assert after.cb_status == CbStatus.PAUSED.value and after.probe_token is None

@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/client.py
 stub: false
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 ---
 ## 2026-09-10（GH #127 / B-05）— natural-end 不再无条件写 STATE_COMPLETED
 
@@ -25,12 +25,19 @@ events 行落地 `state=completed` + `error_message` 为空,Run-observation
 `test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
 
 
+## 2026-09-11（PR #394 review 第五轮 M-B）— GeneratorExit 注释改成真实理由
+
+`_spawn_finalize` / `_spawn_settle` 与 `run_stream` 的 GeneratorExit 分支注释原写「不能 await」，不成立
+（async generator 在 `aclose()` 里可以 await，不能 yield）。真实理由：关闭可能来自事件循环关停时的
+async-generator finalizer，此时 await 一次 DB 写会抛错或被中途取消；独立 task + `RuntimeError` 分支让这条路径安静，
+结算本身是幂等 token CAS。行为不变，只改注释。
+
 ## 2026-09-10（PR #394 review 第四轮 I-3）— `run_stream(probe_token=)`：流式入口的探测结算
 
 流式入口（NarraMessenger 流式、A2A SSE）现在也认领探测，`run_stream` 与 `run_and_collect` 用同一
 接缝结算：流正常结束 → 按 [[run_collector]] `RunErrorTracker` 的结论（与 `collect_run` 同一条
 「最后一个错误 + 致命粘滞」规则）调 `settle_probe`；抛异常 → 失败；`CancelledByUser` → 归还；
-消费方关闭流（GeneratorExit，不能 await）→ `_spawn_settle` 在独立 task 上归还。无 token 不碰熔断器。
+消费方关闭流（GeneratorExit；可能在 loop 关停 finalizer 里，不内联 await）→ `_spawn_settle` 在独立 task 上归还。无 token 不碰熔断器。
 锁：`test_client_probe_settlement.py` 的 `test_a_streamed_*` 与 `test_an_ordinary_stream_never_touches_the_breaker`。
 
 ## 2026-09-10（PR #394 review 第四轮 I-1）— `_new_recorder` 带上探测认领

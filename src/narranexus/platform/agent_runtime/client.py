@@ -212,8 +212,9 @@ async def _finalize_natural_end(
 
 
 def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
-    """Finalize on a task of its own — for contexts that cannot await
-    (GeneratorExit unwinding, host-task cancellation). Paired with a
+    """Finalize on a task of its own — for contexts that must not block on
+    an await (GeneratorExit unwinding that may run in the loop's shutdown
+    finalizer, host-task cancellation). Paired with a
     done-callback so a failure is logged, never silently GC'd
     (incident lesson #2)."""
     try:
@@ -235,8 +236,14 @@ def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
 
 def _spawn_settle(agent_id: str, probe_token: Optional[str]) -> None:
     """Hand a probe claim back (no verdict) on a task of its own — for the
-    GeneratorExit unwinding of ``run_stream``, which cannot await. No-op
-    without a token; a failure is logged, never silently GC'd."""
+    GeneratorExit unwinding of ``run_stream``. Awaiting there is legal (an
+    async generator may await inside ``aclose()``; it may not yield), but
+    the close can come from the event loop's async-generator finalizer while
+    the loop is shutting down, where an awaited DB write would raise or be
+    cancelled mid-flight; the detached task plus the ``RuntimeError`` branch
+    below keep that path quiet, and the settlement is an idempotent token
+    CAS either way. No-op without a token; a failure is logged, never
+    silently GC'd."""
     if probe_token is None:
         return
     from narranexus.platform.agent_framework.loop.circuit_breaker import (
@@ -465,16 +472,16 @@ class InProcessAgentRuntimeClient:
             raise
         except GeneratorExit:
             # Consumer closed the stream mid-run; the underlying run dies
-            # with the generator. Awaiting inside GeneratorExit unwinding
-            # is forbidden, so finalize on a task of its own.
+            # with the generator. Finalize on a task of its own: the close
+            # may come from the loop's shutdown finalizer (see _spawn_settle).
             if recorder is not None:
                 _spawn_finalize(
                     recorder, STATE_CANCELLED,
                     cancel_reason="stream consumer closed",
                 )
                 finalize_deferred = True
-            # No verdict either: the probe goes back on a task of its own,
-            # for the same reason.
+            # No verdict either: the probe goes back on a task of its own
+            # (see _spawn_settle for why not an inline await).
             _spawn_settle(agent_id, probe_token)
             raise
         except Exception as e:

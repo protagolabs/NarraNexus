@@ -1276,6 +1276,14 @@ class MatrixTrigger(ChannelTriggerBase):
     # Reply sender + failure notification
     # ────────────────────────────────────────────────────────────────────
 
+    async def _send_circuit_refusal(
+        self, credential: Any, message: Any, text: str
+    ) -> None:
+        """The base's refusal hook: this channel's ``send_channel_reply`` is
+        a no-op, so a circuit-breaker refusal goes out through the same
+        sender as a normal answer."""
+        await self._send_matrix_reply(credential, message.chat_id, text)
+
     async def _send_matrix_reply(
         self,
         credential: NarramessengerCredential,
@@ -1809,13 +1817,12 @@ class MatrixTrigger(ChannelTriggerBase):
 
         # The base's circuit-breaker gate — this path replaces the base's
         # run_and_collect with run_stream, so it calls the gate itself. The
-        # base send hook is a no-op on this channel, so the refusal is sent
-        # here through the same reply sender as a normal answer.
+        # gate sends the refusal (throttled per group window) through
+        # ``_send_circuit_refusal``, overridden below for this channel.
         admission, refusal = await self._circuit_admission(
             credential, message, agent_id
         )
         if refusal is not None:
-            await self._send_matrix_reply(credential, message.chat_id, refusal)
             return refusal
 
         client_stream = get_agent_runtime_client().run_stream(

@@ -40,6 +40,7 @@ import json
 import re
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING
 
@@ -121,7 +122,11 @@ from narranexus.platform.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
 )
 from narranexus.platform.schema.hook_schema import WorkingSource
-from narranexus.platform.schema.parsed_message import UNKNOWN_SENDER_NAME, ParsedMessage
+from narranexus.platform.schema.parsed_message import (
+    UNKNOWN_SENDER_NAME,
+    ChatType,
+    ParsedMessage,
+)
 from narranexus.platform.utils.attachment_storage import persist_attachment_bytes
 
 
@@ -311,6 +316,12 @@ class ChannelTriggerBase(ABC):
     )
     INGRESS_RECOVERY_WINDOWS: int = 2
     INGRESS_BREAKER_RETENTION_DAYS: int = 30
+
+    # Circuit-breaker refusal notices already sent, per (channel, agent,
+    # chat) → breaker window; shared by every trigger in the process and
+    # bounded (oldest dropped). See ``_claim_circuit_refusal_send``.
+    _circuit_refusal_windows: "OrderedDict[tuple[str, str, str], str]" = OrderedDict()
+    _CIRCUIT_REFUSAL_WINDOWS_MAX: int = 4096
 
     # ── Construction ──────────────────────────────────────────────────────
     def __init__(self, *, base_workers: int = 3, history_config: Optional[ChannelHistoryConfig] = None):
@@ -1993,15 +2004,18 @@ class ChannelTriggerBase(ABC):
 
         # A silent memory pass answers nobody and is not worth the single
         # half-open probe slot, so it never claims one (same reason as
-        # module_poller Path A): read-only peek — any held state (cooling,
-        # paused, probing) skips the pass instead of running a turn against
-        # a credential the breaker is holding off.
+        # module_poller Path A): read-only peek. Only a HELD credential skips
+        # the pass — paused ("paused:<reason>"), a probe in flight, or a
+        # status this build does not know. COOLING does not: it is the
+        # transient/business backoff, the credential is fine, and this path
+        # has no retry queue, so skipping would lose the room's messages
+        # from memory for good (#394 fourth review I-B).
         from narranexus.platform.agent_framework.loop.circuit_breaker import (
             peek_skip,
         )
 
         held, why = await peek_skip(agent_id, db=await self._breaker_db())
-        if held:
+        if held and why != "cooling":
             logger.info(
                 f"{type(self).__name__}[{agent_id}] silent batch of "
                 f"{len(batch_messages)} skipped: agent circuit-breaker {why}"
@@ -2071,8 +2085,9 @@ class ChannelTriggerBase(ABC):
         ``admission.probe_token`` to the runtime call (it settles the
         probe) and call ``_release_unsettled_probe`` on the way out. When
         refused, the person is told in the chat (never a silent drop) with
-        ``format_circuit_refusal`` and ``refusal`` is that text, which the
-        caller returns as the turn's output (the inbox records it).
+        ``format_circuit_refusal`` — a group chat once per breaker window,
+        see ``_claim_circuit_refusal_send`` — and ``refusal`` is that text,
+        which the caller returns as the turn's output (the inbox records it).
         Refused messages are not retried: a paused agent's retry storm is
         exactly what the breaker exists to stop.
         """
@@ -2088,10 +2103,70 @@ class ChannelTriggerBase(ABC):
             f"circuit-breaker ({admission.reason})"
         )
         refusal = self.format_circuit_refusal(admission.reason)
-        await self._send_error_fallback(
-            credential, message, refusal, already_replied=False
-        )
+        if await self._claim_circuit_refusal_send(message, agent_id):
+            await self._send_circuit_refusal(credential, message, refusal)
+        else:
+            logger.info(
+                f"{type(self).__name__}[{agent_id}] refusal reply to "
+                f"{message.chat_id} throttled (already sent in this window)"
+            )
         return admission, refusal
+
+    async def _claim_circuit_refusal_send(
+        self, message: ParsedMessage, agent_id: str
+    ) -> bool:
+        """Whether this refusal is the one the chat hears in the current
+        breaker window (#394 fourth review I-C).
+
+        A group chat hears the refusal once per (channel, agent, chat) per
+        breaker window — the window is the row's ``cb_status`` +
+        ``cooldown_until``, so a new pause (repaired, then broken again) or
+        a doubled backoff after a failed probe is a new window and is told
+        again. A 1:1 chat is never throttled: its only sender needs the
+        answer. Only the SEND is throttled — the caller still returns the
+        refusal text as the turn's output, so the inbox records it.
+
+        Process-local on purpose: one channel's triggers run in one process
+        (the channels supervisor), and a lost entry only costs one repeated
+        notice, never a missed one. An unreadable row sends (fail toward
+        telling the person)."""
+        if getattr(message, "chat_type", None) not in (
+            ChatType.GROUP, ChatType.TOPIC_GROUP,
+        ):
+            return True
+        try:
+            from narranexus.platform.repository.agent_circuit_breaker_repository import (
+                AgentCircuitBreakerRepository,
+            )
+
+            row = await AgentCircuitBreakerRepository(
+                await self._breaker_db()
+            ).get(agent_id)
+        except Exception as e:  # noqa: BLE001 — fail toward telling
+            logger.warning(f"[agent-cb] refusal window read failed for {agent_id}: {e}")
+            return True
+        if row is None:
+            return True
+        window = f"{row.cb_status}|{row.cooldown_until}"
+        key = (self.channel_name, agent_id, message.chat_id or "")
+        sent = ChannelTriggerBase._circuit_refusal_windows
+        if sent.get(key) == window:
+            return False
+        sent[key] = window
+        sent.move_to_end(key)
+        while len(sent) > self._CIRCUIT_REFUSAL_WINDOWS_MAX:
+            sent.popitem(last=False)
+        return True
+
+    async def _send_circuit_refusal(
+        self, credential: Any, message: ParsedMessage, text: str
+    ) -> None:
+        """Deliver a circuit-breaker refusal to the chat. Default: the
+        channel's error-reply path. A channel whose ``send_channel_reply``
+        is a no-op (NarraMessenger) overrides this with its own sender."""
+        await self._send_error_fallback(
+            credential, message, text, already_replied=False
+        )
 
     async def _release_unsettled_probe(
         self, agent_id: str, admission: "TurnAdmission"
