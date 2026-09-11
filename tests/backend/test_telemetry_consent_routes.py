@@ -89,6 +89,23 @@ def test_cloud_mode_hides_the_knob_and_refuses_writes(client, monkeypatch):
     assert not _ship._OPTOUT_FILE.exists()
 
 
+def test_cloud_deployment_without_opt_in_reports_off(client, monkeypatch):
+    """A cloud stack that set neither NEXUS_DIAG_SHIP nor the managed
+    default ships nothing, and the settings page says so — the built-in
+    meta default belongs to single-tenant installs with a live toggle."""
+    import backend.routes.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    g = client.get("/api/auth/settings/telemetry", headers=H)
+    assert g.json() == {
+        "mode": "off",
+        "source": "default",
+        "opted_out": False,
+        "controllable": False,
+        "managed_by": "cloud",
+    }
+
+
 def test_env_override_reports_env_source_and_refuses_writes(client, monkeypatch):
     monkeypatch.setenv("NEXUS_DIAG_SHIP", "meta")
     g = client.get("/api/auth/settings/telemetry", headers=H)
