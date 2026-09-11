@@ -13,6 +13,7 @@ Owner 硬性要求(2026-09-11,推翻 #383 的退役):抽屉标题是面板切换
 
 - 标题是 `aria-haspopup="menu"` 按钮,点开列出 `allTabs()` 全部面板(按注册顺序),按
   `stripCategories()` 分组;
+- 触发按钮的可访问名以面板标题开头(`ARTIFACTS · Switch panel`),标题不能被 aria-label 抹掉;
 - 当前面板 `aria-checked="true"` 且只有它;
 - 选别的面板回调 `onSelectTab(id)` 并关菜单;选当前面板只关菜单;
 - 外部 pointerdown 关菜单,菜单内部不关;

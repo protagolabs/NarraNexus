@@ -406,7 +406,7 @@ describe('TeamChatPanel · drawer defaults and switching', () => {
     // title, without a trip back to the member bar.
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    fireEvent.click(screen.getByLabelText(/bookmarks\.drawer\.switchPanel/));
     const ids = screen
       .getAllByRole('menuitemradio')
       .map((el) => el.getAttribute('data-testid'));
@@ -419,7 +419,7 @@ describe('TeamChatPanel · drawer defaults and switching', () => {
     fireEvent.click(screen.getByTestId('drawer-switcher-item-files'));
     expect(screen.queryByTestId('roster-row-a1')).toBeNull();
     expect(screen.getByText('chat.team.workspace.filesHint')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    fireEvent.click(screen.getByLabelText(/bookmarks\.drawer\.switchPanel/));
     fireEvent.click(screen.getByTestId('drawer-switcher-item-members'));
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
   });

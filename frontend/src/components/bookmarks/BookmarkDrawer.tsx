@@ -323,7 +323,10 @@ function DrawerHeader<T extends string = string>({
               onClick={() => setSwitcherOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={switcherOpen}
-              aria-label={t('bookmarks.drawer.switchPanel')}
+              // The accessible name must carry the open panel's name: an
+              // aria-label overrides the button's text content, and in the
+              // pinned mode nothing else in the drawer announces the panel.
+              aria-label={`${title} · ${t('bookmarks.drawer.switchPanel')}`}
               title={t('bookmarks.drawer.switchPanel')}
               className="flex items-center gap-1 min-w-0 rounded-[var(--radius-xs)] px-1 -mx-1 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
             >

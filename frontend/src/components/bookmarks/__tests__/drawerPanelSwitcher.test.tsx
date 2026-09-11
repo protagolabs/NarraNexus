@@ -63,6 +63,15 @@ describe('drawer panel switcher — single chat', () => {
     expect(itemIds()).toEqual(allTabs().map((t) => t.id));
   });
 
+  it("the trigger's accessible name carries the open panel's title plus the action", () => {
+    // aria-label overrides the button's text, so the title must be in it —
+    // in pinned mode nothing else in the drawer announces which panel is open.
+    renderDrawer();
+    const trigger = screen.getByRole('button', { name: /switch panel/i });
+    expect(trigger.getAttribute('aria-label')).toMatch(/^ARTIFACTS · /);
+    expect(screen.getByRole('button', { name: /ARTIFACTS/ })).toBe(trigger);
+  });
+
   it('groups rows under their strip categories', () => {
     renderDrawer();
     openMenu();

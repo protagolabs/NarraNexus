@@ -18,8 +18,11 @@ stub: false
   `t(labelKey, { defaultValue: label ?? labelKey })`。
 - `activeTab / onSelectTab / switcherCategories` 三者判别联合(all-or-nothing,漏传即编译错);
   组件与 `DrawerHeader` 恢复泛型 `<T extends string>`。不传则标题仍是纯文本。
-- 标题按钮:`aria-haspopup="menu"` + `aria-expanded` + aria-label/title
-  `bookmarks.drawer.switchPanel`;ChevronDown 展开时旋转。
+- 标题按钮:`aria-haspopup="menu"` + `aria-expanded`;`aria-label` 是
+  `` `${title} · ${t('bookmarks.drawer.switchPanel')}` ``(模板拼接,不新增 i18n key)——
+  aria-label 会覆盖按钮文字,而钉住模式下抽屉别处没有任何地方念出当前面板名,所以可访问名
+  必须同时带面板名和动作;`title` 属性与菜单容器的 aria-label 仍只是 `switchPanel`。
+  ChevronDown 展开时旋转。
 - 下拉:`role="menu"`,每个分类一个 `role="group"`(分类名做组标签),条目是
   `role="menuitemradio"` + `aria-checked`(当前面板打勾)+ `data-testid=drawer-switcher-item-<id>`;
   `count > 0` 才渲染活计数;点当前面板只关菜单不回调;外部 pointerdown / Esc 经
