@@ -7,10 +7,11 @@
  * shows the active agent's effective model and lets you switch it inline —
  * picking a model here writes a per-agent override (PUT
  * /api/agents/{id}/llm-config/agent). Framework + reasoning + helper live in
- * the detailed AgentLlmConfigPanel, now only reachable from the agent's
- * Profile page (2026-08-27 — the header's own entry point was dropped as a
- * duplicate). When the owner has no agent slot at all it falls back to a
- * "set model" link into Settings.
+ * the detailed AgentLlmConfigPanel, reachable from the chat header's Model &
+ * framework button, the sidebar agent row's ⋯ menu and the agent's Profile
+ * page. `reloadKey` is bumped by the host after that panel saves, so the chip
+ * re-reads a model/framework changed behind it. When the owner has no agent
+ * slot at all it falls back to a "set model" link into Settings.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -26,9 +27,11 @@ import type { AgentSlotEffective } from '@/types';
 
 interface Props {
   agentId: string;
+  /** Bump to force a re-read (the host's AgentLlmConfigPanel saved). */
+  reloadKey?: number;
 }
 
-export function ComposerModelBadge({ agentId }: Props) {
+export function ComposerModelBadge({ agentId, reloadKey = 0 }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [eff, setEff] = useState<AgentSlotEffective | null>(null);
@@ -66,7 +69,7 @@ export function ComposerModelBadge({ agentId }: Props) {
   useEffect(() => {
     setLoaded(false);
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
 
   useEffect(() => {
     if (!open) return;

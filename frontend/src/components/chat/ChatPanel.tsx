@@ -23,6 +23,7 @@ import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
+import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn, generateId } from '@/lib/utils';
@@ -188,6 +189,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
+  // Per-agent model & framework panel, opened from the header (Owner-required
+  // entry, reinstated 2026-09-11). A bump on save tells the composer model
+  // chip to re-read the (possibly changed) model.
+  const [agentCfgOpen, setAgentCfgOpen] = useState(false);
+  const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -276,6 +282,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
+  // Only the owner may change an agent's model/framework (the llm-config
+  // routes 403 anyone else) — same `created_by` gate as the profile page.
+  const isOwner = !!currentAgent && !!userId && currentAgent.created_by === userId;
   // The backend persists its system greetings (generic and named) in English;
   // lib/bootstrapGreeting translates exactly those, before and after
   // persistence, and leaves scenario-authored greetings verbatim.
@@ -1037,6 +1046,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         currentSteps={currentSteps}
         chatTab={chatTab}
         onChatTabChange={setChatTab}
+        onOpenAgentConfig={isOwner ? () => setAgentCfgOpen(true) : undefined}
       />
 
       {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
@@ -1600,11 +1610,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onToggle={setFastMode}
               disabled={!agentId}
             />
-            <ComposerModelBadge agentId={agentId} />
+            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
           </div>
         </div>
       </div>
       </div>
+      )}
+
+      {/* Per-agent model & framework panel (opened from the header). */}
+      {agentId && isOwner && (
+        <AgentLlmConfigPanel
+          agentId={agentId}
+          isOpen={agentCfgOpen}
+          onClose={() => setAgentCfgOpen(false)}
+          onSaved={() => {
+            setModelReloadKey((k) => k + 1);
+            void refreshAgents();
+          }}
+        />
       )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

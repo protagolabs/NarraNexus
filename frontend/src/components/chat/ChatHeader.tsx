@@ -8,12 +8,18 @@
  * agent ring avatar + name, which together form ONE button that navigates to
  * the agent's profile page. Right: the Chat / Inner Thoughts segmented
  * toggle, entry icons for Jobs / Inbox / Artifacts (with live badges from
- * the bookmark registry), the cost popover, and a ⋯ detail menu listing the
- * remaining agent panels (Workspace / Channels / Skills / MCP / Smart Home).
+ * the bookmark registry), the cost popover, the Model & framework button
+ * (owner only) and a ⋯ detail menu listing the remaining agent panels
+ * (Workspace / Channels / Skills / MCP / Smart Home).
  *
- * Awareness, Network/Memory and Model & framework were dropped from that menu
- * (2026-08-27) — they are all reachable from the profile page now, so a second
- * door to the same rooms was pure duplication. The agent-switcher dropdown
+ * The Model & framework button is an OWNER-REQUIRED entry (2026-09-11): #383
+ * removed it as "reachable from the profile page", and the Owner could no
+ * longer find where to change an agent's framework. It opens the same
+ * AgentLlmConfigPanel the profile page and the sidebar row menu open — do
+ * not remove it as a duplicate door.
+ *
+ * Awareness and Network/Memory were dropped from the ⋯ menu (2026-08-27) —
+ * they are reachable from the profile page. The agent-switcher dropdown
  * that used to hang off the name is gone for the same reason: clicking the
  * name means "who is this", and switching agents belongs to the sidebar.
  *
@@ -26,7 +32,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, ListTodo, Inbox, PanelLeft, Sparkles } from 'lucide-react';
+import { MoreVertical, ListTodo, Inbox, PanelLeft, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
@@ -76,6 +82,10 @@ export interface ChatHeaderProps {
   currentSteps: Step[];
   chatTab: 'conversation' | 'inner';
   onChatTabChange: (tab: 'conversation' | 'inner') => void;
+  /** Opens the per-agent model & framework panel (AgentLlmConfigPanel).
+   *  Omitted → no button: the host passes it only to the agent's owner (the
+   *  llm-config routes 403 anyone else). */
+  onOpenAgentConfig?: () => void;
 }
 
 export function ChatHeader({
@@ -85,6 +95,7 @@ export function ChatHeader({
   currentSteps,
   chatTab,
   onChatTabChange,
+  onOpenAgentConfig,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -244,6 +255,23 @@ export function ChatHeader({
           <span data-help-id="chat.cost">
             <CostPopover />
           </span>
+
+          {/* Model & framework — Owner-required door (see file header). */}
+          {onOpenAgentConfig && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onOpenAgentConfig}
+                  aria-label={t('chat.header.modelFramework')}
+                  className={iconBtn}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('chat.header.modelFramework')}</TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Detail ⋯ menu — every agent panel, one door. */}
           <div ref={detailRef} className="relative">

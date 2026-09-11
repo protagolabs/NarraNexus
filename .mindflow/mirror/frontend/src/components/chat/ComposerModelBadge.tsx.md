@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/ComposerModelBadge.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — `reloadKey` prop restored
+
+Optional `reloadKey` (default 0) is back in the load effect's deps: the chat
+panel bumps it after its header-opened AgentLlmConfigPanel saves, so the chip
+re-reads a model/framework changed behind it. The file header now lists the
+panel's three doors (chat header button, sidebar row ⋯ menu, profile page).
 
 ## 2026-08-27 — `reloadKey` prop 删除
 

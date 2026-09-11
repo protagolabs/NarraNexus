@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-09-08
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — the header's Model & framework panel is back (OWNER-REQUIRED)
+
+Reverses the 2026-08-27 (2) removal below: `agentCfgOpen` / `modelReloadKey`
+state and the `<AgentLlmConfigPanel>` at the bottom of the panel are restored,
+opened by [[ChatHeader]]'s `onOpenAgentConfig`. The handler is passed only when
+the viewer owns the agent (`isOwner` = `currentAgent.created_by === userId`, the
+profile page's gate), and the panel is mounted only then too. On save it bumps
+`modelReloadKey` → `ComposerModelBadge reloadKey` (the chip re-reads a changed
+model) and calls `refreshAgents()` so the agent list's model/framework
+projection (profile page, dashboard) is fresh. Owner-required entry — keep it
+even though the profile page and the sidebar ⋯ menu open the same panel.
+Pinned by `__tests__/chatPanelAgentConfigEntry.test.tsx`.
 
 ## 2026-09-08 — 问候本地化抽到 `lib/bootstrapGreeting.ts`
 
