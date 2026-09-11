@@ -21,7 +21,7 @@
  * the credential wallet. Option-building is shared via lib/agentFramework so the
  * choices match the per-agent panel + the provider dropdowns.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { api } from '@/lib/api';
@@ -121,6 +121,10 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // Provider/model a framework switch dropped from the draft, kept so picking
   // a framework that can drive them again restores them.
   const droppedByFrameworkRef = useRef<{ provider_id: string; model: string } | null>(null);
+  // The agent and helper blocks both carry "Provider" / "Model" labels; the
+  // agent selects are named by the block title + their own label so each one
+  // has a distinct accessible name.
+  const agentIds = useId();
   // `keep`: after a partial save, reload the stored state as the baseline but
   // keep the user's still-unsaved edits in the draft (so Save stays live and
   // nothing the user picked silently disappears).
@@ -296,9 +300,17 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     // includes the case where the switch emptied the agent draft (the bound
     // card cannot run the new framework): the framework is saved first and
     // the page then asks for a card (`slotClearedPickModel`). A half-filled
-    // agent draft is still refused before anything is written.
+    // agent draft is still refused before anything is written, and so is a
+    // draft the USER emptied (picking the blank provider option, or editing
+    // thinking/effort on an unbound slot): only an untouched agent draft, or
+    // one the framework switch itself emptied (`droppedByFrameworkRef` set),
+    // counts as framework-only — otherwise the edit would be skipped while
+    // the page still flashes "Saved".
     const agentDraftEmpty = !agentDraft.provider_id && !agentDraft.model;
-    const frameworkOnlyAgent = frameworkChanged && agentDraftEmpty;
+    const frameworkOnlyAgent =
+      frameworkChanged &&
+      agentDraftEmpty &&
+      (!agentChanged || droppedByFrameworkRef.current !== null);
     if (agentChanged && !frameworkOnlyAgent && (!agentDraft.provider_id || !agentDraft.model)) {
       setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
@@ -479,7 +491,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
 
       {/* ---- Agent slot ---- */}
       <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+        <div id={`${agentIds}-title`} className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.agentMain')}
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -610,8 +622,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
+            <label id={`${agentIds}-provider`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
+              aria-labelledby={`${agentIds}-title ${agentIds}-provider`}
               className={selectCls}
               value={agentDraft.provider_id}
               onChange={(e) => {
@@ -627,8 +640,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
+            <label id={`${agentIds}-model`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
+              aria-labelledby={`${agentIds}-title ${agentIds}-model`}
               className={selectCls}
               value={agentDraft.model}
               disabled={!agentDraft.provider_id}

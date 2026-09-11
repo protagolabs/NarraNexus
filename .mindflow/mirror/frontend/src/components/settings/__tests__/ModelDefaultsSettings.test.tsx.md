@@ -4,6 +4,18 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r3) — third review of PR #399 (minors)
+
+- bound card kept by a nexus_power switch, user picks the blank provider →
+  `pickAgentModel`, no framework or slot write, no "Saved";
+- unbound slot, thinking edited + framework change → `pickAgentModel`, no
+  framework or slot write;
+- agent provider / model selects located by accessible name
+  (`agentProviderSelect()` / `agentModelSelect()`), no positional combobox
+  index for agent selects any more.
+
+Both new cases were checked red with the old `frameworkOnlyAgent` condition.
+
 ## 2026-09-11 (r2) — second review of PR #399
 
 - framework switch empties the agent draft, Save with no card → only

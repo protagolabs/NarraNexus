@@ -1394,7 +1394,7 @@
         "frameworkSavedSlotFailed": "Se cambió el framework, pero no se pudo guardar el modelo del agente ({{detail}}). Elige un modelo y guarda de nuevo.",
         "agentSavedHelperFailed": "Se guardó el modelo del agente, pero no el modelo auxiliar ({{detail}}).",
         "frameworkSavedHelperFailed": "Se cambió el framework, pero no se pudo guardar el modelo auxiliar ({{detail}}).",
-        "frameworkRestoredBindingLost": "Se deshizo el cambio de framework, pero no se pudo guardar el modelo del agente ({{detail}}) ni volver a vincular la tarjeta anterior, así que la ranura del agente quedó sin asignar. Elige un modelo y guarda de nuevo.",
+        "frameworkRestoredBindingLost": "El framework guardado se restableció, pero no se pudo guardar el modelo del agente ({{detail}}) ni volver a vincular la tarjeta anterior, así que la ranura del agente quedó sin asignar. Tu nueva elección de framework sigue en el formulario, aún sin guardar: elige un modelo y guarda de nuevo para aplicarla.",
         "slotClearedPickModel": "Se cambió el framework y la tarjeta vinculada no puede ejecutarlo, así que se desvinculó. Elige un proveedor y un modelo para el agente."
       },
       "privacy": {

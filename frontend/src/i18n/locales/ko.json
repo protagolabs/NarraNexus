@@ -1393,7 +1393,7 @@
         "frameworkSavedSlotFailed": "프레임워크는 전환되었지만 에이전트 모델을 저장하지 못했습니다({{detail}}). 모델을 다시 선택하고 저장하세요.",
         "agentSavedHelperFailed": "에이전트 모델은 저장되었지만 헬퍼 모델을 저장하지 못했습니다({{detail}}).",
         "frameworkSavedHelperFailed": "프레임워크는 전환되었지만 헬퍼 모델을 저장하지 못했습니다({{detail}}).",
-        "frameworkRestoredBindingLost": "프레임워크 전환은 취소되었지만 에이전트 모델을 저장하지 못했고({{detail}}) 이전 카드도 다시 연결하지 못해 에이전트 슬롯이 비어 있습니다. 모델을 다시 선택하고 저장하세요.",
+        "frameworkRestoredBindingLost": "저장된 프레임워크는 원래대로 되돌렸지만 에이전트 모델을 저장하지 못했고({{detail}}) 이전 카드도 다시 연결하지 못해 에이전트 슬롯이 비어 있습니다. 선택한 새 프레임워크는 아직 저장되지 않은 채 양식에 남아 있습니다. 모델을 선택하고 다시 저장하면 적용됩니다.",
         "slotClearedPickModel": "프레임워크가 전환되었고, 이전에 연결된 카드는 이 프레임워크를 실행할 수 없어 연결이 해제되었습니다. 에이전트의 제공자와 모델을 선택하세요."
       },
       "privacy": {

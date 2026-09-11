@@ -4,14 +4,33 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 (r3) — third review of PR #399 (minors)
+
+- **A user-emptied agent draft is refused, not skipped.** `frameworkOnlyAgent`
+  is now `frameworkChanged && agentDraftEmpty && (!agentChanged ||
+  droppedByFrameworkRef.current !== null)`: an empty draft counts as
+  framework-only only when nobody edited the agent slot, or when the
+  framework switch dropped the card (the ref is set). Picking the blank
+  provider option by hand, or editing thinking / reasoning effort on an
+  unbound slot, together with a framework change now gets `pickAgentModel`
+  with nothing written — before, the framework landed, the edit was silently
+  skipped and the page flashed "Saved".
+- **`frameworkRestoredBindingLost` copy** now says the STORED framework was
+  put back while the user's new framework choice is still in the form, not
+  yet saved (the select keeps showing it so Save can retry).
+- The agent provider / model selects are named by `aria-labelledby` (block
+  title + their own label, ids from `useId`), so the two "Provider" / "Model"
+  pairs on the page have distinct accessible names.
+
 ## 2026-09-11 (r2) — second review of PR #399
 
 - **Framework switch that empties the agent draft is saved, then asks for a
   card.** When a framework change drops the bound card from the draft (the new
   framework cannot drive it) and the user saves without picking another one,
-  the up-front check no longer refuses: an entirely empty agent draft together
-  with a framework change counts as a framework-only save
-  (`frameworkOnlyAgent`). `apply()` writes the framework, skips the agent-slot
+  the up-front check no longer refuses: an empty agent draft together with a
+  framework change counts as a framework-only save (`frameworkOnlyAgent`) —
+  but only when the agent draft is untouched or the framework switch itself
+  emptied it (see r3). `apply()` writes the framework, skips the agent-slot
   write, reloads, and — when the backend reported `slot_cleared` — shows
   `slotClearedPickModel` instead of "Saved" and does not offer the
   apply-to-agents dialog (the slot is empty; `dirtySlots` leaves out `agent`

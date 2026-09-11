@@ -388,7 +388,7 @@ test('a framework the bound provider cannot drive drops the provider from the dr
   });
   await renderLoaded();
 
-  const providerSelect = screen.getAllByRole('combobox')[1] as HTMLSelectElement;
+  const providerSelect = agentProviderSelect();
   expect(providerSelect.value).toBe('p_own');
   fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
   // Codex only drives openai cards — the anthropic key cannot stay selected.
@@ -439,8 +439,42 @@ test('a half-filled agent draft is still refused before anything is written, eve
   fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
   // A provider with no model yet: an explicit, incomplete agent edit.
   fireEvent.change(agentProviderSelect(), { target: { value: 'p_free_o' } });
-  const modelInput = screen.getAllByRole('combobox')[2] as HTMLSelectElement;
+  const modelInput = agentModelSelect();
   fireEvent.change(modelInput, { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+});
+
+test('a provider the user cleared by hand is refused, not skipped behind a fake "Saved", even with a framework change', async () => {
+  // Review 399c M1: an agent draft emptied by the USER (not by the framework
+  // switch) used to count as framework-only — the framework landed, the
+  // clear was silently dropped and the page flashed "Saved".
+  withBoundAgentSlot();
+  await renderLoaded();
+  // nexus_power drives any protocol, so the switch keeps the bound card...
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  expect(agentProviderSelect().value).toBe('p_own');
+  // ...and the user picks the blank provider option themselves.
+  fireEvent.change(agentProviderSelect(), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
+  expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+  expect(mockSetProviderSlot).not.toHaveBeenCalled();
+  expect(screen.queryByText(/pages\.settings\.modelDefaults\.saved/)).toBeNull();
+});
+
+test('a thinking edit on an unbound agent slot is refused, not skipped behind a fake "Saved", even with a framework change', async () => {
+  // Review 399c M1 (b): the empty-draft check ignores thinking/effort, so
+  // this edit used to be dropped while the framework alone was saved.
+  await renderLoaded();
+  expect(agentProviderSelect().value).toBe('');
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  const thinking = screen
+    .getAllByRole('combobox')
+    .find((el) => el.querySelector('option[value="on"]')) as HTMLSelectElement;
+  fireEvent.change(thinking, { target: { value: 'on' } });
   fireEvent.click(screen.getByRole('button', { name: SAVE_NAME }));
   expect(await screen.findByText('pages.settings.modelDefaults.pickAgentModel')).toBeInTheDocument();
   expect(mockSetAgentFramework).not.toHaveBeenCalled();
@@ -474,10 +508,18 @@ test('a failed framework save keeps the draft dirty and shows the error', async 
   expect(screen.getByRole('button', { name: SAVE_NAME })).not.toBeDisabled();
 });
 
-// Combobox order: [0] framework, [1] agent provider, …, last helper model,
-// the one before it helper provider.
+// The agent selects are located by accessible name (block title + label), so
+// inserting another select into the page cannot silently retarget them.
+// Helper selects: last helper model, the one before it helper provider.
 function agentProviderSelect(): HTMLSelectElement {
-  return screen.getAllByRole('combobox')[1] as HTMLSelectElement;
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.provider',
+  }) as HTMLSelectElement;
+}
+function agentModelSelect(): HTMLSelectElement {
+  return screen.getByRole('combobox', {
+    name: 'Agent (main dialogue) pages.settings.modelDefaults.model',
+  }) as HTMLSelectElement;
 }
 function helperProviderSelect(): HTMLSelectElement {
   const all = screen.getAllByRole('combobox');
@@ -664,7 +706,7 @@ test('after saving a changed default, the apply-to-agents dialog appears when ov
   // Pick a provider for the agent slot — this also auto-fills the model, so the
   // slot becomes valid + dirty in one change (see ModelDefaultsSettings agent
   // provider onChange).
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -679,7 +721,7 @@ test('no apply dialog when there are zero overrides', async () => {
     data: { agent: 0, helper_llm: 0, total_agents: 5 },
   });
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -692,7 +734,7 @@ test('a failing override-stats fetch does not turn a successful save into an err
   // must not render a "save failed" state (it lived in the same try before).
   mockGetSlotOverrideStats.mockRejectedValue(new Error('boom'));
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } });
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );
@@ -711,7 +753,7 @@ test('dialog is gated to CHANGED slots — overrides on an untouched slot do not
     data: { agent: 0, helper_llm: 5, total_agents: 8 },
   });
   await renderLoaded();
-  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } }); // agent slot dirty
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm' } }); // agent slot dirty
   fireEvent.click(
     screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
   );

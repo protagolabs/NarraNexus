@@ -1394,7 +1394,7 @@
         "frameworkSavedSlotFailed": "Le framework a été changé, mais le modèle de l'agent n'a pas pu être enregistré ({{detail}}). Choisissez un modèle et enregistrez à nouveau.",
         "agentSavedHelperFailed": "Le modèle de l'agent a été enregistré, mais pas le modèle d'assistance ({{detail}}).",
         "frameworkSavedHelperFailed": "Le framework a été changé, mais le modèle d'assistance n'a pas pu être enregistré ({{detail}}).",
-        "frameworkRestoredBindingLost": "Le changement de framework a été annulé, mais le modèle de l'agent n'a pas pu être enregistré ({{detail}}) et la carte précédente n'a pas pu être reliée à nouveau : l'emplacement de l'agent est désormais vide. Choisissez un modèle et enregistrez à nouveau.",
+        "frameworkRestoredBindingLost": "Le framework enregistré a été rétabli, mais le modèle de l'agent n'a pas pu être enregistré ({{detail}}) et la carte précédente n'a pas pu être reliée à nouveau : l'emplacement de l'agent est désormais vide. Votre nouveau choix de framework reste dans le formulaire, pas encore enregistré — choisissez un modèle et enregistrez à nouveau pour l'appliquer.",
         "slotClearedPickModel": "Le framework a été changé ; la carte liée ne peut pas l'exécuter et a été dissociée. Choisissez un fournisseur et un modèle pour l'agent."
       },
       "privacy": {
