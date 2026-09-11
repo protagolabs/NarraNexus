@@ -53,7 +53,7 @@ def test_type_error_defaults_to_fatal_when_the_loop_did_not_say():
     """``fatal`` is framework-reported: it means "this turn is terminal
     AND nothing was delivered this turn", not merely "this turn ended".
     loop.py's ``_fail`` always sets the key explicitly (from
-    ``not self._turn_expressed``), but if a payload arrives without one
+    ``not self._turn_delivered()``), but if a payload arrives without one
     the adapter must default to the conservative ``True`` -- every
     TYPE_ERROR this framework's loop emits closes the turn with
     EndReason.ERROR right after, unlike claude/codex's inline API errors
@@ -73,7 +73,8 @@ def test_type_error_defaults_to_fatal_when_the_loop_did_not_say():
 
 def test_type_error_fatal_false_is_passed_through():
     """When loop.py explicitly reports ``fatal: False`` (the turn already
-    delivered output via an expressive tool call before this failure
+    delivered output (an expressive call, or plain text on a turn with no
+    expression tool) before this failure
     landed), the adapter must not override it back to True -- that
     would erase response_processor's ability to tell
     "recovered_after_reply" apart from a genuinely empty run."""

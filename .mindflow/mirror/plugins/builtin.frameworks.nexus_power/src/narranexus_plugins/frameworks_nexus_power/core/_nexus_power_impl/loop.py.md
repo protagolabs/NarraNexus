@@ -1,22 +1,24 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/loop.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
 
-## 2026-09-10（B-05/#127）— `_fail` 自报 `fatal = not self._turn_expressed`
+## 2026-09-10（B-05/#127）— `_fail` 自报 `fatal = not self._turn_delivered()`
 
-`_fail()` 的 TYPE_ERROR payload 新增 `"fatal"`。契约（[[response_processor]] 同日条目）：
-`fatal` 由**框架自报**，含义 = 本 turn 终局失败 **且** 本 turn 未交付任何输出，不是单纯
-「turn 结束了」。本框架的 `_fail` 之后必定 `_close(EndReason.ERROR)`，不存在 claude/codex
-那种「loop 吸收后继续跑」的形状——这是 `fatal` 键对本框架成立的理由；但 `_fail` 不止服务
-输出截断，也是重试耗尽的 429/5xx、无可压缩 CONTEXT_OVERFLOW 的唯一失败出口，这些都可能
-发生在 agent 已经用表达工具答过话之后。所以值取 `not self._turn_expressed`（DISPATCH 已在
-维护的「本轮见过表达型调用没有」）：已交付 → `False` → 下游判 `recovered_after_reply`，
-不抹掉已发出的回复；未交付 → `True` → `fatal`。[[event_adapter]] 原样透传。
+`_fail()` 的 TYPE_ERROR payload 带 `"fatal"`，契约正文只在 [[response_processor]]（终局 **且** 未交付）。
+本框架的判据 `_turn_delivered()` 两条腿：
+- 本 turn 见过表达型调用（`_turn_expressed`，DISPATCH 维护）→ 已交付；
+- 或本 turn **没有任何表达工具**（`expression.names()` 为空，team patrol 这类 plain-text turn，平台直接
+  投递正文，见 harness/expression.py 文件头）且流出过非空文本（`_turn_text_streamed`，`_stream_step`
+  置位；`step_meta` 每次 attempt 都 clear，所以另存 turn 级标志）→ 已交付。
+有表达工具时文本是 monologue、不投递给任何人，**不**算交付。
 
-测试：`test_fail_after_an_already_expressed_reply_is_not_marked_fatal` +
-`test_fail_with_no_prior_expression_is_marked_fatal`（正负例）。
+测试：`test_fail_after_an_already_expressed_reply_is_not_marked_fatal`、
+`test_fail_with_no_prior_expression_is_marked_fatal`、
+`test_plain_text_turn_that_already_spoke_is_not_marked_fatal`、
+`test_plain_text_turn_that_never_spoke_is_still_fatal`、
+`test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery`。
 
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 不再被 STOP_CHECK 误判成 NO_MORE_ACTIONS
 
@@ -36,14 +38,17 @@ stub: false
   `_continuation_turn`/`_expression_nudged` 同一「修复只武装一次」纪律）。乘数走
   `ModelRequest.floor_multiplier`（[[model]]），**不**写进整个 turn 共享的
   `a.params.extra`。
-- **只有能真正加大请求才重放**：先算 `current_budget`（当前乘数）与 `new_budget`
-  （乘数 ×2），`new_budget > current_budget` 才重放；否则直接
+- **只有能真正加大请求才重放**：`current_budget` / `new_budget` 都由 [[profiles]] 的
+  `requested_max_tokens`（client 实际发送值的唯一来源）按当前乘数 / 乘数 ×2 求出，
+  `new_budget > current_budget` 才重放；否则直接
   `_fail(OUTPUT_TRUNCATED)`，不重放一个逐字节相同、注定又空的请求。两种「翻不动」：
   ceiling 已等于地板——catalog 里四个 `thinks_by_default=True` 的模型（V4-Pro/V4-Flash/
   o3/o4-mini）ceiling 全是方言默认 8_192，等于思考地板，所以**对这四个模型重试永远不触发**；
-  或用户在 `a.params.extra` 钉了 `max_tokens`（client 端 `setdefault`，我们的数到不了
-  wire）。后者今天无触发面（平台没有任何代码往 `llm_extra` 写 `max_tokens`），失败文案
-  此时报的是钉住的值而不是算出来的值。
+  或用户在 `params.extra` 钉了 `max_tokens`（`requested_max_tokens` 原样返回钉住值，两次求值
+  相等）。后者今天无触发面（平台没有任何代码往 `llm_extra` 写 `max_tokens`）。失败文案报
+  `current_budget`，即实际发出的值。
+- 失败文案含 `OUTPUT_BUDGET_EXHAUSTED_MARKER`（[[runtime_message]]），熔断据此不记账
+  （[[circuit_breaker]]）。重放是 `continue` 回外层循环，由外层重建 request，这里不重复构建。
 - 重放前调 `ledger.discard_step()`：空 step 在 `_turn_messages` 里什么都没留下，但它的
   `_step_thinking` 没被 `_fold_step_message` 的 early return 清掉；不 discard 的话，
   重放那一步的 CoT 会拼到废弃 CoT 后面一起进 `reasoning_content`（deepseek 行
@@ -64,7 +69,8 @@ stub: false
 `test_truncation_with_a_pinned_max_tokens_fails_without_replay_and_reports_it`、
 `test_a_brief_but_real_answer_is_not_treated_as_truncation`（负例）、
 `test_truncation_fails_immediately_when_the_real_ceiling_cant_grow`（真实 V4-Pro profile）、
-`test_replayed_step_after_truncation_does_not_concatenate_reasoning`。
+`test_replayed_step_after_truncation_does_not_concatenate_reasoning`、
+`test_truncation_failure_message_carries_the_breaker_exemption_marker`。
 
 ## 2026-09-03（批 2a.5）— 模型请求用 `model_tools()`
 

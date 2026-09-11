@@ -32,6 +32,7 @@ from typing import Any, AsyncIterator
 
 from loguru import logger
 
+from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_MARKER
 from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import (
     ErrorType,
     LoopError,
@@ -62,7 +63,7 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.c
     estimate_message_tokens,
 )
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
-    output_budget,
+    requested_max_tokens,
 )
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
@@ -104,6 +105,7 @@ class NexusPowerLoop:
         self._closed = False
         self._continuation_turn = False  # prefill repair, armed at most once
         self._turn_expressed = False     # any expressive call seen this turn
+        self._turn_text_streamed = False  # any non-empty text delta this turn
         self._expression_nudged = False  # mute-turn nudge, armed at most once
         self._truncation_retried = False  # output-budget doubling, armed at most once
         # Floor multiplier for the NEXT ``_build_request()``, carried on
@@ -231,33 +233,22 @@ class NexusPowerLoop:
                 stop_reason = step_meta.get("stop_reason", "")
                 produced_output = bool(step_calls) or step_meta.get("had_text") == "1"
                 if not produced_output and stop_reason in _TRUNCATING_STOP_REASONS:
-                    # Defensive today: nothing in the platform writes
-                    # ``max_tokens`` into ``llm_extra``, but a pinned value
-                    # is what the client actually sent, so it is also
-                    # what the failure message must report.
-                    pinned_max_tokens = a.params.extra.get("max_tokens")
-                    user_pinned_max_tokens = pinned_max_tokens is not None
-                    current_budget = output_budget(
+                    # One source of truth for "what this request sent":
+                    # the same function the model client used, so a pinned
+                    # ``params.extra['max_tokens']`` (which always wins)
+                    # makes both values equal and rules the replay out.
+                    current_budget = requested_max_tokens(
                         a.model.profile,
+                        request.params.extra,
                         request.input_tokens_estimate,
-                        floor_multiplier=self._truncation_floor_multiplier,
+                        floor_multiplier=request.floor_multiplier,
                     )
-                    next_multiplier = self._truncation_floor_multiplier * 2
-                    new_budget = (
-                        current_budget
-                        if user_pinned_max_tokens
-                        # A user-pinned ``max_tokens`` always wins at the
-                        # client (``extra.setdefault``), so no multiplier
-                        # we compute here would ever reach the actual
-                        # request — treat that as "no growth possible"
-                        # rather than pretending a bigger floor will help
-                        # (iron rule #15: never override an explicit
-                        # user setting).
-                        else output_budget(
-                            a.model.profile,
-                            request.input_tokens_estimate,
-                            floor_multiplier=next_multiplier,
-                        )
+                    next_multiplier = request.floor_multiplier * 2
+                    new_budget = requested_max_tokens(
+                        a.model.profile,
+                        request.params.extra,
+                        request.input_tokens_estimate,
+                        floor_multiplier=next_multiplier,
                     )
                     if not self._truncation_retried and new_budget > current_budget:
                         self._truncation_retried = True
@@ -277,14 +268,12 @@ class NexusPowerLoop:
                         # the already-empty text/calls, so it only ever
                         # fixes the leaked thinking here.
                         ledger.discard_step()
-                        request = self._build_request()
-                        continue
+                        continue  # the outer loop rebuilds the request
                     async for ev in self._fail(
                         LoopError(
                             ErrorType.OUTPUT_TRUNCATED,
-                            "model output truncated: thinking exhausted the "
-                            "output budget (max_tokens="
-                            f"{pinned_max_tokens if user_pinned_max_tokens else current_budget})",
+                            f"model output truncated: {OUTPUT_BUDGET_EXHAUSTED_MARKER} "
+                            f"(max_tokens={current_budget})",
                         )
                     ):
                         yield ev
@@ -578,6 +567,10 @@ class NexusPowerLoop:
                 # truncation.
                 if model_event.payload.get("text"):
                     step_meta["had_text"] = "1"
+                    # Turn-level twin of ``had_text`` (step_meta is cleared
+                    # every attempt): on a turn with no expression tool the
+                    # plain text IS the delivered reply — see ``_fail``.
+                    self._turn_text_streamed = True
             if kind == "done" and step_meta is not None:
                 step_meta["stop_reason"] = str(
                     model_event.payload.get("stop_reason", "")
@@ -649,18 +642,15 @@ class NexusPowerLoop:
                     "error_type": error.error_type.value,
                     "message": error.message,
                     "retryable": error.retryable,
-                    # ``fatal`` = "this turn is terminal AND delivered
-                    # nothing". `_fail` always ends the turn, but it also
-                    # fires after retries are exhausted on a mid-turn
-                    # 429/5xx or an uncompactable CONTEXT_OVERFLOW, either
-                    # of which can land AFTER the agent already answered
-                    # via an expressive tool call. `_turn_expressed` is
-                    # this loop's own record of that (DISPATCH sets it
-                    # before any of this can run). A turn that already
-                    # delivered reports False, so response_processor
-                    # files it as recovered_after_reply instead of
-                    # erasing the reply with a fatal.
-                    "fatal": not self._turn_expressed,
+                    # ``fatal`` contract: see response_processor's
+                    # DATA_TYPE_ERROR handling. This is the loop's own
+                    # verdict on "delivered nothing": no expressive call
+                    # this turn, and — on a turn with NO expression tool,
+                    # where the plain text is the delivered artifact (see
+                    # harness/expression.py) — no streamed text either.
+                    # With expression tools present, text is monologue
+                    # nobody receives, so it never counts.
+                    "fatal": not self._turn_delivered(),
                 },
             )
         )
@@ -680,6 +670,12 @@ class NexusPowerLoop:
         return await self._log(
             self._ledger.close_turn(reason, model=model, cost_usd=cost)
         )
+
+    def _turn_delivered(self) -> bool:
+        """Has this turn put anything in front of its audience yet?"""
+        if self._turn_expressed:
+            return True
+        return not self._a.expression.names() and self._turn_text_streamed
 
     async def _log(self, event: LoopEvent) -> LoopEvent:
         if event.type in (TYPE_TEXT_DELTA, TYPE_THINKING_DELTA):

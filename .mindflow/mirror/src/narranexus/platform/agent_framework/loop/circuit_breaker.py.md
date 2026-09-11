@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/circuit_breaker.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 输出预算耗尽不推进熔断
+
+`record_failure` 在 self-serviceable / executor-infra 两道豁免之后新增第三道：`error_message` 含
+`OUTPUT_BUDGET_EXHAUSTED_MARKER`（[[runtime_message]]，由 nexus_power loop.py 的 OUTPUT_TRUNCATED 失败文案携带）
+即早退——不冷却、不暂停、不动计数。成因是平台自己的预算取值 + 用户选的会思考的模型，对 ceiling==地板的
+模型是确定性的，冷却只会拒掉用户的下一条消息（铁律 #15）。按 message 而不按 error_type 匹配：event_adapter
+会把未知类型折成 `invalid_request`，只有 message 能原样到达这里。marker 是唯一短语，不用 `max_tokens` 这种宽词。
+测试：`test_output_budget_exhaustion_does_not_advance_breaker`（同 error_type 无 marker 仍冷却作对照）。
 
 ## 2026-07-30 — `_is_out_of_credit` 改为成员判定
 

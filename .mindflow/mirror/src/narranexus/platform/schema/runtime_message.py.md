@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/schema/runtime_message.py
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 新增 `OUTPUT_BUDGET_EXHAUSTED_MARKER`
+
+`"thinking exhausted the output budget"`：nexus_power loop.py 的 OUTPUT_TRUNCATED 失败文案携带、
+[[circuit_breaker]] 据此不推进熔断的共享常量。放在这个叶子模块与其他 error 标记同理（生产方插件与平台
+消费方都能 import、无循环）。走 message 而非 error_type 是因为 event_adapter 会把未知类型折成 `invalid_request`。
 
 ## 2026-09-09 — `ErrorMessage.self_serviceable: Optional[bool]`
 

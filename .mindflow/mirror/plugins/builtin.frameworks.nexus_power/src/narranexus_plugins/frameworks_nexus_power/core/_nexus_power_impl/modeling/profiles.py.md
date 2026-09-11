@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/profiles.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -20,8 +20,11 @@ stub: false
   地板 1_024 时两者等价；抬到 8_192 后，真实 ceiling 低于地板的模型（DeepSeek-V3 的 7_200）在旧顺序
   下会被顶到 8_192——新顺序保证 ceiling 永远最后钳制。
 - **地板刻意压过 headroom**，即使 `input + max_tokens` 因此越过 wall：provider 的可见 400 优于一次
-  静默空跑。这个取舍**没有实测**：没验证过 NetMind/DeepSeek 在越墙时是否真的 400（若是，原来的
-  空产出 run 会变成硬错误）。
+  静默空跑。有实测支撑：同一次 2026-09-08 测量里 128_000 窗口、输入约 122_880、`max_tokens=8_192`
+  （合计 131_072，已越墙）8 次全部正常返回——NetMind/DeepSeek 在这一段不强制 `input + max_tokens ≤ window`。
+- `requested_max_tokens(profile, extra, input_tokens_estimate, *, floor_multiplier=1)`：一个请求实际携带的
+  `max_tokens` 的唯一来源——`extra` 里钉住的值原样胜出，否则 `output_budget`。[[model_client]] 用它发送，
+  loop.py 的截断重试用它判断「发了多少 / 翻倍能否更大」。
 - `output_budget()` 加 keyword-only `floor_multiplier: int = 1`，只放大地板项，ceiling 仍最后钳制。
   它**不**让结果服从 headroom——地板本来就压过 headroom，放大地板等于放大同一个越墙风险。因此
   loop.py 只把乘数用在截断重试重放的那一步，之后复位为 1（[[loop]] 同日条目）。实算：四个
@@ -34,7 +37,9 @@ stub: false
 测试（`tests/nexus_power/test_modeling.py`）：`test_thinks_by_default_gets_a_higher_output_floor`
 （负例用 `thinking_replay="strip"` 证明地板不看那个字段）、
 `test_thinking_floor_never_exceeds_the_models_own_ceiling`、
-`test_catalog_thinks_by_default_overlay_is_honest_per_model`。
+`test_catalog_thinks_by_default_overlay_is_honest_per_model`、
+`test_self_entered_spellings_of_a_thinking_model_still_think`（自填 id 经 [[model_catalog]] 末段归一化命中）、
+`test_client_sends_exactly_requested_max_tokens`。
 
 ## 2026-09-08 — deepseek 行 `thinking_replay="keep"`
 

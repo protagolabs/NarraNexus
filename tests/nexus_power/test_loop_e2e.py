@@ -66,6 +66,7 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.c
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     resolve_profile,
 )
+from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_MARKER
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
@@ -1158,3 +1159,79 @@ async def test_fail_with_no_prior_expression_is_marked_fatal():
 
     error = next(e for e in events if e.type == TYPE_ERROR)
     assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_already_spoke_is_not_marked_fatal():
+    """A turn with NO expression tool (the team patrol shape, where the
+    platform posts the composed line) delivers BY writing: its streamed
+    text is the reply. A later unrecoverable error must therefore report
+    ``fatal: False`` — otherwise message_bus swaps the already-streamed
+    status line for a failure notice."""
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_never_spoke_is_still_fatal():
+    """Negative case for the plain-text shape: no text streamed before
+    the failure means nothing was delivered, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery():
+    """Negative case: when expression tools exist, plain text is
+    monologue nobody receives — streaming it and then failing without an
+    expressive call still delivered nothing, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_text("thinking out loud"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([
+        ToolSpec(name="bash", description="", input_schema={}),
+        ToolSpec(
+            name="mcp__chat__reply", description="reply", input_schema={},
+            annotations=ToolAnnotations(expressive=True),
+        ),
+    ])
+    events, _ = await _run(_assembly(model, tools))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_truncation_failure_message_carries_the_breaker_exemption_marker():
+    """The circuit breaker exempts output-budget exhaustion by the shared
+    ``OUTPUT_BUDGET_EXHAUSTED_MARKER`` in the message (the error_type is
+    folded to invalid_request downstream) — the producer must carry it."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert OUTPUT_BUDGET_EXHAUSTED_MARKER in error.payload["message"]
+    assert "max_tokens=8192" in error.payload["message"]

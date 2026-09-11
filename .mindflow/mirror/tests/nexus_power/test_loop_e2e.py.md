@@ -1,12 +1,14 @@
 ---
 code_file: tests/nexus_power/test_loop_e2e.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
 
 ## 2026-09-10（B-05/#127）— `_fail` 的 `fatal` 正负例
 
 已通过表达工具答过话后再 `_fail` → payload `fatal is False`；本轮从未表达过 → `fatal is True`。
+无表达工具的 plain-text turn：流出过文本后失败 → `False`，没流出文本 → `True`；有表达工具时 monologue 文本
+不算交付 → `True`。截断失败文案携带熔断豁免 marker 且报实际发出的 `max_tokens`。
 
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 的截断重试
 

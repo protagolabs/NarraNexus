@@ -33,6 +33,7 @@ a loop against an 8_192 ceiling). Cost and depth are the caller's dials
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, Mapping
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ProviderProfile
 from narranexus.platform.agent_framework.providers.model_catalog import get_model_meta
@@ -167,6 +168,31 @@ def output_budget(
         return profile.max_output_tokens
     headroom = profile.output_wall - input_tokens_estimate - _HEADROOM_MARGIN_TOKENS
     return min(profile.max_output_tokens, max(floor, headroom))
+
+
+def requested_max_tokens(
+    profile: ProviderProfile,
+    extra: Mapping[str, Any],
+    input_tokens_estimate: int,
+    *,
+    floor_multiplier: int = 1,
+) -> Any:
+    """The ``max_tokens`` value a request actually carries — the single
+    source of truth for it.
+
+    A ``max_tokens`` pinned in ``params.extra`` always wins (an explicit
+    setting is never overridden, binding rule #15) and is returned
+    verbatim; otherwise it is ``output_budget``. The model client sends
+    exactly this value, and loop.py's truncation retry asks this same
+    function both "what did the failed step send" and "would a doubled
+    floor send more" — so the two can never drift apart.
+    """
+    pinned = extra.get("max_tokens")
+    if pinned is not None:
+        return pinned
+    return output_budget(
+        profile, input_tokens_estimate, floor_multiplier=floor_multiplier
+    )
 
 
 def resolve_profile(model: str, provider: str | None = None) -> ProviderProfile:

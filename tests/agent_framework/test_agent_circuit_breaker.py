@@ -24,7 +24,12 @@ from narranexus.platform.agent_framework.loop.circuit_breaker import (
 from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+from narranexus.platform.schema import (
+    OUTPUT_BUDGET_EXHAUSTED_MARKER,
+    CbStatus,
+    ErrorCategory,
+    PausedReason,
+)
 from narranexus.platform.utils.timezone import utc_now
 
 
@@ -176,6 +181,33 @@ async def test_executor_infra_leaves_prior_streak_intact(db_client):
     after = await repo.get(aid)
     assert after.consecutive_failure_count == 2  # unchanged
     assert after.failure_category == before.failure_category
+
+
+@pytest.mark.asyncio
+async def test_output_budget_exhaustion_does_not_advance_breaker(db_client):
+    """A thinking model that spent its whole output budget on reasoning
+    (NexusPower OUTPUT_TRUNCATED, folded to ``invalid_request`` by its event
+    adapter) is deterministic for that model — cooling the agent would only
+    reject the user's next message (binding rule #15). Contrast case: the
+    same error_type WITHOUT the marker is still the BUSINESS residual and
+    cools, so the exemption is keyed on the marker, not the type."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_budget"
+    message = (
+        f"model output truncated: {OUTPUT_BUDGET_EXHAUSTED_MARKER} "
+        "(max_tokens=8192)"
+    )
+    await record_failure(aid, "invalid_request", message, db=db_client)
+    await record_failure(aid, "invalid_request", message, db=db_client)
+    assert await repo.get(aid) is None  # no cooling/pause row created
+    assert await should_skip(aid, db=db_client) == (False, None)
+
+    await record_failure(
+        aid, "invalid_request", "unsupported parameter: foo", db=db_client
+    )
+    row = await repo.get(aid)
+    assert row is not None
+    assert row.cb_status == CbStatus.COOLING.value
 
 
 @pytest.mark.asyncio

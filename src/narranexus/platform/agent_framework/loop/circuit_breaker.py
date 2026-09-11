@@ -54,6 +54,7 @@ from narranexus.platform.schema import (
     ErrorCategory,
     PAUSING_CATEGORIES,
     EXECUTOR_INFRA_ERROR_TYPE,
+    OUTPUT_BUDGET_EXHAUSTED_MARKER,
 )
 from narranexus.platform.services.background_llm_alerts import (
     alert_agent_paused,
@@ -234,6 +235,20 @@ async def record_failure(
         logger.debug(
             f"[agent-cb] agent {agent_id} executor-infra failure "
             f"({error_type}) — breaker not advanced (platform-side)"
+        )
+        return
+
+    # Output-budget exhaustion (a thinking model spent its whole max_tokens on
+    # reasoning, even after the framework's one budget-doubling replay) is our
+    # own budget choice meeting the model the user picked. It is deterministic
+    # — waiting never heals it — so a cooldown would only reject the user's
+    # next message: the platform as the interruption source (binding rule
+    # #15). Matched on the shared message marker, since the error_type is
+    # folded to ``invalid_request`` before it gets here. Stay out entirely.
+    if OUTPUT_BUDGET_EXHAUSTED_MARKER in (error_message or ""):
+        logger.debug(
+            f"[agent-cb] agent {agent_id} output-budget exhaustion "
+            f"({error_type}) — breaker not advanced"
         )
         return
 

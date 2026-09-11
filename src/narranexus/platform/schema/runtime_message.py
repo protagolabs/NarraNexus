@@ -376,6 +376,18 @@ SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"
 # rules #14/#15): surfaces the truth + a retry hint only — never a force-stop.
 EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"
 
+# error_message marker for a framework turn whose model spent its whole output
+# budget on hidden reasoning and never produced an answer (NexusPower's
+# OUTPUT_TRUNCATED, after its one budget-doubling replay). The cause is the
+# platform's own budget choice meeting a thinking-by-default model the user
+# picked — waiting does not heal it, and cooling the agent would only reject the
+# user's next message. The circuit breaker therefore stays out of it entirely
+# (binding rule #15: never be the interruption source). Carried in the MESSAGE,
+# not the error_type, because the framework's event adapter folds unknown error
+# types into ``invalid_request`` before they reach the breaker; the message
+# survives verbatim. Producer and consumer both import this one constant.
+OUTPUT_BUDGET_EXHAUSTED_MARKER = "thinking exhausted the output budget"
+
 
 # Step-3 pipeline phase identity. Step 3 splits into two user-visible phases
 # so the process panel can tell "still assembling context" from "the model is
