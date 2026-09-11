@@ -21,7 +21,9 @@ import pytest
 
 from narranexus.platform.agent_framework.loop.driver import DEFAULT_AGENT_LOOP_FRAMEWORK
 from narranexus.platform.agent_framework.providers.model_identity import (
+    config_override_wins,
     effective_agent_slot,
+    resolve_agent_config_slot,
     framework_of,
     slot_rebinds,
     resolve_agent_model_identity,
@@ -201,3 +203,49 @@ def test_framework_of_never_raises_on_a_broken_binding(monkeypatch):
     monkeypatch.setattr(driver_mod, "bound_default_framework", _boom)
     assert framework_of(None) == "nexus_power"
     assert framework_of({"agent_framework": "acme_turbo"}) == "acme_turbo"
+
+
+# ── 2026-09-10: the PROVIDER overlay rule (#394 review I3) ────────────────────
+
+
+def test_config_override_rule_is_provider_only_unlike_identity():
+    """The two rules differ on purpose: a provider-only override (no
+    agent_framework) routes the agent's CALLS to that provider, although it
+    does not rebind the displayed identity."""
+    provider_only = {"provider_id": "p2", "agent_framework": None}
+    assert config_override_wins(provider_only) is True
+    assert slot_rebinds(provider_only) is False
+    assert config_override_wins({"provider_id": "", "agent_framework": "codex_cli"}) is False
+    assert config_override_wins(None) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override,expected", [
+    ({"provider_id": "p_agent", "agent_framework": None}, "p_agent"),
+    ({"provider_id": "", "agent_framework": "codex_cli"}, "p_owner"),
+    (None, "p_owner"),
+])
+async def test_resolve_agent_config_slot_applies_the_provider_rule(override, expected):
+    db = _FakeDB()
+    db.tables["user_slots"].append(
+        {"user_id": "owner", "slot_name": "agent", "provider_id": "p_owner"}
+    )
+    if override is not None:
+        db.tables["agent_slots"].append({"agent_id": "a1", "slot_name": "agent", **override})
+    slot = await resolve_agent_config_slot(db, agent_id="a1", user_id="owner")
+    assert slot["provider_id"] == expected
+
+
+def test_the_overlay_rule_has_no_hand_written_copies():
+    """Every "which provider does this agent run on" consumer asks the one
+    helper; none re-derives the agent_slots -> user_slots overlay."""
+    import inspect
+
+    from narranexus.platform.agent_framework.loop import circuit_breaker
+    from narranexus.platform.agent_framework.providers import model_health
+    from narranexus.platform.agent_framework.providers.driver import resolver
+
+    for module in (circuit_breaker, model_health):
+        src = inspect.getsource(module)
+        assert '"agent_slots"' not in src, module.__name__
+    assert "config_override_wins(row)" in inspect.getsource(resolver._apply_agent_overrides)

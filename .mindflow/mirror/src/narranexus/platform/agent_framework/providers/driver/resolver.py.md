@@ -4,6 +4,12 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 review I3）— `_apply_agent_overrides` 用共享判据
+
+覆盖判据改为 [[model_identity]] 的 `config_override_wins(row)`（非空 provider_id 即胜出，
+行为不变）。它是全仓「per-agent 覆盖是否换掉 provider」的唯一定义，熔断器的收窄恢复、
+[[model_health]]、[[slot_service.py]] 的计数/概览都读它，改规则只改一处。
+
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 
 `helper_llm` 槽走 CLI helper 的判定原先手写 `("oauth", "oauth_token")` 字面量，改为 import

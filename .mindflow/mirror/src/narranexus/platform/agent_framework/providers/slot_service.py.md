@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/slot_service.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review I3）— `_is_effective_override` 删除，改用共享 `config_override_wins`
+
+模块私有的 `_is_effective_override` 与 [[resolver]] 的覆盖判据是同一条规则的第二份副本；
+现在 `count_owner_overrides` / `owner_agents_overview` 直接用 [[model_identity]] 的
+`config_override_wins`，行为不变。
 
 ## 2026-08-27 (r2) — auto-review 二轮修正（编排收回 service / 审计透传 NULL）
 
@@ -19,8 +25,8 @@ stub: false
 
 ## 2026-08-27 — auto-review 修正（判据一致 / 审计 / 措辞诚实）
 
-- **有效覆盖判据统一**（模块级 `_is_effective_override(row)=bool(row and
-  row.get("provider_id"))`）：`count_owner_overrides` 和 `owner_agents_overview`
+- **有效覆盖判据统一**（当时是模块级 `_is_effective_override(row)=bool(row and
+  row.get("provider_id"))`，2026-09-10 起改用共享的 `config_override_wins`）：`count_owner_overrides` 和 `owner_agents_overview`
   都用它，跳过空 `provider_id` 的 framework-only stub 行——与运行时
   [[resolver]]（`_apply_agent_overrides` 跳空 provider）和 [[llm_config]]
   `_slot_view` 一致，避免同一 agent 的 chip 与 card 打架。

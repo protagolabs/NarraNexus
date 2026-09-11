@@ -52,6 +52,9 @@ from narranexus.platform.agent_framework.api_config import (
     RuntimeLLMConfigs,
     set_provider_card_sources,
 )
+from narranexus.platform.agent_framework.providers.model_identity import (
+    config_override_wins,
+)
 from narranexus.platform.agent_framework.providers.driver.base import (
     ProviderCard,
 )
@@ -213,7 +216,7 @@ async def _apply_agent_overrides(
     override_rows = await db.get("agent_slots", {"agent_id": agent_id})
     for row in override_rows or []:
         slot_name = row.get("slot_name")
-        if slot_name in _REQUIRED_SLOTS and row.get("provider_id"):
+        if slot_name in _REQUIRED_SLOTS and config_override_wins(row):
             by_slot_name[slot_name] = row
 
 

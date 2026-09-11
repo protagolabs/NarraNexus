@@ -67,7 +67,9 @@ finalize/翻掉再调）——否则一个被取消的普通 turn 会把另一�
 
 **`reset_for_owner` 的 provider 维度**：`reset_for_owner(user_id, provider_id=None)`。
 带 `provider_id` 时只清有效 `agent` slot 绑在该 provider 上的 agent（`agent_slots` 覆盖
-优先，否则 `user_slots` 默认，见 `_agent_bound_provider_id`）；`POST /{provider_id}/test`
+优先，否则 `user_slots` 默认；2026-09-10 PR #394 I3 起经 providers 层唯一的覆盖规则
+`model_identity.resolve_agent_config_slot` 判定——provider 规则，不是 identity 规则
+`slot_rebinds`——本模块不再直读 slot 表）；`POST /{provider_id}/test`
 成功走这条。四个重配置调用点不传 = 全量，语义是"用户变得可运行了"（slot 可能刚被改到
 这个 provider 上），故意不收窄。
 

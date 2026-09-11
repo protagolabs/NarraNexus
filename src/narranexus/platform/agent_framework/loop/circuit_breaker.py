@@ -46,6 +46,9 @@ from narranexus.platform.agent_framework.llm.failure import (
     is_auth_like_error,
     redact_secrets,
 )
+from narranexus.platform.agent_framework.providers.model_identity import (
+    resolve_agent_config_slot,
+)
 from narranexus.platform.agent_runtime.response_processor import _is_auth_failure
 from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
@@ -738,8 +741,9 @@ async def reset_for_owner(
     Best-effort.
 
     ``provider_id`` narrows the reset to agents whose effective ``agent``
-    slot is bound to THAT provider (per-agent ``agent_slots`` override, else
-    the owner's ``user_slots`` default). A confirmed-working provider says
+    slot is bound to THAT provider — resolved through the providers layer's
+    single overlay rule (``model_identity.resolve_agent_config_slot``), the
+    same one the runtime resolver applies, never a local copy. A confirmed-working provider says
     nothing about an agent running on a different key, so a
     ``POST /{provider_id}/test`` success resumes only what it actually
     tested. The reconfigure paths (add provider, connect subscription, set a
@@ -771,8 +775,10 @@ async def reset_for_owner(
             ):
                 continue
             if provider_id is not None:
-                bound = await _agent_bound_provider_id(db, cb.agent_id, user_id)
-                if bound != provider_id:
+                slot = await resolve_agent_config_slot(
+                    db, agent_id=cb.agent_id, user_id=user_id
+                )
+                if ((slot or {}).get("provider_id") or None) != provider_id:
                     continue
             await repo.upsert_state(cb.agent_id, _CLEAN_STATE)
             reset += 1
@@ -789,17 +795,6 @@ async def reset_for_owner(
     except Exception as e:  # noqa: BLE001 — best-effort auto-resume
         logger.warning(f"[agent-cb] reset_for_owner({user_id}) failed: {e}")
         return 0
-
-
-async def _agent_bound_provider_id(db, agent_id: str, user_id: str) -> Optional[str]:
-    """The provider the agent's ``agent`` slot actually runs on: a per-agent
-    ``agent_slots`` row with a non-empty provider_id wins over the owner's
-    ``user_slots`` default (the resolver's overlay order). None when neither
-    binds one."""
-    slot = await db.get_one("agent_slots", {"agent_id": agent_id, "slot_name": "agent"})
-    if not slot or not slot.get("provider_id"):
-        slot = await db.get_one("user_slots", {"user_id": user_id, "slot_name": "agent"})
-    return (slot or {}).get("provider_id") or None
 
 
 async def _owner_agent_ids(db, user_id: str) -> set[str]:
