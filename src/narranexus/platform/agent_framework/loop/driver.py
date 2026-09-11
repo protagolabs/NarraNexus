@@ -167,15 +167,22 @@ def framework_has_capability(name: str, capability: str) -> bool:
 def default_framework_for_protocol(protocol: str) -> str:
     """The framework a freshly onboarded provider card of ``protocol`` lands on.
 
-    Preference: the first registered framework LOCKED to that protocol (its CLI
-    can only drive this kind of card), then the first protocol-agnostic one,
-    then the bound default. Registration order is the builtin manifest order,
-    so the historical pairing (anthropic → claude_code, openai → codex_cli)
-    is preserved wherever those plugins are enabled and degrades to whatever
-    the distribution ships otherwise.
+    Preference: the first INSTALLED framework LOCKED to that protocol (its CLI
+    can only drive this kind of card), then the first installed
+    protocol-agnostic one, then the bound default. Registration order is the
+    builtin manifest order, so the historical pairing (anthropic →
+    claude_code, openai → codex_cli) is preserved wherever those plugins are
+    installed and degrades to whatever can actually run otherwise.
+
+    Only installed frameworks are candidates: on the lightweight local build
+    Claude Code / Codex are registered but ship as on-demand plugins, and a
+    fresh user whose first card landed on an uninstalled framework could not
+    run a single turn (``FrameworkNotInstalledError``) until they found the
+    framework picker. Availability is read from ``framework_installed`` — the
+    same probe the driver's fail-closed gate uses — never from a name list.
     """
     wanted = protocol.strip().lower()
-    metas = framework_metas()
+    metas = [meta for meta in framework_metas() if framework_installed(meta.name)]
     for meta in metas:
         if meta.protocol == wanted:
             return meta.name

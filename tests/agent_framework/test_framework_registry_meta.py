@@ -92,10 +92,31 @@ def test_unknown_slot_framework_fails_loud_instead_of_defaulting():
     assert _agent_framework_from_slot({}) == "nexus_power"
 
 
-def test_default_framework_for_protocol_prefers_locked_then_agnostic():
+def test_default_framework_for_protocol_prefers_locked_then_agnostic(monkeypatch):
+    from narranexus.platform.agent_framework import plugin_paths
+
+    # Every on-demand plugin installed (cloud image / a desktop that installed them).
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: True)
     assert default_framework_for_protocol("anthropic") == "claude_code"
     assert default_framework_for_protocol("openai") == "codex_cli"
     assert default_framework_for_protocol("weird") == "nexus_power"
+
+
+def test_default_framework_for_protocol_skips_uninstalled_plugins(monkeypatch):
+    """Lightweight local build: Claude Code / Codex are registered but their
+    plugins are not installed. A fresh card must land on a framework that can
+    actually run (the host-shipped nexus_power), never on the uninstalled one."""
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: False)
+    assert default_framework_for_protocol("anthropic") == "nexus_power"
+    assert default_framework_for_protocol("openai") == "nexus_power"
+
+    # Only Claude Code installed → anthropic cards pair with it again, openai
+    # cards still fall through to the installed protocol-agnostic framework.
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: fw == "claude_code")
+    assert default_framework_for_protocol("anthropic") == "claude_code"
+    assert default_framework_for_protocol("openai") == "nexus_power"
 
 
 def test_oauth_source_ownership_is_registry_derived(acme_cli):

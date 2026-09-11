@@ -726,8 +726,10 @@ class UserProviderService:
         Detects the key's protocol (sk-ant- prefix → anthropic, else
         openai) unless ``provider_type`` overrides it, then:
 
-          1. Persists the matching agent framework (anthropic →
-             claude_code, openai → codex_cli). MUST happen before the
+          1. Persists the matching agent framework — the first INSTALLED
+             framework for the card's protocol (anthropic → claude_code,
+             openai → codex_cli where those plugins are installed; the
+             host-shipped nexus_power otherwise). MUST happen before the
              agent slot — set_slot validates the agent provider's
              protocol against the framework.
           2. Creates the provider (card_type = the protocol; the
@@ -771,8 +773,9 @@ class UserProviderService:
         # Only a pure-OpenAI key is an openai-protocol card; every
         # aggregator's anthropic endpoint is an anthropic card like an
         # official Claude key. The framework that card lands on is the
-        # registry's first framework locked to that protocol (claude_code /
-        # codex_cli when their plugins are enabled).
+        # registry's first INSTALLED framework locked to that protocol
+        # (claude_code / codex_cli when their plugins are installed), else the
+        # first installed protocol-agnostic one (nexus_power).
         framework = default_framework_for_protocol("openai" if ptype == "openai" else "anthropic")
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)

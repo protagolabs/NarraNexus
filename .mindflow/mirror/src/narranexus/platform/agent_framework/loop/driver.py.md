@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/driver.py
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — `default_framework_for_protocol` only picks INSTALLED frameworks
+
+Candidates are now filtered through `framework_installed` (the same probe the
+driver's fail-closed gate uses) before the locked-protocol / protocol-agnostic
+preference runs. Before this, on the lightweight local build (Claude Code /
+Codex registered but shipped as on-demand plugins) a fresh user's first
+anthropic card — official key, NetMind, free tier, Arena — landed on
+`claude_code`, and every turn then raised `FrameworkNotInstalledError`: the
+product was unusable out of the box. Now it lands on the first installed
+anthropic-locked framework if one exists, else the first installed
+protocol-agnostic one (host-shipped `nexus_power`). Where the plugins are
+installed (cloud images, a desktop that installed them) the historical pairing
+(anthropic → claude_code, openai → codex_cli) is unchanged. Availability is
+derived, never a name list. Only caller: `UserProviderService.onboard_one_key`.
 
 ## 2026-09-03（预审修订）— 注册表路径 `turn.pipeline.act.framework`
 
