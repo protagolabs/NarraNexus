@@ -84,7 +84,12 @@ class LiteLLMModelClient:
         messages = self._apply_cache_plan(request)
         extra = dict(params.extra)
         extra.setdefault(
-            "max_tokens", output_budget(self.profile, request.input_tokens_estimate)
+            "max_tokens",
+            output_budget(
+                self.profile,
+                request.input_tokens_estimate,
+                floor_multiplier=request.floor_multiplier,
+            ),
         )
         if _is_own_gateway(params.base_url):
             extra["extra_headers"] = {

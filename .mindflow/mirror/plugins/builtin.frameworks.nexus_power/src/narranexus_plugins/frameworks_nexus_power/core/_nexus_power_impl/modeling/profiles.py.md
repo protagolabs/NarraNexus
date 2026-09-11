@@ -1,8 +1,40 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/profiles.py
-last_verified: 2026-09-08
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（B-03）— 默认思考模型的输出地板 8_192；地板按 `thinks_by_default` 选；`floor_multiplier`
+
+25-45% 平台 job run 空产出的根因：`output_budget` 地板统一 1_024，对默认思考的模型不够——
+隐藏 CoT 先吃 max_tokens，1_024 在模型够到文字/工具调用前就被吃光，`stop_reason=max_tokens`
+但零产出（NetMind DeepSeek-V4-Pro 实测：1_024→4/6 空跑，4_096→1/6，8_192→0/8）。
+
+- **判据是 `ProviderProfile.thinks_by_default`，不是 `thinking_replay`。** 后者是「这个方言要不要
+  回传 reasoning_content」的契约事实，和「这个模型默不默认思考」是两件事；全表只有 deepseek 行是
+  `keep`，拿它判地板会漏掉其他默认思考的模型。`_with_model_limits` 从
+  `ModelMeta.thinks_by_default` **逐模型**覆盖（不是逐方言），`_PROFILES` 各方言行一律 `False`。
+  哪些模型置 `True`、依据是什么，是 [[model_catalog]] 的职责（事实源）；本文件只持有地板常量
+  `_THINKING_MIN_OUTPUT_TOKENS = 8_192` 与选择逻辑。
+- **clamp 顺序改为 `min(ceiling, max(floor, headroom))`**（原 `max(floor, min(ceiling, headroom))`）。
+  地板 1_024 时两者等价；抬到 8_192 后，真实 ceiling 低于地板的模型（DeepSeek-V3 的 7_200）在旧顺序
+  下会被顶到 8_192——新顺序保证 ceiling 永远最后钳制。
+- **地板刻意压过 headroom**，即使 `input + max_tokens` 因此越过 wall：provider 的可见 400 优于一次
+  静默空跑。这个取舍**没有实测**：没验证过 NetMind/DeepSeek 在越墙时是否真的 400（若是，原来的
+  空产出 run 会变成硬错误）。
+- `output_budget()` 加 keyword-only `floor_multiplier: int = 1`，只放大地板项，ceiling 仍最后钳制。
+  它**不**让结果服从 headroom——地板本来就压过 headroom，放大地板等于放大同一个越墙风险。因此
+  loop.py 只把乘数用在截断重试重放的那一步，之后复位为 1（[[loop]] 同日条目）。实算：四个
+  `thinks_by_default=True` 的模型 ceiling==地板==8_192，乘数翻倍也不变，重试不可达；能真正翻倍的
+  只有非思考行在地板区（如 qwen 1_024→2_048）。
+
+顺带查过：qwen 行的 `context_window=32_000` 是协议猜的，catalog 三条 Qwen3.6 都没填
+`context_window`，没有真数字可核对，留着不动。
+
+测试（`tests/nexus_power/test_modeling.py`）：`test_thinks_by_default_gets_a_higher_output_floor`
+（负例用 `thinking_replay="strip"` 证明地板不看那个字段）、
+`test_thinking_floor_never_exceeds_the_models_own_ceiling`、
+`test_catalog_thinks_by_default_overlay_is_honest_per_model`。
 
 ## 2026-09-08 — deepseek 行 `thinking_replay="keep"`
 

@@ -61,6 +61,9 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.a
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     estimate_message_tokens,
 )
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
+    output_budget,
+)
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
@@ -102,6 +105,12 @@ class NexusPowerLoop:
         self._continuation_turn = False  # prefill repair, armed at most once
         self._turn_expressed = False     # any expressive call seen this turn
         self._expression_nudged = False  # mute-turn nudge, armed at most once
+        self._truncation_retried = False  # output-budget doubling, armed at most once
+        # Floor multiplier for the NEXT ``_build_request()``, carried on
+        # ``ModelRequest.floor_multiplier`` — never written into the shared
+        # ``a.params.extra`` dict. Raised to 2 only for the one step the
+        # output-budget-truncation retry replays, then reset to 1.
+        self._truncation_floor_multiplier = 1
 
     async def run_turn(self) -> AsyncIterator[LoopEvent]:
         a, ledger = self._a, self._ledger
@@ -191,6 +200,104 @@ class NexusPowerLoop:
                     async for ev in self._interrupt("cancelled by user"):
                         yield ev
                     return
+
+                # ---- OUTPUT-BUDGET TRUNCATION -------------------------------
+                # A step that came back with zero text and zero tool calls
+                # AND a stop_reason admitting the output cap severed the
+                # response is not "no more actions" — it is a thinking-
+                # by-default model that spent its entire ``max_tokens`` on
+                # hidden chain-of-thought before it could reach an answer
+                # (measured 2026-09-08 against NetMind's DeepSeek-V4-Pro).
+                # Left alone this falls through STOP_CHECK and closes as
+                # NO_MORE_ACTIONS with a real reply the model never got to
+                # write — a silent empty run. Double the floor and replay
+                # the step ONCE (armed via ``_truncation_retried``, same
+                # "repair the request, not a verdict on the error" idiom as
+                # PREFILL_REJECTED) — but ONLY if doubling can actually ask
+                # for more: a model whose ceiling already sits at (or a
+                # user override that already pins) the current budget would
+                # replay a byte-identical request and 100%-certainly fail
+                # again, burning a full extra round-trip for nothing.
+                # If the doubled budget still
+                # yields nothing, a third try would not either, so surface
+                # a real, terminal failure instead of retrying forever.
+                #
+                # This check sits before DRAIN_STEERING and the replay
+                # ``continue``s straight back to PROJECT, so a steering
+                # message that arrived during the truncated step is drained
+                # one model call later (after the replayed step). Accepted:
+                # the replay is at most one extra call per turn and the
+                # message is not lost, only deferred.
+                stop_reason = step_meta.get("stop_reason", "")
+                produced_output = bool(step_calls) or step_meta.get("had_text") == "1"
+                if not produced_output and stop_reason in _TRUNCATING_STOP_REASONS:
+                    # Defensive today: nothing in the platform writes
+                    # ``max_tokens`` into ``llm_extra``, but a pinned value
+                    # is what the client actually sent, so it is also
+                    # what the failure message must report.
+                    pinned_max_tokens = a.params.extra.get("max_tokens")
+                    user_pinned_max_tokens = pinned_max_tokens is not None
+                    current_budget = output_budget(
+                        a.model.profile,
+                        request.input_tokens_estimate,
+                        floor_multiplier=self._truncation_floor_multiplier,
+                    )
+                    next_multiplier = self._truncation_floor_multiplier * 2
+                    new_budget = (
+                        current_budget
+                        if user_pinned_max_tokens
+                        # A user-pinned ``max_tokens`` always wins at the
+                        # client (``extra.setdefault``), so no multiplier
+                        # we compute here would ever reach the actual
+                        # request — treat that as "no growth possible"
+                        # rather than pretending a bigger floor will help
+                        # (iron rule #15: never override an explicit
+                        # user setting).
+                        else output_budget(
+                            a.model.profile,
+                            request.input_tokens_estimate,
+                            floor_multiplier=next_multiplier,
+                        )
+                    )
+                    if not self._truncation_retried and new_budget > current_budget:
+                        self._truncation_retried = True
+                        self._truncation_floor_multiplier = next_multiplier
+                        # The empty step folded to nothing in
+                        # `_turn_messages` (`_fold_step_message` no-ops
+                        # when text+calls are both empty), but its CoT is
+                        # NOT nothing: `_step_thinking` accumulated the
+                        # whole thinking-exhausted budget and that early
+                        # return does not clear it. Left alone, the
+                        # replayed step's OWN thinking would be appended
+                        # onto this abandoned CoT and folded into one
+                        # `reasoning_content` — a concatenation, not the
+                        # CoT that actually produced the replay's tool
+                        # call. `discard_step()`
+                        # clears all three step buffers and is a no-op on
+                        # the already-empty text/calls, so it only ever
+                        # fixes the leaked thinking here.
+                        ledger.discard_step()
+                        request = self._build_request()
+                        continue
+                    async for ev in self._fail(
+                        LoopError(
+                            ErrorType.OUTPUT_TRUNCATED,
+                            "model output truncated: thinking exhausted the "
+                            "output budget (max_tokens="
+                            f"{pinned_max_tokens if user_pinned_max_tokens else current_budget})",
+                        )
+                    ):
+                        yield ev
+                    return
+                # The boosted floor served exactly the step it was armed
+                # for. Every later step gets the plain floor back: the
+                # floor deliberately wins over headroom (see
+                # ``output_budget``), so a multiplier left in place would
+                # keep pushing ``input + max_tokens`` past the wall on
+                # every later, larger-input step of this turn.
+                # ``_truncation_retried`` stays armed, so a later
+                # truncation fails instead of retrying again.
+                self._truncation_floor_multiplier = 1
 
                 # ---- DISPATCH ---------------------------------------------
                 for call in step_calls:
@@ -404,6 +511,7 @@ class NexusPowerLoop:
             # The measurement is better but is zero on the turn's first
             # step, which is exactly the step whose projection already
             # carries every earlier turn — so take whichever is larger.
+            floor_multiplier=self._truncation_floor_multiplier,
             input_tokens_estimate=max(
                 self._ledger.last_input_tokens(), estimate_message_tokens(messages)
             ),
@@ -462,6 +570,14 @@ class NexusPowerLoop:
                             self._arg_delta_event(delta, stream_meta.get(index))
                         )
                 continue
+            if kind == "text_delta" and step_meta is not None:
+                # Recorded so the OUTPUT-BUDGET TRUNCATION check in
+                # run_turn can tell "the model answered but stayed brief"
+                # apart from "the model never got past thinking" — both
+                # can carry the same stop_reason, and only the second is
+                # truncation.
+                if model_event.payload.get("text"):
+                    step_meta["had_text"] = "1"
             if kind == "done" and step_meta is not None:
                 step_meta["stop_reason"] = str(
                     model_event.payload.get("stop_reason", "")

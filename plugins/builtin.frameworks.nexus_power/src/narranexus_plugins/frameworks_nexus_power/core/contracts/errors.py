@@ -11,11 +11,16 @@ framework, reactive compaction (``CONTEXT_OVERFLOW`` is a signal, not a
 failure: the loop compacts and retries the step instead of dying).
 
 The first six values mirror ``agent_events.CLI_ERROR_TYPES`` so the
-platform's existing consumers keep working unchanged. The two beyond
-them are SIGNALS rather than failures — the loop repairs the request and
-retries the step (compaction for ``CONTEXT_OVERFLOW``, a continuation
-turn for ``PREFILL_REJECTED``) — and ``legacy_error_type`` keeps that
-vocabulary from reaching consumers that never learned it.
+platform's existing consumers keep working unchanged. The three beyond
+them are SIGNALS rather than raw failures — the loop repairs the request
+and retries the step (compaction for ``CONTEXT_OVERFLOW``, a continuation
+turn for ``PREFILL_REJECTED``, a doubled output budget for
+``OUTPUT_TRUNCATED``) — and ``legacy_error_type`` keeps that vocabulary
+from reaching consumers that never learned it. Unlike the other two,
+``OUTPUT_TRUNCATED`` is armed at most once per turn (see loop.py's
+``_truncation_retried``): a model whose thinking still exhausts a
+doubled budget is not going to succeed on a third try, so the loop
+surfaces it as a real, terminal failure instead of retrying forever.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ class ErrorType(Enum):
     SERVER_ERROR = "server_error"
     CONTEXT_OVERFLOW = "context_overflow"  # reactive-compaction trigger
     PREFILL_REJECTED = "prefill_rejected"  # continuation-turn retry trigger
+    OUTPUT_TRUNCATED = "output_truncated"  # budget-doubling retry trigger
     UNKNOWN = "unknown"
 
 

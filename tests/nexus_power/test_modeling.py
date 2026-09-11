@@ -128,6 +128,97 @@ def test_output_budget_never_returns_a_useless_or_negative_ceiling():
     assert output_budget(haiku, 10_000_000) > 0
 
 
+def test_thinks_by_default_gets_a_higher_output_floor():
+    """A model that thinks by default burns max_tokens on hidden CoT
+    before it can reach text or a tool call — a 1_024 floor (right for a
+    non-thinking model) leaves no room past the thinking, so the turn
+    ends with stop_reason=max_tokens and zero output (measured 2026-09-08
+    on NetMind's DeepSeek-V4-Pro). ``thinks_by_default=True`` rows get an
+    8_192 floor instead, even when the input estimate leaves far less
+    room than that — a provider 400 on the oversized request is a visible
+    failure, better than a silent empty run.
+
+    Keyed on ``thinks_by_default``, NOT ``thinking_replay``: the two are
+    separate facts — this profile deliberately sets
+    ``thinking_replay="strip"`` to prove the floor no longer rides
+    on that field."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    thinking = ProviderProfile(
+        name="deepseek-like", thinking_replay="strip", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(thinking, 99_000) == 8_192
+
+
+def test_non_thinking_profiles_keep_the_low_output_floor():
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    plain = ProviderProfile(
+        name="openai-like", thinking_replay="strip", thinks_by_default=False,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(plain, 99_000) == 1_024
+
+
+def test_thinking_floor_never_exceeds_the_models_own_ceiling():
+    """A thinking-capable model whose catalog ceiling sits BELOW the
+    thinking floor (DeepSeek-V3's real 7_200) must still get its own
+    ceiling — the floor cannot ask for more than the model accepts."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    thinking = ProviderProfile(
+        name="deepseek-v3-like", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=7_200,
+    )
+    assert output_budget(thinking, 99_000) == 7_200
+
+
+def test_floor_multiplier_scales_only_the_floor_and_the_ceiling_still_wins():
+    """``floor_multiplier`` doubles the floor term; a roomy input still
+    gets the headroom-derived budget, and the ceiling clamps last."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    plain = ProviderProfile(
+        name="openai-like", context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(plain, 99_000, floor_multiplier=2) == 2_048
+    # Plenty of headroom: the multiplier changes nothing.
+    assert output_budget(plain, 10_000, floor_multiplier=2) == 8_192
+    # Ceiling equal to the floor: doubling cannot grow the budget.
+    thinking = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(thinking, 99_000, floor_multiplier=2) == 8_192
+
+
+def test_catalog_thinks_by_default_overlay_is_honest_per_model():
+    """The overlay in ``_with_model_limits`` is model-specific, not
+    dialect-specific: DeepSeek-V4-Pro/V4-Flash
+    are measured True (in-repo 2026-09-08 incident); DeepSeek-V3 — same
+    dialect, same substring match — is left False because it was never
+    part of that measurement; OpenAI's o-series is True (no non-reasoning
+    mode exists for it); the gpt-5.x line stays False (configurable
+    reasoning effort, not independently measured)."""
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai").thinks_by_default is True
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Flash", "openai").thinks_by_default is True
+    assert resolve_profile("deepseek-ai/DeepSeek-V3", "openai").thinks_by_default is False
+    assert resolve_profile("o3", "openai").thinks_by_default is True
+    assert resolve_profile("o4-mini", "openai").thinks_by_default is True
+    assert resolve_profile("gpt-5.5", "openai").thinks_by_default is False
+    # An unregistered model keeps the dialect row's conservative default.
+    assert resolve_profile("totally-unknown-model", "openai").thinks_by_default is False
+
+
 @pytest.mark.parametrize(
     "model",
     ["deepseek-ai/DeepSeek-V4-Pro", "Qwen/Qwen2.5-7B-Instruct", "unmeasured-model"],

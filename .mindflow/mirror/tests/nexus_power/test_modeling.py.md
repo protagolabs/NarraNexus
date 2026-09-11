@@ -1,8 +1,17 @@
 ---
 code_file: tests/nexus_power/test_modeling.py
-last_verified: 2026-07-31
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（B-03）— 思考地板、clamp 顺序、`floor_multiplier`
+
+`thinks_by_default=True` 得 8_192 地板（该 profile 故意设 `thinking_replay="strip"`，证明地板不看
+那个字段）；非思考 profile 仍是 1_024（负例）；地板不超过模型自己的 ceiling（DeepSeek-V3 7_200），
+即钉住 `min(ceiling, max(floor, headroom))` 的顺序；`floor_multiplier` 只放大地板、headroom 充足时
+不起作用、ceiling==地板时翻倍不增长；catalog 覆盖按模型诚实取值（V4-Pro/Flash、o3/o4-mini 为 True，
+V3、gpt-5.5、未知模型为 False）。
+
 # tests/modeling — 方言解析/断点/chunk 翻译/裁剪
 
 假 chunk 流验证事件切分与 usage 双词汇换算;路由前缀按协议且无条件前置(平台 id 可自带路由名,豁免=裸名 404);裁剪保尾。

@@ -41,6 +41,16 @@ class ModelMeta:
     # callers that size output against the room the input leaves;
     # `None` means unverified, and they fall back to their own budget.
     context_window: Optional[int] = None
+    # Does this model spend output-token budget on a hidden chain-of-
+    # thought before it can reach text or a tool call, WITHOUT the caller
+    # asking for it? Read by nexus_power's ``output_budget`` to raise its
+    # output floor for exactly the models that need it (2026-09-09).
+    # ONLY set True where there is a defensible source — an in-repo
+    # measurement, or well-established, undisputed public documentation
+    # for the model family. Left False (the honest "not measured" default,
+    # not "confirmed non-thinking") for every row this change did not
+    # independently verify — see the per-row comments below.
+    thinks_by_default: bool = False
 
 
 # =============================================================================
@@ -58,6 +68,25 @@ def _register(*models: ModelMeta) -> None:
 # --- NetMind models ---
 # `max_output_tokens` left None for newer entries whose official limits
 # we have not yet verified — callers fall back to the provider's own cap.
+#
+# `thinks_by_default` sourcing (added for B-03, the output-budget-floor fix):
+# - DeepSeek-V4-Pro / V4-Flash: True, measured IN-REPO against NetMind's
+#   OpenAI-protocol endpoint (2026-09-08 incident — see profiles.py's
+#   ``_THINKING_MIN_OUTPUT_TOKENS`` comment for the empty-run counts at
+#   each max_tokens value tried). The strongest evidence tier we have.
+# - DeepSeek-V3: left False. This is the older, non-"V4" DeepSeek chat
+#   line and was not part of the 2026-09-08 measurement; marking it True
+#   by family-name association would be exactly the invented-fact the
+#   catalog ceilings above are already disciplined against — not extending
+#   that discipline to a boolean would be inconsistent.
+# - Gemini 3.1 (pro / flash-lite), Kimi K2.5 / K2.6, GLM-5 / GLM-5.1,
+#   MiniMax M2.7, Qwen3.6 (Plus / Flash / 35B-A3B): left False. No
+#   in-repo measurement exists for any of them against NetMind's actual
+#   default request shape, and general public documentation about each
+#   vendor's specific default (thinking on/off, and whether NetMind's own
+#   deployment overrides that default) is not something this change can
+#   verify without live access. Honest "not measured" rather than a
+#   guessed True or a guessed False-with-false-confidence.
 _register(
     ModelMeta("minimax/minimax-m2.7", "MiniMax M2.7", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", max_output_tokens=58982),
@@ -67,8 +96,8 @@ _register(
     ModelMeta("zai-org/GLM-5", "GLM-5", max_output_tokens=117964),
     ModelMeta("zai-org/GLM-5.1", "GLM-5.1", max_output_tokens=117964),
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
-    ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
-    ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash"),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro", thinks_by_default=True),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash", thinks_by_default=True),
     # Anthropic Claude routed via NetMind's anthropic-protocol endpoint.
     # NetMind prefixes the upstream model id with "anthropic/", which is
     # how its inference router dispatches; the prefix is part of the
@@ -185,6 +214,16 @@ def effective_card_models(source: str, stored: Optional[list]) -> list[str]:
 
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
+#
+# `thinks_by_default`: o3 / o4-mini are True — OpenAI's o-series has no
+# non-reasoning mode at all (there is no request-time toggle to turn
+# reasoning off), which is well-established, undisputed public behaviour
+# for the family, not a per-deployment guess. The gpt-5.x line is left
+# False: GPT-5 exposes a configurable reasoning-effort control (including
+# a low/"minimal" setting), so "does it default to spending a thinking-
+# sized output budget" is a quantitative question this change cannot
+# verify without a live measurement — the same "don't invent a number"
+# discipline as the catalog ceilings above, applied to this boolean.
 _register(
     ModelMeta("gpt-5.5", "GPT-5.5"),
     ModelMeta("gpt-5.4", "GPT-5.4"),
@@ -195,8 +234,8 @@ _register(
     ModelMeta("gpt-5.1", "GPT-5.1"),
     ModelMeta("gpt-5", "GPT-5"),
     ModelMeta("gpt-4.1", "GPT-4.1"),
-    ModelMeta("o4-mini", "o4-mini (reasoning)"),
-    ModelMeta("o3", "o3 (reasoning)"),
+    ModelMeta("o4-mini", "o4-mini (reasoning)", thinks_by_default=True),
+    ModelMeta("o3", "o3 (reasoning)", thinks_by_default=True),
 )
 
 

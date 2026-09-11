@@ -10,6 +10,21 @@ CLI 家族别名原样保留的判定原先手写 `("oauth", "oauth_token")` 字
 `narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
 运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
 （扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
+## 2026-09-10（B-03）— `ModelMeta.thinks_by_default`
+
+新增 `thinks_by_default: bool = False`，本表是这个事实的唯一来源；消费方是 nexus_power
+`profiles._with_model_limits`（逐模型覆盖到 `ProviderProfile`），地板常量与选择逻辑在 profiles.py，
+**不在本文件**。取值纪律同本表对 ceiling 一贯的规矩：只写有实测或公开无争议的事实，其余留 `False`，
+每行旁注明口径。
+
+- `True`：DeepSeek-V4-Pro / V4-Flash（本仓 2026-09-08 对 NetMind OpenAI 协议端点实测）；
+  o3 / o4-mini（OpenAI o 系没有「关思考」模式）。
+- 留 `False`：DeepSeek-V3（旧线，不在那次实测里，不按家族名推断）；Gemini 3.1、Kimi K2.5/K2.6、
+  GLM-5/5.1、MiniMax M2.7、Qwen3.6（无本仓实测）；gpt-5.x（思考档位可调，「是否默认花思考级预算」
+  是需要实测的定量问题）。
+
+注意：四个 `True` 行都没登记 `max_output_tokens`，ceiling 取方言默认 8_192，恰等于思考地板——
+所以 loop.py 的截断翻倍重试对它们永远不触发，修好它们的是地板本身。
 
 ## 2026-08-06 — effective_card_models：卡片运行时模型列的唯一口径
 

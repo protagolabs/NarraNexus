@@ -63,6 +63,9 @@ from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.loop impor
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
+    resolve_profile,
+)
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
@@ -136,6 +139,10 @@ class CancelAfter:
 
 def _text(t):
     return ModelEvent(kind="text_delta", payload={"text": t})
+
+
+def _thinking(t):
+    return ModelEvent(kind="thinking_delta", payload={"text": t})
 
 
 def _use(cid, name, args=None, index=0):
@@ -923,3 +930,186 @@ async def test_no_steering_closes_on_the_first_stoppable_step():
 
     assert len(model.requests) == 1
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+# A thinking-capable profile (``thinks_by_default=True``) with a tight
+# context_window so the first computed output_budget lands on the
+# thinking floor (8_192, see profiles.py) rather than the huge
+# max_output_tokens ceiling — leaving real room for the retry to double
+# it (16_384) instead of the ceiling capping both attempts to the same
+# number. ``thinking_replay="keep"`` is also set (independently of
+# ``thinks_by_default``) so this profile doubles as the
+# reasoning_content-replay fixture for the CoT-concatenation test.
+_THINKING_PROFILE = ProviderProfile(
+    name="deepseek-like", thinking_replay="keep", thinks_by_default=True,
+    context_window=1_000, max_output_tokens=100_000,
+)
+
+# The real DeepSeek-V4-Pro profile, unmodified: NetMind never registered
+# a catalog ``max_output_tokens`` for it, so its ceiling is the dialect
+# row's conservative default (8_192) — exactly equal to the thinking
+# floor. Used to prove the no-replay guard: doubling a floor
+# that is ALREADY at the ceiling can never grow the actual request, so
+# the loop must fail immediately rather than replay an identical one.
+_REAL_DEEPSEEK_V4_PRO_PROFILE = resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai")
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_retries_with_doubled_budget_then_succeeds():
+    """A step with zero text and zero tool calls that stopped on
+    ``max_tokens`` is thinking-exhaustion, not NO_MORE_ACTIONS (B-03).
+    The loop doubles the output budget and replays the step once; a
+    model that then answers closes the turn normally with no error."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_text("finally"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 2
+    # The retry doubles the FLOOR MULTIPLIER on the request itself, never
+    # the shared ``params.extra`` dict — the first
+    # request carries the default multiplier, the retried one carries 2x.
+    assert model.requests[0].floor_multiplier == 1
+    assert model.requests[1].floor_multiplier == 2
+    # And ``a.params`` is untouched: nothing was ever written into the
+    # shared extra dict, so a later, unrelated step in the same turn
+    # would still get ``output_budget``'s wall clamp fresh.
+    assert "max_tokens" not in model.requests[0].params.extra
+    assert "max_tokens" not in model.requests[1].params.extra
+    assert model.requests[0].params is model.requests[1].params
+
+
+@pytest.mark.asyncio
+async def test_floor_multiplier_resets_after_the_retried_step_succeeds():
+    """The doubled floor serves only the replayed step. Once that step
+    produces output, the next step's request is back to multiplier 1 —
+    the floor wins over headroom, so a sticky multiplier would keep
+    pushing every later, larger-input step of the turn past the wall."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    assert TYPE_ERROR not in [e.type for e in events]
+    assert [r.floor_multiplier for r in model.requests] == [1, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_fails_after_one_retry():
+    """If the doubled budget ALSO comes back empty, a third try would not
+    help either — the loop must surface a real, terminal error instead
+    of retrying forever (iron rule #14 bounds retries by progress, not by
+    a ceiling, but "no progress twice in a row" IS the progress signal)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "output budget" in error.payload["message"]
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # Exactly one retry attempt — no unbounded spin on a hopeless budget.
+    assert len(model.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_truncation_with_a_pinned_max_tokens_fails_without_replay_and_reports_it():
+    """A pinned ``max_tokens`` always wins at the client, so no multiplier
+    can grow the request: fail on the first truncated step, and report
+    the value that was actually sent, not the budget we computed."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    params = ModelParams(model="fake-model", extra={"max_tokens": 777})
+    events, _ = await _run(_assembly(model, FakeTools(), params=params))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "max_tokens=777" in error.payload["message"]
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_brief_but_real_answer_is_not_treated_as_truncation():
+    """Negative case: a step that stopped on ``max_tokens`` but DID
+    produce text must not be misclassified as an empty-output failure —
+    only the zero-text, zero-tool-call combination is truncation. With
+    no tool calls, STOP_CHECK closes the turn normally on step 1 (v1: no
+    actions = stop) — the point is that it closes as NO_MORE_ACTIONS
+    with the text delivered, not as a retried/failed truncation."""
+    model = FakeModel([
+        [_text("a short answer"), _done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    # No budget-doubling retry happened: only one request was ever made.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_truncation_fails_immediately_when_the_real_ceiling_cant_grow():
+    """This is the REAL DeepSeek-V4-Pro profile (no catalog
+    ``max_output_tokens`` override registered for it), whose ceiling
+    already equals the thinking floor (8_192). Doubling the floor can
+    never ask the client for more than what was already sent, so the
+    loop must fail on the FIRST truncated step instead of wastefully
+    replaying a byte-identical request (the synthetic
+    ``_THINKING_PROFILE`` fixture, with its artificially huge ceiling,
+    cannot exercise this branch)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # No replay: growth was recognised as impossible on the first try.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_replayed_step_after_truncation_does_not_concatenate_reasoning():
+    """The discarded step's abandoned chain-of-thought must not leak
+    into the replayed step's ``reasoning_content``. DeepSeek's thinking
+    contract requires the CoT that PRODUCED the eventual tool call, not
+    a concatenation of an abandoned CoT plus the real one — the same 400
+    family as the reasoning_content-passback contract this profile's
+    ``thinking_replay="keep"`` exists to satisfy. Regression: without
+    ``ledger.discard_step()`` on the retry path, ``_step_thinking``
+    survives the empty step's early-return fold and gets prepended onto
+    the next step's real CoT."""
+    model = FakeModel([
+        [_thinking("aborted-cot-that-exhausted-the-budget"), _done(stop="max_tokens")],
+        [_thinking("real-cot"), _use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, ledger = await _run(_assembly(model, tools))
+
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    messages = ledger.provider_messages()
+    assistant_with_call = next(
+        m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")
+    )
+    assert assistant_with_call["reasoning_content"] == "real-cot"

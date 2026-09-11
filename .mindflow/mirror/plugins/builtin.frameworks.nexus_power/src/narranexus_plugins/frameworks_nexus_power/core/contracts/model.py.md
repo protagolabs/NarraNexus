@@ -1,8 +1,21 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/contracts/model.py
-last_verified: 2026-09-08
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（B-03）— `ProviderProfile.thinks_by_default` 与 `ModelRequest.floor_multiplier`
+
+- `ProviderProfile.thinks_by_default: bool = False`：**这个模型**是否在够到文字/工具调用前先把
+  output budget 花在隐藏 CoT 上。它是 per-model 事实，由 `_with_model_limits` 从
+  [[model_catalog]] 的 `ModelMeta.thinks_by_default` 逐行覆盖，方言行默认一律 `False`。
+  刻意与 `thinking_replay` 分开：后者是 reasoning_content 回传**契约**（provider 会不会因为没回传而
+  拒掉工具轮），和模型是否真的花 token 思考正交；混用会让只有 deepseek 一个方言行吃到高地板。
+  消费方只有 [[profiles]] 的 `output_budget` 地板选择。
+- `ModelRequest.floor_multiplier: int = 1`：只放大 `output_budget` 的地板项、只作用于这一个请求。
+  loop.py 的截断重试给被重放的那一步置 2，之后复位 1。刻意放在请求上而不是往共享
+  `params.extra` 写一个绝对 `max_tokens`：后者会把放大值冻结到 turn 结束。注意地板压过 headroom，
+  放大地板在接近满上下文时同样可能把 `input + max_tokens` 推过 wall——这是只放大一步的原因。
 
 ## 2026-09-08 — `McpServerSpec` 长出 stdio 形态
 

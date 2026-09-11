@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-08-14
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（B-03）— `max_tokens` 默认值透传 `floor_multiplier`
+
+`stream()` 里 `extra.setdefault("max_tokens", output_budget(..., floor_multiplier=request.floor_multiplier))`。
+仍是 `setdefault`：用户在 `params.extra` 显式钉的 `max_tokens` 永远赢，我们算的地板（含乘数）盖不过它
+——loop.py 据此把「用户钉了 max_tokens」当作「重试加不大请求」直接失败。乘数语义见 [[model]]、[[profiles]]。
 
 ## 2026-08-14 — 自家网关名单补 `llm-gateway`
 
