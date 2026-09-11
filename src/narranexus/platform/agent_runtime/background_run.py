@@ -400,8 +400,18 @@ class BackgroundRun:
                         # on_event = emit + artifact outbox drain at tool
                         # output boundaries (the registry commit points).
                         await self.on_event(normalise_event(event))
-                # Natural end
-                self.state = STATE_COMPLETED
+                # Natural end. A fatal error (e.g. no provider configured,
+                # output-budget truncation exhausted) ends the generator
+                # naturally too -- the framework reports it as an in-band
+                # ErrorMessage, not a Python exception -- so `state` must
+                # consult `had_fatal_error`, not just "did the generator
+                # raise". Persisting STATE_COMPLETED for a fatal run left
+                # the events row with an empty error_message and no
+                # visible failure marker (GH #127 / B-05) even though the
+                # funnel/breaker signals below already knew better.
+                self.state = (
+                    STATE_FAILED if self.recorder.had_fatal_error else STATE_COMPLETED
+                )
                 # Funnel ⑤ fires only on a genuine reply. A fatal error
                 # (e.g. no provider configured) ends the generator naturally
                 # too, but the user got a "configure your key" notice, not an
@@ -539,10 +549,13 @@ class BackgroundRun:
         """Advance the Agent circuit-breaker from this turn's outcome.
 
         Outcome mapping:
-          * STATE_FAILED, or STATE_COMPLETED with a fatal error emitted
-            → record_failure (a fatal auth/quota error ends the generator
-              naturally, landing in STATE_COMPLETED, so state alone under-
-              counts failures — the had_fatal_error flag closes that gap).
+          * STATE_FAILED → record_failure. A fatal error that ends the
+            generator naturally is already STATE_FAILED here: drive()'s
+            natural-end branch consults ``had_fatal_error`` before this
+            runs. The "STATE_COMPLETED with a fatal error" clause below is
+            therefore unreachable from drive(); it stays as a guard so the
+            mapping never counts a fatal turn as a success if a future
+            caller sets the state without that conversion.
           * STATE_COMPLETED without a fatal error → record_success (resets).
           * STATE_CANCELLED → no change (user stopped it; not the agent's fault).
 

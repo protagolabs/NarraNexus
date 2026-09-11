@@ -265,6 +265,29 @@ async def test_finalize_cancelled_and_failed_record_causes(db_client):
 
 
 @pytest.mark.asyncio
+async def test_finalize_failed_keeps_output_streamed_before_the_failure(db_client):
+    """A failed run that already streamed a reply keeps it in final_output
+    next to its error_message; only a cancelled run skips the fallback."""
+    await _seed_events_row(db_client, "evt_rr7")
+    rec = RunRecorder(db=db_client)
+    await rec.record(_step0_progress("evt_rr7"))
+    await rec.record({"type": "agent_response", "delta": "partial answer"})
+    await rec.finalize(STATE_FAILED, error_type="AuthError", error_message="401")
+    row = await db_client.get_one("events", {"event_id": "evt_rr7"})
+    assert row["state"] == STATE_FAILED
+    assert row["final_output"] == "partial answer"
+
+    await _seed_events_row(db_client, "evt_rr8")
+    rec2 = RunRecorder(db=db_client)
+    await rec2.record(_step0_progress("evt_rr8"))
+    await rec2.record({"type": "agent_response", "delta": "half a sentence"})
+    await rec2.finalize(STATE_CANCELLED, cancel_reason="user pressed stop")
+    row2 = await db_client.get_one("events", {"event_id": "evt_rr8"})
+    assert row2["state"] == STATE_CANCELLED
+    assert not (row2["final_output"] or "")
+
+
+@pytest.mark.asyncio
 async def test_fatal_error_event_sets_flags(db_client):
     rec = RunRecorder(db=db_client)
     assert rec.had_fatal_error is False

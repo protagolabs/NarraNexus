@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/background_run.py
-last_verified: 2026-08-24
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（GH #127 / B-05）— natural-end 的 `self.state` 也读 `had_fatal_error`
+
+Natural-end 分支原来无条件 `self.state = STATE_COMPLETED`。漏斗（`_fire_message_success`/
+`_fire_message_failure`）和熔断（`_record_circuit_breaker`）早就读 `self.recorder.had_fatal_error`，
+但**持久化的 `events.state`** 从没读过：致命错误（死 key、B-03 截断重试也救不回来）让生成器正常
+return，events 行照样落 `state=completed`、error_message 空。现在是
+`self.state = STATE_FAILED if self.recorder.had_fatal_error else STATE_COMPLETED`。
+
+`_record_circuit_breaker` 的「STATE_COMPLETED 且 had_fatal_error」分支从 `drive()` 已不可达（state 在它
+之前就转成 FAILED）；保留为防御并在 docstring 写明。熔断结果不变（这类 run 以前也记 failure）。
 
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
 

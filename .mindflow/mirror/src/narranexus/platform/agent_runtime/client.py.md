@@ -1,8 +1,29 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/client.py
 stub: false
-last_verified: 2026-08-07
+last_verified: 2026-09-10
 ---
+## 2026-09-10（GH #127 / B-05）— natural-end 不再无条件写 STATE_COMPLETED
+
+`run_and_collect`/`run_stream` 里两处 `recorder.finalize(STATE_COMPLETED)`
+——生成器**没抛异常**就直接判完成——改调新增的 `_finalize_natural_end()`：
+读 `recorder.had_fatal_error`,是就转 `finalize(STATE_FAILED,
+error_message=recorder.last_error_message or 兜底文案)`。
+
+根因:一个致命 `ErrorMessage`(死 key、B-03 的截断重试也救不回来)会让
+生成器**正常 return**,不是抛异常——异常分支(`except Exception`)一直都
+正确写 STATE_FAILED,漏的正是这条"没异常但也没真正成功"的路径。修之前
+events 行落地 `state=completed` + `error_message` 为空,Run-observation
+侧栏显示一次绿色完成、内容却是空的,ops 只能从
+`[AGENT-LOOP-RECOVERABLE]` 之类的应用日志里看出问题(GH #127)。
+
+`had_fatal_error` 早就存在且被 `background_run.py` 的漏斗/熔断信号读过
+(见该文件同日条目)——缺的只是"终态持久化也读它"这一步。
+
+测试:`tests/agent_runtime/test_client_recording.py` 的
+`test_run_and_collect_finalizes_failed_on_fatal_error_without_exception` +
+`test_run_stream_finalizes_failed_on_fatal_error_without_exception`。
+
 ## 2026-08-07 — 把触发树交给 recorder
 
 新增 `_inherited_root_run_id(extra_kwargs)`:从 `trigger_extra_data` 读出

@@ -157,6 +157,38 @@ async def _new_recorder(
         return None
 
 
+async def _finalize_natural_end(
+    recorder: "RunRecorder", completed_state: str, failed_state: str
+) -> None:
+    """Finalize a generator that ended WITHOUT raising -- which is not the
+    same as "the turn succeeded". A fatal ``ErrorMessage`` (dead key,
+    output-budget truncation exhausted, etc.) ends the generator naturally
+    (the framework reports the failure as an in-band event, not a Python
+    exception), so ``recorder.had_fatal_error`` is the only signal that
+    distinguishes a genuine success from this shape.
+
+    Before this (GH #127 / B-05): every fatal-but-naturally-ended run was
+    unconditionally finalized ``STATE_COMPLETED`` with no ``error_message``
+    on the events row -- ops only saw the cause in application logs
+    (``[AGENT-LOOP-RECOVERABLE]`` / a bare ``error`` stream row), and the
+    Run-observation UI showed a green "completed" run with an empty reply.
+    ``had_fatal_error`` already existed and was already read by
+    ``background_run.py``'s funnel/circuit-breaker signals (see there) --
+    it was only the PERSISTED terminal state that never consulted it.
+    """
+    if recorder.had_fatal_error:
+        await recorder.finalize(
+            failed_state,
+            error_type=recorder.last_error_type,
+            error_message=(
+                recorder.last_error_message
+                or "agent turn ended with an unrecoverable error"
+            ),
+        )
+    else:
+        await recorder.finalize(completed_state)
+
+
 def _spawn_finalize(recorder: "RunRecorder", state: str, **kwargs: Any) -> None:
     """Finalize on a task of its own — for contexts that cannot await
     (GeneratorExit unwinding, host-task cancellation). Paired with a
@@ -228,7 +260,7 @@ class InProcessAgentRuntimeClient:
                     **extra_kwargs,
                 )
             if recorder is not None:
-                await recorder.finalize(STATE_COMPLETED)
+                await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
             return result
         except CancelledByUser as e:
             if recorder is not None:
@@ -309,7 +341,7 @@ class InProcessAgentRuntimeClient:
                             )
                     yield event
             if recorder is not None:
-                await recorder.finalize(STATE_COMPLETED)
+                await _finalize_natural_end(recorder, STATE_COMPLETED, STATE_FAILED)
         except CancelledByUser as e:
             if recorder is not None:
                 with suppress(Exception):

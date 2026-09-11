@@ -565,17 +565,25 @@ class RunRecorder:
             updates["error_message"] = cancel_reason or "User cancelled"
         elif self.state == STATE_FAILED:
             # Persist the (redacted) failure cause so the row explains
-            # itself. NOTE (deliberate asymmetry): a fatal-completed run
-            # (STATE_COMPLETED + had_fatal_error — e.g. dead key/quota that
-            # ends the generator naturally) does NOT get error_message:
-            # stamping an error on a completed row would surface a spurious
-            # failure. The cause is already an `error` stream row.
+            # itself. This branch is now the ONLY place a fatal run lands
+            # (2026-09-10, GH #127 / B-05): callers (client.py's
+            # `_finalize_natural_end`, background_run.py's natural-end
+            # branch) convert a naturally-ended-but-`had_fatal_error` run
+            # to STATE_FAILED before calling `finalize`, instead of the
+            # old "leave it STATE_COMPLETED, the cause is only in the
+            # `error` stream row" behaviour -- that behaviour is exactly
+            # what left ops with nothing but
+            # `[AGENT-LOOP-RECOVERABLE]`/`Job failed: unknown` log lines
+            # and a green "completed" row in the Run-observation UI.
             from narranexus.platform.agent_framework.llm.failure import redact_secrets
             if self.last_error_message:
                 updates["error_message"] = redact_secrets(self.last_error_message)
-        if self.state == STATE_COMPLETED and self.final_output_buffer:
-            # AgentRuntime's step_4 also writes final_output from its own
-            # bookkeeping; never overwrite a non-empty value.
+        if self.state != STATE_CANCELLED and self.final_output_buffer:
+            # A FAILED run can still have streamed a real reply before the
+            # failure landed (e.g. an auth error after the text went out);
+            # the row keeps that output alongside error_message rather than
+            # dropping it. AgentRuntime's step_4 also writes final_output
+            # from its own bookkeeping; never overwrite a non-empty value.
             with suppress(Exception):
                 existing = await self.db.get_one("events", {"event_id": self.run_id})
                 if existing and not (existing.get("final_output") or "").strip():
