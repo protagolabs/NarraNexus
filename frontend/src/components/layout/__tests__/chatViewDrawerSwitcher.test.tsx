@@ -29,7 +29,7 @@ vi.mock('@/hooks', async (orig) => ({
 }));
 
 import { ChatView } from '../MainLayout';
-import { DRAWER_FIRST_RUN_KEY } from '../drawerLayout';
+import { DRAWER_FIRST_RUN_KEY, DRAWER_OPENED_ONCE_KEY } from '../drawerLayout';
 import { useConfigStore, useArtifactStore, useUIStore } from '@/stores';
 
 describe('ChatView — drawer title switcher', () => {
@@ -57,8 +57,12 @@ describe('ChatView — drawer title switcher', () => {
     // No studio on this agent → the conditional builder tab is not offered.
     expect(screen.queryByTestId('drawer-switcher-item-builder')).toBeNull();
 
+    // The switcher goes through the same uiStore panel funnel as every other
+    // entry: that funnel's bookkeeping (the opened-once mark) must run for it.
+    window.localStorage.removeItem(DRAWER_OPENED_ONCE_KEY);
     fireEvent.click(screen.getByTestId('drawer-switcher-item-jobs'));
     expect(screen.queryByTestId('panel-artifacts')).toBeNull();
     expect(screen.getByTestId('panel-jobs')).toBeTruthy();
+    expect(window.localStorage.getItem(DRAWER_OPENED_ONCE_KEY)).toBe('1');
   });
 });

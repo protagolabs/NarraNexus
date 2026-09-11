@@ -112,6 +112,7 @@ export function ChatView() {
   const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const openPanel = useUIStore((s) => s.openPanel);
 
   // The creation studio lives exactly as long as its panel is what this
   // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
@@ -130,7 +131,8 @@ export function ChatView() {
   };
 
   // A panel requested from the chat header entries / ⋯ detail menu / the
-  // command palette — all funnel through uiStore.requestPanel.
+  // command palette / the drawer's title switcher — all funnel through
+  // uiStore (requestPanel / openPanel).
   // Re-requesting the open tab closes the drawer (toggle).
   useEffect(() => {
     if (pendingPanel) {
@@ -238,9 +240,11 @@ export function ChatView() {
           edgeReservePx={0}
           pinnedWidth={effectiveDrawerWidth}
           // Title switcher (Owner-required): a pinned drawer switches its own
-          // content without a trip back to the chat header.
+          // content without a trip back to the chat header. It goes through
+          // the same uiStore funnel as every other panel entry ('open' mode:
+          // the switcher never re-selects the open tab, so no toggle).
           activeTab={drawerTab}
-          onSelectTab={(id) => setDrawerTab(id)}
+          onSelectTab={openPanel}
           switcherCategories={switcherCategories}
           banner={
             showDrawerCoach ? (
