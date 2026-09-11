@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/services/background_llm_alerts.py
-last_verified: 2026-09-10
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 余额耗尽也发 owner 通知；新增 source `team_summary`
+
+Tier-2 的判定从「凭据类」扩到「owner 能自己修的」：`is_credential_error` 之外，再用共享分类器
+`classify_self_serviceable` 判 `OUT_OF_CREDIT_REASONS`（`insufficient_balance` / `free_tier_exhausted`），
+命中则 category=`provider_balance`、发收件箱通知。起因是 2026-09-07 prod：团队总结因 owner 的 NetMind
+余额为零连续三天 400 `balance not enough`，那不是凭据错误，旧逻辑只落审计行，唯一能修的人收不到任何信号。
+提示按类别给补救：凭据 → 查 helper_llm 的 key/base URL；余额 → 充值或换 provider；免费额度用完 → 升级 Nexus Pro
+或换自己的 key（与 `SELF_SERVICEABLE_USER_MESSAGE` 同口径，不能对免费卡说「充值」）。
+正文从「long-memory updates」改成中性的「background updates」，标题带上 source——`team_summary` 不是记忆。
+影响所有调用方（narrative/post_turn/entity 链）：它们遇到余额耗尽现在也会通知 owner，同一 30 分钟去重窗口。
+message bus 的失败通知走自己的 `_classify_error`，本来就对所有类别都通知，不需要跟改。
 
 ## 2026-09-10（review r2 M5）— `_cooling` docstring 写明 fail-open 的代价
 

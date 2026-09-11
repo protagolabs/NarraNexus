@@ -145,14 +145,26 @@ prod 上两个 team 的 owner 自带 NetMind key 余额为零，worker 对它们
 正确策略，但对**调用**没说任何话：在进程之外的东西（充值、换 key）改变之前这个调用不可能成功，
 每分钟问一次只是在埋日志。
 
-现在每个 team 失败后进入退避：等待 `BACKOFF_BASE`（5 分钟）按连续失败次数翻倍，封顶
-`BACKOFF_MAX`（6 小时）；一次不抛异常的 pass（总结成功、房间安静、无成员跳过）即清零。
-退避只由失败触发——安静房间被阈值挡住不算失败，变忙的瞬间就会被尝试，有测试钉住。
+现在每个 team 失败后进入退避：等待 `BACKOFF_BASE`（300s）按连续失败次数翻倍，封顶
+`BACKOFF_MAX`（6 小时）。算式用共享的 `utils/backoff.compute_cooldown_seconds`（不再手写第 4 份副本）；
+两个常量是 int，所以连击计数不设上限也不会溢出（任意精度整数），`_BACKOFF_CAP_STEPS` 随之删除。
 
-**只放内存，不加列。** 重启就是再试一次的好理由，而失败连击本身没有任何值得持久化的信息。
-`_clock` 是测试可替换的接缝（默认 `time.monotonic`，与 `_summarise` 同一做法），测试用假时钟推进而不是 sleep。
-失败连击计数在到达封顶后不再增长（指数有界；它在 `except` 块里算，溢出会冲出 `run_once` 拖死同一 pass 的其他 team），已删除的团队条目在每个 pass 末尾清掉。
+`_summarise_team` 返回三态 `_Outcome`：`WRITTEN`（写入 → 清零）、`NOT_DUE`（没到阈值 / 空 transcript /
+无成员，**没打模型** → 清零）、`EMPTY_REPLY`（**打了模型但回空**）。空回复是 `_INSTRUCTIONS` 设计内的正常输出，
+既不能写入（会盖掉旧总结），也推不动水位（从未总结过的团队没有那一行）——所以它和失败一样进同一张退避表，
+否则同一段 transcript 每 60 秒被原样再发一次、每次计费、连日志都没有。它不计入 `failed`、也不告警，只打一行 info。
+安静房间（阈值挡住）仍然永不退避，变忙的瞬间就会被尝试，有测试钉住。
+
+**失败必须有出口。** except 分支在 `_note_failure` 之后调 `_report_failure` → `alert_background_llm_failure`
+（source=`team_summary`，agent_id=`_cost_bearer`，owner=团队 owner，source_id=team_id）：每次真实尝试失败都落一行
+`service_audit`；凭据类或余额耗尽类（共享分类器 `OUT_OF_CREDIT_REASONS`）再发 owner 收件箱通知，按
+`(agent, team, category)` 走 `owner_notice_cooldowns` 30 分钟去重。只在真实尝试上调——在退避中被跳过的团队不告警，
+否则就是把日志洪水换成审计洪水。owner/bearer 查询和告警本身各自包 try：故障中的 DB 会让查询抛，而这里在 except 块里，
+冲出去会拖死同一 pass 后面的团队。
+
+**退避只放内存，不加列。** 重启就是再试一次的好理由；持久痕迹由上面的 `service_audit` 承担。
+`_clock` 是测试可替换的接缝（默认 `time.monotonic`），测试用假时钟推进而不是 sleep。已删除的团队条目在每个 pass 末尾清掉。
 与 [[memory_consolidation_worker]] 的分野：那边把持续失败的 scope 置 `failed` 直到重新变 dirty（边沿触发），这边是定时等待——总结没有「变脏」这个边沿可等，只有时间。
 
-`last_pass` 多一个 `backoff` 计数（被跳过的等待中团队数），同样进 `/health` 的 `team_summary`
-块——否则「所有房间都在退避」和「所有房间都安静」在 L2 上又是同一种沉默。
+`last_pass` 多一个 `backoff` 计数（被跳过的等待中团队数），进 `[team.summary] pass:` 日志行。
+（worker 自插件化起跑在 workers 进程，backend `/health` 已不再有 `team_summary` 块。）

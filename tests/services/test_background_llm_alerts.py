@@ -149,3 +149,50 @@ async def test_an_unreadable_cooldown_fails_open(monkeypatch):
         error="401 unauthorized", source_id="nar_1",
     )
     assert len(_FakeInboxRepo.created) == 1   # notified, not silenced
+
+
+# ── out-of-credit is owner-actionable too ───────────────────────────────────
+#
+# 2026-09-07 prod: an owner's NetMind balance was empty and the team summary
+# failed with "balance not enough" for three days. That is not a credential
+# error, so the alert used to stop at the audit row — the one failure the owner
+# alone could fix never reached them.
+
+
+@pytest.mark.asyncio
+async def test_an_empty_balance_notifies_the_owner(db_client):
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="team_summary",
+        error=RuntimeError("Error code: 400 - balance not enough"), source_id="team_1",
+    )
+    assert len(_FakeAuditor.errors) == 1
+    assert _FakeAuditor.errors[0][1]["category"] == "provider_balance"
+    assert len(_FakeInboxRepo.created) == 1
+    msg = _FakeInboxRepo.created[0]
+    assert "Top up" in msg["content"]
+    assert "team_summary" in msg["title"]
+    rows = await db_client.get("owner_notice_cooldowns", {"agent_id": "agt_1"})
+    assert [(r["target"], r["category"]) for r in rows] == [("team_1", "provider_balance")]
+
+
+@pytest.mark.asyncio
+async def test_a_spent_free_tier_gets_the_free_tier_remedy():
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="team_summary",
+        error="ExceededBudget: budget has been exceeded", source_id="team_1",
+    )
+    assert len(_FakeInboxRepo.created) == 1
+    content = _FakeInboxRepo.created[0]["content"]
+    assert "Nexus Pro" in content
+    assert "Top up" not in content
+
+
+@pytest.mark.asyncio
+async def test_a_credential_failure_keeps_the_credential_remedy():
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error="401 unauthorized", source_id="nar_1",
+    )
+    content = _FakeInboxRepo.created[0]["content"]
+    assert "API key and base URL" in content
+    assert "Top up" not in content

@@ -46,16 +46,23 @@ summary" says nothing about how soon to try again. Retrying at full poll rate
 turned one owner's empty balance into ~1,000 identical error lines an hour for
 three days (2026-09-07 prod): the call cannot succeed until something outside
 this process changes, and asking every minute only buries the log. A team that
-failed waits an exponentially growing, capped interval (5 min → 6 h) before it
-is tried again; a pass that does not fail clears the wait. Kept in memory on
-purpose — a restart is a fine reason to try once more, and there is nothing
-about the streak worth a column.
+failed waits an exponentially growing, capped interval (5 min → 6 h, the
+shared `utils/backoff.py` formula) before it is tried again. A model that was
+called and answered with nothing waits the same way: the transcript it would be
+shown next minute is the same one, so the answer would be too, and each ask is
+billed. Only a written summary, or a pass that never reached the model, clears
+the wait. The wait is kept in memory on purpose — a restart is a fine reason to
+try once more — but every failure also goes through
+`alert_background_llm_failure`, so it leaves a `service_audit` row and, for a
+credential or out-of-credit error, a deduplicated owner inbox notice: quieting
+the log must not leave an owner with an empty balance and no way to find out.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
@@ -75,6 +82,10 @@ from narranexus.platform.schema.team_schema import (
     resolve_default_responder,
 )
 from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+from narranexus.platform.services.background_llm_alerts import (
+    alert_background_llm_failure,
+)
+from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.cost_tracker import clear_cost_context, set_cost_context
 
 
@@ -133,6 +144,16 @@ async def _inject_team_credentials(team_id: str, db) -> None:
     await inject_user_helper_credentials(owner or "", db)
 
 
+class _Outcome(Enum):
+    """What one team's attempt came to — three states, not a bool, because
+    "the model was asked and said nothing" must back off like a failure while
+    "the room was not due" must not."""
+
+    WRITTEN = "written"
+    NOT_DUE = "not_due"
+    EMPTY_REPLY = "empty_reply"
+
+
 class TeamSummaryWorker:
     """One worker per process; polls every team room on an interval."""
 
@@ -141,21 +162,20 @@ class TeamSummaryWorker:
     MESSAGE_THRESHOLD = 15
     # How much scrollback the summariser is shown.
     TRANSCRIPT_LIMIT = 60
-    # After a failure, how long before the team is tried again: BASE doubled
-    # per consecutive failure, never more than MAX.
-    BACKOFF_BASE = 300.0
-    BACKOFF_MAX = 6 * 3600.0
-    # Doublings needed to reach MAX from BASE (2^7 * 5 min > 6 h); the streak
-    # counter is clamped here so the exponent stays bounded.
-    _BACKOFF_CAP_STEPS = 8
+    # After a failure or an empty reply, how long before the team is tried
+    # again: BASE doubled per consecutive miss, never more than MAX. Ints on
+    # purpose — `compute_cooldown_seconds` then stays in arbitrary-precision
+    # integer arithmetic and a long streak cannot overflow.
+    BACKOFF_BASE = 300
+    BACKOFF_MAX = 6 * 3600
 
     def __init__(self, db_client: Any, *, poll_interval: float = POLL_INTERVAL):
         self._db = db_client
         self.poll_interval = poll_interval
         self.running = False
         self._task: Optional[asyncio.Task] = None
-        # Last pass's outcome, for health probes and tests. `backoff` is the
-        # number of teams skipped because they are waiting out a failure.
+        # Last pass's outcome, for the `pass:` log line and tests. `backoff` is
+        # the number of teams skipped because they are waiting out a miss.
         self.last_pass: Dict[str, int] = {"rooms": 0, "summarised": 0, "failed": 0, "backoff": 0}
         # team_id → (earliest next attempt, consecutive failures). Monotonic
         # seconds; tests swap the clock.
@@ -208,17 +228,28 @@ class TeamSummaryWorker:
                 backoff += 1
                 continue
             try:
-                if await self._summarise_team(team_id, room["channel_id"]):
-                    summarised += 1
+                outcome = await self._summarise_team(team_id, room["channel_id"])
             except Exception as e:  # noqa: BLE001 — isolate the bad team
                 failed += 1
                 wait = self._note_failure(team_id)
                 logger.warning(
                     f"[team.summary] team {team_id} failed, keeping its previous "
-                    f"summary; next attempt in {wait:.0f}s: {e}"
+                    f"summary; next attempt in {wait}s: {e}"
                 )
-            else:
-                self._backoff.pop(team_id, None)
+                # Only on a real attempt, never for a team skipped above —
+                # otherwise a waiting team would alert on every poll.
+                await self._report_failure(team_id, e)
+                continue
+            if outcome is _Outcome.EMPTY_REPLY:
+                wait = self._note_failure(team_id)
+                logger.info(
+                    f"[team.summary] team {team_id}: model had nothing to say; "
+                    f"next attempt in {wait}s"
+                )
+                continue
+            if outcome is _Outcome.WRITTEN:
+                summarised += 1
+            self._backoff.pop(team_id, None)
         self._forget_vanished_teams(rooms)
         # An L2 heartbeat, not decoration. With only per-failure warnings, "every
         # room is quiet" and "every room is failing" are the same observation:
@@ -241,18 +272,41 @@ class TeamSummaryWorker:
         entry = self._backoff.get(team_id)
         return entry is not None and self._clock() < entry[0]
 
-    def _note_failure(self, team_id: str) -> float:
-        """Record one more consecutive failure; return the wait it earned.
-
-        The streak stops counting once the wait is capped: the exponent would
-        otherwise grow without bound and overflow a float after ~2^10
-        failures — and this runs inside `run_once`'s except block, where an
-        OverflowError escapes and kills every later team in the pass.
-        """
-        failures = min(self._backoff.get(team_id, (0.0, 0))[1] + 1, self._BACKOFF_CAP_STEPS)
-        wait = min(self.BACKOFF_BASE * (2 ** (failures - 1)), self.BACKOFF_MAX)
+    def _note_failure(self, team_id: str) -> int:
+        """Record one more consecutive miss; return the wait it earned."""
+        failures = self._backoff.get(team_id, (0.0, 0))[1] + 1
+        wait = compute_cooldown_seconds(failures, base=self.BACKOFF_BASE, cap=self.BACKOFF_MAX)
         self._backoff[team_id] = (self._clock() + wait, failures)
         return wait
+
+    async def _report_failure(self, team_id: str, error: Exception) -> None:
+        """Leave a durable trace of a failed attempt and, when the owner can fix
+        it, tell them. Never raises: this runs in `run_once`'s except block, and
+        an exception here would abort every later team in the pass.
+
+        The lookups are wrapped separately because the alerter only promises
+        not to raise itself; a DB that is failing would make the owner/bearer
+        lookups raise before it is ever called. An empty agent id still leaves
+        the audit row.
+        """
+        owner: Optional[str] = None
+        bearer = ""
+        try:
+            team = await self._db.get_one("teams", {"team_id": team_id})
+            owner = (team or {}).get("owner_user_id") or None
+            bearer = await self._cost_bearer(team_id)
+        except Exception as lookup_error:  # noqa: BLE001 — observer never breaks observed
+            logger.warning(f"[team.summary] owner lookup for {team_id} failed: {lookup_error}")
+        try:
+            await alert_background_llm_failure(
+                agent_id=bearer,
+                source="team_summary",
+                error=error,
+                owner_user_id=owner,
+                source_id=team_id,
+            )
+        except Exception as alert_error:  # noqa: BLE001 — same reason
+            logger.warning(f"[team.summary] failure alert for {team_id} failed: {alert_error}")
 
     def _forget_vanished_teams(self, rooms: List[Dict[str, str]]) -> None:
         """A deleted team's room is gone from `_team_rooms`, so nothing would
@@ -309,8 +363,8 @@ class TeamSummaryWorker:
             )
         return int((rows or [{"n": 0}])[0].get("n") or 0)
 
-    async def _summarise_team(self, team_id: str, channel_id: str) -> bool:
-        """Summarise one team if it has moved enough. True when written."""
+    async def _summarise_team(self, team_id: str, channel_id: str) -> _Outcome:
+        """Summarise one team if it has moved enough."""
         repo = TeamBulletinRepository(self._db)
         existing = await repo.get_summary(team_id)
         watermark = await self._watermark(team_id)
@@ -318,11 +372,11 @@ class TeamSummaryWorker:
         if await self._new_message_count(channel_id, watermark) < self.MESSAGE_THRESHOLD:
             # Nothing new worth a call. An unchanged room re-summarised on every
             # poll would bill the user to rewrite the same paragraph.
-            return False
+            return _Outcome.NOT_DUE
 
         transcript, newest = await self._transcript(channel_id)
         if not transcript.strip():
-            return False
+            return _Outcome.NOT_DUE
 
         # No member means no cost bearer, and every helper SDK discards a record
         # whose agent id is empty — so summarising here would burn the owner's
@@ -337,18 +391,21 @@ class TeamSummaryWorker:
                 f"[team.summary] team {team_id} has no members — skipping "
                 f"(no cost bearer, so the tokens would go unrecorded)"
             )
-            return False
+            return _Outcome.NOT_DUE
 
         text = await self._summarise(team_id=team_id, transcript=transcript, bearer=bearer)
         # A model that returned whitespace has told us nothing. Writing it would
         # replace a real summary with a blank one, which reads as "no progress".
+        # Nor can the watermark advance: a team never summarised has no row to
+        # hold it. So the caller backs this team off — the same transcript
+        # would get the same non-answer, billed, on every poll.
         if not (text or "").strip():
-            return False
+            return _Outcome.EMPTY_REPLY
 
         await repo.upsert_summary(team_id, (text or "").strip()[:BULLETIN_MAX_SUMMARY_CHARS])
         await self._set_watermark(team_id, newest)
         logger.info(f"[team.summary] team={team_id} summarised ({'refreshed' if existing else 'first'})")
-        return True
+        return _Outcome.WRITTEN
 
     async def _transcript(self, channel_id: str) -> tuple[str, Optional[str]]:
         """The room's recent messages as plain text, plus the newest timestamp.
