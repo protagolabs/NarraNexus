@@ -55,7 +55,7 @@ TASK_LIST_TOOLS_NOTICE_TEMPLATE = (
     "within this run (run_in_background, then TaskOutput / TaskStop) still "
     "work as usual. For work that must outlive this run — deferred, "
     "scheduled, or recurring — use the platform's Job module tools "
-    "(create_job and friends) when they are available to you; otherwise "
+    "(job_create and friends) when they are available to you; otherwise "
     "finish the work in this turn."
 )
 

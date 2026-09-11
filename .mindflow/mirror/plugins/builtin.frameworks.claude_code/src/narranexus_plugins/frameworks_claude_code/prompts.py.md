@@ -13,7 +13,9 @@ CLI 自带的任务清单工具（列表由 [[sdk]] 的 `TASK_LIST_TOOLS` 传入
 **TodoWrite** 清单同样只活在本 run 内、平台不读——文案点名说明但**不禁用**它；**本 run 内后台命令
 （run_in_background + TaskOutput/TaskStop）照常可用**——必须明说，否则是在对模型抹掉一个可用能力；
 必须跨 run 的工作（延迟/定时/周期）走平台 Job module 工具（可用时），否则本轮做完。空列表 → 空串。
-只提 Job module 与 create_job 的存在，不写场景（铁律 #4）。
+只提 Job module 与 `job_create`（Job MCP server 注册的真名；PR#392 复审 I1：初版写成不存在的
+`create_job`）的存在，不写场景（铁律 #4）。`test_the_job_tool_named_in_the_notice_is_a_real_job_mcp_tool`
+拿 notice 里点名的工具去对 `create_job_mcp_server()` 的工具表，改名一边另一边立刻红。
 
 ## 2026-08-17 — 来源声明排在回复规则前面
 

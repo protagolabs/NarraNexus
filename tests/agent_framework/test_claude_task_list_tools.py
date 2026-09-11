@@ -219,10 +219,26 @@ async def test_system_prompt_points_cross_run_work_at_the_job_module():
     assert "disabled" not in notice
     assert _RUN_SCOPED_CHECKLIST_TOOL in notice
     assert "Job module" in notice
-    assert "create_job" in notice
+    assert "job_create" in notice
     # Exactly once: the notice rides the BASE prompt, never the history.
     assert prompt.count(notice) == 1
 
 
 def test_notice_is_empty_for_an_empty_tool_list():
     assert task_list_tools_notice(()) == ""
+
+
+def test_the_job_tool_named_in_the_notice_is_a_real_job_mcp_tool():
+    """The notice names a Job tool; a name the Job module does not register
+    (it once said `create_job`) sends the model after a tool that does not
+    exist. Check the named tool against the MCP server's own tool list."""
+    import re
+
+    from narranexus_plugins.job_module._job_mcp_tools import create_job_mcp_server
+
+    notice = task_list_tools_notice(("TaskCreate",))
+    named = re.search(r"\((\w+) and friends\)", notice)
+    assert named is not None, notice
+    registered = {t.name for t in create_job_mcp_server()._tool_manager.list_tools()}
+    assert named.group(1) in registered, (named.group(1), sorted(registered))
+    assert "create_job" not in registered  # negative: the old wording's name
