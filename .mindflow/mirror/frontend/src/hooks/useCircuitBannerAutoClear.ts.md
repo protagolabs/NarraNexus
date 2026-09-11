@@ -4,6 +4,17 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（PR #394 review 第四轮 I-2）— 从「清 / 不清」升级为「同步真相」
+
+轮询拿到的是权威状态，原来只用来回答要不要关横幅；`probing` 横幅在探测**失败**后（行回到
+PAUSED）仍挂着「briefly cooling down / try again shortly」、没有 Resume 按钮、并每 30s 白轮询。
+现在每次轮询走 `syncCircuitBannerReason(reason, cb_status, paused_reason)`：`null` → 关横幅；
+返回的 reason 与当前不同 → `setCircuitOpen({agentId, reason: next})`（`probing` → `paused:auth` /
+`paused:quota`，App.tsx 随之换成暂停文案并长出 Resume，之后按 `paused*` 继续轮询、修好即自关）；
+相同 → 什么都不做。只在值真的变了才 set：`reason` 是 effect 依赖，同值 set 会每次轮询重建 interval。
+锁：`a probing banner escalates to the real pause when the probe fails`（旧 hook 下红）、
+`a paused banner that already shows the reason is not re-set on each poll`。
+
 # useCircuitBannerAutoClear.ts — "paused" / "probing" 熔断横幅的自愈轮询
 
 ## Why it exists
@@ -22,12 +33,13 @@ stub: false
   是同样的 `check(); setInterval(check)` 范式）。
 - 轮询 `paused*` 与 `probing` 两类原因（PR #394 review I2）：`probing` 是另一个 turn 正持有
   半开探测，结果几秒到几分钟后落定，除了轮询没有别的路径会关掉这条横幅；探测期间
-  `shouldClearCircuitBanner('probing')` 为假，横幅保持，出结果（active/cooling）即自关。
+  `shouldClearCircuitBanner('probing')` 为假，横幅保持，出结果即同步（成功 → 自关；失败 → 升级为
+  `paused:<reason>`，见最上一节）。
   cooling 短暂、随下一次交互自然消失，不轮询。
 - 拉取失败保持横幅原样，下一 tick 重试——网络抖动不能误清一个真的还 paused 的横幅。
 
-判定本身在 `services/wsCircuitOpen.shouldClearCircuitBanner`（`active`/`cooling` 才清，
-`probing` 不清）；这里只负责节奏与门禁。
+判定本身在 `services/wsCircuitOpen.syncCircuitBannerReason`（内部用
+`shouldClearCircuitBanner`：`active`/`cooling` 才清，`probing` 不清）；这里只负责节奏与门禁。
 
 ## Upstream / downstream
 

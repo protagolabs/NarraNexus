@@ -68,6 +68,23 @@ export function shouldClearCircuitBanner(cbStatus: string): boolean {
   return cbStatus === 'active' || cbStatus === 'cooling';
 }
 
+/** What a showing banner should become given a freshly-fetched status:
+ * `null` closes it (`shouldClearCircuitBanner`); a `paused` status maps to
+ * `paused:<paused_reason>` — so a `probing` banner whose probe FAILED
+ * escalates to the real pause, with the pause copy and the Resume action,
+ * instead of promising "try again shortly" forever; `probing` (or a status
+ * this build does not know) keeps the current reason. The caller updates
+ * the banner only when the returned reason differs from the one shown. */
+export function syncCircuitBannerReason(
+  currentReason: string,
+  cbStatus: string,
+  pausedReason: string | null | undefined,
+): string | null {
+  if (shouldClearCircuitBanner(cbStatus)) return null;
+  if (cbStatus === 'paused') return `paused:${pausedReason || 'unknown'}`;
+  return currentReason;
+}
+
 /**
  * Fire the app-wide `narranexus:agent-circuit-open` event carrying the
  * agent + reason. App.tsx listens and shows a banner with a Resume button.

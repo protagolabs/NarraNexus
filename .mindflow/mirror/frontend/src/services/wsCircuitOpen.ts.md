@@ -3,6 +3,14 @@ code_file: frontend/src/services/wsCircuitOpen.ts
 last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-2）— `syncCircuitBannerReason`
+
+新增纯函数 `syncCircuitBannerReason(currentReason, cbStatus, pausedReason) -> string | null`：
+`shouldClearCircuitBanner` 为真 → `null`（关）；`paused` → `paused:<pausedReason 或 unknown>`（探测
+失败的 `probing` 横幅借此升级成真正的暂停横幅）；`probing` 或未知状态 → 保持当前 reason。
+`shouldClearCircuitBanner` 本身不变（`probing` 仍不清，避免探测在飞时的抖动）。
+
 # wsCircuitOpen.ts — 检测 WS "熔断器打开" 帧 + 横幅自愈判定
 
 ## 为什么存在

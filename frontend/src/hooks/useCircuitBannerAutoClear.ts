@@ -1,8 +1,11 @@
 /**
  * useCircuitBannerAutoClear — while a "paused" or "probing" circuit-breaker
  * banner is up, re-check the agent's real breaker status on an interval and
- * close the banner once the backend no longer reports it held (the half-open
- * probe succeeded, or the owner fixed the key from another tab/device).
+ * keep the banner in sync with it (`syncCircuitBannerReason`): close it once
+ * the backend no longer reports the agent held (the half-open probe
+ * succeeded, or the owner fixed the key from another tab/device), and turn a
+ * "probing" banner into the real "paused:<reason>" one when the probe failed
+ * — pause copy plus the Resume action, instead of "try again shortly".
  *
  * Extracted from App.tsx so the polling contract is testable with fake
  * timers instead of living inside the root component's effect soup:
@@ -21,7 +24,7 @@ import { useEffect } from 'react';
 import { api } from '@/lib/api';
 import {
   CIRCUIT_BREAKER_POLL_INTERVAL_MS,
-  shouldClearCircuitBanner,
+  syncCircuitBannerReason,
   type AgentCircuitOpenDetail,
 } from '@/services/wsCircuitOpen';
 
@@ -49,8 +52,14 @@ export function useCircuitBannerAutoClear(
     const pollStatus = async () => {
       try {
         const status = await api.getAgentCircuitBreaker(agentId);
-        if (!cancelled && shouldClearCircuitBanner(status.cb_status)) {
+        if (cancelled) return;
+        const next = syncCircuitBannerReason(reason, status.cb_status, status.paused_reason);
+        if (next === null) {
           setCircuitOpen(null);
+        } else if (next !== reason) {
+          // Only on a real change: `reason` keys this effect, so a
+          // same-value update would restart the interval on every poll.
+          setCircuitOpen({ agentId, reason: next });
         }
       } catch {
         // Best-effort re-check — leave the banner as-is; the next tick retries.

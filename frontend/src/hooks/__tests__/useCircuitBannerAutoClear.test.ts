@@ -10,7 +10,7 @@ import { renderHook } from '@testing-library/react';
 import { CIRCUIT_BREAKER_POLL_INTERVAL_MS } from '@/services/wsCircuitOpen';
 
 const { getAgentCircuitBreaker } = vi.hoisted(() => ({
-  getAgentCircuitBreaker: vi.fn(async () => ({ success: true, cb_status: 'paused' })),
+  getAgentCircuitBreaker: vi.fn(async () => ({ success: true, cb_status: 'paused', paused_reason: 'auth' })),
 }));
 
 vi.mock('@/lib/api', () => ({ api: { getAgentCircuitBreaker } }));
@@ -21,7 +21,7 @@ const banner = { agentId: 'ag_1', reason: 'paused:auth' };
 
 beforeEach(() => {
   getAgentCircuitBreaker.mockReset();
-  getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'paused' });
+  getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'paused', paused_reason: 'auth' });
   vi.useFakeTimers();
 });
 afterEach(() => {
@@ -95,6 +95,34 @@ describe('useCircuitBannerAutoClear', () => {
     getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'active' });
     await vi.advanceTimersByTimeAsync(CIRCUIT_BREAKER_POLL_INTERVAL_MS);
     expect(setCircuitOpen).toHaveBeenCalledWith(null);
+  });
+
+  test('a probing banner escalates to the real pause when the probe fails', async () => {
+    const setCircuitOpen = vi.fn();
+    getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'probing' });
+    renderHook(() =>
+      useCircuitBannerAutoClear({ agentId: 'ag_1', reason: 'probing' }, setCircuitOpen, true),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(setCircuitOpen).not.toHaveBeenCalled();
+
+    getAgentCircuitBreaker.mockResolvedValue({
+      success: true, cb_status: 'paused', paused_reason: 'quota',
+    });
+    await vi.advanceTimersByTimeAsync(CIRCUIT_BREAKER_POLL_INTERVAL_MS);
+    expect(setCircuitOpen).toHaveBeenCalledTimes(1);
+    expect(setCircuitOpen).toHaveBeenCalledWith({ agentId: 'ag_1', reason: 'paused:quota' });
+  });
+
+  test('a paused banner that already shows the reason is not re-set on each poll', async () => {
+    const setCircuitOpen = vi.fn();
+    getAgentCircuitBreaker.mockResolvedValue({
+      success: true, cb_status: 'paused', paused_reason: 'auth',
+    });
+    renderHook(() => useCircuitBannerAutoClear(banner, setCircuitOpen, true));
+    await vi.advanceTimersByTimeAsync(CIRCUIT_BREAKER_POLL_INTERVAL_MS * 3);
+    expect(getAgentCircuitBreaker).toHaveBeenCalledTimes(4);
+    expect(setCircuitOpen).not.toHaveBeenCalled();
   });
 
   test('logged out: clears the banner and never polls the authenticated endpoint', async () => {
