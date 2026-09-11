@@ -10,7 +10,13 @@
  *
  * jsdom has no layout engine, so this cannot assert the button's actual
  * on-screen position; it pins the CSS contract instead (`min-w-0` on the
- * room's flex column) so a revert of the fix goes red.
+ * room's flex column and on the root that holds it) so a revert of the fix
+ * goes red.
+ *
+ * This pins the current implementation, not the only correct one: per the
+ * flexbox spec `overflow-hidden` also zeroes an item's automatic min size
+ * (ChatPanel uses that). If the room switches to `overflow-hidden`, update
+ * these assertions with it.
  */
 import { describe, expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -67,5 +73,8 @@ describe('room shell stays within the viewport on a phone', () => {
     expect(shell.className.split(/\s+/)).toEqual(
       expect.arrayContaining(['flex-1', 'min-w-0']),
     );
+    // The root that holds the column gets the same guard: when it is itself
+    // a flex-row item, its content-based min width would otherwise win.
+    expect(shell.parentElement?.className.split(/\s+/)).toContain('min-w-0');
   });
 });

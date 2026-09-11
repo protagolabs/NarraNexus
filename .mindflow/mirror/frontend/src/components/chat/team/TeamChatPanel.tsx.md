@@ -47,8 +47,16 @@ the header row (flex-wrap + `min-w-0` on its own sub-rows, from the
 own div) were already correct; they just couldn't do anything with a
 parent that had already claimed unlimited width.
 
+The component's outermost `<div className="flex h-full min-h-0 min-w-0">`
+got `min-w-0` in the same change as a same-class guard: it is the element
+MainLayout's route wrapper actually lays out, and when it sits in a
+flex row its own content-based min width would reintroduce the same
+overflow one level up.
+
 Test: `TeamChatPanel.mobileLayout.test.tsx` asserts the shell's className
-contains both `flex-1` and `min-w-0`.
+contains both `flex-1` and `min-w-0`, and that its parent (the outermost
+root) carries `min-w-0`. The file header notes the assertions pin the
+current implementation (`overflow-hidden` would be an equivalent fix).
 
 ## 2026-09-03 — 公告栏和团队管理收进抽屉第四个 tab
 
