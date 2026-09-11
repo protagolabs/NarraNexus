@@ -21,22 +21,39 @@
 #   NEXUS_NETMIND_ENV=prod  (default) production NetMind
 #   NEXUS_NETMIND_ENV=dev             the protago-dev stack (internal testing)
 # Every individual variable stays overridable (an already-exported value
-# wins). NEXUS_DEV_POWER_LOGIN=0 keeps a pure-local (username-only) session.
+# wins). NEXUS_DEV_POWER_LOGIN=0 keeps a pure-local (username-only) session:
+# both login flags are exported as an explicit `false` (an old
+# `export VITE_ENABLE_POWER_LOGIN=true` in the developer's shell must not
+# light the frontend entry against the vite dev fallback), and every other
+# NetMind var is unset in the panes rather than forwarded.
 #
 # Exporting is not enough for dev-local.sh: tmux panes inherit the tmux
 # SERVER's environment (captured when the server first started), not the
 # launcher's. nexus_netmind_env_cmd prints `export VAR='value'; ` for every
 # NetMind var so the launcher can prepend it to each pane's command, the
 # same way it forwards PATH — vite reads VITE_-prefixed process env at dev
-# time, the backend reads the rest.
+# time, the backend reads the rest. Values are shell-quoted with printf %q,
+# so any character (a single quote included) survives the round trip.
 #
 # nexus_netmind_env returns non-zero on an unknown NEXUS_NETMIND_ENV; the
 # caller aborts.
 
 NEXUS_NETMIND_VARS="NARRANEXUS_ENABLE_POWER_LOGIN NETMIND_USE_SUBSCRIPTION_ENABLED NETMIND_AUTH_API_URL BILLING_API_BASE NETMIND_KEY_API_BASE NETMIND_INFERENCE_BASE VITE_ENABLE_POWER_LOGIN VITE_NETMIND_AUTH_API VITE_NETMIND_ACCOUNTS_URL VITE_NETMIND_SYS_CODE VITE_NETMIND_REGISTER_URL"
 
+NEXUS_NETMIND_FLAG_VARS="NARRANEXUS_ENABLE_POWER_LOGIN VITE_ENABLE_POWER_LOGIN"
+
+# The single predicate both functions below share, so "Power login off"
+# can never mean different things to the exporter and the forwarder.
+nexus_power_login_off() {
+    [ "${NEXUS_DEV_POWER_LOGIN:-1}" = "0" ]
+}
+
 nexus_netmind_env() {
-    [ "${NEXUS_DEV_POWER_LOGIN:-1}" = "0" ] && return 0
+    if nexus_power_login_off; then
+        export NARRANEXUS_ENABLE_POWER_LOGIN=false
+        export VITE_ENABLE_POWER_LOGIN=false
+        return 0
+    fi
 
     local auth accounts register billing key inference
     case "${NEXUS_NETMIND_ENV:-prod}" in
@@ -76,10 +93,20 @@ nexus_netmind_env() {
 }
 
 nexus_netmind_env_cmd() {
-    local var value out=""
+    local var value quoted out=""
     for var in $NEXUS_NETMIND_VARS; do
+        if nexus_power_login_off; then
+            case " $NEXUS_NETMIND_FLAG_VARS " in
+                *" $var "*) out+="export $var=false; " ;;
+                *) out+="unset $var; " ;;
+            esac
+            continue
+        fi
         eval "value=\"\${$var-}\""
-        [ -n "$value" ] && out+="export $var='$value'; "
+        if [ -n "$value" ]; then
+            printf -v quoted '%q' "$value"
+            out+="export $var=$quoted; "
+        fi
     done
     printf '%s' "$out"
 }

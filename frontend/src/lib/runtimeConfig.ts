@@ -121,6 +121,32 @@ function _viteNetmind(): Partial<NetmindConfig> {
   };
 }
 
+// The two endpoints a cloud stack MUST inject through /config.js. A cloud
+// image is built without any VITE_NETMIND_*, so an empty injected value
+// silently lands on the compiled-in fallback — PROD NetMind in a `vite
+// build`. That is right for the prod stack but breaks login on the dev
+// stack, whose backend validates tokens against protago-dev (PR#403 review
+// I2). The fallback cannot know which stack it is on, so a cloud deploy
+// that forgot to inject them says so loudly, once per missing key.
+const _CLOUD_REQUIRED_NETMIND: ReadonlyArray<[keyof NetmindConfig, string]> = [
+  ['authApi', 'NETMIND_AUTH_API_URL'],
+  ['accountsUrl', 'NETMIND_ACCOUNTS_URL'],
+];
+const _reportedUninjected = new Set<string>();
+
+function _reportUninjectedCloudNetmind(injected: Partial<NetmindConfig>): void {
+  if (!isForcedCloud()) return;
+  for (const [key, envName] of _CLOUD_REQUIRED_NETMIND) {
+    if (injected[key] || _reportedUninjected.has(key)) continue;
+    _reportedUninjected.add(key);
+    console.error(
+      `[runtimeConfig] cloud deploy did not inject NetMind "${key}" via ` +
+        `/config.js; using the compiled-in fallback. Set ${envName} in the ` +
+        'stack .env so the frontend and backend target the same NetMind.',
+    );
+  }
+}
+
 /**
  * NetMind endpoint config. Resolves each field with precedence
  * injected /config.js → VITE_* → compiled-in fallback (protago-dev on the
@@ -132,6 +158,7 @@ export function getNetmindConfig(): NetmindConfig {
   const injected = _injectedNetmind();
   const vite = _viteNetmind();
   const fallback = import.meta.env.DEV ? _DEV_NETMIND : _PROD_NETMIND;
+  _reportUninjectedCloudNetmind(injected);
   const pick = (k: keyof NetmindConfig): string =>
     injected[k] || vite[k] || fallback[k];
   return {

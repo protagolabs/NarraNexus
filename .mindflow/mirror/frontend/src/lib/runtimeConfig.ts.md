@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/runtimeConfig.ts
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -28,6 +28,19 @@ dev fallbacks. That path now exports explicit PROD values
 (`scripts/dev/netmind_env.sh`); this change closes the same hole for every
 built bundle. Tests: `runtimeConfig.netmind.test.ts` (DEV → protago-dev,
 PROD → netmind.ai with no protago-dev string, VITE_* beats both).
+
+Guard for the cloud dev stack (PR#403 review I2): before this change the
+fallback happened to equal the dev stack's target, so a dev host `.env` missing
+`NETMIND_AUTH_API_URL` / `NETMIND_ACCOUNTS_URL` was harmless; now it would land
+on PROD NetMind while the dev backend validates against protago-dev. The bundle
+cannot tell which stack it is on, so `getNetmindConfig()` in forced-cloud mode
+`console.error`s once per missing injected `authApi` / `accountsUrl`, naming the
+`.env` key to set (`_reportUninjectedCloudNetmind`). Desktop/local builds are
+silent (they use VITE_*). The fail-fast half belongs to the deploy repo
+(compose `${NETMIND_AUTH_API_URL:?...}` / `${NETMIND_ACCOUNTS_URL:?...}`,
+tracked as a follow-up there; `NETMIND_REGISTER_URL` stays optional). Tests:
+logs once per key when cloud injects empty values, silent with both injected,
+silent outside cloud.
 
 
 ## 2026-08-12 — Web-analytics id (GTM), host-gated

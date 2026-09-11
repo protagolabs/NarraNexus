@@ -1,6 +1,6 @@
 ---
 code_file: scripts/release/build-desktop.sh
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
