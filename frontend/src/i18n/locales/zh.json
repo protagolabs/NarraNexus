@@ -2507,6 +2507,7 @@
       "running": "运行中",
       "paused": "已暂停",
       "pausedNoQuota": "配额不足",
+      "pausedSpendCap": "花费上限",
       "cooling": "重试中",
       "blocked": "受阻",
       "blockedFailed": "依赖失败",

@@ -61,6 +61,7 @@ Usage:
 
 import asyncio
 import argparse
+import os
 from typing import List, Optional, Dict, Any, Set
 from uuid import uuid4
 
@@ -76,13 +77,20 @@ from narranexus.platform.schema.job_schema import (
 )
 from narranexus.platform.schema.hook_schema import WorkingSource
 from narranexus.platform.schema.runtime_message import AUTH_EXPIRED_ERROR_TYPE
+from narranexus.platform.schema.entity_schema import NON_TRANSACTING_USER_STATUSES
 from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
 # Utils
 from narranexus.platform.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
+from narranexus.platform.utils.timezone import coerce_utc
 
 # Repository
 from narranexus.platform.repository import JobRepository
+from narranexus.platform.repository.inbox_repository import InboxRepository
+from narranexus.platform.repository.owner_notice_cooldown_repository import (
+    OwnerNoticeCooldownRepository,
+)
+from narranexus.platform.schema.inbox_schema import InboxMessageType, MessageSource
 from narranexus.platform.services.service_audit import ServiceAuditor
 # Leaf shared util (the real-time circuit-breaker imports the same) — NOT a
 # cross-module dependency (binding rule #3). Reused so the Job layer recognises
@@ -99,7 +107,7 @@ from narranexus.platform.utils.job_scheduling import (
     past_schedule_horizon,
 )
 from zoneinfo import ZoneInfo
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 # Context builder (extracted: dependency outputs, social network, narrative, prompt assembly)
 from narranexus_plugins.job_module._job_context_builder import build_execution_prompt
@@ -247,11 +255,115 @@ _IN_RUN_STOPS = (
 _NO_QUOTA_BACKSTOP_INTERVAL_S = 900  # 15 minutes
 
 
+# B-17 / review I8: one "job paused" inbox notice per (agent, job, reason)
+# per this window. A PAUSED_NO_QUOTA job whose reason readiness CAN observe
+# (auth / no_quota) is re-armed by the 15-minute backstop, fires, fails
+# identically and pauses again — without a window that is one inbox row per
+# schedule tick, forever. The window is keyed on the REASON too, so a change
+# of reason (no_quota -> auth) is a new fact and notifies immediately. Lives
+# in `owner_notice_cooldowns` (OwnerNoticeCooldownRepository) so a process
+# restart does not re-notify. MUST stay far below the bus's
+# NOTICE_COOLDOWN_RETENTION_DAYS (2 days) — its daily sweep deletes rows older
+# than that, and a window longer than the sweep would re-open mid-flight
+# (tests/job_module/test_job_pause_inbox_notification.py pins the ratio).
+_PAUSE_NOTICE_COOLDOWN_SECONDS = 6 * 3600
+_PAUSE_NOTICE_CATEGORY_PREFIX = "job_paused:"
+
+
+def _pause_notice_category(pause_reason: str) -> str:
+    """`owner_notice_cooldowns.category` for a pause notice: prefix + reason.
+    The column is VARCHAR(32); every reason `_finalize_job_execution` /
+    `_execute_job` can produce fits (longest: `insufficient_balance`, 31)."""
+    return f"{_PAUSE_NOTICE_CATEGORY_PREFIX}{pause_reason}"
+
+
 def _compute_cooldown_seconds(consecutive_failures: int) -> int:
     """Exponential backoff: base · 2^(n-1), clamped to the cap.
     n=1→60s, 2→120s, 3→240s, … capped at 3600s (1h)."""
     n = max(1, consecutive_failures)
     return min(_BACKOFF_BASE_SECONDS * (2 ** (n - 1)), _BACKOFF_CAP_SECONDS)
+
+
+# B-14: env-tunable daily spend circuit, evaluated before each scheduled
+# start. It counts the executing USER's ENTIRE LLM spend for the local day —
+# every `cost_records` row attributed to that user (interactive chat, memory
+# consolidation, helper calls, other jobs), not only job runs. `cost_records`
+# carries no job attribution, and the ceiling means "this user is done
+# spending for today", which is a property of the user, not of one job —
+# hence USER in the name. 0 (or unset) = disabled: the default is a no-op so
+# this never changes existing behavior for anyone who hasn't opted in. Read
+# fresh on every check (not a module-level constant) so ops can tune it
+# without a process restart.
+_USER_DAILY_SPEND_CAP_ENV = "NARRANEXUS_USER_DAILY_SPEND_CAP_USD"
+
+
+def local_day_start_utc(tz_name: str, now: Optional[datetime] = None) -> datetime:
+    """Midnight of the CURRENT local day in `tz_name`, as an aware UTC instant.
+
+    "Today" for the spend cap is the job's own frozen timezone (the same
+    `trigger_config.timezone` every other time judgement in this file uses),
+    never UTC: a UTC-based day would reset a UTC+8 user's budget at 08:00
+    local and straddle two calendar days. An unknown zone name falls back to
+    UTC (loudly) rather than failing the whole cap check.
+    """
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:  # noqa: BLE001 — ZoneInfoNotFoundError / KeyError / bad type
+        logger.warning(f"[spend-cap] unknown timezone {tz_name!r}; using UTC for the day boundary")
+        tz = timezone.utc
+    now_local = (now or utc_now()).astimezone(tz)
+    return now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+async def _daily_spend_usd_for_user(
+    db, user_id: str, tz_name: str = "UTC", now: Optional[datetime] = None
+) -> float:
+    """Sum `cost_records.total_cost_usd` for `user_id` since the start of the
+    current local day in `tz_name` (B-14 / review I6).
+
+    Raw SQL — no repository exists for `cost_records` yet; unquoted
+    identifiers, dialect-portable (tests/job_module/test_job_daily_spend_cap.py
+    + its `_mysql` twin).
+
+    The SQL only PRE-FILTERS (one full day of margin before the boundary);
+    the exact `>= local midnight` cut is applied in Python on the parsed
+    timestamps. SQLite stores `created_at` as text in two shapes — the column
+    default `datetime('now')` writes `YYYY-MM-DD HH:MM:SS`, explicit writes
+    land as ISO `YYYY-MM-DDTHH:MM:SS+00:00` — and those two do not order
+    correctly against each other within one date (`T` > space), so no single
+    string cutoff can be exact on the boundary date. A day of margin makes
+    the string comparison only ever include EXTRA rows, never drop a valid
+    one; the Python step (`coerce_utc`, which reads both shapes and MySQL's
+    native DATETIME) discards the surplus. The cutoff travels as a
+    `YYYY-MM-DD HH:MM:SS` string rather than a datetime object: passing a
+    datetime relied on CPython's default sqlite3 adapter, deprecated since
+    3.12 (review M6).
+
+    ASSUMES the DB session clock is UTC: `cost_records.created_at` is filled by
+    the column default (`datetime('now')` on SQLite — always UTC;
+    `CURRENT_TIMESTAMP(6)` on MySQL — the SESSION time zone). A MySQL session
+    not in UTC shifts this whole window by the offset. The MySQL twin asserts
+    `NOW() = UTC_TIMESTAMP()` so a mis-configured server fails there, not in
+    production arithmetic.
+
+    `now` exists for tests to pin the day boundary; production callers leave
+    it None.
+    """
+    day_start = local_day_start_utc(tz_name, now)
+    prefilter = (day_start - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    query = """
+        SELECT total_cost_usd, created_at
+        FROM cost_records
+        WHERE user_id = %s AND created_at >= %s
+    """
+    rows = await db.execute(query, params=(user_id, prefilter), fetch=True)
+    total = 0.0
+    for row in rows or ():
+        stamp = coerce_utc(row.get("created_at"))
+        if stamp is None or stamp < day_start:
+            continue
+        total += float(row.get("total_cost_usd") or 0.0)
+    return total
 
 
 class JobTrigger:
@@ -513,6 +625,11 @@ class JobTrigger:
             if last is None or (now_ts - last).total_seconds() >= _NO_QUOTA_BACKSTOP_INTERVAL_S:
                 self._last_no_quota_backstop = now_ts
                 await self._resume_eligible_no_quota_jobs()
+                # Same cadence: a job parked by the daily spend cap comes back
+                # on its own once the user's local day rolls over (spend back
+                # under the cap) or ops lower/disable the cap — the cap is a
+                # per-day ceiling, not a permanent stop (review C1).
+                await self._resume_spend_capped_jobs()
                 # Same cadence: self-heal "active but unschedulable" zombies —
                 # an ACTIVE scheduled/ongoing job left with a NULL next_run_time
                 # is never picked by get_due_jobs (NULL is never <= now), so it
@@ -533,20 +650,87 @@ class JobTrigger:
 
             # 3. Put tasks into queue (skip already executing ones)
             enqueued = 0
+            # One account lookup per principal per cycle, not per job (review M1).
+            standing: Dict[str, Optional[str]] = {}
             for job in due_jobs:
-                if job.job_id not in self._running_jobs:
-                    self._running_jobs.add(job.job_id)
-                    await self._job_queue.put(job)
-                    self._enqueued_total += 1
-                    enqueued += 1
-                else:
+                if job.job_id in self._running_jobs:
                     logger.debug(f"Job {job.job_id} already running, skipped")
+                    continue
+
+                # B-13: a non-transacting owner (banned / blocked / deleted)
+                # must never be enqueued — `Key is blocked` 401s are
+                # otherwise indistinguishable from an ordinary auth failure,
+                # so the job cycled through PAUSED_NO_QUOTA and resurrected
+                # daily even though the account itself (not the provider) is
+                # what is unusable. Pause it here, BEFORE it ever reaches a
+                # worker, so it also drops out of `get_due_jobs()` on the
+                # next poll instead of being re-evaluated every cycle. The
+                # execution principal (`related_entity_id or user_id`) is the
+                # one identity this file judges everywhere (`_user_can_run`,
+                # the spend cap, `_run_agent`).
+                exec_uid = job.related_entity_id or job.user_id
+                if exec_uid and exec_uid not in standing:
+                    standing[exec_uid] = await self._non_transacting_status(exec_uid)
+                blocked_status = standing.get(exec_uid) if exec_uid else None
+                if blocked_status:
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.PAUSED.value,
+                        "paused_reason": blocked_status,
+                        "paused_at": utc_now(),
+                    })
+                    logger.warning(
+                        f"Job {job.job_id} paused: principal {exec_uid} is {blocked_status}"
+                    )
+                    continue
+
+                self._running_jobs.add(job.job_id)
+                await self._job_queue.put(job)
+                self._enqueued_total += 1
+                enqueued += 1
 
             if enqueued > 0:
                 logger.info(f"Enqueued {enqueued} jobs (queue size: {self._job_queue.qsize()})")
 
         except Exception as e:
             logger.exception(f"Error in poll_and_enqueue: {e}")
+
+    async def _non_transacting_status(self, user_id: str) -> Optional[str]:
+        """The account's `users.status` if it is one that must not transact
+        (`NON_TRANSACTING_USER_STATUSES`: banned / blocked / deleted), else None.
+
+        B-13: a banned user's `Key is blocked` 401s look identical to a dead
+        credential to every other classifier in this file, so a banned owner's
+        scheduled job kept being treated as a normal auth failure and cycling
+        through PAUSED_NO_QUOTA → resume-probe → fail again forever, resurrecting
+        daily even though the account itself is what is actually unusable —
+        no provider check can ever fix that. This is intentionally its OWN
+        check ahead of any provider classification (never folded into
+        `classify_provider_for_user`): account standing and provider readiness
+        are orthogonal facts, and a non-transacting account must short-circuit
+        before a provider probe is even attempted.
+
+        Review I1: judged against the shared `NON_TRANSACTING_USER_STATUSES`
+        (the same set the auth middleware / WS gate / admin suspend use), not
+        `banned` alone — `blocked` / `deleted` accounts "equally must not
+        transact" (entity_schema) and their jobs produced the same 401 storm.
+        The status value is returned (not a bool) so the caller can record the
+        real reason in `paused_reason`; none of these values matches
+        `_EDGE_ONLY_RESUME_REASONS` or a resumable status, so they never
+        trip an automatic resume.
+
+        Fails OPEN (returns None) on a lookup error or a missing `users` row
+        — a transient DB hiccup here must not freeze every job in the system,
+        and these are explicit states, never the absence of a row.
+        """
+        try:
+            row = await self.db.get_one("users", {"user_id": user_id})
+            if not row:
+                return None
+            status = row.get("status")
+            return status if status in NON_TRANSACTING_USER_STATUSES else None
+        except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
+            logger.debug(f"_non_transacting_status lookup failed for {user_id}: {e}")
+            return None
 
     async def _user_can_run(self, user_id: str) -> bool:
         """Would a run for this user resolve a provider right now?
@@ -564,7 +748,14 @@ class JobTrigger:
         铁律 #15 is still honoured: the platform never overrides the user's
         provider choice — it only stops resuming a job into a run the
         runtime will refuse.
+
+        B-13: checked BEFORE the provider classifier — a non-transacting
+        account (banned / blocked / deleted) can never run regardless of
+        provider readiness, and skipping the classifier call entirely avoids
+        probing a provider for an account that is not allowed to transact.
         """
+        if await self._non_transacting_status(user_id):
+            return False
         try:
             from narranexus.platform.agent_framework.providers.resolver import (
                 classify_provider_for_user,
@@ -586,6 +777,8 @@ class JobTrigger:
             if not paused:
                 return 0
             resumed = 0
+            # One readiness check per principal per call, not per job (review M1).
+            can_run: Dict[str, bool] = {}
             for job in paused:
                 # Do NOT blind-probe reasons whose fix readiness can't observe
                 # (balance top-up / model / context). Re-arming them every cycle
@@ -595,7 +788,11 @@ class JobTrigger:
                 if job.paused_reason in _EDGE_ONLY_RESUME_REASONS:
                     continue
                 exec_uid = job.related_entity_id or job.user_id
-                if not exec_uid or not await self._user_can_run(exec_uid):
+                if not exec_uid:
+                    continue
+                if exec_uid not in can_run:
+                    can_run[exec_uid] = await self._user_can_run(exec_uid)
+                if not can_run[exec_uid]:
                     continue
                 next_run = compute_next_run(
                     job_type=job.job_type,
@@ -616,6 +813,82 @@ class JobTrigger:
             return resumed
         except Exception as e:
             logger.exception(f"Error resuming PAUSED_NO_QUOTA jobs: {e}")
+            return 0
+
+    async def _resume_spend_capped_jobs(self) -> int:
+        """Flip PAUSED_SPEND_CAP jobs back to ACTIVE once the executing user's
+        spend for the CURRENT local day is under the cap again (review C1).
+
+        The cap is a per-day ceiling: the same predicate that paused the job
+        (`_daily_spend_cap_exceeded`, judged in the job's own timezone) is
+        re-evaluated, so a job resumes exactly when a fresh start would have
+        been allowed — the next local day, or as soon as ops lower/disable
+        the cap. Deliberately NOT folded into `_resume_eligible_no_quota_jobs`
+        / `rearm_user_no_quota_jobs`: those recover on provider readiness
+        (login / provider save edges), which says nothing about spend and
+        would revive a still-over-cap job into an immediate re-pause loop.
+
+        Resumes schedule FORWARD (`compute_next_run` from now): a heartbeat
+        job paused for a day must not replay the fires it missed. A recurring
+        job whose next fire would land past its end_at horizon completes
+        instead — the same rule as `_rearm_cooled_jobs` and
+        `_heal_unscheduled_active_jobs` (the no-quota resume,
+        `_resume_eligible_no_quota_jobs`, has no horizon check).
+        """
+        try:
+            repo = self._get_job_repo()
+            paused = await repo.get_jobs_by_status(JobStatus.PAUSED_SPEND_CAP)
+            if not paused:
+                return 0
+            resumed = 0
+            # One spend scan per (principal, timezone) per call, not per job (review M1).
+            over_cap: Dict[tuple, bool] = {}
+            for job in paused:
+                exec_uid = job.related_entity_id or job.user_id
+                user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                if exec_uid:
+                    key = (exec_uid, user_tz)
+                    if key not in over_cap:
+                        over_cap[key] = await self._daily_spend_cap_exceeded(exec_uid, user_tz)
+                    if over_cap[key]:
+                        continue
+                next_run = compute_next_run(
+                    job_type=job.job_type,
+                    trigger_config=job.trigger_config,
+                    last_run_utc=utc_now(),
+                )
+                if next_run and job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+                    job.trigger_config, next_run.utc
+                ):
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.COMPLETED.value,
+                        "paused_reason": None,
+                        "paused_at": None,
+                    })
+                    await repo.clear_next_run(job.job_id)
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id} completed instead of resumed "
+                        f"(PAUSED_SPEND_CAP resume past end_at horizon)"
+                    )
+                    continue
+                if next_run:
+                    await repo.update_next_run(job.job_id, next_run)
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.ACTIVE.value,
+                    "paused_reason": None,
+                    "paused_at": None,
+                })
+                resumed += 1
+                logger.info(
+                    f"Job {job.job_id} resumed from PAUSED_SPEND_CAP (user={exec_uid})"
+                )
+            if resumed:
+                logger.info(f"Resumed {resumed} job(s) from PAUSED_SPEND_CAP")
+            return resumed
+        except Exception as e:
+            logger.exception(f"Error resuming PAUSED_SPEND_CAP jobs: {e}")
             return 0
 
     async def _rearm_cooled_jobs(self) -> int:
@@ -878,6 +1151,30 @@ class JobTrigger:
                 logger.warning(f"Failed to acquire lock for job {job.job_id}, skipping")
                 return
 
+            # 1.4 Daily spend cap (B-14): checked BEFORE building the prompt
+            # or calling the framework — this only gates the NEXT scheduled
+            # start, exactly like the existing PAUSED_NO_QUOTA gate, and
+            # never interrupts a run already in flight (铁律 #14). "Today" is
+            # the job's frozen timezone — the same one the prompt below uses.
+            exec_uid = job.related_entity_id or job.user_id
+            user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+            if exec_uid and await self._daily_spend_cap_exceeded(exec_uid, user_tz):
+                await self._get_job_repo().update_job(job.job_id, {
+                    "status": JobStatus.PAUSED_SPEND_CAP.value,
+                    "paused_reason": "spend_cap",
+                    "paused_at": utc_now(),
+                })
+                logger.warning(
+                    f"Job {job.job_id} paused: daily spend cap exceeded for {exec_uid}"
+                )
+                await self._notify_owner_job_paused(
+                    job, "spend_cap",
+                    "Your total LLM spend for today has reached the daily cap. "
+                    "This job resumes automatically once the next day starts "
+                    "(in the job's timezone) and spend is back under the cap.",
+                )
+                return
+
             # 1.5 Update associated Instance status (for ModulePoller detection)
             if job.instance_id:
                 await self._update_instance_for_execution(job.instance_id)
@@ -885,7 +1182,6 @@ class JobTrigger:
             # 2. Build execution Prompt (including dependency Job outputs)
             # Use job's own timezone (frozen at creation); do NOT read users.timezone
             # which may have changed since the job was scheduled.
-            user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
             prompt = await build_execution_prompt(self.db, job, user_tz)
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
@@ -1181,6 +1477,98 @@ The task was executed but produced no text output.
                 f"post it to {channel_id}: {type(e).__name__}: {e}"
             )
 
+    async def _daily_spend_cap_exceeded(self, user_id: str, tz_name: str = "UTC") -> bool:
+        """True when `user_id`'s total LLM spend for the current local day
+        (in `tz_name`) already meets/exceeds NARRANEXUS_USER_DAILY_SPEND_CAP_USD
+        (B-14). 0/unset = disabled. See `_daily_spend_usd_for_user` for what
+        is counted and which day boundary applies.
+
+        Fails OPEN (returns False) on a parse error or a DB lookup failure —
+        a transient DB hiccup here must not block every scheduled job in the
+        system, and the platform never becomes the interruption source for
+        its own bugs (铁律 #14/#15's spirit, applied to this new gate).
+        """
+        cap_str = os.getenv(_USER_DAILY_SPEND_CAP_ENV, "0")
+        try:
+            cap = float(cap_str)
+        except ValueError:
+            logger.warning(
+                f"[job-spend-cap] {_USER_DAILY_SPEND_CAP_ENV}={cap_str!r} is not "
+                f"a number; treating as disabled"
+            )
+            return False
+        if cap <= 0:
+            return False
+        try:
+            spent = await _daily_spend_usd_for_user(self.db, user_id, tz_name)
+        except Exception as e:  # noqa: BLE001 — best-effort, must never block polling
+            logger.warning(f"[job-spend-cap] lookup failed for {user_id}: {e}")
+            return False
+        return spent >= cap
+
+    async def _notify_owner_job_paused(
+        self, job: JobModel, pause_reason: str, detail: str
+    ) -> None:
+        """Notify the job owner via inbox that a scheduled job has been
+        paused (B-17). Reuses the existing inbox notification mechanism
+        (same InboxRepository / InboxMessageType.SYSTEM_NOTICE pattern the
+        real-time agent circuit breaker already uses in
+        services/background_llm_alerts.alert_agent_paused) rather than
+        inventing a new channel. Best-effort: a notification failure must
+        never break the pause itself.
+
+        De-duplicated per (agent, job, reason) over
+        `_PAUSE_NOTICE_COOLDOWN_SECONDS` via `owner_notice_cooldowns`
+        (review I8). The cooldown read fails OPEN — an unreadable window
+        must not silence a real pause — and the window is armed only after
+        the inbox write succeeded, so a failed write does not open a window
+        with nothing behind it (same shape as background_llm_alerts).
+        """
+        recipient = job.user_id
+        if not recipient:
+            return
+        category = _pause_notice_category(pause_reason)
+        try:
+            if await OwnerNoticeCooldownRepository(self.db).is_cooling(
+                job.agent_id, job.job_id, category, _PAUSE_NOTICE_COOLDOWN_SECONDS
+            ):
+                logger.info(
+                    f"[job-pause] owner notice for {job.job_id} ({pause_reason}) "
+                    f"still inside its cooldown window; not re-sent"
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — a duplicate notice beats a silent window
+            logger.warning(f"[job-pause] cooldown read failed for {job.job_id}: {e}")
+        try:
+            from narranexus.platform.agent_framework.llm.failure import redact_secrets
+
+            safe_detail = redact_secrets(detail) if detail else ""
+            content = (
+                f"Scheduled job \"{job.title}\" has been paused and will not "
+                f"run again automatically (reason: {pause_reason})."
+                + (f"\n\nDetail: {safe_detail}" if safe_detail else "")
+                + "\n\nResolve the underlying issue (top up / reconfigure the "
+                "provider for this Agent, or reduce spend if this is a "
+                "budget cap), then resume the job from the Jobs panel."
+            )
+            await InboxRepository(self.db).create_message(
+                user_id=recipient,
+                message_id=f"jobpause_{uuid4().hex[:16]}",
+                title=f"Job paused: {job.title}",
+                content=content,
+                message_type=InboxMessageType.SYSTEM_NOTICE,
+                source=MessageSource(type="job", id=job.job_id),
+            )
+        except Exception as e:  # noqa: BLE001 — notification is best-effort
+            logger.warning(
+                f"[job-pause] owner inbox notice failed for {job.job_id}: {e}"
+            )
+            return
+        try:
+            await OwnerNoticeCooldownRepository(self.db).arm(job.agent_id, job.job_id, category)
+        except Exception as e:  # noqa: BLE001 — best-effort; a duplicate later is the cheap failure
+            logger.warning(f"[job-pause] cooldown arm failed for {job.job_id}: {e}")
+
     async def _finalize_job_execution(
         self,
         job: JobModel,
@@ -1246,6 +1634,12 @@ The task was executed but produced no text output.
                     f"Job {job.job_id} paused (provider/credentials unusable, "
                     f"reason={pause_reason}): "
                     f"{result.get('error_type') or result.get('error')}"
+                )
+                # B-17: the owner had no in-product signal that a scheduled
+                # job silently stopped running — only a Jobs-panel status
+                # they'd have to go look for.
+                await self._notify_owner_job_paused(
+                    job, pause_reason, result.get("error") or ""
                 )
                 return
 

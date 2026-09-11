@@ -2047,6 +2047,7 @@
       "running": "실행 중",
       "paused": "일시중지됨",
       "pausedNoQuota": "할당량 없음",
+      "pausedSpendCap": "지출 한도",
       "cooling": "재시도 중",
       "blocked": "차단됨",
       "blockedFailed": "의존성 실패",

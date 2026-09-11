@@ -2052,6 +2052,7 @@
       "running": "Выполняется",
       "paused": "Приостановлена",
       "pausedNoQuota": "Нет квоты",
+      "pausedSpendCap": "Лимит расходов",
       "cooling": "Повтор",
       "blocked": "Заблокирована",
       "blockedFailed": "Сбой зависимости",

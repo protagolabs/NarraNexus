@@ -1,7 +1,34 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_service.py
-last_verified: 2026-08-14
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（review r1 I5）— 同名重复命中时按真实状态措辞
+
+`find_active_by_title` 现在也会命中 BLOCKED / COOLING / RUNNING 的 job（见 [[job_repository]]），
+而旧文案一律说「already exists and is active」——用户对一条等依赖的 job 重复下单，会以为任务已经
+排上日程。`_EXISTING_JOB_STATE_NOTES` 按状态给出实话（等依赖 / 退避重试中 / 正在跑），其他状态
+仍是「is active」。`is_existing=True` 的返回形状不变。
+锁：`test_exact_title_match_on_a_blocked_job_says_it_is_waiting`。
+
+## 2026-09-09 — B-16：Job 自己的 status 要跟 instance 的 initial_status 对齐
+
+`create_job_with_instance` 早就会把有依赖的 job 的 `ModuleInstance.status`
+设成 `BLOCKED`（第 7 步 `initial_status`），但那之前从没告诉
+[[job_repository]]：`job_repo.create_job(...)` 一直硬编码
+`JobStatus.PENDING`。`get_due_jobs()` 只选 `PENDING`/`ACTIVE`，于是一个
+"实例层面 BLOCKED"的依赖 job 在 job 层面照样 PENDING、`next_run_time` 照样
+被算成"立刻"（`/api/jobs/complex` 用的是 `TriggerConfig.immediate()`）——
+依赖形同虚设，下游 job 和上游同时被拉起。
+
+现在 `create_job` 新增 `status` 关键字参数，这里按
+`initial_status == InstanceStatus.BLOCKED` 传 `JobStatus.BLOCKED`，否则
+`JobStatus.PENDING`。配套修复：[[instance_handler]] 新增
+`handle_completion_no_narrative`（依赖完成后把 job 从 BLOCKED 拉回
+ACTIVE，narrative_id 为空时的路径）+ [[job_repository]] 的
+`update_next_run_time_by_instance` 把 `BLOCKED` 纳入可激活的 WHERE 集合。
+三处缺一都不成立——只做这里，job 永远卡死；只做 instance_handler，job 状态
+从来不是 BLOCKED 所以根本轮不到它。
 
 ## 2026-08-14 — origin 透传
 

@@ -15,18 +15,23 @@ and the jobs poller picks the re-armed jobs up on its next cycle.
 
 This is the PRIMARY recovery path; JobTrigger keeps a low-frequency scan as a
 backstop for missed edges.
+
+Also home of the user-initiated pause / resume / reschedule operations and of
+`resume_jobs_paused_for_principal`, the job half of an admin account reinstate.
 """
 from __future__ import annotations
 
 import asyncio
+from typing import Iterable
 
 from loguru import logger
 from pydantic import ValidationError
 
-from narranexus.platform.repository import JobRepository
+from narranexus.platform.repository import InstanceRepository, JobRepository
+from narranexus.platform.schema.instance_schema import InstanceStatus
 from narranexus.platform.schema.job_schema import JobStatus, JobType, TriggerConfig
 from narranexus.platform.agent_framework.providers.readiness import ProviderReadiness
-from narranexus.platform.utils.job_scheduling import compute_next_run
+from narranexus.platform.utils.job_scheduling import compute_next_run, past_schedule_horizon
 from narranexus.platform.utils import utc_now
 
 
@@ -82,7 +87,7 @@ async def rearm_user_no_quota_jobs(user_id: str, db) -> int:
 
 
 _RESUMABLE_STATUSES = (
-    JobStatus.PAUSED, JobStatus.PAUSED_NO_QUOTA,
+    JobStatus.PAUSED, JobStatus.PAUSED_NO_QUOTA, JobStatus.PAUSED_SPEND_CAP,
     JobStatus.COOLING, JobStatus.BLOCKED_FAILED,
 )
 
@@ -107,9 +112,11 @@ async def pause_job(job_id: str, db) -> tuple[bool, str]:
 
 
 async def resume_job(job_id: str, db) -> tuple[bool, str]:
-    """Resume a paused / no-quota / cooling / dependency-blocked-failed job:
-    recompute next_run from now, clear backoff/pause state, flip to ACTIVE. If
-    the underlying blocker is still unresolved the next run simply re-pauses."""
+    """Resume a paused / no-quota / spend-capped / cooling /
+    dependency-blocked-failed job: recompute next_run from now, clear
+    backoff/pause state, flip to ACTIVE. If the underlying blocker is still
+    unresolved the next run simply re-pauses (a spend-capped job re-pauses
+    at its next start until the user's local day rolls over)."""
     repo = JobRepository(db)
     job = await repo.get_job(job_id)
     if not job:
@@ -132,18 +139,85 @@ async def resume_job(job_id: str, db) -> tuple[bool, str]:
     return True, job.status.value
 
 
+async def resume_jobs_paused_for_principal(
+    db, user_id: str, paused_reasons: Iterable[str]
+) -> int:
+    """Undo an account suspension's job pause (review r2 I-B): resume every
+    job that executes as `user_id` and is `paused` with a `paused_reason` in
+    `paused_reasons` (the reasons a suspension writes). Returns how many were
+    brought back to ACTIVE. Exposed as the ``jobs.resume_for_principal``
+    service; `POST /api/admin/reinstate` calls it after the account flip.
+
+    Selection is the mirror of `JobRepository.pause_jobs_for_execution_principal`
+    (same execution-principal predicate), pinned to BOTH status='paused' and
+    the reason, so a job the user paused themselves stays paused.
+
+    Each job goes through the ordinary job-layer resume, never a blind status
+    flip: a recurring job whose next fire (computed from NOW, so the fires
+    missed while suspended are not replayed) would land past its `end_at`
+    horizon is COMPLETED instead — `next_run_time` cleared and its module
+    instance marked completed, as every other re-arm path does — and every
+    other job goes through `resume_job` (recompute next_run from now, clear
+    pause/backoff state, ACTIVE). Completed-by-horizon jobs are not counted.
+
+    Raises on a repository error; the caller owns the best-effort policy.
+    """
+    repo = JobRepository(db)
+    jobs = await repo.get_jobs_paused_for_execution_principal(user_id, paused_reasons)
+    resumed = 0
+    for job in jobs:
+        next_run = compute_next_run(
+            job_type=job.job_type,
+            trigger_config=job.trigger_config,
+            last_run_utc=utc_now(),
+        )
+        if next_run and job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+            job.trigger_config, next_run.utc
+        ):
+            await repo.update_job(job.job_id, {
+                "status": JobStatus.COMPLETED.value,
+                "paused_reason": None,
+                "paused_at": None,
+            })
+            await repo.clear_next_run(job.job_id)
+            if job.instance_id:
+                await InstanceRepository(db).update_status(
+                    job.instance_id, InstanceStatus.COMPLETED, completed_at=utc_now(),
+                )
+            logger.info(
+                f"Job {job.job_id} completed instead of resumed "
+                f"(reinstate of {user_id}: next fire past end_at horizon)"
+            )
+            continue
+        ok, _ = await resume_job(job.job_id, db)
+        if ok:
+            resumed += 1
+    if jobs:
+        logger.info(
+            f"Reinstate: resumed {resumed} of {len(jobs)} suspension-paused job(s) for {user_id}"
+        )
+    return resumed
+
+
 # A reschedule may touch any editable job EXCEPT one that is mid-execution
 # (running) or already terminal (completed/cancelled/failed). Everything else —
-# active / pending / paused / paused_no_quota / cooling / blocked_failed — is
-# a legitimate edit target; the status is left untouched (a paused job stays
+# active / pending / paused / paused_no_quota / paused_spend_cap / cooling /
+# blocked / blocked_failed — is a legitimate edit target; the status is left untouched (a paused job stays
 # paused, and its later resume re-derives next_run from the new rule anyway).
 _NON_EDITABLE_STATUSES = (
     JobStatus.RUNNING,
     JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.FAILED,
 )
-# Only the time-bearing trigger fields are user-editable via reschedule; the
+# The fields a reschedule may touch: the time-bearing trigger fields (derived
+# from TriggerConfig.TIME_BEARING_FIELDS — one list, review I11) plus
+# `timezone`, which is not time-bearing itself but travels with them. `end_at`
+# is deliberately left out: it is the schedule's HORIZON ("runs until date
+# X"), not its fire rule, has no editor in the UI (RescheduleBody), and the
+# Jobs detail mirror documents that it is not reschedule-editable. The
 # ONGOING semantics fields (end_condition / max_iterations) are out of scope.
-_TIME_FIELDS = ("run_at", "cron", "interval_seconds", "timezone")
+_RESCHEDULE_FIELDS = tuple(
+    f for f in TriggerConfig.TIME_BEARING_FIELDS if f != "end_at"
+) + ("timezone",)
 
 
 async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
@@ -176,7 +250,7 @@ async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
         return False, f"cannot reschedule from status={job.status.value}"
 
     merged = job.trigger_config.model_dump()
-    for k in _TIME_FIELDS:
+    for k in _RESCHEDULE_FIELDS:
         if k in new_fields:
             merged[k] = new_fields[k]
 

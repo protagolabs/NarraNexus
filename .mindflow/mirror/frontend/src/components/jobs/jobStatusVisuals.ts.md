@@ -1,7 +1,13 @@
 ---
 code_file: frontend/src/components/jobs/jobStatusVisuals.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — `paused_spend_cap`
+
+新增行：warning 色、实心点、`jobs.status.pausedSpendCap`。与 `paused_no_quota` 同视觉——
+两者都是「平台替你停了、需要你知道」的暂停；区别只在文案。`Record<JobStatus, …>` 的穷尽
+约束是这张表唯一的登记门禁：后端加状态而这里没加，tsc 直接红。
 
 # jobStatusVisuals.ts — The single status → color/label table
 

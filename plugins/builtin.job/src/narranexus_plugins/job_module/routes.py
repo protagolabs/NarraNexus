@@ -150,6 +150,53 @@ class CreateJobComplexResponse(BaseModel):
 router = APIRouter()
 
 
+def _topological_sort_job_complex(
+    jobs: List["JobComplexJobRequest"],
+) -> "tuple[Optional[List[JobComplexJobRequest]], Optional[str]]":
+    """Kahn's algorithm over the `task_key` dependency edges (B-16).
+
+    `create_job_complex` used to walk `body.jobs` in raw REQUEST order and
+    look up `task_key_to_job_id[dep]` as it went — a forward reference (a job
+    whose `depends_on` names a task_key appearing LATER in the list) raised a
+    bare KeyError (#285 only sanitised the message into a generic 500, never
+    fixed the ordering). This returns the jobs re-ordered so every dependency
+    is created before its dependents, or `(None, error)` naming the cycle
+    when the graph isn't a DAG.
+
+    Assumes every `depends_on` entry is a known task_key AND that task_keys
+    are unique — the caller validates both before this runs (a duplicate
+    would silently collapse in `by_key` and drop a job; an unknown task_key
+    is ignored here, not double-reported).
+    """
+    from collections import deque
+
+    by_key = {j.task_key: j for j in jobs}
+    indegree = {k: 0 for k in by_key}
+    dependents: dict[str, List[str]] = {k: [] for k in by_key}
+    for j in jobs:
+        for dep in j.depends_on:
+            if dep not in by_key:
+                continue
+            dependents[dep].append(j.task_key)
+            indegree[j.task_key] += 1
+
+    queue = deque(k for k in by_key if indegree[k] == 0)
+    ordered: List[str] = []
+    while queue:
+        k = queue.popleft()
+        ordered.append(k)
+        for nxt in dependents[k]:
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                queue.append(nxt)
+
+    if len(ordered) != len(by_key):
+        cyclic = sorted(k for k in by_key if k not in ordered)
+        return None, f"dependency cycle detected among task_keys: {', '.join(cyclic)}"
+
+    return [by_key[k] for k in ordered], None
+
+
 def _parse_json(value: Any, default: Any) -> Any:
     """Parse JSON field"""
     if value is None:
@@ -460,10 +507,13 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     and run jobs under another user's agent).
 
     Workflow:
-    1. Validate dependencies (ensure all task_keys referenced in depends_on exist)
-    2. Topological sort to determine creation order
+    1. Validate the request graph: task_keys unique (400), every depends_on
+       entry names a job in the list (success=False)
+    2. Topological sort to determine creation order (cycle -> 400)
     3. Batch create Jobs, mapping task_key to actual job_id
-    4. Root Jobs (no dependencies) set to ACTIVE, dependent Jobs set to PENDING
+    4. Root Jobs (no dependencies) are created PENDING and fire immediately;
+       dependent Jobs are created BLOCKED and are re-armed by the dependency
+       chain once their prerequisites reach a terminal state (B-16)
 
     Dependency relationships are stored in the depends_on field within payload
     """
@@ -475,8 +525,25 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
     user_id = await current_user_id(request)
 
     try:
-        # 1. Validate dependencies
-        task_keys = {job.task_key for job in body.jobs}
+        # 1. Validate the request graph. A duplicate task_key is a 400 like a
+        # cycle (review I9): the topological sort keys jobs by task_key, so a
+        # repeated key would silently keep only the last job and report
+        # success with one job_id fewer — the quiet failure mode is worse
+        # than the pre-sort behaviour it replaced. Unknown dependencies keep
+        # their historical `200 success=False` envelope (the frontend reads
+        # `error` from that body); structural request errors are 400.
+        task_keys: set[str] = set()
+        duplicate_keys: set[str] = set()
+        for job in body.jobs:
+            if job.task_key in task_keys:
+                duplicate_keys.add(job.task_key)
+            task_keys.add(job.task_key)
+        duplicates = sorted(duplicate_keys)
+        if duplicates:
+            raise HTTPException(
+                status_code=400,
+                detail=f"duplicate task_key(s) in job list: {', '.join(duplicates)}",
+            )
         for job in body.jobs:
             for dep in job.depends_on:
                 if dep not in task_keys:
@@ -484,6 +551,14 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
                         success=False,
                         error=f"Invalid dependency: '{dep}' not found in job list"
                     )
+
+        # 1.5. Topological sort (B-16): create dependencies before their
+        # dependents regardless of request order, and reject a cycle loudly
+        # (400, naming the task_keys involved) instead of leaving every job
+        # in it BLOCKED forever with no diagnostic.
+        ordered_jobs, cycle_error = _topological_sort_job_complex(body.jobs)
+        if ordered_jobs is None:
+            raise HTTPException(status_code=400, detail=cycle_error)
 
         # 2. Generate group_id
         group_id = body.group_id or f"group_{uuid4().hex[:8]}"
@@ -496,7 +571,7 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
         job_ids = []
         task_key_to_job_id = {}  # task_key -> job_id mapping
 
-        for job in body.jobs:
+        for job in ordered_jobs:
             # Convert task_key dependencies to job_id dependencies
             depends_on_job_ids = [task_key_to_job_id[dep] for dep in job.depends_on]
 
@@ -545,6 +620,10 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
             job_ids=job_ids,
         )
 
+    except HTTPException:
+        # The cycle-detection 400 above must reach the caller as a 400, not
+        # be downgraded into a 200 success=False by the generic handler below.
+        raise
     except Exception as e:
         logger.exception(f"Error creating Job Complex: {e}")
         return CreateJobComplexResponse(

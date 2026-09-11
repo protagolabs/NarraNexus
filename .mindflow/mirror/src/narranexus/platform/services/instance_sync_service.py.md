@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/services/instance_sync_service.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — B-16：`create_jobs_for_instances` 也要传 `status`
+
+`_set_initial_status`（本文件已有逻辑）早就会把有未满足批内依赖的 JobModule
+实例标成 `inst.status = "blocked"`，但 `job_repo.create_job(...)` 调用点从没
+把这个决定传给 Job 本身——跟 [[job_service]] `create_job_with_instance` 是
+同一个 `create_job` 硬编码 `PENDING` 的根因（B-16），只是另一条创建路径（这
+条走 narrative-scoped 的 LLM Instance Decision 流程，不是 `/api/jobs/complex`）。
+现在按 `inst.status == "blocked"` 传 `JobStatus.BLOCKED`，否则 `JobStatus.
+PENDING`，跟兄弟路径口径一致。
 
 ## 2026-06-08 — pass agent_id to SocialNetworkRepository
 

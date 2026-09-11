@@ -58,10 +58,58 @@ class JobStatus(str, Enum):
     BLOCKED_FAILED = "blocked_failed"  # A prerequisite job FAILED and this job's
     # on_dependency_failure policy is "block". Re-armed if the prerequisite later
     # succeeds, or cleared by the user.
+    PAUSED_SPEND_CAP = "paused_spend_cap"  # Auto-paused: the executing user's
+    # total LLM spend for the current local day (NARRANEXUS_USER_DAILY_SPEND_CAP_USD,
+    # judged in the job's own timezone) was already met/exceeded before this
+    # run started (B-14). Auto-resumed by JobTrigger's 15-minute backstop
+    # (`_resume_spend_capped_jobs`) once spend is under the cap again — i.e.
+    # the next local day, or when ops lower/disable the cap — and manually
+    # resumable from the Jobs panel like the other paused states.
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)
 
+
+# Statuses of a job that is scheduled, in flight, or will run again on its
+# own with no owner action: pending / active / running / blocked (waiting on a
+# dependency that will complete) / cooling (backoff, re-armed by the clock).
+# The duplicate-title check, the similar-title confirmation gate, the
+# per-narrative "existing jobs" loads and the "what jobs do I have" summary
+# in JobRepository all read this ONE tuple: a status missing here is
+# invisible to those surfaces, so a user re-asking for the same thing gets a
+# second job (review I5 — BLOCKED had exactly that gap the moment B-16 made
+# it reachable). The paused family is deliberately absent (an owner or
+# platform decision is pending; a resume re-derives its schedule), as are the
+# terminals. This is NOT the due-poll set: get_due_jobs() must stay
+# PENDING/ACTIVE only — that restriction is the B-16 fix itself.
+LIVE_JOB_STATUSES: tuple[JobStatus, ...] = (
+    JobStatus.PENDING,
+    JobStatus.ACTIVE,
+    JobStatus.RUNNING,
+    JobStatus.BLOCKED,
+    JobStatus.COOLING,
+)
+
+
+# Statuses an account suspension pauses: the ones the scheduler would pick up
+# and START on its own — PENDING / ACTIVE (get_due_jobs) and COOLING (re-armed
+# to ACTIVE by the clock). Everything else is left exactly as it is, because
+# reinstate restores a suspension-paused job to ACTIVE and only these three
+# are correctly restored that way (review I1):
+# - BLOCKED / BLOCKED_FAILED wait on a dependency; flattening them to paused
+#   and back to ACTIVE would start a downstream job before its upstream output
+#   exists. They are never due, so a suspended account's chain cannot run.
+# - RUNNING is in flight; `_finalize_job_execution` rewrites the row when the
+#   run ends, and JobTrigger's enqueue gate pauses it if it comes due again.
+# - PAUSED_NO_QUOTA / PAUSED_SPEND_CAP keep their own reason; if a backstop
+#   later flips one to ACTIVE, the same enqueue gate pauses it before it runs.
+# - PAUSED (any reason) and the terminals are never rewritten.
+# `JobRepository.pause_jobs_for_execution_principal` reads this ONE tuple.
+SUSPENDABLE_JOB_STATUSES: tuple[JobStatus, ...] = (
+    JobStatus.PENDING,
+    JobStatus.ACTIVE,
+    JobStatus.COOLING,
+)
 
 class JobOrigin:
     """Surfaces a job can be asked for on, and report back to.
@@ -160,6 +208,15 @@ class TriggerConfig(BaseModel):
     # Upper limit 90 days = 7776000 seconds, prevents LLM from generating unreasonably large values
     MAX_INTERVAL_SECONDS: ClassVar[int] = 7_776_000
 
+    # The fields whose presence makes `timezone` mandatory. ONE list, read by
+    # both the write-side validator (`timezone_required_for_time_bearing_triggers`)
+    # and the read-side `from_stored_dict` (review I11): the B-15 incident was
+    # exactly "the validator learned a field, the reader did not", which only
+    # blows up on old production rows. A new time-bearing field is added HERE
+    # and both paths follow. `job_recovery` derives its reschedule-editable
+    # set from this tuple as well.
+    TIME_BEARING_FIELDS: ClassVar[tuple[str, ...]] = ("run_at", "cron", "interval_seconds", "end_at")
+
     interval_seconds: Optional[int] = Field(
         default=None,
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
@@ -232,11 +289,8 @@ class TriggerConfig(BaseModel):
     @model_validator(mode="after")
     def timezone_required_for_time_bearing_triggers(self) -> "TriggerConfig":
         """Require timezone whenever any time-bearing field is set."""
-        has_time_field = (
-            self.run_at is not None
-            or self.cron is not None
-            or self.interval_seconds is not None
-            or self.end_at is not None
+        has_time_field = any(
+            getattr(self, f) is not None for f in self.TIME_BEARING_FIELDS
         )
         if has_time_field and self.timezone is None:
             raise ValueError(
@@ -244,6 +298,32 @@ class TriggerConfig(BaseModel):
                 "is set. Use IANA name like 'Asia/Shanghai'."
             )
         return self
+
+    @classmethod
+    def from_stored_dict(cls, data: Optional[dict]) -> "TriggerConfig":
+        """Build a TriggerConfig from a raw DB-stored dict, tolerating rows
+        written before `timezone_required_for_time_bearing_triggers` existed
+        (2026-04-21) — e.g. `{'cron': '0 13 * * 1-5'}` with no `timezone` key
+        at all. `TriggerConfig(**data)` raises `ValidationError` on those, by
+        design, for NEW writes (`TestTriggerConfigTimezoneRequired` pins that);
+        this is the READ-side counterpart used only when reconstructing an
+        already-persisted row, never for validating user/LLM-supplied input.
+
+        Defaults the missing timezone to UTC **in memory only** — the caller
+        must not write the defaulted value back to the row; a legacy row
+        that never recorded its author's real timezone should stay
+        unannotated in storage, not be silently rewritten with a guess.
+        An explicit-but-invalid timezone (e.g. 'CST', or an empty string)
+        still raises: this only fills in an ABSENT value (key missing or
+        None), it never repairs a bad one (review M1).
+        """
+        data = dict(data or {})
+        has_time_field = any(
+            data.get(f) is not None for f in cls.TIME_BEARING_FIELDS
+        )
+        if has_time_field and data.get("timezone") is None:
+            data["timezone"] = "UTC"
+        return cls(**data)
 
     @classmethod
     def immediate(cls) -> "TriggerConfig":

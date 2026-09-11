@@ -13,7 +13,7 @@ Responsibilities:
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Any, Iterable, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -21,7 +21,10 @@ if TYPE_CHECKING:
 
 from .base import BaseRepository
 from narranexus.platform.utils import utc_now
+from narranexus.platform.utils.timezone import to_datetime6_literal
 from narranexus.platform.schema.job_schema import (
+    LIVE_JOB_STATUSES,
+    SUSPENDABLE_JOB_STATUSES,
     JobType,
     JobStatus,
     JobModel,
@@ -54,6 +57,12 @@ class JobRepository(BaseRepository[JobModel]):
 
     # JSON fields (2026-01-21: added monitored_job_ids)
     _json_fields = {"trigger_config", "process", "monitored_job_ids"}
+
+    # `status IN (...)` over LIVE_JOB_STATUSES (job_schema) — one clause for the
+    # four "live jobs" reads below so they can never disagree about which
+    # statuses count (review I5). Placeholders + params, never inlined literals.
+    _LIVE_STATUS_SQL = "status IN (" + ", ".join("%s" for _ in LIVE_JOB_STATUSES) + ")"
+    _LIVE_STATUS_PARAMS = tuple(s.value for s in LIVE_JOB_STATUSES)
 
     # =========================================================================
     # Basic CRUD
@@ -190,6 +199,7 @@ class JobRepository(BaseRepository[JobModel]):
         related_entity_id: Optional[str] = None,
         narrative_id: Optional[str] = None,
         monitored_job_ids: Optional[List[str]] = None,  # 2026-01-21: Monitor Job pattern
+        status: JobStatus = JobStatus.PENDING,
     ) -> int:
         """
         Create a Job
@@ -221,6 +231,12 @@ class JobRepository(BaseRepository[JobModel]):
             related_entity_id: Target user ID (used as the principal identity when the Job executes)
             narrative_id: Associated Narrative ID (for loading conversation context)
             monitored_job_ids: Monitor Job pattern, other Job IDs monitored by this Job
+            status: Initial status. Defaults to PENDING; a Job whose
+                ModuleInstance starts BLOCKED (has dependencies — see
+                job_service.create_job_with_instance) MUST be created with
+                JobStatus.BLOCKED so get_due_jobs() (which only selects
+                PENDING/ACTIVE) does not fire it before its dependencies
+                complete (B-16).
 
         Returns:
             Inserted record ID
@@ -238,7 +254,7 @@ class JobRepository(BaseRepository[JobModel]):
             job_type=job_type,
             trigger_config=trigger_config,
             payload=payload,
-            status=JobStatus.PENDING,
+            status=status,
             process=[],
             next_run_time=next_run_time,
             next_run_at_local=next_run_at_local,
@@ -324,10 +340,13 @@ class JobRepository(BaseRepository[JobModel]):
         title: str
     ) -> Optional[JobModel]:
         """
-        Find an active Job by title (for duplicate detection)
+        Find a live Job by title (for duplicate detection)
 
-        Only searches for Jobs with PENDING and ACTIVE status, avoiding conflicts
-        with completed/failed Jobs.
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling) — every job that will run again on its own — so a repeated
+        request for the same title never creates a second job behind one
+        that is merely waiting on a dependency, retrying, or mid-run.
+        Terminal and paused jobs are not matches (review I5).
 
         Args:
             agent_id: Agent ID
@@ -344,12 +363,14 @@ class JobRepository(BaseRepository[JobModel]):
             WHERE agent_id = %s
               AND user_id = %s
               AND title = %s
-              AND status IN ('pending', 'active')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT 1
         """
 
-        rows = await self._db.execute(query, params=(agent_id, user_id, title), fetch=True)
+        rows = await self._db.execute(
+            query, params=(agent_id, user_id, title, *self._LIVE_STATUS_PARAMS), fetch=True
+        )
         if rows:
             return self._row_to_entity(rows[0])
         return None
@@ -360,9 +381,10 @@ class JobRepository(BaseRepository[JobModel]):
         limit: int = 100
     ) -> List[JobModel]:
         """
-        Get all active Jobs under a Narrative (for semantic deduplication)
+        Get all live Jobs under a Narrative (for semantic deduplication)
 
-        Only searches for non-terminal Jobs (pending, active, running).
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling); see job_schema for why the paused family is excluded.
 
         Args:
             narrative_id: Narrative ID
@@ -376,12 +398,14 @@ class JobRepository(BaseRepository[JobModel]):
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE narrative_id = %s
-              AND status IN ('pending', 'active', 'running')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT %s
         """
 
-        rows = await self._db.execute(query, params=(narrative_id, limit), fetch=True)
+        rows = await self._db.execute(
+            query, params=(narrative_id, *self._LIVE_STATUS_PARAMS, limit), fetch=True
+        )
         return [self._row_to_entity(row) for row in rows]
 
     async def get_active_jobs_by_agent(
@@ -391,9 +415,10 @@ class JobRepository(BaseRepository[JobModel]):
         user_id: Optional[str] = None
     ) -> List[JobModel]:
         """
-        Get all active Jobs under an Agent (for semantic deduplication)
+        Get all live Jobs under an Agent (for semantic deduplication)
 
-        Only searches for non-terminal Jobs (pending, active, running).
+        Searches LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling); see job_schema for why the paused family is excluded.
 
         Args:
             agent_id: Agent ID
@@ -412,11 +437,15 @@ class JobRepository(BaseRepository[JobModel]):
             SELECT * FROM {self.table_name}
             WHERE agent_id = %s
               {user_clause}
-              AND status IN ('pending', 'active', 'running')
+              AND {self._LIVE_STATUS_SQL}
             ORDER BY created_at DESC
             LIMIT %s
         """
-        params = (agent_id, user_id, limit) if user_id is not None else (agent_id, limit)
+        params = (
+            (agent_id, user_id, *self._LIVE_STATUS_PARAMS, limit)
+            if user_id is not None
+            else (agent_id, *self._LIVE_STATUS_PARAMS, limit)
+        )
 
         rows = await self._db.execute(query, params=params, fetch=True)
         return [self._row_to_entity(row) for row in rows]
@@ -457,6 +486,124 @@ class JobRepository(BaseRepository[JobModel]):
 
         serialized_updates["updated_at"] = utc_now()
         return await self.update(job_id, serialized_updates)
+
+    async def pause_jobs_for_execution_principal(
+        self,
+        user_id: str,
+        paused_reason: str,
+        paused_at: Optional[datetime] = None,
+    ) -> int:
+        """Pause, in ONE statement, every non-terminal job that would EXECUTE
+        as `user_id` (B-13 / review I2+I3). Returns the number of rows paused.
+
+        "Executes as" is the same predicate JobTrigger applies per job
+        (`exec_uid = related_entity_id or user_id`): a job whose
+        `related_entity_id` is this user, or one with no related_entity_id
+        whose owner is this user. A job merely OWNED by `user_id` but run as
+        someone else is left alone — the account that cannot transact is the
+        one whose identity the run would use, and the poller judges exactly
+        that identity, so the two halves of an account suspension can never
+        disagree about a job.
+
+        One UPDATE, no fetch-then-loop: the previous shape
+        (`get_jobs_by_user(limit=500)` + one `update_job` per row) silently
+        stopped at 500 — precisely the shape a job-spamming account takes —
+        and cost N round-trips inside an admin request.
+
+        Touches ONLY `SUSPENDABLE_JOB_STATUSES` (PENDING / ACTIVE / COOLING —
+        the statuses the scheduler would start on its own), a whitelist, not
+        a "non-terminal" blacklist (review I1). Reinstate restores every job
+        this pauses to ACTIVE, which is right for exactly those three:
+        BLOCKED / BLOCKED_FAILED (waiting on a dependency) would otherwise
+        come back ACTIVE and run before their upstream output exists, RUNNING
+        is owned by the in-flight run's finalizer, and the auto-paused states
+        keep their own reason. None of the untouched rows is due, and any that
+        later becomes due is paused by JobTrigger's enqueue gate. Terminal
+        jobs are never rewritten, and neither is any job already in
+        `status='paused'`, whatever its reason (review r2 I-B): keeping its
+        own `paused_reason` (e.g. 'user') is what lets reinstate resume ONLY
+        the jobs this suspension paused (`get_jobs_paused_for_execution_principal`
+        pins the reason).
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders);
+        timestamps travel as DATETIME(6) literals so neither backend depends
+        on a driver-side datetime adapter. SQLite caveat: those literals are
+        `YYYY-MM-DD HH:MM:SS.ffffff` (space) while the SQLite adapter writes
+        other `updated_at` values as ISO-8601 (`T`), so on SQLite only, text
+        `ORDER BY updated_at` can misplace these rows relative to others
+        (' ' < 'T'). MySQL stores a real DATETIME(6) and is unaffected.
+        Twins: tests/repository/test_job_repository_pause_principal.py + `_mysql`.
+        """
+        logger.debug(f"    → JobRepository.pause_jobs_for_execution_principal({user_id})")
+        stamp = to_datetime6_literal(paused_at or utc_now())
+        placeholders = ", ".join(["%s"] * len(SUSPENDABLE_JOB_STATUSES))
+        query = f"""
+            UPDATE {self.table_name}
+            SET status = %s, paused_reason = %s, paused_at = %s, updated_at = %s
+            WHERE (
+                related_entity_id = %s
+                OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
+            )
+            AND status IN ({placeholders})
+        """
+        result = await self._db.execute(
+            query,
+            params=(
+                JobStatus.PAUSED.value,
+                paused_reason,
+                stamp,
+                stamp,
+                user_id,
+                user_id,
+                *(s.value for s in SUSPENDABLE_JOB_STATUSES),
+            ),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
+
+    async def get_jobs_paused_for_execution_principal(
+        self,
+        user_id: str,
+        paused_reasons: Iterable[str],
+    ) -> List[JobModel]:
+        """Every job that would EXECUTE as `user_id` and sits in
+        `status='paused'` with a `paused_reason` in `paused_reasons` — the
+        read half of undoing an account suspension (review r2 I-B).
+
+        The principal predicate is character-for-character the one
+        `pause_jobs_for_execution_principal` uses (`related_entity_id`, else
+        `user_id` when related_entity_id is NULL or ''), so reinstate selects
+        exactly the population suspend paused and nothing else. Both the
+        status AND the reason are pinned: a job the user paused themselves
+        (`paused_reason='user'`), one paused for quota / spend / anything
+        else, or one with a NULL reason (never written by a suspension; NULL
+        never matches `IN (...)`) is never returned. No row ceiling: the
+        caller must see the whole set it is about to resume.
+
+        Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders).
+        Twins: tests/repository/test_job_repository_pause_principal.py + `_mysql`.
+        """
+        reasons = sorted({r for r in paused_reasons if r})
+        if not reasons:
+            return []
+        logger.debug(f"    → JobRepository.get_jobs_paused_for_execution_principal({user_id})")
+        placeholders = ", ".join(["%s"] * len(reasons))
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE (
+                related_entity_id = %s
+                OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
+            )
+            AND status = %s
+            AND paused_reason IN ({placeholders})
+            ORDER BY id ASC
+        """
+        rows = await self._db.execute(
+            query,
+            params=(user_id, user_id, JobStatus.PAUSED.value, *reasons),
+            fetch=True,
+        )
+        return [self._row_to_entity(row) for row in rows] if rows else []
 
     async def update_job_status(
         self,
@@ -969,7 +1116,8 @@ class JobRepository(BaseRepository[JobModel]):
                     # Parse trigger_config
                     trigger_config = self._parse_json_field(trigger_config_raw, {})
                     if trigger_config:
-                        tc = TriggerConfig(**trigger_config) if isinstance(trigger_config, dict) else trigger_config
+                        # B-15: tolerant read-side constructor — see _row_to_entity.
+                        tc = TriggerConfig.from_stored_dict(trigger_config) if isinstance(trigger_config, dict) else trigger_config
                         job_type_enum = JobType(job_type_str)
                         # Calculate next execution time (based on current time + interval)
                         from narranexus.platform.utils.job_scheduling import compute_next_run
@@ -1116,6 +1264,14 @@ class JobRepository(BaseRepository[JobModel]):
         making them pollable by JobTrigger. Resolves the job's frozen timezone
         from its trigger_config so the beta fields stay in sync with alpha.
 
+        B-16: also flips `status` to ACTIVE. The `WHERE` clause used to only
+        match PENDING/ACTIVE — a job correctly created BLOCKED (dependencies
+        not yet met) could never be un-blocked by this method (0 rows
+        affected), which is exactly the call `JobModule.on_instance_activated`
+        makes when a dependency completes. Widened to include BLOCKED and the
+        `SET` now explicitly moves it to ACTIVE so `get_due_jobs()` (which only
+        selects PENDING/ACTIVE) can pick it up.
+
         Args:
             instance_id: Instance ID
             next_run_time: Next execution time (aware UTC datetime)
@@ -1142,8 +1298,8 @@ class JobRepository(BaseRepository[JobModel]):
         query = f"""
             UPDATE {self.table_name}
             SET next_run_time = %s, next_run_at_local = %s, next_run_tz = %s,
-                updated_at = %s
-            WHERE instance_id = %s AND status IN (%s, %s)
+                status = %s, updated_at = %s
+            WHERE instance_id = %s AND status IN (%s, %s, %s)
         """
 
         result = await self._db.execute(
@@ -1152,10 +1308,12 @@ class JobRepository(BaseRepository[JobModel]):
                 next_run_time,
                 local_str,
                 tz_name,
+                JobStatus.ACTIVE.value,
                 utc_now(),
                 instance_id,
                 JobStatus.PENDING.value,
-                JobStatus.ACTIVE.value
+                JobStatus.ACTIVE.value,
+                JobStatus.BLOCKED.value,
             ),
             fetch=False
         )
@@ -1302,7 +1460,11 @@ class JobRepository(BaseRepository[JobModel]):
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Get active task summary
+        Get live task summary ("what jobs do I have" for the agent prompt)
+
+        Covers LIVE_JOB_STATUSES (pending / active / running / blocked /
+        cooling) so a dependency-blocked or retrying job is reported, not
+        silently omitted (review I5).
 
         Args:
             agent_id: Agent ID
@@ -1318,14 +1480,14 @@ class JobRepository(BaseRepository[JobModel]):
             SELECT job_id, title, next_run_time, job_type, status
             FROM {self.table_name}
             WHERE agent_id = %s AND user_id = %s
-            AND status IN (%s, %s)
+            AND {self._LIVE_STATUS_SQL}
             ORDER BY next_run_time ASC
             LIMIT %s
         """
 
         results = await self._db.execute(
             query,
-            params=(agent_id, user_id, JobStatus.PENDING.value, JobStatus.ACTIVE.value, limit),
+            params=(agent_id, user_id, *self._LIVE_STATUS_PARAMS, limit),
             fetch=True
         )
 
@@ -1374,7 +1536,11 @@ class JobRepository(BaseRepository[JobModel]):
             except (json.JSONDecodeError, TypeError):
                 trigger_config_data = {}
 
-        trigger_config = TriggerConfig(**trigger_config_data) if isinstance(trigger_config_data, dict) else TriggerConfig()
+        # B-15: use the tolerant read-side constructor so a legacy row saved
+        # before the timezone-required validator existed (e.g. bare
+        # {'cron': '0 13 * * 1-5'}) still loads instead of raising a
+        # ValidationError that would abort every caller of get_job()/find().
+        trigger_config = TriggerConfig.from_stored_dict(trigger_config_data) if isinstance(trigger_config_data, dict) else TriggerConfig()
 
         return JobModel(
             id=row.get("id"),

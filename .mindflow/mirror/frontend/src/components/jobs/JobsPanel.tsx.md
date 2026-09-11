@@ -1,7 +1,12 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — `canResume` + `paused_spend_cap`
+
+与后端 `job_recovery._RESUMABLE_STATUSES` 对齐：被日花费上限暂停的 job 面板上有 Resume 按钮
+（早恢复无害，下一次调度会重判 cap）。
 
 ## 2026-08-27 — 密度重构：band 按数据条件渲染
 

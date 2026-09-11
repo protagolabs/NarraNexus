@@ -142,7 +142,7 @@ class InstanceSyncService:
             List of created job_ids
         """
         from narranexus.platform.repository import JobRepository
-        from narranexus.platform.schema.job_schema import JobType, TriggerConfig
+        from narranexus.platform.schema.job_schema import JobStatus, JobType, TriggerConfig
 
         job_repo = JobRepository(self.db)
         created_job_ids = []
@@ -298,7 +298,17 @@ class InstanceSyncService:
                     next_run_at_local=next_run_local,
                     next_run_tz=next_run_tz_final,
                     related_entity_id=related_entity_id,  # Feature 2.2 (single value)
-                    narrative_id=narrative_id  # Feature 3.1
+                    narrative_id=narrative_id,  # Feature 3.1
+                    # B-16: mirror the ModuleInstance's own initial status —
+                    # `_set_initial_status` above already decided this Job's
+                    # instance is BLOCKED when it has unmet in-batch
+                    # dependencies. Without this the Job row defaulted to
+                    # PENDING regardless, so get_due_jobs() (PENDING/ACTIVE
+                    # only) fired it immediately, ignoring the BLOCKED instance.
+                    status=(
+                        JobStatus.BLOCKED if inst.status == "blocked"
+                        else JobStatus.PENDING
+                    ),
                 )
                 created_job_ids.append(job_id)
                 created_titles_this_batch.add(job_config.title)  # Track created titles
