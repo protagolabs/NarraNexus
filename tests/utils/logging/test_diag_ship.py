@@ -925,6 +925,66 @@ class TestMissingCollectorBackoff:
         sink.flush()
         assert sink._discovery_next - clock.now <= _ship._DISCOVERY_RETRY_S
 
+    @pytest.mark.parametrize("status", [502, 200])
+    def test_concurrent_threads_spend_a_single_probe(self, monkeypatch, status):
+        """The timer thread and the enqueue worker both call _ingest_url;
+        the claim (read _discovery_next + write the hold) must be atomic
+        so only ONE of them sends the discovery GET. Reading the hold is
+        made to rendezvous all threads: without the lock every thread
+        reads the old value before anyone writes the hold (N GETs); with
+        it, the first reader times the barrier out while the rest wait on
+        the lock, then see the hold (1 GET)."""
+        import threading
+
+        n = 6
+        barrier = threading.Barrier(n)
+
+        class _RendezvousSink(_ship.ShipSink):
+            @property
+            def _discovery_next(self):
+                seen = self.__dict__.get("_dn", 0.0)
+                try:
+                    barrier.wait(timeout=0.3)
+                except threading.BrokenBarrierError:
+                    pass
+                return seen
+
+            @_discovery_next.setter
+            def _discovery_next(self, value):
+                self.__dict__["_dn"] = value
+
+        mapping = {"default": "https://agent.narra.nexus/telemetry/v1/ingest"}
+        gets: list = []
+        gets_lock = threading.Lock()
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            with gets_lock:
+                gets.append(request.method)
+            if status == 200:
+                return httpx.Response(200, json={"ingest": mapping})
+            return httpx.Response(502, text="bad gateway")
+
+        monkeypatch.setattr(
+            _ship, "_transport_for_tests", httpx.MockTransport(_handle)
+        )
+        sink = _RendezvousSink("backend", _config(url=None))
+        results: list = []
+        threads = [
+            threading.Thread(target=lambda: results.append(sink._ingest_url()))
+            for _ in range(n)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        assert gets.count("GET") == 1, gets
+        assert len(results) == n
+        if status == 200:
+            assert sink._resolved_url == mapping["default"]
+            assert sink._discovery_failures == 0
+        else:
+            assert sink._discovery_failures == 1
+
     def test_backoff_delay_is_jittered_and_capped(self):
         d1 = _ship._backoff_delay(_ship._DISCOVERY_RETRY_S, 1)
         assert _ship._DISCOVERY_RETRY_S * 0.5 <= d1 <= _ship._DISCOVERY_RETRY_S

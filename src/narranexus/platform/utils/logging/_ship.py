@@ -413,7 +413,8 @@ class ShipSink:
     def __call__(self, message: Any) -> None:
         try:
             if self._breaker_open():
-                self._dropped_in_cooldown += 1
+                with self._state_lock:
+                    self._dropped_in_cooldown += 1
                 return
             record = message.record
             entry = {
@@ -480,7 +481,8 @@ class ShipSink:
             dropped = len(self._buf)
             self._buf.clear()
             self._buf_bytes = 0
-        self._dropped_in_cooldown += dropped
+        with self._state_lock:
+            self._dropped_in_cooldown += dropped
         sys.stderr.write(
             f"[diag-ship] breaker OPEN ({reason}); dropping records for "
             f"{cooldown:.0f}s (file log intact; recover via "
@@ -500,9 +502,11 @@ class ShipSink:
             )
         if breaker_holding:
             with self._lock:
-                self._dropped_in_cooldown += len(self._buf)
+                dropped = len(self._buf)
                 self._buf.clear()
                 self._buf_bytes = 0
+            with self._state_lock:
+                self._dropped_in_cooldown += dropped
             return
         with self._lock:
             if not self._buf:
@@ -529,19 +533,52 @@ class ShipSink:
         successful resolution resets the streak."""
         if self._config["url"]:
             return self._config["url"]
-        now = time.monotonic()
-        if self._resolved_url and now < self._url_expires:
-            return self._resolved_url
-        if now < self._discovery_next:
-            return self._resolved_url
+        # Claim the probe atomically: the sink's own timer thread and the
+        # loguru enqueue worker both reach here via flush(), and only one
+        # of them may spend a request. The HTTP GET itself runs OUTSIDE
+        # the lock so a 5s timeout never stalls the other thread.
+        with self._state_lock:
+            now = time.monotonic()
+            if self._resolved_url and now < self._url_expires:
+                return self._resolved_url
+            if now < self._discovery_next:
+                return self._resolved_url
+            # Provisional hold while this probe is in flight; overwritten
+            # with the real result below.
+            self._discovery_next = now + _DISCOVERY_RETRY_S
         discovery = (
             os.environ.get("NEXUS_DIAG_DISCOVERY_URL", "").strip()
             or _DISCOVERY_URL_DEFAULT
         )
-        # Provisional hold while this probe is in flight: the timer and
-        # the enqueue worker can both reach here, and only one of them
-        # should spend a request. Overwritten with the real backoff below.
-        self._discovery_next = now + _DISCOVERY_RETRY_S
+        url, retry_base = self._probe_discovery(discovery)
+        with self._state_lock:
+            if url:
+                self._resolved_url = url
+                self._url_expires = now + _DISCOVERY_TTL_S
+                self._discovery_next = 0.0
+                self._discovery_failures = 0
+                self._discovery_noted = False
+                return url
+            self._discovery_failures += 1
+            self._discovery_next = now + _backoff_delay(
+                retry_base, self._discovery_failures
+            )
+            first_note = not self._discovery_noted
+            self._discovery_noted = True
+            resolved = self._resolved_url
+        if first_note:
+            sys.stderr.write(
+                f"[diag-ship] telemetry discovery unresolved via {discovery}; "
+                f"batches dropped until it answers, re-probing with "
+                f"exponential backoff (file log intact)\n"
+            )
+        return resolved
+
+    def _probe_discovery(self, discovery: str) -> tuple[Optional[str], float]:
+        """One discovery GET (no shared state touched).
+
+        Returns (ingest_url, retry_base): the allowed ingest URL for this
+        env, or None plus the backoff base for the failure class."""
         # Until proven otherwise a failure is transient (5xx, network,
         # a disallowed URL); the branches below mark definite answers.
         retry_base = _DISCOVERY_RETRY_S
@@ -555,8 +592,7 @@ class ShipSink:
                 # doc directly at 200) — same class as the not-a-
                 # document 200 below: back off from a full TTL, not the
                 # short transient base.
-                retry_base = _DISCOVERY_TTL_S
-                raise ValueError(f"discovery answered {resp.status_code}")
+                return None, _DISCOVERY_TTL_S
             if 200 <= resp.status_code < 300:
                 try:
                     document = resp.json()
@@ -572,16 +608,10 @@ class ShipSink:
                     # service right now — a fleet of idle installs must
                     # not beacon the vendor every minute for a service
                     # that isn't there.
-                    retry_base = _DISCOVERY_TTL_S
-                    raise ValueError("discovery document is not {'ingest': {...}}")
+                    return None, _DISCOVERY_TTL_S
                 url = mapping.get(self._config["env"]) or mapping.get("default")
                 if url and _allowed_ingest_url(str(url)):
-                    self._resolved_url = str(url)
-                    self._url_expires = now + _DISCOVERY_TTL_S
-                    self._discovery_next = 0.0
-                    self._discovery_failures = 0
-                    self._discovery_noted = False
-                    return self._resolved_url
+                    return str(url), retry_base
                 if url:
                     sys.stderr.write(
                         f"[diag-ship] discovery offered disallowed ingest "
@@ -589,18 +619,7 @@ class ShipSink:
                     )
         except Exception:  # noqa: BLE001 — discovery is best-effort
             pass
-        self._discovery_failures += 1
-        self._discovery_next = now + _backoff_delay(
-            retry_base, self._discovery_failures
-        )
-        if not self._discovery_noted:
-            self._discovery_noted = True
-            sys.stderr.write(
-                f"[diag-ship] telemetry discovery unresolved via {discovery}; "
-                f"batches dropped until it answers, re-probing with "
-                f"exponential backoff (file log intact)\n"
-            )
-        return self._resolved_url
+        return None, retry_base
 
     def _send(self, lines: list[bytes]) -> None:
         # Consent is re-checked at the door on EVERY egress (one stat):

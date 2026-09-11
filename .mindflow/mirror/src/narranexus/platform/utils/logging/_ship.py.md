@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/utils/logging/_ship.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 ---
 
 ## 2026-09-09(B-39)— 缺失 collector 的指数退避 + 云端默认不外发
@@ -26,13 +26,21 @@ prod 自己的容器。两层根因:
   25%。5xx/网络从 60s 起步(第一次仍是短重试,瞬态恢复快),3xx/4xx/
   非文档 200 从 TTL 1h 起步;成功解析即清零。同类扫描:熔断冷却也是
   固定 60s(死 ingest = 每分钟一个探测 POST),同样按连续 OPEN 次数
-  翻倍,任何 collector 应答(2xx/4xx)清零。进行中的探测先占位
-  60s,防定时线程与 enqueue 线程并发各发一次。
+  翻倍,任何 collector 应答(2xx/4xx)清零。
+- **探测去重靠锁兑现**(PR#403 review I1):"读 `_discovery_next` +
+  判断 + 写 60s 占位"在 `_state_lock` 内原子完成,结果(成功写
+  `_resolved_url/_url_expires`、失败 `_discovery_failures += 1` 与
+  退避)也在锁内写回;HTTP GET 拆到 `_probe_discovery()`(不碰共享
+  状态)在锁外执行,5s 超时不会卡住另一线程。定时线程与 enqueue 线程
+  并发时只有一个发 GET。同类:`_dropped_in_cooldown` 的三处累加
+  (`__call__`/`_open_breaker`/`flush`)一并收进 `_state_lock`。
 
 测试(`TestMissingCollectorBackoff` / `TestCloudDefault` + 路由
 `test_cloud_deployment_without_opt_in_reports_off`):假时钟模拟一天,
 502/网络错误 GET ≤20(旧 1440)、404 ≤8(旧 24)、死 ingest POST ≤
 阈值+20(旧 1442);成功后下次故障回到短步长;回退 _ship.py 后 8 条红。
+`test_concurrent_threads_spend_a_single_probe[502|200]`:6 线程在读
+`_discovery_next` 处会合,有锁恰 1 次 GET,去掉锁 6 次(已验证变红)。
 
 ## 2026-08-12(rc.2 / #292)— staging 从 dev collector 取发现文档 + 4xx 退避
 
