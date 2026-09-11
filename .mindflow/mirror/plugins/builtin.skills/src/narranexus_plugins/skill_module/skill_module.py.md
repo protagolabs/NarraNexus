@@ -39,7 +39,6 @@ description 取 meta 或 "(No SKILL.md found)"），`_scan_workspace_skills` 的
 以前那个分支根本不看 meta 的 requires，也是一处分叉。测试见
 `tests/skill_module/test_skill_required_env_single_source.py`。
 
-## 2026-09-09 — `_extract_zip_safely` 把 `BadZipFile` 转成 `ValueError`（B-30，#113）
 ## 2026-09-09 — `_extract_zip_safely` 把 `BadZipFile`/`OSError` 转成 `ValueError`（B-30，#113；复审 I7/I8 修订）
 
 `zipfile.ZipFile(zip_file_path, "r")` 打不开一个非 zip 文件时抛的是

@@ -16,7 +16,6 @@ bus 写入边（[[local_bus]]）对超过 `MAX_BUS_MESSAGE_BYTES` 的行抛 `Val
 `HTTPException(400, multipart.oversize_reason(...))`——文案与 bus 同源，不另写常量。
 锁：`tests/backend/test_team_chat_oversize.py`（超一字节 400、刚好上限 200）。
 
-## 2026-09-09 — 公告栏 GET/POST 曾把整个 dict 喂给 `format_for_api`（B-18）
 ## 2026-09-09 — 公告栏 GET/POST 曾把整个 dict 喂给 `format_for_api`（B-18；复审 I4/M6 修订）
 
 `format_for_api` 只格式化**单个** datetime；喂给它一整个 `entry.model_dump()`
