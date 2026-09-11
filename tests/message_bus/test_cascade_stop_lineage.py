@@ -192,3 +192,149 @@ async def test_a_stopped_tree_whose_root_already_finished_still_suppresses(db_cl
     )
 
     assert await bus.get_pending_messages("agent_b") == []
+
+
+# ── the whole chain, from a ROOT turn's header to a two-hop stop ─────────────
+#
+# Everything above hands the label in by hand ("evt_root"). The one place the
+# label is DERIVED is `ContextRuntime.build_input_for_framework`: a root turn
+# has nothing upstream to inherit, so it must stamp its own event id into the
+# MCP identity header (B-19, GitHub #124). Before that fix the header was ""
+# for every user-triggered turn, the message it sent carried NULL, and the
+# run that message woke labelled itself a fresh root — so the cascade only
+# ever reached job-seeded trees. This test walks the real links:
+#
+#   root turn's header → message_agent (the registered tool, ambient headers)
+#   → bus_messages.root_run_id → the trigger's trigger_extra_data →
+#   client._inherited_root_run_id → RunRecorder._bind_run_id →
+#   events.root_run_id on the woken run → POST /runs/{root}/cancel hits both.
+#
+# Nothing on that path is mocked; deleting the `or event_id` fallback in
+# context_runtime turns this red.
+
+ROOT_RUN = "evt_root_turn"
+CHILD_RUN = "evt_child_turn"
+
+
+async def _root_turn_headers(agent_id: str, event_id: str) -> dict:
+    """The MCP identity headers a ROOT turn hands its module servers —
+    built by the real ContextRuntime, with a trigger that carries no tree
+    (exactly what a user's message produces: `root_run_id=""`)."""
+    from types import SimpleNamespace
+
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.module_system.base import XYZBaseModule
+    from narranexus.platform.schema import ContextData, WorkingSource
+
+    class _BusModule:
+        contribute_tools = XYZBaseModule.contribute_tools
+
+        async def mcp_server(self):
+            return SimpleNamespace(server_name="message_bus_module", server_url="http://x/sse")
+
+        async def contribute_turn_context(self, ctx_data):
+            return ""
+
+        async def expressive_tools(self, ctx_data=None):
+            return []
+
+    runtime = ContextRuntime(agent_id=agent_id, user_id="user_x", database_client=object(), event_id=event_id)
+    ctx = ContextData(agent_id=agent_id, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS
+    ctx.extra_data = {"bus_channel_id": "ch_1", "root_run_id": ""}
+    _m, servers, *_r = await runtime.build_input_for_framework(
+        messages=[], system_prompt="sys", ctx_data=ctx,
+        active_instances=[SimpleNamespace(module_class="MessageBusModule", instance_id="mb_1", module=_BusModule())],
+    )
+    return servers["message_bus_module"]["headers"]
+
+
+def _registered_bus_tools(bus) -> dict:
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import register_message_bus_mcp_tools
+
+    captured: dict = {}
+
+    class _MCP:
+        def tool(self, *_a, **_k):
+            def deco(fn):
+                captured[fn.__name__] = fn
+                return fn
+            return deco
+
+    async def _get_bus():
+        return bus
+
+    register_message_bus_mcp_tools(_MCP(), _get_bus)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_a_root_turns_send_puts_the_woken_run_in_its_tree_and_one_stop_reaches_both(db_client, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import backend.routes.runs as runs_mod
+    from narranexus.platform.agent_runtime.client import _inherited_root_run_id
+    from narranexus.platform.agent_runtime.run_recorder import RunRecorder
+
+    from ._mcp_headers import injected
+
+    await _seed_channel(db_client)
+    for name in ("narranexus.platform.utils.db.db_factory.get_db_client", "narranexus.platform.utils.get_db_client"):
+        monkeypatch.setattr(name, _return(db_client))
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    # 1. The root run: nothing inherited, so the recorder labels it with itself.
+    await _seed_run(db_client, ROOT_RUN, root=None, state="completed")
+    root_rec = RunRecorder(db=db_client, inherited_root_run_id=_inherited_root_run_id({"trigger_extra_data": {"root_run_id": ""}}))
+    await root_rec._bind_run_id(ROOT_RUN)
+    assert (await db_client.get_one("events", {"event_id": ROOT_RUN}))["root_run_id"] == ROOT_RUN
+
+    # 2. Inside that turn, the agent asks a peer through the real tool, under
+    #    the headers the real ContextRuntime built for a root turn.
+    headers = await _root_turn_headers("agent_a", ROOT_RUN)
+    with injected(headers):
+        result = await _registered_bus_tools(bus)["message_agent"](agent_id="agent_a", to="agent_b", text="@b help")
+    assert result["success"] is True
+
+    # 3. The message carries the tree; the trigger forwards it as the woken
+    #    run's trigger_extra_data (message_bus_trigger: `root_run_id or ""`).
+    pending = await bus.get_pending_messages("agent_b")
+    assert [m.root_run_id for m in pending] == [ROOT_RUN]
+    woken_extra = {"trigger_extra_data": {"root_run_id": pending[0].root_run_id or ""}}
+
+    # 4. The woken run inherits the label through the client's seam.
+    await _seed_run(db_client, CHILD_RUN, root=None, state="completed")
+    child_rec = RunRecorder(db=db_client, inherited_root_run_id=_inherited_root_run_id(woken_extra))
+    await child_rec._bind_run_id(CHILD_RUN)
+    try:
+        assert (await db_client.get_one("events", {"event_id": CHILD_RUN}))["root_run_id"] == ROOT_RUN
+
+        # 5. One stop on the ROOT reaches the run it caused, two hops away.
+        app = FastAPI()
+        app.include_router(runs_mod.router, prefix="/api/runs")
+
+        @app.middleware("http")
+        async def _auth(request, call_next):
+            request.state.user_id = "user_x"
+            return await call_next(request)
+
+        monkeypatch.setattr(runs_mod, "get_db_client", _return(db_client))
+        resp = TestClient(app).post(f"/api/runs/{ROOT_RUN}/cancel")
+        assert resp.status_code == 200, resp.text
+        for run_id in (ROOT_RUN, CHILD_RUN):
+            assert (await db_client.get_one("events", {"event_id": run_id}))["cancel_requested_at"] is not None
+
+        # ...and the stopped tree's queued follow-ups stop waking runs.
+        with injected(headers):
+            await _registered_bus_tools(bus)["message_agent"](agent_id="agent_a", to="agent_b", text="one more thing")
+        assert await bus.get_pending_messages("agent_b") == []
+    finally:
+        await root_rec.finalize("cancelled")
+        await child_rec.finalize("cancelled")
+
+
+def _return(value):
+    async def _get():
+        return value
+    return _get

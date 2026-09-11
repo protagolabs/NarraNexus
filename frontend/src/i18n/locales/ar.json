@@ -937,6 +937,8 @@
       "loggedIn": "مُسجّل الدخول",
       "loggedInAs": "باسم",
       "notLoggedIn": "غير مُسجّل الدخول",
+      "sessionExpired": "انتهت صلاحية الجلسة",
+      "sessionExpiredHint": "انتهت صلاحية جلسة CLI — سجّل الدخول مرة أخرى أعلاه لمواصلة استخدام هذا المزوّد.",
       "cliNotInstalled": "CLI غير مثبّت",
       "expires": "· تنتهي الصلاحية {{date}}",
       "reLoggingInCountdown": "جارٍ إعادة تسجيل الدخول... متبقّ {{time}} (تحقّق من المتصفح)",

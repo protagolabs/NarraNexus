@@ -1,8 +1,42 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111；复审 I3/I4/M6/M7 修订）
+
+`/codex-status` 在 2026-06-11 事故后已经学乖：文件/凭据存在不等于会话还活着，必须拿
+`expires_at` 跟"现在"比一次，过期就把 `logged_in` 掰回 `False` 并加一个 `expired` 字段。
+`_expiry_is_past` 那个 helper `/claude-status` 却从来没调用——`expires_at` 一路被填（CLI probe
+的 `claude auth status` 输出、或旧版 `.credentials.json` 兜底）却从未拿去比较，于是一个已
+过期的 token 仍然报 `logged_in=True`，Settings 页面显示"已登录"而实际每一轮 Claude 调用都
+会因未授权失败。修法照抄 `/codex-status`：两条填充路径跑完、`return` 之前统一比一次；
+fail-open 语义继承（解析不了的 `expires_at` 不算过期）。两条路由的 docstring 都登记了
+`expired` 字段。
+
+复审后三处收口：
+- **`_expiry_is_past` 提到两条路由之前**、去掉"codex"措辞——它服务两条路由，却原本定义在
+  `# Codex CLI Auth Status` 横幅之下、被 120 行之上的 `get_claude_status` 调用，读起来像 codex
+  私有。秒/毫秒阈值抽成常量 `EPOCH_MS_THRESHOLD = 1e11`（1e11 秒是 5138 年、1e11 毫秒是
+  1973 年，真 token 不会落在中间），前端 `SubscriptionConnect.tsx::formatExpiresAt` 原来用
+  `1e12`，1e11–1e12 之间两边解释相反，现在同一个值、互相注明。
+- **凭据文件路径改走 `driver/derive.py::resolve_claude_credentials_path`**（认
+  `CLAUDE_CLI_CREDENTIALS_PATH` / `CLAUDE_CLI_HOME`，默认 `~/.claude/.credentials.json`），
+  与 runtime 读的是同一个文件；此前硬编码 `Path.home()/.claude`，env override 下会基于一个
+  runtime 根本不用的文件把 `logged_in` 掰成 false（codex 那条早就认 `CODEX_HOME`，不对称）。
+  无 env 时行为不变；dev/prod 容器若设了这两个 env，取值会变——切版前用
+  `scripts/ec2_inspect.sh dev env-keys` 核一次。
+- **测试喂真实格式**：`claudeAiOauth.expiresAt` 是 epoch 毫秒整数，测试用 2020/2100 的毫秒
+  值各钉一条（claude + codex 两侧），删掉阈值那两行即红；`_run_json_subprocess` 全部 stub
+  掉（`shutil.which` 被 patch 成固定路径，装了真 `claude` 的机器会真跑子进程、结果随本机登录
+  态漂移）；另补 CLI probe 分支的过期用例和 `CLAUDE_CLI_HOME` override 用例；
+  `NARRANEXUS_DEPLOYMENT_MODE` 显式 delenv（`_is_cloud()` 先看它再看 DATABASE_URL）。
+
+同类「文件在=已登录」未修、记录口径（复审 I4）：`backend/integrations/plugins/service.py::
+_logged_in`（纯 `Path.exists()`，Plugins 设置页）、`plugins/builtin.providers/.../claude_oauth.py::
+probe`（`is_file()` 即 ok）、`tauri/src-tauri/src/commands/auth.rs::get_claude_login_status`
+（后端不可达时的第二套实现，字符串匹配 `"loggedIn":true`，无 `expires_at`）。本批只修路由层。
 
 ## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
 

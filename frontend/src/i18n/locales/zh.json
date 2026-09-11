@@ -1220,6 +1220,8 @@
       "loggedIn": "已登录",
       "loggedInAs": "·",
       "notLoggedIn": "未登录",
+      "sessionExpired": "登录已过期",
+      "sessionExpiredHint": "CLI 登录已过期——请在上方重新登录，才能继续使用这个 provider。",
       "cliNotInstalled": "未安装 CLI",
       "expires": "· 到期 {{date}}",
       "reLoggingInCountdown": "正在重新登录… 剩余 {{time}}（请查看浏览器）",

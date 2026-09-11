@@ -66,6 +66,15 @@ def test_archives_refuse_traversal_and_links(tmp_path: Path):
     assert (tmp_path / "ok" / "a" / "b.txt").read_text() == "1"
 
 
+def test_a_corrupt_zip_is_a_source_error(tmp_path: Path):
+    """A truncated backend.zip in a release must be refused the way every
+    other bad source is (SourceError), not leak a bare BadZipFile past the
+    install pipeline's classification."""
+    with pytest.raises(SourceError, match="not a valid zip"):
+        extract_zip(b"definitely not a zip", tmp_path / "corrupt")
+    assert not (tmp_path / "corrupt").exists()
+
+
 def test_parse_source_spec(tmp_path: Path):
     assert parse_source_spec("acme/weather@1.0.0") == GitHubReleaseSource("acme/weather", "1.0.0")
     assert parse_source_spec("https://github.com/acme/weather.git") == GitHubReleaseSource("acme/weather")

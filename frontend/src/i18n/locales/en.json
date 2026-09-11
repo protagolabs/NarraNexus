@@ -1220,6 +1220,8 @@
       "loggedIn": "Logged in",
       "loggedInAs": "as",
       "notLoggedIn": "Not logged in",
+      "sessionExpired": "Session expired",
+      "sessionExpiredHint": "The CLI session has expired — log in again above to keep using this provider.",
       "cliNotInstalled": "CLI not installed",
       "expires": "· expires {{date}}",
       "reLoggingInCountdown": "Re-logging in... {{time}} left (check browser)",

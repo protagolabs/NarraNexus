@@ -30,6 +30,7 @@ from narranexus.contracts.channel import ChannelDescriptor
 from narranexus.platform.channel.credential_store import CredentialConflict, GenericCredentialStore, UnknownChannel, bind_fields_for, descriptor_for, validate_bind_fields
 from narranexus.platform.channel.webhook_inbox import WebhookInbox
 from narranexus.platform.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
+from narranexus.platform.utils.route_envelope import structured_envelope
 
 router = APIRouter()
 
@@ -92,11 +93,13 @@ def _schema_view(d: ChannelDescriptor) -> dict[str, Any]:
 
 
 @router.get("/{channel}/schema")
+@structured_envelope("channels")
 async def channel_schema(channel: str) -> dict[str, Any]:
     return {"success": True, "data": _schema_view(_descriptor(channel))}
 
 
 @router.post("/{channel}/bind")
+@structured_envelope("channels")
 async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[str, Any]:
     d = _descriptor(channel)
     auth_err = await check_owned(request, body.agent_id)
@@ -173,6 +176,7 @@ async def channel_webhook(request: Request, channel: str, agent_id: str = Path(.
 
 
 @router.get("/{channel}/credential")
+@structured_envelope("channels")
 async def channel_credential(request: Request, channel: str, agent_id: str) -> dict[str, Any]:
     _descriptor(channel)
     auth_err = await check_owned(request, agent_id)
@@ -183,6 +187,7 @@ async def channel_credential(request: Request, channel: str, agent_id: str) -> d
 
 
 @router.post("/{channel}/test")
+@structured_envelope("channels")
 async def channel_test(request: Request, channel: str, body: AgentBody) -> dict[str, Any]:
     d = _descriptor(channel)
     auth_err = await check_owned(request, body.agent_id)
@@ -199,6 +204,7 @@ async def channel_test(request: Request, channel: str, body: AgentBody) -> dict[
 
 
 @router.post("/{channel}/unbind")
+@structured_envelope("channels")
 async def channel_unbind(request: Request, channel: str, body: AgentBody) -> dict[str, Any]:
     d = _descriptor(channel)
     auth_err = await check_owned(request, body.agent_id)
@@ -218,6 +224,7 @@ async def channel_unbind(request: Request, channel: str, body: AgentBody) -> dic
 
 
 @router.post("/{channel}/set-active")
+@structured_envelope("channels")
 async def channel_set_active(request: Request, channel: str, body: SetActiveBody) -> dict[str, Any]:
     d = _descriptor(channel)
     auth_err = await check_owned(request, body.agent_id)

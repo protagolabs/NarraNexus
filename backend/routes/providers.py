@@ -1151,6 +1151,51 @@ async def get_catalog():
 
 
 # =============================================================================
+# CLI auth status (Claude Code / Codex) — shared expiry check
+# =============================================================================
+
+#: Numeric expiries above this are epoch MILLISECONDS, below it epoch seconds
+#: (1e11 s is year 5138; 1e11 ms is 1973 — no real token lands between).
+#: Mirrored verbatim in frontend/src/components/settings/SubscriptionConnect.tsx.
+EPOCH_MS_THRESHOLD = 1e11
+
+
+def _expiry_is_past(raw: object) -> bool:
+    """Best-effort: is this CLI auth-token expiry in the past?
+
+    Shared by ``/claude-status`` and ``/codex-status``. Returns False
+    whenever we can't CONFIDENTLY parse the value — fail open, because
+    wrongly reporting a working session as expired is worse than
+    under-warning. Handles epoch seconds, epoch milliseconds (Claude Code's
+    ``claudeAiOauth.expiresAt`` is epoch-ms), and ISO-8601 strings (neither
+    CLI documents its credential schema, and both shift between versions).
+
+    The seconds/milliseconds split is ``EPOCH_MS_THRESHOLD`` — the frontend's
+    ``formatExpiresAt`` applies the same constant, so both sides read one
+    value the same way.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        is_numeric_str = (
+            isinstance(raw, str) and raw.strip().lstrip("-").isdigit()
+        )
+        if isinstance(raw, (int, float)) or is_numeric_str:
+            ts = float(raw)  # type: ignore[arg-type]
+            if ts >= EPOCH_MS_THRESHOLD:  # milliseconds, not seconds (same boundary as the frontend)
+                ts /= 1000.0
+            return ts < datetime.now(timezone.utc).timestamp()
+        if isinstance(raw, str):
+            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt < datetime.now(timezone.utc)
+    except Exception:
+        return False
+    return False
+
+
+# =============================================================================
 # Claude Code Auth Status
 # =============================================================================
 
@@ -1162,12 +1207,20 @@ async def get_claude_status(request: Request):
       - cli_installed: bool — `claude` binary on PATH
       - logged_in:     bool — auth status reports an active token
       - email:         str | None — account email if discoverable
-      - expires_at:    str | None — ISO-8601 token expiry if surfaced
+      - expires_at:    str | None — token expiry as the CLI surfaced it (ISO-8601
+                       or epoch seconds/milliseconds; the UI formats either)
+      - expired:       bool — expires_at parsed confidently AND is in the past;
+                       logged_in is forced False alongside it
     """
     import json as _json
-    from pathlib import Path
 
-    result = {"cli_installed": False, "logged_in": False, "email": None, "expires_at": None}
+    result = {
+        "cli_installed": False,
+        "logged_in": False,
+        "email": None,
+        "expires_at": None,
+        "expired": False,
+    }
 
     if _is_cloud() and not _is_staff(request):
         return {"success": True, "data": {**result, "allowed": False}}
@@ -1222,8 +1275,18 @@ async def get_claude_status(request: Request):
     # or the user is on an older CLI. Email/expires_at usually aren't in
     # this file, so they may stay None even when we mark logged_in=True.
     if not result["logged_in"]:
-        creds_file = Path.home() / ".claude" / ".credentials.json"
-        if creds_file.is_file():
+        # The SAME file the runtime reads (driver/derive.py honours
+        # CLAUDE_CLI_CREDENTIALS_PATH / CLAUDE_CLI_HOME): a hard-coded
+        # ~/.claude path judged expiry against a file the agents never use
+        # whenever those overrides were set, exactly as /codex-status
+        # already honours CODEX_HOME.
+        from narranexus.platform.agent_framework.providers.driver.derive import (
+            CLAUDE_CLI_CREDENTIALS_REF,
+            resolve_claude_credentials_path,
+        )
+
+        creds_file = resolve_claude_credentials_path(CLAUDE_CLI_CREDENTIALS_REF)
+        if creds_file is not None and creds_file.is_file():
             try:
                 data = _json.loads(creds_file.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
@@ -1253,42 +1316,24 @@ async def get_claude_status(request: Request):
             except Exception:
                 pass
 
+    # Honesty fix (mirrors the /codex-status fix, incident 2026-06-11): an
+    # expires_at we found (from either the CLI probe or the legacy
+    # credentials file) is not useful if nothing ever compares it against
+    # "now" — a token past its expiry was still reported logged_in=True,
+    # so the UI showed a working session when every Claude turn would
+    # actually fail unauthorized (GitHub #111). _expiry_is_past fails open
+    # (returns False) when it can't confidently parse the value, so an
+    # unparseable expiry never wrongly locks out a working session.
+    if result["expires_at"] is not None and _expiry_is_past(result["expires_at"]):
+        result["logged_in"] = False
+        result["expired"] = True
+
     return {"success": True, "data": result}
 
 
 # =============================================================================
 # Codex CLI Auth Status (mirror of /claude-status)
 # =============================================================================
-
-
-def _expiry_is_past(raw: object) -> bool:
-    """Best-effort: is this codex auth-token expiry in the past?
-
-    Returns False whenever we can't CONFIDENTLY parse the value — fail
-    open, because wrongly reporting a working session as expired is worse
-    than under-warning. Handles epoch seconds, epoch milliseconds, and
-    ISO-8601 strings (the codex auth.json schema is undocumented and
-    varies between versions).
-    """
-    from datetime import datetime, timezone
-
-    try:
-        is_numeric_str = (
-            isinstance(raw, str) and raw.strip().lstrip("-").isdigit()
-        )
-        if isinstance(raw, (int, float)) or is_numeric_str:
-            ts = float(raw)  # type: ignore[arg-type]
-            if ts > 1e11:  # milliseconds, not seconds
-                ts /= 1000.0
-            return ts < datetime.now(timezone.utc).timestamp()
-        if isinstance(raw, str):
-            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt < datetime.now(timezone.utc)
-    except Exception:
-        return False
-    return False
 
 
 @router.get("/codex-status")
@@ -1301,6 +1346,8 @@ async def get_codex_status(request: Request):
       - ``logged_in``:     bool — ``~/.codex/auth.json`` present
       - ``email``:         str | None — best-effort if parseable
       - ``expires_at``:    str | None — best-effort if parseable
+      - ``expired``:       bool — expires_at parsed confidently AND is in the
+                           past; logged_in is forced False alongside it
 
     Cloud mode hides the card for non-staff (per /claude-status policy).
     Auth.json's schema is undocumented and may shift between versions;

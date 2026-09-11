@@ -92,7 +92,21 @@ def _link_or_copy(src: Path, dst: Path) -> None:
 def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, base: str) -> Optional[Path]:
     """Resolve one send-time handle to an absolute source file, or None.
 
-    - ``att_...`` → an attachment in the sender's ``user_upload_files`` store.
+    - ``att_...`` → an attachment in the sender's ``user_upload_files`` store,
+      falling back to the per-user SHARED bus area when the sender's own
+      store misses. Both stores mint ids with the same ``att_`` format via
+      ``generate_file_id``, so a team-chat attachment a human uploaded
+      directly (or one another agent already staged) is indistinguishable
+      from the sender's own upload by shape alone — only the fallback tells
+      them apart. Without it, `team_share_file` re-sharing a team-chat
+      attachment into another team silently resolved to nothing (#122).
+      Boundary of the fallback: `resolve_shared_file_by_id` is scoped to
+      `owner_user_id`'s own root and the id has already passed the `att_`
+      format check, so it can reach any file in THIS owner's shared area
+      (any of the owner's rooms, teams included) and never another owner's.
+      That is the same user-wide grant `turn_accessible_roots` already
+      gives every turn on the whole `bus_files` tree; the fallback removes
+      a Read-then-attach detour, not a partition.
     - anything else → a path relative to the sender's workspace, validated to
       stay inside that workspace (rejects ``../`` escapes and absolute paths).
     """
@@ -101,7 +115,10 @@ def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, b
         return None
 
     if is_valid_file_id(ref):
-        return resolve_attachment_path(sender_agent_id, owner_user_id, ref)
+        own_upload = resolve_attachment_path(sender_agent_id, owner_user_id, ref)
+        if own_upload is not None:
+            return own_upload
+        return resolve_shared_file_by_id(owner_user_id, ref, base)
 
     workspace = agent_workspace_path(sender_agent_id, owner_user_id, base=base).resolve()
     candidate = (workspace / ref).resolve()

@@ -1,7 +1,45 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-08
+last_verified: 2026-09-10
 ---
+
+## 2026-09-09 — `run_mcp_servers_async` 关闭它自己开的池（B-41；复审 I5/M5 修订）
+
+单进程/本地或直连 MySQL 模式下,这个协程用 `get_db_client()` 在**自己这个 loop** 上开了池
+(`aiomysql.Pool` 把 Future 绑死在建它的 loop 上,见 2026-08-11 那条 entry)。2026-07-27
+补的集中式优雅退出只在 `finally` 里摘信号处理器,从没关过这个池——`server.serve()` 一返回,
+外层 `asyncio.run()` 就把 loop 拆了,池还开着。之后 GC 才终结那些遗留的连接对象,而这时 loop
+已经关了,于是每条连接各打一次 `"Event loop is closed"` 警告(dev 日志里连续 11 条,对应
+`aiomysql` 的 `minsize=1..maxsize` 池里那几条连接)。
+
+第一版只在 `serve()` 的 `finally` 里关池，复审指出两条**启动失败**出口（`if not instances:
+return`、`auto_migrate` 抛异常）都在那个 try 之前，池照样漏——恰恰是最需要看清日志的时候。
+现在结构是：`_open_pool_unless_seamed()` 在 try **外**开池（开失败没东西可关）；`auto_migrate`
++ `_serve_host()` 在 try **内**；唯一的 `finally` 调 `_release_host_resources(db)`。测试
+`test_a_failing_auto_migrate_still_closes_the_pool_and_propagates` 抓到过一版把 migrate 放
+进 opener 里的写法（异常时 `db` 未绑定 → 不关）。
+
+`_release_host_resources` 的顺序抄两个同族入口（`run_worker_supervisor._drain_and_close`
+/ `run_channel_triggers.main`）的纪律——**先 join 工作，再关池，最后 flush 日志**：
+1. `utils.background_tasks.spawn` 派出的脱离任务（hook_manager 会拉起一整个 run、dataloader
+   批刷、narrative updater）若落在关池之后会撞 `_backend=None`。`drain(timeout=_BACKGROUND_DRAIN_SEC)` →
+   剩余 cancel → gather(return_exceptions)，与先例的 stop→cancel→gather 三段式同形；有上限
+   是因为进程反正在退出，卡死的任务不能把关停拖过 stop grace。
+   **关停预算（复审 PR#393 I1）**：drain 不能吃满 grace，否则恰好在"有在途任务"这个唯一需要本修复
+   的场景里，进程在 close_db_client() 之前就被 SIGKILL。各监管方给的 SIGTERM→SIGKILL 窗口：
+   Tauri `process_manager.rs::stop_service` 3s（最紧）；deploy 仓 compose 的 `mcp` 服务未设
+   `stop_grace_period` → Docker 默认 10s；`run.sh` 的清理直接 `kill -9` 端口，本来就没有 grace。
+   因此 `_STOP_GRACE_BUDGET_SEC = 3.0`、`_POOL_CLOSE_HEADROOM_SEC = 1.0`，
+   `_BACKGROUND_DRAIN_SEC = 3.0 - 1.0 = 2.0s` 由二者推导而不单独设值——第一版写成 10.0 恰等于
+   Docker 默认 grace。`test_a_wedged_detached_task_still_leaves_time_to_close_the_pool` 用一个
+   永不结束的任务钉住：任务被 cancel、池照样关、全程 < 3s（改回 10.0 即红）。
+2. `db is not None` 才 `close_db_client()`（seam=HttpStore 模式没开过池，
+   `test_sigterm_does_not_close_a_pool_it_never_opened` 钉住）。
+3. `await logger.complete()`——loop 关掉之后再 flush 的 sink 会丢关停的最后几行。
+`test_detached_work_is_joined_before_the_pool_closes` 钉住 1→2 的顺序；
+`test_the_no_servers_early_return_still_closes_the_pool` 钉住早退出口。GC 之后才冒出来的
+"Event loop is closed" 警告本身在单元测试里没法确定性复现（GC 时机不可控），手工验证仍需
+在 dev/MySQL 环境跑一次 `docker compose restart mcp`，确认日志里不再冒出那 11 条警告。
 
 ## 2026-09-08（复审）— boot 提到 `main()` 顶部
 

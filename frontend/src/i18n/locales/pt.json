@@ -929,6 +929,8 @@
       "loggedIn": "Sessão iniciada",
       "loggedInAs": "como",
       "notLoggedIn": "Sessão não iniciada",
+      "sessionExpired": "Sessão expirada",
+      "sessionExpiredHint": "A sessão da CLI expirou — faça login novamente acima para continuar usando este provedor.",
       "cliNotInstalled": "CLI não instalado",
       "expires": "· expira {{date}}",
       "reLoggingInCountdown": "A reiniciar sessão... {{time}} restante(s) (verifique o navegador)",

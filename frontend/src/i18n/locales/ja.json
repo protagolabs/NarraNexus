@@ -928,6 +928,8 @@
       "loggedIn": "ログイン中",
       "loggedInAs": "—",
       "notLoggedIn": "未ログイン",
+      "sessionExpired": "セッションの有効期限切れ",
+      "sessionExpiredHint": "CLI セッションの有効期限が切れました。上で再ログインすると、このプロバイダーを引き続き使用できます。",
       "cliNotInstalled": "CLI が未インストール",
       "expires": "· 有効期限 {{date}}",
       "reLoggingInCountdown": "再ログイン中... 残り {{time}}（ブラウザを確認）",

@@ -18,7 +18,8 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
-from typing import List, Literal, Optional
+from datetime import datetime
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -80,6 +81,7 @@ from narranexus.platform.schema.team_schema import (
     BULLETIN_SOURCE_USER,
     BULLETIN_TIER_CURRENT_TASK,
     BULLETIN_TIER_LONG_TERM,
+    BulletinEntry,
     CreateTeamRequest,
     UpdateTeamRequest,
     AddMemberRequest,
@@ -1057,6 +1059,32 @@ class UpdateBulletinEntryRequest(BaseModel):
     content: str
 
 
+def _bulletin_entry_for_api(entry: BulletinEntry) -> dict[str, Any]:
+    """A `BulletinEntry` as JSON: every field verbatim except the datetimes,
+    which `format_for_api` converts to Z-suffixed ISO strings.
+
+    `format_for_api` formats ONE datetime, not a dict — feeding it
+    `entry.model_dump()` whole used to return `str(dict)`, a Python repr,
+    as the whole entry. The frontend's filter (`e.source !== 'auto_summary'`)
+    let those strings through (`undefined !== 'auto_summary'`), so the panel
+    rendered one blank row per entry — `content` and `entry_id` both
+    undefined, every React key undefined — not an empty panel.
+
+    Every `datetime` value is converted, by type rather than by field name:
+    a future datetime field on the model would otherwise bypass this and
+    be serialised by FastAPI without the `Z` suffix the frontend's
+    `new Date()` relies on.
+
+    Top level only: `BulletinEntry` is flat today. A future nested model or
+    `list[datetime]` field would be serialised by FastAPI without the `Z`
+    suffix -- convert it here explicitly when such a field is added.
+    """
+    return {
+        key: format_for_api(value) if isinstance(value, datetime) else value
+        for key, value in entry.model_dump().items()
+    }
+
+
 @router.get("/{team_id}/bulletin")
 async def list_team_bulletin(team_id: str, request: Request):
     """The team's bulletin plus its current budget usage.
@@ -1069,7 +1097,7 @@ async def list_team_bulletin(team_id: str, request: Request):
     entries = await repo.list_for_team(team_id)
     usage = await check_bulletin_budget(repo, team_id)
     return {
-        "entries": [format_for_api(e.model_dump()) for e in entries],
+        "entries": [_bulletin_entry_for_api(e) for e in entries],
         "usage": usage.model_dump(),
         "limits": {
             "max_entries": BULLETIN_MAX_ENTRIES,
@@ -1097,7 +1125,7 @@ async def create_team_bulletin_entry(team_id: str, payload: CreateBulletinEntryR
     except BulletinLimitExceeded as e:
         raise HTTPException(status_code=400, detail=str(e))
     await _post_bulletin_notice(db, team_id, "updated")
-    return {"success": True, "entry": format_for_api(entry.model_dump())}
+    return {"success": True, "entry": _bulletin_entry_for_api(entry)}
 
 
 @router.patch("/{team_id}/bulletin/{entry_id}")

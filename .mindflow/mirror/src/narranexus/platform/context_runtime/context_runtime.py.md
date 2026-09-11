@@ -1,8 +1,53 @@
 ---
 code_file: src/narranexus/platform/context_runtime/context_runtime.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — 根回合的 MCP header `root_run_id` 落回自己的 event_id（B-19，#124）
+
+`turn_extra.get("root_run_id")` 只在这个回合的 prompt 是被某条已入树的消息触发时才非空
+（bus send 工具在发消息时盖章）。一个**新树的根**——用户在房间里发的第一条消息、一次
+job 触发——它的触发者从未盖过章，`turn_extra` 里天生没有这个键，于是旧代码把 header
+钉死成 `""`。
+
+这和 `RunRecorder` 写 `events.root_run_id` 的规则（`inherited_root_run_id or run_id`，
+见 [[../agent_runtime/run_recorder]]）本该是同一条规则的两个消费点，却只在一处实现：
+`events` 表里根回合的 `root_run_id` 一直是**正确的**（等于自己的 event_id），但 MCP
+header 传给工具（`record_handoffs` 等）的却是空字符串。工具用空 header 建的工作看板
+项就带着 `root_run_id=""` 落库；用户点 stop 时 `backend/routes/runs.py` 从 `events` 行
+读到的是正确、非空的 root，拿它去 `pause_by_root(root)` 查询，但查询条件是
+`WHERE root_run_id = root`——一个空字符串永远匹配不上这个非空的 root，于是根回合建
+的项永远不会被这次 stop 命中，卡在 in_progress 上（跑起来又被 patrol 当成"没人管"
+重新派工）。
+
+修法：`event_id` 的计算挪到 `root_run_id` 之前，`root_run_id` 在 `turn_extra` 没有值时
+落回 `event_id`——和 `RunRecorder` 完全同一条规则，写在两个必须同步的地方。全仓扫过
+其余读 `root_run_id` 的位置（`backend/routes/runs.py` 读 events 列、
+`agent_runtime/client.py::_inherited_root_run_id` 喂给 `RunRecorder`、
+`message_bus/local_bus.py` 读消息行）——它们都只是转发这条已经正确的值，唯独本文件
+这个 MCP header 构造点漏掉了落回自己的一步。
+
+### 次生效果（复审 I5/I6）：级联 stop 的作用域从「job 种下的树」扩大到「所有用户触发的树」
+
+修复前 header 路径其实是个闭环：根回合发 `""` → `bus_messages.root_run_id` NULL → 被唤醒的
+run 又把自己标成新根 → 它的发送再是 NULL。非 NULL 树的唯一种子是 `job_trigger.py` 传的
+`root_run_id`。修复后每个用户消息触发的回合都是树根，于是一次 stop（`backend/routes/runs.py`
+的 `WHERE root_run_id = root AND state = running`）会级联标记整棵树、`local_bus.py` 抑制整棵
+树的排队消息、看板项按 root pause——包括**后代**回合建的项，以及**私聊**回合里
+`team_work_create` 建的项（本处无条件生效）。这与 `cancel_run` docstring 的树语义
+（"stopping only the clicked run leaves those branches burning tokens"）一致，是**有意**的：
+用户在单聊里点 stop，这条链路唤醒的其它 agent 的 run 会一起停、排队消息一起静音。
+端到端测试 `tests/message_bus/test_cascade_stop_lineage.py::test_a_root_turns_send_puts_the_
+woken_run_in_its_tree_and_one_stop_reaches_both` 走真实链路（本文件建 header → 注册的
+`message_agent` 工具 → `bus_messages` → trigger 形状的 `trigger_extra_data` →
+`client._inherited_root_run_id` → `RunRecorder._bind_run_id` → 真 cancel 路由两跳命中 +
+排队抑制），删掉 `or event_id` 即红。
+
+**已知空洞（未修，记录）**：`agent_runtime/client.py::_new_recorder` 在 `recording_enabled()`
+为假或 `get_db_client()` 抛错时返回 None，`events.root_run_id` 保持 NULL，而本文件的 header
+照样盖章 → `runs.py` 读到 `""` 走单行分支 → 盖了章的看板项又成孤儿。也就是 #124 在「关闭
+录制」配置下原样幸存；"header 与 RunRecorder 同规则"在那个配置下不成立，且无断言。
 
 ## 2026-09-04（批 3a）— `run(..., context_providers=())`
 

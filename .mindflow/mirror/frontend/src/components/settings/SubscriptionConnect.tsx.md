@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/settings/SubscriptionConnect.tsx
-last_verified: 2026-08-28
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — 状态行三态：`expired` 有了消费方（B-25 后半，复审 I2/M2/M7）
+
+后端 `/claude-status`（与 `/codex-status`）对过期 token 把 `logged_in` 掰成 false 并给
+`expired: true`，但前端从没读过这个字段：`CliStatusLine` 只有两态，过期时走
+`notLoggedIn`（"从没登录过"的文案），而过期时间行和 email 的门是 `logged_in`——**最需要
+线索的时刻恰恰把线索藏起来**（修之前"已登录 + Expires 3/1"撒谎但有线索，修之后"未登录"
+无日期无邮箱）。现在：
+
+- `CliStatusPayload.expired?: boolean`（[[../../lib/providersApi.ts]]；可选，两条 status
+  路由和测试 mock 早于这个字段）。
+- `CliStatusLine` 第三态：黄点 + `settings.provider.sessionExpired`，仍渲染 `email` 与
+  `expires_at`（门改为 `logged_in || expired`）。`data-testid="cli-status-line"`。
+- `ProviderRecordRow` 加 `sessionExpired` prop：记录存在但 CLI 会话已过期时，"✓ 已添加"下
+  方多一行 `settings.provider.sessionExpiredHint`（否则与上面的"已过期"自相矛盾）。claude 卡
+  传 `expired && !claudeTokenConnected`——setup-token 运输层绕过 CLI 会话，token 记录不受
+  CLI 过期影响；codex 卡直接传 `expired`。
+- `formatExpiresAt` 的秒/毫秒阈值从 `1e12` 改为 `EPOCH_MS_THRESHOLD = 1e11`，与
+  `backend/routes/providers.py` 同一个常量（原来 1e11–1e12 之间两边解释相反）。
+- 两个新 i18n 键落全部 10 份 locale（locale-parity 门禁）。
+
+`ProviderPickerModal.tsx` 把 payload 收窄成 `{cli_installed, logged_in}` 但只渲染
+`cli_installed`（登录态只决定是否显示 Login 按钮，过期时 `logged_in` 已为 false，行为正确），
+本批不动。
 
 # SubscriptionConnect.tsx — Claude Code / Codex 订阅连接卡(从 ProviderSettings 抽出)
 

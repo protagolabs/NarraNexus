@@ -929,6 +929,8 @@
       "loggedIn": "Sesión iniciada",
       "loggedInAs": "como",
       "notLoggedIn": "Sesión no iniciada",
+      "sessionExpired": "Sesión caducada",
+      "sessionExpiredHint": "La sesión de la CLI ha caducado: vuelve a iniciar sesión arriba para seguir usando este proveedor.",
       "cliNotInstalled": "CLI no instalada",
       "expires": "· caduca {{date}}",
       "reLoggingInCountdown": "Volviendo a iniciar sesión... quedan {{time}} (revisa el navegador)",
