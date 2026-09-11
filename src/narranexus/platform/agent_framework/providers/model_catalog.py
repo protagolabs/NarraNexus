@@ -59,8 +59,8 @@ class ModelMeta:
 
 _KNOWN_MODELS: dict[str, ModelMeta] = {}
 # Lower-cased LAST path segment of every registered id -> the entries sharing
-# it. Lets ``get_model_meta`` recognise a self-entered spelling of a catalog
-# model ("deepseek-v4-pro", "netmind/deepseek-ai/DeepSeek-V4-Pro").
+# it. Lets ``get_model_name_match`` recognise a self-entered spelling of a
+# catalog model ("deepseek-v4-pro", "netmind/deepseek-ai/DeepSeek-V4-Pro").
 _KNOWN_MODELS_BY_NAME: dict[str, list[ModelMeta]] = {}
 
 
@@ -449,13 +449,10 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     entry: two independent lookups can each fall back differently and
     pair one row's ceiling with another row's window.
 
-    Beyond that, a user-entered id is matched case-insensitively on its
-    LAST path segment ("deepseek-v4-pro", "DeepSeek-V4-Pro" and
-    "netmind/deepseek-ai/DeepSeek-V4-Pro" all name the catalog's
-    "deepseek-ai/DeepSeek-V4-Pro"). That fallback only answers when every
-    catalog entry sharing the name agrees on the facts consumers read
-    (ceiling, window, thinks_by_default); a name whose entries disagree
-    is ambiguous and stays unknown rather than borrowing one row's numbers.
+    This is an IDENTITY lookup: it answers only for an id that names a
+    catalog row. A self-entered spelling that merely shares a row's name
+    is not that row — see ``get_model_name_match`` for the narrow facts
+    such a spelling may borrow.
 
     The normalization lives here rather than in a caller so every
     consumer inherits it; a copy per caller is the duplication this
@@ -466,15 +463,49 @@ def get_model_meta(model_id: str) -> Optional[ModelMeta]:
     meta = _KNOWN_MODELS.get(model_id)
     if meta is None and "/" in model_id:
         meta = _KNOWN_MODELS.get(model_id.split("/", 1)[1])
-    if meta is None:
-        candidates = _KNOWN_MODELS_BY_NAME.get(_model_name_key(model_id), [])
-        facts = {
-            (m.max_output_tokens, m.context_window, m.thinks_by_default)
-            for m in candidates
-        }
-        if len(facts) == 1:
-            meta = candidates[0]
     return meta
+
+
+@dataclass(frozen=True)
+class ModelNameMatch:
+    """The facts a self-entered model id may borrow from catalog rows that
+    share its name — deliberately NOT a ``ModelMeta``.
+
+    Sharing a name does not make it the same model: a BYOK user's
+    ``myorg/DeepSeek-V4-Pro`` may be a quantised or fine-tuned build with
+    a smaller window. So the match carries no ``model_id`` /
+    ``display_name`` (they would name another row) and no
+    ``context_window`` (a borrowed wall would size compaction and output
+    against a limit this model may not have). What it does carry is safe
+    to apply by name: ``thinks_by_default`` (a family trait), and
+    ``max_output_tokens`` which a consumer may only use to LOWER its own
+    ceiling — a smaller ceiling can never overrun any wall.
+    """
+    thinks_by_default: bool
+    max_output_tokens: Optional[int]
+
+
+def get_model_name_match(model_id: str) -> Optional[ModelNameMatch]:
+    """Match an id that ``get_model_meta`` does not know, case-insensitively
+    on its LAST path segment ("deepseek-v4-pro", "DeepSeek-V4-Pro" and
+    "netmind/deepseek-ai/DeepSeek-V4-Pro" all share the catalog's
+    "deepseek-ai/DeepSeek-V4-Pro" name).
+
+    Answers only when every catalog entry sharing the name agrees on the
+    facts it returns; a name whose entries disagree is ambiguous and stays
+    unknown rather than borrowing one arbitrary row's numbers. No fuzzy
+    matching: a near-miss name is unknown.
+    """
+    if not model_id:
+        return None
+    candidates = _KNOWN_MODELS_BY_NAME.get(_model_name_key(model_id), [])
+    facts = {(m.thinks_by_default, m.max_output_tokens) for m in candidates}
+    if len(facts) != 1:
+        return None
+    thinks_by_default, max_output_tokens = facts.pop()
+    return ModelNameMatch(
+        thinks_by_default=thinks_by_default, max_output_tokens=max_output_tokens
+    )
 
 
 def get_max_output_tokens(model_id: str) -> Optional[int]:

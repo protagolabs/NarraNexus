@@ -36,6 +36,7 @@ from narranexus.platform.agent_framework.providers.model_catalog import (
     get_context_window,
     get_max_output_tokens,
     get_model_meta,
+    get_model_name_match,
 )
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
@@ -261,9 +262,42 @@ def test_name_fallback_refuses_names_whose_entries_disagree(monkeypatch):
         context_window=10_000,
     )
     monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a, b])
-    assert get_model_meta("custom/Twin") is None
+    assert get_model_name_match("custom/Twin") is None
     monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a])
-    assert get_model_meta("custom/Twin") is a
+    match = get_model_name_match("custom/Twin")
+    assert match is not None and match.max_output_tokens == 1_000
+    # Identity lookup never answers for a mere name match, and the match
+    # carries no other row's id / display name / window.
+    assert get_model_meta("custom/Twin") is None
+    assert not hasattr(match, "model_id")
+    assert not hasattr(match, "display_name")
+    assert not hasattr(match, "context_window")
+
+
+def test_name_match_never_borrows_a_window_or_raises_the_ceiling():
+    """A self-entered id sharing a catalog row's name may be a different
+    build with a smaller wall: it must keep the dialect row's window and
+    ceiling (no borrowed 1M window, no raised 115_200 ceiling), while the
+    exact catalog id still gets both."""
+    dialect = resolve_profile("totally-unknown-model", "openai")
+    guessed = resolve_profile("myorg/Claude-Opus-4-8", "openai")
+    assert get_model_meta("myorg/Claude-Opus-4-8") is None
+    assert guessed.vendor_context_window == dialect.vendor_context_window
+    assert guessed.max_output_tokens == dialect.max_output_tokens
+
+    exact = resolve_profile("anthropic/claude-opus-4-8", "openai")
+    assert exact.vendor_context_window == 1_000_000
+    assert exact.max_output_tokens == 115_200
+    # The exact-id accessors do not guess either.
+    assert get_context_window("myorg/Claude-Opus-4-8") is None
+    assert get_max_output_tokens("myorg/Claude-Opus-4-8") is None
+
+
+def test_name_match_may_lower_the_ceiling():
+    """Lowering is always safe (a smaller ceiling cannot overrun a wall),
+    so a same-named row's smaller ceiling applies: DeepSeek-V3's 7_200."""
+    assert get_model_meta("myorg/DeepSeek-V3") is None
+    assert resolve_profile("myorg/DeepSeek-V3", "openai").max_output_tokens == 7_200
 
 
 @pytest.mark.parametrize(
@@ -455,6 +489,20 @@ async def test_stream_translation_text_tool_usage():
     # Anthropic-protocol routing for custom endpoints.
     fake = client._client
     assert fake.last_kwargs["model"] == "anthropic/claude-x"
+
+
+def test_requested_max_tokens_is_an_int_and_null_is_not_a_pin():
+    """A pinned value is returned as an int; ``None`` or a non-integer is
+    not a pin and yields the computed budget, never ``max_tokens: null``."""
+    profile = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=1_000, max_output_tokens=100_000,
+    )
+    computed = requested_max_tokens(profile, {}, 500)
+    assert requested_max_tokens(profile, {"max_tokens": "777"}, 500) == 777
+    assert requested_max_tokens(profile, {"max_tokens": None}, 500) == computed
+    assert requested_max_tokens(profile, {"max_tokens": "lots"}, 500) == computed
+    assert isinstance(computed, int)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,12 @@ last_verified: 2026-09-11
 stub: false
 ---
 
+## 2026-09-11 — 自填 id 按名字只借安全的事实
+
+`_with_model_limits`：`get_model_meta` 精确命中（含剥一层路由前缀）时行为不变；未命中时改查
+`get_model_name_match`（[[model_catalog]]），只借 `thinks_by_default` 与**更低**的 ceiling（`min`），
+**不**借 `vendor_context_window`、**不**抬高 ceiling——同名的自建/量化版本窗口可能更小，借来的墙会让压缩永不触发。
+
 ## 2026-09-10（B-03）— 默认思考模型的输出地板 8_192；地板按 `thinks_by_default` 选；`floor_multiplier`
 
 25-45% 平台 job run 空产出的根因：`output_budget` 地板统一 1_024，对默认思考的模型不够——
@@ -22,8 +28,9 @@ stub: false
 - **地板刻意压过 headroom**，即使 `input + max_tokens` 因此越过 wall：provider 的可见 400 优于一次
   静默空跑。有实测支撑：同一次 2026-09-08 测量里 128_000 窗口、输入约 122_880、`max_tokens=8_192`
   （合计 131_072，已越墙）8 次全部正常返回——NetMind/DeepSeek 在这一段不强制 `input + max_tokens ≤ window`。
-- `requested_max_tokens(profile, extra, input_tokens_estimate, *, floor_multiplier=1)`：一个请求实际携带的
-  `max_tokens` 的唯一来源——`extra` 里钉住的值原样胜出，否则 `output_budget`。[[model_client]] 用它发送，
+- `requested_max_tokens(profile, extra, input_tokens_estimate, *, floor_multiplier=1) -> int`：一个请求实际携带的
+  `max_tokens` 的唯一来源——`extra` 里钉住的值（`int()` 后）胜出，否则 `output_budget`。`None` 或 `int()` 转不了的值
+  视为未钉，发计算出的预算而不是 `max_tokens: null`（旧的 `setdefault` 会把显式 `None` 原样发出；平台无人写它）。[[model_client]] 用它发送，
   loop.py 的截断重试用它判断「发了多少 / 翻倍能否更大」。
 - `output_budget()` 加 keyword-only `floor_multiplier: int = 1`，只放大地板项，ceiling 仍最后钳制。
   它**不**让结果服从 headroom——地板本来就压过 headroom，放大地板等于放大同一个越墙风险。因此

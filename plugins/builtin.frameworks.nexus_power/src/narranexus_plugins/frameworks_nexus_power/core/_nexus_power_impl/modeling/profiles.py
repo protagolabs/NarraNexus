@@ -36,7 +36,10 @@ from dataclasses import replace
 from typing import Any, Mapping
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ProviderProfile
-from narranexus.platform.agent_framework.providers.model_catalog import get_model_meta
+from narranexus.platform.agent_framework.providers.model_catalog import (
+    get_model_meta,
+    get_model_name_match,
+)
 
 _DEFAULT = ProviderProfile(name="default")
 
@@ -176,20 +179,28 @@ def requested_max_tokens(
     input_tokens_estimate: int,
     *,
     floor_multiplier: int = 1,
-) -> Any:
+) -> int:
     """The ``max_tokens`` value a request actually carries — the single
     source of truth for it.
 
     A ``max_tokens`` pinned in ``params.extra`` always wins (an explicit
-    setting is never overridden, binding rule #15) and is returned
-    verbatim; otherwise it is ``output_budget``. The model client sends
+    setting is never overridden, binding rule #15); otherwise it is
+    ``output_budget``. "Pinned" means a value that reads as an integer:
+    ``None`` (or anything ``int()`` rejects) is treated as not pinned, so
+    the request carries the computed budget rather than ``max_tokens:
+    null``. (The older ``extra.setdefault`` path sent an explicit ``None``
+    verbatim; nothing on the platform writes one, and a null cap is not a
+    budget, so the computed value is the intended behaviour.) The model client sends
     exactly this value, and loop.py's truncation retry asks this same
     function both "what did the failed step send" and "would a doubled
     floor send more" — so the two can never drift apart.
     """
     pinned = extra.get("max_tokens")
     if pinned is not None:
-        return pinned
+        try:
+            return int(pinned)
+        except (TypeError, ValueError):
+            pass
     return output_budget(
         profile, input_tokens_estimate, floor_multiplier=floor_multiplier
     )
@@ -242,10 +253,26 @@ def _with_model_limits(profile: ProviderProfile, model: str) -> ProviderProfile:
     wall — so a catalog entry below the default applies unconditionally
     (DeepSeek-V3's real 7_200 is under the 8_192 default and should
     win). Unknown model → the dialect row's conservative defaults.
+
+    A self-entered id that is not a catalog row but shares one's name
+    (``get_model_name_match``) borrows only what is safe by name:
+    ``thinks_by_default`` and a LOWER ceiling. Never the window, never a
+    raised ceiling — a same-named custom build may have a smaller wall,
+    and borrowing the catalog's would stop compaction from firing.
     """
     meta = get_model_meta(model)
     if meta is None:
-        return profile
+        match = get_model_name_match(model)
+        if match is None:
+            return profile
+        ceiling = profile.max_output_tokens
+        if match.max_output_tokens is not None:
+            ceiling = min(ceiling, match.max_output_tokens)
+        return replace(
+            profile,
+            max_output_tokens=ceiling,
+            thinks_by_default=match.thinks_by_default,
+        )
     ceiling = profile.max_output_tokens
     if meta.max_output_tokens is not None:
         raising = meta.max_output_tokens > ceiling

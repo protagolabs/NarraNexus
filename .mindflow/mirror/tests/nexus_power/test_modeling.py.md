@@ -27,5 +27,8 @@ V3、gpt-5.5、未知模型为 False）。
 ## 2026-09-11 — 自填 id 归一化与 `requested_max_tokens`
 
 `deepseek-v4-pro` / `DeepSeek-V4-Pro` / `netmind/deepseek-ai/DeepSeek-V4-Pro` 均得 `thinks_by_default=True` 与
-8_192 地板；未知名、非思考模型的自填拼法、近似名仍为 False/None；同名行事实不一致时歧义返回 None。
+8_192 地板；未知名、非思考模型的自填拼法、近似名仍为 False/None；同名行事实不一致时 `get_model_name_match` 歧义返回 None，
+匹配结果不带 model_id/display_name/context_window 且 `get_model_meta` 对它仍为 None；`myorg/Claude-Opus-4-8` 保持方言行的窗口与
+ceiling（不借 1M、不抬到 115_200），`myorg/DeepSeek-V3` 的 ceiling 可降到 7_200；`requested_max_tokens` 返回 int，
+`None`/非整数不算钉住。
 client 实际发送的 `max_tokens` 恰等于 `requested_max_tokens`（未钉 ×1/×2、钉住值在任意乘数下不变）。
