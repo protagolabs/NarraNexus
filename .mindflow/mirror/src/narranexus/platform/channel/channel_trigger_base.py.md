@@ -1,8 +1,43 @@
 ---
 code_file: src/narranexus/platform/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — `safe_error_text` 覆盖 `_subscribe_loop` 之外的三个异常审计出口（PR #388 review M6 / round-2 M4-M5）
+
+**范围**：`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`、`EVENT_INBOX_WRITE_FAILED` 三处 + 断连两分支。
+`EVENT_MANAGED_INGRESS_PROCESSED` 的 `details.error`（`managed_after_run` 内，`:2295` 附近）**不走**它：那是入参，来自
+completions 端点的 run 错误消息，同一文本已经 `format_error_reply` 回给用户，不含传输层凭据；走 `safe_error_text`
+反而会把 32+ 位 run_id/message_id 打成 `<redacted>`。它的截断上限同样是 `AUDIT_ERROR_MAX_CHARS`（审计行），
+不再是裸的 200 字面量。
+**两个上限**：`DISABLE_REASON_MAX_CHARS=200`（凭据行 → 面板无折叠）与 `AUDIT_ERROR_MAX_CHARS=500`（审计行是排障
+真相源，与同行的 `original_message`/`agent_response` 的 500 对齐）；`safe_error_text(exc, max_chars=...)`，五处审计
+写入显式传 500，`disable_credential(reason=)` 仍用 200（永久分支两份文本分别算）。
+
+除 `_subscribe_loop` 的两个断连分支外，`EVENT_WORKER_ERROR`、`EVENT_ATTACHMENT_FETCH_FAILED`（含其 warning 日志句）、
+`EVENT_INBOX_WRITE_FAILED` 的 `details.error` 也统一走 `safe_error_text(e, AUDIT_ERROR_MAX_CHARS)`（脱敏 +
+500 字符截断，几 MB 的异常文本不会整条进审计表）；全文件不再有裸 `"error": f"{type(e).__name__}: {e}"` 的审计写入。其余仅进日志句的
+warning（DM 门、反应、managed ingress 等，不含传输层文本）未改。`logger.exception` 的 traceback 保持原样。
+测试：`tests/channel/test_attachment_fetch_pipeline.py::test_fetch_attachments_raise_degrades_gracefully`
+现在断言审计行不含 URL/token；`safe_error_text` 自身的打码/换行/两档上限单测在 `tests/channel/test_safe_error_text.py`。
+
+## 2026-09-09 — `disable_credential(credential, reason="")` + `safe_error_text`（B-28，复审 I1/I3/I4）
+
+`_subscribe_loop` 的**四个出口**——永久分支的 warning 与审计 `details.error`、瞬时分支的 exception 日志与审计
+`details.error`——以及传给 `disable_credential` 的 `reason`，全部用同一个 `safe_error_text(e)`（复审 I1，
+原名 safe_disable_reason）：异常类型 + 消息，URL（Telegram 的请求 URL 路径里就是 bot token）与 token 形状
+（`<digits>:<base64>`、JWT、32+ 位不透明串）统一打码，再截断——覆盖 disabled_reason、**格式化的日志句**与审计
+`details.error` 三处；截断上限自 2026-09-10 起分两档（见上方小节）：`disabled_reason` 用 `DISABLE_REASON_MAX_CHARS=200`，
+日志句与审计 `details.error` 用 `AUDIT_ERROR_MAX_CHARS=500`。**但 `logger.exception` 渲染的 traceback 尾行仍是
+原始 `str(exc)`**（复审 round-3 I1 实测），基类不能也不应改掉它（丢栈更难查），所以 `safe_error_text` 只是兜底网：
+密钥必须在来源处抹掉——Telegram SDK 的 `TelegramSDKClient._redact` 在 aiohttp 异常文本变成 `TelegramSDKError` 之前
+把 bot token 换成 `<token>`（信封 `error_detail`、`description`、`str()`、traceback 尾行一起干净）。审计 key 仍叫 `error`。
+测试 `test_audit_and_disable_reason_never_carry_the_request_url_or_token`。**这是对所有子类的契约变更**：基类以关键字 `reason=` 调用，五个内置频道
+（telegram/slack/discord/wechat/matrix）都已改签名并把 reason 持久化到 `disabled_reason`（各自 manager
+`set_enabled(reason=)`），第三方插件频道覆写 `disable_credential` 时必须接受 `reason`。新静态方法
+`log_disable_outcome(channel, agent_id, ok, reason)`：写成功 WARNING、写失败（store 返回 False）ERROR，
+让"熔断没生效、还在重连"可观测。`matrix_trigger` 缺凭据自停用那条路径也带上了 reason。
 
 ## 2026-08-28（接线 review）— 清扫作用域与闸门次序
 

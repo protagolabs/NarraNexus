@@ -1,8 +1,20 @@
 ---
 code_file: plugins/builtin.teams/src/narranexus_plugins/teams/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #389 I1）— 400 文案面向人
+
+`oversize_reason(bytes, OVERSIZE_REMEDY_HUMAN)`：事实 + 「消息过长，请拆分后发送」，不再提
+part_index/part_count。
+
+## 2026-09-10（review r2 I2）— `send_team_chat` 超长返回 400
+
+bus 写入边（[[local_bus]]）对超过 `MAX_BUS_MESSAGE_BYTES` 的行抛 `ValueError`，这是用户手打
+文本上 bus 的唯一 HTTP 入口，不拦就是 500。现在按 **strip 之后**的 UTF-8 字节数在入库前判，
+`HTTPException(400, multipart.oversize_reason(...))`——文案与 bus 同源，不另写常量。
+锁：`tests/backend/test_team_chat_oversize.py`（超一字节 400、刚好上限 200）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

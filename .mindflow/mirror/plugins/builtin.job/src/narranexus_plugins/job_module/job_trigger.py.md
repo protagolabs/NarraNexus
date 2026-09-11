@@ -1,7 +1,22 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（review r2 I2）— 超长报告分片投递，超预算则明说，绝不静默丢
+
+`_deliver_to_origin`：bus 写入边拒绝超 `MAX_BUS_MESSAGE_BYTES` 的行后，这里原本只剩
+`logger.error`——「房间一定能听到回报」的保证被静默打破。现在 `multipart.split_for_bus` 按字节
+切成 `part_index/part_count` 序列走同一条 `send_message`（收件 lane 会重组成一条）；超过
+`MAX_MULTIPART_TOTAL_BYTES` 则贴一条平台说明「报告 N 字节超限、未贴出、留在 run 记录里」。
+并发写入核对：写入边只沿**同 sender 的最近一块**链接（`part_group IS NOT NULL`），agent 自己的
+普通 `message_team` 行不会打断；各块在同一协程里背靠背发出，链条连续。**未覆盖**（r3 M5）：
+同一 agent 两份 ≥60 KB 报告同一瞬间投同一房间会交错链条，第二份的 part 2 被写入边拒、落成一行
+`logger.error`——概率极低，先不加锁，注释已写明。分片进 team room 的两个代价（r3 M4）：transcript
+把报告渲染成 N 条原始 part 行；origin channel 的 owner 若是 agent，其 lane 在本协程中途死掉时最多
+被扣 grace。超预算那条说明行**以 agent 身份**发（r3 M7）：要带 run 的 event_id/root_run_id，
+「查看推理」与级联停止才追得到产出它的 run。锁：
+`test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
 
 ## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
 

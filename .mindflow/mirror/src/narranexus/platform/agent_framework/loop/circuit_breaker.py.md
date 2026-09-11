@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/circuit_breaker.py
-last_verified: 2026-07-30
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -51,11 +51,51 @@ provider 打垮"的 DoS 风险,熔断器本就不该管。
 新 run、message bus 轮询、module poller 一遍遍重触发。本服务复用 Job 层的分类/退避，
 在每个实时触发入口设"跳过闸门"，并在 turn 结束时记账。
 
+## 2026-09-10（PR #389 I3）— AUTH 判定改用宽松的 `is_auth_like_error`
+
+`forbidden` 回到「只影响分类」的作用域（见 [[failure.py]]）；严格版留给控制流。顺序不变：
+TRANSIENT 仍先于 AUTH。
+
+## 2026-09-09（review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
+
+`should_skip` 是 **turn 闸门**，允许有副作用（G4 分支 `fix/auth-breaker-half-open` 把它改成
+CAS 领取 half-open 探针，GitHub #117）。bus 发送工具的回执预检（[[_message_bus_mcp_tools]]
+`_book_receipt`）只想「看一眼」，用 `should_skip` 会替收件方吃掉唯一的探针、还回一句
+`accepted`。`peek_skip` 读**原始行**（不经实体：实体的枚举会拒绝本构建不认识的状态，而
+「未知状态」恰恰要判成 held），ACTIVE → 不 held；COOLING 未到期 → held（到期视作可跑）；
+PAUSED → `paused:<reason>`；其它任何状态（含未来的 `probing`）→ held 并原样回状态名。
+fail-open 同 `should_skip`。**与 G4 的耦合**：两分支都改本文件，G4 不动 `peek_skip`、本分支不动
+`should_skip`，合并应为纯追加；合并后 `peek_skip` 对 `probing` 的映射即刻生效。
+锁：`test_agent_circuit_breaker.py` 末尾两条；调用侧 `test_delivery_receipts.py::test_pre_flight_never_calls_the_turn_gate`
+把 `should_skip` 打成 AssertionError 钉住「预检绝不调 turn 闸门」。
+
+## 2026-09-09（review C1）— 新增只读入口 `peek_skip(agent_id, *, db)`
+
+`should_skip` 是 **turn 闸门**，允许有副作用（fix/auth-breaker-half-open 分支正把它改成
+CAS 领取 half-open 探针，GitHub #117）。bus 发送工具的回执预检（[[_message_bus_mcp_tools]]
+`_book_receipt`）只想知道「收件方现在跑不跑」，若调 `should_skip` 会把 B 唯一的探针吃掉、
+还回一句骗人的 accepted。`peek_skip` 只读原始行（不走实体：实体的枚举会**拒绝**本构建不认识
+的状态，而「未知状态」恰是这里要判成 held 的那种）：ACTIVE → 不 held；COOLING 未到期 → held、
+已到期 → 不 held（下一真 turn 会放行，读侧不改状态）；PAUSED → `paused:<reason>`；其余任何
+状态（含未来的 `probing`）→ held、原因=状态名。fail-open 与 `should_skip` 一致。刻意很小，
+与 G4 合并时不冲突。锁：`test_agent_circuit_breaker.py::test_peek_skip_*`、
+`test_delivery_receipts.py::test_pre_flight_never_calls_the_turn_gate`（monkeypatch
+`should_skip` 为必炸）。
+
+## 2026-09-09 — AUTH 判定里的 `"forbidden"` 补丁删掉，统一回 `is_credential_error`
+
+`classify_agent_error` 第 ③ 步原本在 `is_credential_error` 之外再补一句
+`"forbidden" in msg.lower()`，因为旧 marker 表的 `" 403"/"(403"` 要求数字前有分隔符，
+顶格的 "403 Forbidden" 漏网。[[failure.py]] 今日改成锚定正则（403 按整数匹配、
+`forbidden` 进表、裸 "provider" 出表），这句补丁成了第二份口径，删掉。行为由
+`test_agent_circuit_breaker.py` 的 "HTTP 403 Forbidden" / "403 Forbidden" 两条用例钉住；
+"provider temporarily unavailable" 仍靠 TRANSIENT 先判，但即使去掉那层，它也不再是 AUTH。
+
 ## 核心行为（分而治之）
 
 `classify_agent_error` 是**四分类**，顺序刻意：① QUOTA（error_type 精确匹配）② TRANSIENT
-（**正面识别** provider 侧：429/5xx/超时/网络/overloaded；放在 auth 之前，避免 "provider
-temporarily unavailable" 被 `is_credential_error` 的宽泛 "provider" 子串误扫进 auth）
+（**正面识别** provider 侧：429/5xx/超时/网络/overloaded；放在 auth 之前，让一条恰好带
+凭据词的瞬时错误——"authentication service timed out"——落 TRANSIENT 而不是 AUTH）
 ③ AUTH（凭证死）④ **BUSINESS = 真正的残余桶**：我们自己的 pipeline bug、永久客户端错
 （context 超长 / 模型 404 / content policy）、或认不出的。
 

@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "有効",
+    "inactive": "無効",
+    "enable": "有効にする",
+    "disable": "無効にする",
+    "disabledReason": "自動的に無効化されました: {{reason}}"
+  },
   "language": {
     "name": "言語"
   },

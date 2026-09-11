@@ -46,6 +46,9 @@ class DiscordCredential:
     owner_user_id: str = ""
     owner_name: str = ""
     enabled: bool = True
+    # Why the platform switched the binding off (permanent upstream failure);
+    # empty while enabled or when the owner disabled it by hand.
+    disabled_reason: str = ""
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -58,6 +61,7 @@ class DiscordCredential:
             "owner_user_id": self.owner_user_id,
             "owner_name": self.owner_name,
             "enabled": self.enabled,
+            "disabled_reason": self.disabled_reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -76,6 +80,7 @@ class DiscordCredential:
             "owner_user_id": self.owner_user_id,
             "owner_name": self.owner_name,
             "enabled": self.enabled,
+            "disabled_reason": self.disabled_reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -95,6 +100,7 @@ def _cred_from_raw(raw: dict[str, Any]) -> DiscordCredential:
         owner_user_id=raw.get("owner_user_id", "") or "",
         owner_name=raw.get("owner_name", "") or "",
         enabled=bool(raw.get("enabled", True)),
+        disabled_reason=raw.get("disabled_reason", "") or "",
         created_at=DiscordCredentialManager._parse_dt(raw.get("created_at")),
         updated_at=DiscordCredentialManager._parse_dt(raw.get("updated_at")),
     )
@@ -233,11 +239,12 @@ class DiscordCredentialManager:
         logger.info(f"[discord:{agent_id}] credentials unbound")
         return True
 
-    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
+    async def set_enabled(self, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
         """Flip ``enabled`` without deleting the row. Used by the trigger to
         break out of a reconnect loop against a revoked token (Discord
-        ``unauthorized``), mirroring Slack / Telegram."""
-        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
+        ``unauthorized``), mirroring Slack / Telegram. ``reason`` lands in
+        the public ``disabled_reason`` (cleared on enable)."""
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled, reason=reason)
 
     async def list_active(self) -> list[DiscordCredential]:
         return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]

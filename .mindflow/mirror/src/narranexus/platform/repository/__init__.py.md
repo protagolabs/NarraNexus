@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/repository/__init__.py
-last_verified: 2026-08-27
+last_verified: 2026-09-09
 stub: false
 ---
+## 2026-09-09 — 导出 `BusDeliveryReceiptRepository`
+
+bus 投递回执（`bus_delivery_receipts` 表）的读写方进公共导出面（import + `__all__`）。
+纯转发改动。见 [[bus_delivery_receipt_repository]]。
+
+## 2026-09-09 — 导出 `OwnerNoticeCooldownRepository`
+
+owner 系统通知冷却窗（`owner_notice_cooldowns` 表）的读写方进公共导出面
+（import + `__all__`）。纯转发改动。见 [[owner_notice_cooldown_repository]]。
+
 ## 2026-08-27 — 导出 `ChannelIngressBreakerRepository`
 
 ingress 分级熔断的持久化面（`channel_ingress_breaker` 表）进公共导出面

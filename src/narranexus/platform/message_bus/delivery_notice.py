@@ -59,6 +59,10 @@ MAX_NOTICE_ERROR_LEN = 300
 # consumers — a log, an export, a future IM mirror — get to read.
 _UNDELIVERED_TEXT = "This turn ended without delivering a reply."
 _DELIVERY_FAILED_TEXT = "The reply could not be posted to this conversation."
+_PROCESSING_FAILED_TEXT = (
+    "This message could not be processed by the recipient after {attempts} "
+    "attempts and will not be retried."
+)
 
 
 async def announce_undelivered(
@@ -113,6 +117,46 @@ async def announce_delivery_failure(
     )
 
 
+async def announce_processing_failure(
+    bus: Any,
+    channel_id: str,
+    agent_id: str,
+    *,
+    error: str,
+    attempts: int,
+    mentions: Optional[List[str]],
+    root_run_id: Optional[str] = None,
+) -> bool:
+    """Say that ``agent_id`` could not RUN the message at all — the poison
+    threshold was reached — and wake whoever sent it. True if the line landed.
+
+    The fourth way a bus turn can end, missing from the header's list until
+    2026-09-09: the recipient's runtime raised before the turn produced
+    anything (a worker crashing on import, upstream NetMindAI-Open/NarraNexus#106),
+    three times, and the message was then dropped from the queue forever. The
+    recipient OWNER's inbox learned of it; the SENDER — an agent that had just
+    told its user the work was under way — did not, and kept waiting.
+
+    Written into the conversation the sender is watching, with the sender
+    mentioned, so its next turn opens on the failure (``system_messages.
+    trigger_label`` names it) instead of on silence. Carries the reason for
+    the same transparency argument as ``announce_delivery_failure``, redacted
+    for the same reason. Reuses ``DELIVERY_FAILED_MSG_TYPE``: to every reader
+    it IS a delivery failure, the platform's rather than the model's, and the
+    frontend already renders that type with warning weight.
+    """
+    return await _post(
+        bus, channel_id, agent_id,
+        content=(
+            f"{_PROCESSING_FAILED_TEXT.format(attempts=attempts)} "
+            f"({redact_secrets(error, MAX_NOTICE_ERROR_LEN)})"
+        ),
+        msg_type=DELIVERY_FAILED_MSG_TYPE,
+        mentions=mentions,
+        root_run_id=root_run_id,
+    )
+
+
 async def _post(
     bus: Any,
     channel_id: str,
@@ -148,5 +192,6 @@ __all__ = [
     "DELIVERY_FAILED_MSG_TYPE",
     "UNDELIVERED_MSG_TYPE",
     "announce_delivery_failure",
+    "announce_processing_failure",
     "announce_undelivered",
 ]

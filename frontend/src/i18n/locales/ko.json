@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "활성",
+    "inactive": "비활성",
+    "enable": "활성화",
+    "disable": "비활성화",
+    "disabledReason": "자동으로 비활성화됨: {{reason}}"
+  },
   "language": {
     "name": "언어"
   },

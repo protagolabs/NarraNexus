@@ -101,6 +101,9 @@ def create_skill_mcp_server() -> FastMCP:
         try:
             sm = _get_skill_module(agent_id, user_id)
             requirements = sm.get_skill_requirements(skill_name)
+            if requirements is None:
+                # A typo must not read as "nothing to configure".
+                return f"Skill '{skill_name}' is not installed for this agent."
             env_config = sm.get_skill_env_config(skill_name)
 
             required_env = requirements.get("env", [])
@@ -438,26 +441,38 @@ def create_skill_mcp_server() -> FastMCP:
 
             service = SkillMarketplaceService()
             if skill_id_or_url.startswith(("http://", "https://", "github:")):
-                result = await service.install_from_url(agent_id, user_id, skill_id_or_url)
+                # A repo may ship several skills — one result per skill.
+                results = await service.install_from_url(agent_id, user_id, skill_id_or_url)
             else:
-                result = await service.install(
-                    agent_id, user_id, skill_id_or_url, version=version or None
-                )
-            name = result.skill.name if result.skill else skill_id_or_url
-            if result.status == "already_installed":
-                return f"Skill '{name}' is already installed at this version."
-            message = f"Installed skill '{name}'"
-            if result.replaced_version:
-                message += f" (replaced v{result.replaced_version}; existing config migrated)"
-            message += ". It takes effect on the next run."
-            if result.config_required:
-                message += (
-                    " ⚠️ It needs configuration — tell the user to open the Skill tab "
-                    "and fill in the required keys before using it."
-                )
-            if result.warnings:
-                message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
-            return message
+                results = [
+                    await service.install(
+                        agent_id, user_id, skill_id_or_url, version=version or None
+                    )
+                ]
+            messages = []
+            for result in results:
+                if not result.ok:
+                    # A rejected sibling in a multi-skill repo: say so next to
+                    # the ones that did install instead of failing the whole call.
+                    messages.append(f"Skill '{result.skill_name or skill_id_or_url}' was NOT installed: {result.error}")
+                    continue
+                name = result.skill.name if result.skill else skill_id_or_url
+                if result.status == "already_installed":
+                    messages.append(f"Skill '{name}' is already installed at this version.")
+                    continue
+                message = f"Installed skill '{name}'"
+                if result.replaced_version:
+                    message += f" (replaced v{result.replaced_version}; existing config migrated)"
+                message += ". It takes effect on the next run."
+                if result.config_required:
+                    message += (
+                        " ⚠️ It needs configuration — tell the user to open the Skill tab "
+                        "and fill in the required keys before using it."
+                    )
+                if result.warnings:
+                    message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
+                messages.append(message)
+            return "\n".join(messages)
         except FileNotFoundError:
             return f"Skill '{skill_id_or_url}' was not found in the marketplace."
         except ValueError as e:

@@ -810,6 +810,91 @@
     ],
     "indexes": []
   },
+  "bus_delivery_receipts": {
+    "columns": [
+      [
+        "message_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "to_agent",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "channel_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "from_agent",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "status",
+        "TEXT",
+        "VARCHAR(24)",
+        false,
+        false
+      ],
+      [
+        "reason",
+        "TEXT",
+        "TEXT",
+        true,
+        false
+      ],
+      [
+        "attempts",
+        "INTEGER",
+        "INT",
+        false,
+        false
+      ],
+      [
+        "content_key",
+        "TEXT",
+        "VARCHAR(64)",
+        true,
+        false
+      ],
+      [
+        "created_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ],
+      [
+        "updated_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ]
+    ],
+    "indexes": [
+      [
+        "idx_bus_receipt_content",
+        [
+          "channel_id",
+          "to_agent",
+          "content_key"
+        ],
+        false
+      ]
+    ]
+  },
   "bus_message_failures": {
     "columns": [
       [
@@ -937,6 +1022,27 @@
         false
       ],
       [
+        "part_index",
+        "INTEGER",
+        "INT",
+        true,
+        false
+      ],
+      [
+        "part_count",
+        "INTEGER",
+        "INT",
+        true,
+        false
+      ],
+      [
+        "part_group",
+        "TEXT",
+        "VARCHAR(64)",
+        true,
+        false
+      ],
+      [
         "created_at",
         "TEXT",
         "DATETIME(6)",
@@ -949,6 +1055,15 @@
         "idx_bus_msg_channel_time",
         [
           "channel_id",
+          "created_at"
+        ],
+        false
+      ],
+      [
+        "idx_bus_msg_sender_time",
+        [
+          "channel_id",
+          "from_agent",
           "created_at"
         ],
         false
@@ -7065,6 +7180,39 @@
         false
       ]
     ]
+  },
+  "owner_notice_cooldowns": {
+    "columns": [
+      [
+        "agent_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "target",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "category",
+        "TEXT",
+        "VARCHAR(32)",
+        false,
+        false
+      ],
+      [
+        "last_notified_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ]
+    ],
+    "indexes": []
   },
   "plugin_settings": {
     "columns": [

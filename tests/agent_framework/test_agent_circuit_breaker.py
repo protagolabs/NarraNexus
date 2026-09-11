@@ -401,3 +401,52 @@ def test_a_genuine_rate_limit_is_still_transient():
     assert classify_agent_error(
         "unknown", "429 Too Many Requests"
     ) == ErrorCategory.TRANSIENT
+
+
+# ── 2026-09-09: peek_skip, the read-only twin of should_skip ────────────────
+
+
+@pytest.mark.asyncio
+async def test_peek_skip_reads_every_non_active_status_as_held(db_client):
+    from datetime import timedelta
+
+    from narranexus.platform.agent_framework.loop.circuit_breaker import peek_skip
+    from narranexus.platform.utils.timezone import utc_now
+
+    async def _row(agent_id, **cols):
+        await db_client.insert(
+            "instance_agent_circuit_breaker", {"agent_id": agent_id, **cols}
+        )
+
+    assert await peek_skip("nobody", db=db_client) == (False, None)
+    await _row("act", cb_status="active")
+    assert await peek_skip("act", db=db_client) == (False, None)
+    await _row("pau", cb_status="paused", paused_reason="quota")
+    assert await peek_skip("pau", db=db_client) == (True, "paused:quota")
+    await _row("cool", cb_status="cooling", cooldown_until=utc_now() + timedelta(minutes=5))
+    assert await peek_skip("cool", db=db_client) == (True, "cooling")
+    await _row("cooled", cb_status="cooling", cooldown_until=utc_now() - timedelta(minutes=5))
+    assert await peek_skip("cooled", db=db_client) == (False, None)
+    await _row("fut", cb_status="probing")
+    assert await peek_skip("fut", db=db_client) == (True, "probing")
+    # Read-only: no row changed.
+    rows = await db_client.get("instance_agent_circuit_breaker", {})
+    assert sorted(r["cb_status"] for r in rows) == ["active", "cooling", "cooling", "paused", "probing"]
+
+
+@pytest.mark.asyncio
+async def test_peek_skip_fails_open():
+    from narranexus.platform.agent_framework.loop.circuit_breaker import peek_skip
+
+    class _Dead:
+        async def get_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+    assert await peek_skip("x", db=_Dead()) == (False, None)
+
+
+def test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker():
+    """#389 I3: "forbidden" moved out of the strict `is_credential_error` into
+    the loose `is_auth_like_error`; the breaker must keep using the loose one
+    or an owner-actionable 403 with no status digits files as BUSINESS."""
+    assert classify_agent_error("X", "request forbidden by upstream policy") == ErrorCategory.AUTH

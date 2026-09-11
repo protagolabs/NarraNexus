@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/marketplace/skill_marketplace_service.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `install_from_url` 返回 `List[InstallResult]`（GitHub #95）
+
+纯透传 InstallPipeline.install_from_github 的新返回形状；一个 GitHub 仓可含多个 skill，被拒的 skill 是
+`status="failed"` 项而不是异常（复审 C3）。
 
 ## 2026-07-22 — 二轮 review 修复:get_detail 透传 version
 

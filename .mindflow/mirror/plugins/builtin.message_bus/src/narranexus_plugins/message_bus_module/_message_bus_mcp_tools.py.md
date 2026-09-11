@@ -1,8 +1,79 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #389 M1/M7）— 回执记账失败带 `note`；owner 停止不产生回执
+
+`_book_receipt` 的 except 分支现在给回执加 `note: "receipt bookkeeping unavailable; the message
+was sent"`——docstring 早就承诺了「with a note」而代码没做。docstring 同时写明：`CancelledByUser`
+路径只 ack 不盖回执，发件方回执停在 `accepted`，那是 owner 的主动决定不是投递结果。
+
+## 2026-09-10（PR #389 I1/M2）— 两个发送动词各自的超长出路；`error` 与 `receipt.reason` 同文
+
+`message_agent` 捕 `BusMessageTooLarge` → `oversize_reason(size, OVERSIZE_REMEDY_PARTS)`；
+`message_team` → `OVERSIZE_REMEDY_TEAM`（它没有 part_*）。`message_agent` 失败分支的 `error`
+不再是原文 `str(e)`，与 `receipt.reason` 同一份脱敏文本（相邻字段不能绕过脱敏，M2）。
+
+## 2026-09-10（review r3 M3）— `message_agent` 向模型公布三条上限
+
+docstring 点名 `MAX_BUS_MESSAGE_BYTES` / `MAX_MESSAGE_PARTS` / `MAX_MULTIPART_TOTAL_BYTES`，
+数字经 `@mcp.tool(description=…)` 从 [[multipart]] 的常量格式化进注册文本——不再写第二份数字。
+模型在生成 210 KB 之前就知道发不出去，而不是靠被拒才知道。
+
+## 2026-09-10（review r2 C1）— `_book_receipt(bus, …)` 真的经 `bus.get_message` 取 channel
+
+round-1 M1 只加了协议方法、mirror 先写了「已接线」而工具没改（谎报，r2 C1）。现在
+`_book_receipt` 多收 `bus`，`sent = await bus.get_message(msg_id)`；读回失败（cloud 桩
+`NotImplementedError`）只让 `channel_id=""`，回执照常落库、仍 `accepted`——never-invert 契约
+不破。锁：`test_receipt_channel_comes_from_bus_get_message_and_survives_a_bus_that_cannot_answer`。
+
+## 2026-09-09（review I4）— 超长检查移到写入边
+
+`_reject_oversize_text` / 本地 `MAX_BUS_MESSAGE_BYTES` 删除；[[local_bus]] `send_message` 对
+所有入口（含 `message_team`）统一按字节拒绝并给出分片指引，工具的 except 把 `ValueError` 文案
+原样交给模型。
+
+## 2026-09-09（review C1/M3）— 预检改用只读 `peek_skip`
+
+`_book_receipt` 不再调 `should_skip`（turn 闸门，即将带 CAS 领取探针的副作用），改
+[[circuit_breaker]] 的只读 `peek_skip`；未知/未来状态（`probing`）映射成 held。外层那圈
+冗余 try 随之删掉（`peek_skip` 自身 fail-open）。
+
+## 2026-09-09 — `message_agent` 的 `part_index/part_count` 与按字节拒绝超长
+
+docstring 教模型：一次放不下就按序分块发（同 count、从 1 开始），收件方在最后一块到达
+前不会被唤醒、收到的是原样拼回的一条——所以随便切、别摘要、别重复。返回里带
+`part: "i/n"`，未到最后一块时附 `note` 说明收件方还没被唤醒。写入边的顺序校验在
+[[local_bus]]，重组在 [[multipart]]。
+
+`_reject_oversize_text`：单条/单块超过 `MAX_BUS_MESSAGE_BYTES`（60_000，留在 MySQL TEXT 的
+65,535 之下）直接拒绝并点名分片——**拒绝而不是截断**（铁律 #16）：列要么在严格模式下抛
+一个模型看不懂的 1406，要么静默留前缀，两者都丢尾巴。
+
+## 2026-09-09（review C1/M3）— 预检改用只读 `peek_skip`
+
+`_book_receipt` 不再调 `should_skip`（turn 闸门，G4 起带 CAS 领取探针的副作用），改
+[[circuit_breaker]] 的 `peek_skip(to, db=…)`：任何非 ACTIVE 状态（含未来的 `probing`）→ `held`。
+外层那圈冗余 try 去掉——`peek_skip` 自身 fail-open。
+
+## 2026-09-09 — `message_agent` 返回投递回执 `receipt`
+
+成功路径多返回 `receipt: {status: accepted|held, reason?}`（`_book_receipt`），失败路径带
+`receipt: {status: failed, reason(已脱敏)}`。**`held`** 来自 pre-flight：用
+[[circuit_breaker]] 的 `should_skip(to, db=…)` 问「收件方现在跑不跑 turn」——PAUSED/COOLING
+的收件方会让消息在队列里躺到熔断清除（trigger 的 skip-gate），此时报 `accepted` 就是
+上游 #106 那句 "build is now in progress" 的来源。工具 docstring 明说：held 的消息不要
+拿去向任何人承诺开工。
+
+纪律与 `_describe_agent` / `_record_peer_dm_inbox` 相同：**跑在发送成功之后、绝不反转
+结果**——pre-flight 读失败退化成 accepted 并 warning，回执写失败只 warning。回执行写进
+`bus_delivery_receipts`（[[bus_delivery_receipt_repository]]），channel_id 从刚插入的
+`bus_messages` 行取（bus 找到/新开的那个 DM），不在 `MessageBusService` 协议上加新方法。
+`message_team` 不出回执：房间本身就是发件方在看的面，`capped` 已经说了谁没被触达。
+后续状态（processed/relayed/silent/failed/dropped）由收件方 trigger 写，见
+[[message_bus_trigger]]。锁：`tests/message_bus/test_delivery_receipts.py`。
 
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 

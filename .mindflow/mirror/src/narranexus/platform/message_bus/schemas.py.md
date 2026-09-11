@@ -1,8 +1,32 @@
 ---
 code_file: src/narranexus/platform/message_bus/schemas.py
-last_verified: 2026-08-18
+last_verified: 2026-09-10
 stub: false
 ---
+## 2026-09-10（review r3 M1）— `canonical_ts` 入参不得为 None
+
+multipart 原副本 `str(value or "")` 把 None 排最前，本函数 `str(value)` 会把 None 排成 `"None"`
+（最后）——若写成 ack 高水位，lane 永久静默。今天不可达（`bus_messages.created_at` NOT NULL），
+docstring 写明前提。
+
+## 2026-09-10（review r2 M3）— `canonical_ts` 搬到这里，唯一的家
+
+原在 [[local_bus]]（docstring 记着一次 `"T"` vs `" "` 排序引发的重触发事故，明写「it gets exactly
+one home」），[[multipart]] 曾逐字复制了一份 `_ts`。方向上 multipart 不能反向 import local_bus，
+所以搬到两边都依赖的 schemas；local_bus 继续 re-export（trigger 仍从 local_bus import）。
+
+## 2026-09-09 — BusMessage.part_index / part_count / part_group
+
+分片消息的三列（可空；普通消息全 None），随 `_row_to_message` 进出。`part_group` 是
+第 1 块的 message_id。见 [[multipart]]。
+
+## 2026-09-09 — BusMessage.part_message_ids（非列）
+
+内存字段：当一条 BusMessage 是多行（分片消息）的**重组体**时，按序列出它代表的每一行
+message_id；普通单行消息为 None。不进表——只存在于 trigger 交给 turn 的那份对象上，
+让按行记账的东西（投递回执 `_stamp_receipts`）能触达每个分片。重组本身见
+[[multipart]]（下一条 commit）。
+
 ## 2026-08-14 — BusMessage.segments
 
 `Optional[List[dict]]`，每项是 `{kind: "monologue"|"reply", text}`：agent 自己的思考和

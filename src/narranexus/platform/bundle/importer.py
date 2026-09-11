@@ -1432,14 +1432,43 @@ async def _confirm_inner(
     from narranexus.platform.settings import settings as core_settings
 
     def install_cache_key(s_entry: dict) -> Optional[str]:
+        # Keyed on the manifest's ``name`` (what the builder writes — there is
+        # no ``skill_name`` key in a manifest entry). With the wrong key two
+        # rows of one multi-skill repo collapsed onto the same cache slot and
+        # the second agent received skill A's files under skill B's name.
         m = s_entry.get("install_method")
         if m == "url":
-            return f"url::{s_entry.get('skill_name')}::{s_entry.get('source_url')}::{s_entry.get('branch') or 'main'}"
+            return f"url::{s_entry.get('name')}::{s_entry.get('source_url')}::{s_entry.get('branch') or 'main'}"
         if m == "zip":
-            return f"zip::{s_entry.get('skill_name')}::{s_entry.get('archive_ref')}"
+            return f"zip::{s_entry.get('name')}::{s_entry.get('archive_ref')}"
         return None
 
     install_cache: Dict[str, Path] = {}  # cache_key → "first installed skill dir"
+
+    def _install_one_skill_from_github(sm, src_url: str, branch: str, skill_name: str, skill_dir: Optional[str]):
+        """Clone the repo and install ONLY the skill this bundle row names.
+
+        A repo may ship several skills; the row's consent covers one. The
+        root is matched by SKILL.md name or by directory (``skill_dir`` from
+        the manifest, else the sanitised name). No match -> ValueError with
+        what the repo does ship; never a guess at the first root.
+        """
+        wanted_dir = sanitize_filename(skill_dir or skill_name, label="skill name")
+        temp_dir = Path(tempfile.mkdtemp())
+        try:
+            roots, canonical_url = sm.fetch_github_repo(src_url, branch, temp_dir)
+            found = []
+            for root in roots:
+                name = sm.parse_skill_package(root).name
+                found.append(name)
+                if name == skill_name or root.name == wanted_dir:
+                    return sm.install_from_dir(root, source_type="github", source_url=canonical_url)
+            raise ValueError(
+                f"repository {src_url} ships no skill named '{skill_name}' (found: {', '.join(found)})"
+            )
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
 
     def _copy_skill_to_agent(src_skill_dir: Path, target_aid: str, skill_name: str) -> None:
         """Copy an already-installed skill dir into a target agent's skills/ dir."""
@@ -1489,7 +1518,15 @@ async def _confirm_inner(
                 first_aid = target_aids[0]
                 if cached_dir is None:
                     sm = skill_workspace(first_aid, user_id)
-                    info = await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                    # A multi-skill repo is NOT installed whole: only the
+                    # skill this row names (the user consented to that one).
+                    try:
+                        info = await asyncio.to_thread(
+                            _install_one_skill_from_github, sm, src_url, branch, skill_name, s.get("skill_dir")
+                        )
+                    except ValueError as exc:
+                        skill_install_failures.append({"skill": skill_name, "reason": str(exc)})
+                        continue
                     cached_dir = Path(info.path)
                     if key:
                         install_cache[key] = cached_dir

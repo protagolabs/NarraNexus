@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/message_bus_module.py
-last_verified: 2026-09-04
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — 未读列表给分片行加 `(part i/n)` 标签
+
+`gather` 的未读预览仍是逐行 200 字；一条分片消息的第 2 块预览会像「从句子中间开始的
+消息」，所以带 `part_count` 的行前缀 `(part i/n)`。重组只在 trigger 的 turn 入口做
+（[[multipart]]），这里不合并——预览是窗口，不是投递面。
 
 ## 2026-09-03 — Reply Discipline 两条加宽
 

@@ -1,10 +1,14 @@
 ---
 code_file: frontend/src/components/awareness/DiscordConfig.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
 
 # DiscordConfig.tsx — Per-agent Discord bot binding UI
+
+## 2026-09-09 — 把 `credential.disabled_reason` 传给 ChannelActiveToggle（B-28 I1）
+
+trigger 因永久上游失败自动停用后，面板显示后端写下的（已脱敏截断）原因，而不是哑的 Inactive。
 
 ## Why it exists
 

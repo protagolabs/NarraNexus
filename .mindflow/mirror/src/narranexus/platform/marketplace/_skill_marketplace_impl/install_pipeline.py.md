@@ -1,8 +1,37 @@
 ---
 code_file: src/narranexus/platform/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #388 round-2 M2）— 逐 skill 失败文本带类名并封顶
+
+`_failure_text(exc)` = `"<Class>: <msg>"` 压平换行后截到 `INSTALL_ERROR_MAX_CHARS=500`，给 `InstallResult.error`
+与 warning 日志。`except Exception` 放宽后 `str(KeyError("env"))` 只是 `'env'`、空 RuntimeError 是空串——agent 通过
+`skill_install` 看到的必须能判断重试/放弃。不做 URL/token 掩码：这条路径唯一的 URL 是用户自己给的仓库地址。
+测试 `test_per_skill_failure_text_names_the_class_and_is_capped`。
+
+## 2026-09-10（PR #388 review M4）— 逐 skill 隔离覆盖任何异常
+
+安装循环改为 `except Exception`：某个根内部的 RuntimeError/KeyError 也只标记该根 failed，兄弟结果保留
+（磁盘是真相，不回滚）。仓级错误（fetch / 布局 / 超上限）在循环外仍直接 raise → 路由 400。
+测试 `test_github_multi_skill_repo_isolates_an_unexpected_exception`。
+
+## 2026-09-10（复审 M2）— 逐 skill 隔离也覆盖 OSError
+
+安装循环 `except (ValueError, OSError)`：磁盘满/权限错误落在某个根时同样只标记该根 failed、已装的 sibling
+照常上报，不再整体抛出复刻"部分落盘 + 谎报整体失败"。仍不放宽到 `except Exception`。
+
+## 2026-09-09 — `install_from_github` 返回 `List[InstallResult]`，逐 skill 隔离失败（GitHub #95，复审 C3）
+
+`fetch_github_repo` 返回一个仓里全部 skill 根（根 / `<name>/` / `skills/<name>/` 布局，上限
+`SkillModule.MAX_SKILLS_PER_REPO`），pipeline 先按**同仓依赖**排序（`_order_roots_by_dependency`：
+manifest `dependencies` 指向同仓兄弟的先装，其余保持名序；仓外依赖仍交 `_check_dependencies`），再对每个
+根独立跑 `_install_staged`。任何一个根的 `ValueError`（扫描门 rejected / 缺依赖 / 版本不兼容 / manifest 坏）
+被捕获为 `InstallResult(status="failed", skill=None, skill_name=…, error=…)`，其它根照常安装——"安全拒绝了 X"
+不再把"Y、Z 已经落盘并进了审计表"伪装成整体失败。`InstallResult.ok` 属性给消费方分流。单 skill 仓就是长度 1；
+zip / marketplace 入口仍是单结果且仍抛异常。clone 失败 / 没有任何 SKILL.md 不是 per-skill 失败，仍抛 ValueError。
+调用方（routes install、MCP skill_install、SkillMarketplaceService.install_from_url）分别汇报成功与失败。
 
 ## 2026-08-04 — 装/卸技能后刷新同伴发现行
 

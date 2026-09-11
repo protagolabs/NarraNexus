@@ -1,6 +1,6 @@
 {
   "name": "@narranexus/sdk",
-  "version": "1.21.3",
+  "version": "1.21.4",
   "description": "NarraNexus frontend plugin SDK: definePlugin, the vite preset and the HostAPI types.",
   "license": "Apache-2.0",
   "type": "module",

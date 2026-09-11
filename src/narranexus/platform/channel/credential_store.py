@@ -249,9 +249,10 @@ class GenericCredentialStore:
         """
         descriptor = self.descriptor(channel)
         for _ in range(8):
-            current = await self.get(channel, agent_id)
-            if current is None:
+            raw = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})
+            if raw is None:
                 return None
+            current = self._row_to_record(raw)
             merged_values = {**current.public, **current.secret}
             if expect is not None and any(merged_values.get(k, "") != v for k, v in expect.items()):
                 return None
@@ -260,10 +261,20 @@ class GenericCredentialStore:
             row = {
                 "external_id": external_id,
                 "public_json": json.dumps(public, sort_keys=True, default=str),
-                "secret_json": encode_secrets(secret),
                 "updated_at": utc_now(),
                 "version": current.version + 1,
             }
+            # Fail-closed on an unreadable secret: ``current.secret`` is EMPTY
+            # then, so re-encoding the merge would overwrite the stored
+            # ciphertext with "" — a rotated/lost key would go from
+            # "restore the key and the binding works again" to "every user
+            # re-binds". Only a patch that itself carries a new secret value
+            # may replace it; anything else (enabled flip, disabled_reason,
+            # owner fields, auth status) leaves secret_json byte-identical.
+            if current.secret_error and not secret:
+                row["secret_json"] = raw.get("secret_json") or ""
+            else:
+                row["secret_json"] = encode_secrets(secret)
             if enabled is not None:
                 row["enabled"] = 1 if enabled else 0
             affected = await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id, "version": current.version}, row)
@@ -309,12 +320,30 @@ class GenericCredentialStore:
         await self._db.delete(TABLE, {"channel": channel, "agent_id": agent_id})
         return True
 
-    async def set_enabled(self, channel: str, agent_id: str, enabled: bool) -> bool:
-        existing = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})
-        if not existing:
+    async def set_enabled(self, channel: str, agent_id: str, enabled: bool, *, reason: str = "") -> bool:
+        """Flip the binding's ``enabled`` flag; ``reason`` is why it was disabled.
+
+        The public ``disabled_reason`` value is the channel-agnostic "this
+        credential was switched off by the platform, here is why" record: a
+        trigger that hits a permanent upstream failure (revoked token, a
+        second poller on the same bot) writes it alongside ``enabled=0`` so
+        the panel / status tools can show a readable cause instead of a bare
+        inactive toggle. Enabling always clears it — the owner's re-enable
+        (or a re-bind) is the fresh start. Goes through ``patch`` so it never
+        clobbers a concurrent write to other fields.
+        """
+        try:
+            # str() once here so every consumer (panels, tg_status, plugin
+            # channels) can rely on the field being a string.
+            record = await self.patch(channel, agent_id, {"disabled_reason": str(reason or "") if not enabled else ""}, enabled=enabled)
+        except RuntimeError as exc:
+            # The version race is the only thing patch raises; keep the old
+            # "never raises, False means not done" contract for the route and
+            # the triggers so a lost race is a logged failure, not a 500 or a
+            # silently-still-enabled dead credential.
+            logger.error(f"channel_credentials: {channel}/{agent_id} set_enabled({enabled}) failed: {exc}")
             return False
-        await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id}, {"enabled": 1 if enabled else 0, "updated_at": utc_now()})
-        return True
+        return record is not None
 
     async def list_active(self, channel: str) -> list[CredentialRecord]:
         """Enabled bindings whose secret this install can read — an unreadable one is logged (once per row version) and skipped."""

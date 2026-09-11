@@ -1,6 +1,6 @@
 ---
 code_dir: src/narranexus/platform/services/
-last_verified: 2026-04-10
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -14,9 +14,16 @@ stub: false
 - `MessageBusTrigger`（在 `message_bus/message_bus_trigger.py` 里）：监听 Agent 间消息
 - `InstanceSyncService`：在 AgentRuntime 里同步调用，处理 LLM 输出的 Instance 决策
 - `EmbeddingMigrationService`：切换 embedding 模型时的迁移工具
-- `message_bus_poller.py`：轻量级函数封装，供集成测试或手动触发用
 
 这层服务存在的根本原因是：某些操作（Job 完成后通知依赖项、Agent 间消息投递）在时间上是解耦的，不能阻塞用户的请求响应路径，必须在后台处理。
+
+## 2026-09-09 — 删除 `message_bus_poller.py`（死代码）
+
+`poll_message_bus()` 是 `MessageBusTrigger` 落地前的过渡产物："处理"只有 log + ack，
+从不调 AgentRuntime。全仓穷举（src / plugins / backend / tests / scripts / compose 命令 /
+Tauri ServiceDefs / 模块注册表）唯一引用是本包 `__init__.py` 的再导出，没有任何调用方。
+一个把消息 ack 掉却不投递的函数留在包里，就是下一次「消息静默消失」的入口，按铁律 #2
+连同 mirror md 一起删除。
 
 ## 关键文件索引
 
@@ -25,7 +32,6 @@ stub: false
 | `module_poller.py` | 独立进程 | 5秒轮询，Worker Pool 架构，处理 Instance 完成回调 |
 | `instance_sync_service.py` | AgentRuntime 内调用 | 把 LLM 输出的 task_key 转为真实 instance_id，创建 Job 记录 |
 | `embedding_migration_service.py` | 手动触发工具 | 切换 embedding 模型后重建所有向量 |
-| `message_bus_poller.py` | 辅助函数 | 轻量封装 MessageBusService.get_pending_messages，用于测试或手动集成 |
 
 ## 和外部目录的协作
 

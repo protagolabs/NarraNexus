@@ -164,16 +164,19 @@ def test_desktop_build_installs_through_uv():
     path = _REPO / _DESKTOP_BUILD
     installs = _uv_install_command_lines(path)
     assert installs, f"{_DESKTOP_BUILD} no longer installs the project — update this guard"
-    # `--no-editable` moved onto the `uv export` line on 2026-09-10, when step 3
-    # started materializing uv.lock into a requirements file and installing THAT
-    # (see tests/release/test_desktop_build_uses_lock.py). The property being
-    # guarded is unchanged — the bundle must never carry an editable install —
-    # so accept the flag on either command of the pair.
-    lock_driven = command_lines(path, "uv export")
-    assert any("--no-editable" in line for line in installs + lock_driven), (
-        f"{_DESKTOP_BUILD}: the bundled install must stay NON-editable — an editable "
-        f"install bakes the build machine's absolute source path into the .app:\n    "
-        + "\n    ".join(installs + lock_driven)
+    # `--no-editable` must be on the INSTALL line itself. #390 relaxed this to
+    # "on the install OR the export" when step 3 started exporting uv.lock
+    # first — and that relaxation is precisely what let v1.21.3 ship broken:
+    # the export carried the flag, the install did not, `uv pip install -r`
+    # installed all 30 workspace members as editable `.pth` hooks pointing at
+    # the build machine's source tree, and every user got
+    # `No module named 'narranexus.contracts'`. The flag on the export does not
+    # propagate to the install; only the install decides.
+    assert all("--no-editable" in line for line in installs), (
+        f"{_DESKTOP_BUILD}: every bundled install must be NON-editable — an editable "
+        f"install bakes the build machine's absolute source path into the .app "
+        f"(v1.21.3). The flag has to be on the install, not only the export:\n    "
+        + "\n    ".join(installs)
     )
     pip_installs = [
         line for line in command_lines(path, "pip install")

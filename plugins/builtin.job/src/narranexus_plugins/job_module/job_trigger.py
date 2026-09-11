@@ -1092,6 +1092,10 @@ The task was executed but produced no text output.
             # Imported here: the job process builds its bus service lazily, and
             # a module-level import would tie job startup to the bus package.
             from narranexus.platform.message_bus.local_bus import LocalMessageBus
+            from narranexus.platform.message_bus.multipart import (
+                MAX_MULTIPART_TOTAL_BYTES,
+                split_for_bus,
+            )
             from narranexus.platform.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
@@ -1109,31 +1113,64 @@ The task was executed but produced no text output.
                     f"{channel_id}; platform copy skipped"
                 )
                 return
-            await bus.send_message(
-                from_agent=job.agent_id,
-                to_channel=channel_id,
-                content=content,
-                # Recorded so the room can tell a scheduled report from a live
-                # reply, and so the recipient's turn-source logic does not read
-                # it as a peer asking a question.
-                sender_turn_source=WorkingSource.JOB,
-                # A job report is the THIRD way an agent's words enter a room,
-                # after a live reply and a patrol line. Both of the others
-                # stamp these, and the room's transcript reads `event_id` to
-                # offer "view reasoning & tools" — without it this line has no
-                # visible provenance, which is worse here than elsewhere
-                # because nobody in the room saw the turn happen.
-                event_id=run_event_id or None,
-                # Lineage. A job execution has no parent run — a timer woke it,
-                # not another agent — so it is the ROOT of its own tree, and
-                # `schema_registry` defines a root as storing its own event id.
-                # Whoever this report wakes next inherits that label and stays
-                # reachable by a cascade stop.
-                root_run_id=run_event_id or None,
-                # Deliberately no `mentions`: a report is a notice, not a
-                # request. An @ would wake a team turn immediately AND open a
-                # fresh errand for a hand-off nobody made.
-            )
+            # The bus refuses a row over MAX_BUS_MESSAGE_BYTES (never trims),
+            # so a long report travels as ordered parts — posted back to back
+            # from this one coroutine, which is what keeps the write edge's
+            # "same sender's latest part" chain contiguous (the agent's own
+            # message_team posts are ordinary rows and do not break it). Past
+            # the whole-message budget the room is TOLD, never left silent.
+            #
+            # Two costs of parts landing in a TEAM room, accepted (r3 M4): the
+            # transcript renders a report as N raw part rows (the frontend
+            # does not read the part columns), and if an origin channel's
+            # owner is an agent, that agent's lane is held up to the grace
+            # should this coroutine die between parts. No member turn is
+            # started by the parts themselves (no mentions).
+            # Known gap (r3 M5): two >60 KB reports from the SAME agent into
+            # the SAME room at the same instant would interleave their part
+            # chains and the write edge would refuse the second's part 2 —
+            # caught below as a logged error. Rare enough not to lock here.
+            body_bytes = len(content.encode("utf-8"))
+            if body_bytes > MAX_MULTIPART_TOTAL_BYTES:
+                # Posted as the AGENT (not a PLATFORM_MSG_TYPES line) on
+                # purpose: it must carry this run's event_id / root_run_id so
+                # "view reasoning & tools" and cascade stop still reach the run
+                # that produced the too-long report (r3 M7).
+                pieces = [
+                    f"[platform] This job's report is {body_bytes} bytes, over the "
+                    f"{MAX_MULTIPART_TOTAL_BYTES}-byte limit for one message, so it "
+                    f"was not posted here. It is kept in the job's run record."
+                ]
+            else:
+                pieces = split_for_bus(content)
+            for index, piece in enumerate(pieces, start=1):
+                await bus.send_message(
+                    from_agent=job.agent_id,
+                    to_channel=channel_id,
+                    content=piece,
+                    # Recorded so the room can tell a scheduled report from a
+                    # live reply, and so the recipient's turn-source logic does
+                    # not read it as a peer asking a question.
+                    sender_turn_source=WorkingSource.JOB,
+                    # A job report is the THIRD way an agent's words enter a
+                    # room, after a live reply and a patrol line. Both of the
+                    # others stamp these, and the room's transcript reads
+                    # `event_id` to offer "view reasoning & tools" — without it
+                    # this line has no visible provenance, which is worse here
+                    # than elsewhere because nobody in the room saw the turn.
+                    event_id=run_event_id or None,
+                    # Lineage. A job execution has no parent run — a timer woke
+                    # it, not another agent — so it is the ROOT of its own tree,
+                    # and `schema_registry` defines a root as storing its own
+                    # event id. Whoever this report wakes next inherits that
+                    # label and stays reachable by a cascade stop.
+                    root_run_id=run_event_id or None,
+                    # Deliberately no `mentions`: a report is a notice, not a
+                    # request. An @ would wake a team turn immediately AND open
+                    # a fresh errand for a hand-off nobody made.
+                    part_index=index if len(pieces) > 1 else 0,
+                    part_count=len(pieces) if len(pieces) > 1 else 0,
+                )
             logger.info(
                 f"[JobTrigger] job {job.job_id} reported into {channel_id} "
                 f"(origin={source})"

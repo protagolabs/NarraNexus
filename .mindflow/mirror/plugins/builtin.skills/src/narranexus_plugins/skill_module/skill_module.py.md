@@ -1,8 +1,43 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
+
+`MAX_SKILLS_PER_REPO = 20`：`find_skill_roots` 超过即 ValueError（落盘前），因为 `skill_install` 是 agent
+可调用的 MCP 工具，一个几百目录的仓会打满工作区磁盘并长时间占住线程；错误文案单独一条，提示装 fork/子集。
+`get_skill_requirements` 对不存在的 skill 返回 **None**（不是空列表），让工具能说"没装"。
+`_parse_skill_md` 兜底 description 改成一行三元：有 SKILL.md 但无 frontmatter → ""（既有约定），无 SKILL.md →
+meta description 或 "(No SKILL.md found)"（meta 里空串也落占位符，与旧的 `.get(key, default)` 不同——空串
+描述在列表里等于没有描述）。测试：`test_github_skill_layouts.py::test_more_than_max_skills_per_repo_…`、
+`test_skill_required_env_single_source.py::test_directory_without_skill_md_is_still_listed_from_its_meta`。
+
+## 2026-09-09 — GitHub 安装复用 `find_skill_roots`，支持多 skill 仓（GitHub #95）
+
+`fetch_github_repo` 过去硬编码 `<clone>/SKILL.md`，而 zip 路径早就用 `_find_skill_root` 往下找一层——
+于是 `my-skill/SKILL.md` 或 agent-skills / 插件仓惯用的 `skills/<name>/SKILL.md` 布局从 GitHub 装一律
+报 "SKILL.md not found"。现在两条路径共用新的公开 `find_skill_roots(dir) -> [Path]`（根 SKILL.md →
+只此一个；否则 `<name>/SKILL.md` 与 `skills/<name>/SKILL.md` 各算一个，跳过点目录，按名排序 R4d），
+`_find_skill_root` = 首个（zip 单 skill 契约不变）。签名变化：`fetch_github_repo -> ([roots], url)`，
+`install_from_github -> [SkillInfo]`（多 skill 仓逐个 `install_from_dir`，同一 source_url）；
+没有任何 SKILL.md 时 ValueError 带 URL/分支与 `SKILL_LAYOUT_HINT`（三种布局的一句话说明，zip 拒绝
+消息也引用它）。消费方同步：InstallPipeline / SkillMarketplaceService.install_from_url 返回列表，
+routes install 与 MCP `skill_install` 逐条汇总，bundle importer 按 manifest 名挑对应项。
+测试：`tests/skill_module/test_github_skill_layouts.py`（stub 掉 `git clone` 子进程，其余全真）。
+
+## 2026-09-09 — `get_skill_requirements` 与 UI 同源（GitHub #115）
+
+`get_skill_requirements(skill_name)` 过去只读 `.skill_meta.json["requires"]`——那是 study 步骤才写的
+字段——于是"装了但没 study"的 skill 对 `skill_list_required_env` MCP 工具永远答"no required env"，
+而 Skills 面板（`_parse_skill_md` → `SkillInfo.requires_env`：frontmatter ∪ body 扫描兜底 ∪ meta）
+明明列着变量。两份真相现在收敛为一份：`get_skill_requirements` 走 `_resolve_skill_dir` 后调用同一个
+`_parse_skill_md`，返回 `{"env": [...], "bins": [...]}`（未知 skill → **None**，见上一条；不抛）。
+顺带：`_parse_skill_md` 对**不存在**的 SKILL.md 走 meta-only 兜底（不再打 "Failed to parse" warning，
+description 取 meta 或 "(No SKILL.md found)"），`_scan_workspace_skills` 的无 SKILL.md 分支也改走它——
+以前那个分支根本不看 meta 的 requires，也是一处分叉。测试见
+`tests/skill_module/test_skill_required_env_single_source.py`。
 
 ## 2026-09-07 — `SKILL_METADATA_KEYS` 改从 `narranexus.contracts.openclaw` 取
 

@@ -165,11 +165,12 @@ class DiscordTrigger(ChannelTriggerBase):
             return (exc.code or "") in PERMANENT_AUTH_CODES
         return False
 
-    async def disable_credential(self, credential: DiscordCredential) -> None:  # type: ignore[override]
+    async def disable_credential(self, credential: DiscordCredential, reason: str = "") -> None:  # type: ignore[override]
         if not self._db:
             return
         mgr = DiscordCredentialManager(self._db)
-        await mgr.set_enabled(credential.agent_id, False)
+        ok = await mgr.set_enabled(credential.agent_id, False, reason=reason)
+        self.log_disable_outcome("discord", credential.agent_id, ok, reason)
 
     async def connect(self, credential: DiscordCredential) -> AsyncIterator[dict]:
         """Gateway WebSocket → asyncio.Queue → async generator.

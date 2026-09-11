@@ -970,10 +970,24 @@ _register(
             # continues. NULL for user messages and pre-column rows — the
             # cascade treats NULL as "not part of any tree being stopped".
             Column("root_run_id", "TEXT", "VARCHAR(128)", nullable=True),
+            # A long message sent in ordered parts (2026-09-09): 1-based index,
+            # total, and the group id (= the first part's message_id). NULL on
+            # every ordinary row. `content` is TEXT (64 KiB on MySQL), and a
+            # model's own output-token budget cuts a tool call long before
+            # that — so a reply that does not fit one call travels as parts and
+            # the recipient's trigger reassembles them (multipart.py). Never a
+            # truncation, in either direction (iron rule #16).
+            Column("part_index", "INTEGER", "INT", nullable=True),
+            Column("part_count", "INTEGER", "INT", nullable=True),
+            Column("part_group", "TEXT", "VARCHAR(64)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_bus_msg_channel_time", ["channel_id", "created_at"]),
+            # `_resolve_part_group`: the sender's newest part in this channel
+            # (ORDER BY created_at DESC LIMIT 1) and the group's rows; without
+            # it a long-lived DM scans its whole history on every part >= 2.
+            Index("idx_bus_msg_sender_time", ["channel_id", "from_agent", "created_at"]),
         ],
     )
 )
@@ -1232,6 +1246,73 @@ _register(
         ],
         primary_key=["message_id", "agent_id"],
         indexes=[],
+    )
+)
+
+
+# 26b. owner_notice_cooldowns — "when did we last tell this owner about THIS
+# thing" for the owner-facing SYSTEM_NOTICE writers.
+#
+# Until 2026-09-09 the bus trigger kept this as an in-process dict keyed by
+# (agent_id, error category): a restart forgot every window (the next poll
+# re-notified), two trigger processes each kept their own (double notices),
+# and one key covered EVERY channel of the agent — a permanent failure on
+# channel A silenced the notice for an unrelated failure on channel B for the
+# whole window. One row per (agent, target, category) fixes all three; the
+# window itself stays a constant on the writer, this table only remembers the
+# last write. `target` is the channel_id for the bus writers and is left
+# generic so any owner-notice path can share the row shape.
+_register(
+    TableDef(
+        name="owner_notice_cooldowns",
+        columns=[
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("target", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("category", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("last_notified_at", "TEXT", "DATETIME(6)", nullable=False),
+        ],
+        primary_key=["agent_id", "target", "category"],
+        indexes=[],
+    )
+)
+
+
+# 26c. bus_delivery_receipts — what became of ONE bus message at ONE recipient.
+#
+# The bus's "send success" only ever meant "row inserted" (upstream
+# NetMindAI-Open/NarraNexus#106: the PM agent told its user "build is now in
+# progress" while the Web Developer's worker had crashed three times and the
+# only trace was an unread owner-inbox row). This table is the delivery-side
+# ledger the sender can be shown: `accepted` / `held` at send time (the send
+# tool's pre-flight), then `processed` / `relayed` / `silent` / `failed` /
+# `dropped` as the recipient's trigger runs the message. One row per
+# (message_id, to_agent), updated in place — a receipt, not an event log
+# (`bus_message_failures` keeps the retry count; `service_audit` the lifecycle).
+# `content_key` (sha256 of the batch the recipient saw) is what lets the
+# trigger recognise "this silence is a RESEND of the same message" and stop
+# waking the sender for it a second time.
+_register(
+    TableDef(
+        name="bus_delivery_receipts",
+        columns=[
+            Column("message_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("to_agent", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("from_agent", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(24)", nullable=False),
+            # Redacted at write time (redact_secrets); NULL when there is none.
+            Column("reason", "TEXT", "TEXT", nullable=True),
+            Column("attempts", "INTEGER", "INT", nullable=False, default="0"),
+            Column("content_key", "TEXT", "VARCHAR(64)", nullable=True),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        primary_key=["message_id", "to_agent"],
+        indexes=[
+            # "Has this recipient already gone silent on this exact content in
+            # this channel" — the resend-loop guard's lookup.
+            Index("idx_bus_receipt_content", ["channel_id", "to_agent", "content_key"]),
+        ],
     )
 )
 

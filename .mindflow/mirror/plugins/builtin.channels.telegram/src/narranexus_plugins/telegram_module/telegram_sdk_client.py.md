@@ -1,8 +1,45 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_sdk_client.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（PR #388 round-2 M3）— `_failure(max_len=)` 自己保证"先 redact 再截断"
+
+`_failure(method, *, max_len=None, **fields)`：字符串字段先 `_redact`、再按 `max_len` 切、再压平换行；非 JSON
+分支只传原始 body + `max_len=160`。docstring 承诺的顺序现在是函数自身的性质而不是调用方纪律。
+测试 `test_failure_envelope_redacts_before_it_truncates`。
+
+## 2026-09-10 — 信封脱敏结构化（PR #388 review I1）
+
+非 JSON 响应分支的 `error_detail` 之前没过 `_redact`——经代理（`trust_env=True`）拿到的 407/502 HTML 页会回显
+含 token 的请求 URL，而 `tg_cli` 把信封原样给 agent。现在所有失败信封都由 `_failure(method, **fields)` 构造，
+字符串字段一律 `_redact`；非 JSON body **先整体 redact 再截 160 字符**（token 跨截断边界时前半截不会残留）。
+测试 `test_non_json_error_page_echoing_the_url_is_redacted_before_truncation`。
+
+## 2026-09-10 — `_redact`：bot token 在来源处抹掉（复审 round-3 I1）
+
+请求 URL（`_API_BASE` / `_FILE_BASE`）路径里就是 bot token，aiohttp 的 `InvalidURL` 之类异常 `str(e)` 会原样引用
+URL。`api_call` 的 `ClientError` 分支、兜底分支的日志句、`download_file` 的网络错误分支现在都先过 `_redact`
+（token → `<token>`）再进信封 `error_detail` / `TelegramSDKError.description`；`download_file` 用 `from None` 切断
+异常链，避免原始 aiohttp 异常经 `__cause__` 被再次渲染。这样基类 `logger.exception` 打的 traceback 尾行、`tg_cli`
+回给 agent 的 JSON、`disabled_reason` 全部无 token；基类 `safe_error_text` 只是第二道兜底。测试：
+`test_transient_log_output_including_traceback_never_carries_the_bot_token`（走真 SDK + 捕获 loguru sink 全文）、
+`test_download_file_network_error_is_redacted_too`。
+
+## 2026-09-09 — `TelegramSDKError` 带 HTTP status + description（B-28）
+
+dev 日志里 115 条裸 `getUpdates failed`（三个 agent）根本分不清是 token 被撤（401）、另一个
+poller 抢了 bot（409）还是 Telegram 抽风（5xx）：异常只有 `code`（=description），非 JSON 响应和
+传输异常又被压成 `client_error:<ExceptionName>`。现在：`api_call` 失败信封多带 `error_code`
+（Telegram 自己的 error_code，等于 HTTP 状态；传输异常无此键）与 `error_detail`（非 JSON body 的
+160 字符片段 / 传输异常的 `str(e)`）；`TelegramSDKError(code, message, *, status, description)` + `from_envelope()`，
+`str()` 形如 `getUpdates failed (HTTP 409: Conflict: terminated by other getUpdates request…)`。
+热路径包装（getMe/sendMessage/getUpdates/getChat/getFile）全走 `from_envelope`。复审 I5 后 `.code`
+保持**短而稳定**：JSON 失败 = Telegram description（原样）、非 JSON body = `http_<status>`、传输异常 =
+`client_error:<ExceptionName>`（与 `download_file` 一致）；明细（body 片段 / 异常文本）只进信封的
+`error_detail` 与异常的 `description` / `str()`。所以 `_friendly_telegram_error(e.code)` 的兜底分支
+不会把 HTML 片段渲染进 bind/test 面板，`telegram_module.send` 回给 agent 的 `error` 也还是短码。
 
 ## 2026-07-10 — set_message_reaction (backs react_to_user_message)
 

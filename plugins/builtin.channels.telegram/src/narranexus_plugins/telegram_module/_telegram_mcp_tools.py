@@ -83,7 +83,9 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
 
         Returns Telegram's native envelope:
           - on success: ``{"ok": true, "result": <method-specific data>}``
-          - on failure: ``{"ok": false, "error": "<description>"}``
+          - on failure: ``{"ok": false, "error": "<description>",
+            "error_code": <http status, absent on network failure>,
+            "error_detail"?: "<body snippet / exception text>"}``
 
         Common Bot API errors:
           - ``Unauthorized`` — token revoked at @BotFather; rebind

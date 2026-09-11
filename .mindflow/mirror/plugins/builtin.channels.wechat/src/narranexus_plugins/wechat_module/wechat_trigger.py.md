@@ -1,10 +1,15 @@
 ---
 code_file: plugins/builtin.channels.wechat/src/narranexus_plugins/wechat_module/wechat_trigger.py
-last_verified: 2026-08-18
+last_verified: 2026-09-09
 stub: false
 ---
 
 # wechat_trigger.py — iLink（企业微信）长驻 trigger
+
+## 2026-09-09 — `disable_credential(credential, reason="")`（B-28 I1）
+
+基类契约变更：以关键字 `reason=`（已脱敏截断）调用；这里透传给 manager 落到 `disabled_reason`，
+并用 `log_disable_outcome` 对写失败打 ERROR。行为其余不变。
 
 ## 为什么存在
 

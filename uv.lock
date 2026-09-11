@@ -1800,7 +1800,7 @@ wheels = [
 
 [[package]]
 name = "narranexus"
-version = "1.21.3"
+version = "1.21.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

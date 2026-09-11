@@ -20,10 +20,13 @@ Usage:
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
+import sysconfig
 import tempfile
 import traceback
+from pathlib import Path
 
 # The four processes tauri/src-tauri/src/state.rs spawns in a packaged .app
 # (`bundled_services()`), as importable module paths. `module_runner` is
@@ -81,7 +84,82 @@ def _isolate_environment(scratch: str) -> None:
     os.environ["NARRA_SURFACE"] = "desktop"
 
 
+def _non_relocatable_installs() -> list[str]:
+    """Anything in this interpreter that only works on the machine that built it.
+
+    The imports below CANNOT catch this, which is how v1.21.3 shipped broken:
+    every workspace package was installed editable, i.e. as a `.pth` pointing at
+    the build machine's source tree (/Users/runner/work/...). On the build
+    machine that tree exists, so every import succeeded and the build went
+    green; on a user's machine it does not, and the app died with
+    `No module named 'narranexus.contracts'`. So check the install itself:
+    no editable distributions, and no path hook leading out of this bundle.
+    """
+    # purelib AND platlib: identical on the macOS python-build-standalone we
+    # bundle today, but an interpreter where they diverge must not let an
+    # editable install hide in the one we did not look at. A set, so the common
+    # case scans once.
+    paths = sysconfig.get_paths()
+    site_dirs = sorted({Path(paths["purelib"]), Path(paths["platlib"])})
+    problems: list[str] = []
+    for site_dir in site_dirs:
+        for direct_url in sorted(site_dir.glob("*.dist-info/direct_url.json")):
+            try:
+                info = json.loads(direct_url.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if (info.get("dir_info") or {}).get("editable"):
+                where = direct_url.parent.relative_to(site_dir)
+                problems.append(f"{where}: editable install of {info.get('url')}")
+        for pth in sorted(site_dir.glob("*.pth")):
+            where = pth.relative_to(site_dir)
+            if pth.name.startswith(("_editable_impl_", "__editable__")):
+                problems.append(f"{where}: editable-install hook")
+                continue
+            try:
+                content = pth.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                # Fail closed, but say which file and why rather than a traceback.
+                problems.append(f"{where}: unreadable ({exc})")
+                continue
+            for raw in content.splitlines():
+                # `site` executes lines starting with `import` + space OR tab;
+                # those are code, not paths (setuptools ships one). Everything
+                # else is a directory `site` appends to sys.path.
+                if raw.startswith(("import ", "import\t")):
+                    continue
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # ANY absolute path is non-relocatable, including one that lies
+                # inside this interpreter today: on the build machine
+                # .../resources/python/... is "inside", and after the app moves
+                # to /Applications that same path no longer exists. Legitimate
+                # .pth entries are relative to site-packages.
+                if Path(line).is_absolute():
+                    problems.append(f"{where}: adds absolute path {line} to sys.path")
+    return problems
+
+
 def main() -> int:
+    # Relocatability first: if the bundle depends on the build machine's
+    # filesystem, the import results below are meaningless — they would pass
+    # here and fail everywhere else.
+    non_relocatable = _non_relocatable_installs()
+    if non_relocatable:
+        print("\nBundle is NOT relocatable — it depends on this machine's filesystem:",
+              file=sys.stderr)
+        for problem in non_relocatable:
+            print(f"  ✗ {problem}", file=sys.stderr)
+        print(
+            "\nEvery package must be installed as real files in site-packages. For "
+            "the workspace members that means `--no-editable` on `uv pip install`, "
+            "not only on `uv export`.",
+            file=sys.stderr,
+        )
+        return 1
+    print("  ✓ bundle is relocatable (no editable installs, no external .pth paths)")
+
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="nn-import-smoke-") as scratch:
         _isolate_environment(scratch)

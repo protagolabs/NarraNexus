@@ -353,7 +353,7 @@ async def install_skill(
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
 
         if source == "github":
-            result = await pipeline.install_from_github(url=url, branch=branch)
+            results = await pipeline.install_from_github(url=url, branch=branch)
         else:
             # Save uploaded file to temporary directory
             temp_dir = Path(tempfile.mkdtemp())
@@ -373,27 +373,46 @@ async def install_skill(
                 with open(zip_path, "wb") as f:
                     f.write(content)
 
-                result = await pipeline.install_from_zip(zip_path)
+                results = [await pipeline.install_from_zip(zip_path)]
             finally:
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir)
 
-        skill_info = result.skill
-        name = skill_info.name if skill_info else "unknown"
-        if result.status == "already_installed":
-            message = f"Skill '{name}' is already installed at this version"
-        else:
-            message = f"Skill '{name}' installed successfully"
-        if result.warnings:
-            message += f" ({len(result.warnings)} security warning(s) — see scan report)"
-
-        return SkillOperationResponse(success=True, message=message, skill=skill_info)
-
+    except HTTPException:
+        raise
     except ValueError as e:
         raise _reject(str(e))
     except Exception as e:
         logger.exception(f"Failed to install skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    # The verdict lives OUTSIDE the try above on purpose: a 4xx raised inside
+    # it would be caught by the `except Exception` and re-labelled 500.
+    # A GitHub repo may ship several skills (skills/<name>/SKILL.md).
+    # Successes and failures are reported separately, one line each; the
+    # single-skill `skill` field carries the first success. Only a request
+    # with NO success is a 400 — a rejected sibling must never hide the
+    # skills that did land (they are on disk and audited).
+    succeeded = [r for r in results if r.ok]
+    failed = [r for r in results if not r.ok]
+    lines = []
+    warning_count = 0
+    for result in succeeded:
+        name = result.skill.name if result.skill else "unknown"
+        if result.status == "already_installed":
+            lines.append(f"Skill '{name}' is already installed at this version")
+        else:
+            lines.append(f"Skill '{name}' installed successfully")
+        warning_count += len(result.warnings)
+    for result in failed:
+        lines.append(f"Skill '{result.skill_name or 'unknown'}' was NOT installed: {result.error}")
+    if not succeeded:
+        raise _reject("\n".join(lines))
+    message = "\n".join(lines)
+    if warning_count:
+        message += f"\n({warning_count} security warning(s) — see scan report)"
+
+    return SkillOperationResponse(success=True, message=message, skill=succeeded[0].skill)
 
 
 @router.delete("/{skill_name}", response_model=SkillOperationResponse)

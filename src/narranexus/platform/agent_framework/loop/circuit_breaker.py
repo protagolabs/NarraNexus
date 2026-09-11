@@ -42,7 +42,7 @@ from loguru import logger
 
 from narranexus.platform.agent_framework.llm.failure import (
     classify_self_serviceable,
-    is_credential_error,
+    is_auth_like_error,
     redact_secrets,
 )
 from narranexus.platform.agent_runtime.response_processor import _is_auth_failure
@@ -62,7 +62,7 @@ from narranexus.platform.services.background_llm_alerts import (
 )
 from narranexus.platform.utils.backoff import compute_cooldown_seconds
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.timezone import utc_now
+from narranexus.platform.utils.timezone import coerce_utc, utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on
 # purpose: a dead key / exhausted balance is flagged in ~3 min (the backoff
@@ -147,9 +147,9 @@ def classify_agent_error(
          and checking them BEFORE the transient rule is what keeps a budget
          429 out of the rate-limit bucket.
       2. TRANSIENT — positively identified provider-side signatures (network /
-         5xx / rate-limit / overload). Checked BEFORE auth so a message like
-         "provider temporarily unavailable" isn't mis-swept into AUTH by the
-         broad "provider" credential marker.
+         5xx / rate-limit / overload). Checked BEFORE auth so a transient that
+         happens to mention a credential word ("authentication service
+         timed out") lands here and not in AUTH.
       3. AUTH — dead credentials (401/403, invalid/expired key, re-login).
       4. BUSINESS — everything else: our-own pipeline bug, a permanent client
          error (context too long, unknown model, content policy), or simply an
@@ -165,13 +165,11 @@ def classify_agent_error(
         return ErrorCategory.TRANSIENT
     if (
         _is_auth_failure(et, msg)
-        or is_credential_error(et)
-        or is_credential_error(msg)
-        # `is_credential_error`'s " 403"/"(403" markers need a delimiter before
-        # the digits, so a string-leading "403 Forbidden" slips through. Catch
-        # the unambiguous word so a permission/credential 403 is treated as
-        # AUTH (owner-actionable), not misrouted to BUSINESS (platform-only).
-        or "forbidden" in msg.lower()
+        # The loose predicate: "forbidden" counts here, where the cost of a
+        # miss is an owner-actionable 403 filed as platform-only. It stays out
+        # of the strict `is_credential_error` used by control flow (#389 I3).
+        or is_auth_like_error(et)
+        or is_auth_like_error(msg)
     ):
         return ErrorCategory.AUTH
     return ErrorCategory.BUSINESS
@@ -346,6 +344,43 @@ async def should_skip(agent_id: str, db=None) -> Tuple[bool, Optional[str]]:
         return (False, None)
     except Exception as e:  # noqa: BLE001 — fail open, never block a turn
         logger.warning(f"[agent-cb] should_skip read failed for {agent_id}: {e}")
+        return (False, None)
+
+
+async def peek_skip(agent_id: str, *, db) -> Tuple[bool, Optional[str]]:
+    """Read-only twin of ``should_skip`` for callers that will NOT run a turn.
+
+    ``(held, reason)``: True for EVERY status other than ACTIVE — paused,
+    cooling (unless its cooldown has already elapsed, which the next real turn
+    would let through), and any status this function does not know (a future
+    half-open ``probing``). Same fail-open contract as ``should_skip``: an
+    unreadable row reads as not held.
+
+    Exists because ``should_skip`` is the TURN gate and is free to carry side
+    effects (claiming a half-open probe, GitHub #117); a send-side pre-flight
+    such as the bus receipt must never consume what only a turn may consume.
+    Deliberately small: it reads the row and classifies, nothing else.
+    """
+    try:
+        # The raw row, not the entity: the entity's enum would REJECT a status
+        # this build does not know, and "unknown status" is the one case this
+        # function must classify as held rather than fail open on.
+        row = await db.get_one(
+            AgentCircuitBreakerRepository.table_name, {"agent_id": agent_id}
+        )
+        status = str((row or {}).get("cb_status") or CbStatus.ACTIVE.value)
+        if row is None or status == CbStatus.ACTIVE.value:
+            return (False, None)
+        if status == CbStatus.COOLING.value:
+            until = _as_aware_utc(coerce_utc(row.get("cooldown_until")))
+            if until is None or until <= utc_now():
+                return (False, None)
+            return (True, "cooling")
+        if status == CbStatus.PAUSED.value:
+            return (True, f"paused:{row.get('paused_reason') or 'unknown'}")
+        return (True, status)
+    except Exception as e:  # noqa: BLE001 — fail open, same as should_skip
+        logger.warning(f"[agent-cb] peek_skip read failed for {agent_id}: {e}")
         return (False, None)
 
 

@@ -160,7 +160,7 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 # "No matching distribution found for narranexus-contracts".
 # tests/release/test_desktop_build_uses_lock.py keeps this path classified.
 #
-# `--no-editable` (on the export): editable installs drop a `.pth` /
+# `--no-editable` (on the export AND the install): editable installs drop a `.pth` /
 # `__editable__` file into site-packages whose contents are the ABSOLUTE path
 # to the build machine's source tree (e.g. /Users/builder/NarraNexus/src). When
 # the dmg is installed on another machine at /Applications/NarraNexus.app/...,
@@ -200,9 +200,17 @@ trap 'rm -f "${REQ_TXT:-}"' EXIT
     --format requirements-txt \
     -o "$REQ_TXT")
 echo "  lock exported: $(grep -c '^[a-zA-Z0-9.]' "$REQ_TXT") requirement lines"
+# `--no-editable` HERE TOO, not only on the export. The export writes the 30
+# workspace members as bare relative paths, and `uv pip install -r` still
+# installs those as EDITABLE unless told otherwise: each becomes an
+# `_editable_impl_*.pth` holding the build machine's absolute source path
+# (/Users/runner/work/...). That is exactly the relocation bug described above,
+# and v1.21.3 shipped it — `No module named 'narranexus.contracts'` on every
+# user's machine, while the build and its smoke test (which run on the build
+# machine, where those paths exist) were green. Step 3.1 now checks for it.
 (cd "$PROJECT_ROOT" && UV_HTTP_TIMEOUT=30 uv pip install \
     --python "$PYTHON_DIR/bin/python3" \
-    --no-cache \
+    --no-cache --no-editable \
     -r "$REQ_TXT")
 echo "Python dependencies installed"
 

@@ -1,10 +1,15 @@
 ---
 code_file: frontend/src/components/awareness/TelegramConfig.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
 
 # TelegramConfig.tsx — Per-agent Telegram bot binding UI
+
+## 2026-09-09 — 把 `credential.disabled_reason` 传给 ChannelActiveToggle（B-28）
+
+trigger 因 401（token 撤销）/ 409（另一个 poller）自动停用后，面板不再只是一个哑的
+"Inactive"，而是显示后端写下的原因。
 
 ## Why it exists
 
