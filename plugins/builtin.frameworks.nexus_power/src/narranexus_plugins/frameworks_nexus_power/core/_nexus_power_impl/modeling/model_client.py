@@ -24,6 +24,9 @@ from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
 from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+    scrub_json_strings,
+)
 from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     requested_max_tokens,
 )
@@ -316,7 +319,10 @@ def _parse_args(raw: str) -> tuple[dict[str, Any], str | None, bool]:
         return {}, f"{exc.msg} at char {exc.pos} of {len(raw)}", _is_cut_short(raw, exc)
     if not isinstance(parsed, dict):
         return {}, f"expected a JSON object, got {type(parsed).__name__}", False
-    return parsed, None, False
+    # json.loads keeps a lone \uD8XX escape as a lone surrogate; scrub it
+    # here so no downstream strict UTF-8 writer (ledger, event store, MCP
+    # call body) ever sees one.
+    return scrub_json_strings(parsed), None, False
 
 
 _JSON_LITERALS = ("true", "false", "null")
