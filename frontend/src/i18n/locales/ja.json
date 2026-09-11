@@ -1380,6 +1380,7 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "saved": "保存しました",
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
@@ -2438,7 +2439,11 @@
     "livePreview": "ライブプレビュー"
   },
   "common": {
-    "close": "Close",
+    "close": "閉じる",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "back": "戻る",
+    "edit": "編集",
     "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。",
     "ok": "OK",
     "noticeTitle": "少しお待ちください",

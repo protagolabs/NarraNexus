@@ -2957,6 +2957,7 @@
   "common": {
     "close": "Close",
     "cancel": "取消",
+    "save": "保存",
     "back": "返回",
     "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。",
     "ok": "好",

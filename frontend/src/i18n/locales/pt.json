@@ -1381,6 +1381,7 @@
         "failed": "Falha na atualização ({{stage}})."
       },
       "modelDefaults": {
+        "saved": "Salvo",
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
@@ -2439,7 +2440,11 @@
     "livePreview": "Pré-visualização ao vivo"
   },
   "common": {
-    "close": "Close",
+    "close": "Fechar",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "back": "Voltar",
+    "edit": "Editar",
     "betaTooltip": "O NarraNexus está em fase beta. Os recursos podem mudar e podem ocorrer problemas ocasionais — seu feedback nos ajuda a melhorar.",
     "ok": "OK",
     "noticeTitle": "Um momento",

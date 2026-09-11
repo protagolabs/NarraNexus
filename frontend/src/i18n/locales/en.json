@@ -2957,6 +2957,7 @@
   "common": {
     "close": "Close",
     "cancel": "Cancel",
+    "save": "Save",
     "back": "Back",
     "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve.",
     "ok": "OK",
