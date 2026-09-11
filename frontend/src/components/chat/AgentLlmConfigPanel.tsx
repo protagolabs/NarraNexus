@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
@@ -115,7 +116,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // design (see file header), but nothing told the user it worked. Mirrors
   // ModelDefaultsSettings' "✓ Saved" indicator so the two editors read the
   // same way.
-  const [saved, setSaved] = useState(false);
+  const [saved, flashSaved] = useFlashFlag(2500);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -226,8 +227,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       }
       await load();
       onSaved?.();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -242,8 +242,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       await api.resetAgentLlmConfig(agentId, slot);
       await load();
       onSaved?.();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.resetFailed'));
     } finally {

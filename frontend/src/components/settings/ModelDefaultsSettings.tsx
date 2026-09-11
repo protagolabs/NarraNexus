@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui';
@@ -97,7 +98,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const [saved, flashSaved] = useFlashFlag(2500);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -253,8 +254,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
       }
       await load();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      flashSaved();
       // Offer to push the new default onto existing agents (clear-to-inherit).
       // Isolated try/catch: the save already succeeded, so a flaky stats GET
       // must NOT flip the UI to an error state — it just skips the dialog.

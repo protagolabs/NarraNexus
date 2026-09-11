@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — "✓ Saved" flag via the shared `useFlashFlag` hook
+
+The 2.5s auto-clear of the Saved indicator now comes from `hooks/useFlashFlag`,
+the same hook AgentLlmConfigPanel uses, so the two model editors behave the same:
+a second save within 2.5s restarts the countdown instead of the earlier timer
+clearing the newer confirmation, and the pending timer is cleared on unmount.
 
 ## 2026-09-07 — new `liveFrameworks` state feeds `providerBacksFramework`/`availableFrameworks` (B6)
 

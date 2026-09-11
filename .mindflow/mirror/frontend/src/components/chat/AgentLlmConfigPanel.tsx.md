@@ -16,10 +16,10 @@ stub: false
   `api.getAgentLlmConfig`'s response type.
 - The "✓ Saved" indicator now sits after the Save button, the same
   position ModelDefaultsSettings uses, so it no longer shifts Save when
-  it appears. The 2.5s auto-clear timer is deliberately left uncleared on
-  unmount, matching ModelDefaultsSettings (React 18 ignores a set-state
-  on an unmounted component; changing one editor alone would make the
-  two diverge).
+  it appears. The 2.5s auto-clear comes from the shared `useFlashFlag`
+  hook, the same one ModelDefaultsSettings uses: a second save within
+  2.5s restarts the countdown (the earlier timer no longer cuts the newer
+  confirmation short) and the pending timer is cleared on unmount.
 
 ## 2026-09-09 — a successful Save now says so (GitHub #96)
 
