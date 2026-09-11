@@ -37,6 +37,8 @@ error_type/error_message 取 runtime 自己的 error 帧（熔断器分类认得
 锁：`tests/agent_runtime/test_client_probe_settlement.py`（死凭据 streak+1 且下次延迟翻倍、
 修好即 ACTIVE、抛异常算失败、停止即归还、无 token 不建行）。
 ## 2026-08-07 — 把触发树交给 recorder
+只有持有探测令牌的 turn 才会读取 `RunCollection` 结算探测；没有令牌的 turn 直接返回，不碰结果对象（渠道测试替身与第三方 runtime 返回的轻量结果都不需要 `is_fatal`）。
+
 
 新增 `_inherited_root_run_id(extra_kwargs)`:从 `trigger_extra_data` 读出
 trigger 声明的树,传给 `RunRecorder`。两个 recorder 创建点都改了。

@@ -279,14 +279,17 @@ class InProcessAgentRuntimeClient:
             # type/message, which is the vocabulary classify_agent_error
             # knows (a bare str(e) would read as transient and re-arm the
             # same delay forever). No-op without a token.
-            err = result.error
-            await settle_probe(
-                agent_id,
-                probe_token,
-                succeeded=not result.is_fatal,
-                error_type=err.error_type if err is not None else None,
-                error_message=err.error_message if err is not None else None,
-            )
+            # Only a turn that holds a probe token has anything to settle;
+            # every other turn returns without touching the collection.
+            if probe_token is not None:
+                err = result.error
+                await settle_probe(
+                    agent_id,
+                    probe_token,
+                    succeeded=not result.is_fatal,
+                    error_type=err.error_type if err is not None else None,
+                    error_message=err.error_message if err is not None else None,
+                )
             return result
         except CancelledByUser as e:
             if recorder is not None:
