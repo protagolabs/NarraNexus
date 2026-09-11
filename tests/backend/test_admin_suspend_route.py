@@ -522,6 +522,38 @@ async def test_suspend_then_reinstate_resumes_the_paused_jobs_forward(db_client,
 
 
 @pytest.mark.asyncio
+async def test_suspend_then_reinstate_keeps_dependency_blocked_jobs_blocked(db_client, monkeypatch):
+    """Review I1: a job waiting on a dependency must come out of a
+    suspend/reinstate cycle still waiting — never ACTIVE with next_run=now,
+    which would run it before its upstream output exists."""
+    await _seed_user(db_client)
+    await _seed_job(db_client, "job_live", UID, status="active")
+    await _seed_job(db_client, "job_blocked", UID, status="blocked")
+    await _seed_job(db_client, "job_blocked_failed", UID, status="blocked_failed")
+    await _seed_job(db_client, "job_running", UID, status="running")
+    app = _make_app(db_client, monkeypatch)
+
+    suspended = await _post(
+        app, "/api/admin/suspend", json={"user_id": UID}, headers={"X-Admin-Secret": SECRET},
+    )
+    assert suspended.json()["jobs_paused"] == 1
+    for job_id, status in (
+        ("job_blocked", "blocked"), ("job_blocked_failed", "blocked_failed"),
+        ("job_running", "running"),
+    ):
+        row = await _job(db_client, job_id)
+        assert (row["status"], row["paused_reason"]) == (status, None)
+
+    resp = await _reinstate(app)
+
+    assert resp.json()["jobs_resumed"] == 1
+    assert (await _job(db_client, "job_live"))["status"] == "active"
+    assert (await _job(db_client, "job_blocked"))["status"] == "blocked"
+    assert (await _job(db_client, "job_blocked_failed"))["status"] == "blocked_failed"
+    assert (await _job(db_client, "job_running"))["status"] == "running"
+
+
+@pytest.mark.asyncio
 async def test_reinstate_leaves_non_suspension_pauses_alone(db_client, monkeypatch):
     await _seed_user(db_client, status="banned")
     await _seed_user(db_client, user_id="u_principal_ok")

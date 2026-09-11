@@ -81,10 +81,18 @@ async def test_principal_predicate_and_rowcount_on_mysql(mysql_client):
     await _seed_job(mysql_client, "null_reason", BANNED, status="paused")
     await _seed_job(mysql_client, "already", BANNED, status="paused", paused_reason="banned")
     await _seed_job(mysql_client, "other", OTHER, status="active")
+    await _seed_job(mysql_client, "cooling", BANNED, status="cooling")
+    for untouched in ("blocked", "blocked_failed", "running", "paused_no_quota", "paused_spend_cap"):
+        await _seed_job(mysql_client, untouched, BANNED, status=untouched)
 
     paused = await JobRepository(mysql_client).pause_jobs_for_execution_principal(BANNED, "banned")
 
-    assert paused == 2  # own + delegated; already-paused rows keep their reason
+    # own + delegated + cooling; already-paused rows keep their reason and the
+    # non-schedulable statuses are never flattened (review I1).
+    assert paused == 3
+    assert await _status(mysql_client, "cooling") == ("paused", "banned")
+    for untouched in ("blocked", "blocked_failed", "running", "paused_no_quota", "paused_spend_cap"):
+        assert await _status(mysql_client, untouched) == (untouched, None)
     assert await _status(mysql_client, "own") == ("paused", "banned")
     assert await _status(mysql_client, "delegated") == ("paused", "banned")
     assert await _status(mysql_client, "null_reason") == ("paused", None)

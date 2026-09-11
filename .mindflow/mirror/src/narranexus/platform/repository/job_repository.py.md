@@ -4,6 +4,18 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 I1）— suspend 只暂停可调度状态（白名单）
+
+`pause_jobs_for_execution_principal` 的状态条件从「`NOT IN` 终态 + paused」黑名单改为
+`status IN SUSPENDABLE_JOB_STATUSES`（[[job_schema]]：PENDING / ACTIVE / COOLING）。原因：reinstate 把
+suspend 暂停的每条 job 一律恢复成 ACTIVE（`resume_job`，next_run=从现在起算），这只对这三种正确；
+BLOCKED / BLOCKED_FAILED 若被压成 paused，解封后会以 ACTIVE 提前开跑（依赖输出尚不存在）；RUNNING
+由在飞 run 的 finalize 负责改写；PAUSED_NO_QUOTA / PAUSED_SPEND_CAP 保留自己的 reason。这些行本来就
+不会被 `get_due_jobs` 捞走，之后若变成到期，由 [[job_trigger]] 的入队门拦下。
+`get_jobs_paused_for_execution_principal` 不变（执行主体谓词与 pause 逐字相同，状态钉 `paused`+reason）。
+锁：`test_cooling_jobs_are_paused`、`test_non_schedulable_statuses_are_left_as_they_are`（参数化 5 个状态）、
+`test_suspend_then_reinstate_read_is_the_same_population`（加 blocked/blocked_failed）+ `_mysql` twin 同步。
+
 ## 2026-09-10（review r2 I-B + M-b）— reinstate 的读半边 + pause 不再改写已暂停 job 的 reason
 
 - 新 `get_jobs_paused_for_execution_principal(user_id, paused_reasons)`：

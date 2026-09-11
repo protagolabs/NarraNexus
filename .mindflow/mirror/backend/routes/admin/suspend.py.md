@@ -4,6 +4,14 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 I1）— suspend 不再压平 BLOCKED / BLOCKED_FAILED / RUNNING
+
+`_pause_jobs_for_suspended_principal` 现在只暂停 `SUSPENDABLE_JOB_STATUSES`（PENDING / ACTIVE / COOLING）
+的 job（仓库层白名单）。下文 r2 段「非终态」一词已不准确：等依赖的 BLOCKED / BLOCKED_FAILED、在飞的
+RUNNING、自动暂停的 PAUSED_NO_QUOTA / PAUSED_SPEND_CAP 都保持原状，因此 reinstate 恢复成 ACTIVE 的
+只会是本来就可调度的 job，依赖链不会被封/解封提前拉起。`jobs_paused` 计数随之只数这三种状态。
+锁：`tests/backend/test_admin_suspend_route.py::test_suspend_then_reinstate_keeps_dependency_blocked_jobs_blocked`。
+
 ## 2026-09-10（review r2 I-B）— 封号与解封对称：reinstate 恢复 suspend 暂停的那批 job
 
 r1 之后 suspend 会把执行主体名下所有非终态 job 打成 `paused/banned`，而 reinstate 只翻

@@ -91,6 +91,26 @@ LIVE_JOB_STATUSES: tuple[JobStatus, ...] = (
 )
 
 
+# Statuses an account suspension pauses: the ones the scheduler would pick up
+# and START on its own — PENDING / ACTIVE (get_due_jobs) and COOLING (re-armed
+# to ACTIVE by the clock). Everything else is left exactly as it is, because
+# reinstate restores a suspension-paused job to ACTIVE and only these three
+# are correctly restored that way (review I1):
+# - BLOCKED / BLOCKED_FAILED wait on a dependency; flattening them to paused
+#   and back to ACTIVE would start a downstream job before its upstream output
+#   exists. They are never due, so a suspended account's chain cannot run.
+# - RUNNING is in flight; `_finalize_job_execution` rewrites the row when the
+#   run ends, and JobTrigger's enqueue gate pauses it if it comes due again.
+# - PAUSED_NO_QUOTA / PAUSED_SPEND_CAP keep their own reason; if a backstop
+#   later flips one to ACTIVE, the same enqueue gate pauses it before it runs.
+# - PAUSED (any reason) and the terminals are never rewritten.
+# `JobRepository.pause_jobs_for_execution_principal` reads this ONE tuple.
+SUSPENDABLE_JOB_STATUSES: tuple[JobStatus, ...] = (
+    JobStatus.PENDING,
+    JobStatus.ACTIVE,
+    JobStatus.COOLING,
+)
+
 class JobOrigin:
     """Surfaces a job can be asked for on, and report back to.
 

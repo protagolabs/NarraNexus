@@ -4,6 +4,13 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（review r3 I1）— `SUSPENDABLE_JOB_STATUSES`：封号暂停的状态集合
+
+新元组 `(PENDING, ACTIVE, COOLING)`——调度器会自己启动的状态。[[job_repository]] 的
+`pause_jobs_for_execution_principal` 只读这一份。刻意不含 BLOCKED / BLOCKED_FAILED（解封会被恢复成
+ACTIVE、依赖未满足就开跑）、RUNNING（归在飞 run 的 finalize）、PAUSED_NO_QUOTA / PAUSED_SPEND_CAP /
+PAUSED（保留自己的 reason）与终态。与 `LIVE_JOB_STATUSES` 是两个不同问题的集合，不要合并。
+
 ## 2026-09-10（review r1 I11/M1）— `TriggerConfig.TIME_BEARING_FIELDS` 唯一清单；空串 timezone 不再被「修好」
 
 「哪些字段算 time-bearing」此前有三份副本：写侧 validator 的四个 `is not None`、

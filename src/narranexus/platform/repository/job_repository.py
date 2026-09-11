@@ -24,6 +24,7 @@ from narranexus.platform.utils import utc_now
 from narranexus.platform.utils.timezone import to_datetime6_literal
 from narranexus.platform.schema.job_schema import (
     LIVE_JOB_STATUSES,
+    SUSPENDABLE_JOB_STATUSES,
     JobType,
     JobStatus,
     JobModel,
@@ -509,14 +510,20 @@ class JobRepository(BaseRepository[JobModel]):
         stopped at 500 — precisely the shape a job-spamming account takes —
         and cost N round-trips inside an admin request.
 
-        Skips terminal jobs (they never run again; overwriting COMPLETED /
-        CANCELLED / FAILED with PAUSED would misreport why they stopped) and
-        every job already in `status='paused'`, whatever its reason (review r2
-        I-B): a paused job does not run anyway, and keeping its own
-        `paused_reason` (e.g. 'user') is what lets reinstate resume ONLY the
-        jobs this suspension paused (`get_jobs_paused_for_execution_principal`
-        pins the reason). Relabelling a user-paused job to the suspension
-        reason would make reinstate un-pause something the user paused.
+        Touches ONLY `SUSPENDABLE_JOB_STATUSES` (PENDING / ACTIVE / COOLING —
+        the statuses the scheduler would start on its own), a whitelist, not
+        a "non-terminal" blacklist (review I1). Reinstate restores every job
+        this pauses to ACTIVE, which is right for exactly those three:
+        BLOCKED / BLOCKED_FAILED (waiting on a dependency) would otherwise
+        come back ACTIVE and run before their upstream output exists, RUNNING
+        is owned by the in-flight run's finalizer, and the auto-paused states
+        keep their own reason. None of the untouched rows is due, and any that
+        later becomes due is paused by JobTrigger's enqueue gate. Terminal
+        jobs are never rewritten, and neither is any job already in
+        `status='paused'`, whatever its reason (review r2 I-B): keeping its
+        own `paused_reason` (e.g. 'user') is what lets reinstate resume ONLY
+        the jobs this suspension paused (`get_jobs_paused_for_execution_principal`
+        pins the reason).
 
         Raw SQL, dialect-portable (unquoted identifiers, `%s` placeholders);
         timestamps travel as DATETIME(6) literals so neither backend depends
@@ -529,6 +536,7 @@ class JobRepository(BaseRepository[JobModel]):
         """
         logger.debug(f"    → JobRepository.pause_jobs_for_execution_principal({user_id})")
         stamp = to_datetime6_literal(paused_at or utc_now())
+        placeholders = ", ".join(["%s"] * len(SUSPENDABLE_JOB_STATUSES))
         query = f"""
             UPDATE {self.table_name}
             SET status = %s, paused_reason = %s, paused_at = %s, updated_at = %s
@@ -536,7 +544,7 @@ class JobRepository(BaseRepository[JobModel]):
                 related_entity_id = %s
                 OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = %s)
             )
-            AND status NOT IN (%s, %s, %s, %s)
+            AND status IN ({placeholders})
         """
         result = await self._db.execute(
             query,
@@ -547,10 +555,7 @@ class JobRepository(BaseRepository[JobModel]):
                 stamp,
                 user_id,
                 user_id,
-                JobStatus.COMPLETED.value,
-                JobStatus.CANCELLED.value,
-                JobStatus.FAILED.value,
-                JobStatus.PAUSED.value,
+                *(s.value for s in SUSPENDABLE_JOB_STATUSES),
             ),
             fetch=False,
         )

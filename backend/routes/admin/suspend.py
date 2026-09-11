@@ -60,8 +60,12 @@ _PAUSED_REASON_BANNED = UserStatus.BANNED.value
 
 
 async def _pause_jobs_for_suspended_principal(db, user_id: str) -> tuple[int, Optional[str]]:
-    """Best-effort: pause every non-terminal job that would EXECUTE as
-    `user_id` (B-13). Returns `(paused_count, error)`; never raises.
+    """Best-effort: pause every schedulable job (PENDING / ACTIVE / COOLING,
+    `SUSPENDABLE_JOB_STATUSES`) that would EXECUTE as `user_id` (B-13).
+    Returns `(paused_count, error)`; never raises. BLOCKED / BLOCKED_FAILED /
+    RUNNING and the auto-paused states are left as they are (review I1):
+    reinstate restores what this pauses to ACTIVE, which would start a
+    dependency-blocked job before its upstream finished.
 
     Runs in the same request as the `users.status` flip so a suspended
     account's scheduled jobs stop being enqueued immediately, instead of

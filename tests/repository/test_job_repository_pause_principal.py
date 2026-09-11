@@ -98,6 +98,33 @@ async def test_terminal_jobs_are_not_rewritten(db_client, terminal):
 
 
 @pytest.mark.asyncio
+async def test_cooling_jobs_are_paused(db_client):
+    """COOLING is re-armed to ACTIVE by the clock — it would start on its own."""
+    await _seed_job(db_client, "cooling", BANNED, status="cooling")
+
+    assert await JobRepository(db_client).pause_jobs_for_execution_principal(BANNED, "banned") == 1
+    assert await _status(db_client, "cooling") == ("paused", "banned")
+
+
+@pytest.mark.parametrize(
+    "untouched",
+    ["blocked", "blocked_failed", "running", "paused_no_quota", "paused_spend_cap"],
+)
+@pytest.mark.asyncio
+async def test_non_schedulable_statuses_are_left_as_they_are(db_client, untouched):
+    """Review I1: reinstate turns every suspension-paused job ACTIVE. A BLOCKED
+    / BLOCKED_FAILED job flattened to paused would come back ACTIVE and run
+    before its dependency output exists; RUNNING belongs to the in-flight
+    run's finalizer; the auto-paused states keep their own reason."""
+    await _seed_job(db_client, f"job_{untouched}", BANNED, status=untouched)
+    await _seed_job(db_client, "job_active", BANNED, status="active")
+
+    assert await JobRepository(db_client).pause_jobs_for_execution_principal(BANNED, "banned") == 1
+    assert await _status(db_client, f"job_{untouched}") == (untouched, None)
+    assert await _status(db_client, "job_active") == ("paused", "banned")
+
+
+@pytest.mark.asyncio
 async def test_already_paused_for_this_reason_keeps_its_paused_at(db_client):
     await _seed_job(
         db_client, "already", BANNED, status="paused", paused_reason="banned",
@@ -178,7 +205,11 @@ async def test_suspend_then_reinstate_read_is_the_same_population(db_client):
     await _seed_job(db_client, "a", BANNED, status="active")
     await _seed_job(db_client, "b", OTHER, status="pending", related_entity_id=BANNED)
     await _seed_job(db_client, "mine", BANNED, status="paused", paused_reason="user")
+    await _seed_job(db_client, "waits", BANNED, status="blocked")
+    await _seed_job(db_client, "held", BANNED, status="blocked_failed")
     repo = JobRepository(db_client)
 
     assert await repo.pause_jobs_for_execution_principal(BANNED, "banned") == 2
     assert await _ids(db_client) == ["a", "b"]
+    assert await _status(db_client, "waits") == ("blocked", None)
+    assert await _status(db_client, "held") == ("blocked_failed", None)
