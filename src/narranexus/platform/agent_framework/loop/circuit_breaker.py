@@ -341,11 +341,25 @@ class TurnAdmission:
     turn must carry it to its settlement — ``record_success`` /
     ``record_failure`` / ``settle_probe`` / ``release_probe`` — because the
     token is the claim's identity: nothing without it may settle the probe.
+
+    ``window`` is set on a refusal: the breaker window (``cb_status`` +
+    ``cooldown_until``) of the same row read that produced ``reason``, so a
+    channel can throttle its refusal notice per window without reading the
+    row a second time (#394 fifth review M-2).
     """
 
     allowed: bool
     reason: Optional[str]
     probe_token: Optional[str] = None
+    window: Optional[str] = None
+
+
+def _window_of(row: Optional[AgentCircuitBreaker]) -> Optional[str]:
+    """A refusal's breaker window key: a new pause, or a backoff doubled by
+    a failed probe, is a new window."""
+    if row is None:
+        return None
+    return f"{row.cb_status}|{row.cooldown_until}"
 
 
 def _holds_probe(row: Optional[AgentCircuitBreaker], probe_token: Optional[str]) -> bool:
@@ -876,16 +890,22 @@ async def try_begin_probe(
         if row.cb_status == CbStatus.PAUSED.value:
             if not _elapsed(row.cooldown_until):
                 return TurnAdmission(
-                    allowed=False, reason=f"paused:{row.paused_reason or 'unknown'}"
+                    allowed=False,
+                    reason=f"paused:{row.paused_reason or 'unknown'}",
+                    window=_window_of(row),
                 )
             from_status = CbStatus.PAUSED.value
         elif row.cb_status == CbStatus.PROBING.value:
             if not _elapsed(row.cooldown_until):
-                return TurnAdmission(allowed=False, reason="probing")
+                return TurnAdmission(
+                    allowed=False, reason="probing", window=_window_of(row)
+                )
             if await _claimant_may_be_live(db, row):
                 # The grant timer ran out but the probe is still running
                 # (long turn) — it will settle itself; do not double-probe.
-                return TurnAdmission(allowed=False, reason="probing")
+                return TurnAdmission(
+                    allowed=False, reason="probing", window=_window_of(row)
+                )
             from_status = CbStatus.PROBING.value
         else:
             # ACTIVE / COOLING — nothing to claim
@@ -904,9 +924,9 @@ async def try_begin_probe(
             f"[agent-cb] try_begin_probe CAS write failed for {agent_id}; "
             f"treating as not claimed (fail-closed): {e}"
         )
-        return TurnAdmission(allowed=False, reason="probing")
+        return TurnAdmission(allowed=False, reason="probing", window=_window_of(row))
     if token is None:
-        return TurnAdmission(allowed=False, reason="probing")
+        return TurnAdmission(allowed=False, reason="probing", window=_window_of(row))
     logger.info(
         f"[agent-cb] agent {agent_id} half-open probe claimed "
         f"(from={from_status}, paused:{row.paused_reason}, streak="
@@ -929,7 +949,9 @@ async def admit_turn(agent_id: str, db=None) -> TurnAdmission:
     errors exactly like the two steps."""
     verdict = await should_skip(agent_id, db=db)
     if verdict.skip:
-        return TurnAdmission(allowed=False, reason=verdict.reason)
+        return TurnAdmission(
+            allowed=False, reason=verdict.reason, window=_window_of(verdict.row)
+        )
     return await try_begin_probe(agent_id, db=db, prior=verdict)
 
 

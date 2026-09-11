@@ -1191,19 +1191,22 @@ def test_a_forbidden_only_message_still_classifies_as_auth_for_the_breaker():
     assert classify_agent_error("X", "request forbidden by upstream policy") == ErrorCategory.AUTH
 
 
-# Files that construct a turn but are deliberately NOT gated, with the reason.
+# Files that construct a turn but are deliberately NOT gated: (number of
+# construction points, reason). Counted like the gated table below (#394
+# fifth review M-5): a second construction point in an exempt file fails
+# until the author confirms it belongs to the same exemption.
 _UNGATED_TURN_CONSTRUCTORS = {
     # The runtime seams themselves: they settle a probe their caller won,
     # they never decide whether a turn may start.
-    "src/narranexus/platform/agent_runtime/client.py": "runtime client seam",
-    "src/narranexus/platform/agent_runtime/background_run.py": "run object built after the WS/openai gate",
-    "src/narranexus/platform/agent_runtime/agent_runtime.py": "the runtime (plus its dev-only demo function)",
+    "src/narranexus/platform/agent_runtime/client.py": (4, "runtime client seam"),
+    "src/narranexus/platform/agent_runtime/background_run.py": (1, "run object built after the WS/openai gate"),
+    "src/narranexus/platform/agent_runtime/agent_runtime.py": (2, "the runtime (plus its dev-only demo function)"),
     # Jobs are scheduled work with their own consecutive-failure breaker
     # (job_trigger); the real-time breaker gates dialogue turns only.
-    "plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py": "own job breaker",
+    "plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py": (1, "own job breaker"),
     # Skill study is a one-shot run the owner starts from the Skills panel;
     # nothing re-triggers it, so there is no retry storm to hold off.
-    "plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py": "owner-initiated one-shot",
+    "plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py": (1, "owner-initiated one-shot"),
 }
 
 
@@ -1220,7 +1223,10 @@ _GATED_TURN_CONSTRUCTORS = {
     "plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py": 1,
     # A2A tasks/send and tasks/sendSubscribe.
     "plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_trigger.py": 2,
-    # _build_and_run_agent (admit_turn) and the silent batch (peek_skip).
+    # _run_agent_turn (admit_turn), plus the silent memory batch, which is
+    # deliberately ungated: silent=True runs SilentAct, zero agent LLM calls,
+    # so it never touches the credential the breaker holds (#394 fifth
+    # review N-1).
     "src/narranexus/platform/channel/channel_trigger_base.py": 2,
     "src/narranexus/platform/message_bus/message_bus_trigger.py": 1,
     "src/narranexus/platform/services/module_poller.py": 1,
@@ -1244,6 +1250,7 @@ def test_every_turn_entry_passes_the_breaker_gate():
     files = [*root.joinpath("src").rglob("*.py"), *root.joinpath("backend").rglob("*.py")]
     files += [p for p in root.joinpath("plugins").rglob("*.py") if "/src/" in p.as_posix()]
     found = {}
+    exempt = {}
     for path in files:
         text = path.read_text(encoding="utf-8")
         count = len(construct.findall(text))
@@ -1251,10 +1258,11 @@ def test_every_turn_entry_passes_the_breaker_gate():
             continue
         rel = path.relative_to(root).as_posix()
         if rel in _UNGATED_TURN_CONSTRUCTORS:
+            exempt[rel] = count
             continue
         assert gate.search(text), f"{rel} starts a turn with no breaker gate"
         found[rel] = count
     assert found == _GATED_TURN_CONSTRUCTORS
-    # The exemption list must not rot: every entry still constructs a turn.
-    for rel in _UNGATED_TURN_CONSTRUCTORS:
-        assert construct.search((root / rel).read_text(encoding="utf-8")), rel
+    # The exemption list is counted too, and must not rot: every entry
+    # still constructs exactly the registered number of turns.
+    assert exempt == {rel: n for rel, (n, _why) in _UNGATED_TURN_CONSTRUCTORS.items()}

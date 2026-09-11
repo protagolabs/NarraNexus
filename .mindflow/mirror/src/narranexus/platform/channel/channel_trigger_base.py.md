@@ -4,37 +4,46 @@ stub: false
 last_verified: 2026-09-11
 ---
 
-## 2026-09-11（PR #394 review 第五轮 I-B / I-C）— 静默批放行 COOLING；群聊拒绝提示按窗口节流
+## 2026-09-11（PR #394 review 第五/六轮）— 静默批不过闸门、回执说真话；群聊拒绝提示按窗口节流
 
-- **静默批只在凭据真被扣住时跳过**：`peek_skip` 返回 held 且原因不是 `"cooling"`（即 `paused:<reason>`、
-  `probing`、或本版本不认识的状态）才跳过。COOLING 是瞬时/业务失败的退避，凭据没坏；而静默批没有
-  重试/补偿队列，跳过就等于那段群聊**永久进不了记忆**（上层回执还写着「已入库」）。仍然不认领探测
-  （不走 `admit_turn`）。锁：`test_the_silent_batch_skips_only_a_held_credential`（cooling 跑、paused/probing 不跑）。
-- **拒绝提示节流**：`_circuit_admission` 被拒后先问 `_claim_circuit_refusal_send(message, agent_id)`：
-  群聊（`ChatType.GROUP` / `TOPIC_GROUP`）按 `(channel_name, agent_id, chat_id)` 每个熔断窗口只发第一条，
-  窗口 = 熔断行的 `cb_status|cooldown_until`（修好→再坏→再 PAUSED、或探测失败退避翻倍都是新窗口，会再提示一次）；
-  私聊永不节流；读行失败则照发（宁可多说一次）。节流的只是**发送**：`refusal` 仍作为 turn 输出返回，inbox 照记。
-  记录放在类级 `_circuit_refusal_windows`（进程内、OrderedDict、上限 4096 淘汰最旧）——同一渠道的 trigger
-  跑在一个进程里，丢一条记录的代价只是多提示一次，不会漏提示，所以不进 DB。
-- 发送走新钩子 `_send_circuit_refusal(credential, message, text)`，默认 `_send_error_fallback`；
-  [[matrix_trigger]] 覆写成 `_send_matrix_reply`（它的 `send_channel_reply` 是 no-op），于是节流对所有渠道同一处生效。
-  锁：`test_a_group_hears_the_refusal_once_per_breaker_window` / `test_a_private_chat_is_told_every_time` /
-  `test_matrix_group_refusal_is_sent_once_per_window`。
+- **静默批不过熔断器闸门**（第六轮 N-1）：`silent=True` 走 `SilentAct`，零 agent LLM 调用，记忆侧 LLM 走
+  helper 槽，不碰熔断器扣住的凭据；它没有重试/补偿队列，PAUSED/PROBING/COOLING 下跳过都会让那段群聊
+  **永久进不了记忆**且什么也省不下。它从不传 `probe_token`，所以不认领也不结算探测。
+  锁：`test_the_silent_batch_runs_whatever_the_breaker_holds`（三态都跑、行不变）/ `test_the_silent_batch_never_claims_the_probe`。
+- **静默批返回结果**（N-2）：`_build_and_run_agent_silent_batch -> Optional[str]`，跑成返回 None，否则返回没跑成的原因
+  （`empty batch` / `runtime raised <Exc>` / `runtime error <type>`）。`managed_silent_ingest` 据此回执：
+  跑成才写 `(silent group message ingested to memory - no reply)`，否则 `(silent group message not ingested - <reason>)`。
+  原生 `group_silent` 调用方不读返回值。锁：`test_the_silent_batch_reports_a_pass_that_did_not_run`、
+  `test_manyfold_im_ingress.py::test_base_managed_silent_ingest_drives_native_batch`。
+- **拒绝提示节流**：`_circuit_admission` 被拒后 `_claim_circuit_refusal_send(message, agent_id, admission.window)`（同步，
+  check-and-set 之间无 `await`，并发消息不会双发）：群聊（`GROUP` / `TOPIC_GROUP`）按 `(channel_name, agent_id, chat_id)`
+  每个熔断窗口只发第一条。窗口直接取 `TurnAdmission.window`（`admit_turn` 那**同一次读行**的 `cb_status|cooldown_until`，
+  M-2：不再二次读行，文案与窗口同源）；修好→再坏、探测失败退避翻倍都是新窗口。私聊不节流；拒绝不带窗口则照发。
+  **先占、发送失败回滚**（M-1）：`_send_circuit_refusal` 返回 bool，False 时 `_unclaim_circuit_refusal_send` 交还窗口
+  （只在该条仍是本窗口时删），下一条消息会再试；失败发送在飞期间到达的消息不会被补告知。节流的只是**发送**：
+  `refusal` 仍作为 turn 输出返回，inbox 照记。记录在类级 `_circuit_refusal_windows`（进程内、OrderedDict、上限 4096 淘汰最旧），
+  丢一条记录的代价是多提示一次。
+- 发送钩子 `_send_circuit_refusal(credential, message, text) -> bool`：默认直接 `send_channel_reply`（抛错=失败，记日志吞掉）；
+  [[matrix_trigger]] 覆写成 `_send_matrix_reply`（它的 `send_channel_reply` 是 no-op）。
+- **`_run_agent_turn -> ChannelTurnOutput(text, refused)`**（N-3）：`_build_and_run_agent` 的 turn 本体拆出来，
+  `_build_and_run_agent` 只返回其 `.text`。`refused=True` 表示拒绝文案的投递已归闸门所有；自己发送返回文本的渠道
+  （Matrix atomic）调它并在 refused 时不再发送。
+  锁：`test_a_group_hears_the_refusal_once_per_breaker_window` / `test_a_failed_group_refusal_send_hands_the_window_back` /
+  `test_a_private_chat_is_told_every_time` / `test_matrix_group_refusal_is_sent_once_per_window` / `test_matrix_atomic_*`。
 
 ## 2026-09-10（PR #394 review 第四轮 I-3）— channel turn 过熔断器闸门
 
 此前 `_build_and_run_agent` 与静默批两处 `run_and_collect` 零闸门：一个凭据已死、被硬 PAUSED
 的 agent，群里每来一条消息仍起一个真 turn、打一次坏 key、失败再播回房间。现在：
 - `_circuit_admission(credential, message, agent_id) -> (TurnAdmission, refusal)`：在 prompt/anchor/
-  extra_data 都建好、紧挨 `run_and_collect` 之前调 `circuit_breaker.admit_turn`（所有「不起 turn」
+  extra_data 都建好、紧挨 `run_and_collect` 之前（现位于 `_run_agent_turn`）调 `circuit_breaker.admit_turn`（所有「不起 turn」
   分支——dedup、echo、非 @ 群消息、ingress guard——早已在 `_process_message` 上游返回）。被拒 →
-  经 `_send_circuit_refusal`（默认 `_send_error_fallback`，群聊按窗口节流，见 2026-09-11 节）把 `format_circuit_refusal(reason)` 发回会话，并作为 turn 输出返回（inbox
+  经 `_send_circuit_refusal`（默认 `send_channel_reply`，群聊按窗口节流，见 2026-09-11 节）把 `format_circuit_refusal(reason)` 发回会话，并作为 turn 输出返回（inbox
   照常记录）；不重试。放行 → `probe_token` 交给 `run_and_collect`（它结算探测），`finally` 里
   `_release_unsettled_probe` 兜底（token CAS，已结算即 no-op）。
 - `format_circuit_refusal(reason)`：面向发消息的人（常常不是 owner），不给操作指引；paused →
   「暂停中、请联系 bot 所有者」，cooling/probing →「稍后再试」。子类可覆写。
-- 静默批只用 `peek_skip`：它不回复任何人，占掉唯一的探测名额是浪费；凭据被扣住（paused/probing）
-  时跳过这次记忆写入并记日志（COOLING 不跳，见 2026-09-11 节）。
+- 静默批不过闸门、不认领探测（见 2026-09-11 节）。
 - `_breaker_db()`：优先用 trigger 自己的 `_db`，否则进程 client。
 覆写了 `_build_and_run_agent` 的子类（[[lark_trigger]]、[[matrix_trigger]] 流式路径）必须自己调
 `_circuit_admission` / `_release_unsettled_probe`。锁：`tests/channel/test_channel_circuit_breaker_gate.py`。

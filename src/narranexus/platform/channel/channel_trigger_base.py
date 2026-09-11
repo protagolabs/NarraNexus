@@ -42,7 +42,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, List, NamedTuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from narranexus.platform.agent_runtime.run_collector import RunError
@@ -141,6 +141,19 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 # agent's / silent-mode choice not to speak). Shared across channels so the
 # error-fallback path can tell "agent stayed silent" from "agent replied".
 CHANNEL_SILENT_SENTINEL = "(stayed silent)"
+
+
+class ChannelTurnOutput(NamedTuple):
+    """``ChannelTriggerBase._run_agent_turn``'s answer.
+
+    ``refused`` is True when the agent circuit-breaker refused the turn:
+    ``text`` is then the refusal copy and the gate (``_circuit_admission``)
+    already owns its delivery — sent once, or throttled for a group window —
+    so a channel that sends the returned text itself must not send it again.
+    """
+
+    text: str
+    refused: bool = False
 
 
 # Upstream error text that reaches a credential row (and from there the
@@ -1729,6 +1742,25 @@ class ChannelTriggerBase(ABC):
     ) -> str:
         """Build prompt via subclass's context builder, run AgentRuntime, return text.
 
+        The text of ``_run_agent_turn``; a channel that sends the returned
+        text itself calls ``_run_agent_turn`` instead, to learn whether the
+        circuit-breaker gate already owns delivery (a refusal).
+        """
+        output = await self._run_agent_turn(
+            credential, message, sender_name, attachments=attachments
+        )
+        return output.text
+
+    async def _run_agent_turn(
+        self,
+        credential: Any,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list[Attachment]] = None,
+    ) -> ChannelTurnOutput:
+        """The turn behind ``_build_and_run_agent``.
+
         ``attachments`` is the list returned by ``fetch_attachments``
         (may be empty). When non-empty it is serialised into
         ``trigger_extra_data["attachments"]`` so ChatModule's
@@ -1799,7 +1831,7 @@ class ChannelTriggerBase(ABC):
             credential, message, agent_id
         )
         if refusal is not None:
-            return refusal
+            return ChannelTurnOutput(refusal, refused=True)
 
         try:
             result = await get_agent_runtime_client().run_and_collect(
@@ -1826,7 +1858,7 @@ class ChannelTriggerBase(ABC):
             await self._send_error_fallback(
                 credential, message, err_text, already_replied=False
             )
-            return err_text
+            return ChannelTurnOutput(err_text)
         finally:
             await self._release_unsettled_probe(agent_id, admission)
 
@@ -1848,12 +1880,12 @@ class ChannelTriggerBase(ABC):
             await self._send_error_fallback(
                 credential, message, err_text, already_replied=already_replied
             )
-            return err_text
+            return ChannelTurnOutput(err_text)
 
         # Subclasses may want to extract platform-specific tool-call output;
         # default returns the agent's text. Lark's subclass will override
         # to look at result.raw_items in Phase 2.
-        return self.resolve_agent_response(result, message, credential)
+        return ChannelTurnOutput(self.resolve_agent_response(result, message, credential))
 
     async def _build_and_run_agent_silent_batch(
         self,
@@ -1862,7 +1894,7 @@ class ChannelTriggerBase(ABC):
         sender_name_by_id: Optional[dict[str, str]] = None,
         *,
         attachments_by_index: Optional[List[List[Attachment]]] = None,
-    ) -> None:
+    ) -> Optional[str]:
         """Run one silent AgentRuntime pass over a batch of messages.
 
         Purpose. Group non-@ messages (and reconnect burst backfill) should
@@ -1892,15 +1924,26 @@ class ChannelTriggerBase(ABC):
                 Serialised into batch_messages[i]["attachments"] so
                 ChatModule can persist them on the individual user row.
 
+        Not gated by the agent circuit-breaker (#394 fifth review N-1):
+        ``silent=True`` runs ``SilentAct`` — step_3 is skipped, so the pass
+        makes zero agent LLM calls and never touches the credential the
+        breaker holds; its memory/narrative LLM calls go through the helper
+        slot. Skipping it while the agent is paused would lose the room's
+        messages from memory for good (there is no retry queue) and save
+        nothing. It never claims or settles the half-open probe: no
+        ``probe_token`` is passed.
+
         Returns:
-            None. Silent runs produce no user-facing text; the caller
+            None when the pass ran, else a short reason it did not (empty
+            batch, runtime raised, runtime error) — the managed receipt
+            reports it. Silent runs produce no user-facing text; the caller
             should NOT send anything to the IM platform.
         """
         if not messages:
             logger.warning(
                 f"{type(self).__name__}._build_and_run_agent_silent_batch called with empty batch"
             )
-            return
+            return "empty batch"
 
         from narranexus.platform.agent_runtime.client import (
             get_agent_runtime_client,
@@ -2002,26 +2045,6 @@ class ChannelTriggerBase(ABC):
             silent_batch_size=len(batch_messages),
         )
 
-        # A silent memory pass answers nobody and is not worth the single
-        # half-open probe slot, so it never claims one (same reason as
-        # module_poller Path A): read-only peek. Only a HELD credential skips
-        # the pass — paused ("paused:<reason>"), a probe in flight, or a
-        # status this build does not know. COOLING does not: it is the
-        # transient/business backoff, the credential is fine, and this path
-        # has no retry queue, so skipping would lose the room's messages
-        # from memory for good (#394 fourth review I-B).
-        from narranexus.platform.agent_framework.loop.circuit_breaker import (
-            peek_skip,
-        )
-
-        held, why = await peek_skip(agent_id, db=await self._breaker_db())
-        if held and why != "cooling":
-            logger.info(
-                f"{type(self).__name__}[{agent_id}] silent batch of "
-                f"{len(batch_messages)} skipped: agent circuit-breaker {why}"
-            )
-            return
-
         try:
             result = await get_agent_runtime_client().run_and_collect(
                 agent_id=agent_id,
@@ -2036,13 +2059,15 @@ class ChannelTriggerBase(ABC):
                 f"{type(self).__name__}[{agent_id}] silent batch runtime raised: "
                 f"{type(e).__name__}: {e}"
             )
-            return
+            return f"runtime raised {type(e).__name__}"
 
         if result.is_error:
             logger.warning(
                 f"{type(self).__name__}[{agent_id}] silent batch runtime error "
                 f"({result.error.error_type}): {result.error.error_message}"
             )
+            return f"runtime error {result.error.error_type}"
+        return None
 
     # ────────────────────────────────────────────────────────────────────
     # Owner resolution + agent output extraction (subclass override hooks)
@@ -2103,70 +2128,87 @@ class ChannelTriggerBase(ABC):
             f"circuit-breaker ({admission.reason})"
         )
         refusal = self.format_circuit_refusal(admission.reason)
-        if await self._claim_circuit_refusal_send(message, agent_id):
-            await self._send_circuit_refusal(credential, message, refusal)
-        else:
+        claim = self._claim_circuit_refusal_send(message, agent_id, admission.window)
+        if claim is None:
             logger.info(
                 f"{type(self).__name__}[{agent_id}] refusal reply to "
                 f"{message.chat_id} throttled (already sent in this window)"
             )
+        elif not await self._send_circuit_refusal(credential, message, refusal):
+            self._unclaim_circuit_refusal_send(claim)
         return admission, refusal
 
-    async def _claim_circuit_refusal_send(
-        self, message: ParsedMessage, agent_id: str
-    ) -> bool:
-        """Whether this refusal is the one the chat hears in the current
-        breaker window (#394 fourth review I-C).
+    def _claim_circuit_refusal_send(
+        self, message: ParsedMessage, agent_id: str, window: Optional[str]
+    ) -> "Optional[tuple[tuple[str, str, str], Optional[str]]]":
+        """Claim this refusal as the one the chat hears in the current
+        breaker window (#394 fourth review I-C). Returns the claim (hand it
+        to ``_unclaim_circuit_refusal_send`` if the send fails), or None
+        when the chat was already told in this window.
 
         A group chat hears the refusal once per (channel, agent, chat) per
-        breaker window — the window is the row's ``cb_status`` +
-        ``cooldown_until``, so a new pause (repaired, then broken again) or
-        a doubled backoff after a failed probe is a new window and is told
-        again. A 1:1 chat is never throttled: its only sender needs the
-        answer. Only the SEND is throttled — the caller still returns the
-        refusal text as the turn's output, so the inbox records it.
+        breaker window. ``window`` is ``TurnAdmission.window``: the row's
+        ``cb_status`` + ``cooldown_until`` from the same read that refused
+        the turn (#394 fifth review M-2 — no second read), so a new pause
+        (repaired, then broken again) or a doubled backoff after a failed
+        probe is a new window and is told again. A 1:1 chat is never
+        throttled: its only sender needs the answer. Only the SEND is
+        throttled — the caller still returns the refusal text as the
+        turn's output, so the inbox records it.
 
+        Claim first, roll back on a failed send (#394 fifth review M-1):
+        check-and-set has no ``await`` in between, so concurrent messages
+        never both send; a send the channel reports as failed hands the
+        window back and the next message in the chat tries again. Messages
+        that arrived while that failed send was in flight stay untold.
         Process-local on purpose: one channel's triggers run in one process
-        (the channels supervisor), and a lost entry only costs one repeated
-        notice, never a missed one. An unreadable row sends (fail toward
-        telling the person)."""
-        if getattr(message, "chat_type", None) not in (
-            ChatType.GROUP, ChatType.TOPIC_GROUP,
-        ):
-            return True
-        try:
-            from narranexus.platform.repository.agent_circuit_breaker_repository import (
-                AgentCircuitBreakerRepository,
-            )
-
-            row = await AgentCircuitBreakerRepository(
-                await self._breaker_db()
-            ).get(agent_id)
-        except Exception as e:  # noqa: BLE001 — fail toward telling
-            logger.warning(f"[agent-cb] refusal window read failed for {agent_id}: {e}")
-            return True
-        if row is None:
-            return True
-        window = f"{row.cb_status}|{row.cooldown_until}"
+        (the channels supervisor); a lost entry costs one repeated notice.
+        No window (the refusal carries none) sends — fail toward telling."""
         key = (self.channel_name, agent_id, message.chat_id or "")
+        is_group = getattr(message, "chat_type", None) in (
+            ChatType.GROUP, ChatType.TOPIC_GROUP,
+        )
+        if not is_group or window is None:
+            return (key, None)
         sent = ChannelTriggerBase._circuit_refusal_windows
         if sent.get(key) == window:
-            return False
+            return None
         sent[key] = window
         sent.move_to_end(key)
         while len(sent) > self._CIRCUIT_REFUSAL_WINDOWS_MAX:
             sent.popitem(last=False)
-        return True
+        return (key, window)
+
+    @staticmethod
+    def _unclaim_circuit_refusal_send(
+        claim: "tuple[tuple[str, str, str], Optional[str]]",
+    ) -> None:
+        """Hand back a refusal-window claim whose send failed — only if the
+        entry is still this claim's window (a newer window stays)."""
+        key, window = claim
+        if window is None:
+            return
+        sent = ChannelTriggerBase._circuit_refusal_windows
+        if sent.get(key) == window:
+            del sent[key]
 
     async def _send_circuit_refusal(
         self, credential: Any, message: ParsedMessage, text: str
-    ) -> None:
-        """Deliver a circuit-breaker refusal to the chat. Default: the
-        channel's error-reply path. A channel whose ``send_channel_reply``
-        is a no-op (NarraMessenger) overrides this with its own sender."""
-        await self._send_error_fallback(
-            credential, message, text, already_replied=False
-        )
+    ) -> bool:
+        """Deliver a circuit-breaker refusal to the chat; True iff the
+        channel accepted it. Default: the channel's ``send_channel_reply``
+        (a raise is a failed send, logged and swallowed). A channel whose
+        ``send_channel_reply`` is a no-op (NarraMessenger) overrides this
+        with its own sender."""
+        try:
+            await self.send_channel_reply(credential, message, text)
+        except Exception as e:  # noqa: BLE001 — never break the turn path
+            logger.warning(
+                f"{type(self).__name__}: circuit refusal send failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            return False
+        return True
 
     async def _release_unsettled_probe(
         self, agent_id: str, admission: "TurnAdmission"
@@ -2505,7 +2547,8 @@ class ChannelTriggerBase(ABC):
         trigger (not the ingress coordinator) so the batch-call shape stays
         this class's private knowledge and a channel can override the
         behaviour (e.g. opt out of silent ingestion entirely). Returns a
-        transcript receipt for the platform-facing completion."""
+        transcript receipt for the platform-facing completion that says
+        what happened: "ingested" only when the silent pass ran."""
         self._managed_bind(db)
         credential = await self._credential_for_agent(agent_id)
         if credential is None:
@@ -2513,12 +2556,14 @@ class ChannelTriggerBase(ABC):
         sender_names = (
             {message.sender_id: message.sender_name} if message.sender_id else None
         )
-        await self._build_and_run_agent_silent_batch(
+        skipped = await self._build_and_run_agent_silent_batch(
             credential,
             [message],
             sender_name_by_id=sender_names,
             attachments_by_index=[attachments] if attachments else None,
         )
+        if skipped:
+            return f"(silent group message not ingested - {skipped})"
         return "(silent group message ingested to memory - no reply)"
 
     # ────────────────────────────────────────────────────────────────────

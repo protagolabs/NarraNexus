@@ -12,8 +12,9 @@ message with no breaker check at all: a hard-PAUSED agent with a dead key
 re-ran a doomed turn per message. Each entry now calls ``admit_turn`` right
 before its runtime call, tells the sender why when refused, hands a won
 probe token to the runtime call (which settles it) and releases it on the
-way out. The silent memory batch only peeks — it never takes the single
-probe slot. The real breaker runs on sqlite; only the runtime is faked.
+way out. The silent memory batch is not gated at all (it makes no agent LLM
+call) and never takes the probe slot. The real breaker runs on sqlite; only
+the runtime is faked.
 """
 from __future__ import annotations
 
@@ -72,11 +73,17 @@ class _Client:
 
 
 class _Trigger(_FakeTrigger):
-    def __init__(self):
+    def __init__(self, fail_sends: int = 0):
         super().__init__([], _FakeCredential(agent_id=AGENT))
         self.sent: list[str] = []
+        self.failed: list[str] = []
+        self._fail_sends = fail_sends
 
     async def send_channel_reply(self, credential, message, text) -> None:
+        if self._fail_sends:
+            self._fail_sends -= 1
+            self.failed.append(text)
+            raise RuntimeError("platform send failed")
         self.sent.append(text)
 
 
@@ -227,6 +234,45 @@ async def test_a_group_hears_the_refusal_once_per_breaker_window(client, db_clie
 
 
 @pytest.mark.asyncio
+async def test_a_failed_group_refusal_send_hands_the_window_back(client, db_client):
+    """#394 fifth review M-1: the window is claimed before the send and
+    rolled back when the send fails, so the room is not left untold for
+    the whole pause."""
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    trigger = _Trigger(fail_sends=1)
+    first = await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert trigger.failed == [first] and trigger.sent == []
+    await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert trigger.sent == [first]
+    # Delivered now: the window holds again.
+    await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert trigger.sent == [first]
+
+
+@pytest.mark.asyncio
+async def test_the_refusal_window_comes_from_the_gate_read(client, db_client, monkeypatch):
+    """#394 fifth review M-2: the throttle keys on the window of the same
+    row read that refused the turn — one breaker read per refused turn."""
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    row = await _row(db_client)
+    admission = await cb.admit_turn(AGENT, db=db_client)
+    assert admission.window == f"{row.cb_status}|{row.cooldown_until}"
+
+    reads = []
+    real_get = AgentCircuitBreakerRepository.get
+
+    async def counting_get(self, agent_id):
+        reads.append(agent_id)
+        return await real_get(self, agent_id)
+
+    monkeypatch.setattr(AgentCircuitBreakerRepository, "get", counting_get)
+    trigger = _Trigger()
+    await _run_base(trigger, db_client, _msg(ChatType.GROUP))
+    assert reads == [AGENT]
+    assert len(trigger.sent) == 1
+
+
+@pytest.mark.asyncio
 async def test_a_private_chat_is_told_every_time(client, db_client):
     await _set(db_client, CbStatus.PAUSED, due=False)
     trigger = _Trigger()
@@ -235,7 +281,7 @@ async def test_a_private_chat_is_told_every_time(client, db_client):
     assert len(trigger.sent) == 2
 
 
-# ── silent memory batch: peek only ──────────────────────────────────────
+# ── silent memory batch: not gated, never claims ────────────────────────
 
 
 @pytest.mark.asyncio
@@ -243,37 +289,48 @@ async def test_the_silent_batch_never_claims_the_probe(client, db_client):
     trigger = _Trigger()
     trigger._db = db_client
     await _set(db_client, CbStatus.PAUSED, due=True)
-    await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
-    assert client["client"].calls == []
-    assert (await _row(db_client)).cb_status == CbStatus.PAUSED.value
-
-    await AgentCircuitBreakerRepository(db_client).upsert_state(AGENT, cb._CLEAN_STATE)
-    await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
+    assert await trigger._build_and_run_agent_silent_batch(
+        trigger._credential, [_msg()]
+    ) is None
     (call,) = client["client"].calls
     assert call["silent"] is True
     assert "probe_token" not in call
+    row = await _row(db_client)
+    assert row.cb_status == CbStatus.PAUSED.value and row.probe_token is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("status", "due", "runs"),
+    ("status", "due"),
     [
-        # Cooling is a transient backoff, the credential is fine, and the
-        # batch has no retry queue: skipping would lose the room from memory.
-        (CbStatus.COOLING, False, True),
-        (CbStatus.PAUSED, False, False),
-        (CbStatus.PROBING, False, False),
+        (CbStatus.COOLING, False),
+        (CbStatus.PAUSED, False),
+        (CbStatus.PROBING, False),
     ],
 )
-async def test_the_silent_batch_skips_only_a_held_credential(
-    client, db_client, status, due, runs
+async def test_the_silent_batch_runs_whatever_the_breaker_holds(
+    client, db_client, status, due
 ):
+    """#394 fifth review N-1: ``silent=True`` runs SilentAct — zero agent
+    LLM calls, so the held credential is never touched, and the batch has
+    no retry queue: skipping it would lose the room from memory for good."""
     trigger = _Trigger()
     trigger._db = db_client
     await _set(db_client, status, due=due)
     await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
-    assert len(client["client"].calls) == (1 if runs else 0)
+    assert len(client["client"].calls) == 1
     assert (await _row(db_client)).cb_status == status.value
+
+
+@pytest.mark.asyncio
+async def test_the_silent_batch_reports_a_pass_that_did_not_run(client, db_client):
+    """#394 fifth review N-2: the managed receipt must not claim "ingested"
+    for a pass that never ran."""
+    trigger = _Trigger()
+    trigger._db = db_client
+    client["client"] = _Client(db_client, raises=RuntimeError("boom"))
+    why = await trigger._build_and_run_agent_silent_batch(trigger._credential, [_msg()])
+    assert why == "runtime raised RuntimeError"
 
 
 # ── LarkTrigger overrides _build_and_run_agent wholesale ────────────────
@@ -335,10 +392,16 @@ async def test_lark_claims_an_open_window(client, db_client, monkeypatch):
 # ── NarraMessenger streaming path ───────────────────────────────────────
 
 
-async def _run_matrix(monkeypatch, db, *, chat_type=ChatType.PRIVATE, times=1):
+async def _run_matrix(
+    monkeypatch, db, *, chat_type=ChatType.PRIVATE, times=1, atomic=False
+):
     from narranexus_plugins.narramessenger_module.matrix_trigger import MatrixTrigger
 
     trigger = MatrixTrigger()
+    if atomic:
+        monkeypatch.setattr(trigger, "STREAMING_ENABLED", False)
+        # The agent's answer as this channel extracts it from the run.
+        monkeypatch.setattr(trigger, "resolve_agent_response", lambda *a: "the answer")
     trigger._db = db
     monkeypatch.setattr(trigger, "create_context_builder", lambda *a, **k: _LarkBuilder())
     monkeypatch.setattr(trigger, "_resolve_agent_owner", AsyncMock(return_value="owner"))
@@ -351,7 +414,13 @@ async def _run_matrix(monkeypatch, db, *, chat_type=ChatType.PRIVATE, times=1):
     )
     out = None
     for _ in range(times):
-        out = await trigger._build_and_run_agent_streaming(cred, msg, "U", attachments=None)
+        if atomic:
+            # The dispatcher: STREAMING_ENABLED=False routes to the atomic path.
+            out = await trigger._build_and_run_agent(cred, msg, "U", attachments=None)
+        else:
+            out = await trigger._build_and_run_agent_streaming(
+                cred, msg, "U", attachments=None
+            )
     return sends, out
 
 
@@ -371,6 +440,35 @@ async def test_matrix_group_refusal_is_sent_once_per_window(client, db_client, m
     assert client["client"].calls == []
     sends.assert_awaited_once()
     assert "paused" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_matrix_atomic_sends_a_refusal_once(client, db_client, monkeypatch):
+    """#394 fifth review N-3: the atomic path (streaming kill switch off)
+    must not re-send the refusal the base gate already delivered."""
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    sends, out = await _run_matrix(monkeypatch, db_client, atomic=True)
+    assert client["client"].calls == []
+    sends.assert_awaited_once()
+    assert sends.await_args.args[2] == out and "paused" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_matrix_atomic_group_refusal_is_throttled(client, db_client, monkeypatch):
+    await _set(db_client, CbStatus.PAUSED, due=False)
+    sends, _ = await _run_matrix(
+        monkeypatch, db_client, chat_type=ChatType.GROUP, times=3, atomic=True
+    )
+    sends.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_matrix_atomic_still_sends_the_agent_answer(client, db_client, monkeypatch):
+    sends, out = await _run_matrix(monkeypatch, db_client, atomic=True)
+    (call,) = client["client"].calls
+    assert call["probe_token"] is None
+    sends.assert_awaited_once()
+    assert sends.await_args.args[2] == out == "the answer"
 
 
 @pytest.mark.asyncio
