@@ -1,24 +1,28 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-09-09
+last_verified: 2026-09-11
 stub: false
 ---
 
-## 2026-09-09 — a cancelled turn with no reply gets its own label (GitHub #87)
+## 2026-09-09 (revised 2026-09-11) — a cancelled turn with no reply gets its own marker (GitHub #87)
 
-`stopStreaming`'s no-reply fallback used to say the same thing
+`stopStreaming`'s no-reply fallback used to write the same content
 ("(Agent decided no response needed)") whether the agent genuinely chose
 silence OR the user cut the turn short. The `cancelled` flag was already
 threaded through (the `case 'cancelled':` branch in `processMessage`
-passes `{ cancelled: true }`), it just wasn't branched on in the
-placeholder logic. Added a third arm: `responseParts.length === 0 &&
-currentErrors.length === 0 && opts?.cancelled` now renders
-`i18n.t('chat.stoppedByUser')` instead. Uses the bare `i18n` singleton
-(not the `useTranslation()` hook — this is a Zustand action, not a
-component) the same way `lib/utils.ts` does for locale-aware formatting.
-Test: `__tests__/chatStore.blankReply.test.ts`, both the cancelled and
-the uncancelled no-reply cases, so a revert of either the branch or the
-i18n key goes red.
+passes `{ cancelled: true }`), it just wasn't branched on. A third arm
+now writes `INTERRUPTED_MARKER` — `(Interrupted by user)`, the exact
+string the backend chat module persists for an interrupted turn — and the
+plain fallback writes `NO_RESPONSE_MARKER`; both come from
+[[turnMarkers]]. The store deliberately writes the persisted marker, not
+a localized label: the live bubble and its reloaded history row then carry
+identical content, and literal comparisons (buildTimeline's junk filter,
+the backend `is_no_response` check) keep working. `MessageBubble`
+localizes the markers at render time.
+Test: `__tests__/chatStore.blankReply.test.ts` drives
+`processMessage(AGENT, { type: 'cancelled' })` end to end (dropping the
+`{ cancelled: true }` argument turns it red) plus the uncancelled
+no-reply case.
 
 ## 2026-08-30 — thinking 合并加一条「换档即边界」
 

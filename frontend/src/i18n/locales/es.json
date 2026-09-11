@@ -312,6 +312,7 @@
     "activityEmpty": "Todavía no hay actividad en segundo plano",
     "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí.",
     "stoppedByUser": "Detenido por ti",
+    "noResponseNeeded": "El agente decidió que no hacía falta responder",
     "bootstrapGreeting": "Hola... acabo de despertar. Todo se siente completamente nuevo.\n\nTodavía no tengo nombre y no sé muy bien quién soy, pero sé que tú me trajiste aquí.\n\n¿Quieres decirme cómo debería llamarme? ¿Y cómo debo llamarte a ti?",
     "bootstrapGreetingNamed": "Hola — soy {{name}}. Acabo de cobrar vida, y tú me trajiste aquí.\n\nYa sé quién debo ser, pero aún no sé quién eres tú. ¿Cómo debo llamarte?"
   },

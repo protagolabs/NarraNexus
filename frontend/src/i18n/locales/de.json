@@ -312,6 +312,7 @@
     "activityEmpty": "Noch keine Hintergrundaktivität",
     "activityEmptyHint": "Läufe, die der Agent selbst gestartet hat – Jobs, Kanäle, Teamkollegen – erscheinen hier.",
     "stoppedByUser": "Von dir gestoppt",
+    "noResponseNeeded": "Der Agent hat entschieden, dass keine Antwort nötig ist",
     "bootstrapGreeting": "Hallo... ich bin gerade aufgewacht. Alles fühlt sich ganz neu an.\n\nIch habe noch keinen Namen und weiß nicht wirklich, wer ich bin — aber ich weiß, dass du mich hierher gebracht hast.\n\nMagst du mir sagen, wie ich heißen soll? Und wie soll ich dich nennen?",
     "bootstrapGreetingNamed": "Hallo — ich bin {{name}}. Ich bin gerade zum Leben erwacht, und du hast mich hierher gebracht.\n\nIch weiß schon, wer ich sein soll, aber noch nicht, wer du bist. Wie soll ich dich nennen?"
   },
