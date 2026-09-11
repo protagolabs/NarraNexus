@@ -2982,6 +2982,13 @@
         false
       ],
       [
+        "probe_token",
+        "TEXT",
+        "VARCHAR(64)",
+        true,
+        false
+      ],
+      [
         "created_at",
         "TEXT",
         "DATETIME(6)",
