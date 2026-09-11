@@ -7,8 +7,13 @@ Locks:
 - anthropic protocol -> litellm ``user`` = agent_id, which litellm's
   anthropic route puts on the wire as ``metadata.user_id``.
 - openai protocol -> ``prompt_cache_key`` = agent_id via ``extra_body``,
-  only to our own gateway / OpenAI; never to an arbitrary BYOK host
-  (extra_body bypasses drop_params, so a strict host would 400).
+  only to our own gateway / an explicit official OpenAI base_url; never
+  to an arbitrary BYOK host (extra_body bypasses drop_params, so a strict
+  host would 400), and never with an empty base_url (litellm then routes
+  by model prefix, destination unknown).
+- anthropic is deliberately NOT host-gated (metadata.user_id is part of
+  the Messages API itself).
+- an existing extra_body is merged, not replaced.
 - no real agent id -> nothing is added.
 - Wire: what the adapter emits really reaches the HTTP body through
   LitellmClient (a plain ``prompt_cache_key`` kwarg is silently dropped
@@ -24,6 +29,7 @@ import pytest
 
 from narranexus_plugins.frameworks_nexus_power.adapter.nexus_agent import (
     NexusAgent,
+    _merge_llm_extra,
     claude_config,
     codex_config,
 )
@@ -73,7 +79,7 @@ def test_openai_own_gateway_sends_prompt_cache_key(openai_slot):
 
 
 @pytest.mark.parametrize(
-    "base_url", ["", "https://api.openai.com/v1"]
+    "base_url", ["https://api.openai.com/v1", "https://api.openai.com/v1/"]
 )
 def test_openai_official_sends_prompt_cache_key(openai_slot, monkeypatch, base_url):
     monkeypatch.setattr(codex_config, "base_url", base_url)
@@ -86,6 +92,32 @@ def test_openai_byok_third_party_gets_nothing(openai_slot, monkeypatch):
     extra = _llm_extra(agent_id="agent_abc")
     assert "extra_body" not in extra
     assert "user" not in extra
+
+
+@pytest.mark.parametrize(
+    "model", ["gpt-5", "groq/llama-3.3-70b", "mistral/mistral-large"]
+)
+def test_openai_empty_base_url_is_fail_closed(openai_slot, monkeypatch, model):
+    # Empty base_url: _litellm_model passes the id to litellm's prefix
+    # routing, so the request may land on any vendor.
+    monkeypatch.setattr(codex_config, "base_url", "")
+    monkeypatch.setattr(codex_config, "model", model)
+    extra = _llm_extra(agent_id="agent_abc")
+    assert "extra_body" not in extra
+
+
+def test_anthropic_byok_still_sends_user(anthropic_slot, monkeypatch):
+    monkeypatch.setattr(claude_config, "base_url", "https://some-byok.example")
+    assert _llm_extra(agent_id="agent_abc")["user"] == "agent_abc"
+
+
+def test_existing_extra_body_is_merged():
+    llm_extra = {"extra_body": {"other": 1}, "reasoning_effort": "low"}
+    _merge_llm_extra(llm_extra, {"extra_body": {"prompt_cache_key": "a1"}})
+    assert llm_extra == {
+        "extra_body": {"other": 1, "prompt_cache_key": "a1"},
+        "reasoning_effort": "low",
+    }
 
 
 @pytest.mark.parametrize("agent_id", [None, "", "agent"])
@@ -121,8 +153,11 @@ def capture_server(monkeypatch):
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_port}", bodies
-    server.shutdown()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", bodies
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 async def _send(model: str, base_url: str, extra: dict) -> None:
@@ -147,6 +182,7 @@ async def test_wire_openai_body_carries_prompt_cache_key(
     extra = _llm_extra(agent_id="agent_abc")
     await _send("openai/deepseek-ai/DeepSeek-V4-Flash", url, extra)
     assert bodies and bodies[-1].get("prompt_cache_key") == "agent_abc"
+    assert "metadata" not in bodies[-1]
 
 
 @pytest.mark.asyncio
@@ -157,3 +193,5 @@ async def test_wire_anthropic_body_carries_metadata_user_id(
     extra = _llm_extra(agent_id="agent_abc")
     await _send("anthropic/deepseek-v4-flash", url, extra)
     assert bodies and bodies[-1].get("metadata") == {"user_id": "agent_abc"}
+    # Translated, not passed through: Anthropic rejects unknown top-level keys.
+    assert "user" not in bodies[-1]

@@ -35,7 +35,6 @@ import signal
 import sys
 import uuid
 from typing import Any, AsyncGenerator
-from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -43,6 +42,9 @@ from narranexus.platform.agent_framework.api_config import (
     _is_own_gateway_url,
     claude_config,
     codex_config,
+)
+from narranexus.platform.agent_framework.providers.model_catalog import (
+    is_official_provider,
 )
 from narranexus.platform.agent_framework.loop.cancellation_view import CancellationView
 from narranexus.platform.schema.turn_profile import TurnProfile
@@ -57,6 +59,8 @@ from narranexus.platform.utils.logging import timed
 _STREAM_LIMIT_BYTES = 32 * 1024 * 1024  # image-bearing lines reach 100s of KB
 _CANCEL_POLL_S = 0.2
 _STDERR_TAIL_BYTES = 4096
+# agent_id stand-in when the caller passes none; never a real identity.
+_PLACEHOLDER_AGENT_ID = "agent"
 
 
 def start_stderr_drain(process: asyncio.subprocess.Process) -> "asyncio.Task[bytes]":
@@ -361,8 +365,9 @@ class NexusAgent:
             _headers = dict(llm_extra.get("extra_headers") or {})
             _headers["X-NarraNexus-Identity-Token"] = _identity_token
             llm_extra["extra_headers"] = _headers
-        llm_extra.update(
-            _request_identity_params(protocol, base_url, kwargs.get("agent_id"))
+        _merge_llm_extra(
+            llm_extra,
+            _request_identity_params(protocol, base_url, kwargs.get("agent_id")),
         )
         # Per-turn fast-mode profile. Arrives as the in-process model or as
         # its model_dump() dict off the executor wire — normalize once here.
@@ -379,7 +384,7 @@ class NexusAgent:
             llm_extra["reasoning_effort"] = profile.reasoning_effort
         options: dict[str, Any] = {
             "cwd": self.working_path,
-            "agent_id": str(kwargs.get("agent_id") or "agent"),
+            "agent_id": str(kwargs.get("agent_id") or _PLACEHOLDER_AGENT_ID),
             "env": dict(extra_env or {}),
             # Collaborative areas (e.g. the team shared folder) sit outside
             # this agent's workspace by design; the caller decides which
@@ -641,9 +646,15 @@ def _resolve_provider() -> tuple[str, str, str, str, str]:
     return ("anthropic", "", "", "", "api_key")
 
 
-# Hosts known to accept OpenAI's ``prompt_cache_key``. An empty base_url is
-# litellm's default route, i.e. api.openai.com itself.
-_PROMPT_CACHE_KEY_HOSTS = ("api.openai.com",)
+def _merge_llm_extra(llm_extra: dict[str, Any], params: dict[str, Any]) -> None:
+    """Fold ``params`` into ``llm_extra``; dict-valued passthroughs
+    (``extra_body``) merge key-wise like ``extra_headers`` so another
+    producer's sub-keys survive."""
+    for key, value in params.items():
+        current = llm_extra.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            value = {**current, **value}
+        llm_extra[key] = value
 
 
 def _request_identity_params(
@@ -659,18 +670,23 @@ def _request_identity_params(
       litellm 1.94's ``acompletion`` has no such parameter and silently
       drops it as a plain kwarg (measured 2026-09-11). ``extra_body`` also
       bypasses ``drop_params``, so it goes only to hosts known to accept
-      it: our own gateway (NetMind upstream answers 200) and OpenAI.
-      Arbitrary OpenAI-compatible BYOK hosts may reject unknown fields.
+      it: our own gateway (NetMind upstream answers 200) and an explicit
+      official OpenAI base_url (``is_official_provider``). Arbitrary
+      OpenAI-compatible BYOK hosts may reject unknown fields.
+      An EMPTY base_url is fail-closed: model_client._litellm_model then
+      hands the model id to litellm's prefix routing (``groq/...``,
+      ``mistral/...``), so the destination is not knowable here.
 
-    No real agent id (the adapter's ``"agent"`` placeholder) → nothing.
+    No real agent id (missing or the placeholder) → nothing.
     """
     agent = str(agent_id or "")
-    if not agent or agent == "agent":
+    if not agent or agent == _PLACEHOLDER_AGENT_ID:
         return {}
     if protocol == "anthropic":
         return {"user": agent}
-    host = (urlparse(base_url).hostname or "") if base_url else "api.openai.com"
-    if _is_own_gateway_url(base_url) or host in _PROMPT_CACHE_KEY_HOSTS:
+    if base_url and (
+        _is_own_gateway_url(base_url) or is_official_provider("openai", base_url)
+    ):
         return {"extra_body": {"prompt_cache_key": agent}}
     return {}
 
