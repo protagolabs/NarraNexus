@@ -4,7 +4,7 @@ last_verified: 2026-09-10
 stub: false
 ---
 
-# useCircuitBannerAutoClear.ts — "agent paused" 熔断横幅的自愈轮询
+# useCircuitBannerAutoClear.ts — "paused" / "probing" 熔断横幅的自愈轮询
 
 ## Why it exists
 
@@ -20,7 +20,10 @@ stub: false
   不会卸载，登出没有别的路径清它）。
 - 挂上即查一次，再每 `CIRCUIT_BREAKER_POLL_INTERVAL_MS` 一次（同文件的过期检查 effect
   是同样的 `check(); setInterval(check)` 范式）。
-- 只轮询 `paused*` 原因；cooling 短暂、随下一次交互自然消失。
+- 轮询 `paused*` 与 `probing` 两类原因（PR #394 review I2）：`probing` 是另一个 turn 正持有
+  半开探测，结果几秒到几分钟后落定，除了轮询没有别的路径会关掉这条横幅；探测期间
+  `shouldClearCircuitBanner('probing')` 为假，横幅保持，出结果（active/cooling）即自关。
+  cooling 短暂、随下一次交互自然消失，不轮询。
 - 拉取失败保持横幅原样，下一 tick 重试——网络抖动不能误清一个真的还 paused 的横幅。
 
 判定本身在 `services/wsCircuitOpen.shouldClearCircuitBanner`（`active`/`cooling` 才清，
@@ -35,4 +38,4 @@ App.tsx 调用 `useCircuitBannerAutoClear(circuitOpen, setCircuitOpen, isLoggedI
 
 `hooks/__tests__/useCircuitBannerAutoClear.test.ts`（fake timers，mock 的是 `api`，不是
 判定函数）：立即查 + 30s 后 active 清横幅；同 agent+reason 的新对象不重置 interval；
-拉取失败不清、下 tick 重试；cooling 不轮询；登出清横幅且不再轮询；横幅消失即停。
+拉取失败不清、下 tick 重试；probing 横幅轮询且探测期间不清、active 后清；cooling 不轮询；登出清横幅且不再轮询；横幅消失即停。

@@ -1,7 +1,7 @@
 /**
  * @file_name: useCircuitBannerAutoClear.test.ts
- * @description: The "paused" circuit banner must re-check reality and close
- * itself once the breaker is no longer paused — and must not poll while
+ * @description: The "paused" and "probing" circuit banners must re-check
+ * reality and close themselves once the breaker no longer holds the agent — and must not poll while
  * logged out. Fake timers; the status API is mocked, the decision is not.
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
@@ -80,6 +80,21 @@ describe('useCircuitBannerAutoClear', () => {
     await vi.advanceTimersByTimeAsync(CIRCUIT_BREAKER_POLL_INTERVAL_MS * 2);
     expect(getAgentCircuitBreaker).not.toHaveBeenCalled();
     expect(setCircuitOpen).not.toHaveBeenCalled();
+  });
+
+  test('polls a probing banner: stays while the probe runs, closes once it resolves', async () => {
+    const setCircuitOpen = vi.fn();
+    getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'probing' });
+    renderHook(() =>
+      useCircuitBannerAutoClear({ agentId: 'ag_1', reason: 'probing' }, setCircuitOpen, true),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAgentCircuitBreaker).toHaveBeenCalledTimes(1);
+    expect(setCircuitOpen).not.toHaveBeenCalled();
+
+    getAgentCircuitBreaker.mockResolvedValue({ success: true, cb_status: 'active' });
+    await vi.advanceTimersByTimeAsync(CIRCUIT_BREAKER_POLL_INTERVAL_MS);
+    expect(setCircuitOpen).toHaveBeenCalledWith(null);
   });
 
   test('logged out: clears the banner and never polls the authenticated endpoint', async () => {

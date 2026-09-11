@@ -1,7 +1,7 @@
 /**
- * useCircuitBannerAutoClear — while the "agent paused" circuit-breaker banner
- * is up, re-check the agent's real breaker status on an interval and close
- * the banner once the backend no longer reports it paused (the half-open
+ * useCircuitBannerAutoClear — while a "paused" or "probing" circuit-breaker
+ * banner is up, re-check the agent's real breaker status on an interval and
+ * close the banner once the backend no longer reports it held (the half-open
  * probe succeeded, or the owner fixed the key from another tab/device).
  *
  * Extracted from App.tsx so the polling contract is testable with fake
@@ -40,7 +40,11 @@ export function useCircuitBannerAutoClear(
       setCircuitOpen(null);
       return;
     }
-    if (!reason.startsWith('paused')) return;
+    // Poll the reasons that outlive the next interaction: `paused*` and
+    // `probing` (another turn holds the half-open probe — its outcome lands
+    // seconds to minutes later and nothing else would ever close this banner).
+    // `cooling` is short and clears on the next turn by itself.
+    if (!reason.startsWith('paused') && reason !== 'probing') return;
     let cancelled = false;
     const pollStatus = async () => {
       try {
