@@ -361,6 +361,7 @@ async def test_fetch_attachments_audits_oversized_before_download(
     # Force backend cap to a tiny value so size_hint trivially exceeds it.
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = trigger.parse_event(_msg(
         text="",
