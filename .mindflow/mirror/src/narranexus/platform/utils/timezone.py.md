@@ -19,6 +19,8 @@ repr"。现在进 try 之前先判 `isinstance(dt, (datetime, str))`，不是就
 **没动的**：`None → None`；SQLite 字符串分支「解析失败原样返回」是设计（见 Gotchas）；
 输出格式定宽不变（`backend/routes/auth.py` 依赖它可排序）。测试
 `tests/utils/test_timezone_format_for_api.py`。
+**调用方契约**（复审 PR#393 M6）：DATETIME 列经 repository 读出只会是 `datetime`（SQLite 路径）或
+`str`（MySQL 路径）；新增调用点传 `datetime.date`、int 等别的类型就是 bug，会以 `TypeError` → 500 暴露。
 
 ## 2026-08-19（PR#327 审后）— 抽出共享的 `coerce_utc` / `to_datetime6_literal`
 

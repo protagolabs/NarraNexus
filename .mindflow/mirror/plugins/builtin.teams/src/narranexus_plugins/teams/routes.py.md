@@ -26,6 +26,9 @@ bus 写入边（[[local_bus]]）对超过 `MAX_BUS_MESSAGE_BYTES` 的行抛 `Val
 `undefined !== 'auto_summary'` 为 true——条目**一条不丢**，全部进 `renderEntry`，
 渲染出 N 行 `content`/`entry_id` 都是 undefined 的空白行、React key 全 undefined。
 不是"面板永远为空"（第一版 mirror / docstring / 测试注释都写错了，同批改正）。
+`_bulletin_entry_for_api` 按类型转换但**只转顶层**（复审 PR#393 M8，docstring 已写明）：`BulletinEntry`
+今天是扁平的；将来加嵌套子模型或 `list[datetime]` 字段时要在 helper 里显式转换，否则 FastAPI
+会把它们序列化成不带 `Z` 的 ISO。
 
 修法是 `_bulletin_entry_for_api(entry: BulletinEntry) -> dict[str, Any]`：`model_dump()`
 后遍历所有值，凡 `isinstance(value, datetime)` 的都过 `format_for_api`，**按类型不按字段名**

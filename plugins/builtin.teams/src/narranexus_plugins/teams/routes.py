@@ -1074,6 +1074,10 @@ def _bulletin_entry_for_api(entry: BulletinEntry) -> dict[str, Any]:
     a future datetime field on the model would otherwise bypass this and
     be serialised by FastAPI without the `Z` suffix the frontend's
     `new Date()` relies on.
+
+    Top level only: `BulletinEntry` is flat today. A future nested model or
+    `list[datetime]` field would be serialised by FastAPI without the `Z`
+    suffix -- convert it here explicitly when such a field is added.
     """
     return {
         key: format_for_api(value) if isinstance(value, datetime) else value

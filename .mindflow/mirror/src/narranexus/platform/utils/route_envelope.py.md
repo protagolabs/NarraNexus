@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/utils/route_envelope.py
-last_verified: 2026-09-09
+last_verified: 2026-09-10
 stub: false
 ---
 # route_envelope.py — 「信封契约」路由的唯一外层兜底
@@ -47,3 +47,12 @@ FastAPI 0.122 的 `get_typed_signature` 用**端点函数自己的 `__globals__`
   `plugins/builtin.channels.lark/.../routes.py`（auth/login、auth/complete、auth/status）。
 - 测试：`tests/backend/test_channel_generic_routes.py`（每个动词的 crash 信封、503 穿透、
   webhook 不套）、`tests/lark_module/test_auth_error_handling.py`。
+
+## 为什么不经 `narranexus.sdk.web` 再导出（复审 PR#393 M4，决定保持现状）
+
+装饰器的定位是 plugin router 用的东西，而仓外 plugin 的宿主 seam 是 `narranexus.sdk.web`；
+lark 内置 plugin 现在直接 import `narranexus.platform.utils.route_envelope`（内置 plugin 本就大量
+直接 import `narranexus.platform.*`）。没有搬进 SDK，因为它依赖 `fastapi` + `loguru`，而 SDK wheel
+目前只依赖 `narranexus-contracts`——为一个装饰器给 contracts-only 的 wheel 加 fastapi 依赖不划算。
+仓外 plugin 若需要同样的兜底，将来再导出时注意：`_resolved_signature` 必须继续在**被装饰函数
+自己的模块**里解析注解，`test_over_http_a_503_is_a_503_and_a_crash_is_a_200_envelope` 是唯一钉住它的测试。
