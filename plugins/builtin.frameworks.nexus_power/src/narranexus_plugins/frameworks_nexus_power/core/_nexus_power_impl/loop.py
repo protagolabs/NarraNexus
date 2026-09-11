@@ -649,6 +649,18 @@ class NexusPowerLoop:
                     "error_type": error.error_type.value,
                     "message": error.message,
                     "retryable": error.retryable,
+                    # ``fatal`` = "this turn is terminal AND delivered
+                    # nothing". `_fail` always ends the turn, but it also
+                    # fires after retries are exhausted on a mid-turn
+                    # 429/5xx or an uncompactable CONTEXT_OVERFLOW, either
+                    # of which can land AFTER the agent already answered
+                    # via an expressive tool call. `_turn_expressed` is
+                    # this loop's own record of that (DISPATCH sets it
+                    # before any of this can run). A turn that already
+                    # delivered reports False, so response_processor
+                    # files it as recovered_after_reply instead of
+                    # erasing the reply with a fatal.
+                    "fatal": not self._turn_expressed,
                 },
             )
         )

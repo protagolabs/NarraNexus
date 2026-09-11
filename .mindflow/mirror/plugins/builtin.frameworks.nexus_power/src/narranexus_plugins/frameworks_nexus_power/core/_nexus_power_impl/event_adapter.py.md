@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/event_adapter.py
-last_verified: 2026-09-03
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（B-05/#127）— TYPE_ERROR 翻译透传框架自报的 `fatal`
+
+`response.error` 的 data 带 `"fatal": bool(payload.get("fatal", True))`，原样透传 loop.py `_fail()`
+算出的值（`not self._turn_expressed`，见 [[loop]] 同日条目），本文件不做判断。契约
+（[[response_processor]]）：`fatal` = 本 turn 终局 **且** 未交付任何输出，不是单纯「turn 结束了」。
+本框架的 `_fail` 后必定 `_close(EndReason.ERROR)`、不存在 claude/codex 那种「loop 吸收后继续跑」
+的形状，这是 `fatal` 键对本框架有意义的原因；但终局不等于没交付——已答过话后才撞上的
+429/5xx 耗尽或无可压缩 overflow 报 `False`。缺省 `True` 只是防御：`_fail` 今天总是显式设这个键。
+
+不带这个标记的后果：B-03 截断重试耗尽后的真失败，run 落 `state=completed` + 空回复 + 无 fatal 标记。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

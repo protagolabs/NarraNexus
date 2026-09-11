@@ -13,6 +13,29 @@ stub: false
 （`_raw_exception_error`，config_actionable → True、infra_transient → None），两处口径一致。
 分类口径在契约包，本文件只搬运。
 
+## 2026-09-10（B-05/#127）— `response.error` 的 `fatal`：框架自报「终局且未交付」
+
+在既有 auth / self-serviceable 两条判定之后、最终 `recoverable` 兜底之前，新插两层，读同一个框架
+自报的 `data.get("fatal")`。**契约**：`fatal` = 本 turn 终局失败 **且** 本 turn 未交付任何输出，
+不是单纯「turn 结束了」。
+
+- `fatal is True`（或任何 truthy）→ `severity="fatal"`，`error_type` 原样透传（这一层不判「为什么
+  失败」，只判「turn 死了且没交付」）。
+- `fatal is False`（**显式**上报）→ `severity="recovered_after_reply"`：turn 同样终局，但失败落地前
+  agent 已经交付过回复。复用 run_collector 的既有四值词汇——`recoverable` 的定义是「loop 吸收后
+  继续跑」，这里 loop 没有继续；`recovered_after_reply` 在 `VERDICT_ON_FATAL_SEVERITIES` 里，
+  sticky-fatal 规则不会把它升回 `fatal`（落进 `recoverable` 会被升回，用户已看到的回复被换成失败通知）。
+- 不带这个键（claude_code 的内联错误、codex 的独立 `error` 通知等）→ 两层都不命中，历史
+  `recoverable` 默认行为零变化。
+
+谁填这个值：nexus_power 的 [[event_adapter]] 透传 loop.py `_fail` 的 `not self._turn_expressed`；
+codex 的 [[official_sdk]] 按 `turn_had_message` 覆写 [[output_transfer]] 的保守默认 `True`。
+claude_code 的 auth / self-serviceable 分支仍无条件 `fatal`，不看是否已交付（未在本次统一）。
+
+背景：`recoverable` 桶对真正终局的 NexusPower 失败不成立，旧行为让 turn 落 `state=completed` +
+空回复 + 无 fatal 痕迹（GitHub #127）。
+测试：`tests/agent_runtime/test_response_processor_fatal_flag.py`。
+
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 
 `agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的

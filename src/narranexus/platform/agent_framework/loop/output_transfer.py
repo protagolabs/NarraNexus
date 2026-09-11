@@ -972,6 +972,17 @@ def _codex_official_to_openai_agents(
                     "type": DATA_TYPE_ERROR,
                     "error_message": str(err_msg or "turn failed"),
                     "error_type": err_type or "turn.failed",
+                    # The SDK's own terminal verdict: turn/completed is a
+                    # ONE-SHOT lifecycle notification, so there is no
+                    # further streaming for this turn after it (unlike the
+                    # standalone ``error`` notification below, which can
+                    # precede a retry). ``fatal`` means "terminal AND
+                    # nothing was delivered this turn"; this translator
+                    # sees one notification at a time and cannot know
+                    # whether text already streamed, so ``True`` is only
+                    # the conservative default. official_sdk.py tracks
+                    # the turn's delivery and overrides it (B-05/#127).
+                    "fatal": True,
                 },
             }]
         # Healthy completion — emit response.done with usage.

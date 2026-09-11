@@ -4,6 +4,20 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（B-05/#127）— `_fail` 自报 `fatal = not self._turn_expressed`
+
+`_fail()` 的 TYPE_ERROR payload 新增 `"fatal"`。契约（[[response_processor]] 同日条目）：
+`fatal` 由**框架自报**，含义 = 本 turn 终局失败 **且** 本 turn 未交付任何输出，不是单纯
+「turn 结束了」。本框架的 `_fail` 之后必定 `_close(EndReason.ERROR)`，不存在 claude/codex
+那种「loop 吸收后继续跑」的形状——这是 `fatal` 键对本框架成立的理由；但 `_fail` 不止服务
+输出截断，也是重试耗尽的 429/5xx、无可压缩 CONTEXT_OVERFLOW 的唯一失败出口，这些都可能
+发生在 agent 已经用表达工具答过话之后。所以值取 `not self._turn_expressed`（DISPATCH 已在
+维护的「本轮见过表达型调用没有」）：已交付 → `False` → 下游判 `recovered_after_reply`，
+不抹掉已发出的回复；未交付 → `True` → `fatal`。[[event_adapter]] 原样透传。
+
+测试：`test_fail_after_an_already_expressed_reply_is_not_marked_fatal` +
+`test_fail_with_no_prior_expression_is_marked_fatal`（正负例）。
+
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 不再被 STOP_CHECK 误判成 NO_MORE_ACTIONS
 
 **问题形状**：MODEL_STREAM 成功返回，但这个 step 零文本、零工具调用，`stop_reason`

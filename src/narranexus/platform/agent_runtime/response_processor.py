@@ -529,6 +529,55 @@ class ResponseProcessor:
                     state_update={"method": "increment_response", "args": {}}
                 )
 
+            # A framework can report a ``fatal`` boolean on its OWN error
+            # event's raw payload. The contract is "this turn is terminal
+            # AND the turn delivered no usable output" — NOT merely "this
+            # turn ended". NexusPower's event_adapter passes this through
+            # verbatim from loop.py's own judgment (``not
+            # self._turn_expressed``), because that loop's ``_fail``
+            # always closes the turn with EndReason.ERROR immediately
+            # after — there is no "absorbed mid-loop, kept going" shape
+            # for this framework the way there is for claude/codex's
+            # inline API errors. Without this branch existing at all, a
+            # genuinely terminal NexusPower failure (e.g. B-03's
+            # output-budget truncation after the retry is exhausted) fell
+            # into the "recoverable" bucket below, and the turn finished
+            # as state=completed with an empty reply and no fatal marker
+            # for anything downstream to notice (B-05/#127).
+            #
+            # ``fatal is False`` (explicitly reported, not merely absent)
+            # means the loop already delivered a reply via an expressive
+            # tool call before this failure landed — that's
+            # "recovered_after_reply", not the generic "recoverable"
+            # default below (which is for errors no framework has
+            # classified at all, e.g. claude/codex's inline API errors).
+            if data.get("fatal") is False:
+                logger.error(
+                    f"[AGENT-LOOP-RECOVERED-AFTER-REPLY] API error "
+                    f"({error_type}): {error_message}"
+                )
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=error_message,
+                        error_type=error_type,
+                        severity="recovered_after_reply",
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
+            if data.get("fatal"):
+                logger.error(f"[AGENT-LOOP-FATAL] API error ({error_type}): {error_message}")
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=error_message,
+                        error_type=error_type,
+                        severity="fatal",
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
             logger.error(f"[AGENT-LOOP-RECOVERABLE] API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,

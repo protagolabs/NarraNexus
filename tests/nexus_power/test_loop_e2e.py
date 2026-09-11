@@ -1113,3 +1113,48 @@ async def test_replayed_step_after_truncation_does_not_concatenate_reasoning():
         m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")
     )
     assert assistant_with_call["reasoning_content"] == "real-cot"
+
+
+@pytest.mark.asyncio
+async def test_fail_after_an_already_expressed_reply_is_not_marked_fatal():
+    """``_fail`` also fires for unrecoverable provider errors that
+    have nothing to do with output-budget truncation (retry-exhausted
+    429/5xx, an uncompactable CONTEXT_OVERFLOW) — and those can land
+    AFTER the agent already delivered a real answer via an expressive
+    tool call. ``fatal`` must reflect that: a turn that already produced
+    output must never be classified the same way as a turn that produced
+    nothing, or chat_module/message_bus would erase or paper over an
+    already-delivered reply (the exact "one provider wobble cost the
+    sender their answer" defect run_collector.py's docstring documents
+    fixing, reintroduced at the framework level if this regresses)."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "here is your answer"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_fail_with_no_prior_expression_is_marked_fatal():
+    """Negative case: a turn that never produced ANY expressive
+    output before an unrecoverable error must still be fatal — the fix
+    narrows fatal to "no output delivered", it does not disable it."""
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                       profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True

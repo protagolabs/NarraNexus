@@ -183,6 +183,33 @@ class LegacyEventAdapter:
                         "type": DATA_TYPE_ERROR,
                         "error_message": str(payload.get("message", "")),
                         "error_type": error_type,
+                        # Every TYPE_ERROR this framework emits comes from
+                        # loop.py's ``_fail``, which unconditionally closes
+                        # the turn with EndReason.ERROR right after — unlike
+                        # claude/codex's inline API errors, there is no
+                        # "absorbed mid-stream, loop kept going" shape here.
+                        # But "the turn is ending" is a weaker claim than
+                        # "nothing was delivered this turn": this is where
+                        # the ``fatal`` contract matters. ``fatal`` means
+                        # "this turn is terminal AND the turn produced no
+                        # usable output" — not merely "this turn ended".
+                        # response_processor honours the flag to classify
+                        # the failure as severity="fatal" instead of the
+                        # generic "recoverable" default (B-05/#127: without
+                        # it a terminal NexusPower error left the run
+                        # state=completed with an empty reply and no fatal
+                        # marker). The VALUE below is loop.py's own
+                        # framework-side judgment of whether the turn
+                        # already delivered output before this failure
+                        # (``not self._turn_expressed``): a 429/5xx retry
+                        # exhaustion or an uncompactable CONTEXT_OVERFLOW
+                        # can land AFTER the agent already replied via an
+                        # expressive tool call, and that reply must not be
+                        # erased by a blanket fatal. Passed through
+                        # verbatim here, never hardcoded — ``_fail`` always
+                        # sets this key today, so the ``True`` default below
+                        # is only a defensive fallback if that ever changes.
+                        "fatal": bool(payload.get("fatal", True)),
                     },
                 }
             ]

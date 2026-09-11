@@ -4,6 +4,10 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10（B-05/#127）— `_fail` 的 `fatal` 正负例
+
+已通过表达工具答过话后再 `_fail` → payload `fatal is False`；本轮从未表达过 → `fatal is True`。
+
 ## 2026-09-10（B-03）— 空产出 + `max_tokens` 的截断重试
 
 零文本零工具调用 + `stop_reason=max_tokens`：翻倍地板乘数重放一次成功 → NO_MORE_ACTIONS 无
