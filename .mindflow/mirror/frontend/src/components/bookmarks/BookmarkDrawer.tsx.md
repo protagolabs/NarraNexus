@@ -1,8 +1,37 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 标题下拉切换器恢复,且为 Owner 硬性要求(推翻 #383 的退役)
+
+**不许再删。** Owner 决定:右侧抽屉(单聊与团队房间共用)的标题(左上角,如 "ARTIFACTS")
+必须是面板切换器——点标题弹出下拉,按分类列出全部面板,选中即切换。理由:**钉住的抽屉是
+一个独立窗口**,必须能自己换内容,不必回聊天头部 / member bar 找按钮。#383 以「面板切换
+属于打开抽屉的入口,不该在标题后面再藏一份注册表」为由删掉了它,Owner 推翻这个判断——它
+不是「冗余入口」,两条入口并存(聊天头部图标 + ⋯ 菜单 / member bar toggle 照旧)。
+
+恢复内容(按当前代码重做,不是盲目 revert):
+- 导出类型 `DrawerSwitcherTab<T>` / `DrawerSwitcherCategory<T>`;`DrawerSwitcherTab` 新增可选
+  `label` 作 i18n 缺失时的回退(插件面板的 labelKey 可能没翻译),渲染用
+  `t(labelKey, { defaultValue: label ?? labelKey })`。
+- `activeTab / onSelectTab / switcherCategories` 三者判别联合(all-or-nothing,漏传即编译错);
+  组件与 `DrawerHeader` 恢复泛型 `<T extends string>`。不传则标题仍是纯文本。
+- 标题按钮:`aria-haspopup="menu"` + `aria-expanded` + aria-label/title
+  `bookmarks.drawer.switchPanel`;ChevronDown 展开时旋转。
+- 下拉:`role="menu"`,每个分类一个 `role="group"`(分类名做组标签),条目是
+  `role="menuitemradio"` + `aria-checked`(当前面板打勾)+ `data-testid=drawer-switcher-item-<id>`;
+  `count > 0` 才渲染活计数;点当前面板只关菜单不回调;外部 pointerdown / Esc 经
+  [[../../hooks/useDismissOnOutside]] 关闭。
+- 文件头里「标题是纯文本」那段说明已替换为本条要求。
+
+调用方:[[../layout/MainLayout.tsx]](`visibleCategories({studioOpen, studioResumable})`,见
+[[tabs]])与 [[../chat/team/TeamChatPanel.tsx]](`teamDrawerCategories(counts)`,含 files 与
+manage)。测试:`__tests__/drawerPanelSwitcher.test.tsx`、
+`layout/__tests__/chatViewDrawerSwitcher.test.tsx`、`TeamChatPanel.roster.test.tsx`。
+
+下方 2026-09-03 条(「整体退役」)已被本条作废,仅留作历史。
 
 ## 2026-09-03 — 标题下拉切换器整体退役(Owner)
 

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-04
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 抽屉重新接上标题切换器(Owner 要求)
+
+`<BookmarkDrawer>` 传 `activeTab={drawerTab}` / `onSelectTab={setDrawerTab}` /
+`switcherCategories={visibleCategories({ studioOpen, studioResumable })}`,studio 两个标志取自
+`useStudioLifecycle` 的返回值。每次渲染现算、不 memo:`PANELS` 可能在挂载后才注册插件面板,
+派生只是十来项的排序。钉住的抽屉是独立窗口,必须能从标题自己切面板,见
+[[../bookmarks/BookmarkDrawer]] 同日条。下方 09-04「抽屉不再有切换器」条已作废。
+测试:`__tests__/chatViewDrawerSwitcher.test.tsx`(去掉这三个 prop 即红)。
 
 ## 2026-09-04 (合并 dev #383 后) — 抽屉不再有切换器，`switcherCategories` 随之删除
 

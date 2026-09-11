@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/bookmarks/index.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 再导出 `visibleCategories`
+
+供 [[../layout/MainLayout.tsx]] 给抽屉标题切换器取分组清单(见 [[tabs]] 同日条)。
 
 ## 2026-09-07 — barrel 只再导出 `BuiltinTabId` 类型
 

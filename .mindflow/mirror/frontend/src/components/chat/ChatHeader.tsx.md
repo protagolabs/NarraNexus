@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 注释跟随:抽屉标题切换器恢复
+
+`DETAIL_GROUP_A` 上方注释不再说「抽屉切换器已退役、⋯ 是唯一回路」:抽屉关着时 ⋯ 菜单是回到
+被收起 studio 的桌面入口,抽屉开着时标题切换器(`visibleCategories`)也提供它。行为不变。
 
 ## 2026-09-07（批 1 三轮复审移植）— `DETAIL_GROUP_A: BuiltinTabId[]`
 

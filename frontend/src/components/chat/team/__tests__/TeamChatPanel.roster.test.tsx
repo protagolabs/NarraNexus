@@ -384,8 +384,7 @@ describe('TeamChatPanel · drawer defaults and switching', () => {
 
   test('the drawer switches panels: members → artifacts via the member-bar toggle', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
-    // The drawer title is plain text — every panel is opened by its own
-    // toggle in the member bar, so that is the only switching path.
+    // Member-bar path; the title-switcher path is covered below.
     fireEvent.click(screen.getByTestId('artifacts-toggle'));
     // The members rows are gone; the artifacts panel's empty state shows.
     expect(screen.queryByTestId('roster-row-a1')).toBeNull();
@@ -395,13 +394,33 @@ describe('TeamChatPanel · drawer defaults and switching', () => {
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
   });
 
-  test('shared files have their own entry — the only way into that panel', async () => {
-    // Regression guard: files used to be reachable ONLY through the retired
-    // title dropdown, so dropping the dropdown without this toggle would
-    // orphan the panel entirely.
+  test('shared files have their own member-bar entry (beside the title switcher)', async () => {
+    // Both entry points coexist: the drawer title switcher AND this toggle.
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
     fireEvent.click(screen.getByTestId('files-toggle'));
     expect(screen.queryByTestId('roster-row-a1')).toBeNull();
     expect(screen.getByText('chat.team.workspace.filesHint')).toBeTruthy();
+  });
+  test('the drawer title switcher reaches every team panel, incl. files and manage', async () => {
+    // Owner-required: a pinned drawer switches its own content from its
+    // title, without a trip back to the member bar.
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    const ids = screen
+      .getAllByRole('menuitemradio')
+      .map((el) => el.getAttribute('data-testid'));
+    expect(ids).toEqual([
+      'drawer-switcher-item-members',
+      'drawer-switcher-item-artifacts',
+      'drawer-switcher-item-files',
+      'drawer-switcher-item-manage',
+    ]);
+    fireEvent.click(screen.getByTestId('drawer-switcher-item-files'));
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+    expect(screen.getByText('chat.team.workspace.filesHint')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    fireEvent.click(screen.getByTestId('drawer-switcher-item-members'));
+    expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
   });
 });

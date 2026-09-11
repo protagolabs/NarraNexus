@@ -217,7 +217,8 @@
         "patrolOff": "Aus",
         "editProfile": "Profil bearbeiten (Name / Farbe / Intro)",
         "clearData": "Daten leeren…"
-      }
+      },
+      "drawerCategory": "Team-Raum"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -1083,7 +1084,8 @@
     "drawer": {
       "unpin": "Panel lösen",
       "pin": "Panel anheften",
-      "close": "Panel schließen"
+      "close": "Panel schließen",
+      "switchPanel": "Panel wechseln"
     },
     "coach": {
       "title": "Deine Artefakte erscheinen hier",

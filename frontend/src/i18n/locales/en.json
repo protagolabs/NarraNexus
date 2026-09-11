@@ -269,7 +269,8 @@
         "patrolOff": "Turn off",
         "editProfile": "Edit profile (name / colour / intro)",
         "clearData": "Clear team data…"
-      }
+      },
+      "drawerCategory": "Team room"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -1416,7 +1417,8 @@
     "drawer": {
       "unpin": "Unpin panel",
       "pin": "Pin panel",
-      "close": "Close panel"
+      "close": "Close panel",
+      "switchPanel": "Switch panel"
     },
     "coach": {
       "title": "Your artifacts live here",

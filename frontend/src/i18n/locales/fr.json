@@ -217,7 +217,8 @@
         "patrolOff": "Désactiver",
         "editProfile": "Modifier le profil (nom / couleur / intro)",
         "clearData": "Effacer les données…"
-      }
+      },
+      "drawerCategory": "Salle d'équipe"
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -1083,7 +1084,8 @@
     "drawer": {
       "unpin": "Désépingler le panneau",
       "pin": "Épingler le panneau",
-      "close": "Fermer le panneau"
+      "close": "Fermer le panneau",
+      "switchPanel": "Changer de panneau"
     },
     "coach": {
       "title": "Vos artefacts apparaissent ici",

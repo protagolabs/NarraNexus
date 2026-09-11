@@ -217,7 +217,8 @@
         "patrolOff": "끄기",
         "editProfile": "프로필 편집(이름 / 색상 / 소개)",
         "clearData": "데이터 지우기…"
-      }
+      },
+      "drawerCategory": "팀 룸"
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -1082,7 +1083,8 @@
     "drawer": {
       "unpin": "패널 고정 해제",
       "pin": "패널 고정",
-      "close": "패널 닫기"
+      "close": "패널 닫기",
+      "switchPanel": "패널 전환"
     },
     "coach": {
       "title": "아티팩트가 여기에 표시됩니다",

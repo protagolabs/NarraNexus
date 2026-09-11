@@ -39,6 +39,7 @@ import {
   BookmarkPanelHost,
   tabLabelKey,
   tabDescKey,
+  visibleCategories,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -116,9 +117,12 @@ export function ChatView() {
   // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
   // not at each way the drawer can close. Which entries OFFER its tab is the
   // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
-  // the chat header's ⋯ menu and the ⌘K palette; the drawer itself has no
-  // switcher any more, so nothing here filters a tab list.
-  useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // the chat header's ⋯ menu, the ⌘K palette and the drawer's title switcher
+  // below (via visibleCategories, the same rule grouped by category).
+  const { studioOpen, studioResumable } = useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // Computed per render, not memoized: PANELS can gain plugin panels after
+  // mount, and the derivation is a sort over ~a dozen entries.
+  const switcherCategories = visibleCategories({ studioOpen, studioResumable });
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -233,6 +237,11 @@ export function ChatView() {
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={effectiveDrawerWidth}
+          // Title switcher (Owner-required): a pinned drawer switches its own
+          // content without a trip back to the chat header.
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          switcherCategories={switcherCategories}
           banner={
             showDrawerCoach ? (
               <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />

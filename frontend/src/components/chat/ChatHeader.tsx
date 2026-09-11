@@ -59,9 +59,10 @@ import { useWhenContext } from '@/platform/whenContext';
  *  rendered as a CONDITIONAL first item via `builderOffered`, i.e.
  *  `visibleTabs(ctx)` — the ONE place the `conditional` rule is applied,
  *  shared with the ⌘K palette. A permanent entry would offer a panel the
- *  conversation does not drive; but once the drawer's tab switcher retired,
- *  this menu is the desktop's only way back into a studio the user
- *  collapsed — without it, "collapse" would silently mean "end". */
+ *  conversation does not drive; but with the drawer closed this menu is
+ *  the desktop's way back into a studio the user collapsed (the drawer's
+ *  title switcher offers it too, via `visibleCategories`, while a drawer is
+ *  open) — without it, "collapse" would silently mean "end". */
 const DETAIL_GROUP_A: BuiltinTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 function tabDef(id: AtomicTabId) {

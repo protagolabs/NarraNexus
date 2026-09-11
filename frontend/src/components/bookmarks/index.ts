@@ -13,6 +13,6 @@ export { BookmarkDrawer } from './BookmarkDrawer';
 
 export { BookmarkPanelHost } from './BookmarkPanelHost';
 
-export { stripCategories, allTabs, builtinTabIds, visibleTabs, ArtifactsGlyph, tabLabel, tabLabelKey, tabDescKey, deriveTabStatus, markTabOpened } from './tabs';
+export { stripCategories, allTabs, builtinTabIds, visibleTabs, visibleCategories, ArtifactsGlyph, tabLabel, tabLabelKey, tabDescKey, deriveTabStatus, markTabOpened } from './tabs';
 export type { AtomicTabId, AtomicTabDef, StripCategory, TabStatus, TabVisibilityContext } from './tabs';
 export type { BuiltinTabId } from './builtinTabIds';
