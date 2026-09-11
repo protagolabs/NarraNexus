@@ -27,6 +27,12 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+#: What an unpaired UTF-16 surrogate decodes to — mirrors
+#: ``scrub_surrogates`` so streamed text still equals the scrubbed final.
+_REPLACEMENT = "\ufffd"
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
 
 def scrub_surrogates(text: str) -> str:
     """Make ``text`` strictly UTF-8 encodable: join adjacent surrogate
@@ -44,13 +50,49 @@ def scrub_surrogates(text: str) -> str:
 def scrub_json_strings(value: Any) -> Any:
     """``scrub_surrogates`` applied to every string (keys included) of a
     decoded JSON value; other values pass through untouched."""
+    # Unchanged subtrees are returned as the SAME object (relies on
+    # scrub_surrogates returning its input unchanged when it is clean), so
+    # the common no-surrogate case never copies the argument tree.
     if isinstance(value, str):
         return scrub_surrogates(value)
     if isinstance(value, dict):
-        return {scrub_json_strings(k): scrub_json_strings(v) for k, v in value.items()}
+        items = [(scrub_json_strings(k), scrub_json_strings(v)) for k, v in value.items()]
+        if all(nk is k and nv is v for (nk, nv), (k, v) in zip(items, value.items())):
+            return value
+        return dict(items)
     if isinstance(value, list):
-        return [scrub_json_strings(v) for v in value]
+        scrubbed = [scrub_json_strings(v) for v in value]
+        if all(n is o for n, o in zip(scrubbed, value)):
+            return value
+        return scrubbed
     return value
+
+
+class SurrogateJoiner:
+    """Joins a UTF-16 surrogate pair split across two stream chunks.
+
+    Providers that slice text by UTF-16 code unit can end one chunk on a
+    high surrogate and start the next on its low half; each chunk decodes
+    to a lone surrogate. Scrubbing chunks independently would turn a valid
+    emoji into two U+FFFD, so a trailing high half is held back and
+    prepended to the next chunk; ``flush`` at stream end surfaces a
+    never-completed half as U+FFFD.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+
+    def feed(self, text: str) -> str:
+        text = self._pending + text
+        self._pending = ""
+        if text and "\ud800" <= text[-1] <= "\udbff":
+            self._pending = text[-1]
+            text = text[:-1]
+        return scrub_surrogates(text)
+
+    def flush(self) -> str:
+        pending, self._pending = self._pending, ""
+        return _REPLACEMENT if pending else ""
 
 
 @dataclass(frozen=True)
@@ -61,12 +103,6 @@ class FieldDelta:
     field_path: str
     text: str
 
-
-#: What an unpaired UTF-16 surrogate decodes to — mirrors
-#: ``scrub_surrogates`` so streamed text still equals the scrubbed final.
-_REPLACEMENT = "\ufffd"
-
-_SURROGATE = re.compile("[\ud800-\udfff]")
 
 _ESCAPES = {
     '"': '"',
@@ -107,7 +143,7 @@ class StreamingArgExtractor:
         # Providers that ASCII-escape tool arguments (MiniMax) send every
         # astral char (emoji) as ``\ud83d\udc4b``; decoding each escape
         # alone yields lone surrogates that crash any strict UTF-8 encode
-        # downstream (event log, stdout pipe, Matrix send).
+        # downstream (event log, stdout pipe, NarraMessenger send).
         self._pending_high: int | None = None
         self._expect_key = False
 

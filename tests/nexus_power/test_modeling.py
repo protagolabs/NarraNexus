@@ -859,3 +859,75 @@ def test_projector_replays_reasoning_only_for_keep_profiles():
     assert stripped[2] == {"role": "tool", "tool_call_id": "c1", "content": "ok"}
     # Stripping is a projection, never a mutation of the ledger.
     assert ledger.provider_messages()[0]["reasoning_content"] == "plan"
+
+
+# -- surrogate halves split across stream chunks (prod 2026-09-11) --------
+# A provider slicing by UTF-16 code unit ends one chunk on a high surrogate
+# and starts the next on its low half; each chunk then decodes to a lone
+# surrogate that kills any strict UTF-8 writer. Every text surface must be
+# joined across chunks at the source (both run modes rely on it).
+
+
+async def _events(chunks):
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    return [e async for e in client.stream_step(request)]
+
+
+def _joined(events, kind):
+    return "".join(e.payload["text"] for e in events if e.kind == kind)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,kind", [("content", "text_delta"), ("reasoning_content", "thinking_delta")])
+async def test_split_surrogate_pair_is_joined_across_text_chunks(field, kind):
+    events = await _events([
+        _chunk({field: "hi \ud83d"}),
+        _chunk({field: "\udc4b there"}),
+        _chunk(finish="stop"),
+    ])
+    for e in events:
+        if e.kind == kind:
+            e.payload["text"].encode("utf-8")
+    assert _joined(events, kind) == "hi 👋 there"
+
+
+@pytest.mark.asyncio
+async def test_unfinished_high_half_at_stream_end_becomes_replacement():
+    events = await _events([_chunk({"content": "bye \ud83d"}), _chunk(finish="stop")])
+    assert _joined(events, "text_delta") == "bye �"
+    assert [e.kind for e in events][-1] == "done"
+
+
+@pytest.mark.asyncio
+async def test_split_surrogate_pair_in_raw_argument_fragments():
+    events = await _events([
+        _chunk({"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "narra_reply"}}]}),
+        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '{"text": "a\ud83d'}}]}),
+        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '\udc4b b \udc4b"}'}}]}),
+        _chunk(finish="tool_calls"),
+    ])
+    streamed = _joined(events, "arg_delta")
+    streamed.encode("utf-8")
+    assert streamed == '{"text": "a👋 b �"}'
+    tool_use = next(e for e in events if e.kind == "tool_use")
+    assert tool_use.payload["args"] == {"text": "a👋 b �"}
+
+
+def test_scrub_json_strings_returns_clean_trees_unchanged():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+        scrub_json_strings,
+    )
+
+    tree = {"a": ["x", {"b": "中文 👋"}], "n": 1}
+    assert scrub_json_strings(tree) is tree
+    dirty = {"a": ["x\ud83d"], "keep": {"c": "ok"}}
+    out = scrub_json_strings(dirty)
+    assert out == {"a": ["x�"], "keep": {"c": "ok"}}
+    assert out["keep"] is dirty["keep"]

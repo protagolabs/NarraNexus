@@ -32,3 +32,9 @@ V3、gpt-5.5、未知模型为 False）。
 ceiling（不借 1M、不抬到 115_200），`myorg/DeepSeek-V3` 的 ceiling 可降到 7_200；`requested_max_tokens` 返回 int，
 `None`/非整数不算钉住。
 client 实际发送的 `max_tokens` 恰等于 `requested_max_tokens`（未钉 ×1/×2、钉住值在任意乘数下不变）。
+
+## 2026-09-11 — 跨 chunk 代理对
+
+text/thinking 两路代理对切在两个 chunk 时合成正确且每条 delta 可 UTF-8 编码；流末未完成的高位补一条 U+FFFD delta；原始参数分片
+切在代理对中间时流式 arg_delta 与最终 args 都合成正确、孤立低位换 U+FFFD；`scrub_json_strings` 干净树返回原对象、脏树只复制变动路径。
+回退 joiner 时这些用例变红。
