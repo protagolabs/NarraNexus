@@ -1,6 +1,6 @@
 ---
 code_file: scripts/release/build-desktop.sh
-last_verified: 2026-09-10
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -17,6 +17,10 @@ step 3 曾经是 `uv pip install "$PROJECT_ROOT"`——它按 pyproject 的**区
 云侧从来没中招：`docker/Dockerfile.manyfold` 走 `uv sync --frozen`。这里是全仓唯一**按 pyproject 区间重新解析、且把结果交到用户手上**的安装路径。（`run.sh` / `deploy-cloud.sh` 的 `uv sync` 读 lock，只是可能顺手刷新它；`run.sh` 里 venv 重建的 fallback 分支那句 `uv pip install -e` 漏了 `--no-deps`，确实会重新解析，但只影响本地 dev venv，且紧跟一句 import 校验。）
 
 现在的形状是 `uv export --locked` → `uv pip install -r`。**必须是 `--locked` 而不是 `--frozen`**：uv 里 `--frozen` 是"导出前不要更新 lock"，陈旧的 lock 会被**静默使用**；`--locked` 才是"断言 lock 不会变，会变就退非零"。所以有人加了依赖忘了 `uv lock`，构建会红在这一步，而不是打出一个缺包的 bundle——同一条用户可见的 ImportError，换了个触发条件。（`verify_release_artifacts.sh` 反过来故意用 `--frozen`：它只想解析 lock，不能因为本地 uv 与 CI 的 lock 格式差异而失败。）守门测试 `tests/release/test_desktop_build_uses_lock.py`。
+
+## NetMind（Power）登录端点闸门（2026-09-09，B-40）
+
+DMG 的 NetMind 端点在构建期烤进去：前端经 vite 读 `VITE_*`，启动器经 cargo `option_env!` 读后端变量，都来自跑本脚本的 shell。以前任何一个空着都会静默落回编译期的 protago-dev 默认值——丢一个 repo Variable 就能发出一个「用 GitHub 登录」打开 "Netmind AI Test"（accounts.protago-dev.com）的 DMG，构建还是绿的。现在脚本第一步跑 `check_desktop_netmind_env.sh env`（在任何下载/构建之前）：前后端 Power 开关必须一致；开着时 8 个端点全必填、https、`*.netmind.ai`、不能是 test/dev/staging 主机、前后端 auth 同主机；工作流在 tag 构建上设 `NARRANEXUS_REQUIRE_POWER_LOGIN=true`，Power 关着直接红。`npm run build` 之后再跑 `bundle frontend/dist`：产物里出现 `protago-dev` 即失败（runtimeConfig.ts 只在 vite dev server 里编进 dev 兜底）。守门测试 `tests/release/test_desktop_netmind_env_guard.py`。
 
 ## 其它已固化的决定（都各自付过学费）
 

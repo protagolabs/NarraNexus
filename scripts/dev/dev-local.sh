@@ -19,21 +19,14 @@ esac
 mkdir -p "$DB_DIR"
 export DATABASE_URL="sqlite:///$DB_DIR/nexus.db"
 
-# --- NetMind ("Power") account login — local dual-mode dev -------------------
-# Enable the Power login option alongside pure-local username login, pointed at
-# the protago-DEV environment. Every var is overridable (retarget / disable):
-# run with NEXUS_DEV_POWER_LOGIN=0 for a pure-local (username-only) session.
-# Exported BEFORE tmux spawns so both the backend and the vite frontend windows
-# inherit them (vite exposes VITE_-prefixed process env at dev time).
-if [[ "${NEXUS_DEV_POWER_LOGIN:-1}" != "0" ]]; then
-  export NARRANEXUS_ENABLE_POWER_LOGIN="${NARRANEXUS_ENABLE_POWER_LOGIN:-true}"
-  export NETMIND_USE_SUBSCRIPTION_ENABLED="${NETMIND_USE_SUBSCRIPTION_ENABLED:-true}"
-  export NETMIND_AUTH_API_URL="${NETMIND_AUTH_API_URL:-https://userauth.protago-dev.com}"
-  export BILLING_API_BASE="${BILLING_API_BASE:-https://billing.api.protago-dev.com}"
-  export NETMIND_KEY_API_BASE="${NETMIND_KEY_API_BASE:-https://inference.api.protago-dev.com}"
-  export NETMIND_INFERENCE_BASE="${NETMIND_INFERENCE_BASE:-https://test.api.netmind.ai/inference-api}"
-  export VITE_ENABLE_POWER_LOGIN="${VITE_ENABLE_POWER_LOGIN:-true}"
-fi
+# --- NetMind ("Power") account login — local dual-mode ---------------------
+# Power login alongside pure-local username login, on PROD NetMind by default
+# (NEXUS_NETMIND_ENV=dev for the protago-dev stack; NEXUS_DEV_POWER_LOGIN=0
+# for username-only). Backend and frontend endpoints are set together and
+# forwarded into every tmux window through ENV_CMD / NETMIND_ENV below.
+# shellcheck source=scripts/dev/netmind_env.sh
+source "$SCRIPT_DIR/netmind_env.sh"
+nexus_netmind_env || exit 1
 
 # --- Check tmux ---
 if ! command -v tmux &>/dev/null; then
@@ -157,7 +150,11 @@ done
 # every tmux pane (esp. Backend) via ENV_CMD so resolve_surface() is explicit.
 NARRA_SURFACE="${NARRA_SURFACE:-local}"
 
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
+# NetMind endpoints resolved above, forwarded for the same tmux-server reason
+# (the Frontend window needs them too: vite bakes VITE_* at dev time).
+NETMIND_ENV="$(nexus_netmind_env_cmd)"
+
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${HELPER_ENV}${NETMIND_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -318,7 +315,7 @@ tmux new-window -t "$SESSION" -n "Workers" \
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
-  "cd '$PROJECT_ROOT/frontend'; echo '=== Frontend Dev Server ==='; npm run dev; echo 'Frontend stopped. Press Enter to close.'; read"
+  "${NETMIND_ENV}cd '$PROJECT_ROOT/frontend'; echo '=== Frontend Dev Server ==='; npm run dev; echo 'Frontend stopped. Press Enter to close.'; read"
 
 # --- Select Control window ---
 tmux select-window -t "$SESSION:Control"

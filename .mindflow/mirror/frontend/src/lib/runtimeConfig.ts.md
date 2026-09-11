@@ -1,10 +1,34 @@
 ---
 code_file: frontend/src/lib/runtimeConfig.ts
-last_verified: 2026-08-12
+last_verified: 2026-09-09
 stub: false
 ---
 
 # runtimeConfig.ts — runtime deploy-time config, injected via /config.js
+
+## 2026-09-09 — B-40: production bundles fall back to PROD NetMind, never protago-dev
+
+`getNetmindConfig()`'s last-resort fallback now depends on the build kind:
+`import.meta.env.DEV` (the `vite` dev server) keeps the protago-dev defaults
+(`_DEV_NETMIND`); any `vite build` output (DMG, cloud image) uses
+`_PROD_NETMIND` (auth-api / accounts .netmind.ai). The dev literals are dead
+code in a production build and get stripped — verified: the pre-fix `vite build`
+bundle contained `protago-dev`, the post-fix one does not, and
+`scripts/release/check_desktop_netmind_env.sh bundle` asserts that for the DMG.
+Precedence is unchanged (injected /config.js → VITE_* → fallback); cloud prod
+and dev both inject all four keys (checked their live /config.js), so they are
+unaffected.
+
+Why: upstream NetMindAI-Open/NarraNexus#90 ("Sign in with GitHub" on the local
+version opened "Netmind AI Test by protagohhz" → accounts.protago-dev.com). The
+DMG was not the leak (its build logs show the prod VITE_* reached vite); the
+source-run local version was — run.sh → dev-local.sh enabled Power login on
+protago-dev and exported no `VITE_NETMIND_*`, so the vite dev server used these
+dev fallbacks. That path now exports explicit PROD values
+(`scripts/dev/netmind_env.sh`); this change closes the same hole for every
+built bundle. Tests: `runtimeConfig.netmind.test.ts` (DEV → protago-dev,
+PROD → netmind.ai with no protago-dev string, VITE_* beats both).
+
 
 ## 2026-08-12 — Web-analytics id (GTM), host-gated
 
