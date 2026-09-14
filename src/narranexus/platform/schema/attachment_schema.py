@@ -111,6 +111,13 @@ FILE_MARKER_TAIL = " — use Read tool to view]"
 FILE_MARKER_UNAVAILABLE_PATH = "<unavailable>"
 
 
+def category_value(value: Any) -> Any:
+    """The text of an attachment category: an `AttachmentCategory` becomes its
+    value (on Python 3.11+ ``str()`` of a str-mixin enum is
+    ``"AttachmentCategory.IMAGE"``); anything else is returned as is."""
+    return value.value if isinstance(value, AttachmentCategory) else value
+
+
 def file_marker(
     label: str,
     *,
@@ -129,27 +136,36 @@ def file_marker(
 
     The marker sits inside line-structured prompt blocks (chat history, a team
     room's scrollback), so nothing may end a field early or start a line.
-    Invariant: EVERY value is encoded with `inline_literal` (a JSON string
-    literal, never cut, whitespace collapsed); the only bare tokens are the
-    grammar's own fixed words: ``label`` (one of `FILE_MARKER_LABELS`), the
-    field keys, `FILE_MARKER_UNAVAILABLE_PATH` and `FILE_MARKER_TAIL`. No
-    field is trusted for being platform-built: the MIME type, for one, can be
-    a sender's declared Content-Type (`sniff_mime_type`'s last tier), and the
-    path decodes back with `json.loads` to exactly what Read takes.
-    ``sender`` is the raw sender name or handle, not a pre-encoded label."""
+    Invariant: EVERY value is encoded; the only bare tokens are the grammar's
+    own fixed words: ``label`` (one of `FILE_MARKER_LABELS`), the field keys,
+    `FILE_MARKER_UNAVAILABLE_PATH` and `FILE_MARKER_TAIL`. No field is trusted
+    for being platform-built: the MIME type, for one, can be a sender's
+    declared Content-Type (`sniff_mime_type`'s last tier).
+
+    * ``path`` is the handle the agent passes to Read, so it uses
+      `exact_literal`: ``json.loads`` of it is the on-disk path byte for byte
+      (runs of spaces, tabs, edge spaces and backticks of an operator-chosen
+      base directory survive).
+    * Every other value (name, mime, kind, sender, transcript) is display text
+      and uses `inline_literal` (never cut, whitespace collapsed).
+    * ``kind`` may be passed raw as an `AttachmentCategory`; it is reduced to
+      its value here (`category_value`), so no caller unwraps it.
+    * ``sender`` is the raw sender name or handle, and ``from=`` is always a
+      quoted LABEL, even on the peer DM path where the sender is an agent id:
+      that prompt's bare ``From:`` line is where the handle is copied from."""
     # Lazy import, like `resolve_attachment_path` below: the schema does not
     # pull `platform.utils` (whose package init opens the db layer) at import
     # time.
-    from narranexus.platform.utils.inline_field import inline_literal
+    from narranexus.platform.utils.inline_field import exact_literal, inline_literal
 
     if label not in FILE_MARKER_LABELS:
         raise ValueError(f"unknown file marker label: {label!r}")
-    path_value = FILE_MARKER_UNAVAILABLE_PATH if path is None else inline_literal(path)
+    path_value = FILE_MARKER_UNAVAILABLE_PATH if path is None else exact_literal(path)
     parts = [
         f"[{label}: name={inline_literal(name or '(unnamed)')}",
         f"path={path_value}",
         f"mime={inline_literal(mime)}",
-        f"kind={inline_literal(kind)}",
+        f"kind={inline_literal(category_value(kind))}",
     ]
     if sender:
         parts.append(f"from={inline_literal(sender)}")
@@ -254,7 +270,7 @@ class Attachment(BaseModel):
             name=self.original_name,
             path=None if path is None else str(path),
             mime=self.mime_type,
-            kind=self.category.value,
+            kind=self.category,
             transcript=self.transcript,
         )
 

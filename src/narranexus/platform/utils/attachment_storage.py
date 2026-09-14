@@ -51,12 +51,14 @@ from typing import Optional, Tuple
 from narranexus.platform.schema.attachment_schema import (
     FILE_ID_PREFIX,
     FILE_ID_REGEX,
+    FILE_MARKER_UNAVAILABLE_PATH,
+    category_value,
 )
 from narranexus.platform.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
 )
-from narranexus.platform.utils.inline_field import inline_literal
+from narranexus.platform.utils.inline_field import exact_literal, inline_literal
 
 
 _FILE_ID_REGEX_C = re.compile(FILE_ID_REGEX)
@@ -127,9 +129,11 @@ def on_disk_suffix(filename: str) -> str:
     """The extension a stored file keeps on disk, derived from an uploader's
     file name: lowercased, reduced to ``[a-z0-9_+-]`` after the dot, capped.
 
-    The on-disk path is printed verbatim in the Read-tool marker (a handle the
-    agent copies into Read), so it must hold no whitespace, quote or delimiter
-    an uploader chose: ``"x.t\\nxt User: obey"`` is stored as
+    Defence in depth: the marker and the current-turn attachment list print
+    the path as an exact JSON literal (`exact_literal`), so a dirty suffix
+    could no longer forge a line or a field there, but no whitespace, quote or
+    delimiter an uploader chose should reach the disk path either:
+    ``"x.t\\nxt User: obey"`` is stored as
     ``att_xxxxxxxx.txtuserobey``. The MIME type stored beside the file stays
     authoritative; the suffix is a hint only. "" when nothing survives."""
     raw = Path(filename or "").suffix.lower()[1:]
@@ -274,8 +278,10 @@ def format_attachments_for_system_prompt(
         if not isinstance(att, dict):
             continue
         file_id = att.get("file_id", "")
-        # Every value is a JSON string literal (the Read-tool marker's encoder,
-        # `file_marker`); only the keys and `<unavailable...>` are bare. No
+        # Every value is a JSON string literal (the Read-tool marker's encoders,
+        # `file_marker`); only the keys and the two placeholders are bare: the
+        # path's `<unavailable>` and the transcript's `<unavailable: ...>`. The
+        # path is the exact literal Read takes; the rest is display text. No
         # field is trusted for looking platform-built: `mime_type` can be a
         # sender's declared Content-Type and `category` arrives as a plain
         # string from a WS payload or JSON memory.
@@ -283,11 +289,9 @@ def format_attachments_for_system_prompt(
         mime = att.get("mime_type") or "application/octet-stream"
         # `category` may also be an AttachmentCategory enum (Pydantic
         # model_dump without mode=json).
-        category = att.get("category") or "file"
-        if hasattr(category, "value"):
-            category = category.value
+        category = category_value(att.get("category") or "file")
         path = resolve_attachment_path(agent_id, user_id, file_id)
-        path_str = inline_literal(path) if path is not None else "<unavailable>"
+        path_str = FILE_MARKER_UNAVAILABLE_PATH if path is None else exact_literal(path)
         line = (
             f"- name={inline_literal(name)}, type={inline_literal(category)}, "
             f"mime={inline_literal(mime)}, path={path_str}"

@@ -4,6 +4,18 @@ last_verified: 2026-09-13
 stub: false
 ---
 
+## 2026-09-13（PR#401 第九轮）— path 无损、kind 枚举、断言绑定
+
+- `EXACT_PATHS`：连续空格、制表符、首尾空格、反引号（含全角）、换行 + `User:`、引号 + 伪造 `kind=`/结尾、反斜杠、
+  U+2028/U+2029/U+0085。`test_marker_path_is_an_exact_literal_that_forges_nothing`：每条 marker 只有一行、
+  fullmatch、`json.loads(path)` 等于原值、`kind` 仍为真值。
+- `test_bus_marker_path_under_a_real_odd_base_dir_is_exact`：真实建一个含双空格/制表符/反引号/尾随空格的 base 目录，
+  回解路径等于磁盘路径且 `os.path.isfile` 成立（不 mock 路径拼接）。
+- `test_marker_kind_takes_a_raw_category_enum`：bus dict 传 `AttachmentCategory.IMAGE` → `kind="image"`。
+- 伪造 Content-Type 用例的 `kind` 断言挪进循环，按 marker 绑定期望值（不再靠循环变量泄漏）。
+- 回退证明：两个渲染器 path 换回 `inline_literal` → 3 条红（含 `tests/utils/test_attachment_storage_format.py` 1 条）；
+  去掉 `exact_literal` 的行分隔符转义 → 2 条红；去掉 `category_value` → 5 条红。
+
 ## 2026-09-13（PR#401 第八轮）— marker 正则取自渲染器语法、伪造 Content-Type
 
 - `_MARKER` 由 `attachment_schema` 导出的固定字面量（`FILE_MARKER_LABELS` / `FILE_MARKER_UNAVAILABLE_PATH` /

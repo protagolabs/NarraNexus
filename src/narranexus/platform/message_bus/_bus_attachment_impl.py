@@ -157,9 +157,9 @@ def _bus_att_dict(target: Path, base: str, *, original_name: str, mime: str) -> 
 
 def _new_target(dest_dir: Path, filename: str) -> Path:
     """Fresh ``{file_id}{suffix}`` path inside ``dest_dir`` (dir created). The
-    suffix is ``on_disk_suffix(filename)``: the path is printed verbatim in the
-    Read-tool marker, so no character of an author's file name reaches it
-    unsanitised."""
+    suffix is ``on_disk_suffix(filename)``, so no character of an author's file
+    name reaches the disk path unsanitised (defence in depth: the Read-tool
+    marker prints the path as an exact JSON literal)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     file_id = generate_file_id()
     suffix = on_disk_suffix(filename)

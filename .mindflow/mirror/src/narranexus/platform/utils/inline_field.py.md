@@ -15,6 +15,16 @@ stub: false
 分支与它共用 `_flatten`。`body_lines` 的 docstring 改为 raw string，`\r` / `\u2028` 不再被编译成真的
 控制字符。
 
+## 2026-09-13（PR#401 review 第九轮 🟡1）— 新增 `exact_literal`：句柄的无损字面量
+
+`inline_literal` 是给**标签**用的（折叠空白、剥首尾、反引号换 `'`），不能用于 agent 原样喂给 Read 的**路径**：
+部署方把 `BASE_WORKING_PATH` 配成含连续空格 / 制表符 / 尾随空格 / 反引号的目录时，折叠后的路径打不开。
+`exact_literal(value)` = `json.dumps(str(value), ensure_ascii=False)`，再把 JSON 不转义、但 `splitlines()`
+认作换行的 U+0085 / U+2028 / U+2029 手工转义：`json.loads` 回解逐字节等于原值，同时引号、反斜杠、
+所有控制字符都被转义在引号内，既不能提前闭合字段也不能另起一行。反引号不替换——使用它的 marker 行与
+附件列表行都不在 code span 里。三个编码器的分工：`inline_field` = 可截断标签，`inline_literal` = 不截断标签，
+`exact_literal` = 需要加引号的精确句柄（目前只有文件路径）。
+
 # inline_field — 行语法 prompt 块里作者可写文本的唯一编码器
 
 ## 为什么存在

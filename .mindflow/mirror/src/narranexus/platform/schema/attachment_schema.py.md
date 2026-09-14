@@ -4,20 +4,33 @@ last_verified: 2026-09-13
 stub: false
 ---
 
+## 2026-09-13（PR#401 review 第九轮）— path 改为无损编码、`category_value`、`from=` 口径
+
+- **不变量更新：每个值都编码；`path` 用精确（无损）字面量 `exact_literal`；只有语法固定字面量裸露。**
+  上一轮 `path` 走了 `inline_literal`，会折叠空白/剥首尾/换反引号，部署方自选的工作目录（`/data/nexus  ws`、
+  尾随空格、反引号）下每个附件路径都打不开。现在 `json.loads(path)` 逐字节等于磁盘路径，仍然一行、仍不可伪造。
+  `name` / `mime` / `kind` / `from` / `transcript` 是展示文本，继续走 `inline_literal`（transcript 折叠断行是必要的）。
+- `category_value(value)`：`AttachmentCategory` → `.value`，其他原样（`isinstance` 判断，不做 `hasattr` 通用探测）。
+  `file_marker` 内部对 `kind` 统一处理，调用方传原值（`synthesize_marker` 不再 `.value`）；
+  `attachment_storage.format_attachments_for_system_prompt` 的 `type=` 用同一函数。原因：3.11+ 下
+  `str(AttachmentCategory.IMAGE)` 是 `"AttachmentCategory.IMAGE"`。
+- `from=` 一律是加引号的**标签**，即使 DM 路径传的是 agent id：DM prompt 的裸 `From:` 行才是 agent 抄句柄的来源。
+  这是对「句柄不加引号」规则的明确例外（一个字段只能有一种编码），写在 `file_marker` docstring 里。
+
 ## 2026-09-13（PR#401 review 🟡2 → 第八轮）— `file_marker`：唯一渲染函数，所有值一律编码
 
 用户上传 marker（`Attachment.synthesize_marker`）与总线附件 marker（`_bus_attachment_impl.build_bus_markers`）
 原来是两份拷贝且已分叉，现在都调模块级 `file_marker(label, *, name, path, mime, kind, sender=None, transcript=None)`：
 `[<label>: name="…", path="…", mime="…", kind="…"[, from="…"][, transcript="…"] — use Read tool to view]`。
 
-**不变量：marker / 附件列表行里每个值都经 `inline_literal` 编码，只有语法自己的固定字面量裸露。**
+**不变量：marker / 附件列表行里每个值都编码（第九轮起 `path` 用无损的 `exact_literal`，其余 `inline_literal`），只有语法自己的固定字面量裸露。**
 裸露的只有：`label`（`FILE_MARKER_LABELS` 二选一：`User uploaded file` / `Shared file`，传别的直接 `ValueError`）、
 字段键名、路径解析失败时的 `FILE_MARKER_UNAVAILABLE_PATH`（`<unavailable>`）、结尾 `FILE_MARKER_TAIL`。
 不再逐字段判断「是不是平台构造」——上一轮就是把 `mime` 判成平台构造而漏掉：`sniff_mime_type` 第三层会把
 外部发送方声明的 Content-Type 原样返回。所以 `path`、`mime`、`kind`、发送者一律编码：
 - 旧 head 里嵌的 `kind`（`User uploaded image`）与发送者（`Shared file from agent X`）挪成 `kind=` / `from=` 字段，
   head 变成固定字面量；`sender` 传**原始**名字/句柄，由 `file_marker` 编码（团队房传 `_sender_raw`，DM 传 `from_agent`）。
-- `path` 是 JSON 字面量，`json.loads` 回解就是 Read 要的绝对路径（含空格的桌面目录同样成立）；
+- `path` 是 JSON 字面量（第九轮起用 `exact_literal`，逐字节回解，不做任何折叠，见上段）；
   落盘后缀清洗（`on_disk_suffix`）仍在，但不再是这一行安全性的前提（历史文件的旧后缀也被编码挡住）。
 - `mime_type` 字段描述改为「最后一层会回落到客户端声明值，按不可信文本处理」。
 - 对 `platform.utils.inline_field` 的 import 放在 `file_marker` 函数体内（与 `resolve_attachment_path` 同形）：

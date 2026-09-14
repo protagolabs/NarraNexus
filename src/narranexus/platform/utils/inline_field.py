@@ -3,7 +3,8 @@
 @author: NarraNexus
 @date: 2026-09-11
 @description: The one encoder for author-writable text printed inside a
-line-structured prompt block: labels (`inline_field`) and free-text bodies
+line-structured prompt block: labels (`inline_field`, `inline_literal`),
+exact quoted handles such as file paths (`exact_literal`) and free-text bodies
 (`body_lines`, `quoted_block`).
 
 Several prompt blocks are row grammars: the module's unread list, Known Agents
@@ -77,6 +78,25 @@ def inline_literal(value: Any) -> str:
     `inline_field`, for text whose whole content the reader needs (a file name,
     a voice-memo transcript)."""
     return json.dumps(_flatten(value), ensure_ascii=False)
+
+
+#: Line boundaries `str.splitlines` honours that `json.dumps(ensure_ascii=False)`
+#: leaves bare (it escapes only U+0000..U+001F, the quote and the backslash).
+_BARE_LINE_BREAKS = str.maketrans({"\x85": "\\u0085", " ": "\\u2028", " ": "\\u2029"})
+
+
+def exact_literal(value: Any) -> str:
+    """A HANDLE printed inside quotes because its text is not system-built (a
+    file path under an operator-chosen base directory): a JSON string literal
+    that ``json.loads`` decodes back to exactly ``str(value)``. Nothing is
+    collapsed, stripped or replaced, since the agent copies the decoded value
+    into a tool call character for character. It is still unforgeable: JSON
+    escaping keeps ``"``, the backslash and every control character inside the
+    quotes, and the remaining line boundaries (U+0085, U+2028, U+2029) are
+    escaped too, so the literal can neither close its field nor start a line.
+    Backticks stay as they are: the lines this is printed in sit in no code
+    span."""
+    return json.dumps(str(value), ensure_ascii=False).translate(_BARE_LINE_BREAKS)
 
 
 def _flatten(value: Any) -> str:

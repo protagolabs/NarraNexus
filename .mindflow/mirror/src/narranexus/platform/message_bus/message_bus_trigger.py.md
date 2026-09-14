@@ -35,7 +35,7 @@ stub: false
 | 团队共享目录 / `message_team(team_id=…)` 提示 | 单行 | 目录由 `team_shared_dir(owner, team_id)` 平台拼成；`team_id` 为系统句柄 |
 | 巡查停滞列表 | `- "title" ("assignee")` | 标签 |
 | scrollback | `<sender>[ [→ names]]: <body>` | 发送者、被点名者 → 标签（`User`/`[system]` 为平台常量不加引号）；`[→ …]` 移到**冒号前**（正文够不着）；正文 → `body_lines`。`[system]` 行正文同样 `body_lines` |
-| 附件 marker `build_bus_markers` → `attachment_schema.file_marker` | `[Shared file: name="…", path="…", mime="…", kind="…", from="…"[, transcript="…"] — use Read tool to view]` 一行 | **每个值**（文件名、path、mime、kind、发送者、transcript）都经 `inline_literal` 编码，只有 `Shared file`、键名与结尾是固定字面量；发送者传原始名字（团队房 `_sender_raw`，DM 传句柄）由 `file_marker` 自己编码。用户上传 marker 走同一函数 |
+| 附件 marker `build_bus_markers` → `attachment_schema.file_marker` | `[Shared file: name="…", path="…", mime="…", kind="…", from="…"[, transcript="…"] — use Read tool to view]` 一行 | **每个值**都编码：`path` 用无损的 `exact_literal`（逐字节回解），文件名、mime、kind、发送者、transcript 用 `inline_literal`；只有 `Shared file`、键名与结尾是固定字面量。发送者传原始值（团队房 `_sender_raw`，DM 传句柄）由 `file_marker` 编码；`from=` 一律是加引号的标签，DM 里 agent 从裸 `From:` 行抄句柄。用户上传 marker 走同一函数 |
 | 指向行 `You were just @mentioned by <who>` / 批次列表 `- <who>[ [no @mention — routed to you]]: <body>` | 同 scrollback | `_who` → `_sender`（标签）；平台触发的 `_platform_trigger_label` 是平台常量，不加引号；routed 标记移到冒号前；正文 → `body_lines` |
 | peer 私聊 `_build_prompt` | `From: <id>` / `Time: <ts>` / 正文 | `From` 为系统句柄、`Time` 为平台时间戳；正文 → `quoted_block`，不能伪造另一条消息的 `From:`/`Time:` 头；附件 marker 同上 |
 
