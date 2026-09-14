@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-09-09
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2 → 第八轮）— marker 改走 `file_marker`，所有值编码，落盘后缀清洗
+
+`build_bus_markers` 不再自己拼 marker，改调 `attachment_schema.file_marker`（与用户上传同一函数）。marker 里
+**每个值**——文件名、path、mime、kind、发送者、transcript——都是 JSON 字面量（path 是无损的 `exact_literal`，
+由 `root / rel_path` 拼出的路径逐字节回解；`category` 原样传入，枚举由 `file_marker` 还原），只有 `Shared file`、键名和结尾是
+固定字面量；`mime_type` 可能是外部声明的 Content-Type，`category` 来自 dict，都不被当成可信平台值。
+`from_agent` 现在是**原始**发送者（句柄或显示名），由 `file_marker` 编码成 `from="…"`，调用方不再预编码。
+`_new_target` 收文件名并过 `on_disk_suffix`，换行/空格/逗号进不了落盘路径（纵深防御，不是这一行安全性的前提）。
+
+## 2026-09-11（PR#401）— `build_bus_markers` 一个 marker 只占一行
+
+文件名（`original_name`）和 transcript 由发送方写，可能带换行，原样拼进 marker 就能在团队房
+scrollback 里开出一行 `User: …`。现在两者经 `inline_field(x, None)` 折叠空白（不加引号：marker 内部
+形态与用户上传 marker `Attachment.synthesize_marker` 共享）。`from_agent` 按调用方给的原样打印——
+团队房传已编码的标签，peer 私聊传句柄。
 
 ## 2026-09-09 — `_resolve_ref_to_source` 补上共享区回退（B-22，#122）
 

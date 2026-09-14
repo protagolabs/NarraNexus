@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/utils/attachment_storage.py
-last_verified: 2026-09-04
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2 同类）— `on_disk_suffix` 与当前轮附件列表编码
+
+- `on_disk_suffix(filename)`：落盘扩展名的唯一来源（本文件 `store_uploaded_attachment` 与总线
+  `_bus_attachment_impl._new_target` 共用）。小写、点后只留 `[a-z0-9_+-]`、上限 16 字符，什么都不剩则无后缀。
+  这是纵深防御：marker 与附件列表里的 path 现在是精确 JSON 字面量（`exact_literal`），脏后缀已被引号挡住，
+  但磁盘上仍不该留下作者选的空白/分隔符（`sanitize_filename` 只拦 NUL/分隔符/traversal，换行能进后缀）。
+  MIME 仍以索引里嗅探的为准，后缀只是提示。
+- `format_attachments_for_system_prompt` 的每行 `- name="…", type="…", mime="…", path="…"[, transcript="…"]` 是
+  marker 的同类行语法，适用同一不变量：**每个值都编码，`path` 用无损的 `exact_literal`（`json.loads` 逐字节等于
+  磁盘路径），其余用 `inline_literal`**，只有键名、`FILE_MARKER_UNAVAILABLE_PATH`（与 marker 共用的常量，路径解析
+  失败）与 `transcript=<unavailable: …>`（平台固定提示）裸露。`type=` 经 `attachment_schema.category_value`
+  统一把枚举还原成值。`mime_type` 可能回显外部声明的 Content-Type、
+  `category` 来自 WS payload 的普通字符串，都不例外。`mime.startswith("audio/")` 这类分支读的是原值，不受渲染影响。
+  import 顺序：`file_safety` 在 `inline_field` 之前。
 
 ## 2026-08-03 — `persist_attachment_bytes`:"bytes → Attachment" 的单一居所
 

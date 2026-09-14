@@ -91,4 +91,4 @@ def test_a_single_mention_still_reads_naturally():
     msg = _msg("ping", sender="agent_peer", mentions=["agent_me"])
     text = _prompt([msg], [msg])
 
-    assert "@mentioned by Pat" in text
+    assert '@mentioned by "Pat"' in text

@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-13
 ---
+
+## 2026-09-13 — marker 的 path 是 JSON 字符串
+
+给 agent 的附件说明改为：`path=` 的值是 JSON 字符串。普通路径就是引号里的文字；含转义（`\"`、`\\`、`\t`、`\n`）时要先解码再交给 Read。起因是 `file_marker` 改用无损的 `exact_literal` 编码 path，照字面读带转义的路径会读错文件。
+
+## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为真实形状
+
+marker 形状现在是 `[User uploaded file: name="…", path="…", mime="…", kind="…"[, transcript="…"] — use Read tool to view]`（`attachment_schema.file_marker`：每个值都是 JSON 字面量，kind 从 head 挪成字段），说明文字跟着改，并提示把 `path` 引号内的文本交给 Read。
 
 ## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
 
@@ -112,7 +120,7 @@ not the abstraction failing.
   ``raw["attachment_refs"]``; ``fetch_attachments`` downloads bytes
   via ``download_file`` and persists them through ``_persist_attachment``
   on the base. The instruction text now explains the
-  ``[User uploaded <kind>: ...path=... transcript=...]`` marker shape
+  ``[User uploaded <kind>: ...path=... transcript=...]`` marker shape (superseded — current shape in the 2026-09-13 entry)
   so the agent uses the built-in ``Read`` tool against the absolute
   path (multimodal — returns PDF / image content blocks natively).
   Stickers / locations / contacts / polls remain ignored. **Keeping

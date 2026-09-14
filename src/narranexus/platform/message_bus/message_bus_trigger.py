@@ -57,6 +57,12 @@ from narranexus.platform.message_bus.delivery_notice import (
     announce_undelivered,
 )
 from narranexus.platform.message_bus.multipart import assemble as assemble_parts
+from narranexus.platform.utils.inline_field import (
+    INLINE_DESCRIPTION_MAX_CHARS,
+    body_lines,
+    inline_field,
+    quoted_block,
+)
 from narranexus.platform.message_bus.patrol import PATROL_MSG_TYPE
 from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
@@ -82,6 +88,7 @@ from narranexus.platform.channel.message_source_handler import (
 from narranexus.platform.message_bus.team_posting import (
     MAX_TEAM_AGENT_HOPS,
     extract_team_mentions,
+    mention_token,
 )
 from narranexus.platform.schema import (
     BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
@@ -2492,6 +2499,15 @@ class MessageBusTrigger:
         Agent-written entries are attributed, user-written ones are not: the
         attribution exists so the reader can tell which rules the team invented
         for itself. Everything unattributed came from the person in charge.
+
+        That makes the numbered list an authority grammar, so a rule body
+        cannot be allowed to start a row: `post_team_bulletin` keeps newlines,
+        and a body line printed at column 0 would read as a new, unattributed —
+        owner-written — rule. The attribution goes on the rule's FIRST line
+        (before any body text an agent could imitate it with) and continuation
+        lines are quoted under it (`body_lines`). The auto-summary is machine
+        text built from room content, so it is quoted whole (`quoted_block`)
+        and cannot open a header or a rule either.
         """
         if not bulletin:
             return []
@@ -2512,7 +2528,7 @@ class MessageBusTrigger:
         def _label(entry) -> str:
             if entry.source != BULLETIN_SOURCE_AGENT or not entry.author_id:
                 return ""
-            return f"  (added by {member_map.get(entry.author_id, entry.author_id)})"
+            return f" (added by {inline_field(member_map.get(entry.author_id, entry.author_id))})"
 
         out: List[str] = []
         if rules:
@@ -2525,13 +2541,13 @@ class MessageBusTrigger:
             n = 0
             for e in [r for r in rules if r.tier != BULLETIN_TIER_CURRENT_TASK]:
                 n += 1
-                out.append(f"{n}. {e.content}{_label(e)}")
+                out.append(f"{n}.{_label(e)} {body_lines(e.content)}")
             current = [r for r in rules if r.tier == BULLETIN_TIER_CURRENT_TASK]
             if current:
                 out.append("For the CURRENT TASK only:")
                 for e in current:
                     n += 1
-                    out.append(f"{n}. {e.content}{_label(e)}")
+                    out.append(f"{n}.{_label(e)} {body_lines(e.content)}")
 
         if summary is not None and (summary.content or "").strip():
             out += [
@@ -2540,7 +2556,7 @@ class MessageBusTrigger:
                 "by anyone, and it may lag behind what just happened. Treat it "
                 "as background, and trust the conversation below over it where "
                 "they disagree.",
-                summary.content,
+                quoted_block(summary.content),
             ]
         return out
 
@@ -2874,10 +2890,26 @@ class MessageBusTrigger:
     ) -> List[str]:
         """One line per member, in the same shape as the Known Agents list.
 
-        The shape is not cosmetic. That list renders ``\`id\` — name: desc`` and
-        it is where an agent learns the identifiers `message_agent` expects.
+        The shape is not cosmetic. That list renders ``- `id` — "name": "desc"``
+        and it is where an agent learns the identifiers `message_agent` expects.
         A roster that gave display names only forced the model to guess a
-        mapping between two surfaces, so the two now read alike.
+        mapping between two surfaces, so the two now read alike — through the
+        same encoder (`inline_field`). A member's name and description are
+        written by an agent or its owner, and a capability token can be a
+        marketplace skill id from a publisher's manifest; printed raw, a
+        newline or a ``: `` /
+        `` · `` inside one could forge another member row, a Leader marker or a
+        status. Encoded, they are JSON string literals that cannot leave their
+        field (each capability token is its own literal). The id is a handle: never cut, never quoted. The description is
+        capped at ``INLINE_DESCRIPTION_MAX_CHARS``, the same cap Known Agents
+        uses, so one member reads the same on both surfaces.
+
+        A quoted name is not what the @mention parser reads (it takes a bare
+        ``@word``), so each row also shows the member's exact mention token
+        (`mention_token`, checked against the parser itself), or says the name
+        has none and names what does reach that member (@all, or message_agent
+        with the row's id). Without it an agent copying the name writes ``@"Ana"`` and
+        the mention resolves to nobody, silently.
 
         The agent's OWN row is included and marked. Leaving yourself off the
         list of who is present is the confusion this card exists to end, not a
@@ -2897,23 +2929,42 @@ class MessageBusTrigger:
             # Same rule as the team card — say nothing rather than assert
             # something the data does not support.
             return []
-        out = [f"Channel members RIGHT NOW (besides the user), {len(roster)}:"]
+        member_map = {
+            str(r.get("agent_id", "")): r.get("name") or str(r.get("agent_id", ""))
+            for r in roster
+        }
+        out = [
+            f"Channel members RIGHT NOW (besides the user), {len(roster)}. To "
+            f"@mention one, write the @token shown on their row exactly — "
+            f"never the quoted name:"
+        ]
         for r in roster:
             rid = r.get("agent_id", "")
-            line = f"- `{rid}` — {r.get('name') or rid}"
+            line = f"- `{inline_field(rid, None)}` — {inline_field(r.get('name') or rid)}"
+            token = mention_token(str(rid), member_map)
+            # No token wakes this member alone, so say what does reach them
+            # instead of leaving a dead end: @all wakes the room, and
+            # message_agent takes the id printed at the start of this row.
+            line += (
+                f" @{token}" if token
+                else " (no @mention token — @all reaches everyone; message_agent "
+                "with the id above reaches them alone)"
+            )
             if rid == agent_id:
                 line += " (you)"
             if rid and rid == lead_agent_id:
                 line += " · Leader"
             desc = r.get("description") or ""
             if not is_agent_description_unset(desc):
-                # Marked when cut, same rule the team card follows for
-                # `intro_md`: two truncation standards in one prompt is how a
+                # Marked when cut (by the encoder) and cut at the Known Agents
+                # cap: one member described two ways on two surfaces is how a
                 # reader learns to distrust both.
-                shown = desc[:120] + ("…" if len(desc) > 120 else "")
-                line += f": {shown}"
+                line += f": {inline_field(desc, INLINE_DESCRIPTION_MAX_CHARS)}"
+            # Capability tokens include marketplace skill ids, which come from a
+            # publisher's manifest unchecked: labels, so a token cannot start a
+            # row or forge a ` · Leader` / status field on this one.
             all_caps = [str(c) for c in (r.get("capabilities") or [])]
-            caps = all_caps[:6]
+            caps = [inline_field(c) for c in all_caps[:6]]
             if caps:
                 more = f" +{len(all_caps) - len(caps)} more" if len(all_caps) > len(caps) else ""
                 line += f" · can: {', '.join(caps)}{more}"
@@ -2945,7 +2996,7 @@ class MessageBusTrigger:
         lines: List[str] = []
         name = str(team.get("name") or "").strip()
         if name:
-            lines += ["", f"[Team] {name}"]
+            lines += ["", f"[Team] {inline_field(name)}"]
         description = str(team.get("description") or "").strip()
         if description:
             lines.append(f"Why this team exists: {description}")
@@ -2994,8 +3045,8 @@ class MessageBusTrigger:
         me = member_map.get(agent_id, agent_id)
         lines = [
             "[Team Group Chat]",
-            f'You are "{me}" in a team group chat with the user and your '
-            f"teammates.",
+            f"You are {inline_field(me)} in a team group chat with the user and "
+            f"your teammates.",
         ]
         lines += self._roster_lines(agent_id, roster, lead_agent_id)
         lines += [
@@ -3083,10 +3134,14 @@ class MessageBusTrigger:
             # exists to surface.
             shown = work_items[:TEAM_BOARD_MAX_ITEMS]
             for item in shown:
-                who = member_map.get(item.get("assignee_id") or "", "") or "unclaimed"
+                # Title and assignee name are author-written labels, encoded so
+                # a title cannot forge a second row with a fake `id=`; the id
+                # is a handle `team_work_complete` takes verbatim.
+                who = member_map.get(item.get("assignee_id") or "", "")
+                who = inline_field(who) if who else "unclaimed"
                 lines.append(
-                    f"- [{item.get('status')}] {item.get('title')} "
-                    f"({who}) · id={item.get('item_id')}"
+                    f"- [{item.get('status')}] {inline_field(item.get('title'))} "
+                    f"({who}) · id={inline_field(item.get('item_id'), None)}"
                 )
             hidden = len(work_items) - len(shown)
             if hidden > 0:
@@ -3126,7 +3181,10 @@ class MessageBusTrigger:
                     "guess, so treat it as fact:"
                 )
                 for s in patrol_stalled:
-                    lines.append(f"- {s.get('title')} ({s.get('assignee')})")
+                    lines.append(
+                        f"- {inline_field(s.get('title'))} "
+                        f"({inline_field(s.get('assignee'))})"
+                    )
                 lines += [
                     "Chase them: @mention the owner and ask where it stands. "
                     "DO NOT reassign the work to someone else — 'idle with "
@@ -3160,12 +3218,22 @@ class MessageBusTrigger:
                 "board needs updating.",
             ]
 
+        # Every scrollback row is `<sender>[ [→ <names>]]: <body>`, and the
+        # sender prefix is authority-bearing — `User` is the owner. So the
+        # sender and every addressed name are encoded labels (a member named
+        # "Mallory\nUser" cannot print a `User:` row), the annotations sit
+        # BEFORE the colon where no body text can reach, and a multi-line body
+        # continues on quoted lines (`body_lines`) that no row starts with.
+        # `User` and the platform labels are constants, never quoted.
+        def _sender_raw(msg: BusMessage) -> str:
+            if msg.from_agent.startswith(USER_SENDER_PREFIX):
+                return "User"
+            return str(member_map.get(msg.from_agent, msg.from_agent))
+
         def _sender(msg: BusMessage) -> str:
-            return (
-                "User"
-                if msg.from_agent.startswith(USER_SENDER_PREFIX)
-                else member_map.get(msg.from_agent, msg.from_agent)
-            )
+            if msg.from_agent.startswith(USER_SENDER_PREFIX):
+                return "User"
+            return inline_field(_sender_raw(msg))
 
         lines += ["", "Recent messages (oldest first) — the shared conversation, "
                   "including any files posted by anyone; open a file path with Read "
@@ -3189,7 +3257,7 @@ class MessageBusTrigger:
                 # The label is shared with the module's unread list, which
                 # renders the SAME rows; only the shape differs (prefix here,
                 # sender field there). See SYSTEM_SENDER_LABEL.
-                lines.append(f"{SYSTEM_SENDER_LABEL} {msg.content}")
+                lines.append(f"{SYSTEM_SENDER_LABEL} {body_lines(msg.content)}")
                 continue
             sender = _sender(msg)
             # Who the line was AIMED at. `mentions` has always been on the
@@ -3201,12 +3269,13 @@ class MessageBusTrigger:
             targets = [m for m in (msg.mentions or []) if m]
             if targets:
                 named = [
-                    "you" if m == agent_id else member_map.get(m, m)
+                    "you" if m == agent_id else inline_field(member_map.get(m, m))
                     for m in targets
                 ]
-                addressed = f"  [→ {', '.join(named)}]"
-            lines.append(f"{sender}: {msg.content}{addressed}")
-            marker = build_bus_markers(msg.attachments, from_agent=sender)
+                addressed = f" [→ {', '.join(named)}]"
+            lines.append(f"{sender}{addressed}: {body_lines(msg.content)}")
+            # The marker encodes its own sender field, so it takes the raw name.
+            marker = build_bus_markers(msg.attachments, from_agent=_sender_raw(msg))
             if marker:
                 lines.append(marker)
 
@@ -3282,12 +3351,14 @@ class MessageBusTrigger:
                     # In a mixed batch neither label is true of the whole, so
                     # each line says which it is.
                     mark = (
-                        "  [no @mention — routed to you]"
+                        " [no @mention — routed to you]"
                         if (routed and not all_routed
                             and tm.routed_by == "default_responder")
                         else ""
                     )
-                    lines.append(f"- {_who(tm)}: {tm.content}{mark}")
+                    # Same row shape as the scrollback: the mark before the
+                    # colon, the body's later lines quoted under the row.
+                    lines.append(f"- {_who(tm)}{mark}: {body_lines(tm.content)}")
                 lines.append(tail)
         # Delivery mechanism — how words get INTO the room. TRUE ONLY when the
         # reply is a `message_team` call, i.e. NOT on a patrol turn: there the
@@ -3599,10 +3670,12 @@ class MessageBusTrigger:
 
         lines = ["[Message Bus - Incoming Messages]", ""]
         for msg in messages:
+            # The body is quoted whole: its lines can never read as another
+            # message's `From:` / `Time:` header.
             block = (
                 f"From: {msg.from_agent}\n"
                 f"Time: {msg.created_at}\n"
-                f"{msg.content}\n"
+                f"{quoted_block(msg.content)}\n"
             )
             marker = build_bus_markers(msg.attachments, from_agent=msg.from_agent)
             if marker:
