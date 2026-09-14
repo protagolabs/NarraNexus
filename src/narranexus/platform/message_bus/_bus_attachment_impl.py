@@ -461,17 +461,16 @@ def build_bus_markers(
     ``base_working_path`` + the stored base-relative ``rel_path`` (drift-tolerant,
     like ``instance_artifacts.file_path``). Empty/malformed input → "".
 
-    One marker is one line, and no field of it can be forged: the file name
-    and the transcript are written by a sender and are emitted as JSON string
-    literals by ``file_marker``, so they can neither start a row of the prompt
-    block the marker sits in (a scrollback `User: ...` line) nor close the
-    marker early. ``from_agent`` is printed as given: callers pass a handle or
-    an already-encoded label.
+    One marker is one line, and no field of it can be forged: ``file_marker``
+    emits every value (name, path, mime, kind, sender, transcript) as a JSON
+    string literal, so nothing can start a row of the prompt block the marker
+    sits in (a scrollback `User: ...` line) or close the marker early.
+    ``from_agent`` is the RAW sender (a handle or a display name), never a
+    pre-encoded label: ``file_marker`` encodes it.
     """
     if not attachments:
         return ""
     root = _base_root(_base(base))
-    origin = f" from agent {from_agent}" if from_agent else ""
     lines: List[str] = []
     for att in attachments:
         if not isinstance(att, dict):
@@ -483,11 +482,12 @@ def build_bus_markers(
         transcript = att.get("transcript")
         lines.append(
             file_marker(
-                f"Shared file{origin}",
+                "Shared file",
                 name=att.get("original_name"),
                 path=path,
                 mime=att.get("mime_type") or "application/octet-stream",
                 kind=att.get("category") or "file",
+                sender=from_agent,
                 # A voice memo: the spoken text is surfaced inline so the
                 # recipient agent reads it directly (it cannot listen).
                 transcript=transcript if isinstance(transcript, str) else None,

@@ -4,6 +4,17 @@ last_verified: 2026-09-13
 stub: false
 ---
 
+## 2026-09-13（PR#401 第八轮）— marker 正则取自渲染器语法、伪造 Content-Type
+
+- `_MARKER` 由 `attachment_schema` 导出的固定字面量（`FILE_MARKER_LABELS` / `FILE_MARKER_UNAVAILABLE_PATH` /
+  `FILE_MARKER_TAIL`）拼成，每个值位置都是 JSON 字面量：名字带冒号、路径带空格不会让 fullmatch 因无关原因失败
+  （`test_marker_path_with_spaces_and_sender_with_colon_parse` 钉住）。
+- `test_a_declared_content_type_cannot_forge_a_marker_field`：伪造值走**真实** `sniff_mime_type` 兜底路径
+  （认不出的字节 + 无扩展名 + 伪造 `client_type`），先断言返回的就是伪造串，再对两个渲染入口 fullmatch 并回解
+  mime；总线 dict 的 `category` 同时伪造。
+- 团队房附件 marker 的 `from=` 回解为伪造成员名原文。import 顺序整理（标准库并入顶部块）。
+- 回退证明：两个渲染器的 `mime` 去掉 `inline_literal` → 本文件 5 条 + `tests/utils/test_attachment_storage_format.py` 3 条红。
+
 ## 2026-09-13（PR#401 review 🟡1/🟡2/🟢3）— capabilities、marker 字段、无 token 退路
 
 - `_ROSTER_ROW` 扩到能 fullmatch **完整**行形态（`· can: "…", "…"[ +N more]` 与平台状态段），`_roster()` 里

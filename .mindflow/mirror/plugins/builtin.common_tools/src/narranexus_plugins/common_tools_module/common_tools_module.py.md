@@ -4,10 +4,9 @@ last_verified: 2026-09-13
 stub: false
 ---
 
-## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为 `name="..."`
+## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为真实形状
 
-marker 的文件名现在以 JSON 字面量出现（`attachment_schema.file_marker`），当前轮附件列表同样编码
-（`attachment_storage.format_attachments_for_system_prompt`），说明文字跟着改。
+marker 形状现在是 `[User uploaded file: name="…", path="…", mime="…", kind="…"[, transcript="…"] — use Read tool to view]`（`attachment_schema.file_marker`：每个值都是 JSON 字面量，kind 从 head 挪成字段），说明文字跟着改，并提示把 `path` 引号内的文本交给 Read。当前轮附件列表（`attachment_storage.format_attachments_for_system_prompt`）同一不变量：每个值都编码。
 
 ## 2026-08-18 — 指令里新增「Dates and Time Arithmetic」段
 

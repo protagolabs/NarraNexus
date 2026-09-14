@@ -3225,10 +3225,15 @@ class MessageBusTrigger:
         # BEFORE the colon where no body text can reach, and a multi-line body
         # continues on quoted lines (`body_lines`) that no row starts with.
         # `User` and the platform labels are constants, never quoted.
+        def _sender_raw(msg: BusMessage) -> str:
+            if msg.from_agent.startswith(USER_SENDER_PREFIX):
+                return "User"
+            return str(member_map.get(msg.from_agent, msg.from_agent))
+
         def _sender(msg: BusMessage) -> str:
             if msg.from_agent.startswith(USER_SENDER_PREFIX):
                 return "User"
-            return inline_field(member_map.get(msg.from_agent, msg.from_agent))
+            return inline_field(_sender_raw(msg))
 
         lines += ["", "Recent messages (oldest first) — the shared conversation, "
                   "including any files posted by anyone; open a file path with Read "
@@ -3269,7 +3274,8 @@ class MessageBusTrigger:
                 ]
                 addressed = f" [→ {', '.join(named)}]"
             lines.append(f"{sender}{addressed}: {body_lines(msg.content)}")
-            marker = build_bus_markers(msg.attachments, from_agent=sender)
+            # The marker encodes its own sender field, so it takes the raw name.
+            marker = build_bus_markers(msg.attachments, from_agent=_sender_raw(msg))
             if marker:
                 lines.append(marker)
 

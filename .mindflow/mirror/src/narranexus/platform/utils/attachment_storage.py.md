@@ -10,9 +10,11 @@ stub: false
   `_bus_attachment_impl._new_target` 共用）。小写、点后只留 `[a-z0-9_+-]`、上限 16 字符，什么都不剩则无后缀。
   原因：落盘路径会原样出现在 Read-tool marker 与当前轮附件列表里（agent 照抄的句柄），而 `sanitize_filename`
   只拦 NUL/分隔符/traversal，换行能进后缀。MIME 仍以索引里嗅探的为准，后缀只是提示。
-- `format_attachments_for_system_prompt` 的每行 `- name=…, type=…, mime=…, path=…[, transcript=…]` 是同一类行
-  语法：文件名与 transcript 改走 `inline_literal`（与 marker 同一编码器），一个带换行的文件名不能再多出一行
-  附件，`, path=` 也伪造不了字段。
+- `format_attachments_for_system_prompt` 的每行 `- name="…", type="…", mime="…", path="…"[, transcript="…"]` 是
+  marker 的同类行语法，适用同一不变量：**每个值都经 `inline_literal` 编码**，只有键名、`<unavailable>`（路径解析
+  失败）与 `transcript=<unavailable: …>`（平台固定提示）裸露。`mime_type` 可能回显外部声明的 Content-Type、
+  `category` 来自 WS payload 的普通字符串，都不例外。`mime.startswith("audio/")` 这类分支读的是原值，不受渲染影响。
+  import 顺序：`file_safety` 在 `inline_field` 之前。
 
 ## 2026-08-03 — `persist_attachment_bytes`:"bytes → Attachment" 的单一居所
 

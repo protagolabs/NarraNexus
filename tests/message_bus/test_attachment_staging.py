@@ -9,6 +9,7 @@ workspace escapes, and render Read-tool markers.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -156,8 +157,8 @@ def test_build_bus_markers_shape(tmp_path):
     marker = build_bus_markers(atts, from_agent="agent_x", base=str(tmp_path))
     assert "use Read tool" in marker
     assert 'name="report.pdf"' in marker
-    assert "from agent agent_x" in marker
-    assert str(tmp_path) in marker  # absolute path rebuilt from base
+    assert 'from="agent_x"' in marker
+    assert json.dumps(str(tmp_path))[:-1] in marker  # absolute path rebuilt from base
 
 
 def test_build_bus_markers_empty():

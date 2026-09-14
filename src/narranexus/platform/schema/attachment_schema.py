@@ -37,8 +37,6 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from narranexus.platform.utils.inline_field import inline_literal
-
 
 FILE_ID_PREFIX = "att_"
 FILE_ID_REGEX = r"^att_[a-z0-9]{8}$"
@@ -105,36 +103,59 @@ def derive_category_from_mime(mime_type: str) -> AttachmentCategory:
     return AttachmentCategory.OTHER
 
 
+#: The fixed opening words of a Read-tool marker: a user upload, a bus attachment.
+FILE_MARKER_LABELS = ("User uploaded file", "Shared file")
+#: The fixed closing words of a Read-tool marker.
+FILE_MARKER_TAIL = " — use Read tool to view]"
+#: Printed bare in place of the path literal when the file cannot be resolved.
+FILE_MARKER_UNAVAILABLE_PATH = "<unavailable>"
+
+
 def file_marker(
-    head: str,
+    label: str,
     *,
     name: Any,
-    path: str,
-    mime: str,
-    kind: Optional[str] = None,
+    path: Optional[str],
+    mime: Any,
+    kind: Any,
+    sender: Any = None,
     transcript: Any = None,
 ) -> str:
     """The one Read-tool marker line, shared by user uploads
     (`Attachment.synthesize_marker`) and bus attachments (`build_bus_markers`).
 
-    ``[<head>: name="<name>", path=<path>, mime=<mime>[, kind=<kind>][,
-    transcript="<transcript>"] — use Read tool to view]``
+    ``[<label>: name="…", path="…", mime="…", kind="…"[, from="…"][,
+    transcript="…"] — use Read tool to view]``
 
     The marker sits inside line-structured prompt blocks (chat history, a team
-    room's scrollback), so no author-written text may end a field early or
-    start a line. The file name and the transcript are written by an uploader
-    and are emitted as JSON string literals (`inline_literal`: never cut,
-    whitespace collapsed). ``path`` is a handle the agent passes verbatim to
-    Read and is printed as is; it is built by the platform from a base dir, a
-    file id and a sanitised suffix (`on_disk_suffix`). ``head``, ``mime`` and
-    ``kind`` are platform-built (``head`` may embed a label the caller already
-    encoded)."""
-    parts = [f"[{head}: name={inline_literal(name or '(unnamed)')}", f"path={path}", f"mime={mime}"]
-    if kind:
-        parts.append(f"kind={kind}")
+    room's scrollback), so nothing may end a field early or start a line.
+    Invariant: EVERY value is encoded with `inline_literal` (a JSON string
+    literal, never cut, whitespace collapsed); the only bare tokens are the
+    grammar's own fixed words: ``label`` (one of `FILE_MARKER_LABELS`), the
+    field keys, `FILE_MARKER_UNAVAILABLE_PATH` and `FILE_MARKER_TAIL`. No
+    field is trusted for being platform-built: the MIME type, for one, can be
+    a sender's declared Content-Type (`sniff_mime_type`'s last tier), and the
+    path decodes back with `json.loads` to exactly what Read takes.
+    ``sender`` is the raw sender name or handle, not a pre-encoded label."""
+    # Lazy import, like `resolve_attachment_path` below: the schema does not
+    # pull `platform.utils` (whose package init opens the db layer) at import
+    # time.
+    from narranexus.platform.utils.inline_field import inline_literal
+
+    if label not in FILE_MARKER_LABELS:
+        raise ValueError(f"unknown file marker label: {label!r}")
+    path_value = FILE_MARKER_UNAVAILABLE_PATH if path is None else inline_literal(path)
+    parts = [
+        f"[{label}: name={inline_literal(name or '(unnamed)')}",
+        f"path={path_value}",
+        f"mime={inline_literal(mime)}",
+        f"kind={inline_literal(kind)}",
+    ]
+    if sender:
+        parts.append(f"from={inline_literal(sender)}")
     if transcript is not None and str(transcript).strip():
         parts.append(f"transcript={inline_literal(transcript)}")
-    return ", ".join(parts) + " — use Read tool to view]"
+    return ", ".join(parts) + FILE_MARKER_TAIL
 
 
 class Attachment(BaseModel):
@@ -147,7 +168,10 @@ class Attachment(BaseModel):
 
     mime_type: str = Field(
         ...,
-        description="Server-sniffed MIME type (do not trust client Content-Type).",
+        description=(
+            "Server-sniffed MIME type. The last sniff tier falls back to the "
+            "client- or platform-declared Content-Type, so treat it as untrusted text."
+        ),
     )
 
     original_name: str = Field(
@@ -225,14 +249,12 @@ class Attachment(BaseModel):
         )
 
         path = resolve_attachment_path(agent_id, user_id, self.file_id)
-        path_str = str(path) if path is not None else "<unavailable>"
-        kind = self.category.value
-
         return file_marker(
-            f"User uploaded {kind}",
+            "User uploaded file",
             name=self.original_name,
-            path=path_str,
+            path=None if path is None else str(path),
             mime=self.mime_type,
+            kind=self.category.value,
             transcript=self.transcript,
         )
 

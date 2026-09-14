@@ -7,7 +7,7 @@ stub: false
 ## 2026-09-13（PR#401 review）— roster capabilities 编码、marker 单一来源、无 token 退路
 
 见下方 2026-09-11 段的不变量表（已按本轮改动原地更新）：`· can:` 的每个 capability 是标签；附件 marker
-改由 `attachment_schema.file_marker` 统一渲染，文件名/transcript 为字面量；没有唯一 @token 的成员给出
+改由 `attachment_schema.file_marker` 统一渲染，marker 内每个值（含 path/mime/kind/发送者）都是字面量；没有唯一 @token 的成员给出
 `@all` / `message_agent` 退路。编码器迁到 `platform.utils.inline_field`。
 
 ## 2026-09-11（PR#401 同类扫描）— 团队房 prompt 的行语法按构造不可伪造
@@ -35,7 +35,7 @@ stub: false
 | 团队共享目录 / `message_team(team_id=…)` 提示 | 单行 | 目录由 `team_shared_dir(owner, team_id)` 平台拼成；`team_id` 为系统句柄 |
 | 巡查停滞列表 | `- "title" ("assignee")` | 标签 |
 | scrollback | `<sender>[ [→ names]]: <body>` | 发送者、被点名者 → 标签（`User`/`[system]` 为平台常量不加引号）；`[→ …]` 移到**冒号前**（正文够不着）；正文 → `body_lines`。`[system]` 行正文同样 `body_lines` |
-| 附件 marker `build_bus_markers` → `attachment_schema.file_marker` | `[Shared file from agent <who>: name="…", path=…, mime=…, kind=…[, transcript="…"] — use Read tool to view]` 一行 | `who` 由调用方传入（团队房传已编码标签，DM 传句柄）；文件名与 transcript → 不截断的标签（`inline_literal`）；`path` 句柄原样，由平台拼成且后缀经 `on_disk_suffix` 清洗；`mime`（服务端嗅探）/`kind`（由 mime 派生的枚举）平台构造。用户上传 marker 走同一函数 |
+| 附件 marker `build_bus_markers` → `attachment_schema.file_marker` | `[Shared file: name="…", path="…", mime="…", kind="…", from="…"[, transcript="…"] — use Read tool to view]` 一行 | **每个值**（文件名、path、mime、kind、发送者、transcript）都经 `inline_literal` 编码，只有 `Shared file`、键名与结尾是固定字面量；发送者传原始名字（团队房 `_sender_raw`，DM 传句柄）由 `file_marker` 自己编码。用户上传 marker 走同一函数 |
 | 指向行 `You were just @mentioned by <who>` / 批次列表 `- <who>[ [no @mention — routed to you]]: <body>` | 同 scrollback | `_who` → `_sender`（标签）；平台触发的 `_platform_trigger_label` 是平台常量，不加引号；routed 标记移到冒号前；正文 → `body_lines` |
 | peer 私聊 `_build_prompt` | `From: <id>` / `Time: <ts>` / 正文 | `From` 为系统句柄、`Time` 为平台时间戳；正文 → `quoted_block`，不能伪造另一条消息的 `From:`/`Time:` 头；附件 marker 同上 |
 
@@ -46,11 +46,10 @@ stub: false
 （`message_team` 没有按 id 点名的参数，`message_agent(to=<id>)` 按行首 id 私聊）；表头明说「照抄 @token，不要带引号」。解析器口径未改，前端 `mentionPattern.ts`
 仍与之一致。
 
-**逐字段清单口径（2026-09-13 重扫）**：对 `_build_team_prompt` 及子块、`_build_prompt` 里每个插值逐一核过
-（`git grep -n 'f"' message_bus_trigger.py` 在这些函数内的全部命中）：作者可影响的字段只有名字、描述、
-capabilities、标题、负责人、署名、消息/规则正文、摘要、文件名、transcript，全部在上表；其余插值均为平台构造
-（id/句柄、`status` 白名单、`_member_status`、时间戳、目录、计数、平台常量标签、mime/kind）。表内不变量对
-「同一行里的字段」同样成立，包括 marker 内部。
+**口径（2026-09-13 第八轮收口）**：附件 marker 不再维护「逐字段出处」清单——那种清单每轮都会漏一格
+（上一轮漏的是 `mime`：`sniff_mime_type` 最后一层回显外部声明的 Content-Type）。marker 与当前轮附件列表的规则是
+「每个值都编码，只有语法固定字面量裸露」，按构造成立，与字段来自哪里无关。其它块（roster、工作板等）的
+作者可写字段仍按上表处理；`status` 白名单、`_member_status`、时间戳、计数这类取值集合封闭的平台值不加引号。
 
 **明确不纳入**：团队 `description` / `intro_md`——owner 在管理 UI 写的散文（`intro_md` 按设计是多行
 markdown），owner 就是这个 prompt 的委托方，不存在跨主体伪造。

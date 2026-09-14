@@ -52,11 +52,11 @@ from narranexus.platform.schema.attachment_schema import (
     FILE_ID_PREFIX,
     FILE_ID_REGEX,
 )
-from narranexus.platform.utils.inline_field import inline_literal
 from narranexus.platform.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
 )
+from narranexus.platform.utils.inline_field import inline_literal
 
 
 _FILE_ID_REGEX_C = re.compile(FILE_ID_REGEX)
@@ -274,19 +274,24 @@ def format_attachments_for_system_prompt(
         if not isinstance(att, dict):
             continue
         file_id = att.get("file_id", "")
-        # The name and transcript are an uploader's text: literals, so they
-        # cannot start another row of this list or forge a field of this one
-        # (same encoder as the Read-tool marker, `file_marker`).
-        name = inline_literal(att.get("original_name") or att.get("name") or "(unnamed)")
+        # Every value is a JSON string literal (the Read-tool marker's encoder,
+        # `file_marker`); only the keys and `<unavailable...>` are bare. No
+        # field is trusted for looking platform-built: `mime_type` can be a
+        # sender's declared Content-Type and `category` arrives as a plain
+        # string from a WS payload or JSON memory.
+        name = att.get("original_name") or att.get("name") or "(unnamed)"
         mime = att.get("mime_type") or "application/octet-stream"
-        # `category` may be a plain string (WS payload, JSON memory) or an
-        # AttachmentCategory enum (Pydantic model_dump without mode=json).
+        # `category` may also be an AttachmentCategory enum (Pydantic
+        # model_dump without mode=json).
         category = att.get("category") or "file"
         if hasattr(category, "value"):
             category = category.value
         path = resolve_attachment_path(agent_id, user_id, file_id)
-        path_str = str(path) if path is not None else "<unavailable>"
-        line = f"- name={name}, type={category}, mime={mime}, path={path_str}"
+        path_str = inline_literal(path) if path is not None else "<unavailable>"
+        line = (
+            f"- name={inline_literal(name)}, type={inline_literal(category)}, "
+            f"mime={inline_literal(mime)}, path={path_str}"
+        )
         transcript = att.get("transcript")
         if isinstance(transcript, str) and transcript.strip():
             line += f", transcript={inline_literal(transcript)}"

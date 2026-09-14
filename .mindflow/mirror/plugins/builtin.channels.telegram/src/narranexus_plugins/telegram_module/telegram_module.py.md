@@ -4,9 +4,9 @@ stub: false
 last_verified: 2026-09-13
 ---
 
-## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为 `name="..."`
+## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为真实形状
 
-marker 的文件名现在以 JSON 字面量出现（`attachment_schema.file_marker`），说明文字跟着改。
+marker 形状现在是 `[User uploaded file: name="…", path="…", mime="…", kind="…"[, transcript="…"] — use Read tool to view]`（`attachment_schema.file_marker`：每个值都是 JSON 字面量，kind 从 head 挪成字段），说明文字跟着改，并提示把 `path` 引号内的文本交给 Read。
 
 ## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
 
@@ -116,7 +116,7 @@ not the abstraction failing.
   ``raw["attachment_refs"]``; ``fetch_attachments`` downloads bytes
   via ``download_file`` and persists them through ``_persist_attachment``
   on the base. The instruction text now explains the
-  ``[User uploaded <kind>: ...path=... transcript=...]`` marker shape
+  ``[User uploaded <kind>: ...path=... transcript=...]`` marker shape (superseded — current shape in the 2026-09-13 entry)
   so the agent uses the built-in ``Read`` tool against the absolute
   path (multimodal — returns PDF / image content blocks natively).
   Stickers / locations / contacts / polls remain ignored. **Keeping

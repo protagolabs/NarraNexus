@@ -4,13 +4,13 @@ last_verified: 2026-09-13
 stub: false
 ---
 
-## 2026-09-13（PR#401 review 🟡2）— marker 改走 `file_marker`，落盘后缀清洗
+## 2026-09-13（PR#401 review 🟡2 → 第八轮）— marker 改走 `file_marker`，所有值编码，落盘后缀清洗
 
-`build_bus_markers` 不再自己拼 marker，改调 `attachment_schema.file_marker`（与用户上传同一函数，docstring
-里「同形」这句现在按构造成立）；文件名与 transcript 以 JSON 字面量出现，同一行内的字段也伪造不了（上一版只
-折叠空白，`, ` / `=` / `]` 仍对作者开放）。marker 里唯一原样打印的是 `path`，而它的后缀来自作者的文件名
-（`store_bytes_into_bus` 取 `original_name`，`_stage_into` 取工作区文件名）——`_new_target` 现在收文件名并过
-`on_disk_suffix`，换行/空格/逗号进不了落盘路径。按 id 解析共享文件的 glob 同时匹配有后缀和无后缀，不受影响。
+`build_bus_markers` 不再自己拼 marker，改调 `attachment_schema.file_marker`（与用户上传同一函数）。marker 里
+**每个值**——文件名、path、mime、kind、发送者、transcript——都是 JSON 字面量，只有 `Shared file`、键名和结尾是
+固定字面量；`mime_type` 可能是外部声明的 Content-Type，`category` 来自 dict，都不被当成可信平台值。
+`from_agent` 现在是**原始**发送者（句柄或显示名），由 `file_marker` 编码成 `from="…"`，调用方不再预编码。
+`_new_target` 收文件名并过 `on_disk_suffix`，换行/空格/逗号进不了落盘路径（纵深防御，不是这一行安全性的前提）。
 
 ## 2026-09-11（PR#401）— `build_bus_markers` 一个 marker 只占一行
 

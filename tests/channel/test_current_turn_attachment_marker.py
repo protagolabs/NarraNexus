@@ -75,7 +75,8 @@ def test_markers_from_dicts_renders_one_marker_per_valid_entry(monkeypatch):
     assert "att_first" in lines[0]
     assert "att_second" in lines[1]
     for line in lines:
-        assert line.startswith("[User uploaded image:")
+        assert line.startswith("[User uploaded file:")
+        assert 'kind="image"' in line
         assert line.endswith("use Read tool to view]")
 
 
