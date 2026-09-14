@@ -309,7 +309,9 @@ _SLACK_IRON_RULES = """\
         mime="application/pdf", kind="document" — use Read tool to view]
 
    - To VIEW the file, call your built-in `Read` tool against the
-     absolute `path=` shown in the marker (the text inside its quotes).
+     absolute `path=` shown in the marker. The value is a JSON string:
+     for an ordinary path it is just the text inside its quotes; if it
+     contains escapes (`\\"`, `\\\\`, `\\t`, `\\n`), decode them first.
      Read is multimodal —
      PDFs and images return native content blocks; text / code / data
      files return their text contents.

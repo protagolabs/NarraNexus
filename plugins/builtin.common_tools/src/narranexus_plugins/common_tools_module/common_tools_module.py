@@ -101,7 +101,8 @@ two things happen:
 
 1. The conversation message itself carries a marker like
    `[User uploaded file: name="...", path="/abs/path/...", mime="...", kind="..." — use Read tool to view]`
-   (every value is a quoted string; pass the text inside the `path` quotes to Read).
+   (every value is a JSON string; for an ordinary path pass the text inside the
+   `path` quotes to Read, and decode any escapes such as `\\"`, `\\\\`, `\\t`, `\\n` first).
 2. If the upload happened on the *current* turn, this instruction gains a
    `## Files attached to the current message` block listing the same paths.
 
