@@ -201,7 +201,7 @@ _TELEGRAM_IRON_RULES = """\
    (PDF / DOCX / TXT / CSV / ...), photos (JPG / PNG / ...), audio /
    voice memos, and videos. Each file is downloaded to the agent's
    workspace and surfaced in the chat history as a
-   ``[User uploaded <kind>: name=..., path=/.../att_XXXXXXXX.<ext>,
+   ``[User uploaded <kind>: name="...", path=/.../att_XXXXXXXX.<ext>,
    mime=..., — use Read tool to view]`` marker.
 
    - To VIEW an uploaded file, call your built-in ``Read`` tool against

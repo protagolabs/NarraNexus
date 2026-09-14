@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.channels.telegram/src/narranexus_plugins/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-13
 ---
+
+## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为 `name="..."`
+
+marker 的文件名现在以 JSON 字面量出现（`attachment_schema.file_marker`），说明文字跟着改。
 
 ## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
 

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/message_bus/team_posting.py
-last_verified: 2026-09-11
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟢5）— `_MENTION_TOKEN` 收成 `\w+`
+
+str 模式下 `\w` 已是 Unicode（含 CJK 表意文字及扩展区、假名等），原来的 `[\w一-鿿]` 并集就等于 `\w`，行为
+不变，只去掉一个会被照抄的不完整 CJK 区间。前端 `mentionPattern.ts` **不改**：JS 的 `\w` 只是 ASCII，那边
+的显式区间是必要的；后端集合是前端的超集（这个口径差本来就存在，不是本次引入）。
 
 ## 2026-09-11（PR#401）— `mention_token`：roster 显示的 @token 由解析器本身回验
 

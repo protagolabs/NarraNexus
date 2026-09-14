@@ -33,9 +33,11 @@ Active fields populated outside MVP:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from narranexus.platform.utils.inline_field import inline_literal
 
 
 FILE_ID_PREFIX = "att_"
@@ -101,6 +103,38 @@ def derive_category_from_mime(mime_type: str) -> AttachmentCategory:
     ):
         return AttachmentCategory.CODE
     return AttachmentCategory.OTHER
+
+
+def file_marker(
+    head: str,
+    *,
+    name: Any,
+    path: str,
+    mime: str,
+    kind: Optional[str] = None,
+    transcript: Any = None,
+) -> str:
+    """The one Read-tool marker line, shared by user uploads
+    (`Attachment.synthesize_marker`) and bus attachments (`build_bus_markers`).
+
+    ``[<head>: name="<name>", path=<path>, mime=<mime>[, kind=<kind>][,
+    transcript="<transcript>"] — use Read tool to view]``
+
+    The marker sits inside line-structured prompt blocks (chat history, a team
+    room's scrollback), so no author-written text may end a field early or
+    start a line. The file name and the transcript are written by an uploader
+    and are emitted as JSON string literals (`inline_literal`: never cut,
+    whitespace collapsed). ``path`` is a handle the agent passes verbatim to
+    Read and is printed as is; it is built by the platform from a base dir, a
+    file id and a sanitised suffix (`on_disk_suffix`). ``head``, ``mime`` and
+    ``kind`` are platform-built (``head`` may embed a label the caller already
+    encoded)."""
+    parts = [f"[{head}: name={inline_literal(name or '(unnamed)')}", f"path={path}", f"mime={mime}"]
+    if kind:
+        parts.append(f"kind={kind}")
+    if transcript is not None and str(transcript).strip():
+        parts.append(f"transcript={inline_literal(transcript)}")
+    return ", ".join(parts) + " — use Read tool to view]"
 
 
 class Attachment(BaseModel):
@@ -194,14 +228,13 @@ class Attachment(BaseModel):
         path_str = str(path) if path is not None else "<unavailable>"
         kind = self.category.value
 
-        parts = [
-            f"[User uploaded {kind}: name={self.original_name}",
-            f"path={path_str}",
-            f"mime={self.mime_type}",
-        ]
-        if self.transcript:
-            parts.append(f"transcript={self.transcript}")
-        return ", ".join(parts) + " — use Read tool to view]"
+        return file_marker(
+            f"User uploaded {kind}",
+            name=self.original_name,
+            path=path_str,
+            mime=self.mime_type,
+            transcript=self.transcript,
+        )
 
     @staticmethod
     def markers_from_dicts(

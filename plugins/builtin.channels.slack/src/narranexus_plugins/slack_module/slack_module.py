@@ -304,7 +304,7 @@ _SLACK_IRON_RULES = """\
    downloaded to the agent's workspace. You will see a marker in the
    chat history like:
 
-       [User uploaded <kind>: name=foo.pdf,
+       [User uploaded <kind>: name="foo.pdf",
         path=/.../user_upload_files/2026-MM-DD/att_XXXXXXXX.pdf,
         mime=application/pdf — use Read tool to view]
 

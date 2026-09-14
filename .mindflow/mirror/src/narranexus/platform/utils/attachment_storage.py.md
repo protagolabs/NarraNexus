@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/utils/attachment_storage.py
-last_verified: 2026-09-04
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2 同类）— `on_disk_suffix` 与当前轮附件列表编码
+
+- `on_disk_suffix(filename)`：落盘扩展名的唯一来源（本文件 `store_uploaded_attachment` 与总线
+  `_bus_attachment_impl._new_target` 共用）。小写、点后只留 `[a-z0-9_+-]`、上限 16 字符，什么都不剩则无后缀。
+  原因：落盘路径会原样出现在 Read-tool marker 与当前轮附件列表里（agent 照抄的句柄），而 `sanitize_filename`
+  只拦 NUL/分隔符/traversal，换行能进后缀。MIME 仍以索引里嗅探的为准，后缀只是提示。
+- `format_attachments_for_system_prompt` 的每行 `- name=…, type=…, mime=…, path=…[, transcript=…]` 是同一类行
+  语法：文件名与 transcript 改走 `inline_literal`（与 marker 同一编码器），一个带换行的文件名不能再多出一行
+  附件，`, path=` 也伪造不了字段。
 
 ## 2026-08-03 — `persist_attachment_bytes`:"bytes → Attachment" 的单一居所
 

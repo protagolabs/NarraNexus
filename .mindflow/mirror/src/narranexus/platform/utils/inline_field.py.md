@@ -1,15 +1,26 @@
 ---
-code_file: src/narranexus/platform/message_bus/inline_field.py
-last_verified: 2026-09-11
+code_file: src/narranexus/platform/utils/inline_field.py
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2/🟢4）— 迁到 `platform.utils`，新增 `inline_literal`
+
+文件从 `platform/message_bus/` 迁到 `platform/utils/`：附件 marker 的唯一渲染函数
+`attachment_schema.file_marker` 也要用这个编码器，而 schema 层不能 import 总线包（`message_bus/__init__`
+会拉起 trigger/service）。utils 在 trigger、插件、schema 之下，三方共用同一份定义。
+
+新增 `inline_literal(value)`：与 `inline_field` 标签形态相同的 JSON 字面量（折叠空白、换反引号），但
+**不截断**——用于读者需要完整内容的作者文本（文件名、语音转写），截断会丢内容。`inline_field` 的标签
+分支与它共用 `_flatten`。`body_lines` 的 docstring 改为 raw string，`\r` / `\u2028` 不再被编译成真的
+控制字符。
 
 # inline_field — 行语法 prompt 块里作者可写文本的唯一编码器
 
 ## 为什么存在
 
 好几个 prompt 块是「行语法」：插件 [[../../../../plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/message_bus_module]]
-的未读列表 / Known Agents / Your teams，以及 [[message_bus_trigger]] 的团队房成员名单、工作板、
+的未读列表 / Known Agents / Your teams，以及 [[../message_bus/message_bus_trigger]] 的团队房成员名单、工作板、
 巡查停滞列表、公告栏署名。每行混着两种东西：agent 要原样抄进工具调用的**句柄**（agent/team/item id），
 和 agent 或 owner 自己写的**标签**（名字、描述、标题）。标签里一个换行、反引号或该行语法的分隔符
 就能伪造一行或一个字段。逐个字符类补洞永远补不完，所以按构造保证不可伪造。
@@ -34,5 +45,5 @@ stub: false
 以 `BODY_LINE_PREFIX`（`"  > "`）引用；`quoted_block` 连首行一起引用（用于没有独立行头、挂在表头下的
 整段）。任何行语法块的行都不以该前缀开头，所以正文里的 `User: …`、`- [open] …`、`2. …` 只能读作
 所属行的续行。按 `splitlines` 切分（含 `\r`、`\u2028` 等），空续行保留裸 `>`。2026-09-11 从插件
-`_unread_body` 迁出，插件未读列表与平台 trigger 共用。使用处的完整清单见 [[message_bus_trigger]] 的
+`_unread_body` 迁出，插件未读列表与平台 trigger 共用。使用处的完整清单见 [[../message_bus/message_bus_trigger]] 的
 「不变量的覆盖范围」表。

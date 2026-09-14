@@ -57,7 +57,7 @@ from narranexus.platform.message_bus.delivery_notice import (
     announce_undelivered,
 )
 from narranexus.platform.message_bus.multipart import assemble as assemble_parts
-from narranexus.platform.message_bus.inline_field import (
+from narranexus.platform.utils.inline_field import (
     INLINE_DESCRIPTION_MAX_CHARS,
     body_lines,
     inline_field,
@@ -2895,17 +2895,20 @@ class MessageBusTrigger:
         A roster that gave display names only forced the model to guess a
         mapping between two surfaces, so the two now read alike — through the
         same encoder (`inline_field`). A member's name and description are
-        written by an agent or its owner; printed raw, a newline or a ``: `` /
+        written by an agent or its owner, and a capability token can be a
+        marketplace skill id from a publisher's manifest; printed raw, a
+        newline or a ``: `` /
         `` · `` inside one could forge another member row, a Leader marker or a
         status. Encoded, they are JSON string literals that cannot leave their
-        field. The id is a handle: never cut, never quoted. The description is
+        field (each capability token is its own literal). The id is a handle: never cut, never quoted. The description is
         capped at ``INLINE_DESCRIPTION_MAX_CHARS``, the same cap Known Agents
         uses, so one member reads the same on both surfaces.
 
         A quoted name is not what the @mention parser reads (it takes a bare
         ``@word``), so each row also shows the member's exact mention token
         (`mention_token`, checked against the parser itself), or says the name
-        has none. Without it an agent copying the name writes ``@"Ana"`` and
+        has none and names what does reach that member (@all, or message_agent
+        with the row's id). Without it an agent copying the name writes ``@"Ana"`` and
         the mention resolves to nobody, silently.
 
         The agent's OWN row is included and marked. Leaving yourself off the
@@ -2939,7 +2942,14 @@ class MessageBusTrigger:
             rid = r.get("agent_id", "")
             line = f"- `{inline_field(rid, None)}` — {inline_field(r.get('name') or rid)}"
             token = mention_token(str(rid), member_map)
-            line += f" @{token}" if token else " (no @mention token)"
+            # No token wakes this member alone, so say what does reach them
+            # instead of leaving a dead end: @all wakes the room, and
+            # message_agent takes the id printed at the start of this row.
+            line += (
+                f" @{token}" if token
+                else " (no @mention token — @all reaches everyone; message_agent "
+                "with the id above reaches them alone)"
+            )
             if rid == agent_id:
                 line += " (you)"
             if rid and rid == lead_agent_id:
@@ -2950,8 +2960,11 @@ class MessageBusTrigger:
                 # cap: one member described two ways on two surfaces is how a
                 # reader learns to distrust both.
                 line += f": {inline_field(desc, INLINE_DESCRIPTION_MAX_CHARS)}"
+            # Capability tokens include marketplace skill ids, which come from a
+            # publisher's manifest unchecked: labels, so a token cannot start a
+            # row or forge a ` · Leader` / status field on this one.
             all_caps = [str(c) for c in (r.get("capabilities") or [])]
-            caps = all_caps[:6]
+            caps = [inline_field(c) for c in all_caps[:6]]
             if caps:
                 more = f" +{len(all_caps) - len(caps)} more" if len(all_caps) > len(caps) else ""
                 line += f" · can: {', '.join(caps)}{more}"

@@ -100,7 +100,7 @@ When the user attaches a file (image, PDF, document, code, data — anything),
 two things happen:
 
 1. The conversation message itself carries a marker like
-   `[User uploaded <kind>: name=..., path=/abs/path/..., mime=... — use Read tool to view]`.
+   `[User uploaded <kind>: name="...", path=/abs/path/..., mime=... — use Read tool to view]`.
 2. If the upload happened on the *current* turn, this instruction gains a
    `## Files attached to the current message` block listing the same paths.
 

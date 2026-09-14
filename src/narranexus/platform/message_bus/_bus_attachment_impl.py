@@ -42,12 +42,12 @@ from typing import List, NamedTuple, Optional
 
 from loguru import logger
 
-from narranexus.platform.message_bus.inline_field import inline_field
 from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
-from narranexus.platform.schema.attachment_schema import derive_category_from_mime
+from narranexus.platform.schema.attachment_schema import derive_category_from_mime, file_marker
 from narranexus.platform.utils.attachment_storage import (
     generate_file_id,
     is_valid_file_id,
+    on_disk_suffix,
     resolve_attachment_path,
 )
 from narranexus.platform.utils.file_safety import ensure_within_directory
@@ -155,11 +155,15 @@ def _bus_att_dict(target: Path, base: str, *, original_name: str, mime: str) -> 
     }
 
 
-def _new_target(dest_dir: Path, suffix: str) -> Path:
-    """Fresh ``{file_id}{suffix}`` path inside ``dest_dir`` (dir created)."""
+def _new_target(dest_dir: Path, filename: str) -> Path:
+    """Fresh ``{file_id}{suffix}`` path inside ``dest_dir`` (dir created). The
+    suffix is ``on_disk_suffix(filename)``: the path is printed verbatim in the
+    Read-tool marker, so no character of an author's file name reaches it
+    unsanitised."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     file_id = generate_file_id()
-    on_disk_name = f"{file_id}{suffix.lower()}" if suffix else file_id
+    suffix = on_disk_suffix(filename)
+    on_disk_name = f"{file_id}{suffix}" if suffix else file_id
     return ensure_within_directory(dest_dir, on_disk_name, label="bus attachment")
 
 
@@ -171,7 +175,7 @@ async def _stage_into(src: Path, dest_dir: Path, base: str, *, original_name: st
     cross-device ``shutil.copy2`` fallback can move tens of MB and must not
     block the event loop the caller (route / MCP tool) runs on.
     """
-    target = _new_target(dest_dir, src.suffix)
+    target = _new_target(dest_dir, src.name)
     await asyncio.to_thread(_link_or_copy, src, target)
     return _bus_att_dict(target, base, original_name=original_name, mime=_sniff_mime(original_name or src.name))
 
@@ -196,8 +200,7 @@ async def store_bytes_into_bus(
     """
     base = _base(base)
     dest_dir = bus_files_dir(user_id, base) / _today_str()
-    suffix = Path(original_name or "").suffix
-    target = _new_target(dest_dir, suffix)
+    target = _new_target(dest_dir, original_name or "")
     await asyncio.to_thread(target.write_bytes, raw_bytes)
     return _bus_att_dict(target, base, original_name=original_name or target.name, mime=mime_type)
 
@@ -452,18 +455,18 @@ def build_bus_markers(
 ) -> str:
     """Render bus-attachment dicts as newline-joined Read-tool markers.
 
-    Same shape as ``Attachment.synthesize_marker`` so recipient behaviour is
-    uniform with user-uploaded files — the agent sees an absolute path and a
+    Rendered by ``file_marker``, the renderer ``Attachment.synthesize_marker``
+    uses too, so recipient behaviour is uniform with user-uploaded files — the agent sees an absolute path and a
     ``use Read tool`` instruction. The absolute path is rebuilt from
     ``base_working_path`` + the stored base-relative ``rel_path`` (drift-tolerant,
     like ``instance_artifacts.file_path``). Empty/malformed input → "".
 
-    One marker is one line. The file name and the transcript are written by a
-    sender and may carry newlines, which would let them start a row of the
-    prompt block the marker sits in (a scrollback `User: ...` line), so their
-    whitespace is collapsed. Their text is otherwise kept as is — the marker's
-    inner shape is shared with the user-upload marker. ``from_agent`` is
-    printed as given: callers pass a handle or an already-encoded label.
+    One marker is one line, and no field of it can be forged: the file name
+    and the transcript are written by a sender and are emitted as JSON string
+    literals by ``file_marker``, so they can neither start a row of the prompt
+    block the marker sits in (a scrollback `User: ...` line) nor close the
+    marker early. ``from_agent`` is printed as given: callers pass a handle or
+    an already-encoded label.
     """
     if not attachments:
         return ""
@@ -477,17 +480,19 @@ def build_bus_markers(
         if not rel:
             continue
         path = str((root / rel).resolve())
-        name = inline_field(att.get("original_name"), None) or "(unnamed)"
-        mime = att.get("mime_type") or "application/octet-stream"
-        kind = att.get("category") or "file"
-        marker = f"[Shared file{origin}: name={name}, path={path}, mime={mime}, kind={kind}"
         transcript = att.get("transcript")
-        if isinstance(transcript, str) and transcript.strip():
-            # A voice memo — surface the spoken text inline so the recipient
-            # agent reads it directly (it cannot listen to the audio).
-            marker += f", transcript={inline_field(transcript, None)}"
-        marker += " — use Read tool to view]"
-        lines.append(marker)
+        lines.append(
+            file_marker(
+                f"Shared file{origin}",
+                name=att.get("original_name"),
+                path=path,
+                mime=att.get("mime_type") or "application/octet-stream",
+                kind=att.get("category") or "file",
+                # A voice memo: the spoken text is surfaced inline so the
+                # recipient agent reads it directly (it cannot listen).
+                transcript=transcript if isinstance(transcript, str) else None,
+            )
+        )
     return "\n".join(lines)
 
 

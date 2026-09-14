@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.common_tools/src/narranexus_plugins/common_tools_module/common_tools_module.py
-last_verified: 2026-09-04
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401）— 指令里的附件 marker 形状同步为 `name="..."`
+
+marker 的文件名现在以 JSON 字面量出现（`attachment_schema.file_marker`），当前轮附件列表同样编码
+（`attachment_storage.format_attachments_for_system_prompt`），说明文字跟着改。
 
 ## 2026-08-18 — 指令里新增「Dates and Time Arithmetic」段
 

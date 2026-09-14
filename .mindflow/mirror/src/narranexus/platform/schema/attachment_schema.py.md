@@ -1,8 +1,22 @@
 ---
 code_file: src/narranexus/platform/schema/attachment_schema.py
-last_verified: 2026-07-09
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2）— `file_marker`：Read-tool marker 的唯一渲染函数
+
+用户上传 marker（`Attachment.synthesize_marker`）与总线附件 marker（`_bus_attachment_impl.build_bus_markers`）
+原来是两份拷贝且已分叉（总线侧折了空白、用户侧没折，却有 docstring 声称两边同形）。现在两边都调模块级
+`file_marker(head, *, name, path, mime, kind=None, transcript=None)`，形状
+`[<head>: name="…", path=…, mime=…[, kind=…][, transcript="…"] — use Read tool to view]`。
+
+- 文件名、transcript 是上传者写的 → `inline_literal`（JSON 字面量、不截断）：不能另起一行，也不能在同一行里
+  提前闭合 marker 或伪造 `path=` 等字段。
+- `path` 是 agent 原样喂给 Read 的句柄 → 原样打印；它由平台用 base 目录 + file_id + 清洗过的后缀
+  （`attachment_storage.on_disk_suffix`）拼成，作者够不着。
+- `head` / `mime` / `kind` 平台构造（`head` 可能嵌入调用方已编码的标签）。transcript 只在去空白后非空时出现
+  （两边口径统一）。IM 渠道与 WS chat 共用的 `markers_from_dicts` 因此同样受益。
 
 ## 2026-07-09 — `Attachment.markers_from_dicts` staticmethod added
 

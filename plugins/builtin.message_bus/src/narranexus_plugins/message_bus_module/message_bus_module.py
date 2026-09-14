@@ -45,7 +45,7 @@ from narranexus.platform.schema import (
     WorkingSource,
     is_agent_description_unset,
 )
-from narranexus.platform.message_bus.inline_field import (
+from narranexus.platform.utils.inline_field import (
     INLINE_DESCRIPTION_MAX_CHARS,
     body_lines,
     inline_field,

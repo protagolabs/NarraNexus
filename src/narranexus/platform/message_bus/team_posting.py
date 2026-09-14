@@ -94,8 +94,11 @@ MAX_TEAM_AGENT_HOPS = _resolve_hop_cap()
 
 #: One @mention token as `extract_team_mentions` reads it. Shared with the
 #: roster's `mention_token`, so the token the prompt shows is one the parser
-#: takes.
-_MENTION_TOKEN = re.compile(r"[\w一-鿿]+")
+#: takes. In a str pattern `\w` is Unicode-aware and already matches CJK
+#: ideographs (and every other letter or digit), so no explicit range is
+#: needed. The frontend `mentionPattern.ts` keeps its explicit CJK range
+#: because a JS `\w` is ASCII-only; the backend set is a superset of it.
+_MENTION_TOKEN = re.compile(r"\w+")
 
 
 def extract_team_mentions(text: str, member_map: Dict[str, str]) -> List[str]:

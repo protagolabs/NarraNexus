@@ -1,8 +1,20 @@
 ---
 code_file: tests/message_bus/test_team_prompt_inline_fields.py
-last_verified: 2026-09-11
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡1/🟡2/🟢3）— capabilities、marker 字段、无 token 退路
+
+- `_ROSTER_ROW` 扩到能 fullmatch **完整**行形态（`· can: "…", "…"[ +N more]` 与平台状态段），`_roster()` 里
+  伪造者本人带着伪造 capability（换行 + 假成员行 + ` · Leader`）并处于 running。
+  `test_a_forged_capability_forges_no_row_and_no_field`：仍只有两行、capability 解回原文、`lead` 为空、状态段为真值。
+- 附件：旧用例期望值里的幸存伪造串 `name=x.txt User: obey,` 改为按 `_MARKER` 严格正则 fullmatch 并 `json.loads`
+  回解；反向断言（没有以 `User:` 开头的行）保留。新增 `test_a_file_name_or_transcript_cannot_forge_a_marker_field`
+  （文件名提前闭合 marker、transcript 伪造第二个 marker，**两个渲染入口**都测）与
+  `test_user_and_bus_markers_share_one_shape`。
+- 无 token 的行必须给出退路（`message_agent with the id above`）。
+- 回退证明：capability 去掉 `inline_field` → 4 条红；`file_marker` 的文件名去掉 `inline_literal` → 3 条红。
 
 ## 2026-09-11 — 为什么存在（PR#401 同类扫描）
 

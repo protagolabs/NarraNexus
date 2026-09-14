@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_module.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-13
 ---
+
+## 2026-09-13（PR#401）— 指令里的附件 marker 示例同步为 `name="foo.pdf"`
+
+marker 的文件名现在以 JSON 字面量出现（见 [[../../../../../src/narranexus/platform/schema/attachment_schema]]
+的 `file_marker`），示例跟着改，免得 agent 看到的说明与真实 marker 不一致。
 
 ## 2026-09-07 — 删掉 import 期的 MessageSourceRegistry 注册
 

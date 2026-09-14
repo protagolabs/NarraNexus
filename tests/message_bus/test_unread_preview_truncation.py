@@ -25,7 +25,7 @@ import json
 import re
 from types import SimpleNamespace
 
-from narranexus.platform.message_bus.inline_field import (
+from narranexus.platform.utils.inline_field import (
     INLINE_DESCRIPTION_MAX_CHARS,
     INLINE_FIELD_CUT_MARK,
     INLINE_FIELD_MAX_CHARS,

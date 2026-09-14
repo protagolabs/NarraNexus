@@ -1,15 +1,19 @@
 ---
 code_file: plugins/builtin.message_bus/src/narranexus_plugins/message_bus_module/message_bus_module.py
-last_verified: 2026-09-11
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401）— 编码器 import 路径随迁移改为 `narranexus.platform.utils.inline_field`
+
+仅路径变化，行为不变（编码器迁到 utils 的原因见 [[../../../../../src/narranexus/platform/utils/inline_field]]）。
 
 ## 2026-09-11 — 编码器迁到平台层共享（PR#401 同类扫描）
 
 `_inline_field` 及其常量（`INLINE_FIELD_MAX_CHARS` / `INLINE_DESCRIPTION_MAX_CHARS` /
 `INLINE_FIELD_CUT_MARK` / `_CODE_SPAN_DELIMITERS`）移到
-[[../../../../../src/narranexus/platform/message_bus/inline_field]]，本模块改为
-`from narranexus.platform.message_bus.inline_field import INLINE_DESCRIPTION_MAX_CHARS, inline_field`。
+[[../../../../../src/narranexus/platform/utils/inline_field]]，本模块改为
+`from narranexus.platform.utils.inline_field import INLINE_DESCRIPTION_MAX_CHARS, inline_field`。
 行为不变；原因是平台侧 `message_bus_trigger` 的团队房 roster / 工作板也要用同一个编码器，而平台层
 不能 import 插件。下文历史条目里的 `_inline_field` 即现在的 `inline_field`。
 
@@ -28,7 +32,7 @@ stub: false
 
 ## 2026-09-11 — 未读列表结构防伪 + 总预算 + 可执行指路（PR#401 review 🟡1/🟢2-3）
 
-- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `body_lines`（平台层 [[../../../../../src/narranexus/platform/message_bus/inline_field]]，2026-09-11 从本文件 `_unread_body` 迁出，团队房 trigger 共用）布局——首行紧跟 tag，其后每行都加 `BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
+- **一条消息一行不再被多段正文撑破**：行渲染收进 `_unread_row`，正文经 `body_lines`（平台层 [[../../../../../src/narranexus/platform/utils/inline_field]]，2026-09-11 从本文件 `_unread_body` 迁出，团队房 trigger 共用）布局——首行紧跟 tag，其后每行都加 `BODY_LINE_PREFIX`（`"  > "`，空行 `"  >"`），`splitlines` 覆盖 `\r`/`\u2028` 等全部换行。于是正文里写一行 `` - `[from agent_boss]` … ``、`### Unread Messages: 0` 都只会以引用形态出现，不可能落在列表自己的层级。截断标记单独成行 `"  [cut: …]"`（`UNREAD_CUT_MARKER`），这个位置正文占不到，正文里伪造的标记同样只能是引用行。预算按**消息字符**计（缩进不算），所以标记里「only the first N are shown」是真值。`(part i/n)` 前缀仍只在首行。
 - **cut 标记给出确切调用**：`_read_rest_call` —— 团队房行（房间已解析）给 `read_history(team_id="…")`，私聊里真 agent 发的给 `read_history(with_agent="<agent_id>")`；`usr_*`/平台发送者且房间未解析时没有工具可接受的句柄，标记如实说「取不到，请向发送者要」，不指向做不到的调用。为此 `_room_labels` 的返回改为 `{channel_id: {"name", "team_id"}}`（name 标 tag，team_id 给指路；不把 raw `channel_id` 打回 tag）。
 - **整段未读总预算** `UNREAD_SPAN_MAX_CHARS = 8000`，按**渲染后**的行计（含 tag、分片前缀、缩进、标记）：从最新一条往回收，最新一条无论多长都保留；放不下的更旧行不静默丢，而是在表头下一行声明未展示条数与 read_history 调用（口径见上一节），表头 `(showing M)` 报实际展示数。
 

@@ -9,16 +9,18 @@ line-structured prompt block: labels (`inline_field`) and free-text bodies
 Several prompt blocks are row grammars: the module's unread list, Known Agents
 and Your teams (plugin `message_bus_module`), and the team-room roster, work
 board, patrol stall list, bulletin, scrollback and pointer rows, plus the peer
-prompt (`message_bus_trigger`; its mirror lists every block). Each
+prompt (`message_bus_trigger`; its mirror lists every block), and the file
+markers of user uploads and bus attachments (`attachment_schema.file_marker`).
+Each
 row interleaves HANDLES the agent copies into tool calls (agent / team / item
 ids) with LABELS an agent or owner typed (names, descriptions, titles). A label
 containing a newline, a backtick or one of the row's own delimiters could forge
 a row or a field. A message or rule BODY may legitimately span lines, so it is
 laid out under its row instead: every line after the first is quoted with
 `BODY_LINE_PREFIX`, a position no row of any of these grammars starts at. The
-encoders live in the platform layer so the platform
-trigger and the plugin share one definition (the platform never imports a
-plugin).
+encoders live in `platform.utils`, below every consumer: the bus trigger, the
+plugin and the attachment schema share one definition (the platform never
+imports a plugin, and the schema never imports the bus).
 """
 
 from __future__ import annotations
@@ -62,7 +64,7 @@ def inline_field(value: Any, max_chars: Optional[int] = INLINE_FIELD_MAX_CHARS) 
       still neutralised so it cannot leave its code span or line.
 
     Deterministic, so prompts built from it stay byte-stable."""
-    text = " ".join(str(value or "").split()).translate(_CODE_SPAN_DELIMITERS)
+    text = _flatten(value)
     if max_chars is None:
         return text
     if len(text) > max_chars:
@@ -70,12 +72,23 @@ def inline_field(value: Any, max_chars: Optional[int] = INLINE_FIELD_MAX_CHARS) 
     return json.dumps(text, ensure_ascii=False)
 
 
+def inline_literal(value: Any) -> str:
+    """A LABEL that is never cut: the same JSON string literal as
+    `inline_field`, for text whose whole content the reader needs (a file name,
+    a voice-memo transcript)."""
+    return json.dumps(_flatten(value), ensure_ascii=False)
+
+
+def _flatten(value: Any) -> str:
+    return " ".join(str(value or "").split()).translate(_CODE_SPAN_DELIMITERS)
+
+
 def _quote(line: str) -> str:
     return f"{BODY_LINE_PREFIX}{line}" if line else BODY_LINE_PREFIX.rstrip()
 
 
 def body_lines(text: Any) -> str:
-    """A free-text body laid out under its row: the first line inline, every
+    r"""A free-text body laid out under its row: the first line inline, every
     later line quoted with `BODY_LINE_PREFIX`. `splitlines` covers every
     boundary a reader may treat as a newline (``\r``, ``\u2028`` ...), not
     only ``\n``. Blank continuation lines keep the bare quote mark, so an

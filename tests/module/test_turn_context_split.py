@@ -504,7 +504,7 @@ async def test_tools_turn_context_carries_attachments_and_registry(flag_on, db_c
     mod = _tools_module(db_client)
     block = await mod.contribute_turn_context(_attachment_ctx("report.txt"))
     assert "#### Files attached to the current message" in block
-    assert "name=report.txt" in block
+    assert 'name="report.txt"' in block
     # Live artifact registry block (empty registry still renders its
     # "(none registered yet ...)" state — same as the legacy appendix).
     assert "#### Your registered artifacts (live)" in block
