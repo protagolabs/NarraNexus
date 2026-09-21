@@ -18,7 +18,8 @@ name: Deploy NarraNexus
 #   PROD_EC2_HOME / DEV_EC2_HOME    optional (default /home/ubuntu / /home/ec2-user)
 #   PROD_EC2_FINGERPRINT / DEV_EC2_FINGERPRINT
 #                                   optional SHA256 host-key fingerprint; when set
-#                                   the SSH step refuses any other host.
+#                                   the SSH step refuses any other host. Each branch
+#                                   only ever reads its OWN environment's value.
 # Neither instance has an Elastic IP: a stop/start changes its public IP (prod's
 # moved on 2026-09-21 and every push to main deployed to a dead address). When
 # that happens edit the VARIABLE — nothing in this file needs to change. Variables
@@ -41,21 +42,41 @@ jobs:
     # and never needs the EC2_SSH_KEY secret.
     if: github.repository == 'protagolabs/NarraNexus'
     runs-on: ubuntu-latest
-    # One place decides which machine, which account and which home directory a
-    # branch deploys to — the steps below only read these.
+    # Which machine, account and home directory a branch deploys to is decided ONCE,
+    # in the first step. It is done in shell, not in an expression: `a && b || c`
+    # falls through to `c` when `b` is an empty (unset) variable, so on `main` a
+    # missing PROD_* value would silently become the DEV_* one.
     env:
-      DEPLOY_HOST: ${{ github.ref_name == 'main' && vars.PROD_EC2_HOST || vars.DEV_EC2_HOST }}
-      DEPLOY_USER: ${{ github.ref_name == 'main' && (vars.PROD_EC2_USER || 'ubuntu') || (vars.DEV_EC2_USER || 'ec2-user') }}
-      DEPLOY_HOME: ${{ github.ref_name == 'main' && (vars.PROD_EC2_HOME || '/home/ubuntu') || (vars.DEV_EC2_HOME || '/home/ec2-user') }}
-      DEPLOY_FINGERPRINT: ${{ github.ref_name == 'main' && vars.PROD_EC2_FINGERPRINT || vars.DEV_EC2_FINGERPRINT }}
+      DEPLOY_IS_PROD: ${{ github.ref_name == 'main' }}
+      PROD_HOST: ${{ vars.PROD_EC2_HOST }}
+      DEV_HOST: ${{ vars.DEV_EC2_HOST }}
+      PROD_USER: ${{ vars.PROD_EC2_USER || 'ubuntu' }}
+      DEV_USER: ${{ vars.DEV_EC2_USER || 'ec2-user' }}
+      PROD_HOME: ${{ vars.PROD_EC2_HOME || '/home/ubuntu' }}
+      DEV_HOME: ${{ vars.DEV_EC2_HOME || '/home/ec2-user' }}
+      PROD_FINGERPRINT: ${{ vars.PROD_EC2_FINGERPRINT }}
+      DEV_FINGERPRINT: ${{ vars.DEV_EC2_FINGERPRINT }}
     steps:
-      - name: Refuse to deploy without a target host
+      - name: Resolve and validate the deploy target
         run: |
-          if [ -z "$DEPLOY_HOST" ]; then
-            echo "::error::PROD_EC2_HOST / DEV_EC2_HOST is not set for this repository (Settings -> Secrets and variables -> Actions -> Variables)"
+          if [ "$DEPLOY_IS_PROD" = "true" ]; then
+            HOST="$PROD_HOST"; WHO="$PROD_USER"; DIR="$PROD_HOME"; FP="$PROD_FINGERPRINT"; NAME=PROD_EC2_HOST
+          else
+            HOST="$DEV_HOST"; WHO="$DEV_USER"; DIR="$DEV_HOME"; FP="$DEV_FINGERPRINT"; NAME=DEV_EC2_HOST
+          fi
+          if [ -z "$HOST" ]; then
+            echo "::error::$NAME is not set for this repository (Settings -> Secrets and variables -> Actions -> Variables)"
             exit 1
           fi
-          echo "deploy target: $DEPLOY_USER@$DEPLOY_HOST ($DEPLOY_HOME)"
+          # The home directory is pasted into the remote script as export NAME='VALUE'
+          case "$DIR" in *\'*) echo "::error::deploy home must not contain a single quote"; exit 1;; esac
+          {
+            echo "DEPLOY_HOST=$HOST"
+            echo "DEPLOY_USER=$WHO"
+            echo "DEPLOY_HOME=$DIR"
+            echo "DEPLOY_FINGERPRINT=$FP"
+          } >> "$GITHUB_ENV"
+          echo "deploy target: $WHO@$HOST ($DIR), host-key check: $([ -n "$FP" ] && echo on || echo off)"
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -65,6 +86,7 @@ jobs:
           # Passed INTO the remote session as an environment variable — never interpolate
           # ${{ }} values into the script text, that is string pasting before the shell runs.
           envs: DEPLOY_HOME
+          envs_format: export {NAME}='{VALUE}'
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 30m
           script: |
