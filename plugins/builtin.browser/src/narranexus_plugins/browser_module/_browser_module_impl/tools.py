@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Awaitable, Callable, Literal
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 
 from narranexus.platform.module_system import parse_bearer_identity
 
@@ -158,6 +160,35 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         return await invoke(agent_id, read)
 
     @mcp.tool()
+    async def browser_look(
+        agent_id: str, selector: str | None = None, x: float | None = None,
+        y: float | None = None, width: float | None = None,
+        height: float | None = None, scale: float = 1,
+    ) -> CallToolResult:
+        """See the current page as an actual image, including pictures, charts and canvas.
+
+        Capture the viewport, one visible CSS selector, or a viewport CSS-pixel
+        rectangle (all of x/y/width/height). Scale 1..3 magnifies small details;
+        output is capped near 1568px / 1.15MP, so zoom further by capturing a
+        smaller region. The model receives the image itself, not a file reference. For visual
+        click/scroll use the returned observation_id and IMAGE pixel coordinates
+        in browser_act; no manual crop/scale conversion. Observe again after
+        changes. Only the visible region is captured; scroll to inspect more.
+        """
+        async def look(service, session, identity):
+            return await session.observe_page(
+                selector=selector, x=x, y=y, width=width, height=height, scale=scale,
+            )
+
+        result = await invoke(agent_id, look)
+        metadata = {key: value for key, value in result.items() if key != "data"}
+        content: list[ContentBlock] = [TextContent(type="text", text=json.dumps(metadata, ensure_ascii=False))]
+        failed = result.get("outcome") != "OK"
+        if not failed:
+            content.append(ImageContent(type="image", data=result["data"], mimeType=result["image"]["mime_type"]))
+        return CallToolResult(content=content, isError=failed)
+
+    @mcp.tool()
     async def browser_act(
         agent_id: str,
         action: Literal["click", "fill", "select", "press", "scroll"],
@@ -169,6 +200,7 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         y: float | None = None,
         delta_x: float | None = None,
         delta_y: float | None = None,
+        observation_id: str | None = None,
     ) -> dict[str, Any]:
         """Interact with a web page using a fixed browser action.
 
@@ -176,7 +208,10 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         fill(selector, text), select(selector, value), press(key, optional
         selector), or scroll(delta_x/delta_y, optional selector or x/y).
         Keys may include chords such as Control+A. Coordinates use viewport
-        pixels; supply both x and y, without a selector. Read again to verify
+        pixels unless observation_id comes from browser_look, in which case
+        x/y are pixels in that image and are mapped automatically. A stale
+        observation is rejected; call browser_look again. Supply both x and y,
+        without a selector. Read or look again to verify
         the result. These actions need no site permission or full_cdp_access,
         including on a new origin. Agent actions wait during human takeover.
         """
@@ -184,6 +219,7 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
             arguments = {
                 "selector": selector, "text": text, "key": key, "value": value,
                 "x": x, "y": y, "delta_x": delta_x, "delta_y": delta_y,
+                "observation_id": observation_id,
             }
             return await session.act(action=action, **{
                 name: argument for name, argument in arguments.items() if argument is not None

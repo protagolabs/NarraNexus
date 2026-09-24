@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/compaction.py
-last_verified: 2026-07-31
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`estimate_message_tokens` 与 ledger 的 `result_seq_sizes` 共用 `projected_chars`：image_url 部件按
+`_IMAGE_TOKEN_ESTIMATE`（4096 token）计，而不是 base64 长度——否则一张截图会被当成几十万 token，
+触发无谓的输出预算钳制与裁剪；反之也不能按 0 计。封顶截图实际约 1.1–1.6K 视觉 token，4096 偏保守。
+裁剪以整条 tool 消息为单位替换，旧截图随之出上下文，配对不受影响。
 
 ## 2026-07-31 — estimate_message_tokens 外借给输出钳制
 

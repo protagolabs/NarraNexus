@@ -2652,6 +2652,12 @@
       "inControl": "Devolva o controle no navegador quando terminar.",
       "pending": "Aguardando você concluir o login ou a verificação no navegador.",
       "openBrowser": "Abrir navegador"
+    },
+    "look": {
+      "looked": "Página visualizada",
+      "failed": "Não foi possível ver a página",
+      "area": "área {{width}}×{{height}}",
+      "open": "Abrir navegador"
     }
   }
 }

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/platform/registries/slotPoints.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+新增内容注册表 `TOOL_RENDERERS`（`ui.toolRenderers`）：接管**某一个工具的输出行**。条目 id 是去掉
+`mcp__<server>__` 的裸工具名——插件不必知道部署把它的工具挂在哪个 MCP server id 下。`accepts(output)`
+让渲染器拒绝读不懂的输出形状；`toolRendererFor` 统一做「找条目 + accepts（抛错视为拒绝）」。没注册、
+拒绝、渲染崩溃三种情况都回落 shell 的通用输出行，输出永远不会被插件藏掉。与 timelineEvents 的区别：
+那个管 shell **不认识**的事件类型；这个管 shell 认识的 tool_output 里、某个具体工具的呈现。
 
 # registries/slotPoints.ts — slot points and content registries
 

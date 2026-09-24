@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.browser/src/narranexus_plugins/browser_module/_browser_module_impl/tools.py
-last_verified: 2026-09-23
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`browser_look` 返回原生 MCP `CallToolResult`：一段 JSON 元数据（observation_id、视口、裁剪区、图片尺寸）
+加一张 `ImageContent`，图片本身交给模型，不走 artifact 引用、不把 base64 塞进 JSON。失败只回文本且
+`isError`。`browser_act` 新增 `observation_id`：带它时 x/y 是**图片像素**，由会话换算回视口坐标。
+工具说明写明输出封顶约 1568px / 1.15MP，想看清细节应缩小区域而不是只调 scale。
 
 ## 2026-09-23 多页面支持
 

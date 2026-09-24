@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
+import uuid
 from contextvars import ContextVar
 from functools import wraps
 from typing import Any, Callable, Optional
@@ -34,6 +35,9 @@ from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, deci
 from narranexus.platform.browser._browser_impl.read import (
     DEFAULT_TEXT_LIMIT,
     snapshot_expression,
+)
+from narranexus.platform.browser._browser_impl.visual import (
+    VisualObservation, capture_scale, png_dimensions, view_expression,
 )
 
 #: A frame as it goes to subscribers.
@@ -97,6 +101,7 @@ class BrowserSession:
         self._pressed_keys: dict[str, dict] = {}
         self._pressed_buttons: dict[str, dict] = {}
         self._input_page_id: str | None = None
+        self._visual_observation: VisualObservation | None = None
 
     @property
     def _cdp(self) -> Any:
@@ -273,11 +278,24 @@ class BrowserSession:
         self, action: str, *, selector: str | None = None, text: str | None = None,
         key: str | None = None, value: str | None = None, x: float | None = None,
         y: float | None = None, delta_x: float | None = None, delta_y: float | None = None,
+        observation_id: str | None = None,
     ) -> dict:
         """Perform a fixed gesture on a web page without accepting scripts.
 
         Normal page handlers may initiate their own requests and navigation.
         """
+        if observation_id is not None:
+            observation = self._visual_observation
+            if observation is None or observation.id != observation_id:
+                return _err("Visual observation is stale; call browser_look again")
+            if action not in ("click", "scroll") or selector is not None:
+                return _err("Use observation_id with coordinate click or scroll only")
+            current = await self._evaluate(view_expression())
+            if not current.get("ok") or not observation.matches(
+                current.get("data") or {}, self.pages.active_id, self._scope.get(),
+            ):
+                return _err("Page, viewport or caller changed; call browser_look again")
+            x, y = observation.point(x, y)
         expression = action_expression(
             action, selector=selector, text=text, key=key, value=value,
             x=x, y=y, delta_x=delta_x, delta_y=delta_y,
@@ -285,6 +303,7 @@ class BrowserSession:
         refusal = await self._validate_current_page()
         if refusal is not None:
             return refusal
+        self._visual_observation = None
         result = await self._evaluate(expression)
         if not result['ok']:
             return result
@@ -368,6 +387,57 @@ class BrowserSession:
         self._record("screenshot")
         return {"ok": True, "outcome": "OK", "data": data, "mime_type": "image/png"}
 
+    @_agent_action
+    async def observe_page(
+        self, *, selector: str | None = None, x: float | None = None,
+        y: float | None = None, width: float | None = None,
+        height: float | None = None, scale: float = 1,
+    ) -> dict:
+        """Return native screenshot bytes and a scoped image-coordinate observation."""
+        expression = view_expression(selector=selector, x=x, y=y, width=width, height=height, scale=scale)
+        self._visual_observation = None
+        refusal = await self._validate_current_page()
+        if refusal is not None:
+            return refusal
+        page = self.pages.current
+        # Match stream startup/resize ordering: Chrome can restore capture metrics.
+        async with page.stream_lock:
+            inspected = await self._evaluate(expression)
+            state = inspected.get("data")
+            if not inspected.get("ok") or not isinstance(state, dict):
+                return _err(inspected.get("message", "Could not inspect the viewport"))
+            if state.get("error"):
+                return _err(state["error"])
+            region, viewport = state["region"], state["viewport"]
+            capture = await page.cdp.call("Page.captureScreenshot", {
+                "format": "png", "fromSurface": True, "captureBeyondViewport": False,
+                "clip": {"x": viewport["scroll_x"] + region["x"],
+                         "y": viewport["scroll_y"] + region["y"],
+                         "width": region["width"], "height": region["height"],
+                         "scale": capture_scale(region, viewport["dpr"], scale)},
+            })
+            data = (capture or {}).get("data")
+            image_width, image_height = png_dimensions(data)
+            observation = VisualObservation(
+                id=uuid.uuid4().hex, page_id=page.id, scope=self._scope.get(),
+                state=state, width=image_width, height=image_height,
+            )
+            after = await self._evaluate(view_expression())
+            if not after.get("ok") or not observation.matches(
+                after.get("data") or {}, page.id, self._scope.get(),
+            ):
+                return _err("Page changed during capture; call browser_look again")
+        self._visual_observation = observation
+        self._record("screenshot")
+        return {
+            "ok": True, "outcome": "OK", "data": data, "observation_id": observation.id,
+            "url": state["url"], "title": state["title"], "viewport": viewport, "region": region,
+            "image": {"width": image_width, "height": image_height, "mime_type": "image/png"},
+            "coverage": "visible region only",
+            "coordinates": "Use image pixel x/y with this observation_id in browser_act. "
+                           "Observe again after actions, scrolling, resizing, navigation or human takeover.",
+        }
+
     # ── user input ───────────────────────────────────────────────────────
 
     async def resize_viewport(self, width: int, height: int, connection_id: str, *, page_id: str | None = None) -> bool:
@@ -408,6 +478,7 @@ class BrowserSession:
             page = self.pages.get(page_id or self.pages.active_id)
             if not self.control.user_take_control(connection_id):
                 return False
+            self._visual_observation = None
             await self._reset_inputs()
             self.pages.select(page.id)
             return True

@@ -3167,6 +3167,12 @@
       "inControl": "Return control in the browser when you are finished.",
       "pending": "Waiting for you to complete login or verification in the browser.",
       "openBrowser": "Open browser"
+    },
+    "look": {
+      "looked": "Looked at the page",
+      "failed": "Couldn't look at the page",
+      "area": "area {{width}}×{{height}}",
+      "open": "Open browser"
     }
   }
 }

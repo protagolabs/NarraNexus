@@ -2652,6 +2652,12 @@
       "inControl": "Geben Sie die Steuerung im Browser zurück, wenn Sie fertig sind.",
       "pending": "Warten auf Ihre Anmeldung oder Verifizierung im Browser.",
       "openBrowser": "Browser öffnen"
+    },
+    "look": {
+      "looked": "Seite angesehen",
+      "failed": "Seite konnte nicht angesehen werden",
+      "area": "Bereich {{width}}×{{height}}",
+      "open": "Browser öffnen"
     }
   }
 }

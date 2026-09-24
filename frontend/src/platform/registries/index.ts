@@ -4,12 +4,13 @@
  * @date: 2026-09-03
  * @description: Public entry of the frontend registries (the only import a plugin bundle needs).
  *
- * `REGISTRIES` is the single table of the 17 named registries: `host.ts`
+ * `REGISTRIES` is the single table of the 18 named registries: `host.ts`
  * (the per-plugin facade) and `loader.ts` (SHELL_REGISTRIES / boot-time
- * lazy gates) both consume it instead of each spelling the same 16 names
+ * lazy gates) both consume it instead of each spelling the same names
  * in their own object/array literal — four copies of that list used to
  * exist (`host.ts` ×3, `loader.ts` ×1); this file is now the one place the
- * next registry gets added (artifact kinds were the 17th).
+ * next registry gets added (artifact kinds were the 17th, tool renderers
+ * the 18th).
  */
 import { PAGES } from './pages';
 import { SIDEBAR } from './sidebar';
@@ -28,6 +29,7 @@ import {
   MESSAGE_RENDERERS,
   SIDEBAR_SECTIONS,
   TIMELINE_EVENTS,
+  TOOL_RENDERERS,
   TOP_BAR_ITEMS,
 } from './slotPoints';
 
@@ -61,8 +63,11 @@ export {
   MESSAGE_RENDERERS,
   SIDEBAR_SECTIONS,
   TIMELINE_EVENTS,
+  TOOL_RENDERERS,
   TOP_BAR_ITEMS,
+  bareToolName,
   rendererFor,
+  toolRendererFor,
   visibleSlotEntries,
 } from './slotPoints';
 export type {
@@ -76,9 +81,11 @@ export type {
   SlotEntryBase,
   TimelineEventDef,
   TimelineEventProps,
+  ToolRendererDef,
+  ToolRendererProps,
 } from './slotPoints';
 
-/** The 17 named registries a plugin (via `HostAPI.registries`) or the loader (via
+/** The 18 named registries a plugin (via `HostAPI.registries`) or the loader (via
  *  `SHELL_REGISTRIES`) may touch, keyed by the name `HostAPI.registries` exposes it under. */
 export const REGISTRIES = {
   pages: PAGES,
@@ -89,6 +96,7 @@ export const REGISTRIES = {
   themes: THEMES,
   messageRenderers: MESSAGE_RENDERERS,
   timelineEvents: TIMELINE_EVENTS,
+  toolRenderers: TOOL_RENDERERS,
   conversationKinds: CONVERSATION_KINDS,
   channels: CHANNELS,
   artifactKinds: ARTIFACT_KINDS,

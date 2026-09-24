@@ -55,7 +55,28 @@ def estimate_message_tokens(messages: Sequence[dict]) -> int:
     (keys, quoting) — the safe direction for a clamp, since
     under-counting is what lets a request sail past the wall.
     """
-    return sum(len(str(m)) for m in messages) // _CHARS_PER_TOKEN
+    return projected_chars(messages) // _CHARS_PER_TOKEN
+
+
+#: Sizing stand-in for one image part. Base64 bytes are not text tokens;
+#: a capped browser screenshot costs roughly 1.1-1.6K visual tokens on
+#: current providers, so 4096 errs on the safe (over-counting) side.
+_IMAGE_TOKEN_ESTIMATE = 4096
+
+
+def projected_chars(messages: Sequence[dict]) -> int:
+    """Character-equivalent size of messages, counting each image part as
+    ``_IMAGE_TOKEN_ESTIMATE`` tokens instead of its base64 length."""
+    def measured(value):
+        if isinstance(value, dict):
+            if value.get("type") == "image_url":
+                return " " * (_IMAGE_TOKEN_ESTIMATE * _CHARS_PER_TOKEN)
+            return {key: measured(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [measured(item) for item in value]
+        return value
+
+    return sum(len(str(measured(m))) for m in messages)
 
 
 class ToolResultPruner:

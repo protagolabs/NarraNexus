@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 
 import '@/platform/builtin';
 import '@/pages/settings/registerBuiltinSections';
-import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems, type PageDef } from '@/platform/registries';
+import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, TOOL_RENDERERS, sortedSettingsSections, sortedSidebarItems, type PageDef } from '@/platform/registries';
 import { builtinTabIds } from '@/components/bookmarks/tabs';
 import { BUILTIN_TAB_IDS } from '@/components/bookmarks/builtinTabIds';
 import {
@@ -147,6 +147,13 @@ describe('builtin panels', () => {
     expect(PANELS.get('skills')?.component).toBe(SkillsTab);
     expect(PANELS.get('mcp')?.component).toBe(McpTab);
     expect(PANELS.get('memory')?.component).toBe(MemoryTab);
+  });
+
+  it('browser_look output is owned by builtin.browser, so disabling the browser removes the card too', () => {
+    const entry = TOOL_RENDERERS.list().find((e) => e.id === 'browser_look');
+    expect(entry?.owner).toBe('builtin.browser');
+    expect(entry?.value.accepts?.('{"outcome": "OK"}')).toBe(true);
+    expect(entry?.value.accepts?.('not a look')).toBe(false);
   });
 });
 

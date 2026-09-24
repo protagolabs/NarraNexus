@@ -2652,6 +2652,12 @@
       "inControl": "Rendez le contrôle dans le navigateur lorsque vous avez terminé.",
       "pending": "En attente de votre connexion ou vérification dans le navigateur.",
       "openBrowser": "Ouvrir le navigateur"
+    },
+    "look": {
+      "looked": "Page consultée",
+      "failed": "Impossible de consulter la page",
+      "area": "zone {{width}}×{{height}}",
+      "open": "Ouvrir le navigateur"
     }
   }
 }

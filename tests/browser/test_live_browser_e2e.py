@@ -414,3 +414,91 @@ async def test_normal_service_uses_persisted_mode_without_a_diagnostic_entry_poi
         await eventually(restored, "document.cookie.includes('mode_e2e=retained')", True)
     finally:
         await service.close()
+
+
+VISUAL_PAGE = b'''<!doctype html><html lang="en"><title>Visual fixture</title>
+<style>body{margin:0;font:20px sans-serif}#board{display:block;margin:120px 0 0 240px}</style>
+<h2 id="status">waiting</h2>
+<canvas id="board" width="400" height="300"></canvas>
+<div style="height:1600px"></div>
+<script>
+const board = document.getElementById('board'), g = board.getContext('2d');
+g.fillStyle = '#f4f4f4'; g.fillRect(0, 0, 400, 300);
+g.fillStyle = '#e00000'; g.fillRect(290, 190, 40, 40);
+board.addEventListener('click', event => {
+  const box = board.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
+  document.getElementById('status').textContent =
+    x >= 290 && x < 330 && y >= 190 && y < 230 ? 'hit target' : 'missed at ' + Math.round(x) + ',' + Math.round(y);
+});
+</script></html>'''
+
+
+def red_centroid(data: str) -> tuple[float, float]:
+    """Locate the red canvas square in a screenshot by pixels alone.
+
+    Red dominance, not an exact value: headed Chrome on macOS renders in the
+    display's color profile, so #e00000 is captured as about (206, 44, 30)
+    while headless captures it verbatim.
+    """
+    image = Image.open(BytesIO(base64.b64decode(data))).convert("RGB")
+    points = [(x, y) for y in range(image.height) for x in range(image.width)
+              if (lambda p: p[0] > 150 and p[0] > 3 * p[1] and p[0] > 3 * p[2])(image.getpixel((x, y)))]
+    assert points, "red target not visible in the observed image"
+    return sum(x for x, _ in points) / len(points), sum(y for _, y in points) / len(points)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("headless", [True, False], ids=["headless", "headed"])
+async def test_visual_observation_drives_canvas_clicks_and_rejects_stale_views(tmp_path, headless):
+    """A canvas target has no DOM handle: only the image shows where it is.
+    Viewport and magnified-crop observations must both map image pixels to
+    the right viewport point on a real Chrome, whatever its device ratio."""
+    executable = locate_system_executable()
+    if executable is None:
+        pytest.skip("Installed stable Chrome is unavailable")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(VISUAL_PAGE)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    session = await launch_session(executable=executable, root=tmp_path, agent_id="visual_e2e",
+                                   policy=BrowserPolicy(), headless=headless)
+
+    async def status():
+        return (await session.read_page(selector="#status"))["data"]["text"].strip()
+
+    try:
+        assert (await session.navigate(f"http://127.0.0.1:{server.server_port}"))["ok"]
+        view = await session.observe_page()
+        assert view["outcome"] == "OK", view
+        assert max(view["image"]["width"], view["image"]["height"]) <= 1568
+        x, y = red_centroid(view["data"])
+        assert (await session.act("click", observation_id=view["observation_id"], x=x, y=y))["outcome"] == "OK"
+        assert await status() == "hit target"
+        stale = await session.act("click", observation_id=view["observation_id"], x=x, y=y)
+        assert stale["outcome"] == "ERROR" and "browser_look" in stale["message"]
+
+        await session.navigate(f"http://127.0.0.1:{server.server_port}")
+        crop = await session.observe_page(selector="#board", scale=2)
+        assert crop["outcome"] == "OK", crop
+        assert crop["region"]["width"] == 400 and crop["image"]["width"] > 400
+        x, y = red_centroid(crop["data"])
+        assert (await session.act("click", observation_id=crop["observation_id"], x=x, y=y))["outcome"] == "OK"
+        assert await status() == "hit target"
+
+        view = await session.observe_page()
+        assert (await session.act("scroll", delta_y=200))["outcome"] == "OK"
+        moved = await session.act("click", observation_id=view["observation_id"], x=10, y=10)
+        assert moved["outcome"] == "ERROR"
+    finally:
+        await session.close()
+        server.shutdown()
+        server.server_close()

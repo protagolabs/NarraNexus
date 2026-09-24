@@ -4,6 +4,13 @@ last_verified: 2026-09-24
 stub: false
 ---
 
+## 2026-09-24 浏览器视觉输入
+
+`observe_page`：在页面 stream 锁内先用固定函数探测视口与裁剪区，再 `Page.captureScreenshot`，截完
+再探测一次，URL/document/视口任何变化都作废。生成的 VisualObservation 绑定 page_id 与调用 scope。
+`act(observation_id=...)` 只允许坐标 click/scroll，执行前重新比对页面状态，任何动作、人工接管都会
+清空观察；过期即拒绝并提示重新 browser_look，绝不在变化后的页面上猜坐标。
+
 ## 2026-09-24 人工新建与导航
 
 人工新建空白标签、地址栏导航在操作锁内再次验证连接控制权，不能调用等待 Agent

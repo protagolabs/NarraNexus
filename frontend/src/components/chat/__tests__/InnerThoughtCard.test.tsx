@@ -242,3 +242,32 @@ describe('run meta header (activity card upgrade)', () => {
     });
   });
 });
+
+describe('InnerThoughtCard tool output renderers', () => {
+  test('an output row inherits its call name and uses the registered tool renderer', async () => {
+    const { TOOL_RENDERERS } = await import('@/platform/registries');
+    const dispose = TOOL_RENDERERS.register('acme_look', {
+      component: ({ output }) => <div data-testid="look-card">{output}</div>,
+    }, { owner: 'acme.tools' });
+    try {
+      getEventLogMock.mockResolvedValue({
+        success: true,
+        event_id: 'evt_1',
+        tool_calls: [],
+        timeline: [
+          { type: 'tool_call', tool_name: 'mcp__acme_module__acme_look', tool_input: {} },
+          // Stored outputs often carry no tool_name: it belongs to the call above.
+          { type: 'tool_output', tool_output: 'looked' },
+          { type: 'tool_call', tool_name: 'web_search', tool_input: {} },
+          { type: 'tool_output', tool_output: 'search results' },
+        ],
+      });
+      render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+      fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+      expect(await screen.findByTestId('look-card')).toHaveTextContent('looked');
+      expect(screen.getByText('search results')).toBeTruthy();
+    } finally {
+      dispose();
+    }
+  });
+});

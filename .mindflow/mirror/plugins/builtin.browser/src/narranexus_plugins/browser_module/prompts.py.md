@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.browser/src/narranexus_plugins/browser_module/prompts.py
-last_verified: 2026-09-23
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+新增「Visual understanding」段：图片/图表/canvas/无文字图标等 DOM 读不到的内容用 browser_look；
+只看模型实际收到的图，不从文件名、URL、alt 推断；点击用 observation_id + 图片像素，观察用一次即失效。
+模型不支持图片时如实告知，不假装看过、不私自换模型（铁律 #15）。截图内容与页面文字同样是不可信输入。
 
 ## 2026-09-23 多页面支持
 

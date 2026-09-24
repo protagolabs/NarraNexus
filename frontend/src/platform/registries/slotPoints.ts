@@ -12,7 +12,8 @@
  * evaluates (`when.ts`) and sorted by `order` (builtins use 10, 20, …).
  * `messageRenderers` / `timelineEvents` let a plugin own the rendering of
  * a message it recognises or of a timeline event type the shell does not
- * know; `conversationKinds` names the kinds `when: conversationKind:<k>`
+ * know; `toolRenderers` own the output row of one named tool;
+ * `conversationKinds` names the kinds `when: conversationKind:<k>`
  * may refer to (the shell registers `chat`, builtin.teams `team`).
  */
 import type { ComponentType } from 'react';
@@ -80,6 +81,26 @@ export interface TimelineEventDef {
   component: ComponentType<TimelineEventProps>;
 }
 
+export interface ToolRendererProps {
+  /** The tool name as it arrived (possibly `mcp__<server>__<tool>`). */
+  toolName: string;
+  /** The persisted output string, exactly as the generic row would show it. */
+  output: string;
+  isStreaming?: boolean;
+}
+
+/**
+ * Owns the OUTPUT row of one tool; the entry id is the bare tool name (the
+ * `mcp__<server>__` namespace stripped), so a renderer never depends on which
+ * server id a deployment mounted the tool under. `accepts` lets it decline an
+ * output shape it cannot read; a declined, unregistered or crashing renderer
+ * leaves the shell's generic row, so the output is never lost.
+ */
+export interface ToolRendererDef {
+  component: ComponentType<ToolRendererProps>;
+  accepts?: (output: string) => boolean;
+}
+
 function validated<T extends SlotEntryBase>(kind: string): Registry<T> {
   // M-11: `Registry`'s `validate` constructor option is the one way to build a validating
   // registry — this used to overwrite the instance's own `register` property, one of two
@@ -101,6 +122,29 @@ export const AGENT_CARD_BADGES = validated<SlotComponentDef>('ui.agentCardBadges
 export const TOP_BAR_ITEMS = validated<SlotComponentDef>('ui.topBarItems');
 export const MESSAGE_RENDERERS = new Registry<MessageRendererDef>('ui.messageRenderers');
 export const TIMELINE_EVENTS = new Registry<TimelineEventDef>('ui.timelineEvents');
+export const TOOL_RENDERERS = new Registry<ToolRendererDef>('ui.toolRenderers');
+
+/** The bare tool name a `TOOL_RENDERERS` entry is keyed by: `mcp__chat__read` → `read`. */
+export function bareToolName(toolName: string): string {
+  const parts = toolName.split('__');
+  return parts[parts.length - 1] || toolName;
+}
+
+/** The registered renderer entry that will draw this output, if any. */
+export function toolRendererFor(
+  entries: RegistryEntry<ToolRendererDef>[],
+  toolName: string,
+  output: string,
+): RegistryEntry<ToolRendererDef> | undefined {
+  if (!toolName) return undefined;
+  const entry = entries.find((e) => e.id === bareToolName(toolName));
+  if (!entry) return undefined;
+  try {
+    return !entry.value.accepts || entry.value.accepts(output) ? entry : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The entries to draw for a slot: `when` filtered against `ctx`, sorted by `order`. */
 export function visibleSlotEntries<T extends SlotEntryBase>(entries: RegistryEntry<T>[], ctx: WhenContext): RegistryEntry<T>[] {

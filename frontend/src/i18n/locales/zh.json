@@ -3167,6 +3167,12 @@
       "inControl": "完成后，请在浏览器中交还控制权。",
       "pending": "正在等待你在浏览器中完成登录或验证。",
       "openBrowser": "打开浏览器"
+    },
+    "look": {
+      "looked": "查看了页面",
+      "failed": "无法查看页面",
+      "area": "区域 {{width}}×{{height}}",
+      "open": "打开浏览器"
     }
   }
 }

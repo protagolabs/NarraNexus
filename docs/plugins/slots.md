@@ -155,6 +155,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `ui.sidebar_sections` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Extra sidebar sections. |
 | `ui.themes` | many | `narranexus.contracts.ui:Theme` | — | `builtin.ui` | — | Frontend themes (override declared design tokens only). |
 | `ui.timeline_events` | many | `narranexus.contracts.ui:TimelineEvent` | — | `builtin.ui` | — | Run-timeline event renderers keyed by event type. |
+| `ui.tool_renderers` | many | `narranexus.contracts.ui:ToolRenderer` | — | `builtin.ui` | — | Tool output-row renderers keyed by bare tool name. |
 | `ui.top_bar_items` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Items in the top bar. |
 
 ## Builtin plugins
