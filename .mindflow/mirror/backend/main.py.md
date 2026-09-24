@@ -1,8 +1,22 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Drain before dependency shutdown
+
+The lifespan owns detached request work through `app.state.run_tasks`, separately
+from the run-ID lookup in `active_runs`. Its finally block waits for initialization,
+execution and terminal persistence before stopping any housekeeping or workers or
+closing the DB. Heartbeats and dependencies remain available throughout the drain.
+Housekeeping cancellation is joined before DB close. Worker-stop errors do not
+skip the remaining cleanup; errors are aggregated after all release attempts.
+There is no run deadline;
+shutdown-waiter cancellation is deferred through cleanup. This fixes graceful
+backend SIGTERM losing a still-live run after its WebSocket handler exits.
+External supervisor kill deadlines and early MCP shutdown remain outside this
+backend-only guarantee; dependencies must remain alive until the backend exits.
 
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 

@@ -1093,9 +1093,8 @@ async def websocket_agent_run(websocket: WebSocket):
 
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
-        # never triggers cancel (iron rule #14). The only cancel paths are
-        # explicit user stop (via _listen_for_control) and run shutdown on
-        # backend exit.
+        # never triggers cancel (iron rule #14). Only explicit user stop
+        # cancels the run; graceful backend shutdown waits for it to finish.
         cancellation = CancellationToken()
 
         # ---- Live steering: the owner can fold a follow-up into the run ----
@@ -1160,9 +1159,9 @@ async def websocket_agent_run(websocket: WebSocket):
         #
         # Now:
         #  1. Create BackgroundRun (broadcaster + heartbeat + DB hooks)
-        #  2. asyncio.create_task(bg.drive(...))  — this task is OWNED
-        #     by app.state.active_runs[run_id] once Step 0 yields the
-        #     event_id; it is NOT awaited from here
+        #  2. run_tasks.start(bg.drive(...)) owns the task immediately,
+        #     including admission and Step 0, and drains it on shutdown.
+        #     active_runs indexes it by ID after Step 0; the WS never owns it.
         #  3. Subscribe this WS to bg.broadcaster
         #  4. Forward broadcaster events → ws.send_json
         #
@@ -1183,9 +1182,8 @@ async def websocket_agent_run(websocket: WebSocket):
                 probe_token=cb_admission.probe_token,
             )
 
-            # Kick off the agent run task. It self-registers in
-            # active_runs once Step 0 yields the event_id.
-            bg.task = asyncio.create_task(bg.drive(
+            # Retain the task even before Step 0 assigns its run ID.
+            bg.task = websocket.app.state.run_tasks.start(bg.drive(
                 **_fresh_run_drive_kwargs(
                     request,
                     session_id=_session_id,
@@ -1295,12 +1293,12 @@ async def websocket_agent_run(websocket: WebSocket):
         # A half-open probe this handler won but never handed to a
         # BackgroundRun (setup threw between the claim and the run) is handed
         # back by its token — else every entry point is refused until the
-        # grant expires. Once `bg` exists the run owns the token and settles
+        # grant expires. Once `bg.task` exists the run owns the token and settles
         # it itself; releasing then would re-pause under a live probe.
         if (
             "cb_admission" in locals()
             and cb_admission.probe_token
-            and "bg" not in locals()
+            and ("bg" not in locals() or bg.task is None)
         ):
             from narranexus.platform.agent_framework.loop.circuit_breaker import (
                 release_probe,

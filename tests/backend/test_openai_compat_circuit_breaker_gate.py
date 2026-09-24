@@ -21,6 +21,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
+from backend.run_lifecycle import RunTasks
 
 import backend.routes.openai_compat as compat_mod
 import narranexus.platform.agent_framework.loop.circuit_breaker as cb
@@ -82,6 +83,7 @@ def app(monkeypatch, db_client):
 
     application.include_router(compat_mod.router)
     application.state.active_runs = {}
+    application.state.run_tasks = RunTasks()
     return application
 
 
@@ -93,6 +95,39 @@ async def _post(app, agent_id="agent_cb"):
             "messages": [{"role": "user", "content": "hello"}],
             "stream": False,
         })
+
+
+async def test_returned_http_request_leaves_run_owned_until_drain(app, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    work = asyncio.Event()
+
+    async def drive(self, **kwargs):
+        await work.wait()
+
+    monkeypatch.setattr(_FakeBackgroundRun, "drive", drive)
+    response = await _post(app)
+    assert response.status_code == 200
+    cleanup = AsyncMock()
+    closing = asyncio.create_task(app.state.run_tasks.close(cleanup))
+    await asyncio.sleep(0)
+    cleanup.assert_not_awaited()
+    assert not closing.done()
+    assert not _FakeBackgroundRun.instances[0].task.done()
+    work.set()
+    await closing
+    cleanup.assert_awaited_once()
+
+
+async def test_shutdown_refusal_returns_probe_claim(app, db_client):
+    from unittest.mock import AsyncMock
+
+    await _pause(db_client, window_open=True)
+    await app.state.run_tasks.close(AsyncMock())
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await _post(app)
+    row = await AgentCircuitBreakerRepository(db_client).get("agent_cb")
+    assert row.cb_status == CbStatus.PAUSED
 
 
 async def _pause(db, *, window_open: bool) -> None:

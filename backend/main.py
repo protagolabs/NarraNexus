@@ -26,6 +26,7 @@ from narranexus.platform.utils.logging import setup_logging
 from narranexus.platform.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
+from backend.run_lifecycle import RunTasks
 
 
 # Budget for /health's database round-trip. Must stay comfortably under the
@@ -146,7 +147,7 @@ async def lifespan(app: FastAPI):
 
     Handles startup and shutdown events:
     - Startup: Initialize database connection pool
-    - Shutdown: Close database connections
+    - Shutdown: Drain detached runs before stopping workers and closing the database
     """
     # Startup
     setup_logging("backend")
@@ -216,6 +217,7 @@ async def lifespan(app: FastAPI):
     from narranexus.platform.utils.run_liveness import HEARTBEAT_INTERVAL_S
 
     app.state.active_runs = {}
+    app.state.run_tasks = RunTasks()
     await sweep_stale_runs(db)
 
     async def _stale_run_sweeper() -> None:
@@ -408,38 +410,57 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Skill reconciler started")
 
-    yield
+    try:
+        yield
+    finally:
+        await app.state.run_tasks.close(lambda: _shutdown_resources(app))
 
-    # Shutdown
+
+async def _shutdown_resources(app: FastAPI) -> None:
+    """Release dependencies only after every owned run has finished finalizing."""
     logger.info("Shutting down FastAPI application...")
-    skill_sync_task = getattr(app.state, "skill_sync_task", None)
-    if skill_sync_task is not None:
-        skill_sync_task.cancel()
-    sweep_task = getattr(app.state, "stale_run_sweep_task", None)
-    if sweep_task is not None:
-        sweep_task.cancel()
-    seed_task = getattr(app.state, "marketplace_seed_task", None)
-    if seed_task is not None:
-        seed_task.cancel()
-    reaper_task = getattr(app.state, "executor_reaper_task", None)
-    if reaper_task is not None:
-        reaper_task.cancel()
+    housekeeping = [
+        task for name in (
+            "skill_sync_task", "stale_run_sweep_task", "marketplace_seed_task",
+            "executor_reaper_task", "price_table_warm_task",
+        )
+        if (task := getattr(app.state, name, None)) is not None
+    ]
+    for task in housekeeping:
+        task.cancel()
+    # Cancellation can execute DB-using finally blocks; join them before close.
+    results = await asyncio.gather(*housekeeping, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("Housekeeping task failed during shutdown: {!r}", result)
+    errors: list[Exception] = []
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
-        await worker.stop()
+        try:
+            await worker.stop()
+        except Exception as exc:
+            errors.append(exc)
     # Stopped BEFORE the db client closes: its poll loop holds that client, and
     # a pass landing mid-teardown would log a confusing connection error on
     # every clean shutdown.
     from backend.plugins_host import stop_backend_workers
 
-    await stop_backend_workers(app)
-    await close_db_client()
-    logger.info("Database connections closed")
+    try:
+        await stop_backend_workers(app)
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        await close_db_client()
+        logger.info("Database connections closed")
+    except Exception as exc:
+        errors.append(exc)
 
     # Flush any enqueue=True records still in the multiprocessing queue
     # before the interpreter exits — otherwise the last few lines (the
     # ones describing the actual shutdown) get dropped.
     await logger.complete()
+    if errors:
+        raise ExceptionGroup("Backend shutdown cleanup failed", errors)
 
 
 # Create FastAPI application
