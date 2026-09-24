@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/failure.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23：凭据服务暂时不可用不是凭据失效
+
+NetMind 返回 503 `API key channel binding is temporarily unavailable` 时，裸 api key
+词命中导致后台错误被归为 provider_credential，并发出误导性的密钥检查提示。共享严格
+分类器现在先保留明确鉴权异常类及 401/403，再排除服务不可用、超时和网关故障措辞，
+最后匹配凭据词。既有真实鉴权失败仍告警；503 保留审计，不产生凭据失效通知。
+实时熔断器原本已将这条错误归为 transient，本次不修改其冷却策略或模型配置。
 
 ## 2026-09-10（PR #389 I3）— 拆成严格 `is_credential_error` 与宽松 `is_auth_like_error`
 

@@ -98,6 +98,22 @@ def test_exception_type_name_is_a_credential_signal():
     assert is_credential_error(RuntimeError("request failed")) is False
 
 
+@pytest.mark.parametrize("error", [
+    "Error code: 503 - {'detail': 'API key channel binding is temporarily unavailable'}",
+    "API key channel binding is temporarily unavailable",
+    "HTTP 502: authentication service unavailable",
+    "Authentication service timed out",
+])
+def test_provider_outage_is_not_a_credential_refusal(error):
+    assert is_credential_error(error) is False
+    assert is_auth_like_error(error) is False
+
+
+def test_explicit_auth_status_and_exception_override_outage_wording():
+    assert is_credential_error(AuthenticationError("authentication temporarily unavailable"))
+    assert is_credential_error("HTTP 401: invalid API key; retry after a timeout")
+
+
 def test_accepts_exception_instances():
     assert is_credential_error(RuntimeError("Incorrect API key provided: sk-...")) is True
     assert is_credential_error(RuntimeError("connection refused")) is False
