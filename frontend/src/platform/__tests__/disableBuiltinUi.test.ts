@@ -8,17 +8,48 @@ import { Bot } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '@/platform/builtin';
+import '@/pages/settings/registerBuiltinSections';
 import { disableBuiltinUi, loadPlugins } from '@/platform/loader';
-import { CHANNELS, PAGES, SIDEBAR } from '@/platform/registries';
+import { CHANNELS, PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, enableOwner } from '@/platform/registries';
 
 vi.mock('@/stores/runtimeStore', () => ({ getApiBaseUrl: () => 'http://api' }));
 vi.mock('@/lib/authHeaders', () => ({ getAuthHeaders: () => ({}) }));
 
 const TEAM_PAGES = ['teams-new', 'team-detail', 'team-chat'];
+const browserPanel = PANELS.get('browser')!;
+const browserSection = SETTINGS_SECTIONS.get('browser')!;
+const panelOwner = PANELS.ownerOf('browser');
+const sectionOwner = SETTINGS_SECTIONS.ownerOf('browser');
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  enableOwner('builtin.browser');
+  PANELS.register('browser', browserPanel, { owner: panelOwner, replace: true });
+  SETTINGS_SECTIONS.register('browser', browserSection, { owner: sectionOwner, replace: true });
+});
 
 describe('disableBuiltinUi', () => {
+  it('the browser panel and settings section belong to builtin.browser', () => {
+    expect(PANELS.ownerOf('browser')).toBe('builtin.browser');
+    expect(SETTINGS_SECTIONS.ownerOf('browser')).toBe('builtin.browser');
+  });
+
+  it('a disabled browser builtin removes its panel and settings through the plugin loader', async () => {
+    const body = JSON.stringify({ data: { plugins: [], builtins: [
+      { id: 'builtin.browser', enabled: false, protected: false },
+    ] } });
+    await loadPlugins({ fetchImpl: vi.fn(async () => new Response(body, { status: 200 })) });
+    expect(PANELS.has('browser')).toBe(false);
+    expect(SETTINGS_SECTIONS.has('browser')).toBe(false);
+    expect(PANELS.has('jobs')).toBe(true);
+    expect(SETTINGS_SECTIONS.has('providers')).toBe(true);
+
+    // Late settings chunk registration must use the feature's owner too.
+    SETTINGS_SECTIONS.register('browser', browserSection, { owner: sectionOwner, replace: true });
+    expect(SETTINGS_SECTIONS.has('browser')).toBe(false);
+    expect(disableBuiltinUi('builtin.browser')).toEqual([]);
+  });
+
   it('builtin.ts tags the teams pages with the builtin.teams owner', () => {
     for (const id of TEAM_PAGES) expect(PAGES.list().find((e) => e.id === id)?.owner).toBe('builtin.teams');
     expect(PAGES.list().find((e) => e.id === 'settings')?.owner).toBe('builtin.ui');

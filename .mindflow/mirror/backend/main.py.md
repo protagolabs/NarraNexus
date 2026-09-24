@@ -18,6 +18,13 @@ backend SIGTERM losing a still-live run after its WebSocket handler exits.
 External supervisor kill deadlines and early MCP shutdown remain outside this
 backend-only guarantee; dependencies must remain alive until the backend exits.
 
+## 2026-09-23 - Browser route ownership
+
+The browser HTTP and WebSocket routes mount only after builtin registration
+confirms a loaded builtin.browser module contribution. Disabling the plugin or
+omitting it from a distribution removes both surfaces. They still mount before
+plugin routers and the SPA fallback, preserving route precedence.
+
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 
 lifespan 里 `HEARTBEAT_INTERVAL_S` 改为从 `narranexus.platform.utils.run_liveness` 导入

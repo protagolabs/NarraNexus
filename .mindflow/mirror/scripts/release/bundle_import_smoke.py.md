@@ -1,6 +1,6 @@
 ---
 code_file: scripts/release/bundle_import_smoke.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
 
@@ -40,3 +40,47 @@ stub: false
 ## 新人易踩
 
 - 在 `state.rs` 加一个新服务却不加到 `ENTRYPOINTS`，测试会红——那不是测试烦人，是那个服务的依赖图确实没人验过。
+
+## Optional browser packaging (2026-09-23)
+
+The browser plugin stores its implementation in a contribution import string.
+Manifest loading therefore does not prove BrowserModule can import. The same
+fatal lazy-import loop now includes BrowserModule and runtime_launch, while the
+five sidecar entrypoints remain aligned with Tauri's process list.
+
+The smoke environment points NARRANEXUS_BROWSER_HOME at an absent scratch path.
+Importing the desktop app must work without Chromium or the Playwright package;
+browser installation remains an explicit user action outside the app bundle.
+The wheel regression separately builds the actual plugin wheel, imports its
+packaged manifest/contribution/module from a scratch directory with Playwright
+imports blocked, and checks that absence produces NEEDS_HUMAN without creating
+a runtime directory. This catches editable-source paths masking missing wheel
+metadata, and accidental eager runtime dependencies.
+
+Validation on 2026-09-23 used 33 actual workspace wheels installed into a
+standalone interpreter with a clean site-packages directory and locked
+third-party dependencies. From `/private/tmp`, isolated Python passed all
+10 imports and the relocatability check; all 185 installed packages passed
+dependency validation. BrowserModule also imported with both Chromium and
+Playwright absent and did not create a runtime directory. The full unsigned
+Tauri app subsequently built using command-scoped bundled LLD plus the installed
+SDK 26.5; no global or repository toolchain settings changed. Its relocated
+Python passed the same checks. An isolated native Tauri/WKWebView probe with the
+production CSP observed `tauri://localhost`, HTTP 200 on both loopback hostnames,
+and authenticated `hello/frame/pong` from the live browser socket, including a
+nonblank decoded JPEG canvas. This is native transport and package-import
+evidence, not a signed DMG or a full sidecar-startup test. Detailed commands and
+logs are in `reference/self_notebook/todo/2026-09-21-desktop-window-offscreen-and-tauri-build-break.md`.
+
+最终 2026-09-23 重打已包含当前 33 个 workspace wheels 和 Popper 的生产
+dist（2241 项前端测试通过）。最终重定位 app 再次通过 10 项导入检查、185 项
+依赖检查及五项 CLI 检查。其 Python 另在独立端口/空白 DB 真启动 proxy、API、
+MCP，验证真实 browser_status 与 manual_install 命令后正常退出。源码/打包
+内容哈希和准确命令见 `/private/tmp/narranexus-desktop-final/README.md`。
+这项进程证据不等于启动固定端口的原生启动器；该项仍等待协调窗口。
+
+最终稳定信号后再次重打，已包含 backend RunTasks / shutdown cleanup 修复。
+`verify-final.log` 验证 1375 个 wheel 文件、996 个 Python 文件，backend SHA
+匹配父线程给定值；最终 app 的 10 项导入、185 项依赖、五项 CLI、隔离
+API/MCP 和真实 SIGTERM drain 回归全部通过。原生启动器未启动，既有三秒
+强杀/无序 stop-all 不属于 Python drain 修复的保证范围。

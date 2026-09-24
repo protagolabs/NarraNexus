@@ -18,6 +18,7 @@ import {
   Inbox,
   ListTodo,
   LayoutDashboard,
+  MonitorPlay,
   Network,
   Puzzle,
   Radio,
@@ -37,6 +38,7 @@ import type { BuiltinTabId } from '@/components/bookmarks/builtinTabIds';
 import {
   ArtifactsTab,
   AwarenessTab,
+  BrowserTab,
   BuilderTab,
   ChannelsTab,
   InboxTab,
@@ -162,6 +164,9 @@ builtinPanel('channels', { component: ChannelsTab, strip: { label: 'Channels', l
 builtinPanel('smarthome', { component: SmartHomeTab, strip: { label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home, category: 'config', order: 50 } });
 builtinPanel('jobs', { component: JobsTab, strip: { label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo, category: 'activity', order: 10 } });
 builtinPanel('inbox', { component: InboxTab, strip: { label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox, category: 'activity', order: 20 } });
+// The live browser sits with the other activity panels: it is something the
+// agent is DOING right now, not a configuration surface.
+PANELS.register('browser', { component: BrowserTab, strip: { label: 'Browser', labelKey: 'rail.browser', icon: MonitorPlay, category: 'activity', order: 25 } }, { owner: 'builtin.browser' });
 builtinPanel('artifacts', { component: ArtifactsTab, strip: { label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph, category: 'activity', order: 30 } });
 builtinPanel('memory', { component: MemoryTab, strip: { label: 'Memory', labelKey: 'rail.memory', icon: BookOpen, category: 'narra', order: 10 } });
 builtinPanel('social', { component: SocialTab, strip: { label: 'Social Network', labelKey: 'rail.social', icon: Network, stripLabel: 'Network', stripLabelKey: 'rail.socialShort', category: 'nexus', order: 10 } });

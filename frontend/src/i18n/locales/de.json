@@ -871,7 +871,8 @@
       "desktopHeading": "Desktop",
       "desktopIntro": "Einstellungen, die steuern, wie NarraNexus mit diesem Computer interagiert. Nur in der Desktop-App verfügbar.",
       "lockedUseTitle": "Locked Use — Computer wach halten",
-      "lockedUseDesc": "Verhindert, dass dieser Computer in den Ruhezustand wechselt, damit Hintergrund-Automatisierungen weiterlaufen. Gilt nur, solange NarraNexus geöffnet ist."
+      "lockedUseDesc": "Verhindert, dass dieser Computer in den Ruhezustand wechselt, damit Hintergrund-Automatisierungen weiterlaufen. Gilt nur, solange NarraNexus geöffnet ist.",
+      "navBrowser": "Browser"
     },
     "provider": {
       "presetNetmindDesc": "Ein Schlüssel deckt sowohl Anthropic- als auch OpenAI-Endpunkte ab",
@@ -1019,6 +1020,56 @@
       "narraUsageTitle": "Von NarraNexus genutzt · letzte {{days}} Tage",
       "narraUsageTokens": "Tokens",
       "narraUsageEstimate": "≈ {{cost}} — geschätzt nach öffentlichen Listenpreisen, weicht daher von deiner NetMind-Abrechnung ab."
+    },
+    "browser": {
+      "title": "Browser",
+      "intro": "Der Browser wird separat heruntergeladen und ist nicht in der App enthalten.",
+      "ready": "Installiert",
+      "absent": "Noch nicht installiert.",
+      "broken": "Ein Browser ist installiert, startet aber nicht.",
+      "install": "Browser installieren",
+      "reinstall": "Browser neu installieren",
+      "installingUnknown": "Wird heruntergeladen…",
+      "recheck": "Erneut prüfen",
+      "installFailed": "Der Browser konnte nicht installiert werden. Bitte versuchen Sie es erneut.",
+      "cancelFailed": "Die Installation konnte nicht abgebrochen werden. Bitte versuchen Sie es erneut.",
+      "cancelling": "Abbruch wird angefordert…",
+      "cancelRequested": "Abbruch angefordert. Es wird auf das Ende der Installation gewartet…",
+      "extracting": "Browser wird entpackt…",
+      "verifying": "Browser wird überprüft…",
+      "starting": "Installation wird gestartet…",
+      "statusFailed": "Der Browserstatus konnte nicht abgefragt werden.",
+      "loading": "Browserstatus wird geprüft…",
+      "cancel": "Installation abbrechen",
+      "cancelled": "Installation abgebrochen.",
+      "manualInstall": "Manuelle Installation",
+      "copyCommand": "Befehl kopieren",
+      "commandCopied": "Befehl kopiert.",
+      "copyFailed": "Kopieren fehlgeschlagen. Der Befehl ist zum manuellen Kopieren markiert.",
+      "scriptsTitle": "Erweiterte Skripte",
+      "scriptOrigin": "Website-Ursprung",
+      "addScriptSite": "Website hinzufügen",
+      "scriptOriginInvalid": "Geben Sie einen HTTP- oder HTTPS-Ursprung ohne Pfad oder Zugangsdaten ein.",
+      "refreshScripts": "Aktualisieren",
+      "scriptsFailed": "Skriptberechtigungen konnten nicht geladen werden.",
+      "scriptsLoading": "Skriptberechtigungen werden geladen...",
+      "permissionSaveFailed": "Diese Berechtigung konnte nicht gespeichert werden. Bitte erneut versuchen.",
+      "advancedScripts": "Erweiterte Skripte erlauben",
+      "scriptsExplanation": "Dem Agenten erlauben, beliebiges JavaScript auf dieser Website auszuführen, auch mit angemeldeten Seiteninhalten.",
+      "saveScripts": "Skriptberechtigung speichern",
+      "agentLabel": "Agent",
+      "sourceLabel": "Browserquelle",
+      "showWindow": "Browserfenster anzeigen",
+      "modeEffect": "Standardmäßig wird der Browser ohne Fenster ausgeführt. Änderungen gelten beim nächsten Browserstart; Anmeldungen bleiben erhalten. Manche Websites unterstützen den Headless-Modus nicht. Meldet eine Website einen nicht unterstützten Browser oder andere Fehler, aktiviere den Fenstermodus manuell, starte den Browser neu und versuche es erneut.",
+      "sourceEffect": "Gilt für neue Browsersitzungen. Bestehende Sitzungen laufen weiter. Jeder Browser speichert Anmeldungen separat.",
+      "sourceManaged": "Verwaltetes Chrome for Testing",
+      "sourceSystem": "Installiertes Google Chrome",
+      "systemUnavailable": "Google Chrome ist nicht verfügbar. Installieren Sie Google Chrome oder wählen Sie den verwalteten Browser.",
+      "chooseAgent": "Agent auswählen",
+      "manualHost": "Auf dem Computer ausführen, auf dem NarraNexus läuft.",
+      "manualRoot": "Installationsverzeichnis",
+      "manualShell": "Shell",
+      "manualCommand": "Befehl"
     }
   },
   "system": {
@@ -1359,7 +1410,8 @@
         "modelDefaults": "Modell-Standards",
         "artifacts": "Artefakte",
         "updates": "App-Updates",
-        "plugins": "Plugins"
+        "plugins": "Plugins",
+        "browser": "Browser"
       },
       "providers": {
         "label": "LLM-Anbieter"
@@ -1484,6 +1536,10 @@
           "protected": "geschützt",
           "installDeps": "Abhängigkeiten installieren ({{pip}})"
         }
+      },
+      "browser": {
+        "label": "Browser",
+        "hint": "Installieren Sie den Browser, mit dem Agenten Websites bedienen."
       }
     },
     "system": {
@@ -2058,7 +2114,8 @@
       "social": "Wen der Agent kennt — Kontakte sammeln sich an, während er mit Menschen und Agenten arbeitet.",
       "builder": "Beschreiben Sie, was Sie brauchen — das Gespräch füllt dieses Panel."
     },
-    "builder": "Builder"
+    "builder": "Builder",
+    "browser": "Browser"
   },
   "jobs": {
     "title": "Jobs",
@@ -2546,5 +2603,55 @@
     "resuming": "Wird fortgesetzt…",
     "dismiss": "Schließen",
     "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)"
+  },
+  "browser": {
+    "approval": {
+      "question": "Der Agent möchte {{action}}:",
+      "capAutoReview": "Aktionen automatisch prüfen auf",
+      "capUploads": "Dateien hochladen zu",
+      "capDownloads": "Dateien herunterladen von",
+      "allowThread": "Für dieses Gespräch erlauben",
+      "deny": "Nie erlauben",
+      "allowAlways": "Diese Website immer erlauben",
+      "allowTurn": "Für diesen Durchlauf erlauben",
+      "decisionFailed": "Die Entscheidung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      "loadFailed": "Die Browserfreigaben konnten nicht abgefragt werden.",
+      "retry": "Erneut versuchen",
+      "saving": "Entscheidung wird gespeichert…"
+    },
+    "absentTitle": "Browser nicht installiert",
+    "brokenTitle": "Der Browser ist installiert, startet aber nicht",
+    "install": "Browser installieren",
+    "reinstall": "Browser neu installieren",
+    "cancelInstall": "Download abbrechen",
+    "installFailed": "Die Installationsanfrage für den Browser ist fehlgeschlagen.",
+    "installingUnknown": "Wird heruntergeladen…",
+    "idle": "Noch keine aktive Browsersitzung.",
+    "pages": "Browser-Tabs",
+    "newTab": "Neuer Tab",
+    "agentTab": "Agent",
+    "closeTab": "Tab schließen",
+    "followAgent": "Agent folgen",
+    "webAddress": "Webadresse",
+    "go": "Öffnen",
+    "takeControlToNavigate": "Zum Öffnen einer Seite die Kontrolle übernehmen",
+    "invalidAddress": "Geben Sie eine HTTP- oder HTTPS-Adresse ein.",
+    "agentDriving": "Der Agent steuert den Browser",
+    "youDriving": "Sie steuern den Browser",
+    "otherDriving": "Ein anderes Fenster steuert den Browser",
+    "takeControl": "Steuerung übernehmen",
+    "handBack": "An den Agenten zurückgeben",
+    "reconnect": "Erneut verbinden",
+    "reconnecting": "Verbindung wird wiederhergestellt…",
+    "connecting": "Verbindung wird hergestellt…",
+    "disconnected": "Verbindung getrennt",
+    "screen": "Browseransicht",
+    "keyboardInput": "Tastatureingabe im Browser",
+    "login": {
+      "title": "Anmeldung oder Verifizierung erforderlich",
+      "inControl": "Geben Sie die Steuerung im Browser zurück, wenn Sie fertig sind.",
+      "pending": "Warten auf Ihre Anmeldung oder Verifizierung im Browser.",
+      "openBrowser": "Browser öffnen"
+    }
   }
 }

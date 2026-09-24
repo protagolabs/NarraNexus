@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-11
+last_verified: 2026-09-22
 stub: false
 ---
+
+## 2026-09-22 - Browser reachability on phones and in the shell
+
+The mobile utility row adds an NM Browser command alongside Artifacts and cost.
+It subscribes to PANELS, exists only with an agent and a registered browser panel,
+and uses the same requestPanel funnel as the desktop header. It does not require
+an artifact to exist first. Desktop access remains in ChatHeader.
+
+BrowserApprovalNotice is mounted in the app shell so questions are reachable
+while reading chat or settings, even if the browser drawer is closed. The notice
+owns its active-agent polling and error handling independently of playback.
 
 ## 2026-09-11 — a new agent's chat opens the drawer on Artifacts (Owner)
 

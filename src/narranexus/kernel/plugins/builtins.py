@@ -50,6 +50,7 @@ BUILTIN_PLUGINS: tuple[tuple[str, str], ...] = (
     ("builtin.common_tools", "common_tools_module"),
     ("builtin.general_memory", "general_memory_module"),
     ("builtin.home_assistant", "home_assistant_module"),
+    ("builtin.browser", "browser_module"),
     ("builtin.channels.lark", "lark_module"),
     ("builtin.channels.slack", "slack_module"),
     ("builtin.channels.telegram", "telegram_module"),

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/platform/builtin.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Browser is owned by its feature plugin
+
+The Browser panel registers with owner `builtin.browser`, matching the existing
+feature-level teams pattern. The shell-owned helper would label it `builtin.ui`,
+which the plugin loader deliberately never disables. Correct ownership lets
+`disableBuiltinUi` remove the panel and blacklist later registrations, so the
+registry subscriptions in desktop/mobile navigation and approval notices actually
+reflect whether the browser feature is enabled.
 
 ## 2026-09-07 — 注册内置 artifact kinds
 

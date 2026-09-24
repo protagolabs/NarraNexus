@@ -63,6 +63,10 @@ LAZY_RUNTIME_IMPORTS = (
     "uvloop",
     "httptools",
     "websockets",
+    # Plugin contributions name their implementation as an import string;
+    # loading manifests alone never proves that BrowserModule can import.
+    "narranexus_plugins.browser_module.browser_module",
+    "narranexus.platform.browser._browser_impl.runtime_launch",
 )
 
 
@@ -78,6 +82,7 @@ def _isolate_environment(scratch: str) -> None:
     """
     os.environ["HOME"] = scratch
     os.environ["NARRANEXUS_PLUGIN_HOME"] = os.path.join(scratch, "plugins")
+    os.environ["NARRANEXUS_BROWSER_HOME"] = os.path.join(scratch, "browser")
     os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(scratch, 'smoke.db')}"
     # "desktop" is what process_manager.rs sets for these very processes;
     # importing under the surface the dmg actually runs is the point.

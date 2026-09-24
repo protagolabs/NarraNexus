@@ -132,6 +132,10 @@ TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
 # before context_runtime builds the MCP spec in Step 3.
 EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
 
+# Conversation authorization scope, derived by ContextRuntime from the current
+# user, source, room and primary Narrative. Never supplied by a tool argument.
+THREAD_ID_HEADER = "X-NarraNexus-Thread-Id"
+
 # The PROOF for everything above: a short-lived Ed25519 JWT signed by the
 # platform (cloud: the executor broker at ensure() time; local: the
 # agent-runtime process), bound to the turn owner's user_id. The facts before
@@ -146,7 +150,7 @@ IDENTITY_TOKEN_HEADER = "X-NarraNexus-Identity-Token"
 # flips a FOLLOW-UP question back to Owner Relay and reproduces the P1. Iron
 # rule #15 forbids treating a first-class adapter as a corner.
 #
-#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>~<team_id>~<event_id>~<identity_token>
+#     Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>~<user_id>~<root_run_id>~<team_id>~<event_id>~<identity_token>~<thread_id>
 #
 # Contract — pin it, do not improvise:
 #   * fields are POSITIONAL and their order is frozen; ``BEARER_FIELDS`` names
@@ -196,6 +200,9 @@ BEARER_FIELDS = (
     # is field-safe. Verified by identity/mcp_auth.py; every field before it
     # stays self-declared and fail-open exactly as documented above.
     "identity_token",
+    # Conversation permission scope. The event_id already identifies the turn;
+    # this field identifies the runtime conversation across successive turns.
+    "thread_id",
 )
 
 # Values a model supplies when it is guessing instead of reading its prompt.
@@ -278,6 +285,7 @@ class BearerIdentity(NamedTuple):
     team_id: Optional[str] = None
     event_id: Optional[str] = None
     identity_token: Optional[str] = None
+    thread_id: Optional[str] = None
 
 
 def _parse_bearer(auth: str) -> BearerIdentity:
@@ -728,6 +736,7 @@ def agent_id_headers(
     team_id: str | None = None,
     event_id: str | None = None,
     identity_token: str | None = None,
+    thread_id: str | None = None,
 ) -> dict[str, str]:
     """Headers that tell a module MCP server who is calling, and about what.
 
@@ -752,6 +761,7 @@ def agent_id_headers(
         team_id or "",
         event_id or "",
         identity_token or "",
+        thread_id or "",
     ]
     while len(fields) > 1 and not fields[-1]:
         fields.pop()
@@ -770,6 +780,7 @@ def agent_id_headers(
         (TEAM_ID_HEADER, team_id),
         (EVENT_ID_HEADER, event_id),
         (IDENTITY_TOKEN_HEADER, identity_token),
+        (THREAD_ID_HEADER, thread_id),
     ):
         if value:
             headers[header] = str(value)
@@ -815,6 +826,7 @@ def stamp_identity_token(mcp_servers: dict, token: str) -> None:
                 team_id=ident.team_id,
                 event_id=ident.event_id,
                 identity_token=token,
+                thread_id=ident.thread_id,
             ),
         }
 

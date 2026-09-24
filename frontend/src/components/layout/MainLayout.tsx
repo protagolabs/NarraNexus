@@ -28,7 +28,9 @@ import { useState, useEffect, Suspense } from 'react';
 import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { X, PanelLeft } from 'lucide-react';
+import { X, MonitorPlay, PanelLeft } from 'lucide-react';
+import { Button } from '@/components/nm/button';
+import { PANELS, useRegistryEntries } from '@/platform/registries';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
@@ -55,6 +57,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { NoProviderNotice } from './NoProviderNotice';
+import { BrowserApprovalNotice } from './BrowserApprovalNotice';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
@@ -130,6 +133,7 @@ export function ChatView() {
   useBookmarkSignals(agentId);
 
   const isMobile = useIsMobile();
+  const browserOffered = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
   const pendingPanel = useUIStore((s) => s.pendingPanel);
   const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
@@ -199,8 +203,8 @@ export function ChatView() {
     // chat header's Artifacts entry.
     <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Mobile utility row — artifacts entry + cost chip (the desktop
-            header doesn't render on < md; this row keeps both one tap away). */}
+        {/* The desktop header is hidden on mobile; keep its activity panels
+            reachable here even before the agent has produced an artifact. */}
         {isMobile && agentId && (
           <div className="flex h-9 shrink-0 items-center justify-end gap-1 px-1.5 border-b border-[var(--nm-hairline)]">
             <button
@@ -212,6 +216,13 @@ export function ChatView() {
                 ? tr('layout.chatView.tabArtifactsCount', { count: artifactsLength })
                 : tr('layout.chatView.tabArtifacts')}
             </button>
+            {browserOffered && (
+              <Button variant="ghost" size="sm" onClick={() => requestPanel('browser')}
+                leading={<MonitorPlay className="h-3.5 w-3.5" />}
+                className="h-7 px-2 text-[11px] text-[var(--text-tertiary)]">
+                {tr('rail.browser', 'Browser')}
+              </Button>
+            )}
             <CostPopover compact />
           </div>
         )}
@@ -399,6 +410,11 @@ export function MainLayout() {
           explains why the app can't answer yet. Self-clears once a provider
           exists; local only. */}
       <NoProviderNotice />
+
+      {/* A site the agent is blocked on. In the shell, not in the browser
+          panel: the user reads the refusal in chat, and a prompt that only
+          exists inside a panel they have not opened is no prompt at all. */}
+      <BrowserApprovalNotice />
 
       {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
           nothing on md+ (v4: the sidebar owns the full height there). */}

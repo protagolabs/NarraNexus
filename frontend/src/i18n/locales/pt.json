@@ -871,7 +871,8 @@
       "desktopHeading": "Desktop",
       "desktopIntro": "Configurações que controlam como o NarraNexus interage com este computador. Disponível apenas no aplicativo desktop.",
       "lockedUseTitle": "Locked Use — manter o computador acordado",
-      "lockedUseDesc": "Impede que este computador entre em suspensão para que as automações em segundo plano continuem em execução. Mantido apenas enquanto o NarraNexus estiver aberto."
+      "lockedUseDesc": "Impede que este computador entre em suspensão para que as automações em segundo plano continuem em execução. Mantido apenas enquanto o NarraNexus estiver aberto.",
+      "navBrowser": "Navegador"
     },
     "provider": {
       "presetNetmindDesc": "Uma chave cobre os endpoints da Anthropic e da OpenAI",
@@ -1019,6 +1020,56 @@
       "narraUsageTitle": "Usado pelo NarraNexus · últimos {{days}} dias",
       "narraUsageTokens": "tokens",
       "narraUsageEstimate": "≈ {{cost}} — estimado por preços públicos de tabela, então não corresponderá exatamente à sua fatura NetMind."
+    },
+    "browser": {
+      "title": "Navegador",
+      "intro": "O navegador é baixado separadamente e não vem incluído no aplicativo.",
+      "ready": "Instalado",
+      "absent": "Ainda não instalado.",
+      "broken": "Há um navegador instalado, mas ele não inicia.",
+      "install": "Instalar navegador",
+      "reinstall": "Reinstalar navegador",
+      "installingUnknown": "Baixando…",
+      "recheck": "Verificar novamente",
+      "installFailed": "Não foi possível instalar o navegador. Tente novamente.",
+      "cancelFailed": "Não foi possível cancelar a instalação. Tente novamente.",
+      "cancelling": "Solicitando cancelamento…",
+      "cancelRequested": "Cancelamento solicitado. Aguardando a instalação parar…",
+      "extracting": "Extraindo o navegador…",
+      "verifying": "Verificando o navegador…",
+      "starting": "Iniciando a instalação…",
+      "statusFailed": "Não foi possível verificar o status do navegador.",
+      "loading": "Verificando o status do navegador…",
+      "cancel": "Cancelar instalação",
+      "cancelled": "Instalação cancelada.",
+      "manualInstall": "Instalação manual",
+      "copyCommand": "Copiar comando",
+      "commandCopied": "Comando copiado.",
+      "copyFailed": "Não foi possível copiar. O comando está selecionado para cópia manual.",
+      "scriptsTitle": "Scripts avançados",
+      "scriptOrigin": "Origem do site",
+      "addScriptSite": "Adicionar site",
+      "scriptOriginInvalid": "Introduza uma origem HTTP ou HTTPS sem caminho nem credenciais.",
+      "refreshScripts": "Atualizar",
+      "scriptsFailed": "Não foi possível carregar as permissões de scripts.",
+      "scriptsLoading": "A carregar permissões de scripts...",
+      "permissionSaveFailed": "Não foi possível salvar esta permissão. Tente novamente.",
+      "advancedScripts": "Permitir scripts avançados",
+      "scriptsExplanation": "Permitir que o agente execute JavaScript arbitrário neste site, incluindo o conteúdo de páginas com sessão iniciada.",
+      "saveScripts": "Salvar permissão de scripts",
+      "agentLabel": "Agente",
+      "sourceLabel": "Origem do navegador",
+      "showWindow": "Mostrar janela do navegador",
+      "modeEffect": "O modo sem janela é o padrão. As alterações são aplicadas na próxima inicialização do navegador; os logins são mantidos. Alguns sites não aceitam acesso sem janela. Se um site indicar um navegador não compatível ou outros erros, ative manualmente o modo com janela, reinicie o navegador e tente novamente.",
+      "sourceEffect": "Aplica-se a novas sessões. As sessões existentes continuam. Cada navegador mantém seus logins separados.",
+      "sourceManaged": "Chrome for Testing gerenciado",
+      "sourceSystem": "Google Chrome instalado",
+      "systemUnavailable": "O Google Chrome está indisponível. Instale-o ou selecione o navegador gerenciado.",
+      "chooseAgent": "Selecione um agente",
+      "manualHost": "Execute no computador que hospeda o NarraNexus.",
+      "manualRoot": "Diretório de instalação",
+      "manualShell": "Shell",
+      "manualCommand": "Comando"
     }
   },
   "system": {
@@ -1359,7 +1410,8 @@
         "modelDefaults": "Modelos padrão",
         "artifacts": "Artefatos",
         "updates": "Atualizações",
-        "plugins": "Plugins"
+        "plugins": "Plugins",
+        "browser": "Navegador"
       },
       "providers": {
         "label": "Provedores de LLM"
@@ -1484,6 +1536,10 @@
           "protected": "protegido",
           "installDeps": "Instalar dependências ({{pip}})"
         }
+      },
+      "browser": {
+        "label": "Navegador",
+        "hint": "Instale o navegador que os agentes usam para operar sites."
       }
     },
     "system": {
@@ -2058,7 +2114,8 @@
       "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes.",
       "builder": "Descreva o que precisa; a conversa preenche este painel."
     },
-    "builder": "Builder"
+    "builder": "Builder",
+    "browser": "Navegador"
   },
   "jobs": {
     "title": "Tarefas",
@@ -2546,5 +2603,55 @@
     "resuming": "Retomando…",
     "dismiss": "Dispensar",
     "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)"
+  },
+  "browser": {
+    "approval": {
+      "question": "O agente quer {{action}}:",
+      "capAutoReview": "rever automaticamente as ações em",
+      "capUploads": "enviar arquivos para",
+      "capDownloads": "baixar arquivos de",
+      "allowThread": "Permitir nesta conversa",
+      "deny": "Nunca permitir",
+      "allowAlways": "Permitir sempre este site",
+      "allowTurn": "Permitir apenas neste turno",
+      "decisionFailed": "Não foi possível salvar a decisão. Tente novamente.",
+      "loadFailed": "Não foi possível consultar as solicitações de aprovação do navegador.",
+      "retry": "Tentar novamente",
+      "saving": "Salvando a decisão…"
+    },
+    "absentTitle": "Navegador não instalado",
+    "brokenTitle": "O navegador está instalado, mas não inicia",
+    "install": "Instalar navegador",
+    "reinstall": "Reinstalar navegador",
+    "cancelInstall": "Cancelar download",
+    "installFailed": "A solicitação de instalação do navegador falhou.",
+    "installingUnknown": "Baixando…",
+    "idle": "Ainda não há uma sessão ativa do navegador.",
+    "pages": "Abas do navegador",
+    "newTab": "Nova aba",
+    "agentTab": "Agente",
+    "closeTab": "Fechar aba",
+    "followAgent": "Seguir agente",
+    "webAddress": "Endereço web",
+    "go": "Ir",
+    "takeControlToNavigate": "Assuma o controle para abrir uma página",
+    "invalidAddress": "Insira um endereço HTTP ou HTTPS.",
+    "agentDriving": "O agente está no controle",
+    "youDriving": "Você está no controle",
+    "otherDriving": "Outra janela está no controle",
+    "takeControl": "Assumir o controle",
+    "handBack": "Devolver o controle ao agente",
+    "reconnect": "Reconectar",
+    "reconnecting": "Reconectando…",
+    "connecting": "Conectando…",
+    "disconnected": "Desconectado",
+    "screen": "Tela do navegador",
+    "keyboardInput": "Entrada de teclado do navegador",
+    "login": {
+      "title": "Login ou verificação necessária",
+      "inControl": "Devolva o controle no navegador quando terminar.",
+      "pending": "Aguardando você concluir o login ou a verificação no navegador.",
+      "openBrowser": "Abrir navegador"
+    }
   }
 }

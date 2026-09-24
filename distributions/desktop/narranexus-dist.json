@@ -21,6 +21,7 @@
     "builtin.message_bus": "^1.0",
     "builtin.common_tools": "^1.0",
     "builtin.general_memory": "^1.0",
+    "builtin.browser": "^1.0",
     "builtin.home_assistant": "^1.0",
     "builtin.channels.lark": "^1.0",
     "builtin.channels.slack": "^1.0",

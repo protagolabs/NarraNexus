@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/platform/builtinPanels.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-22
 stub: false
 ---
+
+## 2026-09-22 - Browser is a lazy drawer panel
+
+BrowserTab passes the agent ID to BrowserStreamPanel as its session identity.
+The stream component is imported with React.lazy, like the other heavy panels,
+so registering builtins does not eagerly load browser rendering dependencies.
+BookmarkPanelHost supplies the existing Suspense boundary. This also keeps test
+setup's builtin registration from caching the stream component before test mocks.
 
 ## 2026-09-03 — 每个条带 tab 一个可注册的小组件
 

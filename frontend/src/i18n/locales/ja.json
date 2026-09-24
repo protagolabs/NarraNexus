@@ -870,7 +870,8 @@
       "desktopHeading": "デスクトップ",
       "desktopIntro": "NarraNexus とこのコンピュータの連携を制御する設定です。デスクトップアプリでのみ利用できます。",
       "lockedUseTitle": "Locked Use — スリープを防止",
-      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。"
+      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。",
+      "navBrowser": "ブラウザ"
     },
     "provider": {
       "presetNetmindDesc": "1 つのキーで Anthropic と OpenAI 両方のエンドポイントをカバー",
@@ -1018,6 +1019,56 @@
       "narraUsageTitle": "NarraNexus の使用量 · 過去 {{days}} 日",
       "narraUsageTokens": "トークン",
       "narraUsageEstimate": "≈ {{cost}} — 公開価格に基づく概算のため、NetMind の明細とは完全には一致しません。"
+    },
+    "browser": {
+      "title": "ブラウザ",
+      "intro": "ブラウザは別途ダウンロードされ、アプリには同梱されていません。",
+      "ready": "インストール済み",
+      "absent": "まだインストールされていません。",
+      "broken": "ブラウザはインストール済みですが、起動できません。",
+      "install": "ブラウザをインストール",
+      "reinstall": "ブラウザを再インストール",
+      "installingUnknown": "ダウンロード中…",
+      "recheck": "再確認",
+      "installFailed": "ブラウザをインストールできませんでした。もう一度お試しください。",
+      "cancelFailed": "インストールをキャンセルできませんでした。もう一度お試しください。",
+      "cancelling": "キャンセルを要求中…",
+      "cancelRequested": "キャンセルを要求しました。インストールの停止を待っています…",
+      "extracting": "ブラウザを展開中…",
+      "verifying": "ブラウザを検証中…",
+      "starting": "インストールを開始中…",
+      "statusFailed": "ブラウザの状態を確認できませんでした。",
+      "loading": "ブラウザの状態を確認中…",
+      "cancel": "インストールをキャンセル",
+      "cancelled": "インストールをキャンセルしました。",
+      "manualInstall": "手動インストール",
+      "copyCommand": "コマンドをコピー",
+      "commandCopied": "コマンドをコピーしました。",
+      "copyFailed": "コピーできませんでした。手動コピー用にコマンドを選択しました。",
+      "scriptsTitle": "高度なスクリプト",
+      "scriptOrigin": "サイトのオリジン",
+      "addScriptSite": "サイトを追加",
+      "scriptOriginInvalid": "パスや認証情報を含まない HTTP または HTTPS のオリジンを入力してください。",
+      "refreshScripts": "更新",
+      "scriptsFailed": "スクリプトの権限を読み込めませんでした。",
+      "scriptsLoading": "スクリプトの権限を読み込み中…",
+      "permissionSaveFailed": "この権限を保存できませんでした。もう一度お試しください。",
+      "advancedScripts": "高度なスクリプトを許可",
+      "scriptsExplanation": "ログイン済みのページ内容を含め、このサイトでエージェントが任意の JavaScript を実行することを許可します。",
+      "saveScripts": "スクリプトの権限を保存",
+      "agentLabel": "エージェント",
+      "sourceLabel": "ブラウザーの種類",
+      "showWindow": "ブラウザーウィンドウを表示",
+      "modeEffect": "既定ではヘッドレスモードを使用します。変更は次回のブラウザー起動時に反映され、ログイン状態は保持されます。一部のサイトはヘッドレスアクセスに対応していません。非対応のブラウザーやその他のエラーが表示される場合は、このスイッチでウィンドウ表示を有効にし、ブラウザーを再起動してから再試行してください。",
+      "sourceEffect": "新しいブラウザーセッションに適用されます。現在のセッションは継続します。ログイン状態はブラウザーごとに保存されます。",
+      "sourceManaged": "管理対象の Chrome for Testing",
+      "sourceSystem": "インストール済みの Google Chrome",
+      "systemUnavailable": "Google Chrome を利用できません。Google Chrome をインストールするか、管理対象のブラウザーを選択してください。",
+      "chooseAgent": "エージェントを選択",
+      "manualHost": "NarraNexus が動作しているコンピューターで実行してください。",
+      "manualRoot": "インストール先",
+      "manualShell": "シェル",
+      "manualCommand": "コマンド"
     }
   },
   "system": {
@@ -1358,7 +1409,8 @@
         "modelDefaults": "モデル既定値",
         "artifacts": "アーティファクト",
         "updates": "アプリ更新",
-        "plugins": "プラグイン"
+        "plugins": "プラグイン",
+        "browser": "ブラウザ"
       },
       "providers": {
         "label": "LLM プロバイダー"
@@ -1483,6 +1535,10 @@
           "protected": "保護",
           "installDeps": "依存関係をインストール（{{pip}}）"
         }
+      },
+      "browser": {
+        "label": "ブラウザ",
+        "hint": "エージェントがウェブサイトを操作するためのブラウザをインストールします。"
       }
     },
     "system": {
@@ -2057,7 +2113,8 @@
       "social": "エージェントの知り合い — 人や他のエージェントと協働するうちに連絡先が蓄積されます。",
       "builder": "必要なことを説明すると、会話がこのパネルを埋めます。"
     },
-    "builder": "ビルダー"
+    "builder": "ビルダー",
+    "browser": "ブラウザ"
   },
   "jobs": {
     "title": "ジョブ",
@@ -2545,5 +2602,55 @@
     "resuming": "再開中…",
     "dismiss": "閉じる",
     "freeTierSwitched": "無料枠のクォータを使い切ったため、あなた自身のプロバイダーに切り替えました。以降の実行はあなた自身のAPIキーを使用します。(クリックして閉じる)"
+  },
+  "browser": {
+    "approval": {
+      "question": "エージェントが次の操作を求めています：{{action}}",
+      "capAutoReview": "操作を自動審査する",
+      "capUploads": "ファイルをアップロード",
+      "capDownloads": "ファイルをダウンロード",
+      "allowThread": "この会話の間だけ許可",
+      "deny": "常に拒否",
+      "allowAlways": "このサイトを常に許可",
+      "allowTurn": "このターンのみ許可",
+      "decisionFailed": "承認結果を保存できませんでした。もう一度お試しください。",
+      "loadFailed": "ブラウザの承認リクエストを確認できませんでした。",
+      "retry": "再試行",
+      "saving": "承認結果を保存中…"
+    },
+    "absentTitle": "ブラウザがインストールされていません",
+    "brokenTitle": "ブラウザはインストール済みですが起動できません",
+    "install": "ブラウザをインストール",
+    "reinstall": "ブラウザを再インストール",
+    "cancelInstall": "ダウンロードをキャンセル",
+    "installFailed": "ブラウザのインストール要求に失敗しました。",
+    "installingUnknown": "ダウンロード中…",
+    "idle": "実行中のブラウザセッションはまだありません。",
+    "pages": "ブラウザーのタブ",
+    "newTab": "新しいタブ",
+    "agentTab": "エージェント",
+    "closeTab": "タブを閉じる",
+    "followAgent": "エージェントを追従",
+    "webAddress": "ウェブアドレス",
+    "go": "移動",
+    "takeControlToNavigate": "操作権を取得してページを開く",
+    "invalidAddress": "HTTP または HTTPS のアドレスを入力してください。",
+    "agentDriving": "エージェントが操作中",
+    "youDriving": "あなたが操作中",
+    "otherDriving": "別のウィンドウで操作中",
+    "takeControl": "操作を引き継ぐ",
+    "handBack": "エージェントに操作を戻す",
+    "reconnect": "再接続",
+    "reconnecting": "再接続中…",
+    "connecting": "接続中…",
+    "disconnected": "接続が切れました",
+    "screen": "ブラウザ画面",
+    "keyboardInput": "ブラウザのキーボード入力",
+    "login": {
+      "title": "ログインまたは認証が必要です",
+      "inControl": "完了したらブラウザで操作権を返してください。",
+      "pending": "ブラウザでのログインまたは認証の完了を待っています。",
+      "openBrowser": "ブラウザを開く"
+    }
   }
 }

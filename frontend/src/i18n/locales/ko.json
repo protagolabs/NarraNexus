@@ -870,7 +870,8 @@
       "desktopHeading": "데스크톱",
       "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
       "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",
-      "lockedUseDesc": "컴퓨터가 절전 모드로 전환되는 것을 방지하여 백그라운드 자동화가 계속 실행되도록 합니다. NarraNexus가 열려 있는 동안에만 유지됩니다."
+      "lockedUseDesc": "컴퓨터가 절전 모드로 전환되는 것을 방지하여 백그라운드 자동화가 계속 실행되도록 합니다. NarraNexus가 열려 있는 동안에만 유지됩니다.",
+      "navBrowser": "브라우저"
     },
     "provider": {
       "presetNetmindDesc": "하나의 키로 Anthropic 및 OpenAI 엔드포인트를 모두 사용",
@@ -1018,6 +1019,56 @@
       "narraUsageTitle": "NarraNexus 사용량 · 최근 {{days}}일",
       "narraUsageTokens": "토큰",
       "narraUsageEstimate": "≈ {{cost}} — 공개 정가 기준 추정치이므로 NetMind 명세서와 정확히 일치하지 않습니다."
+    },
+    "browser": {
+      "title": "브라우저",
+      "intro": "브라우저는 별도로 다운로드하며 앱에 포함되어 있지 않습니다.",
+      "ready": "설치됨",
+      "absent": "아직 설치되지 않았습니다.",
+      "broken": "브라우저가 설치되어 있지만 실행되지 않습니다.",
+      "install": "브라우저 설치",
+      "reinstall": "브라우저 다시 설치",
+      "installingUnknown": "다운로드 중…",
+      "recheck": "다시 확인",
+      "installFailed": "브라우저를 설치할 수 없습니다. 다시 시도하세요.",
+      "cancelFailed": "설치를 취소할 수 없습니다. 다시 시도하세요.",
+      "cancelling": "취소 요청 중…",
+      "cancelRequested": "취소를 요청했습니다. 설치가 중지되기를 기다리는 중…",
+      "extracting": "브라우저 압축 해제 중…",
+      "verifying": "브라우저 검증 중…",
+      "starting": "설치 시작 중…",
+      "statusFailed": "브라우저 상태를 확인할 수 없습니다.",
+      "loading": "브라우저 상태 확인 중…",
+      "cancel": "설치 취소",
+      "cancelled": "설치가 취소되었습니다.",
+      "manualInstall": "수동 설치",
+      "copyCommand": "명령 복사",
+      "commandCopied": "명령을 복사했습니다.",
+      "copyFailed": "복사하지 못했습니다. 수동으로 복사할 수 있도록 명령을 선택했습니다.",
+      "scriptsTitle": "고급 스크립트",
+      "scriptOrigin": "사이트 출처",
+      "addScriptSite": "사이트 추가",
+      "scriptOriginInvalid": "경로나 인증 정보가 없는 HTTP 또는 HTTPS 출처를 입력하세요.",
+      "refreshScripts": "새로고침",
+      "scriptsFailed": "스크립트 권한을 불러올 수 없습니다.",
+      "scriptsLoading": "스크립트 권한을 불러오는 중...",
+      "permissionSaveFailed": "이 권한을 저장하지 못했습니다. 다시 시도하세요.",
+      "advancedScripts": "고급 스크립트 허용",
+      "scriptsExplanation": "로그인된 페이지 콘텐츠를 포함하여 이 사이트에서 에이전트가 임의의 JavaScript를 실행하도록 허용합니다.",
+      "saveScripts": "스크립트 권한 저장",
+      "agentLabel": "에이전트",
+      "sourceLabel": "브라우저 종류",
+      "showWindow": "브라우저 창 표시",
+      "modeEffect": "기본적으로 헤드리스 모드를 사용합니다. 변경 사항은 다음 브라우저 실행부터 적용되며 로그인 상태는 유지됩니다. 일부 웹사이트는 헤드리스 접근을 지원하지 않습니다. 지원하지 않는 브라우저라는 메시지나 다른 오류가 표시되면 수동으로 창 표시 모드를 켜고 브라우저를 다시 시작한 후 재시도하세요.",
+      "sourceEffect": "새 브라우저 세션에 적용됩니다. 기존 세션은 계속 실행됩니다. 로그인 상태는 브라우저별로 저장됩니다.",
+      "sourceManaged": "관리되는 Chrome for Testing",
+      "sourceSystem": "설치된 Google Chrome",
+      "systemUnavailable": "Google Chrome을 사용할 수 없습니다. 설치하거나 관리되는 브라우저를 선택하세요.",
+      "chooseAgent": "에이전트 선택",
+      "manualHost": "NarraNexus를 실행하는 컴퓨터에서 실행하세요.",
+      "manualRoot": "설치 디렉터리",
+      "manualShell": "셸",
+      "manualCommand": "명령"
     }
   },
   "system": {
@@ -1358,7 +1409,8 @@
         "modelDefaults": "기본 모델",
         "artifacts": "아티팩트",
         "updates": "앱 업데이트",
-        "plugins": "플러그인"
+        "plugins": "플러그인",
+        "browser": "브라우저"
       },
       "providers": {
         "label": "LLM 제공자"
@@ -1483,6 +1535,10 @@
           "protected": "보호됨",
           "installDeps": "의존성 설치 ({{pip}})"
         }
+      },
+      "browser": {
+        "label": "브라우저",
+        "hint": "에이전트가 웹사이트를 조작할 때 쓰는 브라우저를 설치합니다."
       }
     },
     "system": {
@@ -2057,7 +2113,8 @@
       "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다.",
       "builder": "필요한 것을 설명하면 대화가 이 패널을 채웁니다."
     },
-    "builder": "빌더"
+    "builder": "빌더",
+    "browser": "브라우저"
   },
   "jobs": {
     "title": "작업",
@@ -2545,5 +2602,55 @@
     "resuming": "재개 중…",
     "dismiss": "닫기",
     "freeTierSwitched": "무료 할당량을 모두 사용하여 사용자 지정 공급자로 전환되었습니다. 이후 실행은 사용자의 API 키를 사용합니다. (클릭하여 닫기)"
+  },
+  "browser": {
+    "approval": {
+      "question": "에이전트가 다음을 요청합니다: {{action}}",
+      "capAutoReview": "작업을 자동으로 검토할 사이트",
+      "capUploads": "파일 업로드",
+      "capDownloads": "파일 다운로드",
+      "allowThread": "이 대화에서만 허용",
+      "deny": "항상 거부",
+      "allowAlways": "이 사이트를 항상 허용",
+      "allowTurn": "이번 턴에서만 허용",
+      "decisionFailed": "승인 결정을 저장할 수 없습니다. 다시 시도하세요.",
+      "loadFailed": "브라우저 승인 요청을 확인할 수 없습니다.",
+      "retry": "다시 시도",
+      "saving": "승인 결정 저장 중…"
+    },
+    "absentTitle": "브라우저가 설치되지 않았습니다",
+    "brokenTitle": "브라우저가 설치되어 있지만 시작할 수 없습니다",
+    "install": "브라우저 설치",
+    "reinstall": "브라우저 다시 설치",
+    "cancelInstall": "다운로드 취소",
+    "installFailed": "브라우저 설치 요청에 실패했습니다.",
+    "installingUnknown": "다운로드 중…",
+    "idle": "아직 실행 중인 브라우저 세션이 없습니다.",
+    "pages": "브라우저 탭",
+    "newTab": "새 탭",
+    "agentTab": "에이전트",
+    "closeTab": "탭 닫기",
+    "followAgent": "에이전트 따라가기",
+    "webAddress": "웹 주소",
+    "go": "이동",
+    "takeControlToNavigate": "페이지를 열려면 제어권을 가져오세요",
+    "invalidAddress": "HTTP 또는 HTTPS 주소를 입력하세요.",
+    "agentDriving": "에이전트가 제어 중",
+    "youDriving": "직접 제어 중",
+    "otherDriving": "다른 창에서 제어 중",
+    "takeControl": "제어권 가져오기",
+    "handBack": "에이전트에게 제어권 반환",
+    "reconnect": "다시 연결",
+    "reconnecting": "다시 연결 중…",
+    "connecting": "연결 중…",
+    "disconnected": "연결이 끊어졌습니다",
+    "screen": "브라우저 화면",
+    "keyboardInput": "브라우저 키보드 입력",
+    "login": {
+      "title": "로그인 또는 인증 필요",
+      "inControl": "완료하면 브라우저에서 제어권을 반환하세요.",
+      "pending": "브라우저에서 로그인 또는 인증을 완료하기를 기다리는 중입니다.",
+      "openBrowser": "브라우저 열기"
+    }
   }
 }

@@ -1,9 +1,17 @@
 ---
 code_file: backend/middleware/body_size.py
-last_verified: 2026-09-04
+last_verified: 2026-09-24
 stub: false
 ---
 # body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
+
+## 2026-09-24 · 浏览器设置请求体积
+
+浏览器 policy PUT、revoke POST 以及运行时 source/mode PUT 共用 4 KiB
+声明长度上限，在框架解析 origin/capability/verdict 或运行偏好前拒绝超大请求。
+单个枚举的设置也有请求体积限制，Pydantic 校验发生在请求缓冲之后，不能替代此门。
+与既有中间件一致，这不是对缺失或
+虚报 Content-Length 的流式累计限制。
 
 ## 2026-09-03（批 2e）— `/api/plugin-factory/*` 写路由统一 64 KiB 上限
 

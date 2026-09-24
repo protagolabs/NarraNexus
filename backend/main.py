@@ -839,6 +839,12 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES  # noqa: E402
 # Builtin plugins (incl. builtin.teams' router) register at import so the route
 # table is complete before serving; the lifespan boot repeats this idempotently.
 app.state.disabled_builtins = register_builtins_for_import(KERNEL_REGISTRIES)
+if any(entry.owner == "builtin.browser" for entry in
+       KERNEL_REGISTRIES.registry_for("agent.capabilities.modules").entries()):
+    from backend.routes.browser import router as browser_router, ws_router as browser_ws_router
+
+    app.include_router(browser_router, prefix="/api/browser", tags=["Browser"])
+    app.include_router(browser_ws_router, tags=["Browser"])
 app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)
 # User plugins (registry.json) mount a lazy router under /api/x/<id> now — before
 # the SPA fallback below, which would otherwise swallow their paths — and build

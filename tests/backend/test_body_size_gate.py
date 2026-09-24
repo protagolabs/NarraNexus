@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from backend.main import app
 from backend.middleware.body_size import BODY_CAPS, body_size_middleware
 
@@ -41,6 +43,10 @@ _ENV_GATED_EXEMPT = frozenset({
 })
 _ENV_GATED_CAPPED = frozenset({
     "/v1/chat/completions",  # MAX_CHAT_COMPLETIONS_BYTES — body field + unbounded messages
+    "/api/browser/policy/{agent_id}",  # builtin.browser may be disabled
+    "/api/browser/policy/{agent_id}/revoke",
+    "/api/browser/runtime/source",
+    "/api/browser/runtime/mode",
 })
 
 # Write routes with NO BODY_CAPS entry, by ROUTE TEMPLATE (r.path verbatim —
@@ -123,6 +129,14 @@ _NO_BODY_CAP_EXEMPT = frozenset({
     "/api/billing/cancel",
     "/api/billing/reactivate",
     "/api/billing/recharge",
+    # Browser runtime install is a pure action: both take NO body at all, so a
+    # size cap would be a limit on nothing. The bytes they move (a ~150 MB
+    # Chromium) travel out-of-band from the vendor CDN, never through us.
+    "/api/browser/runtime/install",
+    "/api/browser/runtime/install/cancel",
+    # One approval decision: two short enum fields ({decision, lifetime}),
+    # validated by pydantic before anything reads them.
+    "/api/browser/approvals/{approval_id}",
     "/api/billing/subscribe",
     "/api/bundle/export",
     "/api/bundle/export/preview/artifacts",
@@ -304,6 +318,61 @@ def test_chat_completions_declared_oversize_is_413_before_route():
     )
     assert r.status_code == 413
     assert hits == []
+
+
+def test_browser_policy_declared_oversize_is_rejected_before_route():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.middleware.body_size import MAX_BROWSER_SETTINGS_BYTES
+
+    hits = []
+    bare = FastAPI()
+    bare.middleware("http")(body_size_middleware)
+
+    @bare.put("/api/browser/policy/{agent_id}")
+    @bare.post("/api/browser/policy/{agent_id}/revoke")
+    async def route(agent_id: str):
+        hits.append(agent_id)
+        return {}
+
+    with TestClient(bare) as client:
+        for method, suffix in (("PUT", ""), ("POST", "/revoke")):
+            path = f"/api/browser/policy/test-agent{suffix}"
+            response = client.request(method, path, content=b"{}", headers={
+                "Content-Length": str(MAX_BROWSER_SETTINGS_BYTES + 1),
+            })
+            assert response.status_code == 413
+            assert hits == []
+        assert client.put("/api/browser/policy/test-agent", json={}).status_code == 200
+    assert hits == ["test-agent"]
+
+
+@pytest.mark.parametrize("preference,value", [("source", "system"), ("mode", "headed")])
+def test_browser_runtime_preference_declared_oversize_is_rejected_before_route(preference, value):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.middleware.body_size import MAX_BROWSER_SETTINGS_BYTES
+
+    hits = []
+    bare = FastAPI()
+    bare.middleware("http")(body_size_middleware)
+    path = f"/api/browser/runtime/{preference}"
+
+    @bare.put(path)
+    async def route():
+        hits.append(preference)
+        return {}
+
+    with TestClient(bare) as client:
+        response = client.put(path, content=b"{}", headers={
+            "Content-Length": str(MAX_BROWSER_SETTINGS_BYTES + 1),
+        })
+        assert response.status_code == 413
+        assert hits == []
+        assert client.put(path, json={preference: value}).status_code == 200
+    assert hits == [preference]
 
 
 def test_middleware_order_cors_outermost_body_size_inside_access_log():

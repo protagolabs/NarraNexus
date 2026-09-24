@@ -121,6 +121,15 @@ export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import type { CliStatusPayload, ProviderRow } from './providersApi';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import type {
+  ApprovalLifetime,
+  BrowserInstallResult,
+  BrowserRuntimeStatus,
+  BrowserPolicyCapability,
+  BrowserPolicyRule,
+  BrowserPolicyView,
+  BrowserPendingRequest,
+} from '@/types/browser';
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
@@ -791,6 +800,69 @@ class ApiClient {
 
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
+  }
+
+  // In-app browser runtime. Routed through `request<T>` like everything else:
+  // a raw fetch() here misses the identity headers the local-mode middleware
+  // requires, and the 401 that produces is indistinguishable, in the UI, from
+  // "no browser installed" — which is exactly what shipped on 2026-09-22.
+  async getBrowserRuntime(): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>(`/api/browser/runtime`);
+  }
+
+  async setBrowserSource(source: 'managed' | 'system'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/source', {
+      method: 'PUT', body: JSON.stringify({ source }),
+    });
+  }
+
+  async setBrowserMode(mode: 'headless' | 'headed'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/mode', {
+      method: 'PUT', body: JSON.stringify({ mode }),
+    });
+  }
+
+  async installBrowserRuntime(): Promise<BrowserInstallResult> {
+    return this.request<BrowserInstallResult>(`/api/browser/runtime/install`, { method: 'POST' });
+  }
+
+  async cancelBrowserInstall(): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(`/api/browser/runtime/install/cancel`, { method: 'POST' });
+  }
+
+  async getBrowserPolicy(agentId: string): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`);
+  }
+
+  async updateBrowserPolicy(agentId: string, rule: BrowserPolicyRule): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`, {
+      method: 'PUT', body: JSON.stringify(rule),
+    });
+  }
+
+  async revokeBrowserPolicy(agentId: string, target: { origin: string; capability: BrowserPolicyCapability }): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}/revoke`, {
+      method: 'POST', body: JSON.stringify(target),
+    });
+  }
+
+  async getBrowserApprovals(agentId: string): Promise<{ pending: BrowserPendingRequest[] }> {
+    return this.request<{ pending: BrowserPendingRequest[] }>(
+      `/api/browser/approvals/${encodeURIComponent(agentId)}`,
+    );
+  }
+
+  /** `lifetime` is required, never defaulted: a grant nobody chose is not a
+   *  grant the user made. */
+  async resolveBrowserApproval(
+    approvalId: string,
+    decision: 'allow' | 'deny',
+    lifetime: ApprovalLifetime,
+  ): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      `/api/browser/approvals/${encodeURIComponent(approvalId)}`,
+      { method: 'POST', body: JSON.stringify({ decision, lifetime }) },
+    );
   }
 
   /** Liveness of the caller's own session. Does no database work server-side,

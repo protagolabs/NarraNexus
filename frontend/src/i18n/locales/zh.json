@@ -1134,7 +1134,8 @@
       "desktopHeading": "桌面",
       "desktopIntro": "控制 NarraNexus 与这台电脑交互方式的设置。仅在桌面应用中可用。",
       "lockedUseTitle": "Locked Use — 保持电脑唤醒",
-      "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。"
+      "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。",
+      "navBrowser": "浏览器"
     },
     "provider": {
       "oneKeyTitle": "一把密钥即可开始",
@@ -1324,6 +1325,56 @@
       "claudeCodeSdkDesc": "Anthropic API key（sk-ant-…）。Agent 与 Helper 都跑在 Claude Code SDK 上。",
       "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。",
       "tabOneKey": "API 密钥"
+    },
+    "browser": {
+      "title": "浏览器",
+      "intro": "浏览器需单独下载，不随应用打包。",
+      "ready": "已安装",
+      "absent": "尚未安装。",
+      "broken": "已安装浏览器，但它启动不了。",
+      "install": "安装浏览器",
+      "reinstall": "重新安装浏览器",
+      "installingUnknown": "下载中…",
+      "recheck": "重新检测",
+      "installFailed": "无法安装浏览器，请重试。",
+      "cancelFailed": "无法取消安装，请重试。",
+      "cancelling": "正在请求取消…",
+      "cancelRequested": "已请求取消，正在等待安装停止…",
+      "extracting": "正在解压浏览器…",
+      "verifying": "正在验证浏览器…",
+      "starting": "正在开始安装…",
+      "statusFailed": "无法查询浏览器状态。",
+      "loading": "正在查询浏览器状态…",
+      "cancel": "取消安装",
+      "cancelled": "安装已取消。",
+      "manualInstall": "手动安装",
+      "copyCommand": "复制命令",
+      "commandCopied": "命令已复制。",
+      "copyFailed": "无法复制，已选中命令，可手动复制。",
+      "scriptsTitle": "高级脚本",
+      "scriptOrigin": "网站源地址",
+      "addScriptSite": "添加网站",
+      "scriptOriginInvalid": "请输入不含路径或登录凭据的 HTTP 或 HTTPS 源地址。",
+      "refreshScripts": "刷新",
+      "scriptsFailed": "无法加载脚本权限。",
+      "scriptsLoading": "正在加载脚本权限…",
+      "permissionSaveFailed": "无法保存此权限，请重试。",
+      "advancedScripts": "允许高级脚本",
+      "scriptsExplanation": "允许智能体在此站点运行任意 JavaScript，包括操作登录后的页面内容。",
+      "saveScripts": "保存脚本权限",
+      "agentLabel": "智能体",
+      "sourceLabel": "浏览器来源",
+      "showWindow": "显示浏览器窗口（有头模式）",
+      "modeEffect": "默认使用无头模式，切换后下次启动生效，登录状态保留。部分网站不支持无头访问；若提示“不支持”或访问报错，请手动开启此开关（有头模式），重新启动浏览器后重试。",
+      "sourceEffect": "新浏览器会话生效，当前会话继续运行。两种浏览器分别保存登录状态。",
+      "sourceManaged": "托管 Chrome for Testing",
+      "sourceSystem": "本机 Google Chrome",
+      "systemUnavailable": "Google Chrome 不可用。请安装 Google Chrome，或在设置中选择托管浏览器。",
+      "chooseAgent": "选择智能体",
+      "manualHost": "请在运行 NarraNexus 的电脑上执行。",
+      "manualRoot": "安装目录",
+      "manualShell": "终端类型",
+      "manualCommand": "命令"
     }
   },
   "system": {
@@ -1732,7 +1783,8 @@
         "updates": "应用更新",
         "privacy": "隐私",
         "personalization": "个性化",
-        "plugins": "插件"
+        "plugins": "插件",
+        "browser": "浏览器"
       },
       "providers": {
         "label": "LLM 服务商"
@@ -1932,6 +1984,10 @@
           "protected": "受保护",
           "installDeps": "安装依赖（{{pip}}）"
         }
+      },
+      "browser": {
+        "label": "浏览器",
+        "hint": "安装智能体用来操作网页的浏览器。"
       }
     },
     "system": {
@@ -2516,7 +2572,8 @@
       "social": "Agent 认识的人和 Agent — 随着协作交往，联系人会自动累积。",
       "builder": "描述你的需求，对话会把这个面板填好。"
     },
-    "builder": "配置向导"
+    "builder": "配置向导",
+    "browser": "浏览器"
   },
   "jobs": {
     "title": "任务",
@@ -3061,5 +3118,55 @@
     "resuming": "恢复中…",
     "dismiss": "关闭",
     "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
+  },
+  "browser": {
+    "approval": {
+      "question": "智能体想要{{action}}：",
+      "capAutoReview": "自动审核操作，网站为",
+      "capUploads": "上传文件到",
+      "capDownloads": "从以下站点下载文件",
+      "allowThread": "本次对话内允许",
+      "deny": "始终不允许",
+      "allowAlways": "始终允许该站点",
+      "allowTurn": "仅本轮允许",
+      "decisionFailed": "无法保存审批决定，请重试。",
+      "loadFailed": "无法查询浏览器审批请求。",
+      "retry": "重试",
+      "saving": "正在保存审批决定…"
+    },
+    "absentTitle": "尚未安装浏览器",
+    "brokenTitle": "浏览器已安装，但无法启动",
+    "install": "安装浏览器",
+    "reinstall": "重新安装浏览器",
+    "cancelInstall": "取消下载",
+    "installFailed": "浏览器安装请求失败。",
+    "installingUnknown": "下载中…",
+    "idle": "暂无正在运行的浏览器会话。",
+    "pages": "浏览器标签页",
+    "newTab": "新标签页",
+    "agentTab": "智能体",
+    "closeTab": "关闭标签页",
+    "followAgent": "跟随智能体",
+    "webAddress": "网页地址",
+    "go": "前往",
+    "takeControlToNavigate": "接管后可打开网页",
+    "invalidAddress": "请输入 HTTP 或 HTTPS 网页地址。",
+    "agentDriving": "智能体正在控制浏览器",
+    "youDriving": "你正在控制浏览器",
+    "otherDriving": "另一个窗口正在控制浏览器",
+    "takeControl": "接管",
+    "handBack": "交还给智能体",
+    "reconnect": "重新连接",
+    "reconnecting": "正在重新连接…",
+    "connecting": "正在连接…",
+    "disconnected": "连接已断开",
+    "screen": "浏览器画面",
+    "keyboardInput": "浏览器键盘输入",
+    "login": {
+      "title": "需要登录或验证",
+      "inControl": "完成后，请在浏览器中交还控制权。",
+      "pending": "正在等待你在浏览器中完成登录或验证。",
+      "openBrowser": "打开浏览器"
+    }
   }
 }
