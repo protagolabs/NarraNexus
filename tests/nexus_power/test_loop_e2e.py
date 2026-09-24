@@ -44,6 +44,7 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     ToolAnnotations,
     ToolCall,
     ToolContext,
+    ToolImage,
     ToolResult,
     ToolSpec,
 )
@@ -882,6 +883,76 @@ async def test_prefill_rejection_keeps_retrying_after_the_repair():
     assert len(model.requests) == 3          # repair + one real retry
     assert not [e for e in events if e.type == TYPE_ERROR]
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+_IMAGE_400 = (
+    "litellm.BadRequestError: OpenAIException - Failed to deserialize the JSON body "
+    "into the target type: messages[3]: unknown variant `image_url`, expected `text`"
+)
+
+
+def _image_parts(request):
+    return [
+        part for message in request.messages if isinstance(message.get("content"), list)
+        for part in message["content"] if isinstance(part, dict) and part.get("type") == "image_url"
+    ]
+
+
+def _look_tools():
+    image = ToolImage(mime_type="image/png", data="iVBORw0KGgo" + "A" * 64)
+    return FakeTools(
+        [ToolSpec(name="look", description="", input_schema={})],
+        {"look": ToolResult(call_id="", ok=True, content='{"observation_id": "v1"}', images=(image,))},
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_rejects_images_gets_them_withheld_not_a_dead_turn():
+    """The user's model choice is theirs (binding rule #15); a text-only
+    model must not turn one browser_look into a failed turn. On the
+    provider's actual rejection the loop withholds images for the rest of
+    the turn, says so in place of each image, and replays the step."""
+    model = FakeModel([
+        [_use("c1", "look"), _done()],
+        BadRequestError(_IMAGE_400),
+        [_use("c2", "look"), _done()],
+        [_text("I cannot see images with this model"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(_assembly(model, _look_tools()))
+
+    _, rejected, repaired, later = model.requests
+    assert len(_image_parts(rejected)) == 1
+    assert not _image_parts(repaired) and not _image_parts(later)
+    notes = [part["text"] for message in later.messages if isinstance(message.get("content"), list)
+             for part in message["content"] if part.get("type") == "text"]
+    assert sum("rejected image input" in note for note in notes) == 2  # both looks explained
+    assert later.messages[2]["content"] == '{"observation_id": "v1"}'   # tool text intact
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_image_rejection_without_images_is_an_honest_failure():
+    """The repair is keyed on what was SENT: with no image in the request
+    there is nothing to withhold, so replaying would be a byte-identical
+    retry of a deterministic 400."""
+    model = FakeModel([BadRequestError(_IMAGE_400), [_text("never"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+    assert len(model.requests) == 1
+    assert [e.type for e in events].count(TYPE_ERROR) == 1
+
+
+@pytest.mark.asyncio
+async def test_image_withholding_is_armed_once():
+    model = FakeModel([
+        [_use("c1", "look"), _done()],
+        BadRequestError(_IMAGE_400),
+        BadRequestError(_IMAGE_400),
+        [_text("never"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(_assembly(model, _look_tools()))
+    assert len(model.requests) == 3
+    assert [e.type for e in events].count(TYPE_ERROR) == 1
 
 
 @pytest.mark.asyncio

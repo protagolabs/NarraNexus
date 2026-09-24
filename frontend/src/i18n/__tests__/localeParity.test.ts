@@ -18,6 +18,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 
 import en from '../locales/en.json';
 import zh from '../locales/zh.json';
@@ -52,6 +54,9 @@ const COMPLETE_NAMESPACES = [
   'dashboard.banners',
   'jobs.action',
   'jobs.editPayload',
+  'browser',
+  'settings.browser',
+  'pages.settings.browser',
 ];
 
 // zh is the co-source locale: it must mirror en in FULL, so a new en key
@@ -66,6 +71,60 @@ function leaves(obj: unknown, prefix = ''): string[] {
 }
 
 const enLeaves = new Set(leaves(en));
+
+const browserUiKeys = new Set<string>();
+for (const path of [
+  '../../components/artifacts/renderers/BrowserStreamPanel.tsx',
+  '../../components/artifacts/renderers/BrowserPageTabs.tsx',
+  '../../components/artifacts/renderers/BrowserApprovalPrompt.tsx',
+  '../../components/layout/BrowserApprovalNotice.tsx',
+  '../../components/layout/BrowserLoginNotice.tsx',
+  '../../components/settings/BrowserSettings.tsx',
+  '../../components/settings/BrowserManualInstall.tsx',
+  '../../components/settings/BrowserScriptPermissions.tsx',
+  '../../components/chat/ChatHeader.tsx',
+  '../../components/layout/MainLayout.tsx',
+  '../../pages/settings/sections.tsx',
+]) {
+  const source = ts.createSourceFile(path, readFileSync(new URL(path, import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && ['t', 'tr'].includes(node.expression.text)) {
+      const key = node.arguments[0];
+      if (key && ts.isStringLiteral(key) && /^(browser\.|settings\.browser\.|pages\.settings\.browser\.|rail\.browser$)/.test(key.text)) {
+        browserUiKeys.add(key.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
+function valueAt(json: unknown, key: string): unknown {
+  return key.split('.').reduce<unknown>((value, part) =>
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[part] : undefined, json);
+}
+
+describe('browser UI translations', () => {
+  for (const [locale, json] of Object.entries({ en, ...LOCALES })) {
+    it(`${locale}: every browser key used by the UI has a nonempty translation`, () => {
+      expect(browserUiKeys.has('browser.approval.allowTurn')).toBe(true);
+      const missing = [...browserUiKeys].filter((key) => {
+        const value = valueAt(json, key);
+        return typeof value !== 'string' || !value.trim();
+      });
+      expect(missing).toEqual([]);
+    });
+
+    it(`${locale}: browser interpolation variables match English`, () => {
+      const variables = (value: unknown) => typeof value === 'string'
+        ? [...value.matchAll(/\{\{([^}]+)\}\}/g)].map((match) => match[1]).sort() : [];
+      for (const key of browserUiKeys) {
+        expect(variables(valueAt(json, key)), key).toEqual(variables(valueAt(en, key)));
+      }
+    });
+  }
+});
 
 describe('locale parity with en', () => {
   for (const [locale, json] of Object.entries(LOCALES)) {

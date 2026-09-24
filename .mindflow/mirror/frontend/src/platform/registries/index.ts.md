@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/platform/registries/index.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+`REGISTRIES` 加入 `toolRenderers`，host.ts 的插件门面与 loader 的禁用清扫自动覆盖（两者都派生自这张表）。
+Python 侧同步：builtin.ui 清单声明 `ui.tool_renderers`、`narranexus.contracts.ui:ToolRenderer`
+（`plugins/builtin.ui/tests/test_ui_package.py` 从本文件解析名单比对）。**不做 manifest 声明式门**：
+timelineEvents 需要 bundle 加载前先挂门；工具渲染器在注册前 shell 的通用行本身就是正确渲染，无需门。
 
 ## 2026-09-07 — 第 17 个注册表 `artifactKinds`
 

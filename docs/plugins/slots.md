@@ -155,6 +155,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `ui.sidebar_sections` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Extra sidebar sections. |
 | `ui.themes` | many | `narranexus.contracts.ui:Theme` | — | `builtin.ui` | — | Frontend themes (override declared design tokens only). |
 | `ui.timeline_events` | many | `narranexus.contracts.ui:TimelineEvent` | — | `builtin.ui` | — | Run-timeline event renderers keyed by event type. |
+| `ui.tool_renderers` | many | `narranexus.contracts.ui:ToolRenderer` | — | `builtin.ui` | — | Tool output-row renderers keyed by bare tool name. |
 | `ui.top_bar_items` | many | `narranexus.contracts.ui:SlotComponent` | — | `builtin.ui` | — | Items in the top bar. |
 
 ## Builtin plugins
@@ -180,6 +181,7 @@ or a distribution's `bindings` (see bindings.md); `narranexus slots` shows the l
 | `builtin.common_tools` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.general_memory` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.home_assistant` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes`, `ingress.channels` | gold |
+| `builtin.browser` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.channels.lark` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
 | `builtin.channels.slack` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `ingress.channels` | gold |
 | `builtin.channels.telegram` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `ingress.channels` | gold |

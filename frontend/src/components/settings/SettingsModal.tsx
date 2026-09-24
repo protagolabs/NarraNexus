@@ -12,15 +12,17 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Cpu, Info, Shield, Monitor } from 'lucide-react';
+import { X, Cpu, Info, Shield, Monitor, MonitorPlay } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
+import BrowserSettings from './BrowserSettings';
 import { useConfigStore } from '@/stores/configStore';
 import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
 import { isTauri } from '@/lib/tauri';
+import { PANELS, useRegistryEntries } from '@/platform/registries';
 
 // =============================================================================
 // Sidebar navigation sections
@@ -35,6 +37,9 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   { id: 'providers', labelKey: 'settings.modal.navProviders', icon: Cpu },
   { id: 'privacy', labelKey: 'settings.modal.navPrivacy', icon: Shield },
+  // The agent's "no browser installed" refusal sends the user to this
+  // section by name — it must exist wherever that message can be seen.
+  { id: 'browser', labelKey: 'settings.modal.navBrowser', icon: MonitorPlay },
   // Desktop-only power controls — filtered out on web in the component.
   { id: 'desktop', labelKey: 'settings.modal.navDesktop', icon: Monitor },
 ];
@@ -73,11 +78,14 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { t } = useTranslation();
-  const [activeSection, setActiveSection] = useState('providers');
+  const [selectedSection, setActiveSection] = useState('providers');
+  const browserAvailable = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
+  const activeSection = selectedSection === 'browser' && !browserAvailable ? 'providers' : selectedSection;
 
   // Desktop-only sections are hidden on web — the power controls need the
   // Tauri shell (caffeinate lives on the Rust side).
-  const navSections = NAV_SECTIONS.filter((s) => s.id !== 'desktop' || isTauri());
+  const navSections = NAV_SECTIONS.filter((s) =>
+    (s.id !== 'desktop' || isTauri()) && (s.id !== 'browser' || browserAvailable));
 
   // Locked Use (prevent sleep) — desktop only.
   const preventSleep = usePowerStore((s) => s.preventSleep);
@@ -300,6 +308,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       />
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* ─── Browser Section ─── */}
+              {activeSection === 'browser' && (
+                <div className="space-y-4 max-w-2xl">
+                  <BrowserSettings />
                 </div>
               )}
 

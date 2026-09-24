@@ -1,8 +1,11 @@
 ---
 code_file: tests/backend/test_manyfold_im_ingress.py
 stub: false
-last_verified: 2026-09-11
+last_verified: 2026-09-23
 ---
+
+The route fixture initializes `RunTasks` as production lifespan does, so detached
+run and managed-audit task creation exercise the same shutdown ownership contract.
 
 ## 2026-09-11（PR #394 review 第六轮 N-2）— 静默摄取回执说真话
 

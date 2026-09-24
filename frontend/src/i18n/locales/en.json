@@ -1134,7 +1134,8 @@
       "desktopHeading": "Desktop",
       "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
       "lockedUseTitle": "Locked Use — keep the computer awake",
-      "lockedUseDesc": "Prevents this computer from going to sleep so background automations keep running. Held only while NarraNexus is open."
+      "lockedUseDesc": "Prevents this computer from going to sleep so background automations keep running. Held only while NarraNexus is open.",
+      "navBrowser": "Browser"
     },
     "provider": {
       "oneKeyTitle": "One key to start",
@@ -1324,6 +1325,56 @@
       "claudeCodeSdkDesc": "Anthropic API key (sk-ant-…). Agent and helper both run on the Claude Code SDK.",
       "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5).",
       "tabOneKey": "API key"
+    },
+    "browser": {
+      "title": "Browser",
+      "intro": "The browser is downloaded separately and is not bundled with the app.",
+      "ready": "Installed",
+      "absent": "Not installed yet.",
+      "broken": "A browser is installed but will not start.",
+      "install": "Install browser",
+      "reinstall": "Re-install browser",
+      "installingUnknown": "Downloading…",
+      "recheck": "Check again",
+      "installFailed": "Could not install the browser. Please try again.",
+      "cancelFailed": "Could not cancel the installation. Please try again.",
+      "cancelling": "Requesting cancellation...",
+      "cancelRequested": "Cancellation requested. Waiting for installation to stop...",
+      "extracting": "Extracting browser...",
+      "verifying": "Verifying browser...",
+      "starting": "Starting installation...",
+      "statusFailed": "Could not check browser status.",
+      "loading": "Checking browser status...",
+      "cancel": "Cancel installation",
+      "cancelled": "Installation cancelled.",
+      "manualInstall": "Manual installation",
+      "copyCommand": "Copy command",
+      "commandCopied": "Command copied.",
+      "copyFailed": "Could not copy. The command is selected for manual copying.",
+      "scriptsTitle": "Advanced scripts",
+      "scriptOrigin": "Site origin",
+      "addScriptSite": "Add site",
+      "scriptOriginInvalid": "Enter an HTTP or HTTPS origin without a path or credentials.",
+      "refreshScripts": "Refresh",
+      "scriptsFailed": "Could not load script permissions.",
+      "scriptsLoading": "Loading script permissions...",
+      "permissionSaveFailed": "Could not save this permission. Please try again.",
+      "advancedScripts": "Allow advanced scripts",
+      "scriptsExplanation": "Allow the agent to run arbitrary JavaScript on this site, including signed-in page content.",
+      "saveScripts": "Save script permission",
+      "agentLabel": "Agent",
+      "sourceLabel": "Browser source",
+      "showWindow": "Show browser window (headed)",
+      "modeEffect": "Headless mode is the default. Changes apply on the next browser launch; sign-ins are kept. Some websites do not support headless access. If a site reports an unsupported browser or other errors, manually turn on headed mode, restart the browser, and retry.",
+      "sourceEffect": "Applies to new browser sessions. Existing sessions keep running. Each browser keeps separate sign-ins.",
+      "sourceManaged": "Managed Chrome for Testing",
+      "sourceSystem": "Installed Google Chrome",
+      "systemUnavailable": "Google Chrome is unavailable. Install Google Chrome or select the managed browser.",
+      "chooseAgent": "Select an agent",
+      "manualHost": "Run on the computer hosting NarraNexus.",
+      "manualRoot": "Installation directory",
+      "manualShell": "Shell",
+      "manualCommand": "Command"
     }
   },
   "system": {
@@ -1732,7 +1783,8 @@
         "updates": "App updates",
         "privacy": "Privacy",
         "personalization": "Personalization",
-        "plugins": "Plugins"
+        "plugins": "Plugins",
+        "browser": "Browser"
       },
       "providers": {
         "label": "LLM Providers"
@@ -1932,6 +1984,10 @@
           "protected": "protected",
           "installDeps": "Install dependencies ({{pip}})"
         }
+      },
+      "browser": {
+        "label": "Browser",
+        "hint": "Install the browser agents use to operate websites."
       }
     },
     "system": {
@@ -2516,7 +2572,8 @@
       "social": "Who the agent knows — contacts accumulate as it works with people and other agents.",
       "builder": "Describe what you need; the conversation fills in this panel."
     },
-    "builder": "Builder"
+    "builder": "Builder",
+    "browser": "Browser"
   },
   "jobs": {
     "title": "Jobs",
@@ -3061,5 +3118,61 @@
     "resuming": "Resuming…",
     "dismiss": "Dismiss",
     "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)"
+  },
+  "browser": {
+    "approval": {
+      "question": "The agent wants to {{action}}:",
+      "capAutoReview": "automatically review actions on",
+      "capUploads": "upload files to",
+      "capDownloads": "download files from",
+      "allowThread": "Allow for this conversation",
+      "deny": "Never allow",
+      "allowAlways": "Always allow this site",
+      "allowTurn": "Allow for this turn",
+      "decisionFailed": "Could not save the decision. Please try again.",
+      "loadFailed": "Could not check browser approvals.",
+      "retry": "Try again",
+      "saving": "Saving decision..."
+    },
+    "absentTitle": "Browser not installed",
+    "brokenTitle": "The browser is installed but will not start",
+    "install": "Install browser",
+    "reinstall": "Re-install browser",
+    "cancelInstall": "Cancel download",
+    "installFailed": "The browser installation request failed.",
+    "installingUnknown": "Downloading...",
+    "idle": "No live browser session yet.",
+    "pages": "Browser tabs",
+    "newTab": "New tab",
+    "agentTab": "Agent",
+    "closeTab": "Close tab",
+    "followAgent": "Follow agent",
+    "webAddress": "Web address",
+    "go": "Go",
+    "takeControlToNavigate": "Take control to open a page",
+    "invalidAddress": "Enter an HTTP or HTTPS address.",
+    "agentDriving": "Agent is driving",
+    "youDriving": "You are driving",
+    "otherDriving": "Another window is driving",
+    "takeControl": "Take control",
+    "handBack": "Hand back to agent",
+    "reconnect": "Reconnect",
+    "reconnecting": "Reconnecting...",
+    "connecting": "Connecting...",
+    "disconnected": "Disconnected",
+    "screen": "Browser screen",
+    "keyboardInput": "Browser keyboard input",
+    "login": {
+      "title": "Login or verification requested",
+      "inControl": "Return control in the browser when you are finished.",
+      "pending": "Waiting for you to complete login or verification in the browser.",
+      "openBrowser": "Open browser"
+    },
+    "look": {
+      "looked": "Looked at the page",
+      "failed": "Couldn't look at the page",
+      "area": "area {{width}}×{{height}}",
+      "open": "Open browser"
+    }
   }
 }

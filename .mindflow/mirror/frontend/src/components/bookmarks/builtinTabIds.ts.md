@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/bookmarks/builtinTabIds.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Authored IDs are separate from lifecycle ownership
+
+The literal list includes Browser so shell entry points remain type checked.
+Browser is owned by `builtin.browser`, not `builtin.ui`; the registration test
+checks the union of shell-owned strip tabs and the browser feature's strip tabs.
+The historical shell-only ownership assertion below is superseded.
+
+## 2026-09-23 浏览器支持
+
+增加 browser 活动面板字面量，使聊天入口、抽屉请求与注册项共享编译期检查。
 
 # builtinTabIds.ts — 壳自有 rail tab id 词表
 

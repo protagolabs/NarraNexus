@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-11
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 浏览器支持
+
+setBrowserMode 使用统一鉴权 PUT /api/browser/runtime/mode，窄请求体仅含 mode，
+返回完整运行时状态。保存错误沿用 ApiError，客户端不重启浏览器。
+
+setBrowserSource 通过统一鉴权 PUT /api/browser/runtime/source，只发送 source 枚举，
+返回新的运行时状态；不发送可执行文件路径，不发起会话关闭或刷新。
+
+高级脚本权限读取、单项更新、撤销复用统一 request；三个方法都返回服务端最新权限
+视图。能力类型仅 full_cdp_access，访问规则已退役。仅发送 origin/capability/verdict，
+不发送完整策略或客户端拼造的作用域。
+
+getBrowserApprovals 返回的联合类型包含 kind=login 通知；它只用于打开真实浏览器，
+不进入 resolveBrowserApproval。运行时与安装返回值包含安装器生成的 manual_install。
+
+新增浏览器运行时查询、安装、取消、按 Agent 查询审批及提交决定的方法。全部复用 request 的身份头与错误处理，不另写无鉴权 fetch；安装取消返回 ok，审批决定失败可返回 ok:false，消费方必须显示错误。
 
 ## 2026-09-11 — `getAgentLlmConfig` response type drops `free_tier`
 

@@ -1,7 +1,24 @@
 ---
 code_file: src/narranexus/platform/module_system/module_runner.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 ---
+
+## 2026-09-22 - Optional browser stream mount
+
+The host mounts the browser stream bridge only when `browser_module` is in the
+actual mounted MCP server list. A disabled or unselected browser module causes
+no browser import, service creation or stream route. When enabled, bridge
+construction errors fail visibly instead of being swallowed as "disabled".
+The lookup uses the same process-wide service as browser tools. Enabled host
+shutdown closes that service before releasing the module transport lifespans,
+so queued actions and browser processes are drained. The backend
+proxies that internal stream; frontend and backend gating belong to their
+respective owners. Existing host transport, identity and lifespan behavior is
+preserved.
+
+2026-09-23：内部 stream 同时接入共享 BrowserService.login_control_changed。
+实际接管/显式交还/断线回调由持有会话的 MCP 进程驱动持久登录通知，不让后端凭
+前端自报状态判定完成；可选模块关闭时也不创建该回调或服务。
 
 ## 2026-09-09 — `run_mcp_servers_async` 关闭它自己开的池（B-41；复审 I5/M5 修订）
 

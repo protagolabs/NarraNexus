@@ -1,8 +1,13 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/ui.py
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+第 18 个记录 `ToolRenderer(id)`：id 为裸工具名，镜像前端 `ToolRendererDef` 的声明式子集（组件、accepts
+只存在于 bundle）。docstring「十七个」改「十八个」。
 
 ## 2026-09-07（四轮复审）— 第 17 个记录 `ArtifactKind`
 

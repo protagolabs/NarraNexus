@@ -14,6 +14,8 @@ import { useStudioStore, selectStudioOpen } from '@/stores/studioStore';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import type { PanelProps } from '@/platform/registries';
 
+const BrowserStreamPanel = lazy(() => import('@/components/artifacts/renderers/BrowserStreamPanel'));
+
 const AwarenessPanel = lazy(() =>
   import('@/components/awareness/AwarenessPanel').then((m) => ({ default: m.AwarenessPanel })),
 );
@@ -74,6 +76,16 @@ export function InboxTab() {
  *  drawer shell owns visibility (the column's sliver/collapse logic is gone). */
 export function ArtifactsTab({ agentId }: PanelProps) {
   return <ArtifactColumn agentId={agentId} />;
+}
+/** The live browser. Where the page the agent is driving actually shows up.
+ *
+ *  Until now the stream panel lived only inside `UrlRenderer`'s `stream`
+ *  branch, which needs a URL artifact tab in that mode — so from the chat,
+ *  where the user watches the agent work, it could not be reached at all.
+ *  Addressed by AGENT id, the same key the stream route and the approval
+ *  prompt use, so all three agree on which browser is meant. */
+export function BrowserTab({ agentId }: PanelProps) {
+  return <BrowserStreamPanel sessionId={agentId || null} />;
 }
 export function SkillsTab() {
   return <SkillsPanel embedded section="skills" />;

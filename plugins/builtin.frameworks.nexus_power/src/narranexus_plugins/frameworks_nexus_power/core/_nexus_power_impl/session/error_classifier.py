@@ -72,6 +72,23 @@ _PREFILL_MESSAGE_MARKERS: tuple[str, ...] = (
     "must end with a user message",
 )
 
+# A text-only model refusing an image part. Wording is provider-specific
+# (OpenAI, DeepSeek's strict deserializer, vLLM, Anthropic-protocol
+# gateways), so each marker names images/vision/multimodal explicitly —
+# a generic 400 must never be mistaken for it. Checked before the
+# class-name table for the same reason as prefill: the wrapper is a plain
+# BadRequestError. Not retryable on its own (it is deterministic); the
+# loop's one-shot image withholding is the only repair.
+_IMAGE_REJECTION_MESSAGE_MARKERS: tuple[str, ...] = (
+    "image_url is only supported",
+    "unknown variant `image_url`",
+    "is not a multimodal model",
+    "does not support image",
+    "image input is not supported",
+    "does not support vision",
+    "vision is not supported",
+)
+
 _MESSAGE_RULES: tuple[tuple[str, ErrorType, bool], ...] = (
     ("invalid api key", ErrorType.AUTHENTICATION_FAILED, False),
     ("incorrect api key", ErrorType.AUTHENTICATION_FAILED, False),
@@ -113,6 +130,11 @@ class DefaultErrorClassifier:
                 # where the conversation really does end mid-assistant.
                 return _wrap(
                     exc, ErrorType.PREFILL_REJECTED, message, retryable=True
+                )
+        for marker in _IMAGE_REJECTION_MESSAGE_MARKERS:
+            if marker in lowered:
+                return _wrap(
+                    exc, ErrorType.IMAGE_INPUT_REJECTED, message, retryable=False
                 )
         for marker, error_type, retryable in _CLASS_NAME_RULES:
             if marker in names:

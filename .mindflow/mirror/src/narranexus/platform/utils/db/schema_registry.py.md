@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-10
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-23：浏览器登录通知与授权语义
+
+新增 instance_browser_login_requests：跨 MCP/API 进程的人工登录通知，独立于特权能力
+授权表；记录 request/agent/session/turn/thread、reason、state、连接归属及时间。
+SQLite/MySQL 列齐全，仅增表，不缩窄已有字段。正常完成、取消或会话关闭后清理，
+不保存密码、页面正文或截图。实际控制连接显式交还才完成；断线恢复待处理。
+对应 tables.json 快照已更新。
+
+浏览器表不承担普通 HTTP(S) 站点访问授权。turn/thread grants 和 decision receipts
+服务于独立的特权能力，实际保存在策略 JSON，
+以便另一个进程立即读取；是否适用于某次调用仍由可信运行时作用域匹配决定。
+授权通知的消费先写入策略凭据再删除待办；没有声称存在未实现的按年龄清扫。
 
 ## 2026-09-10（PR #394 review 第四轮 I-1）— `probe_claimed_at` 换成 `probe_run_id`
 

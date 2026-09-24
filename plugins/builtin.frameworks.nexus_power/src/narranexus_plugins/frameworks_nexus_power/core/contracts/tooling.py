@@ -17,6 +17,7 @@ Two disciplines live here:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -83,6 +84,29 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class ToolImage:
+    """An inline image payload, kept out of the tool's plain-text presentation."""
+
+    mime_type: str
+    data: str
+
+    def as_content(self) -> dict[str, Any]:
+        """The provider-message part (OpenAI ``image_url`` data URL)."""
+        return {"type": "image_url", "image_url": {
+            "url": f"data:{self.mime_type};base64,{self.data}",
+        }}
+
+    def describe(self) -> dict[str, Any]:
+        """The log form: identifies the image without carrying its bytes."""
+        return {
+            "type": "image",
+            "mime_type": self.mime_type,
+            "base64_chars": len(self.data),
+            "sha256": hashlib.sha256(self.data.encode("ascii", "replace")).hexdigest(),
+        }
+
+
+@dataclass(frozen=True)
 class ToolResult:
     """One tool outcome. Denials and failures are error-shaped results —
     they never escape as exceptions through the loop."""
@@ -92,6 +116,7 @@ class ToolResult:
     content: Any = None
     error: str | None = None
     synthetic: bool = False
+    images: tuple[ToolImage, ...] = ()
 
     def as_text(self) -> str:
         """The string fed back to the model as the tool message body."""

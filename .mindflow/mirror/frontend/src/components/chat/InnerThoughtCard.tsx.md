@@ -1,7 +1,13 @@
 ---
 code_file: frontend/src/components/chat/InnerThoughtCard.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-24
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+事件日志里的 tool_output 常不带 tool_name：`withOutputNames` 按时间序把最近一次 tool_call 的名字补上
+（与 segmentTurn 同一规则），否则工具渲染器认不出它。`ToolOutputRow` 与 TurnTimeline 同样的
+注册表 + PluginBoundary + Suspense 回落。
 
 ## 2026-08-30 — `EntryRow` 接上独白「进度」档
 

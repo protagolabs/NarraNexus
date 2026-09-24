@@ -326,6 +326,21 @@
   ],
   [
     "GET",
+    "/api/browser/approvals/{agent_id}",
+    "list_approvals"
+  ],
+  [
+    "GET",
+    "/api/browser/policy/{agent_id}",
+    "read_policy"
+  ],
+  [
+    "GET",
+    "/api/browser/runtime",
+    "runtime_status"
+  ],
+  [
+    "GET",
     "/api/bundle/skills/archives",
     "list_skill_archives"
   ],
@@ -961,6 +976,26 @@
   ],
   [
     "POST",
+    "/api/browser/approvals/{approval_id}",
+    "resolve_approval"
+  ],
+  [
+    "POST",
+    "/api/browser/policy/{agent_id}/revoke",
+    "revoke_policy"
+  ],
+  [
+    "POST",
+    "/api/browser/runtime/install",
+    "install_runtime"
+  ],
+  [
+    "POST",
+    "/api/browser/runtime/install/cancel",
+    "cancel_install"
+  ],
+  [
+    "POST",
     "/api/bundle/export",
     "export_bundle"
   ],
@@ -1388,6 +1423,21 @@
     "PUT",
     "/api/auth/settings/telemetry",
     "set_telemetry_consent_state"
+  ],
+  [
+    "PUT",
+    "/api/browser/policy/{agent_id}",
+    "update_policy"
+  ],
+  [
+    "PUT",
+    "/api/browser/runtime/mode",
+    "select_runtime_mode"
+  ],
+  [
+    "PUT",
+    "/api/browser/runtime/source",
+    "select_runtime"
   ],
   [
     "PUT",

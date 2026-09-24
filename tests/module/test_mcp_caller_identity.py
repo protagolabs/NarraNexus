@@ -421,7 +421,7 @@ def test_a_later_field_never_bleeds_into_the_turn_source():
         assert caller_agent_id_from_request() == REAL
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7, 8, 9])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 def test_every_field_count_parses(count):
     """Trailing fields are omitted on the wire, so readers must tolerate any
     count — and each present field must land in its own slot.
@@ -447,7 +447,7 @@ def test_every_field_count_parses(count):
         caller_user_id_from_request,
     )
 
-    assert len(BEARER_FIELDS) == 9, "arity changed — update _parse_bearer + this test"
+    assert len(BEARER_FIELDS) == 10, "arity changed — update _parse_bearer + this test"
     assert BEARER_FIELDS[4] == "user_id" and BEARER_FIELDS[5] == "root_run_id", (
         "field ORDER changed — the wire is positional; a swap silently "
         "decodes one fact as another"
@@ -458,12 +458,13 @@ def test_every_field_count_parses(count):
     assert BEARER_FIELDS[8] == "identity_token", (
         "identity_token must stay at slot #9 — verifiers read it positionally"
     )
+    assert BEARER_FIELDS[9] == "thread_id"
     values = [
         REAL, "message_bus", "agent_peer1", "ch_errand1", "user_owner1",
         # #6 root_run_id, #7 team_id, #8 event_id — each pair here was written
         # in parallel and resolved first-to-dev-keeps-the-slot; identity_token
         # (this PR) yielded #7 to team_id the same way and lands at #9.
-        "evt_root1", "team_1", "evt_1", "tok.abc",
+        "evt_root1", "team_1", "evt_1", "tok.abc", "thread_1",
     ][:count]
     with injected({"Authorization": _bearer(*values)}):
         assert caller_agent_id_from_request() == REAL
@@ -477,6 +478,7 @@ def test_every_field_count_parses(count):
         assert caller_event_id_from_request() == (values[7] if count >= 8 else None)
         parsed = _parse_bearer_for_test(_bearer(*values))
         assert parsed.identity_token == (values[8] if count >= 9 else None)
+        assert parsed.thread_id == (values[9] if count >= 10 else None)
 
 
 def _parse_bearer_for_test(auth: str):

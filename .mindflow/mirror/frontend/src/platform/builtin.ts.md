@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/platform/builtin.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+`builtin.browser` 注册 `browser_look` 的输出行渲染器，与浏览器面板同 owner，禁用浏览器插件时一起消失。
+组件 **lazy**（守住本文件「首块只有元数据」的约定）：2026-09-24 先写成 eager import，结果把
+`lib/utils`+真实 i18n 带进 vitest 全局 setup，`timeLocale` 测试的 `vi.mock('@/i18n')` 失效——症状是
+日期不随语言变，根因是首块被组件拖大。`accepts` 用无依赖的 `lib/browserLook` 解析器，可以留在首块。
+
+## 2026-09-23 - Browser is owned by its feature plugin
+
+The Browser panel registers with owner `builtin.browser`, matching the existing
+feature-level teams pattern. The shell-owned helper would label it `builtin.ui`,
+which the plugin loader deliberately never disables. Correct ownership lets
+`disableBuiltinUi` remove the panel and blacklist later registrations, so the
+registry subscriptions in desktop/mobile navigation and approval notices actually
+reflect whether the browser feature is enabled.
 
 ## 2026-09-07 — 注册内置 artifact kinds
 

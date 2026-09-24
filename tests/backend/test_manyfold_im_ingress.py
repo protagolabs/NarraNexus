@@ -289,6 +289,9 @@ def compat_app(monkeypatch):
 
     app.include_router(compat_mod.router)
     app.state.active_runs = {}
+    from backend.run_lifecycle import RunTasks
+
+    app.state.run_tasks = RunTasks()
     return app
 
 
