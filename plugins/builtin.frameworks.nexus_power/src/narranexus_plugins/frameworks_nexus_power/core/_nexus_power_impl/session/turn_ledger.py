@@ -47,6 +47,9 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     ToolCall,
     ToolResult,
 )
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
+    projected_chars,
+)
 
 _INTERRUPTED_RESULT_TEXT = "Interrupted: {reason}. This call did not run."
 
@@ -211,12 +214,16 @@ class TurnLedger:
                 "content": text,
                 "error": result.error,
                 "synthetic": result.synthetic,
+                # Descriptors only: nothing replays the log into a provider
+                # request, so image bytes there would only bloat the NDJSON
+                # truth file and the subprocess stdout stream.
+                **({"images": [image.describe() for image in result.images]} if result.images else {}),
             },
         )
         self._result_msg_index[event.seq] = len(self._turn_messages)
-        self._turn_messages.append(
-            {"role": "tool", "tool_call_id": call_id, "content": text}
-        )
+        content = ([{"type": "text", "text": text}, *(image.as_content() for image in result.images)]
+                   if result.images else text)
+        self._turn_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
         return [event]
 
     def discard_step(self) -> None:
@@ -334,7 +341,7 @@ class TurnLedger:
         for seq, idx in self._result_msg_index.items():
             if seq in self._replacement:
                 continue
-            sizes.append((seq, len(str(self._turn_messages[idx].get("content", "")))))
+            sizes.append((seq, projected_chars([self._turn_messages[idx]])))
         return sorted(sizes)
 
     def provider_messages(self) -> list[ProviderMessage]:

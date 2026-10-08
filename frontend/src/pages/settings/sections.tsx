@@ -21,6 +21,7 @@ import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
+import BrowserSettings from '@/components/settings/BrowserSettings';
 import { Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
@@ -306,6 +307,23 @@ export function PrivacySection() {
         hint={t('pages.settings.privacy.hint')}
       />
       <PrivacySettings />
+    </section>
+  );
+}
+
+// The agent's "no browser installed" refusal sends the user to this pane by
+// name. It is registered on EVERY surface, not desktopOnly: the refusal can
+// be seen wherever an agent runs, and a destination that exists only on some
+// of them is the same dead end as no destination at all.
+export function BrowserSection() {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <SectionHeader
+        label={t('pages.settings.browser.label')}
+        hint={t('pages.settings.browser.hint')}
+      />
+      <BrowserSettings />
     </section>
   );
 }

@@ -34,6 +34,7 @@ from narranexus_plugins.frameworks_nexus_power.core.contracts.model import McpSe
 from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     ToolAnnotations,
     ToolContext,
+    ToolImage,
     ToolResult,
     ToolSpec,
 )
@@ -179,7 +180,11 @@ class McpToolChannel:
         text = _render_content(result)
         if getattr(result, "isError", False):
             return ToolResult(call_id="", ok=False, error=text or "tool reported an error")
-        return ToolResult(call_id="", ok=True, content=text)
+        images = tuple(
+            ToolImage(mime_type=item.mimeType, data=item.data)
+            for item in getattr(result, "content", ()) if getattr(item, "type", None) == "image"
+        )
+        return ToolResult(call_id="", ok=True, content=text, images=images)
 
     async def refresh(self) -> bool:
         """v1: no list_changed subscription; expansion drives changes via
@@ -197,6 +202,8 @@ class McpToolChannel:
 def _render_content(result: Any) -> str:
     parts: list[str] = []
     for item in getattr(result, "content", None) or ():
+        if getattr(item, "type", None) == "image":
+            continue
         text = getattr(item, "text", None)
         if text is not None:
             parts.append(str(text))

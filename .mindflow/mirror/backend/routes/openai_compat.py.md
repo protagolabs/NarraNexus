@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Detached work participates in shutdown
+
+BackgroundRun, run-job execution and managed post-run bookkeeping start through
+the backend's `RunTasks` owner. Disconnection still does not cancel execution,
+but lifespan now awaits all of this work before releasing its DB and workers.
+Registration occurs before Step 0, including runs queued for admission.
 
 ## 2026-09-10（PR #394 review 第四轮 M-1）— 认领后、run 起来前抛异常时归还探测
 

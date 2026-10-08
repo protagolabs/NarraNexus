@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Own runs before Step 0
+
+Fresh runs start through `app.state.run_tasks`; this retains detached execution
+even after WebSocket teardown and before its run ID is assigned. Shutdown drains
+the task through its finalizer. `active_runs` remains the reconnect/control index.
+The circuit-breaker probe transfers only once `bg.task` exists: construction alone
+does not transfer ownership if shutdown refuses the task start.
 
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 

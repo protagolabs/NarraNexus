@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/contracts/tooling.py
-last_verified: 2026-08-10
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+新增 `ToolImage(mime_type, data)`：`as_content()` 给 provider（OpenAI image_url data URL），`describe()`
+给日志（不含字节）。ToolResult 新字段 `images` 默认空元组，老工具零改动；`as_text()` 仍只含文本。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

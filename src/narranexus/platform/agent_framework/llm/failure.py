@@ -35,8 +35,7 @@ from typing import Optional, Union
 # ("generated 403 tokens") cannot pass for an HTTP status. Provider SDKs still
 # phrase auth failures many ways, so the list stays broad on WORDING but every
 # entry is a credential word or a bounded status code — never a subsystem name.
-# This only decides the owner-facing hint text + audit category, never
-# retry/delivery behavior.
+# Callers also use this predicate to decide whether a retry can help.
 _CREDENTIAL_ERROR_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -50,11 +49,15 @@ _CREDENTIAL_ERROR_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"(?<![A-Za-z])unauthori[sz]ed(?![A-Za-z])",
         r"(?<![A-Za-z])authenticat",
         r"(?<![A-Za-z])invalid[ _-](?:api[ _-])?(?:key|token)(?![A-Za-z])",
-        # 401 / 403 as a whole token: not glued to letters/digits/underscore
-        # (`HTTP403`, `x403y`, a token count) — `code=401`, `(401)`, `HTTP 403`
-        # and a leading `403 Forbidden` still count.
-        r"(?<![\w.])40[13](?![\w.])(?!\s*tokens?\b)",
     )
+)
+
+# A definite auth status takes precedence over outage wording in the body.
+# Preserve token boundaries so counts and request identifiers are not statuses.
+_CREDENTIAL_STATUS_PATTERN = re.compile(r"(?<![\w.])40[13](?![\w.])(?!\s*tokens?\b)", re.IGNORECASE)
+_PROVIDER_OUTAGE_PATTERN = re.compile(
+    r"\b(?:temporarily unavailable|service unavailable|timed out|gateway timeout|bad gateway)\b",
+    re.IGNORECASE,
 )
 
 # Exception CLASS names that are a credential failure by construction — the
@@ -110,8 +113,9 @@ def is_credential_error(error: Union[str, BaseException, None]) -> bool:
     owner notice, pick a hint).
 
     Accepts a string or an exception. An exception is classified by its class
-    name first (``_CREDENTIAL_ERROR_TYPES``), then by ``str(exc)`` against the
-    anchored ``_CREDENTIAL_ERROR_PATTERNS``. ``None`` / empty → False.
+    name first (``_CREDENTIAL_ERROR_TYPES``), then auth status and anchored
+    wording. An unavailable credential service does not prove a rejected key.
+    ``None`` / empty → False.
     """
     if error is None:
         return False
@@ -120,6 +124,10 @@ def is_credential_error(error: Union[str, BaseException, None]) -> bool:
             return True
     text = str(error)
     if not text:
+        return False
+    if _CREDENTIAL_STATUS_PATTERN.search(text):
+        return True
+    if _PROVIDER_OUTAGE_PATTERN.search(text):
         return False
     return any(pattern.search(text) for pattern in _CREDENTIAL_ERROR_PATTERNS)
 

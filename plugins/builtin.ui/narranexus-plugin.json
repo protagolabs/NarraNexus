@@ -67,6 +67,12 @@
       "kind": "ui",
       "doc": "Run-timeline event renderers keyed by event type."
     },
+    "ui.tool_renderers": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ToolRenderer",
+      "kind": "ui",
+      "doc": "Tool output-row renderers keyed by bare tool name."
+    },
     "ui.artifact_kinds": {
       "arity": "many",
       "contract": "narranexus.contracts.ui:ArtifactKind",

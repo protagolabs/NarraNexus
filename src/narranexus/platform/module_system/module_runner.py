@@ -563,10 +563,27 @@ class ModuleRunner:
             async with _contextlib.AsyncExitStack() as stack:
                 for _name, app in apps:
                     await stack.enter_async_context(app.router.lifespan_context(app))
+                if browser_service is not None:
+                    stack.push_async_callback(browser_service.close)
                 yield
 
+        # Browser frames are served from HERE, not from the backend: the
+        # session object lives in this process. Approvals cross to the backend
+        # through a table, but a frame stream is live bytes — the owner has to
+        # serve it and the backend proxies.
+        browser_routes = []
+        browser_service = None
+        if "browser_module" in mounted:
+            from narranexus.platform.browser.browser_service import get_shared_service
+            from narranexus.platform.browser.stream_bridge import stream_routes
+
+            browser_service = get_shared_service()
+            browser_routes = stream_routes(
+                browser_service.session_for, on_login_control=browser_service.login_control_changed,
+            )
+
         host_app = Starlette(
-            routes=[Route("/mcp/healthz", _healthz)] + [Mount(mcp_mount_path(name), app=app) for name, app in apps],
+            routes=[Route("/mcp/healthz", _healthz)] + browser_routes + [Mount(mcp_mount_path(name), app=app) for name, app in apps],
             lifespan=_lifespan,
             middleware=[Middleware(IdentityAuthMiddleware)],
         )

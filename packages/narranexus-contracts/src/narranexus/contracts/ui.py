@@ -7,7 +7,7 @@
 The real frontend contribution registries live in TypeScript
 (``frontend/src/platform/registries``). The Python side names the shell so a
 distribution can bind its own (``Shell`` is the data the backend needs to
-serve it) and mirrors the ENTRY SHAPES of the seventeen frontend registries so
+serve it) and mirrors the ENTRY SHAPES of the eighteen frontend registries so
 the ``ui.*`` slots ``builtin.ui`` declares carry a contract a manifest can be
 checked against and the docs can render. The TypeScript ``*Def`` interfaces
 are the truth; these records hold the declarative subset a manifest's
@@ -111,6 +111,18 @@ class TimelineEvent:
 
 
 @dataclass(frozen=True)
+class ToolRenderer:
+    """A tool output-row renderer (``ui.tool_renderers``) keyed by the bare tool name.
+
+    The id is the tool name without its ``mcp__<server>__`` namespace. The
+    renderer may decline an output it cannot read; the shell then draws its
+    generic row, so an output is never hidden behind a plugin.
+    """
+
+    id: str
+
+
+@dataclass(frozen=True)
 class ConversationKind:
     """A conversation kind (``ui.conversation_kinds``)."""
 
@@ -164,4 +176,5 @@ __all__ = [
     "SlotComponent",
     "Theme",
     "TimelineEvent",
+    "ToolRenderer",
 ]

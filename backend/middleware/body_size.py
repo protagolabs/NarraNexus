@@ -70,9 +70,21 @@ MAX_CHANNEL_BIND_BYTES = 64 * 1024
 # Inbound channel webhooks carry a platform's event envelope (a message plus
 # metadata); 256 KiB covers rich events without letting a push flood the inbox.
 MAX_CHANNEL_WEBHOOK_BYTES = 256 * 1024
+# Browser policy and runtime preferences carry an origin or a few enum fields.
+MAX_BROWSER_SETTINGS_BYTES = 4 * 1024
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
+    (
+        frozenset({"PUT", "POST"}),
+        re.compile(r"^/api/browser/policy/[^/]+(?:/revoke)?$"),
+        MAX_BROWSER_SETTINGS_BYTES,
+    ),
+    (
+        frozenset({"PUT"}),
+        re.compile(r"^/api/browser/runtime/(?:source|mode)$"),
+        MAX_BROWSER_SETTINGS_BYTES,
+    ),
     (
         frozenset({"POST"}),
         re.compile(r"^/api/providers/slots/apply-to-agents$"),

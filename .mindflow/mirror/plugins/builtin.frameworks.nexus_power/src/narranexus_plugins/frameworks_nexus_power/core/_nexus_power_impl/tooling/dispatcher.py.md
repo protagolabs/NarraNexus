@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/tooling/dispatcher.py
-last_verified: 2026-09-03
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`execute` 重新组装 ToolResult 时透传 `images`，漏掉就会在分发层把 MCP 图片静默丢掉。
 
 ## 2026-09-03（批 2a.5）— `model_tools()` = visible − deferred
 

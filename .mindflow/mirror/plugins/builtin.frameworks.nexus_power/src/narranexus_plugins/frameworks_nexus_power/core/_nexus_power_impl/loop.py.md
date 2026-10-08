@@ -1,8 +1,18 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/loop.py
-last_verified: 2026-09-11
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+新增第四种「先修请求再重放」：`IMAGE_INPUT_REJECTED`。用户选的纯文本模型（铁律 #15，平台不干预选型）
+遇到截图会回确定性 400；若不处理，本轮之后每一步都会再撞，平台就成了打断源。修复条件三者同时成立：
+分类为 IMAGE_INPUT_REJECTED、本轮尚未启用、**被拒请求里确实带了图片**。启用后 `_build_request` 对
+本轮剩余所有请求把 image_url 部件换成 `IMAGE_WITHHELD_NOTE`（陈述事实：模型看不到这张图），只改请求、
+不改 ledger。只武装一次；没带图却报这个错说明不是图片问题，直接诚实失败，不做字节相同的重试。
+实测（2026-09-24）：NetMind 对 DeepSeek-V4-Pro 是静默吞图不报错，模型自述看不到；此修复针对会直接
+400 的 provider（DeepSeek 官方、OpenAI 文本模型、vLLM 等）。
 
 ## 2026-09-10（B-05/#127）— `_fail` 自报 `fatal = not self._turn_delivered()`
 

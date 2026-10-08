@@ -20,7 +20,10 @@ describe('stripCategories() / allTabs() / builtinTabIds()', () => {
     const configIds = categories.find((c) => c.labelKey === 'rail.category.config')!.tabs.map((t) => t.id);
     expect(configIds).toEqual(['builder', 'awareness', 'workspace', 'channels', 'smarthome']);
     const activityIds = categories.find((c) => c.labelKey === 'rail.category.activity')!.tabs.map((t) => t.id);
-    expect(activityIds).toEqual(['jobs', 'inbox', 'artifacts']);
+    // 'browser' is order 25, so it lands after inbox (20) and before
+    // artifacts (30): the live browser is something the agent is DOING, not a
+    // configuration surface.
+    expect(activityIds).toEqual(['jobs', 'inbox', 'browser', 'artifacts']);
   });
 
   it('builtinTabIds() lists every builtin (owner builtin.ui) strip tab', () => {
@@ -28,6 +31,9 @@ describe('stripCategories() / allTabs() / builtinTabIds()', () => {
     for (const id of ['builder', 'awareness', 'workspace', 'channels', 'smarthome', 'jobs', 'inbox', 'artifacts', 'memory', 'social', 'skills', 'mcp']) {
       expect(ids).toContain(id);
     }
+    // Browser is still on the strip, but its feature plugin owns its lifecycle.
+    expect(ids).not.toContain('browser');
+    expect(PANELS.ownerOf('browser')).toBe('builtin.browser');
   });
 
   it('a plugin panel registered WITH strip metadata gets a real strip entry — the I-3 fix', () => {

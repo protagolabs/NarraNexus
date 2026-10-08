@@ -32,8 +32,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, ListTodo, Inbox, PanelLeft, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { MoreVertical, ListTodo, Inbox, MonitorPlay, PanelLeft, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
+import { IconButton } from '@/components/nm/button';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
 import {
@@ -52,7 +53,7 @@ import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
-import { CHAT_HEADER_ACTIONS, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { CHAT_HEADER_ACTIONS, PANELS, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
 import { useWhenContext } from '@/platform/whenContext';
 
 /** Detail-menu layout: config panels only. Awareness and the Network/Memory
@@ -101,6 +102,7 @@ export function ChatHeader({
   const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
   const headerActions = visibleSlotEntries(useRegistryEntries(CHAT_HEADER_ACTIONS), useWhenContext({ conversationKind: 'chat', agentId }));
+  const browserOffered = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
   const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
 
   // `from: 'chat'` is what makes the profile's breadcrumb say "back to Chat"
@@ -252,6 +254,24 @@ export function ChatHeader({
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('rail.artifacts')}</TooltipContent>
           </Tooltip>
+          {browserOffered && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  label={t('rail.browser', 'Browser')}
+                  title={undefined}
+                  size="sm"
+                  appearance="plain"
+                  disabled={!agentId}
+                  onClick={() => openPanel('browser')}
+                  className={iconBtn}
+                >
+                  <MonitorPlay className="h-4 w-4" />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('rail.browser', 'Browser')}</TooltipContent>
+            </Tooltip>
+          )}
           <span data-help-id="chat.cost">
             <CostPopover />
           </span>

@@ -82,7 +82,8 @@ Structural registries (`pages`, `panels`, `commands`, …) add whole surfaces. S
 | `topBarItems` | the top bar's right cluster | `{ component }` |
 | `messageRenderers` | replaces the bubble of a message `match(message)` recognises | `{ match, component }` |
 | `timelineEvents` | renders a timeline event `type` the shell does not know | `{ component }` keyed by the type |
+| `toolRenderers` | replaces one tool's output row in the run timeline | `{ component, accepts? }` keyed by the bare tool name (`browser_look`, not `mcp__server__browser_look`) |
 
 Every slot entry may carry `when` — a closed grammar the host evaluates: `conversationKind:<kind>` (`chat`, `team`, or a kind a plugin registered in `conversationKinds`), `agentHas:<ModuleClass>`, `setting:<key>`; prefix `!` to negate, pass a list to AND. A typo is a registration error, never "always visible". `order` sorts within the slot (builtins use 10, 20, …).
 
-Declare them in the manifest (`frontend.ui.slots`, `messageRenderers`, `timelineEvents`, `conversationKinds`) so the shell mounts a gate before your bundle loads; the gate activates the plugin (`onSlot:<id>`, `onRenderer:<id>`, `onTimelineEvent:<id>`) and hands over to what you register under the same id in `activate(host)`.
+Declare them in the manifest (`frontend.ui.slots`, `messageRenderers`, `timelineEvents`, `conversationKinds`) so the shell mounts a gate before your bundle loads; the gate activates the plugin (`onSlot:<id>`, `onRenderer:<id>`, `onTimelineEvent:<id>`) and hands over to what you register under the same id in `activate(host)`. `toolRenderers` has no manifest declaration: until your bundle registers one, the shell's generic output row is the correct rendering, so there is nothing to gate.

@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/pages/settings/sections.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 浏览器支持
+
+BrowserSection 复用 BrowserSettings，整页设置和弹窗共用相同运行时安装行为。
 
 ## 2026-09-03（批 2d.3）— `PluginsSection` 追加 `<PluginFactory />`
 

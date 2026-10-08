@@ -15,12 +15,13 @@
  * paper over. The one legitimate re-evaluation — Vite HMR replacing this
  * module — disposes the previous registrations first.
  */
-import { Cpu, Download, FolderArchive, Palette, Puzzle, Shield, SlidersHorizontal, User } from 'lucide-react';
+import { Cpu, Download, FolderArchive, MonitorPlay, Palette, Puzzle, Shield, SlidersHorizontal, User } from 'lucide-react';
 
 import { SETTINGS_SECTIONS } from '@/platform/registries';
 import {
   AccountSection,
   ArtifactsContent,
+  BrowserSection,
   ModelDefaultsSection,
   PersonalizationSection,
   PluginsSection,
@@ -38,6 +39,7 @@ const disposers = [
   // Plugins are a LOCAL-only concept (cloud pre-installs the frameworks in the image).
   SETTINGS_SECTIONS.register('plugins', { labelKey: 'pages.settings.nav.plugins', icon: Puzzle, component: PluginsSection, order: 40, cloudHidden: true }, OWNER),
   SETTINGS_SECTIONS.register('artifacts', { labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive, component: ArtifactsContent, order: 50 }, OWNER),
+  SETTINGS_SECTIONS.register('browser', { labelKey: 'pages.settings.nav.browser', icon: MonitorPlay, component: BrowserSection, order: 55 }, { owner: 'builtin.browser' }),
   SETTINGS_SECTIONS.register('privacy', { labelKey: 'pages.settings.nav.privacy', icon: Shield, component: PrivacySection, order: 60 }, OWNER),
   SETTINGS_SECTIONS.register('personalization', { labelKey: 'pages.settings.nav.personalization', icon: Palette, component: PersonalizationSection, order: 70 }, OWNER),
   SETTINGS_SECTIONS.register('updates', { labelKey: 'pages.settings.nav.updates', icon: Download, component: UpdatesSectionGuarded, order: 80, desktopOnly: true }, OWNER),

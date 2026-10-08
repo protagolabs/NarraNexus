@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+tool_output 行先查 `TOOL_RENDERERS`：命中则在 `PluginBoundary`（崩溃→通用行）+ `Suspense`（懒加载
+期间→通用行）里渲染插件组件，否则照旧 `ToolOutputBlock`。两层回落都是同一个通用行，所以加载中、
+崩溃、未注册三种状态用户看到的都是正常输出行，不会出现空白。
 
 ## 2026-09-07 — a throwing plugin timeline-event component is isolated (I-6)
 

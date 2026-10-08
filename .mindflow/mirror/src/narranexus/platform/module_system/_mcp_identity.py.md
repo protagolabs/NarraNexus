@@ -1,8 +1,29 @@
 ---
 code_file: src/narranexus/platform/module_system/_mcp_identity.py
-last_verified: 2026-08-18
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`THREAD_ID_HEADER` 注释改为如实表述：不是工具参数，但与 agent_id 一样是自述值，身份 token 的签名
+载荷不覆盖它；可用于归属和把请求绑定到轮次，不能当授权边界——要当边界须先把它放进签名载荷（review I4）。
+
+## 2026-09-22 - Conversation permission scope
+
+The bearer appends `thread_id` at position 10 and emits the matching
+`X-NarraNexus-Thread-Id` header. `event_id` remains the authoritative turn
+identifier at position 8; identity-token signing and verification retain
+position 9. Dispatch-time token stamping must preserve the conversation field.
+
+ContextRuntime derives the conversation scope from its routing facts. Browser
+tools read the bearer through the existing public parser, so their scopes are
+not model-filled arguments and no private platform import is needed. Every
+browser call binds the current event/conversation, including reused sessions.
+Missing scope is an actionable browser error; existing identity resolution
+semantics for other modules are unchanged. These routing facts are carried by
+the platform transport; the JWT still proves the user, not each routing field.
+
 ## 2026-08-10 — bearer 追加 identity_token(第 9 段;可验证身份,蓝图 P1)
 
 此前各段全是**自声明**事实(fail-open 便利);这一段是**证明**:平台签的

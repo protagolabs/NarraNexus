@@ -98,6 +98,22 @@ def test_exception_type_name_is_a_credential_signal():
     assert is_credential_error(RuntimeError("request failed")) is False
 
 
+@pytest.mark.parametrize("error", [
+    "Error code: 503 - {'detail': 'API key channel binding is temporarily unavailable'}",
+    "API key channel binding is temporarily unavailable",
+    "HTTP 502: authentication service unavailable",
+    "Authentication service timed out",
+])
+def test_provider_outage_is_not_a_credential_refusal(error):
+    assert is_credential_error(error) is False
+    assert is_auth_like_error(error) is False
+
+
+def test_explicit_auth_status_and_exception_override_outage_wording():
+    assert is_credential_error(AuthenticationError("authentication temporarily unavailable"))
+    assert is_credential_error("HTTP 401: invalid API key; retry after a timeout")
+
+
 def test_accepts_exception_instances():
     assert is_credential_error(RuntimeError("Incorrect API key provided: sk-...")) is True
     assert is_credential_error(RuntimeError("connection refused")) is False
@@ -141,3 +157,17 @@ def test_forbidden_is_auth_like_but_not_a_credential_error():
 def test_status_codes_glued_to_identifiers_are_not_credential(error):
     assert is_credential_error(error) is False
     assert is_auth_like_error(error) is False
+
+
+class AuthenticationError(Exception):
+    """Named like the provider SDKs' auth exception (matched by class name)."""
+
+
+def test_an_auth_timeout_is_an_outage_not_a_rejected_key():
+    """An auth service that timed out has not rejected the key — a retry can
+    help, so the strict predicate must say False. A real rejection is still
+    caught first, by its status code or by the SDK's auth exception class,
+    whatever else its text says."""
+    assert is_credential_error("Authentication request timed out") is False
+    assert is_credential_error("401 Unauthorized: authentication request timed out") is True
+    assert is_credential_error(AuthenticationError("upstream timed out")) is True

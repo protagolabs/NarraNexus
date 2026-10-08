@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-09-06
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+mock 事件日志加一条 `browser_look`（Claude Code 形状：元数据 JSON + 图片描述），开发演示与视觉验收用。
 
 ## 2026-08-27 — `createAgent` 的返回体补 `bound_channels: []`
 

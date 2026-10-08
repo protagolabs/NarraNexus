@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/output_transfer.py
-last_verified: 2026-09-10
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`_stringify_tool_result_content` 与 codex `mcp_tool_call` 输出不再内联图片 base64：图片块（Claude SDK 的
+`source.media_type/data` 与 MCP 的 `mimeType/data` 两种形状）替换为 `{type, mime_type, base64_chars}`。
+模型已原生收到图片；这里的字符串去往前端工具卡片、数据库和后续轮次的历史回放，内联几 MB base64 会同时
+撑爆存储、WS 和下一轮上下文。已用真实 Claude Code 2.1.281 的 tool_result 块验证形状。
 
 ## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
 

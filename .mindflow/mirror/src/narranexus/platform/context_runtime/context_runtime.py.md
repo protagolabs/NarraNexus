@@ -1,8 +1,25 @@
 ---
 code_file: src/narranexus/platform/context_runtime/context_runtime.py
-last_verified: 2026-09-09
+last_verified: 2026-09-22
 stub: false
 ---
+
+## 2026-09-22 - Runtime conversation scopes for MCP permissions
+
+The MCP spec now carries a conversation authorization scope alongside the
+existing events-row turn id. It hashes a structured tuple of agent, turn owner,
+working source, channel, room, optional channel thread and primary Narrative.
+Including owner/source/room prevents a shared Narrative from sharing browser
+approvals across users or conversations. Without a Narrative or room, the
+scope is restricted to this event; without an event id, it stays absent and
+browser tools refuse scoped operations rather than inventing a grant identity.
+
+The digest is token68-safe and does not depend on model-filled tool arguments,
+input text, timestamps, transport sessions or the browser's cached session.
+It stays stable across turns in the same routed conversation. The standard
+header builder sends it both explicitly and in the borrowed bearer, preserving
+Claude and Codex transport parity without adapter-specific changes.
+
 
 ## 2026-09-09 — 根回合的 MCP header `root_run_id` 落回自己的 event_id（B-19，#124）
 

@@ -3091,6 +3091,44 @@ _register(
     )
 )
 
+# Login handoffs are notifications, never origin grants. Only the live session's
+# authenticated control connection can complete a request by explicitly releasing.
+_register(
+    TableDef(
+        name="instance_browser_login_requests",
+        columns=[
+            Column("request_id", "TEXT", "VARCHAR(64)", nullable=False, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("session_key", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("turn_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("reason", "TEXT", "TEXT", nullable=False),
+            Column("state", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("connection_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("requested_at", "TEXT", "DATETIME(6)", nullable=False),
+        ],
+        indexes=[Index("idx_browser_login_agent", ["agent_id"])],
+    )
+)
+
+# Privileged browser capabilities, one policy document per agent. The shape is
+# BrowserPolicy.to_dict(); it contains no website-access rules. Scoped grants
+# and decision receipts are persisted for cross-process visibility. The trusted
+# runtime turn/conversation scope determines whether a grant applies.
+_register(
+    TableDef(
+        name="instance_browser_policies",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("policy_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_browser_policies_agent", ["agent_id"], unique=True)],
+    )
+)
+
 # Home Assistant binding — one row per HomeAssistantModule instance. config_json
 # holds {base_url, token, verify_tls}; token is a sensitive credential (redacted
 # on bundle export, masked in the frontend).

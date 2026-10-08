@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/layout/__tests__/chatViewDrawerSwitcher.test.tsx
-last_verified: 2026-09-11
+last_verified: 2026-09-22
 stub: false
 ---
+
+## 2026-09-22 - Mobile Browser entry
+
+The same ChatView fixture now verifies that the mobile utility row opens Browser
+through the existing drawer and follows panel unregistration. Viewport detection
+is stubbed while the real panel registry and UI store remain in use. Registry
+entries are restored after each test to isolate the existing switcher coverage.
 
 # chatViewDrawerSwitcher.test.tsx — single chat wires the drawer title switcher
 

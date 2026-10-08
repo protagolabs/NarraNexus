@@ -26,6 +26,7 @@
     "builtin.skills",
     "builtin.message_bus",
     "builtin.general_memory",
+    "builtin.browser",
     "builtin.home_assistant",
     "builtin.channels.lark",
     "builtin.channels.slack",

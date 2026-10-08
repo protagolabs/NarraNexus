@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.common_tools/src/narranexus_plugins/common_tools_module/common_tools_module.py
-last_verified: 2026-09-13
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 — 示例花括号遵循模板契约
+
+产物返回值示例使用双花括号，经过模块统一的 `str.format` 后才呈现为普通花括号。
+它不是运行时上下文字段；未转义会让包含此能力的整个回合在组装上下文时失败。
+跨模块模板回归测试检查这类代码示例，防止新增浏览器指令重复触发同一故障。
 
 ## 2026-09-13 — marker 的 path 是 JSON 字符串
 

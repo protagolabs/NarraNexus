@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-09-11
+last_verified: 2026-09-22
 stub: false
 ---
+
+## 2026-09-22 - Browser needs an explicit desktop entry
+
+Registering a panel does not populate this hardcoded icon cluster. Browser now
+has an NM icon button beside Artifacts, with an accessible name and Radix tooltip,
+opening the existing drawer through `requestPanel('browser')`. It is disabled
+without an agent and subscribes to PANELS so removing the browser contribution
+also removes its entry. BrowserStreamPanel remains responsible for panel content.
 
 ## 2026-09-11 — Model & framework button reinstated (OWNER-REQUIRED entry)
 

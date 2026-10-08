@@ -98,6 +98,18 @@ async def test_non_credential_failure_audits_but_no_inbox():
 
 
 @pytest.mark.asyncio
+async def test_key_binding_outage_only_audits_without_credential_notice():
+    await alerts.alert_background_llm_failure(
+        agent_id="agt_1", owner_user_id="usr_owner", source="narrative_update",
+        error="Error code: 503 - {'detail': 'API key channel binding is temporarily unavailable'}",
+        source_id="nar_1",
+    )
+    assert len(_FakeAuditor.errors) == 1
+    assert _FakeAuditor.errors[0][1]["category"] == "generic"
+    assert _FakeInboxRepo.created == []
+
+
+@pytest.mark.asyncio
 async def test_missing_owner_still_audits():
     await alerts.alert_background_llm_failure(
         agent_id="agt_1",

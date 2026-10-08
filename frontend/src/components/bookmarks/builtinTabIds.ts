@@ -10,7 +10,7 @@
  * `platform/builtin.ts`, the chat header's fixed menu groups — is typed
  * `BuiltinTabId`, so a typo there is a compile error rather than a
  * silently empty drawer. `builtin.test.ts` pins that the registry's
- * builtin-owned strip tabs are exactly this list.
+ * shell- and feature-owned builtin strip tabs are exactly this list.
  */
 export const BUILTIN_TAB_IDS = [
   'builder',
@@ -19,6 +19,7 @@ export const BUILTIN_TAB_IDS = [
   'channels',
   'smarthome',
   'jobs',
+  'browser',
   'inbox',
   'artifacts',
   'memory',

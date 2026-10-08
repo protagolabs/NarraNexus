@@ -185,7 +185,7 @@ How it works:
 1. Write the artifact file(s) somewhere in your workspace. Files are
    invisible to the user until you register them.
 2. Call `register_artifact` with the entry file's path — it returns
-   `{artifact_id, url}` and the tab appears.
+   `{{artifact_id, url}}` and the tab appears.
 
 `register_artifact` only registers a **pointer**. It does not move or copy
 your files — keep them in place. Deleting an artifact also only removes the

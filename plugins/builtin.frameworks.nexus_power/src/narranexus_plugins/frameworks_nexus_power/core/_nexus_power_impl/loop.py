@@ -85,6 +85,14 @@ CONTINUE_PREFILL = (
     "output only the continuation."
 )
 
+# Stands in for each image once the provider has refused image input. It
+# states a transport fact (the model cannot see this image) so the agent
+# can report the limitation instead of claiming to have seen it.
+IMAGE_WITHHELD_NOTE = (
+    "[image omitted: the configured model rejected image input, so this "
+    "image cannot be shown to you]"
+)
+
 
 class NexusPowerLoop:
     """One instance runs one turn (no cross-turn state: stateless worker)."""
@@ -108,6 +116,7 @@ class NexusPowerLoop:
         self._turn_text_streamed = False
         self._expression_nudged = False  # mute-turn nudge, armed at most once
         self._truncation_retried = False  # output-budget doubling, armed at most once
+        self._images_withheld = False  # image-rejection repair, armed at most once
         # Floor multiplier for the NEXT ``_build_request()``, carried on
         # ``ModelRequest.floor_multiplier`` — never written into the shared
         # ``a.params.extra`` dict. Raised to 2 only for the one step the
@@ -194,6 +203,23 @@ class NexusPowerLoop:
                         # answered, so the retry policy still gets its
                         # turn afterwards (see the classifier).
                         self._continuation_turn = True
+                        request = self._build_request()
+                        continue
+                    if (
+                        error.error_type is ErrorType.IMAGE_INPUT_REJECTED
+                        and not self._images_withheld
+                        and _has_images(request.messages)
+                    ):
+                        # The user's model is text-only (their choice,
+                        # binding rule #15). Withhold images for the rest
+                        # of the turn — every later screenshot would draw
+                        # the same deterministic 400 — and replay the
+                        # step so one browser_look cannot end the turn.
+                        logger.warning(
+                            "model {} rejected image input; withholding images this turn",
+                            a.params.model,
+                        )
+                        self._images_withheld = True
                         request = self._build_request()
                         continue
                     attempt += 1
@@ -491,6 +517,8 @@ class NexusPowerLoop:
     def _build_request(self) -> ModelRequest:
         a = self._a
         messages = a.projector.project(self._ledger, a.model.profile)
+        if self._images_withheld:
+            messages = _withhold_images(messages)
         if self._continuation_turn and _ends_with_assistant(messages):
             # Transport repair, not turn history: it exists to satisfy a
             # backend that rejects a trailing assistant message, so it
@@ -703,6 +731,32 @@ _TRUNCATING_STOP_REASONS = frozenset({"length", "max_tokens"})
 
 def _ends_with_assistant(messages: list[ProviderMessage]) -> bool:
     return bool(messages) and messages[-1].get("role") == "assistant"
+
+
+def _is_image_part(part: Any) -> bool:
+    return isinstance(part, dict) and part.get("type") == "image_url"
+
+
+def _has_images(messages: list[ProviderMessage]) -> bool:
+    return any(
+        isinstance(m.get("content"), list) and any(_is_image_part(p) for p in m["content"])
+        for m in messages
+    )
+
+
+def _withhold_images(messages: list[ProviderMessage]) -> list[ProviderMessage]:
+    """Replace every image part by ``IMAGE_WITHHELD_NOTE`` (a request
+    rewrite only — the ledger keeps what the tools returned)."""
+    out: list[ProviderMessage] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list) and any(_is_image_part(p) for p in content):
+            message = {**message, "content": [
+                {"type": "text", "text": IMAGE_WITHHELD_NOTE} if _is_image_part(p) else p
+                for p in content
+            ]}
+        out.append(message)
+    return out
 
 
 

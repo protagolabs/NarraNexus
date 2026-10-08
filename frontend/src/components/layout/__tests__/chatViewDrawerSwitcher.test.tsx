@@ -10,9 +10,15 @@
  * single-chat caller actually wires it (drop the three props → red).
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { afterEach, describe, test, expect, vi, beforeEach } from 'vitest';
+import { act, cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+
+const viewport = vi.hoisted(() => ({ mobile: false }));
+vi.mock('@/hooks/useMediaQuery', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/useMediaQuery')>()),
+  useIsMobile: () => viewport.mobile,
+}));
 
 vi.mock('@/components/chat', () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }));
 vi.mock('@/components/chat/WakingOverlay', () => ({ WakingOverlay: () => null }));
@@ -31,14 +37,24 @@ vi.mock('@/hooks', async (orig) => ({
 import { ChatView } from '../MainLayout';
 import { DRAWER_FIRST_RUN_KEY, DRAWER_OPENED_ONCE_KEY } from '../drawerLayout';
 import { useConfigStore, useArtifactStore, useUIStore } from '@/stores';
+import { PANELS } from '@/platform/registries';
+
+const browserPanel = PANELS.get('browser')!;
+const browserOwner = PANELS.ownerOf('browser');
+afterEach(() => {
+  cleanup();
+  PANELS.register('browser', browserPanel, { owner: browserOwner, replace: true });
+});
 
 describe('ChatView — drawer title switcher', () => {
   beforeEach(() => {
+    viewport.mobile = false;
     window.localStorage.clear();
     // Skip the first-run auto-open so the test controls which panel is open.
     window.localStorage.setItem(DRAWER_FIRST_RUN_KEY, '1');
     useConfigStore.setState({ agentId: 'agent_1', userId: 'user_1' });
     useArtifactStore.setState({ loadPinned: vi.fn() } as never);
+    useUIStore.getState().clearPendingPanel();
   });
 
   test('a drawer opened on Artifacts switches to Jobs from its title', () => {
@@ -64,5 +80,21 @@ describe('ChatView — drawer title switcher', () => {
     expect(screen.queryByTestId('panel-artifacts')).toBeNull();
     expect(screen.getByTestId('panel-jobs')).toBeTruthy();
     expect(window.localStorage.getItem(DRAWER_OPENED_ONCE_KEY)).toBe('1');
+  });
+
+  test('mobile Browser entry opens the registered browser drawer', () => {
+    viewport.mobile = true;
+    render(<MemoryRouter><ChatView /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    expect(screen.getByTestId('panel-browser')).toBeInTheDocument();
+  });
+
+  test('mobile Browser entry follows panel registration', () => {
+    viewport.mobile = true;
+    const dispose = PANELS.register('browser', browserPanel, { replace: true });
+    render(<MemoryRouter><ChatView /></MemoryRouter>);
+    expect(screen.getByRole('button', { name: 'Browser' })).toBeInTheDocument();
+    act(dispose);
+    expect(screen.queryByRole('button', { name: 'Browser' })).not.toBeInTheDocument();
   });
 });
