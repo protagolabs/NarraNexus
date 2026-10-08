@@ -1,8 +1,12 @@
 ---
 code_file: tests/browser/test_routes.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+审批端点改为 notices；钉住旧审批端点 404、安装/取消安装在云端 403 且不触发安装。
 
 # 浏览器路由边界
 

@@ -28,7 +28,7 @@ from typing import Any, Callable, Optional
 from loguru import logger
 
 from narranexus.platform.browser._browser_impl.actions import action_expression, key_events
-from narranexus.platform.browser._browser_impl.cdp import input_events_for
+from narranexus.platform.browser._browser_impl.cdp import SCREENCAST_MIME_TYPE, input_events_for
 from narranexus.platform.browser._browser_impl.control import ControlArbiter
 from narranexus.platform.browser._browser_impl.pages import BrowserPages
 from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, decide, origin_of
@@ -36,6 +36,7 @@ from narranexus.platform.browser._browser_impl.read import (
     DEFAULT_TEXT_LIMIT,
     snapshot_expression,
 )
+from narranexus.platform.browser._browser_impl.limits import MAX_SCRIPT_CHARS, check_text
 from narranexus.platform.browser._browser_impl.visual import (
     VisualObservation, capture_scale, png_dimensions, view_expression,
 )
@@ -108,7 +109,12 @@ class BrowserSession:
         return self.pages.current.cdp
 
     def bind_scope(self, *, turn_id: str, thread_id: str) -> None:
-        """Bind trusted invocation identifiers in this task, never session-global state."""
+        """Bind the runtime-declared turn/conversation ids in this task, never session-global state.
+
+        Self-declared like agent_id (see ``_mcp_identity.THREAD_ID_HEADER``):
+        they attribute audit rows and bind visual observations to the calling
+        turn; they authorize nothing.
+        """
         self._scope.set((turn_id, thread_id))
 
     @property
@@ -247,6 +253,10 @@ class BrowserSession:
         if self._closed:
             return _err("browser session is closed")
         try:
+            check_text("script", expression, MAX_SCRIPT_CHARS)
+        except ValueError as exc:
+            return _err(str(exc))
+        try:
             await self.control.wait_for_turn()
         except Exception as exc:
             return _err(str(exc))
@@ -357,6 +367,10 @@ class BrowserSession:
         if self._closed:
             return _err("browser session is closed")
         try:
+            check_text("script", expression, MAX_SCRIPT_CHARS)
+        except ValueError as exc:
+            return _err(str(exc))
+        try:
             await self.control.wait_for_turn()
         except Exception as exc:
             return _err(str(exc))
@@ -365,7 +379,7 @@ class BrowserSession:
         if refusal is not None:
             return refusal
         verdict = decide(await self._fresh_policy(), url=await self._current_url(),
-                         capability="full_cdp_access", turn_id=self._turn_id, thread_id=self._thread_id)
+                         capability="full_cdp_access")
         self._record("script", verdict=verdict.verdict, origin=verdict.origin)
         if verdict.verdict != "allow":
             return {"ok": False, "outcome": "REJECTED", "message": (
@@ -610,7 +624,8 @@ class BrowserSession:
         if page is None:
             return
         self._frames += 1
-        frame = {"data": data, "meta": meta, "n": self._frames, "ts": time.time(), "page_id": page_id}
+        frame = {"data": data, "mime_type": SCREENCAST_MIME_TYPE, "meta": meta, "n": self._frames,
+                 "ts": time.time(), "page_id": page_id}
         page.last_frame = frame
         for sink in list(page.sinks):
             try:

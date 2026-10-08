@@ -4,7 +4,7 @@
 @date: 2026-09-22
 @description: The single surface the UI and the agent use to reach the in-app browser.
 
-Design §8.2: three callers need the same answer to "can we browse right now?",
+Three callers need the same answer to "can we browse right now?",
 and each degrades differently —
 
   * the agent's MCP tools get a ``NEEDS_HUMAN``-shaped refusal they can relay
@@ -264,7 +264,7 @@ class BrowserService:
 
         The user can delete a ~150 MB runtime between two agent turns; a
         cached ``ready`` would send the next one to a blank panel with no way
-        to self-diagnose (design §8.1).
+        to self-diagnose.
         """
         return detect_runtime(
             locate=self._locate,
@@ -320,30 +320,22 @@ class BrowserService:
         """Ask an in-flight install to stop, keeping the partial download."""
         self._installer.cancel()
 
-    # ── approvals (cross-process) ────────────────────────────────────────
+    @property
+    def installing(self) -> bool:
+        """Whether a runtime install is in flight."""
+        return self._installer.installing
 
-    async def _approval_store(self) -> Any:
-        from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-        from narranexus.platform.utils.db.db_factory import get_db_client
+    @property
+    def install_progress(self) -> Any:
+        """The in-flight install's progress, or None when nothing is installing."""
+        return self._installer.progress
 
-        return ApprovalStore(await get_db_client())
+    # ── login notices (cross-process) ────────────────────────────────────
 
-    async def request_approval(
-        self, *, agent_id: str, origin: str, capability: str, turn_id: str, thread_id: str
-    ) -> Optional[str]:
-        """Raise the user-facing question. Returns its id, or None if unstorable."""
-        store = await self._approval_store()
-        row = await store.request(
-            agent_id=agent_id, origin=origin, capability=capability,
-            turn_id=turn_id, thread_id=thread_id,
-        )
-        return row.get("approval_id") if row else None
-
-    async def pending_approvals(self, agent_id: str) -> list[dict]:
-        store = await self._approval_store()
-        approvals = await store.pending(agent_id)
+    async def pending_notices(self, agent_id: str) -> list[dict]:
+        """Open login / verification requests, raised in the MCP host and read here."""
         logins = await self._login_repository()
-        return [*approvals, *await logins.pending(agent_id)]
+        return await logins.pending(agent_id)
 
     async def _login_repository(self) -> Any:
         from narranexus.platform.repository.browser_login_repository import BrowserLoginRepository
@@ -451,12 +443,10 @@ class BrowserService:
     async def policy_for(self, agent_id: str, *, fresh: bool = False) -> Any:
         """The agent's permissions.
 
-        ``fresh=True`` re-reads from the document. The earlier reasoning here
-        — "cache it, the session holds a reference" — assumed one process, and
-        that assumption was wrong: the session runs in the MCP host while
-        approvals are applied in the backend. A cached object on either side
-        cannot see the other's decision, so the user clicks allow and the
-        agent stays refused.
+        ``fresh=True`` re-reads from the document. The session runs in the MCP
+        host while Settings writes the policy in the backend, so a cached
+        object on either side cannot see the other's change: the owner revokes
+        script access and the agent keeps it.
 
         The cache is kept only as a same-process convenience; every decision
         that matters asks for a fresh read.
@@ -479,23 +469,6 @@ class BrowserService:
         self._policies[agent_id] = policy
         return policy
 
-    async def approval_agent(self, approval_id: str) -> str | None:
-        store = await self._approval_store()
-        row = await store.get(approval_id)
-        return row["agent_id"] if row else None
-
-    async def resolve_approval(
-        self, approval_id: str, *, decision: str, lifetime: str, agent_id: str
-    ) -> bool:
-        """Apply one owned request atomically against the latest stored policy."""
-        store = await self._approval_store()
-        applied = await store.resolve(
-            approval_id, decision=decision, lifetime=lifetime, agent_id=agent_id
-        )
-        if applied:
-            self._policies.pop(agent_id, None)
-        return applied
-
     # ── live sessions ────────────────────────────────────────────────────
 
     def register_session(self, agent_id: str, session: Any) -> None:
@@ -507,6 +480,10 @@ class BrowserService:
         first's login state anyway.
         """
         self._sessions[agent_id] = session
+
+    def forget_session(self, agent_id: str) -> None:
+        """Drop the registration without closing it (the caller owns its lifetime)."""
+        self._sessions.pop(agent_id, None)
 
     def session_for(self, agent_id: str) -> Optional[Any]:
         """The agent's open browser, or None.
@@ -625,8 +602,6 @@ class BrowserService:
             session = self._sessions.pop(agent_id, None)
             if session is not None:
                 await session.close()
-            store = await self._approval_store()
-            await store.clear_for_agent(agent_id)
             if agent_id in self._login_sessions:
                 repository = await self._login_repository()
                 await repository.clear_for_agent(agent_id)

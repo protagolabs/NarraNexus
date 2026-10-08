@@ -8,7 +8,7 @@ Two requirements here are about real users rather than about correctness in
 the abstract:
 
 **The mirror host must be overridable.** Local-mode users in mainland China
-are the main population for this product, not an edge case (design §8.3). If
+are the main population for this product, not an edge case. If
 the download host cannot be pointed somewhere they can reach, the browser
 feature simply does not exist for them. The override is therefore a first
 class argument, not an afterthought — and it is refused unless it is HTTPS,
@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 from narranexus.platform.browser._browser_impl.install import InstallProgress
 
-#: Vendor default. Overridden per-install by the mirror host (design §8.3).
+#: Vendor default. Overridden per-install by the mirror host.
 DEFAULT_DOWNLOAD_HOST = "https://playwright.azureedge.net/builds/chromium"
 
 

@@ -2,9 +2,9 @@
 @file_name: control.py
 @author:
 @date: 2026-09-22
-@description: Who is driving the browser right now — the agent, or the user (design §8.4).
+@description: Who is driving the browser right now — the agent, or the user.
 
-The panel is interactive (Owner decision 2026-09-22: 看 + 接管), so two parties
+The panel is interactive (Owner decision 2026-09-22: watch and take over), so two parties
 can reach the same browser. Three rules make that safe rather than chaotic:
 
 **One driver at a time, and the UI can always name them.** Codex does this by

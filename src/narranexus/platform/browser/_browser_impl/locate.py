@@ -90,7 +90,7 @@ def install_root() -> Path:
     """Where the runtime is installed.
 
     Under the user's data dir — NOT inside the app bundle. The runtime is a
-    one-time ~150 MB download (design §8); putting it in the bundle would
+    one-time ~150 MB download; putting it in the bundle would
     throw it away on every app upgrade, and a notarised bundle cannot be
     written to in the first place.
     """

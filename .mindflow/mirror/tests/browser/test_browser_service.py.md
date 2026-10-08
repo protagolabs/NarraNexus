@@ -1,8 +1,12 @@
 ---
 code_file: tests/browser/test_browser_service.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+跨进程刷新用例改为 owner 在 Settings 改脚本权限；去掉 downloads/grant。
 
 # 浏览器服务回归
 

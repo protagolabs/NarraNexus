@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/useBrowserStream.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+帧按自带的 `mime_type` 解码（服务端 `SCREENCAST_MIME_TYPE`），不再硬编码 `image/jpeg`；不在
+`FRAME_MIME_TYPES` 里的类型直接报出 "Unsupported browser frame format: X"，而不是含糊的解码失败。
 
 ## 2026-09-24 人工新页与地址栏
 

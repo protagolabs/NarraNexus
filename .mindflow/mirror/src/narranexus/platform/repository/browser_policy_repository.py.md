@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/repository/browser_policy_repository.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+文档只持久化 owner 的按 origin 脚本权限；"轮次/会话授权与回执由运行时可信 scope 判定"一段已不成立（随审批删除）。
 
 # browser_policy_repository.py — 每个 agent 的浏览器权限文档
 

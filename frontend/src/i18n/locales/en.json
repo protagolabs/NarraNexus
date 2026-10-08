@@ -3120,19 +3120,9 @@
     "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)"
   },
   "browser": {
-    "approval": {
-      "question": "The agent wants to {{action}}:",
-      "capAutoReview": "automatically review actions on",
-      "capUploads": "upload files to",
-      "capDownloads": "download files from",
-      "allowThread": "Allow for this conversation",
-      "deny": "Never allow",
-      "allowAlways": "Always allow this site",
-      "allowTurn": "Allow for this turn",
-      "decisionFailed": "Could not save the decision. Please try again.",
-      "loadFailed": "Could not check browser approvals.",
-      "retry": "Try again",
-      "saving": "Saving decision..."
+    "notices": {
+      "loadFailed": "Could not check for browser login requests.",
+      "retry": "Try again"
     },
     "absentTitle": "Browser not installed",
     "brokenTitle": "The browser is installed but will not start",

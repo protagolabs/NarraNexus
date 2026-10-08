@@ -2,20 +2,53 @@
 @file_name: policy_store.py
 @date: 2026-09-23
 @description: Atomic owner-managed browser permissions without whole-document overwrites.
+
+``set_rule`` is a read-modify-write of the whole stored document, made safe
+twice over. Writers in this process are serialised per agent — they would
+otherwise all read the same snapshot and only one per round could win, so N
+concurrent clicks needed N rounds (measured on MySQL: six writers exhausted a
+five-attempt bound). Across processes the write is a compare-and-swap: it
+lands only if the stored JSON is byte-for-byte what was read (``BINARY``, so
+MySQL does not compare under a case-insensitive collation; the SQLite backend
+strips the keyword). A lost cross-process race re-reads and retries a bounded
+number of times, then fails as a retryable error — never a silent "saved"
+that did not happen, never a spin.
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import weakref
 from dataclasses import replace
 from urllib.parse import urlparse
 
 from narranexus.platform.browser._browser_impl.policy import (
-    BrowserPolicy, OriginPolicy, _match_origin, decide, origin_of,
+    BrowserPolicy, OriginPolicy, decide, origin_of,
 )
 from narranexus.platform.utils.timezone import utc_now
 
 _CAPABILITIES = ("full_cdp_access",)
+
+#: Compare-and-swap attempts before giving up. Each lost race means another
+#: writer committed, so this bounds contention, not progress.
+SET_RULE_ATTEMPTS = 5
+
+
+class PolicyWriteConflict(RuntimeError):
+    """Concurrent writers kept winning; the caller should retry."""
+
+
+#: Per-event-loop, per-agent write locks. Keyed by loop because an asyncio
+#: lock belongs to the loop it was first used on; weak so a finished loop
+#: (tests, a restarted worker) takes its locks with it.
+_WRITE_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _write_lock(agent_id: str) -> asyncio.Lock:
+    locks = _WRITE_LOCKS.setdefault(asyncio.get_running_loop(), {})
+    return locks.setdefault(agent_id, asyncio.Lock())
 
 
 class PolicyValidationError(ValueError):
@@ -62,12 +95,11 @@ class PolicyStore:
         origin = managed_origin(origin)
         if capability not in _CAPABILITIES or verdict not in ("allow", "deny"):
             raise PolicyValidationError("Unsupported browser capability or verdict")
-        matcher = BrowserPolicy(origins={origin: OriginPolicy()})
+        async with _write_lock(agent_id):
+            return await self._swap_rule(agent_id, origin=origin, capability=capability, verdict=verdict)
 
-        def matches(site: str) -> bool:
-            return _match_origin(matcher, site)[0] is not None
-
-        while True:
+    async def _swap_rule(self, agent_id: str, *, origin: str, capability: str, verdict: str) -> dict:
+        for attempt in range(1, SET_RULE_ATTEMPTS + 1):
             raw = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
             if raw is None:
                 now = utc_now().isoformat()
@@ -83,10 +115,6 @@ class PolicyStore:
             document = json.loads(raw["policy_json"])
             policy = BrowserPolicy.from_dict(document)
             policy.origins[origin] = replace(policy.origins.get(origin, OriginPolicy()), **{capability: verdict})
-            policy._grants = {item for item in policy._grants if item[1] != capability or not matches(item[0])}
-            policy._denials = {item for item in policy._denials if item[1] != capability or not matches(item[0])}
-            pending = await self._db.get("instance_browser_approvals", {"agent_id": agent_id, "capability": capability})
-            policy._approval_receipts.update(row["approval_id"] for row in pending if matches(row["origin"]))
             document.update(policy.to_dict())
             written = await self._db.execute(
                 "UPDATE instance_browser_policies SET policy_json = %s, updated_at = %s "
@@ -95,4 +123,5 @@ class PolicyStore:
             )
             if written:
                 return await self.get_public(agent_id)
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.01 * attempt)
+        raise PolicyWriteConflict("Browser permissions changed concurrently; retry")

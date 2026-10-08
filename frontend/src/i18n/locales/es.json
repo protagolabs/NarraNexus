@@ -2605,19 +2605,9 @@
     "freeTierSwitched": "Se agotó la cuota gratuita — se cambió a tu propio proveedor. Las nuevas ejecuciones usarán tu propia clave de API. (haz clic para cerrar)"
   },
   "browser": {
-    "approval": {
-      "question": "El agente quiere {{action}}:",
-      "capAutoReview": "revisar automáticamente las acciones en",
-      "capUploads": "subir archivos a",
-      "capDownloads": "descargar archivos de",
-      "allowThread": "Permitir en esta conversación",
-      "deny": "No permitir nunca",
-      "allowAlways": "Permitir siempre este sitio",
-      "allowTurn": "Permitir solo en este turno",
-      "decisionFailed": "No se pudo guardar la decisión. Inténtalo de nuevo.",
-      "loadFailed": "No se pudieron consultar las solicitudes de autorización del navegador.",
-      "retry": "Intentar de nuevo",
-      "saving": "Guardando la decisión…"
+    "notices": {
+      "loadFailed": "No se pudieron consultar las solicitudes de inicio de sesión del navegador.",
+      "retry": "Intentar de nuevo"
     },
     "absentTitle": "Navegador no instalado",
     "brokenTitle": "El navegador está instalado, pero no se inicia",

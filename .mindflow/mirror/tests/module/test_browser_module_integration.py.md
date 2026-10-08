@@ -1,8 +1,12 @@
 ---
 code_file: tests/module/test_browser_module_integration.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+接口改为 `/api/browser/notices`；去掉 request_approval / 审批表断言。
 
 ## 2026-09-23 多页面支持
 

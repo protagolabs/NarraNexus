@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/cdp.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+帧编码收敛为 `SCREENCAST_FORMAT` / `SCREENCAST_MIME_TYPE` 一个来源，screencast 与首帧补拍共用；
+session 把 mime_type 写进每帧，前端据此解码。
 
 ## 2026-09-23 多页面支持
 

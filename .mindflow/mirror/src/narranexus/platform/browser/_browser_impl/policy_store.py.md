@@ -1,25 +1,30 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/policy_store.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
 
-# Owner-managed browser permissions
+# Owner 管理的脚本权限（原子写）
 
-公开视图与修改接口只包含 full_cdp_access；不再显示或接受 access 和 scoped_access。
-旧的访问允许、询问、禁用及临时授权不会构成列表项，读取只依赖受支持的脚本字段。
+公开视图与修改接口只包含 `full_cdp_access`，verdict 只有 allow / deny；origin 输入拒绝凭据、
+路径、query、fragment，避免把针对某路径的请求静默放大成整个 origin。撤销就是显式 deny。
 
-Settings change one origin/capability rule against fresh storage using the same
-binary JSON compare-and-swap boundary as approval resolution. Concurrent edits
-and approval answers cannot replace each other's unrelated grants. Existing
-configuration and replay receipts are preserved; no schema change is required.
+## 写入：进程内排队 + 跨进程 CAS + 有界重试（2026-10-08，PR #410 review C1/I7）
 
-The public view exposes full_cdp_access only. Unsupported upload/download,
-history and auto-review configuration is neither advertised nor editable here.
-Full CDP cannot use ask: owner settings deliberately allow or deny it. Origin
-inputs reject credentials and paths instead of silently widening a path-specific
-request to an entire origin. Ordinary browsing has no policy gate.
+`set_rule` 是对整个 JSON 文档的读-改-写，用三层保证安全：
 
-Changing a rule removes matching scoped answers and tombstones existing pending
-prompts atomically with the policy write. Revocation is an explicit deny, so an
-old or concurrent routine approval cannot re-enable a privileged capability.
+1. **同进程按 agent 串行**（`_write_lock`，按事件循环分桶的 asyncio.Lock，弱引用随 loop 释放）。
+   不排队时所有并发写都读到同一个快照、每轮只有一个 CAS 胜出，N 个并发点击需要 N 轮——
+   在真实 MySQL 上实测 6 个并发写会耗尽 5 次上限、把正常并发报成冲突。策略只由 API 进程写
+   （MCP host 只读），所以这把锁消除了实际会发生的竞争。
+2. **跨进程 CAS**：`UPDATE ... WHERE BINARY agent_id = BINARY %s AND BINARY policy_json = BINARY %s`。
+   `BINARY` 让 MySQL 逐字节比较 JSON（而不是按大小写不敏感的排序规则）；SQLite 后端会剥掉该
+   关键字。每次写都刷新 `updated_at`，所以重复保存同一条规则也必然改变行，不会被 MySQL 的
+   "changed rows" rowcount 误判为失败。
+3. **有界重试**：`SET_RULE_ATTEMPTS` 次、退避递增，用尽抛 `PolicyWriteConflict`，路由回 503「重试」。
+   绝不在没写进去时报成功，也不空转（原来是 `while True` + `sleep(0)`）。
+
+MySQL 孪生测试 `tests/browser/test_policy_store_mysql.py` 覆盖：首写插入、重复同值、过期快照
+被拒、同进程并发、跨进程（绕过锁直接 CAS）并发。
+
+此前这里还会清理匹配的会话授权并给待处理审批写回执——审批子系统删除后这些都不存在了。

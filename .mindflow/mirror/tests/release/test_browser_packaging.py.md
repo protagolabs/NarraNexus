@@ -1,8 +1,12 @@
 ---
 code_file: tests/release/test_browser_packaging.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+desktop 包含浏览器、cloud 不包含（review C2）分成两条断言。
 
 # 浏览器功能的发行包契约
 

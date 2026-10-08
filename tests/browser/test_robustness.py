@@ -2,16 +2,15 @@
 @file_name: test_robustness.py
 @author:
 @date: 2026-09-22
-@description: Regression tests for browser concurrency, input and approval boundaries.
+@description: Regression tests for browser concurrency, input and permission boundaries.
 """
 import asyncio
 
 import pytest
 
-from narranexus.platform.browser._browser_impl.approvals import ApprovalRegistry
-from narranexus.platform.browser._browser_impl.cdp import input_events_for
+from narranexus.platform.browser._browser_impl.cdp import SCREENCAST_MIME_TYPE, input_events_for
 from narranexus.platform.browser._browser_impl.control import ControlArbiter
-from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, OriginPolicy, decide, origin_of
+from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, origin_of
 from tests.browser.test_session import make_session
 
 
@@ -87,6 +86,8 @@ async def test_subscribe_replays_last_frame_on_static_page():
     frames = []
     session.subscribe(frames.append)
     assert frames[0]["data"] == "last"
+    # The panel decodes by this, not by a format both sides merely agree on.
+    assert frames[0]["mime_type"] == SCREENCAST_MIME_TYPE
 
 
 @pytest.mark.asyncio
@@ -134,39 +135,6 @@ async def test_scope_binding_is_task_local():
     assert a["outcome"] == "OK"
     assert b["outcome"] == "OK"
     assert {row["turn_id"] for row in audit} == {"one", "two"}
-
-
-def test_always_approval_cannot_override_configured_deny():
-    registry = ApprovalRegistry()
-    pending = registry.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-    policy = BrowserPolicy(default_origin_policy=OriginPolicy(downloads="deny"))
-    assert not registry.resolve(pending.id, decision="allow", lifetime="always", policy=policy)
-    assert decide(policy, url=pending.origin, capability="downloads").verdict == "deny"
-
-
-def test_denial_respects_selected_lifetime():
-    registry = ApprovalRegistry()
-    pending = registry.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-    policy = BrowserPolicy()
-    registry.resolve(pending.id, decision="deny", lifetime="turn", policy=policy)
-    assert decide(policy, url=pending.origin, capability="downloads", turn_id="t").verdict == "deny"
-    assert decide(policy, url=pending.origin, capability="downloads", turn_id="next").verdict == "ask"
-
-
-def test_empty_scope_cannot_become_a_shared_grant():
-    registry = ApprovalRegistry()
-    pending = registry.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="", thread_id="")
-    assert pending.to_dict()["allowed_lifetimes"] == ["always"]
-    with pytest.raises(ValueError, match="scope"):
-        registry.resolve(pending.id, decision="allow", lifetime="thread", policy=BrowserPolicy())
-    assert registry.get(pending.id) is not None
-
-
-def test_requests_from_different_scopes_do_not_deduplicate():
-    registry = ApprovalRegistry()
-    a = registry.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="a", thread_id="th")
-    b = registry.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="b", thread_id="th")
-    assert a.id != b.id
 
 
 @pytest.mark.parametrize("url", ["https://host:invalid/", "https://host:99999/", "https://[broken/"])
@@ -236,80 +204,6 @@ async def test_simultaneous_open_launches_once(monkeypatch):
     assert a[0] is b[0]
     assert len(launched) == 1
     await service.close()
-
-
-@pytest.mark.asyncio
-async def test_policy_write_failure_preserves_pending_approval(db_client, monkeypatch):
-    from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-
-    store = ApprovalStore(db_client)
-    row = await store.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-
-    async def fail(*_, **kwargs):
-        raise OSError("disk full")
-
-    monkeypatch.setattr(db_client, "execute", fail)
-    with pytest.raises(OSError):
-        await store.resolve(row["approval_id"], agent_id="a", decision="allow", lifetime="always")
-    assert await store.get(row["approval_id"])
-
-
-@pytest.mark.asyncio
-async def test_approval_roundtrip_across_instances(db_client):
-    from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-    from narranexus.platform.repository.browser_policy_repository import BrowserPolicyRepository
-
-    await BrowserPolicyRepository(db_client).save_policy(
-        "a", BrowserPolicy(default_origin_policy=OriginPolicy(downloads="ask")).to_dict(),
-    )
-    store = ApprovalStore(db_client)
-    row = await store.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-    assert not await store.resolve(row["approval_id"], agent_id="other", decision="allow", lifetime="thread")
-    assert await store.resolve(row["approval_id"], agent_id="a", decision="allow", lifetime="thread")
-    assert not await store.resolve(row["approval_id"], agent_id="a", decision="allow", lifetime="thread")
-    policy = BrowserPolicy.from_dict(await BrowserPolicyRepository(db_client).get_policy("a"))
-    assert decide(policy, url="https://x.example", capability="downloads", thread_id="th").verdict == "allow"
-    assert decide(policy, url="https://x.example", capability="downloads", thread_id="other").verdict == "ask"
-
-
-@pytest.mark.asyncio
-async def test_simultaneous_approval_decisions_preserve_all_grants(db_client):
-    from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-    from narranexus.platform.repository.browser_policy_repository import BrowserPolicyRepository
-
-    store = ApprovalStore(db_client)
-    rows = [await store.request(agent_id="a", origin=f"https://{site}.example", capability="downloads",
-                                turn_id="t", thread_id="th") for site in ("one", "two", "three")]
-    results = await asyncio.gather(*(ApprovalStore(db_client).resolve(row["approval_id"], agent_id="a",
-                                     decision="allow", lifetime="always") for row in rows))
-    assert all(results)
-    policy = BrowserPolicy.from_dict(await BrowserPolicyRepository(db_client).get_policy("a"))
-    assert all(decide(policy, url=row["origin"], capability="downloads").verdict == "allow" for row in rows)
-    assert not await store.pending("a")
-
-
-@pytest.mark.asyncio
-async def test_duplicate_concurrent_decision_is_applied_once(db_client):
-    from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-    store = ApprovalStore(db_client)
-    row = await store.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-    results = await asyncio.gather(*(store.resolve(row["approval_id"], agent_id="a", decision="allow", lifetime="always") for _ in range(4)))
-    assert results.count(True) == 1
-
-
-@pytest.mark.asyncio
-async def test_prompt_cleanup_failure_cannot_replay_decision(db_client, monkeypatch):
-    from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
-    store = ApprovalStore(db_client)
-    row = await store.request(agent_id="a", origin="https://x.example", capability="downloads", turn_id="t", thread_id="th")
-
-    async def fail(*_, **kwargs):
-        raise OSError("cleanup unavailable")
-
-    monkeypatch.setattr(db_client, "delete", fail)
-    assert await store.resolve(row["approval_id"], agent_id="a", decision="allow", lifetime="always")
-    assert not await store.pending("a")
-    assert not await store.resolve(row["approval_id"], agent_id="a", decision="deny", lifetime="always")
 
 
 @pytest.mark.asyncio

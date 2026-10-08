@@ -2605,19 +2605,9 @@
     "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)"
   },
   "browser": {
-    "approval": {
-      "question": "Der Agent möchte {{action}}:",
-      "capAutoReview": "Aktionen automatisch prüfen auf",
-      "capUploads": "Dateien hochladen zu",
-      "capDownloads": "Dateien herunterladen von",
-      "allowThread": "Für dieses Gespräch erlauben",
-      "deny": "Nie erlauben",
-      "allowAlways": "Diese Website immer erlauben",
-      "allowTurn": "Für diesen Durchlauf erlauben",
-      "decisionFailed": "Die Entscheidung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
-      "loadFailed": "Die Browserfreigaben konnten nicht abgefragt werden.",
-      "retry": "Erneut versuchen",
-      "saving": "Entscheidung wird gespeichert…"
+    "notices": {
+      "loadFailed": "Browser-Anmeldeanfragen konnten nicht abgerufen werden.",
+      "retry": "Erneut versuchen"
     },
     "absentTitle": "Browser nicht installiert",
     "brokenTitle": "Der Browser ist installiert, startet aber nicht",

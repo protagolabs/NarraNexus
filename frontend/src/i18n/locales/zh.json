@@ -3120,19 +3120,9 @@
     "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
   },
   "browser": {
-    "approval": {
-      "question": "智能体想要{{action}}：",
-      "capAutoReview": "自动审核操作，网站为",
-      "capUploads": "上传文件到",
-      "capDownloads": "从以下站点下载文件",
-      "allowThread": "本次对话内允许",
-      "deny": "始终不允许",
-      "allowAlways": "始终允许该站点",
-      "allowTurn": "仅本轮允许",
-      "decisionFailed": "无法保存审批决定，请重试。",
-      "loadFailed": "无法查询浏览器审批请求。",
-      "retry": "重试",
-      "saving": "正在保存审批决定…"
+    "notices": {
+      "loadFailed": "无法查询浏览器登录请求。",
+      "retry": "重试"
     },
     "absentTitle": "尚未安装浏览器",
     "brokenTitle": "浏览器已安装，但无法启动",

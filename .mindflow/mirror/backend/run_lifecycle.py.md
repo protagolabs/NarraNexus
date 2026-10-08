@@ -1,8 +1,14 @@
 ---
 code_file: backend/run_lifecycle.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+首条 "Still waiting" 改为 5 s 后（`_DRAIN_FIRST_REPORT_SECONDS`），之后仍每 30 s：Docker 默认 10 s
+宽限期内必须能看到 drain 卡在哪个 run 上。drain 仍无期限、绝不取消 run（铁律 #14）；容器里真正的
+杠杆是部署侧的 `stop_grace_period`，不是给 drain 加超时（review I3，部署前置项）。
 
 # Run Task Ownership
 

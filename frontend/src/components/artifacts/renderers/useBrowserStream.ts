@@ -6,6 +6,11 @@ import { getAuthHeaders, getSessionToken } from '@/lib/authHeaders';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import type { BrowserPage } from '@/types/browser';
 
+/** Frame encodings the panel can paint. Frames name their own type (the
+ *  server's SCREENCAST_MIME_TYPE), so a server-side format change shows up as
+ *  a clear error here instead of an opaque decode failure. */
+const FRAME_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
 type Connection = 'connecting' | 'idle' | 'live' | 'reconnecting' | 'error';
 interface StreamState {
   id: string | null | undefined;
@@ -146,6 +151,10 @@ export function useBrowserStream(sessionId: string | null | undefined, enabled: 
           update({ error: typeof message.error === 'string' ? message.error : 'Browser stream failed' });
         } else if (message.type === 'frame' && typeof message.data === 'string') {
           if (message.page_id !== pageRef.current) return;
+          if (typeof message.mime_type !== 'string' || !FRAME_MIME_TYPES.has(message.mime_type)) {
+            update({ error: `Unsupported browser frame format: ${String(message.mime_type)}` });
+            return;
+          }
           const index = ++sequence;
           const image = new Image();
           image.onload = () => {
@@ -164,7 +173,7 @@ export function useBrowserStream(sessionId: string | null | undefined, enabled: 
             update({ hasFrame: true, connection: 'live' });
           };
           image.onerror = () => { if (current() && index > painted && message.page_id === pageRef.current) update({ error: 'Could not decode the browser frame' }); };
-          image.src = `data:image/jpeg;base64,${message.data}`;
+          image.src = `data:${message.mime_type};base64,${message.data}`;
         }
       };
       socket.onerror = () => { if (current()) socket.close(); };

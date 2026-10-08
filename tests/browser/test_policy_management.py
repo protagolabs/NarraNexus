@@ -11,9 +11,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.routes import browser as routes
-from narranexus.platform.browser._browser_impl.approval_store import ApprovalStore
 from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, decide
-from narranexus.platform.browser._browser_impl.policy_store import PolicyStore
+from narranexus.platform.browser._browser_impl.policy_store import SET_RULE_ATTEMPTS, PolicyStore, PolicyWriteConflict
 from narranexus.platform.browser.browser_service import BrowserService
 
 
@@ -48,21 +47,36 @@ async def test_invalid_management_requests_never_change_policy(db_client, origin
 
 
 @pytest.mark.asyncio
-async def test_concurrent_script_updates_preserve_independent_approval_answers(db_client):
-    approvals = ApprovalStore(db_client)
-    pending = await approvals.request(agent_id="agent", origin="https://files.example", capability="uploads",
-                                      turn_id="one", thread_id="thread")
-    results = await asyncio.gather(
-        PolicyStore(db_client).set_rule("agent", origin="https://one.example", capability="full_cdp_access", verdict="allow"),
-        PolicyStore(db_client).set_rule("agent", origin="https://two.example", capability="full_cdp_access", verdict="deny"),
-        approvals.resolve(pending["approval_id"], agent_id="agent", decision="allow", lifetime="always"),
-    )
-    assert results[-1]
+async def test_concurrent_updates_to_different_origins_all_survive(db_client):
+    """Each write is a compare-and-swap on the whole document: a writer that
+    lost the race re-reads instead of overwriting the winner's rule."""
+    sites = [f"https://site{i}.example" for i in range(4)]
+    await asyncio.gather(*(
+        PolicyStore(db_client).set_rule("agent", origin=site, capability="full_cdp_access",
+                                        verdict="allow" if i % 2 == 0 else "deny")
+        for i, site in enumerate(sites)
+    ))
     raw = await db_client.get_one("instance_browser_policies", {"agent_id": "agent"})
     policy = BrowserPolicy.from_dict(json.loads(raw["policy_json"]))
-    assert decide(policy, url="https://one.example", capability="full_cdp_access").verdict == "allow"
-    assert decide(policy, url="https://two.example", capability="full_cdp_access").verdict == "deny"
-    assert decide(policy, url="https://files.example", capability="uploads").verdict == "allow"
+    assert [decide(policy, url=site, capability="full_cdp_access").verdict for site in sites] == [
+        "allow", "deny", "allow", "deny"]
+
+
+@pytest.mark.asyncio
+async def test_endless_contention_gives_up_as_a_retryable_error(db_client, monkeypatch):
+    """A write that never lands must neither spin nor report success."""
+    store = PolicyStore(db_client)
+    await store.set_rule("agent", origin="https://seed.example", capability="full_cdp_access", verdict="deny")
+    calls = []
+
+    async def always_lost(*args, **kwargs):
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(db_client, "execute", always_lost)
+    with pytest.raises(PolicyWriteConflict):
+        await store.set_rule("agent", origin="https://x.example", capability="full_cdp_access", verdict="allow")
+    assert len(calls) == SET_RULE_ATTEMPTS
 
 
 @pytest.fixture
@@ -120,6 +134,18 @@ def test_storage_corruption_returns_retryable_failure_not_invalid_user_input(cli
         "origin": "https://site.example", "capability": "full_cdp_access", "verdict": "allow",
     })
     assert response.status_code == 503
+
+
+def test_lost_write_races_answer_503_retry_not_success(client, monkeypatch):
+    async def contended(*args, **kwargs):
+        raise PolicyWriteConflict("Browser permissions changed concurrently; retry")
+
+    monkeypatch.setattr(routes.get_service(), "set_policy_rule", contended)
+    response = client.put("/api/browser/policy/agent", headers={"X-User-Id": "owner"}, json={
+        "origin": "https://site.example", "capability": "full_cdp_access", "verdict": "allow",
+    })
+    assert response.status_code == 503
+    assert "retry" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("verdict", ["allow", "ask", "deny"])

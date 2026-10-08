@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/install.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+CLI `--download-host` / `--manifest-url` 帮助写明：这是**完全信任**的二进制来源（下载的浏览器会被执行，
+唯一检查是 --version 探测，CfT 不发布逐文件摘要）。源码里的 "design §" 引用已移除。
 
 # Install coordination
 

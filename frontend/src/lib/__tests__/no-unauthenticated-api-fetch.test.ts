@@ -41,8 +41,8 @@ const ALLOWED = new Set([
   // `/api/agents/{id}/messages`, which is not a registered route, with no
   // identity headers, and swallows the result with `.catch(() => {})` — so
   // the "back up this skill" action silently never happens. Listed here only
-  // so this scan can protect the rest of the app meanwhile.
-  // See reference/self_notebook/todo/2026-09-22-bundle-export-backup-noop.md
+  // so this scan can protect the rest of the app meanwhile; remove the entry
+  // when the backup action is fixed.
   'pages/BundleExportPage.tsx',
 ]);
 

@@ -4,7 +4,7 @@
 @date: 2026-09-22
 @description: Tests for BrowserService — the one surface the UI and the agent talk to.
 
-This is the gate described in design §8.2: three callers (the agent's MCP
+This is the shared readiness gate: three callers (the agent's MCP
 tools, the stream renderer, the ContextData hook) all ask the same object
 "can we browse right now?" and must get the same answer, shaped so each can
 degrade usefully rather than fail opaquely.
@@ -252,12 +252,12 @@ async def test_closing_an_unknown_session_is_a_noop():
 
 @pytest.mark.asyncio
 async def test_a_fresh_read_picks_up_a_decision_made_elsewhere():
-    """The session process must see a grant applied in the API process.
-    Whatever is stored wins over whatever this process happened to cache."""
+    """The session process must see a permission the owner changed through the
+    API process. Whatever is stored wins over whatever this process cached."""
     from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, OriginPolicy, decide
 
     svc = make_service()
-    stored = {"doc": BrowserPolicy(default_origin_policy=OriginPolicy(downloads="ask")).to_dict()}
+    stored = {"doc": BrowserPolicy().to_dict()}
 
     async def fake_load(_agent_id):
         return stored["doc"]
@@ -273,18 +273,14 @@ async def test_a_fresh_read_picks_up_a_decision_made_elsewhere():
     svc.policy_for = policy_for  # type: ignore[assignment]
 
     first = await svc.policy_for("a1")
-    assert decide(first, url="https://x.example/", capability="downloads",
-                  turn_id="t", thread_id="th").verdict == "ask"
+    assert decide(first, url="https://x.example/", capability="full_cdp_access").verdict == "deny"
 
-    # Another process grants and persists.
-    other = BrowserPolicy(default_origin_policy=OriginPolicy(downloads="ask"))
-    other.grant(origin="https://x.example", capability="downloads", lifetime="thread",
-                turn_id="t", thread_id="th")
-    stored["doc"] = other.to_dict()
+    # The owner allows scripts on that origin through Settings (another process).
+    stored["doc"] = BrowserPolicy(origins={"https://x.example": OriginPolicy(full_cdp_access="allow")}).to_dict()
 
+    assert (await svc.policy_for("a1")) is first  # the cache alone cannot see it
     refreshed = await svc.policy_for("a1", fresh=True)
-    assert decide(refreshed, url="https://x.example/", capability="downloads",
-                  turn_id="t", thread_id="th").verdict == "allow"
+    assert decide(refreshed, url="https://x.example/", capability="full_cdp_access").verdict == "allow"
 
 
 @pytest.mark.asyncio
@@ -292,11 +288,11 @@ async def test_an_explicitly_passed_policy_is_not_replaced_by_a_refresh():
     """`open_session(policy=...)` means "use exactly this". Installing the
     stored-policy provider on top of it silently discarded the caller's
     policy — and when the store was unreachable the refresh handed back an
-    empty document, turning an explicit allow into `ask`."""
+    empty document, turning an explicit allow into a deny."""
     from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, OriginPolicy
 
     svc = make_service()
-    explicit = BrowserPolicy(origins={"https://ok.example": OriginPolicy(downloads="allow")})
+    explicit = BrowserPolicy(origins={"https://ok.example": OriginPolicy(full_cdp_access="allow")})
 
     captured = {}
 

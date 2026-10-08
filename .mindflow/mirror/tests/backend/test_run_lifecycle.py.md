@@ -1,8 +1,12 @@
 ---
 code_file: tests/backend/test_run_lifecycle.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+报告间隔用例同时打桩首报与常规间隔；新增钉住 5 s → 30 s 节奏且首报落在 10 s 宽限期内。
 
 # Detached Run Shutdown Regressions
 

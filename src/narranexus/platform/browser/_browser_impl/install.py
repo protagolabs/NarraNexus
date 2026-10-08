@@ -14,7 +14,7 @@ each start a ~150 MB download. Callers past the first attach to the in-flight
 install and get the same outcome.
 
 **Idempotent.** Pressing install on a working runtime is a no-op, not another
-download (design §8.3).
+download.
 
 **Nothing here may propagate.** A dead CDN, a cancelled install and a buggy
 progress listener all become reportable state — the caller is an agent turn or
@@ -317,8 +317,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Install or inspect NarraNexus's optional browser runtime.")
     parser.add_argument("action", choices=("install", "status", "cancel"))
     parser.add_argument("--root", type=Path, help="Runtime root; relative paths use the user's home.")
-    parser.add_argument("--manifest-url", help="Complete HTTPS Chrome for Testing manifest URL.")
-    parser.add_argument("--download-host", help="Trusted HTTPS archive mirror base; vendor paths are retained.")
+    parser.add_argument("--manifest-url", help="Complete HTTPS Chrome for Testing manifest URL. "
+                        "Fully trusted: it chooses the version that is installed.")
+    parser.add_argument("--download-host", help="HTTPS archive mirror base; vendor paths are retained. "
+                        "Fully trusted: the downloaded browser is executed, and its only check is "
+                        "the --version probe (no published per-file digests).")
     args = parser.parse_args(argv)
     help_info = manual_install_help(root=args.root, manifest_url=args.manifest_url,
                                     download_host=args.download_host)

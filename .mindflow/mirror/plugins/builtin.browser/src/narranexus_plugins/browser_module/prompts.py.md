@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.browser/src/narranexus_plugins/browser_module/prompts.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+结果说明不再提"复用别的对话的审批"：脚本权限只在 Settings 配置、聊天里永不授予。
 
 ## 2026-09-24 浏览器视觉输入
 

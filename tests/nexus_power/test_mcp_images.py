@@ -85,3 +85,18 @@ async def test_error_images_are_not_stringified_as_base64():
     assert not result.ok
     assert "capture failed" in result.error
     assert "secret-image" not in result.as_text()
+
+
+def test_projected_size_counts_images_by_estimate_and_text_verbatim():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
+        _IMAGE_STAND_IN,
+        projected_chars,
+    )
+
+    text_only = {"role": "tool", "tool_call_id": "c1", "content": "x" * 5000}
+    assert projected_chars([text_only]) == len(str(text_only))  # unchanged fast path
+    image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 3_000_000}}
+    with_image = {"role": "user", "content": [{"type": "text", "text": "seen"}, image]}
+    size = projected_chars([with_image])
+    assert size < 50_000  # the 3 MB of base64 is not counted as text
+    assert size == len(str({"role": "user", "content": [{"type": "text", "text": "seen"}, _IMAGE_STAND_IN]}))

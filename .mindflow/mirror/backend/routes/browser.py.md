@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/browser.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+审批的两个端点删除（从未有调用方能拿到有效 id）；`GET /notices/{agent_id}` 只返回登录/验证请求。
+`/runtime/install` 与 `/runtime/install/cancel` 补上与 source/mode 相同的 `_is_cloud_mode()` 闸门：
+云端运行时会装进 backend 容器、会话却在 mcp 容器启动，且任何登录用户都能触发机器级下载。
+不再穿透 service 私有字段：用 `install_progress` / `installing` / `forget_session`（review I6）。
 
 2026-09-23：后端到 MCP 的内部帧通道明确设置 proxy=None，避免环境代理截走
 loopback 调试流量；它不改变外部网页和安装下载的代理配置。

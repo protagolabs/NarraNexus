@@ -1,8 +1,12 @@
 ---
 code_file: tests/nexus_power/test_mcp_images.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+钉住 `projected_chars`：无图消息与 `len(str(m))` 完全一致，图片按估算计而不按 base64 长度。
 
 # MCP 图片穿过 Nexus Power 全链路
 

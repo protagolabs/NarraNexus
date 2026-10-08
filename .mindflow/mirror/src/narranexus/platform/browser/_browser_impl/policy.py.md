@@ -1,29 +1,28 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/policy.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
 
-# Origin decisions and scoped answers
+# 每个 origin 的任意脚本权限
 
-普通 HTTP(S) 访问不属于权限模型。access、persistent_approval、access_approval_lifetime
-字段已删除，旧数据只解析现有能力；仅含访问规则的 origin 以及访问 grant/denial 不进入模型。
-无数据迁移、无兼容开关。上传、下载、高级脚本和历史权限保持独立；default_verdict
-只提供仍支持的能力默认值。
+普通 HTTP(S) 浏览不属于权限模型：导航、读取、截图、固定操作只校验 URL scheme 与控制权。
+唯一被判定的能力是 `full_cdp_access`（`browser_run` 执行任意页面 JS）——它等于整个浏览器
+（能以页面身份发请求、提交表单、跳转），所以默认拒绝，只能由 owner 在 Settings 里按 origin
+显式配置。**没有聊天内的授权弹窗**：把它做成 yes/no 会训练用户对唯一一个没有上限的权限点同意。
 
-Policy is the common decision function for configured origin rules and explicit
-user answers. Configured deny wins over temporary and permanent approval paths.
-Turn and conversation scope keys use separate namespaces; blank scope identifiers
-cannot authorize unrelated callers. Scoped denials obey the selected lifetime
-just as allows do. Persistent grants, denials and decision receipts cross the
-backend/MCP process boundary through one JSON document.
+## 2026-10-08（PR #410 review）— 只保留真正被判定的能力
 
-Origins reject malformed ports and retain IPv6 brackets. Wildcard matching
-requires a hostname boundary and never implicitly includes its bare domain.
-full_cdp_access cannot be granted by a routine prompt. Session code treats
-arbitrary page JavaScript as privileged because ordinary browsing cannot limit
-the requests or navigation that script may initiate.
+此前模型还承载 downloads / uploads / auto_review 三个能力、turn/thread 有效期的会话授权、
+denial、审批回执和 `allow_history_access`。它们唯一的消费者是网站审批子系统，而该子系统没有
+任何调用方（review I1），于是整套删除（铁律 #2/#18），`decide()` 也不再接收 turn/thread
+（scope 只是运行时自述值，不该作为授权边界，见 `_mcp_identity.THREAD_ID_HEADER`）。
 
-These rules gate explicit tools, not all browser network traffic. Upload and
-download verdict fields are policy data, not an assertion that arbitrary scripts
-have those effects intercepted. Current launches disable filesystem downloads.
+旧文档无需迁移：`from_dict` 忽略未知键（旧 verdict 字段、grants、receipts、history 标志），
+只含旧字段的 origin 不保留为空规则；已知键的非法 verdict（含旧的 `ask`）照样报错，绝不默认。
+
+## 不变的匹配规则
+
+origin 拒绝畸形端口、保留 IPv6 方括号、去掉默认端口；通配符要求 hostname 边界且不含裸域名，
+精确匹配优先于通配符；未设值的 origin 条目继承默认策略。这些规则只门控显式工具，不是浏览器
+网络沙箱：普通页面仍可自行加载资源和跳转。启动参数禁用了文件系统下载。

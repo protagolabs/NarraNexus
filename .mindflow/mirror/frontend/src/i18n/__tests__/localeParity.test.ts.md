@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/i18n/__tests__/localeParity.test.ts
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+扫描清单去掉已删除的审批组件、加入 `BrowserNotices`；锚点 key 改为 `browser.notices.loadFailed`。
 
 ## 2026-09-23 多页面支持
 

@@ -77,7 +77,7 @@ def classify_runtime(
 
     Returns:
         The status. ``ready`` outranks ``installing`` because install is
-        idempotent (design §8.3) and a usable runtime must never be hidden
+        idempotent and a usable runtime must never be hidden
         behind a progress bar.
     """
     probed = bool(version and version.strip())

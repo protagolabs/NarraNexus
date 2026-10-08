@@ -10,6 +10,10 @@ import anyio
 from loguru import logger
 
 _T = TypeVar("_T")
+#: First "still waiting" line, then the steady cadence. The first one has to
+#: land inside a container's stop grace period (Docker's default is 10 s), or
+#: operators never see that shutdown is held up by a live run before SIGKILL.
+_DRAIN_FIRST_REPORT_SECONDS = 5.0
 _DRAIN_REPORT_SECONDS = 30.0
 
 
@@ -68,11 +72,11 @@ class RunTasks:
 
     async def _drain_and_cleanup(self, cleanup: Callable[[], Awaitable[None]]) -> None:
         logger.info("[run-drain] Waiting for {} owned tasks", len(self._tasks))
+        report_after = _DRAIN_FIRST_REPORT_SECONDS
         while self._tasks:
-            _, pending = await asyncio.wait(
-                tuple(self._tasks), timeout=_DRAIN_REPORT_SECONDS,
-            )
+            _, pending = await asyncio.wait(tuple(self._tasks), timeout=report_after)
             if pending:
                 logger.info("[run-drain] Still waiting for {} owned tasks", len(pending))
+            report_after = _DRAIN_REPORT_SECONDS
         logger.info("[run-drain] All owned tasks settled; releasing resources")
         await cleanup()

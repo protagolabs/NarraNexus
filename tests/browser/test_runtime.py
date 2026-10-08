@@ -66,7 +66,7 @@ def test_installing_reported_while_not_yet_usable():
 
 
 def test_ready_wins_over_installing():
-    """Install is idempotent (design §8.3): a usable runtime stays usable.
+    """Install is idempotent: a usable runtime stays usable.
 
     If a re-install is somehow in flight over an already-working runtime,
     the user must not be blocked behind a progress bar.
@@ -141,7 +141,7 @@ def test_detect_treats_a_raising_locator_as_absent():
 
 def test_detect_never_caches():
     """Status must be recomputed per call — the user can delete the runtime
-    between two uses (design §8.1)."""
+    between two uses."""
     seq = iter([EXE, None])
     probe_result = iter(["Chromium 152", None])
 

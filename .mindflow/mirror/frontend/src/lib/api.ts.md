@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`getBrowserApprovals` / `resolveBrowserApproval` 删除，改为 `getBrowserNotices`（`/api/browser/notices`，
+返回 `BrowserLoginRequest[]`）。
 
 ## 2026-09-23 浏览器支持
 

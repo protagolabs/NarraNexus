@@ -10,6 +10,7 @@ need no arbitrary-script privilege to inspect, narrow or continue a read.
 from __future__ import annotations
 
 import json
+from narranexus.platform.browser._browser_impl.limits import check_selector
 
 DEFAULT_TEXT_LIMIT = 20_000
 MAX_OFFSET = 2**53 - 1
@@ -97,8 +98,7 @@ def snapshot_expression(
     *, selector: str | None = None, offset: int = 0, limit: int = DEFAULT_TEXT_LIMIT,
 ) -> str:
     """Build one fixed expression; offsets count Unicode code points, not bytes."""
-    if selector is not None and (not isinstance(selector, str) or not selector.strip()):
-        raise ValueError("selector must be a nonempty CSS selector or null")
+    check_selector(selector)
     if type(offset) is not int or not 0 <= offset <= MAX_OFFSET:
         raise ValueError(f"offset must be an integer between 0 and {MAX_OFFSET}")
     if type(limit) is not int or not 1 <= limit <= DEFAULT_TEXT_LIMIT:

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/session.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`run_script` 先校验表达式长度（`MAX_SCRIPT_CHARS`）再等控制权；`decide` 不再传 turn/thread。
+`bind_scope` 注释改为如实表述：自述 scope，只做归属与观察绑定。帧带 `mime_type`。下文提到
+"授权/审批"的段落已不成立：唯一权限是 owner 配置的 full_cdp_access。
 
 ## 2026-09-24 浏览器视觉输入
 

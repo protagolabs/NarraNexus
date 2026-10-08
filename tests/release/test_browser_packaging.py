@@ -63,9 +63,18 @@ def test_browser_is_selected_in_desktop_and_run_sh_dependency_graph():
     assert not any(dep.lower().startswith("playwright") for dep in project["project"]["dependencies"])
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
     assert any(package["name"] == "narranexus-plugin-browser" for package in lock["package"])
-    for surface in ("desktop", "cloud"):
-        distribution = json.loads((ROOT / f"distributions/{surface}/narranexus-dist.json").read_text())
-        assert "builtin.browser" in distribution["plugins"]
+    desktop = json.loads((ROOT / "distributions/desktop/narranexus-dist.json").read_text())
+    assert "builtin.browser" in desktop["plugins"]
+
+
+def test_browser_is_not_in_the_cloud_distribution():
+    """The cloud stack cannot run it: the runtime would install into the backend
+    container while sessions launch in the mcp container (no shared volume), and
+    the image carries none of Chrome's system libraries. Shipping it there gives
+    every cloud agent ten tools that can only answer "not installed". Enabling it
+    in cloud is a cross-repo change (image, compose volume, stream secret)."""
+    cloud = json.loads((ROOT / "distributions/cloud/narranexus-dist.json").read_text())
+    assert "builtin.browser" not in cloud["plugins"]
 
 
 def test_release_smoke_imports_browser_runtime_and_plugin():

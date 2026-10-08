@@ -122,13 +122,12 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 import type { CliStatusPayload, ProviderRow } from './providersApi';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
 import type {
-  ApprovalLifetime,
   BrowserInstallResult,
   BrowserRuntimeStatus,
   BrowserPolicyCapability,
   BrowserPolicyRule,
   BrowserPolicyView,
-  BrowserPendingRequest,
+  BrowserLoginRequest,
 } from '@/types/browser';
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
@@ -846,22 +845,10 @@ class ApiClient {
     });
   }
 
-  async getBrowserApprovals(agentId: string): Promise<{ pending: BrowserPendingRequest[] }> {
-    return this.request<{ pending: BrowserPendingRequest[] }>(
-      `/api/browser/approvals/${encodeURIComponent(agentId)}`,
-    );
-  }
-
-  /** `lifetime` is required, never defaulted: a grant nobody chose is not a
-   *  grant the user made. */
-  async resolveBrowserApproval(
-    approvalId: string,
-    decision: 'allow' | 'deny',
-    lifetime: ApprovalLifetime,
-  ): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>(
-      `/api/browser/approvals/${encodeURIComponent(approvalId)}`,
-      { method: 'POST', body: JSON.stringify({ decision, lifetime }) },
+  /** The agent's open login / verification requests (raised in the MCP host). */
+  async getBrowserNotices(agentId: string): Promise<{ pending: BrowserLoginRequest[] }> {
+    return this.request<{ pending: BrowserLoginRequest[] }>(
+      `/api/browser/notices/${encodeURIComponent(agentId)}`,
     );
   }
 

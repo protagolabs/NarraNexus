@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/module_system/_mcp_identity.py
-last_verified: 2026-09-22
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`THREAD_ID_HEADER` 注释改为如实表述：不是工具参数，但与 agent_id 一样是自述值，身份 token 的签名
+载荷不覆盖它；可用于归属和把请求绑定到轮次，不能当授权边界——要当边界须先把它放进签名载荷（review I4）。
 
 ## 2026-09-22 - Conversation permission scope
 

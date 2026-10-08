@@ -1,8 +1,12 @@
 ---
 code_file: tests/browser/test_login.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+随服务改为 `pending_notices`；去掉对审批 resolve 的断言。
 
 # 登录交接回归
 

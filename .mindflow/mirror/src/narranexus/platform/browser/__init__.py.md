@@ -19,4 +19,4 @@ stub: false
 
 - 下游：`plugins/builtin.browser`、`backend/routes` 的浏览器路由、`UrlRenderer` 的
   `stream` 分支所依赖的后端接口
-- 设计：`reference/self_notebook/specs/2026-09-21-in-app-browser-design.md`
+- 设计意图：本目录各 mirror md（`.mindflow/mirror/src/narranexus/platform/browser/`）

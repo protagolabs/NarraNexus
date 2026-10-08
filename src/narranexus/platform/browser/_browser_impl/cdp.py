@@ -36,6 +36,12 @@ from typing import Any, Callable, Optional, Protocol
 
 from loguru import logger
 
+#: Encoding of every panel frame (screencast and seed capture alike). Frames
+#: carry ``SCREENCAST_MIME_TYPE`` so the panel decodes by data, not by a
+#: format both sides merely agree on.
+SCREENCAST_FORMAT = "jpeg"
+SCREENCAST_MIME_TYPE = "image/jpeg"
+
 #: Event types we will forward. Anything else is dropped.
 _MOUSE_TYPES = frozenset({"mousePressed", "mouseReleased", "mouseMoved"})
 _KEY_TYPES = frozenset({"keyDown", "keyUp", "rawKeyDown", "char"})
@@ -272,7 +278,7 @@ class CdpSession:
         max_height: int = 1440,
         quality: int = 60,
     ) -> None:
-        """Begin streaming. Frames are base64 JPEG, as CDP delivers them."""
+        """Begin streaming. Frames are base64 ``SCREENCAST_FORMAT``, as CDP delivers them."""
         self._on_frame = on_frame
         self._frame_quality = quality
         # Watched background tabs keep painting without moving the agent's
@@ -284,7 +290,7 @@ class CdpSession:
         await self.call(
             "Page.startScreencast",
             {
-                "format": "jpeg",
+                "format": SCREENCAST_FORMAT,
                 "quality": quality,
                 "maxWidth": max_width,
                 "maxHeight": max_height,
@@ -298,7 +304,7 @@ class CdpSession:
             return
         metrics = await self.call("Page.getLayoutMetrics")
         viewport = (metrics or {}).get("cssVisualViewport", {})
-        snapshot = await self.call("Page.captureScreenshot", {"format": "jpeg", "quality": self._frame_quality})
+        snapshot = await self.call("Page.captureScreenshot", {"format": SCREENCAST_FORMAT, "quality": self._frame_quality})
         if self._on_frame is not None and (snapshot or {}).get("data"):
             self._on_frame(snapshot["data"], {"deviceWidth": viewport.get("clientWidth"),
                                              "deviceHeight": viewport.get("clientHeight")})

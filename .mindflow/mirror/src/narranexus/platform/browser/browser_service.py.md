@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/browser/browser_service.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+审批相关方法删除；`pending_notices` 只读登录请求。新增 `installing` / `install_progress` /
+`forget_session` 公开访问器，路由不再触碰私有字段（review I6）。`policy_for(fresh=True)` 的理由改为
+"Settings 在 API 进程写、会话在 MCP host 读"。
 
 # Browser service ownership
 

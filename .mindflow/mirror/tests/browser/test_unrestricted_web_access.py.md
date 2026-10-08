@@ -1,8 +1,12 @@
 ---
 code_file: tests/browser/test_unrestricted_web_access.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+旧审批表相关用例删除；仍钉住旧访问规则不进入模型、不能被重新创建。
 
 # 移除网址授权回归
 

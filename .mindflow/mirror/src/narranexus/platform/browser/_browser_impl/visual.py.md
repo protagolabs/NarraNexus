@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/visual.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+selector 经 `limits.check_selector` 校验（与 act / read 同一上限）。
 
 # 视觉观察的几何与预算
 

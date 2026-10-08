@@ -92,7 +92,10 @@ export interface ToolRendererProps {
 /**
  * Owns the OUTPUT row of one tool; the entry id is the bare tool name (the
  * `mcp__<server>__` namespace stripped), so a renderer never depends on which
- * server id a deployment mounted the tool under. `accepts` lets it decline an
+ * server id a deployment mounted the tool under. The bare name is therefore a
+ * GLOBAL key: `mcp__chat__read` and `mcp__browser__read` share the id `read`,
+ * so register only names unique across modules (`browser_look`, not `read`);
+ * the registry refuses a second claimant. `accepts` lets it decline an
  * output shape it cannot read; a declined, unregistered or crashing renderer
  * leaves the shell's generic row, so the output is never lost.
  */

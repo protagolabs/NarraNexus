@@ -55,6 +55,11 @@ def app_and_session(monkeypatch):
     app.include_router(browser_routes.router, prefix="/api/browser")
     app.include_router(browser_routes.ws_router)
     app.middleware("http")(browser_routes.auth_middleware)
+    # The real auth middleware accepts a bare X-User-Id only in local mode, and
+    # the mode is resolved from the environment — pin it, or any earlier test
+    # (or a developer's .env) that leaves DB_HOST / DATABASE_URL behind turns
+    # every request here into a 401. Cloud-mode cases patch _is_cloud_mode.
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     monkeypatch.setenv("NARRANEXUS_BROWSER_STREAM_SECRET", "test-secret-" * 4)
 
     async def owned(request, agent_id):
@@ -201,26 +206,41 @@ def test_unauthenticated_http_is_rejected(app_and_session):
     app, _, _ = app_and_session
     with TestClient(app) as client:
         assert client.get("/api/browser/runtime").status_code == 401
-        assert client.get("/api/browser/approvals/a1").status_code == 401
+        assert client.get("/api/browser/notices/a1").status_code == 401
 
 
-def test_pending_approvals_require_agent_ownership(app_and_session):
+def test_login_notices_require_agent_ownership(app_and_session):
     app, _, _ = app_and_session
     with TestClient(app, headers={"X-User-Id": "u1"}) as client:
-        assert client.get("/api/browser/approvals/someone-else").status_code == 403
+        assert client.get("/api/browser/notices/someone-else").status_code == 403
 
 
-def test_approval_owner_check_happens_before_consuming(app_and_session, monkeypatch):
+def test_the_retired_approval_endpoints_are_gone(app_and_session):
+    """Nothing ever raised an approval, so neither the list nor the
+    write endpoint survives — a write endpoint no id can reach is attack
+    surface with no function."""
     app, _, _ = app_and_session
+    with TestClient(app, headers={"X-User-Id": "u1"}) as client:
+        assert client.get("/api/browser/approvals/a1").status_code == 404
+        assert client.post("/api/browser/approvals/appr_x",
+                           json={"decision": "allow", "lifetime": "always"}).status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/api/browser/runtime/install", "/api/browser/runtime/install/cancel"])
+def test_runtime_installation_is_local_only(app_and_session, monkeypatch, path):
+    """In cloud the runtime would land in another container than the sessions,
+    and any signed-in user could trigger a machine-wide download — the same
+    local-only gate the source and mode endpoints already had."""
     from unittest.mock import AsyncMock
+    app, _, _ = app_and_session
     service = browser_routes.get_service()
-    monkeypatch.setattr(service, "approval_agent", AsyncMock(return_value="someone-else"))
-    resolver = AsyncMock()
-    monkeypatch.setattr(service, "resolve_approval", resolver)
+    install = AsyncMock()
+    monkeypatch.setattr(service, "install", install)
+    monkeypatch.setattr(service, "cancel_install", lambda: install())
+    monkeypatch.setattr(browser_routes, "_is_cloud_mode", lambda: True)
     with TestClient(app, headers={"X-User-Id": "u1"}) as client:
-        response = client.post("/api/browser/approvals/appr_one", json={"decision": "allow", "lifetime": "always"})
-    assert response.status_code == 403
-    resolver.assert_not_awaited()
+        assert client.post(path).status_code == 403
+    install.assert_not_called()
 
 
 @pytest.mark.parametrize("agent,user,anchor", [("a1", "u1", "wrong"), ("a2", "u1", "u1"), ("a1", "other", "other")])

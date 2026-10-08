@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/browser.ts
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+删除 `ApprovalLifetime` / `PendingApproval` / `BrowserPendingRequest`；`BrowserPolicyVerdict` 收紧为
+`'allow' | 'deny'`（后端不再产生 `ask`）。
 
 ## 2026-09-23 多页面支持
 

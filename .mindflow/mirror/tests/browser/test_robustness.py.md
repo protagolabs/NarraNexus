@@ -1,8 +1,12 @@
 ---
 code_file: tests/browser/test_robustness.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+删除 9 个只针对审批机制的用例；帧回放用例额外断言 mime_type。
 
 # 浏览器并发与恢复
 

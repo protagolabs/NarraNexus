@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`instance_browser_approvals` 不再注册（审批子系统删除）。不写 DROP TABLE（铁律 #6）：该表只在跑过此
+分支的本地库里存在、为空，留着无害。
 
 ## 2026-09-23：浏览器登录通知与授权语义
 

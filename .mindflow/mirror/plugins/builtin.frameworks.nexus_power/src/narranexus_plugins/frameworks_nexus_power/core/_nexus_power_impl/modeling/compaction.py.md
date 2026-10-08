@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/compaction.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`projected_chars` 只重建 content 里含 image_url 的消息，其余照旧 `len(str(m))` 不拷贝——它在长轮次
+的每次压缩检查里对每条 tool result 都跑一遍（review Minor）。
 
 ## 2026-09-24 浏览器视觉输入
 

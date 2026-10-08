@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/platform/registries/slotPoints.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+注明 bare tool name 是**全局键**：`mcp__chat__read` 与 `mcp__browser__read` 共享 `read`，只注册跨模块
+唯一的名字；注册表本身拒绝第二个认领者。
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 

@@ -2,10 +2,10 @@
 @file_name: __init__.py
 @author:
 @date: 2026-09-22
-@description: In-app browser (方案三) — public surface.
+@description: In-app browser — public surface.
 
-Design: reference/self_notebook/specs/2026-09-21-in-app-browser-design.md
-Concrete logic lives in ``_browser_impl/`` and is not re-exported from there
+Design intent per file lives in the Tier-2 mirror
+(``.mindflow/mirror/src/narranexus/platform/browser/``). Concrete logic lives in ``_browser_impl/`` and is not re-exported from there
 directly; callers import the names listed here.
 """
 from narranexus.platform.browser._browser_impl.download import (

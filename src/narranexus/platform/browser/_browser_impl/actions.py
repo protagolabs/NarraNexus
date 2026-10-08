@@ -9,6 +9,7 @@ import json
 import math
 
 from narranexus.platform.browser._browser_impl.cdp import input_events_for
+from narranexus.platform.browser._browser_impl.limits import MAX_FIELD_TEXT_CHARS, check_selector, check_text
 
 
 # Only this function body is executable. Caller-supplied selectors and values
@@ -140,11 +141,9 @@ def action_expression(action: str, **args) -> str:
         if value is not None and name not in allowed[action]:
             raise ValueError(f'{name} is not supported for {action}')
     selector = args.get('selector')
-    if selector is not None and (not isinstance(selector, str) or not selector.strip()):
-        raise ValueError('selector must be a nonempty CSS selector')
+    check_selector(selector)
     for name in ('text', 'value'):
-        if args.get(name) is not None and not isinstance(args[name], str):
-            raise ValueError(f'{name} must be a string')
+        check_text(name, args.get(name), MAX_FIELD_TEXT_CHARS)
     for name in ('x', 'y', 'delta_x', 'delta_y'):
         value = args.get(name)
         if value is not None and (type(value) not in (int, float) or not math.isfinite(value)):

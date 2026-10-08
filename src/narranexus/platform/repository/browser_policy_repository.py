@@ -7,10 +7,9 @@
 CRUD over ``instance_browser_policies`` (one row per agent). The policy object
 owns all the decision logic; this layer only moves JSON in and out.
 
-Persists user decisions about privileged capabilities, not website access.
-Turn- and thread-scoped grants and decision receipts are shared by the MCP and
-API processes. The current trusted scope determines whether a grant applies
-to a particular call; ordinary HTTP(S) browsing needs no grant.
+Persists the owner's per-origin arbitrary-script permission, not website
+access: ordinary HTTP(S) browsing needs no permission. The document is shared
+by the MCP host (which enforces it) and the API process (which edits it).
 """
 from __future__ import annotations
 
@@ -40,8 +39,8 @@ class BrowserPolicyRepository(BaseRepository[Dict[str, Any]]):
         """The agent's stored policy document, or None if it has none yet.
 
         A row whose JSON will not parse is treated as absent rather than
-        raising. File-transfer capabilities fall back to asking and arbitrary
-        scripts to denied; ordinary HTTP(S) browsing remains unrestricted.
+        raising, so arbitrary scripts fall back to denied; ordinary HTTP(S)
+        browsing remains unrestricted.
         """
         row = await self._db.get_one(self.table_name, {"agent_id": agent_id})
         if not row:

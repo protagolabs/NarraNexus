@@ -63,22 +63,7 @@ export interface BrowserInstallResult {
   manual_install?: BrowserManualInstallHelp | null;
 }
 
-/** How long an approval lasts. `always` is written into the agent's policy. */
-export type ApprovalLifetime = 'turn' | 'thread' | 'always';
-
-export interface PendingApproval {
-  id: string;
-  agent_id: string;
-  /** The exact origin, e.g. "https://www.baidu.com" — never "a website". */
-  origin: string;
-  /** Independent privileged operations; ordinary browsing is never prompted. */
-  capability: 'downloads' | 'uploads' | 'auto_review';
-  requested_at: number;
-  /** Only scopes backed by a trusted tool-call context may be granted. */
-  allowed_lifetimes?: ApprovalLifetime[];
-}
-
-/** Login requests share the pending-notice endpoint but never resolve as permissions. */
+/** An open login / verification request — a notification, never a permission. */
 export interface BrowserLoginRequest {
   kind: 'login';
   id: string;
@@ -89,9 +74,7 @@ export interface BrowserLoginRequest {
   requested_at: string;
 }
 
-export type BrowserPendingRequest = PendingApproval | BrowserLoginRequest;
-
-export type BrowserPolicyVerdict = 'allow' | 'ask' | 'deny';
+export type BrowserPolicyVerdict = 'allow' | 'deny';
 export type BrowserPolicyCapability = 'full_cdp_access';
 export type BrowserPolicyRule = { origin: string; capability: BrowserPolicyCapability; verdict: 'allow' | 'deny' };
 

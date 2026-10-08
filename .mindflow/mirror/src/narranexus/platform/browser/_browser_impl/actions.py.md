@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/browser/_browser_impl/actions.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+selector / text / value 统一经 `limits` 校验长度（review I8），超限给出可执行的提示。
 
 # Fixed browser actions
 

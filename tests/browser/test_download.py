@@ -9,7 +9,7 @@ Two things here are load-bearing for real users rather than for correctness in
 the abstract:
 
 * **Mirror host override.** Local-mode users in mainland China are the main
-  population, not an edge case (design §8.3). If the mirror cannot be pointed
+  population, not an edge case. If the mirror cannot be pointed
   somewhere reachable, the feature simply does not install for them.
 * **Resume.** A 150 MB download over a flaky link that restarts from zero
   every time never finishes. The range request and the partial-file

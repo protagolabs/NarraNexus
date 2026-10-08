@@ -25,4 +25,4 @@ profile 名不合法时是**替换**而不是净化：把 `../../etc` 悄悄改�
 
 ## 上下游
 
-- 设计：`reference/self_notebook/specs/2026-09-21-in-app-browser-design.md`
+- 设计意图：本目录各 mirror md（`.mindflow/mirror/src/narranexus/platform/browser/`）

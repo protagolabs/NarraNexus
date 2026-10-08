@@ -76,8 +76,7 @@ const browserUiKeys = new Set<string>();
 for (const path of [
   '../../components/artifacts/renderers/BrowserStreamPanel.tsx',
   '../../components/artifacts/renderers/BrowserPageTabs.tsx',
-  '../../components/artifacts/renderers/BrowserApprovalPrompt.tsx',
-  '../../components/layout/BrowserApprovalNotice.tsx',
+  '../../components/layout/BrowserNotices.tsx',
   '../../components/layout/BrowserLoginNotice.tsx',
   '../../components/settings/BrowserSettings.tsx',
   '../../components/settings/BrowserManualInstall.tsx',
@@ -108,7 +107,7 @@ function valueAt(json: unknown, key: string): unknown {
 describe('browser UI translations', () => {
   for (const [locale, json] of Object.entries({ en, ...LOCALES })) {
     it(`${locale}: every browser key used by the UI has a nonempty translation`, () => {
-      expect(browserUiKeys.has('browser.approval.allowTurn')).toBe(true);
+      expect(browserUiKeys.has('browser.notices.loadFailed')).toBe(true);
       const missing = [...browserUiKeys].filter((key) => {
         const value = valueAt(json, key);
         return typeof value !== 'string' || !value.trim();

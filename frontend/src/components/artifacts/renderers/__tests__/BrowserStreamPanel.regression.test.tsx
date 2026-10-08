@@ -55,10 +55,21 @@ async function openPanel() {
 }
 function hello(ws: FakeWebSocket, canControl = false, holder = 'agent') {
   ws.receive({ type: 'hello', control: { holder, can_control: canControl } });
-  ws.receive({ type: 'frame', data: 'frame' });
+  ws.receive({ type: 'frame', mime_type: 'image/jpeg', data: 'frame' });
   act(() => images.at(-1)?.onload?.());
 }
 describe('connection regressions', () => {
+  test('a frame decodes by its own mime type and an unknown one says so', async () => {
+    const { ws } = await openPanel();
+    hello(ws);
+    expect(images.at(-1)?.src.startsWith('data:image/jpeg;base64,')).toBe(true);
+    ws.receive({ type: 'frame', mime_type: 'image/png', data: 'png-frame' });
+    expect(images.at(-1)?.src).toBe('data:image/png;base64,png-frame');
+    const decoded = images.length;
+    ws.receive({ type: 'frame', mime_type: 'image/tiff', data: 'tiff-frame' });
+    expect(images).toHaveLength(decoded);
+    expect(await screen.findByText(/Unsupported browser frame format: image\/tiff/)).toBeInTheDocument();
+  });
   test('lists popup tabs, switches viewing, and rejects old-page frame decoding', async () => {
     const { ws } = await openPanel();
     const pages = [
@@ -68,14 +79,14 @@ describe('connection regressions', () => {
     ws.receive({ type: 'hello', control: { holder: 'agent', can_control: false }, pages,
       selected_page_id: 'first', active_page_id: 'first', following_active: true });
     expect(screen.getAllByRole('tab')).toHaveLength(2);
-    ws.receive({ type: 'frame', page_id: 'first', data: 'old' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', page_id: 'first', data: 'old' });
     fireEvent.click(screen.getByRole('tab', { name: /Sign in/ }));
     expect(ws.sent.at(-1)).toEqual({ type: 'select_page', page_id: 'popup' });
     ws.receive({ type: 'pages', pages, selected_page_id: 'popup', active_page_id: 'first', following_active: false });
     act(() => images.at(-1)?.onload?.());
     expect(drawImage).not.toHaveBeenCalled();
-    ws.receive({ type: 'frame', page_id: 'first', data: 'late' });
-    ws.receive({ type: 'frame', page_id: 'popup', data: 'new' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', page_id: 'first', data: 'late' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', page_id: 'popup', data: 'new' });
     act(() => images.at(-1)?.onload?.());
     expect(drawImage).toHaveBeenCalledOnce();
     expect(screen.getByRole('tab', { name: /Sign in/ })).toHaveAttribute('aria-selected', 'true');
@@ -147,12 +158,12 @@ describe('connection regressions', () => {
   test('old-agent and out-of-order decoded frames cannot paint', async () => {
     const { ws, rerender } = await openPanel();
     ws.receive({ type: 'hello', control: { holder: 'agent', can_control: false } });
-    ws.receive({ type: 'frame', data: 'first' });
-    ws.receive({ type: 'frame', data: 'second' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', data: 'first' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', data: 'second' });
     act(() => images[1].onload?.());
     act(() => images[0].onload?.());
     expect(drawImage).toHaveBeenCalledTimes(1);
-    ws.receive({ type: 'frame', data: 'old-agent' });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', data: 'old-agent' });
     rerender(<BrowserStreamPanel sessionId="agent-2" fetchStatus={fetchReady} />);
     act(() => images[2].onload?.());
     expect(drawImage).toHaveBeenCalledTimes(1);
@@ -216,7 +227,7 @@ describe('exclusive input', () => {
   test('uses the painted frame metadata when JPEG size differs from page coordinates', async () => {
     const { ws } = await openPanel();
     ws.receive({ type: 'hello', control: { holder: 'user', can_control: true } });
-    ws.receive({ type: 'frame', data: 'frame', meta: { deviceWidth: 640, deviceHeight: 400 } });
+    ws.receive({ type: 'frame', mime_type: 'image/jpeg', data: 'frame', meta: { deviceWidth: 640, deviceHeight: 400 } });
     act(() => images.at(-1)?.onload?.());
     const canvas = screen.getByTestId('browser-canvas');
     vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 640, height: 400 } as DOMRect);

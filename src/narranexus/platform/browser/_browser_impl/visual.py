@@ -16,6 +16,7 @@ import math
 import struct
 from dataclasses import dataclass
 from typing import Any
+from narranexus.platform.browser._browser_impl.limits import check_selector
 
 #: Output budget. Vision providers downscale past roughly these bounds
 #: (Anthropic: 1568px long edge / ~1.15MP; OpenAI high detail fits a
@@ -56,8 +57,7 @@ def view_expression(*, selector: str | None = None, x: float | None = None,
                     height: float | None = None, scale: float = 1) -> str:
     if not finite_number(scale) or not 1 <= scale <= 3:
         raise ValueError("Screenshot scale must be between 1 and 3")
-    if selector is not None and (not isinstance(selector, str) or not selector.strip()):
-        raise ValueError("Screenshot selector must be a nonempty CSS selector")
+    check_selector(selector)
     values = (x, y, width, height)
     region = None
     if any(value is not None for value in values):

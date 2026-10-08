@@ -157,3 +157,17 @@ def test_forbidden_is_auth_like_but_not_a_credential_error():
 def test_status_codes_glued_to_identifiers_are_not_credential(error):
     assert is_credential_error(error) is False
     assert is_auth_like_error(error) is False
+
+
+class AuthenticationError(Exception):
+    """Named like the provider SDKs' auth exception (matched by class name)."""
+
+
+def test_an_auth_timeout_is_an_outage_not_a_rejected_key():
+    """An auth service that timed out has not rejected the key — a retry can
+    help, so the strict predicate must say False. A real rejection is still
+    caught first, by its status code or by the SDK's auth exception class,
+    whatever else its text says."""
+    assert is_credential_error("Authentication request timed out") is False
+    assert is_credential_error("401 Unauthorized: authentication request timed out") is True
+    assert is_credential_error(AuthenticationError("upstream timed out")) is True

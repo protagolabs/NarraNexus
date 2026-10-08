@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.browser/src/narranexus_plugins/browser_module/_browser_module_impl/tools.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`policy_context` 不再暴露 `allow_history_access`（从未被执行的权限，告诉 agent 等于误导）。
+scope 注释改为如实表述：turn/thread 是运行时自述值，与 agent_id 同信任级、不受身份签名覆盖，只用于
+审计归属与把登录请求、视觉观察绑定到调用轮次，不授权任何东西（review I4）。工具说明写明参数上限。
 
 ## 2026-09-24 浏览器视觉输入
 

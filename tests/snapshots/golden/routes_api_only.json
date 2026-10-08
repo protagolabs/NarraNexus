@@ -331,8 +331,8 @@
   ],
   [
     "GET",
-    "/api/browser/approvals/{agent_id}",
-    "list_approvals"
+    "/api/browser/notices/{agent_id}",
+    "list_notices"
   ],
   [
     "GET",
@@ -963,11 +963,6 @@
     "POST",
     "/api/billing/subscribe",
     "subscribe"
-  ],
-  [
-    "POST",
-    "/api/browser/approvals/{approval_id}",
-    "resolve_approval"
   ],
   [
     "POST",

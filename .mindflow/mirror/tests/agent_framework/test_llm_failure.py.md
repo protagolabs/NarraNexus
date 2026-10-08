@@ -1,8 +1,12 @@
 ---
 code_file: tests/agent_framework/test_llm_failure.py
-last_verified: 2026-09-23
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+钉住：认证请求超时是故障不是坏 key（严格判定为 False，可重试）；带 401 状态或 SDK 认证异常类时仍为 True。
 
 # 模型错误分类与脱敏
 

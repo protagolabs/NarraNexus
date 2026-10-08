@@ -104,30 +104,18 @@ def test_agent_instructions_do_not_name_a_path_the_app_does_not_have():
         )
 
 
-# ── the OTHER refusal: an unapproved site ───────────────────────────────────
+# ── the OTHER destination: a login the agent cannot complete ───────────────
 
-APPROVAL_PROMPT = REPO / "frontend/src/components/artifacts/renderers/BrowserApprovalPrompt.tsx"
 APP_SHELL = REPO / "frontend/src/components/layout/MainLayout.tsx"
-APPROVAL_NOTICE = REPO / "frontend/src/components/layout/BrowserApprovalNotice.tsx"
+NOTICES = REPO / "frontend/src/components/layout/BrowserNotices.tsx"
 
 
-def test_the_approval_prompt_is_mounted_where_the_user_reads_the_refusal():
-    """This one shipped broken twice. The prompt lived only inside the browser
-    panel, which exists only when a URL tab is open in stream mode — while the
-    user reads the refusal in chat. A prompt in a place the message does not
-    travel to is not a prompt."""
+def test_the_login_notice_is_mounted_where_the_user_reads_the_request():
+    """The agent asks for a login in chat. A notice that lives only inside the
+    browser panel (which may not be open) is a destination the message does
+    not travel to — the same dead end this file exists to prevent."""
     shell = APP_SHELL.read_text(encoding="utf-8")
-    assert "BrowserApprovalNotice" in shell, (
-        "the approval prompt must be mounted in the app shell, not only in a panel"
-    )
-    notice = APPROVAL_NOTICE.read_text(encoding="utf-8")
-    assert "BrowserApprovalPrompt" in notice
-    assert "getBrowserApprovals" in notice
-
-
-def test_the_prompt_names_the_origin_and_offers_denial():
-    body = APPROVAL_PROMPT.read_text(encoding="utf-8")
-    assert "approval.origin" in body, "the prompt must show the exact origin"
-    # Available lifetimes are behavior-tested by BrowserApprovalPrompt.test.tsx.
-    # A literal source scan cannot validate its dynamically rendered buttons.
-    assert "browser-approval-deny" in body
+    assert "<BrowserNotices />" in shell, "login notices must be mounted in the app shell, not only in a panel"
+    notice = NOTICES.read_text(encoding="utf-8")
+    assert "getBrowserNotices" in notice
+    assert "BrowserLoginNotice" in notice

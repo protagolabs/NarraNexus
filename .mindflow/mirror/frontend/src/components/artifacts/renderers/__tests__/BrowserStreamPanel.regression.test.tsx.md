@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/__tests__/BrowserStreamPanel.regression.test.tsx
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+帧夹具带 mime_type；新增用例：按帧自带类型解码，未知类型显示明确错误。
 
 2026-09-24：人工新建标签后地址栏聚焦；网址规范化后向具体 page_id 发送导航，等待
 回执期间禁用重复操作，错误可重试，不支持协议不发请求，旁观禁用导航并隐藏关闭。

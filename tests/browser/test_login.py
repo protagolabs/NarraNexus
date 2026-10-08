@@ -18,7 +18,7 @@ from tests.browser.test_read import live_snapshot as live_snapshot, snapshot_sit
 async def notice(service):
     async with asyncio.timeout(3):
         while True:
-            pending = await service.pending_approvals("a")
+            pending = await service.pending_notices("a")
             if pending:
                 return pending[0]
             await asyncio.sleep(0.01)
@@ -37,7 +37,6 @@ async def test_login_is_visible_across_processes_and_requires_explicit_owner_rel
         assert pending["kind"] == "login" and pending["session_id"] == "a"
         assert pending["reason"] == "Verification required" and pending["state"] == "pending"
         assert not task.done()
-        assert not await backend.resolve_approval(pending["id"], agent_id="a", decision="allow", lifetime="always")
         assert await session.take_control("owner")
         await host.login_control_changed("a", session, "owner", "take")
         assert (await notice(backend))["state"] == "in_control"
@@ -57,7 +56,7 @@ async def test_login_is_visible_across_processes_and_requires_explicit_owner_rel
         assert result["handoff"] == "completed"
         assert result["login_state"] == "unverified"
         assert result["data"]["text"] == "Signed-in account"
-        assert await backend.pending_approvals("a") == []
+        assert await backend.pending_notices("a") == []
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -75,14 +74,14 @@ async def test_login_cancellation_and_session_replacement_retire_notice(db_clien
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert await service.pending_approvals("a") == []
+    assert await service.pending_notices("a") == []
     task = asyncio.create_task(service.request_login("a", reason="Sign in", turn_id="t", thread_id="th"))
     await notice(service)
     replacement = session_with(allow("https://ok.example"), FakeCdp())
     service.register_session("a", replacement)
     try:
         assert (await asyncio.wait_for(task, 3))["outcome"] == "ERROR"
-        assert await service.pending_approvals("a") == []
+        assert await service.pending_notices("a") == []
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -115,7 +114,7 @@ async def test_login_requested_during_existing_human_control_needs_only_one_rele
         assert result["handoff"] == "completed" and result["login_state"] == "unverified"
         assert result["outcome"] == "OK"
         assert result["data"]["title"] == "Account"
-        assert await service.pending_approvals("a") == []
+        assert await service.pending_notices("a") == []
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -205,7 +204,7 @@ async def test_live_login_notice_human_input_and_fresh_read(live_snapshot, db_cl
         result = await asyncio.wait_for(task, 3)
         assert result["handoff"] == "completed"
         assert "Submitted: Human verified" in result["data"]["text"]
-        assert await backend.pending_approvals("a") == []
+        assert await backend.pending_notices("a") == []
         assert (await session.run_script("document.title"))["outcome"] == "REJECTED"
     finally:
         task.cancel()

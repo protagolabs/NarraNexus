@@ -132,8 +132,12 @@ TEAM_ID_HEADER = "X-NarraNexus-Team-Id"
 # before context_runtime builds the MCP spec in Step 3.
 EVENT_ID_HEADER = "X-NarraNexus-Event-Id"
 
-# Conversation authorization scope, derived by ContextRuntime from the current
-# user, source, room and primary Narrative. Never supplied by a tool argument.
+# Conversation scope, derived by ContextRuntime from the current user, source,
+# room and primary Narrative. Never supplied by a tool argument — but, like
+# agent_id, it is self-declared: it sits after nothing that signs it (the
+# identity token's payload does not cover it). Use it for attribution and for
+# binding a request to its turn, not as an authorization boundary; making it
+# one requires adding it to the signed token payload first.
 THREAD_ID_HEADER = "X-NarraNexus-Thread-Id"
 
 # The PROOF for everything above: a short-lived Ed25519 JWT signed by the

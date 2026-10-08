@@ -2604,19 +2604,9 @@
     "freeTierSwitched": "無料枠のクォータを使い切ったため、あなた自身のプロバイダーに切り替えました。以降の実行はあなた自身のAPIキーを使用します。(クリックして閉じる)"
   },
   "browser": {
-    "approval": {
-      "question": "エージェントが次の操作を求めています：{{action}}",
-      "capAutoReview": "操作を自動審査する",
-      "capUploads": "ファイルをアップロード",
-      "capDownloads": "ファイルをダウンロード",
-      "allowThread": "この会話の間だけ許可",
-      "deny": "常に拒否",
-      "allowAlways": "このサイトを常に許可",
-      "allowTurn": "このターンのみ許可",
-      "decisionFailed": "承認結果を保存できませんでした。もう一度お試しください。",
-      "loadFailed": "ブラウザの承認リクエストを確認できませんでした。",
-      "retry": "再試行",
-      "saving": "承認結果を保存中…"
+    "notices": {
+      "loadFailed": "ブラウザのログインリクエストを確認できませんでした。",
+      "retry": "再試行"
     },
     "absentTitle": "ブラウザがインストールされていません",
     "brokenTitle": "ブラウザはインストール済みですが起動できません",

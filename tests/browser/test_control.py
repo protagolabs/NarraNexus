@@ -2,7 +2,7 @@
 @file_name: test_control.py
 @author:
 @date: 2026-09-22
-@description: Tests for control ownership between the agent and the user (design §8.4).
+@description: Tests for control ownership between the agent and the user .
 
 The panel is interactive, so two parties can drive the same browser. The rules
 that make that safe rather than chaotic:

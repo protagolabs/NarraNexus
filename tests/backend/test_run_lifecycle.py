@@ -259,6 +259,7 @@ async def test_managed_after_run_audit_is_drained(monkeypatch):
 async def test_drain_reporting_interval_never_cancels_work(monkeypatch):
     import backend.run_lifecycle as mod
 
+    monkeypatch.setattr(mod, "_DRAIN_FIRST_REPORT_SECONDS", 0.001)
     monkeypatch.setattr(mod, "_DRAIN_REPORT_SECONDS", 0.001)
     runs = RunTasks()
     work = asyncio.Event()
@@ -270,6 +271,31 @@ async def test_drain_reporting_interval_never_cancels_work(monkeypatch):
     cleanup.assert_not_awaited()
     work.set()
     await closing
+
+
+@pytest.mark.asyncio
+async def test_first_drain_report_lands_inside_a_container_grace_period(monkeypatch):
+    """Docker's default stop grace is 10 s. A 30 s first report means a held-up
+    shutdown is killed before it ever says why; the first one must come sooner,
+    then settle into the steady cadence."""
+    import backend.run_lifecycle as mod
+
+    assert mod._DRAIN_FIRST_REPORT_SECONDS < 10 <= mod._DRAIN_REPORT_SECONDS
+    timeouts = []
+    real_wait = asyncio.wait
+    work = asyncio.Event()
+
+    async def recording_wait(tasks, *, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) == 3:
+            work.set()
+        return await real_wait(tasks, timeout=0.001)
+
+    monkeypatch.setattr(mod.asyncio, "wait", recording_wait)
+    runs = RunTasks()
+    runs.start(work.wait())
+    await runs.close(AsyncMock())
+    assert timeouts[:3] == [mod._DRAIN_FIRST_REPORT_SECONDS, mod._DRAIN_REPORT_SECONDS, mod._DRAIN_REPORT_SECONDS]
 
 
 @pytest.mark.asyncio

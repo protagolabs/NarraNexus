@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-22
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+挂载的浏览器通知组件改名为 `BrowserNotices`（只剩登录请求，审批 UI 已删除）。
 
 ## 2026-09-22 - Browser reachability on phones and in the shell
 

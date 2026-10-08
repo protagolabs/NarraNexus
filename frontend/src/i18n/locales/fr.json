@@ -2605,19 +2605,9 @@
     "freeTierSwitched": "Quota gratuit épuisé — basculé sur votre propre fournisseur. Les nouvelles exécutions utiliseront votre propre clé API. (cliquez pour fermer)"
   },
   "browser": {
-    "approval": {
-      "question": "L'agent souhaite {{action}} :",
-      "capAutoReview": "examiner automatiquement les actions sur",
-      "capUploads": "envoyer des fichiers vers",
-      "capDownloads": "télécharger des fichiers depuis",
-      "allowThread": "Autoriser pour cette conversation",
-      "deny": "Ne jamais autoriser",
-      "allowAlways": "Toujours autoriser ce site",
-      "allowTurn": "Autoriser pour ce tour",
-      "decisionFailed": "Impossible d’enregistrer la décision. Veuillez réessayer.",
-      "loadFailed": "Impossible de consulter les demandes d’autorisation du navigateur.",
-      "retry": "Réessayer",
-      "saving": "Enregistrement de la décision…"
+    "notices": {
+      "loadFailed": "Impossible de vérifier les demandes de connexion du navigateur.",
+      "retry": "Réessayer"
     },
     "absentTitle": "Navigateur non installé",
     "brokenTitle": "Le navigateur est installé mais ne démarre pas",

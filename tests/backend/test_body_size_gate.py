@@ -134,9 +134,6 @@ _NO_BODY_CAP_EXEMPT = frozenset({
     # Chromium) travel out-of-band from the vendor CDN, never through us.
     "/api/browser/runtime/install",
     "/api/browser/runtime/install/cancel",
-    # One approval decision: two short enum fields ({decision, lifetime}),
-    # validated by pydantic before anything reads them.
-    "/api/browser/approvals/{approval_id}",
     "/api/billing/subscribe",
     "/api/bundle/export",
     "/api/bundle/export/preview/artifacts",

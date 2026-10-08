@@ -3091,30 +3091,6 @@ _register(
     )
 )
 
-# Pending privileged-capability approvals, shared by the MCP host and backend.
-# Ordinary HTTP(S) browsing never creates an approval request.
-# Decisions persist a receipt with the policy before retiring the question.
-# Pending requests are cleared when the agent's browser closes.
-_register(
-    TableDef(
-        name="instance_browser_approvals",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            Column("approval_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
-            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
-            Column("origin", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("capability", "TEXT", "VARCHAR(64)", nullable=False),
-            Column("turn_id", "TEXT", "VARCHAR(128)"),
-            Column("thread_id", "TEXT", "VARCHAR(128)"),
-            Column("requested_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[
-            Index("idx_browser_approvals_id", ["approval_id"], unique=True),
-            Index("idx_browser_approvals_agent", ["agent_id"]),
-        ],
-    )
-)
-
 # Login handoffs are notifications, never origin grants. Only the live session's
 # authenticated control connection can complete a request by explicitly releasing.
 _register(

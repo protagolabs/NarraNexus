@@ -410,7 +410,6 @@ async def test_default_access_needs_no_site_approval_across_conversations(browse
     next_headers, _ = await runtime_headers(module, event="evt_next", narrative="nar_other")
     assert (await call(mcp, "browser_open", next_headers, url="https://another.example/"))["outcome"] == "OK"
     assert (await call(mcp, "browser_run", next_headers, script="document.title"))["outcome"] == "REJECTED"
-    assert await db_client.get("instance_browser_approvals", {"agent_id": "agent_1"}) == []
 
 
 @pytest.mark.asyncio
@@ -425,7 +424,6 @@ async def test_cached_session_refreshes_script_permissions_without_gating_browsi
     cdp, audit = PageCdp(), []
     service = BrowserService(locate=lambda: Path("/test/chromium"), probe=lambda _: "test")
     service.policy_for = AsyncMock(return_value=policy)
-    service.request_approval = AsyncMock(return_value="approval_current")
 
     async def launch(**kwargs):
         return BrowserSession(cdp=cdp, policy=kwargs["policy"], audit=audit.append,
@@ -446,7 +444,6 @@ async def test_cached_session_refreshes_script_permissions_without_gating_browsi
     policy.origins["https://example.com"] = OriginPolicy(full_cdp_access="deny")
     assert (await call(mcp, "browser_run", next_headers, script="document.title"))["outcome"] == "REJECTED"
     assert (await call(mcp, "browser_read", next_headers))["outcome"] == "OK"
-    service.request_approval.assert_not_awaited()
     assert audit[-1]["turn_id"] == "evt_2"
     launcher.assert_awaited_once()
 
@@ -496,7 +493,7 @@ async def test_mcp_http_unrestricted_browsing_login_and_evidence_roundtrip(brows
     assert "Page.navigate" in cdp.commands
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
                            headers={"X-User-Id": "user_1"}) as client:
-        pending = await client.get("/api/browser/approvals/agent_1")
+        pending = await client.get("/api/browser/notices/agent_1")
         assert pending.status_code == 200
         assert pending.json()["pending"] == []
 
@@ -513,12 +510,12 @@ async def test_mcp_http_unrestricted_browsing_login_and_evidence_roundtrip(brows
                                headers={"X-User-Id": "user_1"}) as client:
             async with asyncio.timeout(3):
                 while True:
-                    pending = (await client.get("/api/browser/approvals/agent_1")).json()["pending"]
+                    pending = (await client.get("/api/browser/notices/agent_1")).json()["pending"]
                     if pending:
                         break
                     await asyncio.sleep(0.01)
             assert pending[0]["kind"] == "login" and pending[0]["session_id"] == "agent_1"
-            forbidden = await client.get("/api/browser/approvals/agent_1", headers={"X-User-Id": "user_other"})
+            forbidden = await client.get("/api/browser/notices/agent_1", headers={"X-User-Id": "user_other"})
             assert forbidden.status_code == 403
         assert not login.done()
         assert await session.take_control("human_panel")
@@ -528,7 +525,7 @@ async def test_mcp_http_unrestricted_browsing_login_and_evidence_roundtrip(brows
         result = await asyncio.wait_for(login, 3)
         assert result["outcome"] == "OK" and result["handoff"] == "completed"
         assert result["data"]["title"]
-        assert await routes.get_service().pending_approvals("agent_1") == []
+        assert await routes.get_service().pending_notices("agent_1") == []
     finally:
         login.cancel()
         await asyncio.gather(login, return_exceptions=True)
@@ -548,7 +545,7 @@ async def test_mcp_http_unrestricted_browsing_login_and_evidence_roundtrip(brows
     assert (await call(mcp, "browser_act", other, action="click", selector="button"))["outcome"] == "OK"
     assert (await call(mcp, "browser_save_evidence", other))["outcome"] == "OK"
     assert cdp.commands.count("Page.captureScreenshot") == count + 1
-    assert await routes.get_service().pending_approvals("agent_1") == []
+    assert await routes.get_service().pending_notices("agent_1") == []
 
 
 @pytest.mark.asyncio

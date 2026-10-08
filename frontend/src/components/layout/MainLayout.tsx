@@ -57,7 +57,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { NoProviderNotice } from './NoProviderNotice';
-import { BrowserApprovalNotice } from './BrowserApprovalNotice';
+import { BrowserNotices } from './BrowserNotices';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
@@ -414,7 +414,7 @@ export function MainLayout() {
       {/* A site the agent is blocked on. In the shell, not in the browser
           panel: the user reads the refusal in chat, and a prompt that only
           exists inside a panel they have not opened is no prompt at all. */}
-      <BrowserApprovalNotice />
+      <BrowserNotices />
 
       {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
           nothing on md+ (v4: the sidebar owns the full height there). */}

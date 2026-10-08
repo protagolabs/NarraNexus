@@ -22,9 +22,9 @@ def _error(code: str, message: str) -> dict[str, Any]:
 
 
 async def policy_context(service: Any, agent_id: str) -> dict:
-    """Describe persisted settings without exposing grants from other turns."""
+    """Describe the owner's configured script permissions."""
     policy = (await service.policy_for(agent_id, fresh=True)).to_dict()
-    return {key: policy[key] for key in ("default_origin_policy", "origins", "allow_history_access")}
+    return {key: policy[key] for key in ("default_origin_policy", "origins")}
 
 
 def register_tools(mcp: FastMCP, get_service: Callable) -> None:
@@ -44,8 +44,12 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
             except (LookupError, ValueError):
                 auth = ""
             identity = parse_bearer_identity(auth)
-            # Both adapters receive this bearer. No tool arguments can supply
-            # grant scopes, and a cached session is never an identity fallback.
+            # Both adapters receive this bearer; tool arguments never supply
+            # the scope, and a cached session is never an identity fallback.
+            # The turn/conversation fields are self-declared by the runtime
+            # (same trust level as agent_id, not covered by the identity
+            # signature): they attribute audit rows and bind login requests and
+            # visual observations to the calling turn, and authorize nothing.
             if identity.agent_id != agent_id or not identity.event_id or not identity.thread_id:
                 return _error(
                     "missing_caller_scope",
@@ -214,6 +218,8 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         without a selector. Read or look again to verify
         the result. These actions need no site permission or full_cdp_access,
         including on a new origin. Agent actions wait during human takeover.
+        Limits: text/value up to 64 KiB characters, selectors up to 4096; fill
+        longer content in several steps.
         """
         async def act(service, session, identity):
             arguments = {
@@ -231,8 +237,8 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
     async def browser_run(agent_id: str, script: str) -> dict[str, Any]:
         """Evaluate one JavaScript expression in the page and return its JSON value.
 
-        Requires explicitly configured full_cdp_access.
-        An async IIFE can express a sequence of actions. Inspect the current
+        Requires explicitly configured full_cdp_access. Expressions are limited
+        to 64 KiB characters. An async IIFE can express a sequence of actions. Inspect the current
         page to choose selectors. ERROR returns the failure to diagnose;
         NEEDS_HUMAN requires the user's action before continuing.
         """

@@ -82,8 +82,8 @@ export function ArtifactsTab({ agentId }: PanelProps) {
  *  Until now the stream panel lived only inside `UrlRenderer`'s `stream`
  *  branch, which needs a URL artifact tab in that mode — so from the chat,
  *  where the user watches the agent work, it could not be reached at all.
- *  Addressed by AGENT id, the same key the stream route and the approval
- *  prompt use, so all three agree on which browser is meant. */
+ *  Addressed by AGENT id, the same key the stream route and the login
+ *  notice use, so all three agree on which browser is meant. */
 export function BrowserTab({ agentId }: PanelProps) {
   return <BrowserStreamPanel sessionId={agentId || null} />;
 }

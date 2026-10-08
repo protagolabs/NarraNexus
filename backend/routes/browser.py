@@ -2,13 +2,21 @@
 @file_name: browser.py
 @author:
 @date: 2026-09-22
-@description: HTTP + WebSocket surface for the in-app browser (design §8).
+@description: HTTP + WebSocket surface for the in-app browser.
 
 Endpoints (mounted under /api/browser, plus one WS route):
   GET  /runtime                  — runtime status for the install card
-  POST /runtime/install          — start (or attach to) the one-time install
-  POST /runtime/install/cancel   — cooperative cancel, partial download kept
+  PUT  /runtime/source|mode      — local-only runtime preferences
+  POST /runtime/install          — start (or attach to) the one-time install (local only)
+  POST /runtime/install/cancel   — cooperative cancel, partial download kept (local only)
+  GET  /notices/{agent_id}       — open login / verification requests
+  GET|PUT /policy/{agent_id}     — the owner's arbitrary-script permissions
   WS   /ws/browser/{agent_id}    — authenticate, frames out, input in
+
+The browser runs on the host that serves the API, so runtime installation and
+selection are local-mode operations: in cloud mode the runtime would land in
+one container while sessions launch in another, and any signed-in user could
+trigger a machine-wide download.
 
 Why the runtime endpoints are not per-agent: the Chromium runtime is one
 per-machine install, shared by every agent. Scoping it to an agent would
@@ -83,7 +91,7 @@ def register_session(session_id: str, session: Any) -> None:
 
 
 def drop_session(session_id: str) -> None:
-    get_service()._sessions.pop(session_id, None)  # noqa: SLF001
+    get_service().forget_session(session_id)
 
 
 # ── runtime ──────────────────────────────────────────────────────────────────
@@ -95,7 +103,7 @@ async def runtime_status(request: Request) -> dict[str, Any]:
     _require_identity(request)
     svc = get_service()
     status = svc.status().to_dict()
-    progress = svc._installer.progress  # noqa: SLF001 - read-only view for the UI
+    progress = svc.install_progress
     status["progress"] = (
         {
             "phase": progress.phase,
@@ -126,7 +134,7 @@ async def select_runtime(body: BrowserSourceDecision, request: Request) -> dict:
     _require_identity(request)
     if _is_cloud_mode():
         raise HTTPException(403, "Browser source selection is available only in local mode")
-    if get_service()._installer.installing:
+    if get_service().installing:
         raise HTTPException(409, "Wait for the browser installation to finish")
     try:
         await asyncio.to_thread(save_source, body.source)
@@ -170,6 +178,8 @@ async def install_runtime(request: Request) -> dict[str, Any]:
     render the reason, and an HTTP 500 would give it nothing to show.
     """
     _require_identity(request)
+    if _is_cloud_mode():
+        raise HTTPException(403, "Browser installation is available only in local mode")
     outcome = await get_service().install()
     status = await runtime_status(request)
     return {
@@ -183,62 +193,28 @@ async def install_runtime(request: Request) -> dict[str, Any]:
 @router.post("/runtime/install/cancel")
 async def cancel_install(request: Request) -> dict[str, Any]:
     _require_identity(request)
+    if _is_cloud_mode():
+        raise HTTPException(403, "Browser installation is available only in local mode")
     get_service().cancel_install()
     return {"ok": True}
 
 
-# ── privileged-capability approvals and login notices ─────────────────────────
+# ── login notices ────────────────────────────────────────────────────────────
 
 
-class ApprovalDecision(BaseModel):
-    """One answer to one question."""
+@router.get("/notices/{agent_id}")
+async def list_notices(agent_id: str, request: Request) -> dict[str, Any]:
+    """Owned login / verification requests, visible across processes.
 
-    decision: Literal["allow", "deny"]
-    #: `always` is written into the agent's stored policy; the other two are
-    #: session grants that expire. Never defaulted — a lifetime the caller did
-    #: not state is a grant nobody chose.
-    lifetime: Literal["turn", "thread", "always"]
-
-
-@router.get("/approvals/{agent_id}")
-async def list_approvals(agent_id: str, request: Request) -> dict[str, Any]:
-    """Owned privileged approvals and login notices, visible across processes."""
-    # Read through the service's DB-backed store: the question was raised in
-    # the MCP host process, so an in-process registry here would always be
-    # empty (observed live 2026-09-22).
+    Read through the database: the request is raised in the MCP host process,
+    so an in-process registry here would always be empty.
+    """
     await _require_owner(request, agent_id)
     try:
-        return {"pending": await get_service().pending_approvals(agent_id)}
+        return {"pending": await get_service().pending_notices(agent_id)}
     except Exception as exc:
         logger.exception("could not read browser notices")
         raise HTTPException(status_code=503, detail="Could not read browser notices; retry") from exc
-
-
-@router.post("/approvals/{approval_id}")
-async def resolve_approval(
-    approval_id: str, body: ApprovalDecision, request: Request
-) -> dict[str, Any]:
-    """Answer one pending request.
-
-    An unknown id answers nothing and says so: a stale prompt (the panel was
-    left open across a restart) must not silently grant anything.
-    """
-    _require_identity(request)
-    service = get_service()
-    agent_id = await service.approval_agent(approval_id)
-    if agent_id is None:
-        return {"ok": False}
-    await _require_owner(request, agent_id)
-    try:
-        applied = await service.resolve_approval(
-            approval_id, decision=body.decision, lifetime=body.lifetime, agent_id=agent_id
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("could not save browser approval")
-        raise HTTPException(status_code=503, detail="Could not save approval; retry") from exc
-    return {"ok": applied}
 
 
 class PolicyTarget(BaseModel):
