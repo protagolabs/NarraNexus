@@ -1,8 +1,12 @@
 ---
 code_file: tests/backend/test_body_size_gate.py
-last_verified: 2026-09-24
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 第二轮 review）
+
+删除 `/api/browser/approvals/{approval_id}` 豁免（该路由随审批子系统删除）；本门禁自身会报出指向不存在路由的豁免。
 
 # 请求体积入口约束
 

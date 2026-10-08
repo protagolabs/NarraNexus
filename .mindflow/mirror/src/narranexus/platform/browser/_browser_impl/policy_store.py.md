@@ -4,6 +4,13 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+写锁改为按 agent **引用计数**（`_AgentWriteLocks.hold`），无人持有或等待即删除，长生命周期进程不再为每个改过权限
+的 agent 永久留一把锁。建行移到 CAS 循环之前（`_ensure_row`），不再消耗重试次数；吞掉插入异常只限"别人刚建好"
+这一竞态且记 debug 日志，其他失败不会留下行、照常抛出。写入直接存 `policy.to_dict()`，旧版本写下的
+grants / receipts / 文件能力等死键在下一次写入时被清掉，而不是永久随行。上文"三层"中的第 1 层据此更新。
+
 # Owner 管理的脚本权限（原子写）
 
 公开视图与修改接口只包含 `full_cdp_access`，verdict 只有 allow / deny；origin 输入拒绝凭据、
@@ -13,7 +20,7 @@ stub: false
 
 `set_rule` 是对整个 JSON 文档的读-改-写，用三层保证安全：
 
-1. **同进程按 agent 串行**（`_write_lock`，按事件循环分桶的 asyncio.Lock，弱引用随 loop 释放）。
+1. **同进程按 agent 串行**（`_write_lock`：按事件循环分桶、按 agent 引用计数的 asyncio.Lock，用完即删）。
    不排队时所有并发写都读到同一个快照、每轮只有一个 CAS 胜出，N 个并发点击需要 N 轮——
    在真实 MySQL 上实测 6 个并发写会耗尽 5 次上限、把正常并发报成冲突。策略只由 API 进程写
    （MCP host 只读），所以这把锁消除了实际会发生的竞争。

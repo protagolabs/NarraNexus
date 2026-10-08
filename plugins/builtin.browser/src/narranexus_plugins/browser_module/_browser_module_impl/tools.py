@@ -218,8 +218,8 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         without a selector. Read or look again to verify
         the result. These actions need no site permission or full_cdp_access,
         including on a new origin. Agent actions wait during human takeover.
-        Limits: text/value up to 64 KiB characters, selectors up to 4096; fill
-        longer content in several steps.
+        Limits: text/value up to 65536 characters, selectors up to 4096
+        characters; fill longer content in several steps.
         """
         async def act(service, session, identity):
             arguments = {
@@ -238,7 +238,7 @@ def register_tools(mcp: FastMCP, get_service: Callable) -> None:
         """Evaluate one JavaScript expression in the page and return its JSON value.
 
         Requires explicitly configured full_cdp_access. Expressions are limited
-        to 64 KiB characters. An async IIFE can express a sequence of actions. Inspect the current
+        to 65536 characters. An async IIFE can express a sequence of actions. Inspect the current
         page to choose selectors. ERROR returns the failure to diagnose;
         NEEDS_HUMAN requires the user's action before continuing.
         """

@@ -646,3 +646,23 @@ async def test_failed_artifact_registration_removes_the_new_screenshot(monkeypat
         await evidence.save_evidence(agent_id="agent_1", identity=SimpleNamespace(user_id="user_1", event_id="evt_1"),
                                      capture=capture, title="Evidence")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_tool_descriptions_state_the_real_input_limits(browser):
+    """The agent learns the bounds from the tool descriptions, which restate the
+    constants in prose — pin them together. Characters, not bytes: a model
+    sizing multi-byte text by KiB would under-fill."""
+    from narranexus.platform.browser._browser_impl.limits import (
+        MAX_FIELD_TEXT_CHARS,
+        MAX_SCRIPT_CHARS,
+        MAX_SELECTOR_CHARS,
+    )
+
+    module, _, _ = browser
+    mcp = module.build_instrumented_mcp_server()
+    act = mcp._tool_manager.get_tool("browser_act").description
+    run = mcp._tool_manager.get_tool("browser_run").description
+    assert f"up to {MAX_FIELD_TEXT_CHARS} characters" in act
+    assert f"up to {MAX_SELECTOR_CHARS}" in act
+    assert f"to {MAX_SCRIPT_CHARS} characters" in run
+    assert "KiB" not in act + run

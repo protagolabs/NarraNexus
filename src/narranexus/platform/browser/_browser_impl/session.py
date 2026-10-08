@@ -253,10 +253,6 @@ class BrowserSession:
         if self._closed:
             return _err("browser session is closed")
         try:
-            check_text("script", expression, MAX_SCRIPT_CHARS)
-        except ValueError as exc:
-            return _err(str(exc))
-        try:
             await self.control.wait_for_turn()
         except Exception as exc:
             return _err(str(exc))

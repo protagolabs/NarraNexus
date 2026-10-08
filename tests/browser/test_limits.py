@@ -20,7 +20,6 @@ from narranexus.platform.browser._browser_impl.policy import BrowserPolicy, Orig
 from narranexus.platform.browser._browser_impl.read import snapshot_expression
 from narranexus.platform.browser._browser_impl.visual import view_expression
 from tests.browser.test_session import make_session
-from tests.module.test_browser_module_integration import browser  # noqa: F401 - fixture
 
 
 def test_fill_text_and_select_value_are_bounded():
@@ -53,13 +52,3 @@ async def test_an_oversized_script_is_refused_before_the_page_sees_it():
     assert "longer than" in result["message"]
     assert not any(method == "Runtime.evaluate" and "1;1;" in str(params) for method, params in cdp.calls)
 
-
-def test_tool_descriptions_state_the_real_limits(browser):  # noqa: F811 - fixture
-    """The agent learns the bounds from the tool descriptions; they restate the
-    constants in prose, so pin them together."""
-    module, _, _ = browser
-    mcp = module.build_instrumented_mcp_server()
-    act = mcp._tool_manager.get_tool("browser_act").description
-    run = mcp._tool_manager.get_tool("browser_run").description
-    assert f"{MAX_FIELD_TEXT_CHARS // 1024} KiB" in act and str(MAX_SELECTOR_CHARS) in act
-    assert f"{MAX_SCRIPT_CHARS // 1024} KiB" in run

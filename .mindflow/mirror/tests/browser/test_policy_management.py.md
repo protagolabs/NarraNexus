@@ -4,6 +4,10 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+新增：并发写之后写锁表为空（不随 agent 累积）；一次写入把旧文档改写为只含当前模型的内容。
+
 ## 2026-10-08（PR #410 review）
 
 并发用例改为多个 origin 的并发写全部落地；新增无限竞争时以 `PolicyWriteConflict` 退出（恰好

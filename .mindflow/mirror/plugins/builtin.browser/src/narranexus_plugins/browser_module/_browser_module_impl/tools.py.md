@@ -4,6 +4,10 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+上限在工具说明里以**字符数**表述（65536 / 4096），不用 KiB：常量计的是字符，模型按字节估算多字节文本会少填。
+
 ## 2026-10-08（PR #410 review）
 
 `policy_context` 不再暴露 `allow_history_access`（从未被执行的权限，告诉 agent 等于误导）。

@@ -4,6 +4,11 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+工具说明与本模块常量一致地以字符数表述上限；钉住两者的测试移到 `tests/module/test_browser_module_integration.py`
+（`browser` fixture 所在处），不再跨测试模块导入 fixture。
+
 # 模型参数的长度上限，一处定义
 
 浏览器其他数据通路都有上限（流上的用户输入 64 KiB、截图像素/字节、页面正文分页），唯独 agent

@@ -21,7 +21,8 @@ from typing import Any
 
 #: Longest CSS selector accepted (generated ancestor paths stay well below this).
 MAX_SELECTOR_CHARS = 4096
-#: Longest fill text / select value — the stream's user-input bound, in characters.
+#: Longest fill text / select value, in characters (matches the stream's 64 KiB
+#: user-input bound numerically; tool descriptions state it in characters).
 MAX_FIELD_TEXT_CHARS = 64 * 1024
 #: Longest ``browser_run`` expression.
 MAX_SCRIPT_CHARS = 64 * 1024

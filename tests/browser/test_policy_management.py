@@ -156,3 +156,39 @@ def test_owner_cannot_recreate_website_access_rules(client, verdict):
     assert client.put("/api/browser/policy/agent", json={**body, "verdict": verdict}, headers=headers).status_code == 422
     assert client.post("/api/browser/policy/agent/revoke", json=body, headers=headers).status_code == 422
     assert client.get("/api/browser/policy/agent", headers=headers).json() == before
+
+
+@pytest.mark.asyncio
+async def test_write_locks_do_not_accumulate_per_agent(db_client):
+    """A long-lived process must not keep a lock for every agent that ever
+    edited its permissions, including while writers are queued."""
+    from narranexus.platform.browser._browser_impl import policy_store
+
+    await asyncio.gather(*(
+        PolicyStore(db_client).set_rule(f"agent{i % 3}", origin=f"https://s{i}.example",
+                                        capability="full_cdp_access", verdict="allow")
+        for i in range(9)
+    ))
+    table = policy_store._WRITE_LOCKS.get(asyncio.get_running_loop())
+    assert table is not None and table._entries == {}
+
+
+@pytest.mark.asyncio
+async def test_a_write_rewrites_the_document_without_retired_keys(db_client):
+    """Rows written by earlier builds carried grants, receipts and file verdicts.
+    The next write stores the current model only; nothing re-reads those keys."""
+    legacy = {
+        "default_origin_policy": {"downloads": "ask"},
+        "origins": {"https://kept.example": {"full_cdp_access": "allow", "uploads": "deny"}},
+        "grants": [["https://x.example", "downloads", "thread:t"]],
+        "approval_receipts": ["appr_1"],
+        "allow_history_access": True,
+    }
+    await db_client.insert("instance_browser_policies", {"agent_id": "agent", "policy_json": json.dumps(legacy)})
+    await PolicyStore(db_client).set_rule("agent", origin="https://new.example", capability="full_cdp_access", verdict="deny")
+    stored = json.loads((await db_client.get_one("instance_browser_policies", {"agent_id": "agent"}))["policy_json"])
+    assert stored == {
+        "default_origin_policy": {},
+        "origins": {"https://kept.example": {"full_cdp_access": "allow"},
+                    "https://new.example": {"full_cdp_access": "deny"}},
+    }

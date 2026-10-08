@@ -4,6 +4,11 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+fixture 固定 `NARRANEXUS_DEPLOYMENT_MODE=local`：真实 auth 中间件只在本地模式接受裸 X-User-Id，而模式由环境变量
+解析；全量运行时前面留下的环境会把这里所有请求变成 401（此前 6 个既有失败即源于此）。云端用例自行打桩 `_is_cloud_mode`。
+
 ## 2026-10-08（PR #410 review）
 
 审批端点改为 notices；钉住旧审批端点 404、安装/取消安装在云端 403 且不触发安装。

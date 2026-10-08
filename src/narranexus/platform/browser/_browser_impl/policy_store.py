@@ -17,6 +17,7 @@ that did not happen, never a spin.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import weakref
 from dataclasses import replace
@@ -25,6 +26,8 @@ from urllib.parse import urlparse
 from narranexus.platform.browser._browser_impl.policy import (
     BrowserPolicy, OriginPolicy, decide, origin_of,
 )
+from loguru import logger
+
 from narranexus.platform.utils.timezone import utc_now
 
 _CAPABILITIES = ("full_cdp_access",)
@@ -38,17 +41,39 @@ class PolicyWriteConflict(RuntimeError):
     """Concurrent writers kept winning; the caller should retry."""
 
 
-#: Per-event-loop, per-agent write locks. Keyed by loop because an asyncio
-#: lock belongs to the loop it was first used on; weak so a finished loop
-#: (tests, a restarted worker) takes its locks with it.
-_WRITE_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]]" = (
+class _AgentWriteLocks:
+    """Per-agent write locks that exist only while someone holds or awaits one.
+
+    Reference-counted so a long-lived process does not keep a lock for every
+    agent that ever edited its permissions. Lives per event loop (an asyncio
+    lock belongs to the loop it was first used on).
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[str, list] = {}  # agent_id -> [lock, users]
+
+    @contextlib.asynccontextmanager
+    async def hold(self, agent_id: str):
+        entry = self._entries.setdefault(agent_id, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del self._entries[agent_id]
+
+
+#: One lock table per event loop; weak so a finished loop (tests, a restarted
+#: worker) takes its table with it.
+_WRITE_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _AgentWriteLocks]" = (
     weakref.WeakKeyDictionary()
 )
 
 
-def _write_lock(agent_id: str) -> asyncio.Lock:
-    locks = _WRITE_LOCKS.setdefault(asyncio.get_running_loop(), {})
-    return locks.setdefault(agent_id, asyncio.Lock())
+def _write_lock(agent_id: str):
+    return _WRITE_LOCKS.setdefault(asyncio.get_running_loop(), _AgentWriteLocks()).hold(agent_id)
 
 
 class PolicyValidationError(ValueError):
@@ -98,28 +123,37 @@ class PolicyStore:
         async with _write_lock(agent_id):
             return await self._swap_rule(agent_id, origin=origin, capability=capability, verdict=verdict)
 
+    async def _ensure_row(self, agent_id: str) -> None:
+        """Create the agent's document if it has none. A concurrent creator
+        winning the insert is the expected race and is not an error; anything
+        else that fails here also leaves no row, so it is re-raised."""
+        if await self._db.get_one(self.TABLE, {"agent_id": agent_id}) is not None:
+            return
+        now = utc_now().isoformat()
+        try:
+            await self._db.insert(self.TABLE, {
+                "agent_id": agent_id, "policy_json": json.dumps(BrowserPolicy().to_dict()),
+                "created_at": now, "updated_at": now,
+            })
+        except Exception as exc:
+            if await self._db.get_one(self.TABLE, {"agent_id": agent_id}) is None:
+                raise
+            logger.debug("Browser policy row for {} created concurrently ({})", agent_id, type(exc).__name__)
+
     async def _swap_rule(self, agent_id: str, *, origin: str, capability: str, verdict: str) -> dict:
+        await self._ensure_row(agent_id)
         for attempt in range(1, SET_RULE_ATTEMPTS + 1):
             raw = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
             if raw is None:
-                now = utc_now().isoformat()
-                try:
-                    await self._db.insert(self.TABLE, {
-                        "agent_id": agent_id, "policy_json": json.dumps(BrowserPolicy().to_dict()),
-                        "created_at": now, "updated_at": now,
-                    })
-                except Exception:
-                    if await self._db.get_one(self.TABLE, {"agent_id": agent_id}) is None:
-                        raise
-                continue
-            document = json.loads(raw["policy_json"])
-            policy = BrowserPolicy.from_dict(document)
+                raise RuntimeError(f"Browser policy row for {agent_id} disappeared during an update")
+            policy = BrowserPolicy.from_dict(json.loads(raw["policy_json"]))
             policy.origins[origin] = replace(policy.origins.get(origin, OriginPolicy()), **{capability: verdict})
-            document.update(policy.to_dict())
+            # The whole document is rewritten from the model, so keys nothing
+            # reads any more do not ride along forever.
             written = await self._db.execute(
                 "UPDATE instance_browser_policies SET policy_json = %s, updated_at = %s "
                 "WHERE BINARY agent_id = BINARY %s AND BINARY policy_json = BINARY %s",
-                (json.dumps(document), utc_now().isoformat(), agent_id, raw["policy_json"]), fetch=False,
+                (json.dumps(policy.to_dict()), utc_now().isoformat(), agent_id, raw["policy_json"]), fetch=False,
             )
             if written:
                 return await self.get_public(agent_id)

@@ -4,6 +4,11 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+上一轮插入的脚本长度检查被编辑工具同时复制进了 `read_page`（那里不可达、提示也会误导），已删除；只有
+`run_script` 校验脚本长度。
+
 ## 2026-10-08（PR #410 review）
 
 `run_script` 先校验表达式长度（`MAX_SCRIPT_CHARS`）再等控制权；`decide` 不再传 turn/thread。

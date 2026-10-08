@@ -4,6 +4,10 @@ last_verified: 2026-10-08
 stub: false
 ---
 
+## 2026-10-08（PR #410 第二轮 review）
+
+新增：工具说明里的参数上限（字符数）必须等于 `limits` 常量，且不出现 KiB。
+
 ## 2026-10-08（PR #410 review）
 
 接口改为 `/api/browser/notices`；去掉 request_approval / 审批表断言。
