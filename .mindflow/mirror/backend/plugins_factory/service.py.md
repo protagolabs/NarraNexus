@@ -1,8 +1,27 @@
 ---
 code_file: backend/plugins_factory/service.py
-last_verified: 2026-09-08
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — builtin rows honor the ACTIVE distribution's `excludes`
+
+`_builtin_rows` used to compute `enabled` from `registry.json` `builtin_overrides` alone. A builtin the running
+distribution excludes (cloud: `builtin.browser`, `builtin.auth.local`, `builtin.nexus_plugins_module`) is never loaded and
+its routes are never mounted (`backend/main.py` mounts `/api/browser` only when `builtin.browser` registered), yet it was
+reported enabled, so the frontend kept its UI (Browser panel + `BrowserNotices` polling a 404 route -> red banner for every
+cloud user). Rows now carry `excluded: true` and `enabled: false` for those ids. The frontend drops the UI of every row that
+is not enabled, and `excluded` additionally overrides `protected` there.
+
+The distribution comes from `backend.plugins_boot.distribution()` (resolved once from `NARRANEXUS_DIST`, the same object
+`register_builtins_for_import` and the lifespan boot use) — not re-parsed. `FactoryService.resolve_distribution` is an optional
+seam that replaces it; tests inject it because the auth provider reads the process-wide one, and swapping that for the cloud
+distribution turns the local-mode HTTP fixture into NetMind-JWT 401s.
+
+`set_builtin_enabled` (both directions) and `install_builtin_deps` refuse an excluded builtin with `RegistryError` (HTTP 400):
+an override or a pip install for something the distribution never loads is a silent no-op that the UI would still report as
+done. Cloud keeps answering 403 first (`_guard_mutation`). Not guarded on purpose: `record_error` (an error log for an id the
+UI never loads is harmless) and the `narranexus` CLI's own offline toggle (writes an override that has no effect).
 
 ## 2026-09-08 — 退出安全模式同时清零三角色启动计数器
 

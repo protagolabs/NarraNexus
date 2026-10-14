@@ -212,3 +212,18 @@ it('a builtin whose on-demand dependencies are missing shows the reason and an i
   fireEvent.click(screen.getByText('Install dependencies (lark-oapi>=1.4.0,<2.0.0)'));
   await waitFor(() => expect(mocks.factoryBuiltinInstallDeps).toHaveBeenCalledWith('builtin.channels.lark'));
 });
+
+it('a builtin the distribution excludes is labelled as such and offers no enable/disable/install-deps control', async () => {
+  mocks.factoryList.mockResolvedValue(
+    listing({
+      builtins: [
+        { id: 'builtin.browser', display_name: 'Browser', description: '', version: '1.0.0', enabled: false, excluded: true, protected: false, hosts: ['backend'], provides: [], dependencies: {}, deps_missing: 'missing playwright' },
+      ],
+    }),
+  );
+  render(<PluginFactory />);
+  const card = await screen.findByTestId('builtin-builtin.browser');
+  expect(card).toHaveTextContent('not in this distribution');
+  expect(card.querySelector('button')).toBeNull();
+  expect(card).not.toHaveTextContent('dependencies missing');
+});

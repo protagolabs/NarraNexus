@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/settings/plugins/PluginFactory.tsx
-last_verified: 2026-09-07
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — builtin rows the distribution excludes
+
+A builtin row with `excluded: true` shows a neutral "not in this distribution" badge and no enable/disable/install-deps
+controls (the backend refuses them with 400 anyway; the button would only produce an error toast). New i18n key
+`pages.settings.plugins.factory.state.excluded` exists in all 10 locale files.
 
 ## 2026-09-07 — the disclosure survives a reload, and covers frontend-bundle risk too (I-12)
 

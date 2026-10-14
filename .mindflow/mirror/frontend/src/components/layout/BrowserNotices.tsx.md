@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/BrowserNotices.tsx
-last_verified: 2026-10-08
+last_verified: 2026-10-14
 stub: false
 ---
 
@@ -9,6 +9,14 @@ stub: false
 挂在 app shell，不在浏览器面板里：agent 是在**聊天**里说"请完成登录"的，而面板未必打开；
 请求若只在面板里出现，就是一个用户到不了的目的地（本功能里第三次犯同类错误后定下的位置）。
 它跟随用户当前在聊的 agent、显示在最上层：一个卡在登录上的 agent 否则看起来像挂了。
+
+## 2026-10-14 — no polling until the plugin boot pass has settled
+
+The Browser panel is registered unconditionally at import; only the factory listing (`loadPlugins` ->
+`disableBuiltinUi('builtin.browser')`) removes it where the distribution excludes the feature (cloud). `BrowserNotices` mounted
+and polled in the window before that pass finished, so a cloud user got a guaranteed 404 and the red "could not check for browser
+login requests" banner. It now also waits on `pluginsBootSettled()` (same external store `App.tsx` uses for plugin deep links).
+Gotcha: any test that renders `BrowserNotices` must settle a boot pass first (`loadPlugins` with a failing fetch is enough).
 
 ## 行为
 

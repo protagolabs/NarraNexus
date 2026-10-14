@@ -1524,6 +1524,8 @@ export interface FactoryBuiltin {
   description: string;
   version: string;
   enabled: boolean;
+  /** The running distribution leaves this builtin out: it is never loaded, so `enabled` is false and cannot be changed. */
+  excluded?: boolean;
   protected: boolean;
   hosts: string[];
   provides: string[];

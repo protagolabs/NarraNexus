@@ -1968,6 +1968,7 @@
             "blocked": "已阻止",
             "missing": "文件缺失",
             "deps_missing": "缺少依赖",
+            "excluded": "此发行版未包含",
             "crashed": "已崩溃",
             "disabled": "已停用",
             "slow": "过慢"

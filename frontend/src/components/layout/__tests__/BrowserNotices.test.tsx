@@ -28,7 +28,14 @@ vi.mock('@/stores', () => ({
 
 import { BrowserNotices } from '../BrowserNotices';
 import { PANELS, enableOwner } from '@/platform/registries';
-import { disableBuiltinUi } from '@/platform/loader';
+import { disableBuiltinUi, loadPlugins, pluginsBootSettled } from '@/platform/loader';
+
+vi.mock('@/stores/runtimeStore', () => ({ getApiBaseUrl: () => 'http://api' }));
+vi.mock('@/lib/authHeaders', () => ({ getAuthHeaders: () => ({}) }));
+
+// The shell only polls once the plugin boot pass has settled (see BrowserNotices); a failed
+// factory answer still settles it, which is all the other tests here need.
+const settledBoot = () => loadPlugins({ fetchImpl: vi.fn(async () => new Response('{}', { status: 500 })) as unknown as typeof fetch });
 
 const browserPanel = PANELS.get('browser')!;
 const browserOwner = PANELS.ownerOf('browser');
@@ -40,7 +47,8 @@ const login = {
 };
 type Notices = { pending: (typeof login)[] };
 
-beforeEach(() => {
+beforeEach(async () => {
+  await settledBoot();
   mocks.state.activeAgentId = 'agent_1';
   getBrowserNotices.mockReset();
 });
@@ -199,4 +207,38 @@ test('disabling the browser feature removes notices and stops polling', async ()
   expect(screen.queryByText(login.reason)).not.toBeInTheDocument();
   await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
   expect(getBrowserNotices).toHaveBeenCalledTimes(1);
+});
+
+test('it does not poll before the plugin boot settles, and never when the distribution excludes the browser', async () => {
+  // The cloud distribution excludes builtin.browser: the backend never mounts /api/browser, so a
+  // poll fired in the window before the factory listing removes the panel is a guaranteed 404.
+  const listing = deferred<Response>();
+  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  expect(pluginsBootSettled()).toBe(false);
+  render(shell());
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+
+  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
+    { id: 'builtin.browser', enabled: false, excluded: true, protected: false },
+  ] } }), { status: 200 }));
+  await act(async () => { await boot; });
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(PANELS.has('browser')).toBe(false);
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
+});
+
+test('it starts polling once the boot settles with the browser feature still enabled', async () => {
+  getBrowserNotices.mockResolvedValue({ pending: [] });
+  const listing = deferred<Response>();
+  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  render(shell());
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
+    { id: 'builtin.browser', enabled: true, excluded: false, protected: false },
+  ] } }), { status: 200 }));
+  await act(async () => { await boot; });
+  await waitFor(() => expect(getBrowserNotices).toHaveBeenCalledWith('agent_1'));
 });

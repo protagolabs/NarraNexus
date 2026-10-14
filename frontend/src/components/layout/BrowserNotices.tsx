@@ -11,7 +11,7 @@
  * everything: an agent blocked on a login it cannot complete itself otherwise
  * looks hung.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 
@@ -21,6 +21,7 @@ import type { BrowserLoginRequest } from '@/types/browser';
 import BrowserLoginNotice from './BrowserLoginNotice';
 import { Button } from '@/components/nm/button';
 import { PANELS, useRegistryEntries } from '@/platform/registries';
+import { pluginsBootSettled, subscribePluginsBoot } from '@/platform/loader';
 
 /** How often to ask. Requests are raised by an agent turn, not by this tab. */
 const POLL_MS = 2000;
@@ -28,8 +29,13 @@ const POLL_MS = 2000;
 export function BrowserNotices() {
   const agentId = useChatStore((s) => s.activeAgentId);
   const browserAvailable = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
+  // The Browser panel is registered unconditionally at import; only the factory listing
+  // (`loadPlugins`) removes it when the running distribution excludes the feature. Until that
+  // pass has settled the panel's presence proves nothing, and polling now would hit a route
+  // the backend never mounted (404 -> error banner).
+  const pluginsSettled = useSyncExternalStore(subscribePluginsBoot, pluginsBootSettled, pluginsBootSettled);
   // A different agent owns different requests and errors.
-  return agentId && browserAvailable ? <AgentBrowserNotices key={agentId} agentId={agentId} /> : null;
+  return agentId && browserAvailable && pluginsSettled ? <AgentBrowserNotices key={agentId} agentId={agentId} /> : null;
 }
 
 function AgentBrowserNotices({ agentId }: { agentId: string }) {

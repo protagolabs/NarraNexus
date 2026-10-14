@@ -92,6 +92,8 @@ export interface FactoryPluginRow {
 export interface FactoryBuiltinRow {
   id: string;
   enabled: boolean;
+  /** Left out by the running distribution (its routes/workers never exist): unlike a user-disabled row, `protected` does not shield it. */
+  excluded?: boolean;
   protected: boolean;
 }
 
@@ -372,7 +374,7 @@ async function loadPluginsInner(deps: LoaderDeps): Promise<FactoryPluginRow[]> {
       // panel/sidebar/command currently registered under it, bricking the whole shell. The
       // factory always reports this row enabled+protected, but this guard does not trust that.
       if (b.id === 'builtin.ui') continue;
-      if (!b.enabled && !b.protected) disableBuiltinUi(b.id);
+      if (b.excluded || (!b.enabled && !b.protected)) disableBuiltinUi(b.id);
     }
     rows = (body.data?.plugins ?? []).filter((r) => r.enabled && r.loaded && r.frontend);
   } catch (e) {

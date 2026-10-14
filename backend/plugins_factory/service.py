@@ -19,11 +19,12 @@ from collections import deque
 from loguru import logger
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from narranexus.hosts.boot import BootReport
 from narranexus.kernel.deployment import is_cloud_mode
 from narranexus.kernel.plugins.bisect import Bisect
+from narranexus.kernel.plugins.distribution import DistributionResolution
 from narranexus.kernel.plugins.install import Installer, InstallResult
 from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.install.installer import InstallError
@@ -62,6 +63,9 @@ class FactoryService:
     installer: Installer | None = None
     index: Index | None = None
     boot_report: BootReport | None = None
+    # Which distribution this process runs; ``None`` = the backend's own (``backend.plugins_boot.distribution``).
+    # A seam for tests: the auth provider reads the process-wide one, so patching it would swap the auth too.
+    resolve_distribution: Callable[[], DistributionResolution | None] | None = None
     _errors: dict[str, deque[UiError]] = field(default_factory=dict)
 
     # ------------------------------------------------------------ helpers
@@ -94,6 +98,20 @@ class FactoryService:
     def _guard_mutation() -> None:
         if is_cloud_mode():
             raise CloudManaged("plugins are managed by the platform in cloud mode")
+
+    def _excluded_builtins(self) -> frozenset[str]:
+        """Builtins the RUNNING distribution leaves out (never loaded, routes never mounted)."""
+        if self.resolve_distribution is not None:
+            res = self.resolve_distribution()
+        else:
+            from backend import plugins_boot
+
+            res = plugins_boot.distribution()
+        return frozenset(res.excluded) if res is not None else frozenset()
+
+    def _refuse_if_excluded(self, plugin_id: str) -> None:
+        if plugin_id in self._excluded_builtins():
+            raise RegistryError(f"{plugin_id} is excluded by this distribution and cannot be changed here")
 
     def _manifest_of(self, path: Path) -> Manifest | None:
         try:
@@ -164,6 +182,7 @@ class FactoryService:
         from narranexus.kernel.plugins.install.builtin_deps import is_on_demand
 
         deps_missing = dict(self.boot_report.deps_missing) if self.boot_report is not None else {}
+        excluded = self._excluded_builtins()
         rows = []
         for m in builtin_manifests():
             override = reg.builtin_overrides.get(m.id, {})
@@ -173,7 +192,10 @@ class FactoryService:
                     "display_name": m.display_name,
                     "description": m.description,
                     "version": m.version,
-                    "enabled": override.get("enabled", True) is not False,
+                    # An excluded builtin is not running at all, whatever registry.json says: the frontend
+                    # drops the UI of every row reported not enabled.
+                    "enabled": m.id not in excluded and override.get("enabled", True) is not False,
+                    "excluded": m.id in excluded,
                     "protected": bool(m.protected),
                     "hosts": list(m.hosts),
                     "provides": sorted(m.provides),
@@ -194,6 +216,7 @@ class FactoryService:
         manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
         if manifest is None:
             raise NotInstalled(f"{plugin_id} is not a builtin plugin")
+        self._refuse_if_excluded(plugin_id)
         if not is_on_demand(manifest):
             raise RegistryError(f"{plugin_id} has no on-demand dependencies")
         status = ensure_builtin_deps(manifest, cloud=False, runner=self._installer().runner)
@@ -211,6 +234,7 @@ class FactoryService:
         manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
         if manifest is None:
             raise NotInstalled(f"{plugin_id} is not a builtin plugin")
+        self._refuse_if_excluded(plugin_id)
         if manifest.protected and not enabled:
             raise RegistryError(f"{plugin_id} is protected and cannot be disabled")
         dependants = [m.id for m in builtin_manifests() if plugin_id in m.dependencies]

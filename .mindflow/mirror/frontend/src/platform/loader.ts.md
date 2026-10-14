@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — `excluded` builtin rows drop their UI even when protected
+
+`loadPlugins` calls `disableBuiltinUi` for a builtin row that is `excluded` (left out by the running distribution) as well as
+for the old "not enabled and not protected" case. `protected` only means "a user cannot switch this off"; it never meant a
+distribution that does not load the plugin still has its UI. `builtin.ui` stays skipped regardless.
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 
