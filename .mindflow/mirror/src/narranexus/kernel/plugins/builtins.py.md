@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/kernel/plugins/builtins.py
-last_verified: 2026-09-23
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — the builtin toggle rules live here, once
+
+`check_builtin_toggle(id, enabled, excluded=…)` is the single rule set for switching a builtin through `registry.json`
+`builtin_overrides`: `KeyError` for an unknown id, `RegistryError` for a builtin the running distribution excludes (never
+loaded: an override would be a silent no-op reported as done; wins over `protected`) and for disabling a protected one.
+`refuse_if_excluded` is the excluded half alone (on-demand dependency install). Callers: `backend/plugins_factory/service.py`
+(passes its `BootReport.excluded_builtins`, so the running backend never resolves twice) and `narranexus/cli/main.py`
+(`excluded=None` → `excluded_builtins_of_running_distribution()`, which `resolve_from_env`s `NARRANEXUS_DIST`; a broken
+distribution raises instead of returning "nothing excluded"). Add a new toggle rule here, not in a caller. The CLI still does
+not cascade a disable to dependants (the service does) — a known, separate gap.
 
 ## 2026-09-23 — 可选内置浏览器
 

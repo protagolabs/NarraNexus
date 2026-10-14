@@ -30,7 +30,7 @@ from narranexus.kernel.plugins.install.installer import InstallError
 from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryError, RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest, derive_activation_events, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
-from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+from narranexus.kernel.plugins.builtins import check_builtin_toggle, refuse_if_excluded, slot_tree_with_builtins
 
 ERROR_LOG_PLUGINS_LIMIT = 64  # distinct plugin ids that keep an in-memory error log
 ERROR_LOG_LIMIT = 50
@@ -110,8 +110,7 @@ class FactoryService:
         return frozenset(res.excluded) if res is not None else frozenset()
 
     def _refuse_if_excluded(self, plugin_id: str) -> None:
-        if plugin_id in self._excluded_builtins():
-            raise RegistryError(f"{plugin_id} is excluded by this distribution and cannot be changed here")
+        refuse_if_excluded(plugin_id, self._excluded_builtins())
 
     def _manifest_of(self, path: Path) -> Manifest | None:
         try:
@@ -231,13 +230,13 @@ class FactoryService:
         self._guard_mutation()
         from narranexus.kernel.plugins.builtins import builtin_manifests
 
-        manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
-        if manifest is None:
-            raise NotInstalled(f"{plugin_id} is not a builtin plugin")
-        self._refuse_if_excluded(plugin_id)
-        if manifest.protected and not enabled:
-            raise RegistryError(f"{plugin_id} is protected and cannot be disabled")
-        dependants = [m.id for m in builtin_manifests() if plugin_id in m.dependencies]
+        excluded = self._excluded_builtins()
+        try:
+            check_builtin_toggle(plugin_id, enabled, excluded=excluded)
+        except KeyError as exc:
+            raise NotInstalled(f"{plugin_id} is not a builtin plugin") from exc
+        # A dependant the distribution never loads gets no override and is not reported as also-disabled.
+        dependants = [m.id for m in builtin_manifests() if plugin_id in m.dependencies and m.id not in excluded]
 
         def _mutate(reg):
             if enabled:

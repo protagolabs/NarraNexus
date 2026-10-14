@@ -35,7 +35,7 @@ vi.mock('@/stores', () => ({
 import { BrowserNotices } from '../BrowserNotices';
 import { ApiError } from '@/lib/api';
 import { PANELS, enableOwner } from '@/platform/registries';
-import { disableBuiltinUi, loadPlugins, pluginsBootSettled } from '@/platform/loader';
+import { bootEverSettled, disableBuiltinUi, loadPlugins, pluginsBootSettled } from '@/platform/loader';
 
 vi.mock('@/stores/runtimeStore', () => ({ getApiBaseUrl: () => 'http://api' }));
 vi.mock('@/lib/authHeaders', () => ({ getAuthHeaders: () => ({}) }));
@@ -54,8 +54,11 @@ const login = {
 };
 type Notices = { pending: (typeof login)[] };
 
+// Name marker of the one test that must observe the file's FIRST boot pass unsettled (see below).
+const FIRST_PASS_TEST = 'first-pass';
+
 beforeEach(async () => {
-  await settledBoot();
+  if (!expect.getState().currentTestName?.includes(FIRST_PASS_TEST)) await settledBoot();
   mocks.state.activeAgentId = 'agent_1';
   getBrowserNotices.mockReset();
 });
@@ -79,6 +82,28 @@ function LocationProbe() {
 }
 
 const shell = () => <MemoryRouter><BrowserNotices /></MemoryRouter>;
+
+test(`${FIRST_PASS_TEST}: it does not poll before the first plugin boot settles, and never when the distribution excludes the browser`, async () => {
+  // The cloud distribution excludes builtin.browser: the backend never mounts /api/browser, so a
+  // poll fired in the window before the factory listing removes the panel is a guaranteed 404.
+  // Module state is per test file and `bootEverSettled` is monotonic, so this must be the first
+  // pass of the file; the top-level beforeEach skips its own settling for this test.
+  expect(bootEverSettled()).toBe(false);
+  const listing = deferred<Response>();
+  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  render(shell());
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+
+  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
+    { id: 'builtin.browser', enabled: false, excluded: true, protected: false },
+  ] } }), { status: 200 }));
+  await act(async () => { await boot; });
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(PANELS.has('browser')).toBe(false);
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
+});
 
 test('it polls for the agent the user is actually talking to', async () => {
   getBrowserNotices.mockResolvedValue({ pending: [] });
@@ -216,38 +241,23 @@ test('disabling the browser feature removes notices and stops polling', async ()
   expect(getBrowserNotices).toHaveBeenCalledTimes(1);
 });
 
-test('it does not poll before the plugin boot settles, and never when the distribution excludes the browser', async () => {
-  // The cloud distribution excludes builtin.browser: the backend never mounts /api/browser, so a
-  // poll fired in the window before the factory listing removes the panel is a guaranteed 404.
+test('a later loadPlugins pass (the login flip) does not unmount a live notice', async () => {
+  // `pluginsBootSettled()` goes false for every pass; gating on it would unmount and remount the
+  // poller (dropping the notice for a moment) each time. The gate is the monotonic bootEverSettled.
+  getBrowserNotices.mockResolvedValue({ pending: [login] });
+  render(shell());
+  await screen.findByText(login.reason);
+  const calls = getBrowserNotices.mock.calls.length;
   const listing = deferred<Response>();
-  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  const second = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
   expect(pluginsBootSettled()).toBe(false);
-  render(shell());
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-  expect(getBrowserNotices).not.toHaveBeenCalled();
-
-  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
-    { id: 'builtin.browser', enabled: false, excluded: true, protected: false },
-  ] } }), { status: 200 }));
-  await act(async () => { await boot; });
-  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-  expect(PANELS.has('browser')).toBe(false);
-  expect(getBrowserNotices).not.toHaveBeenCalled();
-  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
-});
-
-test('it starts polling once the boot settles with the browser feature still enabled', async () => {
-  getBrowserNotices.mockResolvedValue({ pending: [] });
-  const listing = deferred<Response>();
-  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
-  render(shell());
-  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-  expect(getBrowserNotices).not.toHaveBeenCalled();
-  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
-    { id: 'builtin.browser', enabled: true, excluded: false, protected: false },
-  ] } }), { status: 200 }));
-  await act(async () => { await boot; });
-  await waitFor(() => expect(getBrowserNotices).toHaveBeenCalledWith('agent_1'));
+  expect(screen.getByText(login.reason)).toBeInTheDocument();
+  // an unmount/remount would have asked again immediately
+  expect(getBrowserNotices.mock.calls.length).toBe(calls);
+  listing.resolve(new Response('{}', { status: 500 }));
+  await act(async () => { await second; });
+  expect(screen.getByText(login.reason)).toBeInTheDocument();
 });
 
 test('a 404 means the feature is absent on this server: no banner and polling stops', async () => {

@@ -326,3 +326,15 @@ def test_without_a_boot_report_the_process_distribution_decides(client, monkeypa
     assert rows["builtin.teams"]["excluded"] is False
     monkeypatch.setattr(plugins_boot, "distribution", lambda: None)
     assert {b["id"]: b for b in svc.list()["builtins"]}["builtin.browser"]["enabled"] is True
+
+
+def test_cascade_skips_dependants_the_distribution_excludes(client):
+    """A custom distribution may drop a dependant (teams) yet keep its dependency (message_bus): disabling the
+    dependency must not write a dead override for, or report as also-disabled, something that never loads."""
+    from narranexus.hosts.boot import BootReport
+
+    c, svc, home = client
+    svc.boot_report = BootReport(role="backend", distribution="acme.custom", excluded_builtins=("builtin.teams",))
+    r = c.post("/api/plugin-factory/builtin/builtin.message_bus/disable", headers=H)
+    assert r.status_code == 200 and r.json()["data"]["also_disabled"] == []
+    assert json.loads((home / "registry.json").read_text())["builtin_overrides"] == {"builtin.message_bus": {"enabled": False}}

@@ -58,8 +58,8 @@ it('lists builtin features; disable toggles through the builtin endpoint and pro
   mocks.factoryList.mockResolvedValue(
     listing({
       builtins: [
-        { id: 'builtin.teams', display_name: 'Teams', description: 'Agent teams', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: ['backend.routes', 'backend.workers'], dependencies: {} },
-        { id: 'builtin.nexus_plugins_module', display_name: 'Nexus Plugins', description: '', version: '1.0.0', enabled: true, protected: true, hosts: ['backend'], provides: [], dependencies: {} },
+        { id: 'builtin.teams', display_name: 'Teams', description: 'Agent teams', version: '1.0.0', enabled: true, excluded: false, protected: false, hosts: ['backend'], provides: ['backend.routes', 'backend.workers'], dependencies: {} },
+        { id: 'builtin.nexus_plugins_module', display_name: 'Nexus Plugins', description: '', version: '1.0.0', enabled: true, excluded: false, protected: true, hosts: ['backend'], provides: [], dependencies: {} },
       ],
     }),
   );
@@ -201,7 +201,7 @@ it('a builtin whose on-demand dependencies are missing shows the reason and an i
   mocks.factoryList.mockResolvedValue(
     listing({
       builtins: [
-        { id: 'builtin.channels.lark', display_name: 'Lark', description: '', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: [], dependencies: {}, on_demand: true, pip: ['lark-oapi>=1.4.0,<2.0.0'], deps_missing: 'missing lark_oapi; dependency install failed (rc=1)' },
+        { id: 'builtin.channels.lark', display_name: 'Lark', description: '', version: '1.0.0', enabled: true, excluded: false, protected: false, hosts: ['backend'], provides: [], dependencies: {}, on_demand: true, pip: ['lark-oapi>=1.4.0,<2.0.0'], deps_missing: 'missing lark_oapi; dependency install failed (rc=1)' },
       ],
     }),
   );

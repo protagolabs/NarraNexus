@@ -19,10 +19,13 @@ service (`boot_report`) — nothing is re-parsed. When no report exists yet the 
 than the process. Tests give the service a `BootReport` like they already do for `deps_missing`; there is no test-only seam
 (an earlier `resolve_distribution` field was dropped).
 
-`set_builtin_enabled` (both directions) and `install_builtin_deps` refuse an excluded builtin with `RegistryError` (HTTP 400):
-an override or a pip install for something the distribution never loads is a silent no-op that the UI would still report as
-done. Cloud keeps answering 403 first (`_guard_mutation`). Not guarded on purpose: `record_error` (an error log for an id the
-UI never loads is harmless) and the `narranexus` CLI's own offline toggle (writes an override that has no effect).
+`set_builtin_enabled` delegates the rules (unknown id, excluded by the distribution, protected) to the kernel's
+`check_builtin_toggle`, the same function the `narranexus` CLI calls, fed with this service's BootReport-derived excluded set —
+`_guard_mutation` still runs FIRST, so cloud answers 403 before any 400. `install_builtin_deps` uses `refuse_if_excluded`. A
+refusal is a `RegistryError` (HTTP 400): an override or pip install for something the distribution never loads is a silent no-op
+the UI would report as done. The disable cascade skips excluded dependants (no dead override, not listed in `also_disabled`);
+no shipped distribution can reach that today (their dependency edges are all-in or all-out), a custom one that drops
+`builtin.teams` but keeps `builtin.message_bus` does. Not guarded on purpose: `record_error` (an error log for an id the UI never loads is harmless).
 
 ## 2026-09-08 — 退出安全模式同时清零三角色启动计数器
 

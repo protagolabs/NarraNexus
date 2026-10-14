@@ -4,6 +4,14 @@ last_verified: 2026-10-14
 stub: false
 ---
 
+## 2026-10-14 — `bootEverSettled()` (monotonic) next to `pluginsBootSettled()`
+
+`pluginsBootSettled()` is false for every pass in flight (the login-flip pass resets it) — `App.tsx` needs exactly that to hold a
+plugin deep link during any pass. A component that only needs "the factory listing has been applied once" (`BrowserNotices`)
+would unmount and remount on every later pass if it used that one. `bootEverSettled()` flips to true with the first settle and
+never goes back; do not make `pluginsBootSettled()` monotonic. `FactoryBuiltinRow.excluded` is a required boolean: the backend
+always sends it and front/back ship together, so a missing field is a bug, not an old payload.
+
 ## 2026-10-14 — `excluded` builtin rows drop their UI even when protected
 
 `loadPlugins` calls `disableBuiltinUi` for a builtin row that is `excluded` (left out by the running distribution) as well as
