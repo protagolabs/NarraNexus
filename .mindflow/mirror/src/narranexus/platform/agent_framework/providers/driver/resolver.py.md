@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/resolver.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 review I3）— `_apply_agent_overrides` 用共享判据
+
+覆盖判据改为 [[model_identity]] 的 `config_override_wins(row)`（非空 provider_id 即胜出，
+行为不变）。它是全仓「per-agent 覆盖是否换掉 provider」的唯一定义，熔断器的收窄恢复、
+[[model_health]]、[[slot_service.py]] 的计数/概览都读它，改规则只改一处。
+
+## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
+
+`helper_llm` 槽走 CLI helper 的判定原先手写 `("oauth", "oauth_token")` 字面量，改为 import
+`narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
+运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
+（扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
 
 ## 2026-08-10 — source captured at the credential decision point
 

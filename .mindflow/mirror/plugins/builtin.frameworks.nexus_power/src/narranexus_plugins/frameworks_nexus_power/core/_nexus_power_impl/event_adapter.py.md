@@ -1,8 +1,24 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/event_adapter.py
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — `output_truncated` 映成 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`
+
+TYPE_ERROR 的 error_type 若是 loop 自己的 `ErrorType.OUTPUT_TRUNCATED`，不再折成 `invalid_request`，而是映成
+平台常量 `"output_budget_exhausted"`（[[runtime_message]]）；其余不在 `LEGACY_SAFE_ERROR_TYPES` 的类型照旧折叠。
+这是 [[circuit_breaker]] 豁免的结构化信号：只有 loop 自己构造 OUTPUT_TRUNCATED（provider 错误分类器不会产出它），
+所以调用方/provider 回显的文本无法伪造它。下游核过：`classify_self_serviceable` 对该类型返回 None、
+`_is_auth_failure` 不命中、`_fallback_skip_decision` 与原 `invalid_request` 同路径、前端无按 `invalid_request` 分支。
+
+## 2026-09-10（B-05/#127）— TYPE_ERROR 翻译透传框架自报的 `fatal`
+
+`response.error` 的 data 带 `"fatal": bool(payload.get("fatal", True))`，原样透传 loop.py `_fail()`
+的判定（[[loop]] 同日条目），本文件不做判断，契约正文见 [[response_processor]]。缺省 `True` 只是防御：
+`_fail` 今天总是显式设这个键。
+
+不带这个标记的后果：B-03 截断重试耗尽后的真失败，run 落 `state=completed` + 空回复 + 无 fatal 标记。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

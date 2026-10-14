@@ -1,8 +1,54 @@
 ---
 code_file: src/narranexus/platform/agent_framework/adapters/openai_agents.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09 — `json_schema` 档发送 OpenAI strict 兼容 schema（`build_strict_json_schema`）
+
+dev 日志 2026-08-25：helper 槽位切到 gpt-5.4-mini 后一天 104 次 400——`json_schema`
+档带 `strict: true` 却发的是裸 `model_json_schema()`：对象没有
+`additionalProperties: false`、带默认值的字段不在 `required` 里，OpenAI 的 strict 校验两条都拒。
+阶梯随即把 `json_schema` 记成不支持、全部落到 `json_object`，阶梯最想用的那一档在 strict
+provider 上永远到不了。
+
+修法是**一个接缝**而不是逐个模型加 `extra="forbid"`：`build_strict_json_schema(output_type)`
+= `agents.strict_schema.ensure_strict_json_schema(model_json_schema())`（openai-agents 的公开函数，
+与 openai SDK 给 `beta.chat.completions.parse` 用的改写同源：关闭每个对象、全字段 required、
+内联带兄弟键的 `$ref`、去掉 None 默认值；不用 openai 的私有模块，锁文件刷新不会变成启动
+ImportError）。**只有 `json_schema` 档发它**；system prompt 里的 schema 提示、`json_object` /
+纯 prompt 档仍是裸 Pydantic schema——带默认值的字段在那里依旧可省，弱模型不会被逼着编一个值，
+客户端解析对多余键也保持宽容（首轮 review I4：统一口径会悄悄改所有 provider 的提示语义；
+测试 `test_prompt_hint_keeps_the_raw_pydantic_schema` 与 `test_parse_stays_lenient_to_extra_keys_on_lower_rungs`
+钉住两端）。
+
+覆盖面：`tests/agent_framework/test_helper_strict_schema.py` 扫 `src/` 与 `plugins/*/src/`
+里所有 `output_type=<Model>` 调用点（当前 16 个模型），逐个断言 strict 合规；再用假 client
+断言实际发出的 `response_format` 是 `strict: true` + 改写后的 schema。
+
+**改写会抛、不是 400（2026-09-10 二轮 review C1）**：`ensure_strict_json_schema` 对已带
+`additionalProperties` 的对象节点（`dict[str, ...]` 字段、`extra="allow"`）直接
+`raise agents.exceptions.UserError`——本地构造期异常，不是 provider 拒绝，`_is_response_format_unsupported_error`
+认不出它。初版把 `build_strict_json_schema` 写在阶梯 list 的构建处（任何 try 之外），这类模型会在
+发出第一个请求前就把整次 helper 调用炸掉，`json_object` / 纯 prompt 两档根本走不到。仓内 16 个模型
+今天都干净，爆炸面是第三方 / marketplace / agent 自写插件经 `llm_function(output_type=...)` 传进来的
+模型。现在阶梯的每一档是**延迟构造**（`(level, build_extra)`），`build_extra()` 在循环内自己的
+try 里调：抛了就把该 `output_type` 记进 `_strict_rewrite_unsupported`（**按类型的限定名 + schema 指纹缓存**，键是
+`module.qualname#<sha256(sorted model_json_schema)[:16]>` 字符串而非类对象，免得把插件按次造的类钉在内存里；
+带指纹是复审 PR#392 M4：同模块两次 `create_model("Foo")` 形状不同时不再共用判决，形状相同仍合为一个键，
+`test_a_same_named_model_with_a_different_shape_keeps_the_strict_rung` 钉住；且只有
+`json_schema` 档的失败才入缓存，将来别的档位自带构造逻辑时不会顺手把 strict 档关掉；不是按
+`(base_url, model)`——失败是 schema 自身的性质，若记到模型能力集上，其余 16 个合规模型在同一模型上
+会一起被降到 `json_object`，正是 08-25 修复要够到的那档）、`logger.warning` + 审计事件
+`strict_schema_rewrite_rejected`（走既有 `_audit_framework_downgrade` 通道，不静默），然后 `continue`
+到 `json_object`。`_do_call` 那个 try 保持只处理网络/provider 错误，没有放宽。测试
+`test_rejected_strict_schema_degrades_to_json_object`（只发一次请求、落 `json_object`、审计一次、二次调用
+不重建）与 `test_rejected_output_type_does_not_demote_the_model_for_others`（同模型上 `ContinuityOutput`
+仍走 `json_schema`）钉住；把 try 去掉即红。
+
+`from agents.strict_schema import ensure_strict_json_schema` 挪进 `build_strict_json_schema` 函数体
+（二轮 review M2）：模块级 import 把整个 `agents` 包（~190 模块、实测 0.8s）拉进每个加载本适配器的进程
+（backend / MCP module server / worker），而本文件其余 `from agents import ...` 本来就都是调用期导入。
 
 ## 2026-09-07（批 1 三轮复审移植）— 空 slot 的旧行为如实记录
 

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/pages/settings/registerBuiltinSections.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 浏览器支持
+
+注册 BrowserSection，让工具返回的 settings/browser 安装入口在整页设置中确实可达。
+
+BrowserSection is owned by `builtin.browser`, not `builtin.ui`. The shared
+registry's disabled-owner guard also rejects this registration if the settings
+chunk is first loaded after the plugin was disabled. Removal hides the full-page
+settings entry, and a disabled `?tab=browser` link falls back to providers.
 
 ## 2026-09-03 — 在设置 chunk 内注册内置分区
 

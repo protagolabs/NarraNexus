@@ -66,19 +66,19 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
         {done ? (
           <>
             <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
-              Password updated
+              {t('pages.login.resetPasswordDone')}
             </h2>
             <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-              You can now sign in with your new password.
+              {t('pages.login.resetPasswordDoneBody')}
             </p>
             <Button variant="primary" onClick={onClose} className="w-full">
-              Back to sign in
+              {t('pages.login.backToSignIn')}
             </Button>
           </>
         ) : (
           <>
             <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
-              Reset password
+              {t('pages.login.resetPasswordTitle')}
             </h2>
             <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
               {codeSent
@@ -86,7 +86,7 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                 : t('pages.login.forgotResetIntro')}
             </p>
 
-            <FormField label="Email">
+            <FormField label={t('pages.login.emailLabel')}>
               <TextInput
                 type="email"
                 value={email}
@@ -109,20 +109,20 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                     {t('pages.login.useDifferentEmail')}
                   </button>
                 </div>
-                <FormField label="Verification code">
+                <FormField label={t('pages.login.verificationCodeLabel')}>
                   <TextInput
                     value={code}
-                    placeholder="Verification code"
+                    placeholder={t('pages.login.verificationCodeLabel')}
                     onChange={(e) => setCode(e.target.value)}
                     disabled={netmind.loading}
                     className="h-11"
                   />
                 </FormField>
-                <FormField label="New password">
+                <FormField label={t('pages.login.newPasswordLabel')}>
                   <TextInput
                     type="password"
                     value={newPassword}
-                    placeholder="New password"
+                    placeholder={t('pages.login.newPasswordLabel')}
                     onChange={(e) => setNewPassword(e.target.value)}
                     disabled={netmind.loading}
                     className="h-11"
@@ -165,7 +165,7 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                 disabled={netmind.loading}
                 className="flex-1"
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               {!codeSent ? (
                 <Button
@@ -175,7 +175,7 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                   loading={netmind.loading}
                   className="flex-1"
                 >
-                  Send code
+                  {t('pages.login.sendCode')}
                 </Button>
               ) : (
                 <Button
@@ -185,7 +185,7 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                   loading={netmind.loading}
                   className="flex-1"
                 >
-                  Reset password
+                  {t('pages.login.resetPasswordTitle')}
                 </Button>
               )}
             </div>

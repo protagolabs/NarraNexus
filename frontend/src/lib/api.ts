@@ -121,6 +121,14 @@ export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import type { CliStatusPayload, ProviderRow } from './providersApi';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import type {
+  BrowserInstallResult,
+  BrowserRuntimeStatus,
+  BrowserPolicyCapability,
+  BrowserPolicyRule,
+  BrowserPolicyView,
+  BrowserLoginRequest,
+} from '@/types/browser';
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
@@ -791,6 +799,57 @@ class ApiClient {
 
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
+  }
+
+  // In-app browser runtime. Routed through `request<T>` like everything else:
+  // a raw fetch() here misses the identity headers the local-mode middleware
+  // requires, and the 401 that produces is indistinguishable, in the UI, from
+  // "no browser installed" — which is exactly what shipped on 2026-09-22.
+  async getBrowserRuntime(): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>(`/api/browser/runtime`);
+  }
+
+  async setBrowserSource(source: 'managed' | 'system'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/source', {
+      method: 'PUT', body: JSON.stringify({ source }),
+    });
+  }
+
+  async setBrowserMode(mode: 'headless' | 'headed'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/mode', {
+      method: 'PUT', body: JSON.stringify({ mode }),
+    });
+  }
+
+  async installBrowserRuntime(): Promise<BrowserInstallResult> {
+    return this.request<BrowserInstallResult>(`/api/browser/runtime/install`, { method: 'POST' });
+  }
+
+  async cancelBrowserInstall(): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(`/api/browser/runtime/install/cancel`, { method: 'POST' });
+  }
+
+  async getBrowserPolicy(agentId: string): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`);
+  }
+
+  async updateBrowserPolicy(agentId: string, rule: BrowserPolicyRule): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`, {
+      method: 'PUT', body: JSON.stringify(rule),
+    });
+  }
+
+  async revokeBrowserPolicy(agentId: string, target: { origin: string; capability: BrowserPolicyCapability }): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}/revoke`, {
+      method: 'POST', body: JSON.stringify(target),
+    });
+  }
+
+  /** The agent's open login / verification requests (raised in the MCP host). */
+  async getBrowserNotices(agentId: string): Promise<{ pending: BrowserLoginRequest[] }> {
+    return this.request<{ pending: BrowserLoginRequest[] }>(
+      `/api/browser/notices/${encodeURIComponent(agentId)}`,
+    );
   }
 
   /** Liveness of the caller's own session. Does no database work server-side,
@@ -1646,11 +1705,6 @@ class ApiClient {
     data?: {
       agent_id: string;
       slots: Record<string, AgentSlotView>;
-      // While the owner's cloud free tier has budget, runs are pinned to the
-      // fixed system model and per-agent overrides are ignored (see backend
-      // ProviderResolver SYSTEM_OK branch). `active` lets the UI render an
-      // honest read-only model chip; `model` is what actually runs meanwhile.
-      free_tier?: { active: boolean; model: string | null };
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
@@ -1773,6 +1827,23 @@ class ApiClient {
     return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/schedule`, {
       method: 'PUT',
       body: JSON.stringify(fields),
+    });
+  }
+
+  /** Edit a job's content fields (title/description/payload) — the seam
+   *  route PUT /api/jobs/{job_id}, which mirrors the job_update MCP tool
+   *  exactly. Only send the changed fields; omitted fields (undefined) keep
+   *  their existing value server-side. `agentId` is the owning agent, used
+   *  for ownership scoping (assert_owned), not the job's own id. */
+  async updateJob(
+    jobId: string,
+    agentId: string,
+    fields: { title?: string; description?: string; payload?: string },
+  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string }> {
+    return this.request(`/api/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, ...fields }),
     });
   }
 

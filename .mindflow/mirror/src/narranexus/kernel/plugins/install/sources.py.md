@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/install/sources.py
-last_verified: 2026-09-07
+last_verified: 2026-09-09
 stub: false
 ---
 
@@ -18,3 +18,7 @@ _get streams and aborts the moment the body passes MAX_ASSET_BYTES (the old code
 ## 2026-09-07 — _http(): self-created clients are closed; 'owner/..' refused
 
 fetch() wraps _fetch() in _http(client): a caller's client is used as-is, a client of our own is closed on exit (they leaked before). _validate_repo refuses '.'/'..'/dot-leading segments (owner/.. rewrote the API path).
+
+## 2026-09-09 — extract_zip: corrupt archive → SourceError
+
+`zipfile.ZipFile(io.BytesIO(data))` on a truncated/corrupt release asset raised a bare BadZipFile — the only refusal in this module that was not a SourceError, so the install pipeline's classification and wording did not apply and the user saw a raw exception unrelated to the plugin source. Converted on the open (the extraction loop is unchanged); pinned by test_sources.py::test_a_corrupt_zip_is_a_source_error. Found by the B-30 `zipfile.ZipFile(` sweep (table in the skill_module mirror).

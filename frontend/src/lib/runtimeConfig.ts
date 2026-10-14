@@ -66,15 +66,32 @@ export function isForcedLocal(): boolean {
 const _str = (v: unknown): string =>
   typeof v === 'string' ? v.replace(/\/+$/, '') : '';
 
-// Compiled-in DEV defaults for NetMind endpoints. Desktop/Tauri and plain
-// `npm run dev` builds have no injected /config.js, so without a fallback they
-// could never offer Power login. These point at the protago-dev environment
-// (the same one dev-agent.narra.nexus uses). Precedence per field:
-//   injected /config.js  →  VITE_* build env  →  these dev defaults.
-// A forced-cloud PROD deploy's real /config.js values therefore always win.
+// Compiled-in fallbacks for NetMind endpoints, used per field only when
+// neither an injected /config.js nor a VITE_* build env supplies it.
+// Precedence per field:
+//   injected /config.js  →  VITE_* build env  →  fallback below.
+//
+// Which fallback depends on the kind of build, decided by vite itself:
+//   - `vite` dev server (import.meta.env.DEV): the protago-dev environment,
+//     so a developer's bare `npm run dev` reaches the dev NetMind stack.
+//   - `vite build` (DMG, cloud image): PROD NetMind. A shipped bundle must
+//     never silently fall back to the dev OAuth app — that is how a local
+//     "Sign in with GitHub" ended up on "Netmind AI Test" at
+//     accounts.protago-dev.com (B-40). The dev literals are dead code in a
+//     production build and are stripped from the bundle, which
+//     scripts/release/check_desktop_netmind_env.sh asserts for the DMG.
+// run.sh / dev-local.sh export explicit VITE_NETMIND_* (scripts/dev/
+// netmind_env.sh, PROD by default), so neither fallback applies there.
 const _DEV_NETMIND: NetmindConfig = {
   authApi: 'https://userauth.protago-dev.com',
   accountsUrl: 'https://accounts.protago-dev.com',
+  sysCode: 'f925fc2c',
+  registerUrl: 'https://www.netmind.ai/sign/register',
+};
+
+const _PROD_NETMIND: NetmindConfig = {
+  authApi: 'https://auth-api.netmind.ai',
+  accountsUrl: 'https://accounts.netmind.ai',
   sysCode: 'f925fc2c',
   registerUrl: 'https://www.netmind.ai/sign/register',
 };
@@ -104,17 +121,46 @@ function _viteNetmind(): Partial<NetmindConfig> {
   };
 }
 
+// The two endpoints a cloud stack MUST inject through /config.js. A cloud
+// image is built without any VITE_NETMIND_*, so an empty injected value
+// silently lands on the compiled-in fallback — PROD NetMind in a `vite
+// build`. That is right for the prod stack but breaks login on the dev
+// stack, whose backend validates tokens against protago-dev (PR#403 review
+// I2). The fallback cannot know which stack it is on, so a cloud deploy
+// that forgot to inject them says so loudly, once per missing key.
+const _CLOUD_REQUIRED_NETMIND: ReadonlyArray<[keyof NetmindConfig, string]> = [
+  ['authApi', 'NETMIND_AUTH_API_URL'],
+  ['accountsUrl', 'NETMIND_ACCOUNTS_URL'],
+];
+const _reportedUninjected = new Set<string>();
+
+function _reportUninjectedCloudNetmind(injected: Partial<NetmindConfig>): void {
+  if (!isForcedCloud()) return;
+  for (const [key, envName] of _CLOUD_REQUIRED_NETMIND) {
+    if (injected[key] || _reportedUninjected.has(key)) continue;
+    _reportedUninjected.add(key);
+    console.error(
+      `[runtimeConfig] cloud deploy did not inject NetMind "${key}" via ` +
+        `/config.js; using the compiled-in fallback. Set ${envName} in the ` +
+        'stack .env so the frontend and backend target the same NetMind.',
+    );
+  }
+}
+
 /**
  * NetMind endpoint config. Resolves each field with precedence
- * injected /config.js → VITE_* → compiled-in dev default, so a single built
- * bundle serves cloud (real values injected), desktop (VITE_* baked in), and
- * dev (`npm run dev`, dev defaults).
+ * injected /config.js → VITE_* → compiled-in fallback (protago-dev on the
+ * vite dev server, PROD NetMind in any `vite build` output), so a single
+ * built bundle serves cloud (real values injected), desktop (VITE_* baked
+ * in), and dev (`npm run dev`, dev defaults).
  */
 export function getNetmindConfig(): NetmindConfig {
   const injected = _injectedNetmind();
   const vite = _viteNetmind();
+  const fallback = import.meta.env.DEV ? _DEV_NETMIND : _PROD_NETMIND;
+  _reportUninjectedCloudNetmind(injected);
   const pick = (k: keyof NetmindConfig): string =>
-    injected[k] || vite[k] || _DEV_NETMIND[k];
+    injected[k] || vite[k] || fallback[k];
   return {
     authApi: pick('authApi'),
     accountsUrl: pick('accountsUrl'),
@@ -137,7 +183,7 @@ const _TRUTHY = new Set(['1', 'true', 'yes']);
  *   - a /config.js explicitly injected NetMind endpoints (a local-mode deploy
  *     that wired Power login without the build flag).
  *
- * NOT keyed on the compiled-in dev defaults alone — those provide endpoint
+ * NOT keyed on the compiled-in fallbacks alone — those provide endpoint
  * VALUES once Power login is enabled, not the availability decision.
  */
 export function isPowerLoginAvailable(): boolean {

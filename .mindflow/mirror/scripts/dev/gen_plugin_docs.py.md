@@ -1,8 +1,12 @@
 ---
 code_file: scripts/dev/gen_plugin_docs.py
-last_verified: 2026-09-07
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+host-api 内容注册表一行加入 `toolRenderers`；重新生成 slots/contributes/host-api 三份文档。
 
 ## 2026-09-03 — 从代码生成 `docs/plugins/slots.md`
 

@@ -1,8 +1,76 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — thinking / reasoning effort need a provider
+
+Same rule as Settings → Model Defaults: the thinking and reasoning-effort
+selects are disabled while the agent draft has no provider, and their labels
+are bound with `htmlFor` (ids from `useId`). Before, they were editable on an
+unbound slot and the save was refused with a provider/model message.
+
+## 2026-09-11 — helper failure after the agent slot saved says so
+
+Same class as ModelDefaultsSettings' partial save: `saveAll` writes the agent
+slot (framework included, one call) then the helper. A helper failure after the
+agent write used to show only the helper error with the agent still "dirty".
+Now `load(helperDraft)` reloads the agent half as saved, keeps the unsaved
+helper edit, calls `onSaved`, and shows `agentSavedHelperFailed`; a helper-only
+failure is the plain error. Pinned by
+`__tests__/AgentLlmConfigPanel.saveFeedback.test.tsx`.
+
+## 2026-09-11 — a soft-failed framework load is reported
+
+`GET /agent-framework` answering `success:false` (no throw) left no framework
+list and no user framework: the framework select rendered with zero options
+and no explanation (the provider list is empty too, since
+`providerBacksFramework` fails closed without the list). `load()` now sets the
+`loadFailed` error in that case. Pinned by
+`__tests__/AgentLlmConfigPanel.defaultFramework.test.tsx` (soft failure →
+error; normal load → none).
+
+## 2026-09-11 — no hardcoded framework fallback
+
+`EMPTY_DRAFT.agent_framework` is `''` and, when the agent has no owner slot
+bound, the draft's framework falls back to the backend-resolved user framework
+(`getAgentFramework().data.framework`, which already skips uninstalled plugins)
+instead of the literal `'nexus_power'`. The helper draft's fallback is `''`
+(the helper save never sends a framework). Pinned by
+`__tests__/AgentLlmConfigPanel.defaultFramework.test.tsx`.
+
+## 2026-09-11 — orphaned free-tier banner removed; "✓ Saved" after Save
+
+- The 2026-07-23 free-tier banner below is gone. The backend stopped
+  sending `data.free_tier` on 2026-07-28 (see [[agents_llm_config]];
+  `tests/backend/test_agents_llm_config_routes.py` asserts it is absent)
+  and the `chat.model.freeTierBanner` key was deleted from every locale
+  then, but this panel kept the `freeTier` state and the banner JSX. The
+  branch was unreachable, and had it ever rendered it would have shown a
+  raw key. The `free_tier` field is also dropped from
+  `api.getAgentLlmConfig`'s response type.
+- The "✓ Saved" indicator now sits after the Save button, the same
+  position ModelDefaultsSettings uses, so it no longer shifts Save when
+  it appears. The 2.5s auto-clear comes from the shared `useFlashFlag`
+  hook, the same one ModelDefaultsSettings uses: a second save within
+  2.5s restarts the countdown (the earlier timer no longer cuts the newer
+  confirmation short) and the pending timer is cleared on unmount.
+
+## 2026-09-09 — a successful Save now says so (GitHub #96)
+
+`saveAll`/`resetSlot` always reloaded silently on success — the dialog
+stays open by design (one Save button can write both slots, and closing
+after every partial edit would fight that), but nothing ever told the
+user a save actually landed. A failed save already rendered `error`;
+only the success path was mute, so a working Save looked identical to a
+click that did nothing. Added a `saved` flag (mirrors
+ModelDefaultsSettings' own "✓ Saved" indicator — same key
+`pages.settings.modelDefaults.saved`, same 2.5s auto-clear, same
+`saved && !isDirty` guard so it never coexists with a freshly-dirtied
+draft). Test: `__tests__/AgentLlmConfigPanel.saveFeedback.test.tsx`
+covers both the success confirmation and that a failure still shows the
+error instead of a false "Saved".
 
 ## 2026-09-07 — new `liveFrameworks` state feeds `providerBacksFramework`/`availableFrameworks` (B6, same change as ModelDefaultsSettings)
 
@@ -49,7 +117,7 @@ provider API，anthropic / openai 两族都能用，被单值过滤会砍掉一�
 改走 [[agentFramework]] 的 `frameworkAcceptsProtocol()`——CLI 型框架依旧只认
 自己 CLI 的那一种，行为不变。
 
-## 2026-07-23 — 免费额度生效诚实 banner
+## 2026-07-23 — 免费额度生效诚实 banner (removed 2026-09-11, see top)
 
 `load()` 读 `getAgentLlmConfig` 返回的 `data.free_tier`（[[api]]），`active` 为真时
 面板顶部渲染一条信息 banner（`chat.model.freeTierBanner`，插值当前系统模型名）：说明

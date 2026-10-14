@@ -54,6 +54,12 @@ echo "=== NarraNexus Desktop Build ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
+# NetMind ("Power") login endpoints are baked from THIS shell's env (vite
+# reads VITE_*, cargo reads the backend vars via option_env!). Refuse a
+# half-configured or non-prod set before spending ~20 minutes on a build that
+# would ship the protago-dev OAuth app. See check_desktop_netmind_env.sh.
+bash "$SCRIPT_DIR/check_desktop_netmind_env.sh" env
+
 # Step 0: Clean previous build artifacts
 echo "--- Step 0: Cleaning previous build ---"
 rm -rf "$PYTHON_DIR"
@@ -103,6 +109,9 @@ echo "--- Step 1: Building frontend ---"
 cd "$PROJECT_ROOT/frontend"
 npm ci
 npm run build
+# A production bundle must carry no protago-dev endpoint (runtimeConfig.ts
+# only compiles the dev fallback into `vite` dev-server builds).
+bash "$SCRIPT_DIR/check_desktop_netmind_env.sh" bundle "$PROJECT_ROOT/frontend/dist"
 echo "Frontend build complete"
 
 # Step 2: Download standalone Python

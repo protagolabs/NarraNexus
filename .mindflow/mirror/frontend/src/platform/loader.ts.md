@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-09-08
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+仅注释：SHELL_REGISTRIES 说明去掉写死的注册表数量（数字每加一个注册表就会说谎）。
 
 ## 2026-09-08（复审）— 并发 pass 计数 + 工场请求超时
 

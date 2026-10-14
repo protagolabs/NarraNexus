@@ -140,6 +140,11 @@ export default function UrlRenderer({ artifact }: Props) {
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
         />
       ) : (
+        // A URL tab is a SAVED ADDRESS, not "the page the agent is on right
+        // now". Those were briefly conflated here — the live stream panel was
+        // rendered in this branch — which hid this card's open-in-browser
+        // escape hatch and made a bookmark look like a live session. The live
+        // browser has its own home: the Browser panel on the rail.
         <FallbackCard
           title={doc.title}
           host={host}

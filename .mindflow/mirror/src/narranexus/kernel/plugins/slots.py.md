@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/kernel/plugins/slots.py
-last_verified: 2026-09-07
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+仅注释：ui 位注释由十七个注册表改为十八个（新增 tool renderers），无行为变化。
 
 ## 2026-09-07（四轮）— `agent.capabilities` doc 再更正
 

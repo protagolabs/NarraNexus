@@ -55,7 +55,38 @@ def estimate_message_tokens(messages: Sequence[dict]) -> int:
     (keys, quoting) — the safe direction for a clamp, since
     under-counting is what lets a request sail past the wall.
     """
-    return sum(len(str(m)) for m in messages) // _CHARS_PER_TOKEN
+    return projected_chars(messages) // _CHARS_PER_TOKEN
+
+
+#: Sizing stand-in for one image part. Base64 bytes are not text tokens;
+#: a capped browser screenshot costs roughly 1.1-1.6K visual tokens on
+#: current providers, so 4096 errs on the safe (over-counting) side.
+_IMAGE_TOKEN_ESTIMATE = 4096
+
+
+_IMAGE_STAND_IN = " " * (_IMAGE_TOKEN_ESTIMATE * _CHARS_PER_TOKEN)
+
+
+def _is_image_part(part: object) -> bool:
+    return isinstance(part, dict) and part.get("type") == "image_url"
+
+
+def projected_chars(messages: Sequence[dict]) -> int:
+    """Character-equivalent size of messages, counting each image part as
+    ``_IMAGE_TOKEN_ESTIMATE`` tokens instead of its base64 length.
+
+    Image parts only ever appear as items of a message's ``content`` list
+    (where the ledger and projector place them), so only those messages are
+    rebuilt; every other message is measured as before, without a copy —
+    this runs once per tool result on every compaction check of long turns.
+    """
+    total = 0
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list) and any(_is_image_part(part) for part in content):
+            message = {**message, "content": [_IMAGE_STAND_IN if _is_image_part(part) else part for part in content]}
+        total += len(str(message))
+    return total
 
 
 class ToolResultPruner:

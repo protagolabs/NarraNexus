@@ -402,6 +402,8 @@ class ChatModule(XYZBaseModule):
         )
         if combined:
             return combined
+        # Same marker persist_turn writes; the frontend's copy lives in
+        # frontend/src/lib/turnMarkers.ts (NO_RESPONSE_MARKER).
         return "(Agent decided no response needed)"
 
     def _split_user_visible_response(
@@ -1333,6 +1335,11 @@ class ChatModule(XYZBaseModule):
         # net — the first is extract_reply_text's blank guard, which
         # already keeps whitespace parts out of the split's join. Kept as
         # cross-layer defense in case a future extractor path regresses.
+        # Both marker strings are a cross-repo contract: the frontend keeps a
+        # byte-identical copy in frontend/src/lib/turnMarkers.ts, whose
+        # localizeTurnMarker maps them to localized labels by exact match. A
+        # wording change here must be made there too, or the UI silently
+        # falls back to showing the raw English marker.
         if not assistant_content.strip():
             assistant_content = (
                 "(Interrupted by user)"

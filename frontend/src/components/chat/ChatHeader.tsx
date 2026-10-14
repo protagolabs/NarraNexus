@@ -8,12 +8,18 @@
  * agent ring avatar + name, which together form ONE button that navigates to
  * the agent's profile page. Right: the Chat / Inner Thoughts segmented
  * toggle, entry icons for Jobs / Inbox / Artifacts (with live badges from
- * the bookmark registry), the cost popover, and a ⋯ detail menu listing the
- * remaining agent panels (Workspace / Channels / Skills / MCP / Smart Home).
+ * the bookmark registry), the cost popover, the Model & framework button
+ * (owner only) and a ⋯ detail menu listing the remaining agent panels
+ * (Workspace / Channels / Skills / MCP / Smart Home).
  *
- * Awareness, Network/Memory and Model & framework were dropped from that menu
- * (2026-08-27) — they are all reachable from the profile page now, so a second
- * door to the same rooms was pure duplication. The agent-switcher dropdown
+ * The Model & framework button is an OWNER-REQUIRED entry (2026-09-11): #383
+ * removed it as "reachable from the profile page", and the Owner could no
+ * longer find where to change an agent's framework. It opens the same
+ * AgentLlmConfigPanel the profile page and the sidebar row menu open — do
+ * not remove it as a duplicate door.
+ *
+ * Awareness and Network/Memory were dropped from the ⋯ menu (2026-08-27) —
+ * they are reachable from the profile page. The agent-switcher dropdown
  * that used to hang off the name is gone for the same reason: clicking the
  * name means "who is this", and switching agents belongs to the sidebar.
  *
@@ -26,8 +32,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { MoreVertical, ListTodo, Inbox, PanelLeft, Sparkles } from 'lucide-react';
+import { MoreVertical, ListTodo, Inbox, MonitorPlay, PanelLeft, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
+import { IconButton } from '@/components/nm/button';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
 import {
@@ -46,7 +53,7 @@ import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
-import { CHAT_HEADER_ACTIONS, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { CHAT_HEADER_ACTIONS, PANELS, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
 import { useWhenContext } from '@/platform/whenContext';
 
 /** Detail-menu layout: config panels only. Awareness and the Network/Memory
@@ -59,9 +66,10 @@ import { useWhenContext } from '@/platform/whenContext';
  *  rendered as a CONDITIONAL first item via `builderOffered`, i.e.
  *  `visibleTabs(ctx)` — the ONE place the `conditional` rule is applied,
  *  shared with the ⌘K palette. A permanent entry would offer a panel the
- *  conversation does not drive; but once the drawer's tab switcher retired,
- *  this menu is the desktop's only way back into a studio the user
- *  collapsed — without it, "collapse" would silently mean "end". */
+ *  conversation does not drive; but with the drawer closed this menu is
+ *  the desktop's way back into a studio the user collapsed (the drawer's
+ *  title switcher offers it too, via `visibleCategories`, while a drawer is
+ *  open) — without it, "collapse" would silently mean "end". */
 const DETAIL_GROUP_A: BuiltinTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 function tabDef(id: AtomicTabId) {
@@ -75,6 +83,10 @@ export interface ChatHeaderProps {
   currentSteps: Step[];
   chatTab: 'conversation' | 'inner';
   onChatTabChange: (tab: 'conversation' | 'inner') => void;
+  /** Opens the per-agent model & framework panel (AgentLlmConfigPanel).
+   *  Omitted → no button: the host passes it only to the agent's owner (the
+   *  llm-config routes 403 anyone else). */
+  onOpenAgentConfig?: () => void;
 }
 
 export function ChatHeader({
@@ -84,11 +96,13 @@ export function ChatHeader({
   currentSteps,
   chatTab,
   onChatTabChange,
+  onOpenAgentConfig,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
   const headerActions = visibleSlotEntries(useRegistryEntries(CHAT_HEADER_ACTIONS), useWhenContext({ conversationKind: 'chat', agentId }));
+  const browserOffered = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
   const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
 
   // `from: 'chat'` is what makes the profile's breadcrumb say "back to Chat"
@@ -240,9 +254,44 @@ export function ChatHeader({
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('rail.artifacts')}</TooltipContent>
           </Tooltip>
+          {browserOffered && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  label={t('rail.browser', 'Browser')}
+                  title={undefined}
+                  size="sm"
+                  appearance="plain"
+                  disabled={!agentId}
+                  onClick={() => openPanel('browser')}
+                  className={iconBtn}
+                >
+                  <MonitorPlay className="h-4 w-4" />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('rail.browser', 'Browser')}</TooltipContent>
+            </Tooltip>
+          )}
           <span data-help-id="chat.cost">
             <CostPopover />
           </span>
+
+          {/* Model & framework — Owner-required door (see file header). */}
+          {onOpenAgentConfig && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onOpenAgentConfig}
+                  aria-label={t('chat.header.modelFramework')}
+                  className={iconBtn}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('chat.header.modelFramework')}</TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Detail ⋯ menu — every agent panel, one door. */}
           <div ref={detailRef} className="relative">

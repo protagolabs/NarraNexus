@@ -95,6 +95,17 @@ def _stub_key_probe(monkeypatch):
     monkeypatch.setattr(provider_registry, "test_provider", _ok)
 
 
+@pytest.fixture(autouse=True)
+def _all_framework_plugins_installed(monkeypatch):
+    """The historical pairing assertions below (anthropic → claude_code,
+    openai → codex_cli) hold only where those plugins are installed. Pin that
+    explicitly so the file does not depend on which optional SDKs the test
+    venv happens to carry; the lightweight-build case overrides it."""
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: True)
+
+
 # =============================================================================
 # 1. Factory dispatch
 # =============================================================================
@@ -416,6 +427,27 @@ async def test_onboard_anthropic_key_wires_everything():
     assert config.slots["helper_llm"].model == "claude-haiku-4-5"
     assert await svc.get_user_agent_framework("u1") == "claude_code"
     assert not await svc.validate_slots("u1")    # all slots configured
+
+
+@pytest.mark.asyncio
+async def test_onboard_on_lightweight_build_lands_on_an_installed_framework(monkeypatch):
+    """Lightweight local build: no framework plugin installed. The first card
+    must not bind the user to Claude Code / Codex (every turn would raise
+    FrameworkNotInstalledError) — it lands on the host-shipped framework."""
+    from narranexus.platform.agent_framework import plugin_paths
+    from narranexus.platform.agent_framework.loop.driver import framework_installed
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: False)
+    for key in ("sk-ant-abc123", "sk-proj-abc123"):
+        db = _FakeDB()
+        svc = UserProviderService(db)
+        config, new_ids, meta = await svc.onboard_one_key("u1", key)
+
+        assert meta["agent_framework"] == "nexus_power"
+        assert framework_installed(meta["agent_framework"])
+        assert await svc.get_user_agent_framework("u1") == "nexus_power"
+        assert config.slots["agent"].provider_id == new_ids[0]
+        assert not await svc.validate_slots("u1")
 
 
 @pytest.mark.asyncio

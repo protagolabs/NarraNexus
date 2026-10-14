@@ -18,6 +18,7 @@ import {
   Inbox,
   ListTodo,
   LayoutDashboard,
+  MonitorPlay,
   Network,
   Puzzle,
   Radio,
@@ -29,7 +30,8 @@ import {
   Wand2,
 } from 'lucide-react';
 
-import { ARTIFACT_KINDS, CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR, type PanelDef } from '@/platform/registries';
+import { ARTIFACT_KINDS, CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR, TOOL_RENDERERS, type PanelDef } from '@/platform/registries';
+import { acceptsBrowserLookOutput } from '@/lib/browserLook';
 import { BUILTIN_ARTIFACT_KINDS } from '@/components/artifacts/kindRegistry';
 import type { BuiltinArtifactKind } from '@/types/artifact';
 import { ArtifactsGlyph } from '@/components/bookmarks/tabs';
@@ -37,6 +39,7 @@ import type { BuiltinTabId } from '@/components/bookmarks/builtinTabIds';
 import {
   ArtifactsTab,
   AwarenessTab,
+  BrowserTab,
   BuilderTab,
   ChannelsTab,
   InboxTab,
@@ -162,6 +165,17 @@ builtinPanel('channels', { component: ChannelsTab, strip: { label: 'Channels', l
 builtinPanel('smarthome', { component: SmartHomeTab, strip: { label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home, category: 'config', order: 50 } });
 builtinPanel('jobs', { component: JobsTab, strip: { label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo, category: 'activity', order: 10 } });
 builtinPanel('inbox', { component: InboxTab, strip: { label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox, category: 'activity', order: 20 } });
+// The live browser sits with the other activity panels: it is something the
+// agent is DOING right now, not a configuration surface.
+PANELS.register('browser', { component: BrowserTab, strip: { label: 'Browser', labelKey: 'rail.browser', icon: MonitorPlay, category: 'activity', order: 25 } }, { owner: 'builtin.browser' });
+// browser_look's output row: what the agent looked at, plus a way into the panel
+// above. Same owner, so disabling builtin.browser removes both. Lazy like every
+// other component here; the timeline shows the generic row until it loads. The
+// `accepts` check is a dependency-free parser, so it stays in the first chunk.
+TOOL_RENDERERS.register('browser_look', {
+  component: lazy(() => import('@/components/chat/BrowserLookOutput').then((m) => ({ default: m.BrowserLookOutput }))),
+  accepts: acceptsBrowserLookOutput,
+}, { owner: 'builtin.browser' });
 builtinPanel('artifacts', { component: ArtifactsTab, strip: { label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph, category: 'activity', order: 30 } });
 builtinPanel('memory', { component: MemoryTab, strip: { label: 'Memory', labelKey: 'rail.memory', icon: BookOpen, category: 'narra', order: 10 } });
 builtinPanel('social', { component: SocialTab, strip: { label: 'Social Network', labelKey: 'rail.social', icon: Network, stripLabel: 'Network', stripLabelKey: 'rail.socialShort', category: 'nexus', order: 10 } });

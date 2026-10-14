@@ -1,8 +1,45 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/background_run.py
-last_verified: 2026-08-24
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（GH #127 / B-05）— natural-end 的 `self.state` 也读 `had_fatal_error`
+
+Natural-end 分支原来无条件 `self.state = STATE_COMPLETED`。漏斗（`_fire_message_success`/
+`_fire_message_failure`）和熔断（`_record_circuit_breaker`）早就读 `self.recorder.had_fatal_error`，
+但**持久化的 `events.state`** 从没读过：致命错误（死 key、B-03 截断重试也救不回来）让生成器正常
+return，events 行照样落 `state=completed`、error_message 空。现在是
+`self.state = STATE_FAILED if self.recorder.had_fatal_error else STATE_COMPLETED`。
+
+`_record_circuit_breaker` 的「STATE_COMPLETED 且 had_fatal_error」分支从 `drive()` 已不可达（state 在它
+之前就转成 FAILED）；保留为防御并在 docstring 写明。熔断结果不变（这类 run 以前也记 failure）。
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 带上探测认领
+
+`RunRecorder` 构造时传 `agent_id` 与 `probe_token`：赢得探测的 WS/openai run 在 Step-0 拿到
+event_id 时由 recorder 绑定为认领者（`circuit_breaker.bind_probe_run`）。WS 先认领后建行，所以
+绑定只可能发生在这里。
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 不再转手导出活性规则
+
+`__all__` 去掉 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live`；本模块只从 [[run_liveness]] 导入自己用到的 `STATE_RUNNING`。websocket / auth
+改为直接从 `utils.run_liveness` 导入 `run_is_live`（与删除在同一 commit，否则 backend 起不来）。
+下方 2026-06-10 一节说的「上移到本文件」是历史：规则现在只住在 `utils/run_liveness.py`。
+
+## 2026-09-10（PR #394 review I1）— run 携带探测身份 `probe_token`
+
+`__init__` 新增 `probe_token: Optional[str] = None`：入口（[[websocket.py]]、
+[[openai_compat]]）在 `try_begin_probe` 赢得半开探测时把 token 交进来。
+`_record_circuit_breaker` 的三条结算全部带上它：失败 `record_failure(..., probe_token=)`、
+成功 `record_success(..., probe_token=)`、CANCELLED `release_probe(agent_id, probe_token)`。
+[[circuit_breaker]] 只让持 token 的 run 结算探测（token CAS）：普通 run 在别人持有探测时结束，
+既不能替它清 ACTIVE、也不能把它的失败算成探测结论；被取消的探测 run 按 token 归还，与该
+agent 还有没有别的存活 run 无关（旧的「无存活 run 才归还」代理判定会把行焊死在 PROBING）。
+`recorder.finalize` 仍先于这一步。锁：
+`test_background_run_circuit_breaker.py::test_every_settlement_carries_the_runs_probe_token`、
+`::test_only_the_claiming_run_settles_the_probe`（真熔断器）。
 
 ## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
 

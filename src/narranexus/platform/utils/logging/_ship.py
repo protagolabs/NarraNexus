@@ -44,7 +44,13 @@ Consent resolution (first match wins):
      consent design on exactly the single-tenant user runtime it was
      built for. Invalid/absent values fall through; ``off`` is not
      accepted (a deployment that wants silence sets NEXUS_DIAG_SHIP).
-  4. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
+  4. Cloud default: on a multi-tenant cloud deployment
+     (``is_cloud_mode()``) nothing ships unless layer 1 or 3 opted
+     in — no user there can hold the toggle (the settings PUT is 403),
+     so the built-in default below has no consent basis on that
+     surface. Our dev stack opts in with ``NEXUS_DIAG_SHIP=full``;
+     prod, which runs no collector, ships nothing.
+  5. Default: ``_DEFAULT_MODE`` = **meta** — the consent basis (the
      first-run disclosure + settings toggle) shipped in the same
      change that flipped this from off, never apart. meta (no INFO
      bodies) is the highest level the base disclosure copy honestly
@@ -52,7 +58,7 @@ Consent resolution (first match wins):
      that run full. Single-tenant surfaces (desktop, local, sprite
      sandboxes) show the toggle — sandboxes run full via the managed
      default and can still opt out; multi-tenant cloud is governed by
-     the deployment env instead.
+     the deployment env instead (layer 4).
 
   meta — AUDIT (25) and up: structured lifecycle events + warnings,
          no INFO bodies.
@@ -87,7 +93,9 @@ Ingest URL resolution (first match wins):
      The document is fetched LAZILY on the worker thread with a TTL
      cache — never at setup, so process start and test runs touch no
      network. Unresolvable discovery leaves the sink idle until the
-     next probe.
+     next probe; consecutive failed probes back off exponentially with
+     jitter (from 60s for 5xx/network, from the TTL for a definite
+     3xx/4xx/not-a-document answer) up to ``_BACKOFF_CAP_S``.
 
 No client secret: the repository is open source, so a baked or shared
 token authenticates nothing — the collector is a public endpoint
@@ -110,7 +118,9 @@ Delivery contract — never interfere with the process being observed:
   via the diagnostics endpoints. Failures report via ``sys.stderr``
   (never through loguru: a failing ship must not emit into itself).
 - Circuit breaker: ``_BREAKER_THRESHOLD`` consecutive TRANSIENT
-  failures OPEN it for ``_BREAKER_COOLDOWN_S`` — records drop at the
+  failures OPEN it for ``_BREAKER_COOLDOWN_S``, doubling (with jitter,
+  up to ``_BACKOFF_CAP_S``) on every re-open without a delivery in
+  between — records drop at the
   door instead of buffering (a dead collector must not become a memory
   leak: the enqueue queue is unbounded while the drain rate is floored
   at timeout×batch). After the cooldown the breaker goes HALF-OPEN:
@@ -139,6 +149,7 @@ import atexit
 import gzip
 import json
 import os
+import random
 import socket
 import sys
 import threading
@@ -149,7 +160,7 @@ from typing import Any, Optional
 
 import httpx
 
-from narranexus.platform.utils.deployment_mode import get_deployment_mode
+from narranexus.platform.utils.deployment_mode import get_deployment_mode, is_cloud_mode
 
 # Test seam, mirroring integrations/manyfold_outbound.
 _transport_for_tests: Optional[httpx.BaseTransport] = None
@@ -166,6 +177,16 @@ _BREAKER_COOLDOWN_S = 60.0
 _DISCOVERY_URL_DEFAULT = "https://agent.narra.nexus/telemetry/v1/config"
 _DISCOVERY_TTL_S = 3600.0
 _DISCOVERY_RETRY_S = 60.0
+# Every repeated failure (discovery probe or breaker re-open) doubles its
+# wait up to this cap, with jitter. A fixed 60s retry against a collector
+# that does not exist (prod has none: its /telemetry/v1/config answers
+# 502) cost ~1.4k requests per process per day; doubling to 6h costs ~15.
+# The price is recovery latency: a collector deployed during an outage is
+# picked up within one cap, which is fine for best-effort telemetry.
+_BACKOFF_CAP_S = 6 * 3600.0
+# Each delay is drawn from [(1 - jitter) * d, d] so a fleet of processes
+# that failed together does not re-probe in lockstep.
+_BACKOFF_JITTER = 0.25
 _OPTOUT_FILE = Path.home() / ".narranexus" / "telemetry_optout"
 
 
@@ -197,6 +218,15 @@ _DEFAULT_MODE = "meta"
 _ALLOWED_INGEST_SUFFIXES = ("narra.nexus",)
 
 _LIVE_SINKS: "weakref.WeakSet[ShipSink]" = weakref.WeakSet()
+
+
+def _backoff_delay(base_s: float, failures: int) -> float:
+    """Wait before the next attempt after ``failures`` consecutive
+    failures: ``base_s * 2**(failures - 1)``, capped at _BACKOFF_CAP_S,
+    then jittered downwards (never above the cap)."""
+    exponent = min(max(failures, 1) - 1, 32)
+    raw = min(_BACKOFF_CAP_S, base_s * (2 ** exponent))
+    return raw * random.uniform(1.0 - _BACKOFF_JITTER, 1.0)
 
 
 def _flush_all_at_exit() -> None:
@@ -237,6 +267,12 @@ def telemetry_consent() -> dict:
     managed = os.environ.get("NEXUS_DIAG_DEFAULT_SHIP", "").strip().lower()
     if managed in ("meta", "full"):
         return {"mode": managed, "source": "default"}
+    if is_cloud_mode():
+        # Multi-tenant cloud: no user can hold the consent toggle (the
+        # settings PUT is 403 there), so the built-in default does not
+        # apply — the deployment opts in via NEXUS_DIAG_SHIP or the
+        # managed default above, or nothing ships.
+        return {"mode": "off", "source": "default"}
     return {"mode": _DEFAULT_MODE, "source": "default"}
 
 
@@ -354,11 +390,15 @@ class ShipSink:
         self._cooldown_until = 0.0
         self._half_open = False
         self._dropped_in_cooldown = 0
+        # Consecutive breaker OPENs without a delivery in between; each
+        # one doubles the cooldown (reset by any collector answer).
+        self._breaker_trips = 0
         # Lazy discovery state: url resolves on the worker thread at
         # first send, refreshes on TTL, backs off between failed probes.
         self._resolved_url: Optional[str] = None
         self._url_expires = 0.0
         self._discovery_next = 0.0
+        self._discovery_failures = 0
         self._discovery_noted = False
         _LIVE_SINKS.add(self)
         # Periodic flusher so a quiet process still delivers its tail.
@@ -373,7 +413,8 @@ class ShipSink:
     def __call__(self, message: Any) -> None:
         try:
             if self._breaker_open():
-                self._dropped_in_cooldown += 1
+                with self._state_lock:
+                    self._dropped_in_cooldown += 1
                 return
             record = message.record
             entry = {
@@ -431,17 +472,20 @@ class ShipSink:
 
     def _open_breaker(self, reason: str) -> None:
         with self._state_lock:
-            self._cooldown_until = time.monotonic() + _BREAKER_COOLDOWN_S
+            self._breaker_trips += 1
+            cooldown = _backoff_delay(_BREAKER_COOLDOWN_S, self._breaker_trips)
+            self._cooldown_until = time.monotonic() + cooldown
             self._half_open = False
             self._fail_streak = 0
         with self._lock:
             dropped = len(self._buf)
             self._buf.clear()
             self._buf_bytes = 0
-        self._dropped_in_cooldown += dropped
+        with self._state_lock:
+            self._dropped_in_cooldown += dropped
         sys.stderr.write(
             f"[diag-ship] breaker OPEN ({reason}); dropping records for "
-            f"{_BREAKER_COOLDOWN_S:.0f}s (file log intact; recover via "
+            f"{cooldown:.0f}s (file log intact; recover via "
             f"diagnostics pull)\n"
         )
 
@@ -458,9 +502,11 @@ class ShipSink:
             )
         if breaker_holding:
             with self._lock:
-                self._dropped_in_cooldown += len(self._buf)
+                dropped = len(self._buf)
                 self._buf.clear()
                 self._buf_bytes = 0
+            with self._state_lock:
+                self._dropped_in_cooldown += dropped
             return
         with self._lock:
             if not self._buf:
@@ -476,19 +522,66 @@ class ShipSink:
         Runs only on the worker/timer threads (send path) — never at
         setup. Stale-if-error: a previously resolved URL outlives a
         failed refresh; with nothing resolved the batch is dropped
-        quietly until a probe succeeds."""
+        quietly until a probe succeeds.
+
+        Failed probes back off EXPONENTIALLY (see _backoff_delay) from a
+        base that depends on the answer: a 5xx or network error starts
+        at the short _DISCOVERY_RETRY_S (it may be transient), a
+        definite "nothing usable here" (3xx/4xx, a 200 that is not a
+        discovery document) starts at a full _DISCOVERY_TTL_S. Both
+        double per consecutive failure up to _BACKOFF_CAP_S; a
+        successful resolution resets the streak."""
         if self._config["url"]:
             return self._config["url"]
-        now = time.monotonic()
-        if self._resolved_url and now < self._url_expires:
-            return self._resolved_url
-        if now < self._discovery_next:
-            return self._resolved_url
-        self._discovery_next = now + _DISCOVERY_RETRY_S
+        # Claim the probe atomically: the sink's own timer thread and the
+        # loguru enqueue worker both reach here via flush(), and only one
+        # of them may spend a request. The HTTP GET itself runs OUTSIDE
+        # the lock so a 5s timeout never stalls the other thread.
+        with self._state_lock:
+            now = time.monotonic()
+            if self._resolved_url and now < self._url_expires:
+                return self._resolved_url
+            if now < self._discovery_next:
+                return self._resolved_url
+            # Provisional hold while this probe is in flight; overwritten
+            # with the real result below.
+            self._discovery_next = now + _DISCOVERY_RETRY_S
         discovery = (
             os.environ.get("NEXUS_DIAG_DISCOVERY_URL", "").strip()
             or _DISCOVERY_URL_DEFAULT
         )
+        url, retry_base = self._probe_discovery(discovery)
+        with self._state_lock:
+            if url:
+                self._resolved_url = url
+                self._url_expires = now + _DISCOVERY_TTL_S
+                self._discovery_next = 0.0
+                self._discovery_failures = 0
+                self._discovery_noted = False
+                return url
+            self._discovery_failures += 1
+            self._discovery_next = now + _backoff_delay(
+                retry_base, self._discovery_failures
+            )
+            first_note = not self._discovery_noted
+            self._discovery_noted = True
+            resolved = self._resolved_url
+        if first_note:
+            sys.stderr.write(
+                f"[diag-ship] telemetry discovery unresolved via {discovery}; "
+                f"batches dropped until it answers, re-probing with "
+                f"exponential backoff (file log intact)\n"
+            )
+        return resolved
+
+    def _probe_discovery(self, discovery: str) -> tuple[Optional[str], float]:
+        """One discovery GET (no shared state touched).
+
+        Returns (ingest_url, retry_base): the allowed ingest URL for this
+        env, or None plus the backoff base for the failure class."""
+        # Until proven otherwise a failure is transient (5xx, network,
+        # a disallowed URL); the branches below mark definite answers.
+        retry_base = _DISCOVERY_RETRY_S
         try:
             resp = self._client.get(discovery)
             if 300 <= resp.status_code < 500:
@@ -497,13 +590,9 @@ class ShipSink:
                 # DIAG_COLLECT_CONFIG_JSON, 401/403 = not for us, 3xx =
                 # a redirect we do not follow — our collectors serve the
                 # doc directly at 200) — same class as the not-a-
-                # document 200 below: the endpoint is reachable and
-                # telling us there is nothing usable, so back off a full
-                # TTL, not the 60s transient cadence. 5xx and network
-                # errors stay on the short retry (they ARE transient) —
-                # do not widen this to them.
-                self._discovery_next = now + _DISCOVERY_TTL_S
-                raise ValueError(f"discovery answered {resp.status_code}")
+                # document 200 below: back off from a full TTL, not the
+                # short transient base.
+                return None, _DISCOVERY_TTL_S
             if 200 <= resp.status_code < 300:
                 try:
                     document = resp.json()
@@ -516,19 +605,13 @@ class ShipSink:
                     # The endpoint ANSWERED but is not a discovery
                     # endpoint (e.g. an SPA fallback serving index.html
                     # with a 200): this deployment has no telemetry
-                    # service right now. Back off a full TTL instead of
-                    # the 60s network-retry cadence — a fleet of idle
-                    # installs must not beacon the vendor every minute
-                    # for a service that isn't there. Recovery after
-                    # ops deploys the document is within one TTL.
-                    self._discovery_next = now + _DISCOVERY_TTL_S
-                    raise ValueError("discovery document is not {'ingest': {...}}")
+                    # service right now — a fleet of idle installs must
+                    # not beacon the vendor every minute for a service
+                    # that isn't there.
+                    return None, _DISCOVERY_TTL_S
                 url = mapping.get(self._config["env"]) or mapping.get("default")
                 if url and _allowed_ingest_url(str(url)):
-                    self._resolved_url = str(url)
-                    self._url_expires = now + _DISCOVERY_TTL_S
-                    self._discovery_noted = False
-                    return self._resolved_url
+                    return str(url), retry_base
                 if url:
                     sys.stderr.write(
                         f"[diag-ship] discovery offered disallowed ingest "
@@ -536,13 +619,7 @@ class ShipSink:
                     )
         except Exception:  # noqa: BLE001 — discovery is best-effort
             pass
-        if not self._discovery_noted:
-            self._discovery_noted = True
-            sys.stderr.write(
-                f"[diag-ship] telemetry discovery unresolved via {discovery}; "
-                f"batches dropped until it answers (file log intact)\n"
-            )
-        return self._resolved_url
+        return None, retry_base
 
     def _send(self, lines: list[bytes]) -> None:
         # Consent is re-checked at the door on EVERY egress (one stat):
@@ -571,6 +648,7 @@ class ShipSink:
                 with self._state_lock:
                     self._fail_streak = 0
                     self._half_open = False
+                    self._breaker_trips = 0
                 return
             if 400 <= resp.status_code < 500:
                 # Permanent rejection (413 over-size, 401 misconfig):
@@ -581,6 +659,7 @@ class ShipSink:
                 with self._state_lock:
                     self._half_open = False
                     self._fail_streak = 0
+                    self._breaker_trips = 0
                 sys.stderr.write(
                     f"[diag-ship] batch rejected (HTTP {resp.status_code}); "
                     f"dropped without breaker accounting\n"

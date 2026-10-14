@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/schema/provider_schema.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `SUBSCRIPTION_AUTH_TYPES` 回到本文件（唯一定义）
+
+二轮 review I3：同名常量出现了三份（本仓 `framework_binding`、`api_config` 新硬写一份、之前 sdk.py 私有副本）。
+它不是「读框架注册表的绑定规则」，只是 `AuthType` 枚举值的子集（哪两种运输层带的是 CLI 订阅凭据：
+`oauth` / `oauth_token`），所以定义在 `AuthType` 旁边、由枚举值构造，**只此一份**：`framework_binding`
+import 后 re-export（`__all__` 不动，外部消费方照旧从那里拿）；`api_config`（并行工具上限）与 claude driver
+（transient-retry 门）直接从这里 import。前端 `lib/agentFramework.ts` 的手抄副本注释本来就指向本文件。
+模块 docstring 的「policy 都在 framework_binding」那句改成如实口径——本常量是明示的例外。
+`tests/agent_framework/test_claude_fanout_concurrency.py::test_subscription_set_has_exactly_one_definition`
+断言三个消费方拿到的是同一个对象。
 
 ## 2026-07-31 — `framework_can_drive_provider()`：订阅凭据 ↔ 框架的唯一真相源
 

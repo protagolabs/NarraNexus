@@ -22,7 +22,9 @@ import { useEffect, useRef } from 'react';
  * bubble phase and stopPropagation only shields WINDOW-level Escape
  * handlers (nm/modal) — other document-level handlers (Dialog,
  * SettingsModal, ArtifactZoomModal, BookmarkDrawer) still fire, so a
- * popover stacked inside one of those closes together with it. Making
+ * popover stacked inside one of those closes together with it — unless the
+ * outer layer owns the popover's open state and skips its own Escape while
+ * it is open (BookmarkDrawer does this for its title switcher only). Making
  * "topmost wins" true across the app needs a shared popover stack, not a
  * per-hook flag. Clicks that land inside a cross-origin iframe never reach
  * the document, so a window `blur` with focus moving to an IFRAME

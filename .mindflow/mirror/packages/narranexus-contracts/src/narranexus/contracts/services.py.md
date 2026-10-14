@@ -1,8 +1,14 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/services.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 I-B）— 新 ServiceRef `JOB_RESUME_FOR_PRINCIPAL`（`jobs.resume_for_principal`）
+
+类型 `async (db, user_id, paused_reasons: Iterable[str]) -> int`，由 builtin.job 提供：解封账户时恢复
+封号暂停的 job。放在 contracts 而非 kernel 的理由同上（ref 是契约数据）；`__all__` 同步导出。
+
 
 ## 2026-09-07（批 1 四轮复审移植）— `SecretStore` 来源改口；返回标注也钉住
 

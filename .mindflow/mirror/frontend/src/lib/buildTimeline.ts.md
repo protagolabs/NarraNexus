@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-09-08
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — no-response marker comes from turnMarkers
+
+The non-chat junk filter compares `msg.content === NO_RESPONSE_MARKER`
+(imported from [[turnMarkers]]) instead of repeating the literal. Still an
+exact, language-independent comparison: the marker is the persisted
+English string, localized only by `MessageBubble` at render time.
 
 ## 2026-09-08（dev 实测）— 折叠问候按身份去重
 

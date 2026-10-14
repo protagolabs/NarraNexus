@@ -351,10 +351,11 @@ async def test_the_same_content_dropped_again_is_recognised_by_fingerprint(db_cl
 
 @pytest.mark.asyncio
 async def test_pre_flight_never_calls_the_turn_gate(db_client, monkeypatch):
-    """`should_skip` is the TURN gate and is allowed side effects (claiming a
-    half-open probe). The send-side receipt must use the read-only
-    `peek_skip`, or every DM to a paused recipient would consume the one
-    probe that lets it recover."""
+    """`should_skip` is the TURN gate: a pure read whose "not skipped" answer
+    sends the caller on to `try_begin_probe`, which consumes the half-open
+    probe. The send-side receipt must use the read-only `peek_skip` and
+    never the turn path, or every DM to a paused recipient would consume
+    the one probe that lets it recover."""
     from narranexus.platform.agent_framework.loop import circuit_breaker as cb
 
     _patch_db(monkeypatch, db_client)

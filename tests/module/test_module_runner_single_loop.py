@@ -342,3 +342,235 @@ def test_module_urls_point_at_the_single_host(monkeypatch):
     assert mcp_server_url("chat_module") == "http://mcp:7801/mcp/chat_module/sse"
     monkeypatch.setenv("MCP_BASE_URL", "https://edge.example/mcp-host/")
     assert mcp_server_url("job_module") == "https://edge.example/mcp-host/mcp/job_module/sse"
+
+
+@pytest.mark.asyncio
+async def test_sigterm_closes_the_db_pool_it_opened(monkeypatch, fake_uvicorn):
+    """B-41: in local/direct-MySQL mode this process is the one that opened
+    the pool (`get_db_client()`, bound to THIS loop — aiomysql binds its
+    Futures to the creating loop). Without closing it before returning,
+    `asyncio.run()` tears the loop down with the pool still open; aiomysql's
+    connections are then finalized by GC after the loop is already closed,
+    logging "Event loop is closed" once per leaked connection (dev logs).
+    """
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+
+    close_calls = {"n": 0}
+
+    async def _fake_close_db_client():
+        close_calls["n"] += 1
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+    loop = asyncio.get_running_loop()
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, cb, *a: registered.__setitem__(sig, cb))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: True)
+
+    async def _fire_sigterm_once_ready():
+        for _ in range(500):
+            if signal.SIGTERM in registered and len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        registered[signal.SIGTERM]()
+
+    fire_task = asyncio.create_task(_fire_sigterm_once_ready())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await fire_task
+
+    assert close_calls["n"] == 1, "the pool this process opened must be closed on the SAME loop before shutdown returns"
+
+
+@pytest.mark.asyncio
+async def test_sigterm_does_not_close_a_pool_it_never_opened(monkeypatch, fake_uvicorn):
+    """The seam/HttpStore (creds-free) mode never opens a pool
+    (`test_async_runner_is_credfree_when_seam_is_httpstore`) — shutdown must
+    not call close_db_client() in that mode either, since doing so would
+    reach for a per-loop client this process never created."""
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+
+    async def _boom_db():
+        raise AssertionError("get_db_client must not run in seam/HttpStore mode")
+
+    async def _boom_migrate(_backend):
+        raise AssertionError("auto_migrate must not run in seam/HttpStore mode")
+
+    monkeypatch.setattr("narranexus.platform.module_system.module_runner.get_db_client", _boom_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    monkeypatch.setenv("NARRANEXUS_BACKEND_URL", "http://backend:8000")
+    monkeypatch.setattr("narranexus.platform.module_system.plugins_boot.boot_mcp_plugins", lambda: None)
+
+    close_calls = {"n": 0}
+
+    async def _fake_close_db_client():
+        close_calls["n"] += 1
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+    loop = asyncio.get_running_loop()
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, cb, *a: registered.__setitem__(sig, cb))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: True)
+
+    async def _fire_sigterm_once_ready():
+        for _ in range(500):
+            if signal.SIGTERM in registered and len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        registered[signal.SIGTERM]()
+
+    fire_task = asyncio.create_task(_fire_sigterm_once_ready())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await fire_task
+
+    assert close_calls["n"] == 0
+
+
+# ── every exit after the pool opens releases it (review I5), and detached ──
+# ── work is joined BEFORE the pool closes (review M5) ─────────────────────
+
+
+def _record_close(monkeypatch, log: list):
+    async def _fake_close_db_client():
+        log.append("closed")
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.module_runner.close_db_client", _fake_close_db_client
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_no_servers_early_return_still_closes_the_pool(monkeypatch, fake_uvicorn):
+    """The first version closed the pool only in serve()'s finally; the
+    `if not instances: return` exit sits BEFORE that block and left the pool
+    open — the start-up-failure log (the one you most need to read) still got
+    the 11 "Event loop is closed" lines."""
+    runner = ModuleRunner()
+
+    class _NoServerModule:
+        def __init__(self, agent_id, user_id, database_client):
+            pass
+
+        def build_instrumented_mcp_server(self):
+            return None
+
+        async def mcp_server(self):
+            return None
+
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_NoServerModule])
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=[_NoServerModule]), timeout=5.0)
+
+    assert log == ["closed"]
+    assert fake_uvicorn.instances == [], "nothing to serve — no host must start"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_auto_migrate_still_closes_the_pool_and_propagates(monkeypatch, fake_uvicorn):
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+
+    async def _boom_migrate(_backend):
+        raise RuntimeError("DDL grant missing")
+
+    monkeypatch.setattr("narranexus.platform.utils.db.schema_registry.auto_migrate", _boom_migrate)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    with pytest.raises(RuntimeError, match="DDL grant missing"):
+        await runner.run_mcp_servers_async(modules=modules)
+
+    assert log == ["closed"]
+
+
+@pytest.mark.asyncio
+async def test_detached_work_is_joined_before_the_pool_closes(monkeypatch, fake_uvicorn):
+    """`spawn`ed work (a hook starting a run, a dataloader flush) that is still
+    in flight when the pool closes hits `_backend=None`. The sibling
+    entrypoints stop their workers FIRST and close the pool LAST; this host
+    must keep the same order."""
+    from narranexus.platform.utils import spawn
+
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    async def _detached_work():
+        await asyncio.sleep(0.05)
+        log.append("task_done")
+
+    async def _spawn_then_stop():
+        for _ in range(500):
+            if len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        spawn(_detached_work(), name="test-detached-work")
+        fake_uvicorn.release.set()
+
+    stopper = asyncio.create_task(_spawn_then_stop())
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await stopper
+
+    assert log == ["task_done", "closed"]
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_detached_task_still_leaves_time_to_close_the_pool(monkeypatch, fake_uvicorn):
+    """The drain is bounded BELOW the tightest stop grace (Tauri: 3s SIGTERM ->
+    SIGKILL; Docker default: 10s). A drain that uses the whole grace gets the
+    process SIGKILLed before `close_db_client()` -- the in-flight-work case is
+    exactly the one this shutdown order exists for. A task that never finishes
+    must be cancelled and the pool closed, all inside the grace."""
+    import time
+
+    from narranexus.platform.module_system import module_runner as mr
+    from narranexus.platform.utils import spawn
+
+    runner = ModuleRunner()
+    modules = [_module_class(_FakeMCPServer(), "solo_module")]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    _stub_db(monkeypatch)
+    log: list = []
+    _record_close(monkeypatch, log)
+
+    async def _wedged_work():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            log.append("task_cancelled")
+            raise
+
+    async def _spawn_then_stop():
+        for _ in range(500):
+            if len(fake_uvicorn.instances) == 1:
+                break
+            await asyncio.sleep(0.005)
+        spawn(_wedged_work(), name="test-wedged-work")
+        fake_uvicorn.release.set()
+
+    stopper = asyncio.create_task(_spawn_then_stop())
+    started = time.monotonic()
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=15.0)
+    elapsed = time.monotonic() - started
+    await stopper
+
+    assert log == ["task_cancelled", "closed"]
+    assert mr._BACKGROUND_DRAIN_SEC + mr._POOL_CLOSE_HEADROOM_SEC <= mr._STOP_GRACE_BUDGET_SEC
+    assert elapsed < mr._STOP_GRACE_BUDGET_SEC

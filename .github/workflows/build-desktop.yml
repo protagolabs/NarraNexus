@@ -164,13 +164,17 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # NetMind ("Power") account login in the shipped DMG. All wired to repo
-          # Variables (Settings → Variables): UNSET → empty → Power login stays
-          # OFF, so a default release is pure-local (username-only). Set them to
-          # ship a Power-enabled DMG — point at PROD NetMind for a public release
-          # (NOT protago-dev). The frontend VITE_* are baked by vite here; the
-          # backend vars are baked into the launcher via option_env! (both read
-          # from this step's env). VITE_NETMIND_* fall back to compiled dev
-          # defaults if left empty, so set them explicitly for a prod release.
+          # Variables (Settings → Variables), pointing at PROD NetMind. The
+          # frontend VITE_* are baked by vite here; the backend vars are baked
+          # into the launcher via option_env! (both read from this step's env).
+          # scripts/release/check_desktop_netmind_env.sh runs first inside the
+          # script and fails the build on a missing, mismatched, or non-prod
+          # (protago-dev, test.*) value, then scans the built frontend for any
+          # protago-dev reference. On a tag (a public release) Power login is
+          # REQUIRED: if the Variables vanish the release goes red instead of
+          # silently shipping without Power login. A workflow_dispatch test
+          # build may leave them unset (pure-local, username-only).
+          NARRANEXUS_REQUIRE_POWER_LOGIN: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || '' }}
           VITE_ENABLE_POWER_LOGIN: ${{ vars.VITE_ENABLE_POWER_LOGIN }}
           VITE_NETMIND_AUTH_API: ${{ vars.VITE_NETMIND_AUTH_API }}
           VITE_NETMIND_ACCOUNTS_URL: ${{ vars.VITE_NETMIND_ACCOUNTS_URL }}

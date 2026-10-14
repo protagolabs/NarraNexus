@@ -149,7 +149,7 @@ def test_team_prompt_shows_history_from_others_and_points_at_trigger():
     assert "use Read tool" in prompt
     assert "report.pdf" in prompt
     # And Bob is told to respond to Alice's @mention.
-    assert "just @mentioned by Alice" in prompt
+    assert 'just @mentioned by "Alice"' in prompt
 
 
 def test_team_prompt_allows_action_tools_and_names_the_send_verb():

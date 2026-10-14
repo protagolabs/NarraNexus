@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/pages/AgentProfilePage.tsx
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — rename report + delete moved into `useAgentActions` (shared with the sidebar)
+
+The sidebar agent row's ⋯ menu is back (Owner-required), so this page is no
+longer the only door for rename / delete. `warnAboutUpdateSideEffects` and the
+confirm → `api.deleteAgent` → refresh → `clearAgent` → re-point-active sequence
+now come from [[../hooks/useAgentActions]] (called right after `useConfirm`,
+before the early returns — rules of hooks), using this page's own confirm
+host. `handleDeleteAgent` keeps the `deleting` flag and navigates to
+`/app/dashboard` when the hook reports `deleted`. Behaviour is unchanged
+(this page makes its agent the active one on mount, so the hook's
+"re-point only if active" branch always fires here). Clear data stays
+page-only; the header-kebab and clear-data comments were corrected to say so.
+New test: Delete confirms, calls `api.deleteAgent`, clears the session and
+lands on the Dashboard.
 
 ## 2026-09-04 — framework 标签/图标改走 `lib/frameworkBrand`
 

@@ -1,8 +1,40 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/output_transfer.py
-last_verified: 2026-09-03
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`_stringify_tool_result_content` 与 codex `mcp_tool_call` 输出不再内联图片 base64：图片块（Claude SDK 的
+`source.media_type/data` 与 MCP 的 `mimeType/data` 两种形状）替换为 `{type, mime_type, base64_chars}`。
+模型已原生收到图片；这里的字符串去往前端工具卡片、数据库和后续轮次的历史回放，内联几 MB base64 会同时
+撑爆存储、WS 和下一轮上下文。已用真实 Claude Code 2.1.281 的 tool_result 块验证形状。
+
+## 2026-09-10 — `unknown` 不再判 False，改为无判决（PR#392 复审 M3）
+
+claude 内联错误事件在 `cli_error_self_serviceable(enum)` 为 None（`unknown`）时**不写** `self_serviceable` 键，
+与契约「只有会分类才带」一致；True/False 照旧写。测试 `test_output_transfer_inline_error_carries_the_flag`（`unknown` → 键缺席）。
+
+## 2026-09-09 — claude 内联错误事件带 `self_serviceable`
+
+`_convert_assistant_to_stream_events` 在 `AssistantMessage.error` 分支构造的 `response.error`
+多一个 `self_serviceable`（`contracts.agent_events.cli_error_self_serviceable(enum)`）。这是
+sdk.py 没有 stderr / 正文可折叠时走到的那条路，与 sdk.py 自己的两个构造器口径一致——三处都按
+枚举判，缺一处前端就会在同一类错误上时有时无。
+## 2026-09-10（B-05/B-07/#127）— codex `turn/completed(status=failed)` 带 `fatal`（默认 `True`）
+
+`_codex_official_to_openai_agents` 的 `turn/completed` 分支：`status=="failed"` 是 SDK 的终局判决，
+之后这个 turn 不会再有流。错误帧带 `"fatal": True`——但这只是**没有 turn 上下文时的保守默认**：
+本函数逐条翻译通知，不知道这个 turn 之前有没有流出过正文。`fatal` 的契约是「终局 **且** 本 turn
+未交付任何输出」（[[response_processor]]），真正的值由调用方
+`official_sdk._translate_and_track_delivery` 按 `turn_had_message` 覆写（[[official_sdk]] 同日条目）。
+直接消费本函数输出而不做覆写的调用方会得到保守的 `True`。
+
+**没有动的姊妹分支**：独立的 `method == "error"` 通知（非 `will_retry`）不带这个键——它不是生命周期
+通知，之后是否还有 `turn/completed` 跟进不确定，打 fatal 有误判风险。claude_code sdk.py 的
+`_zero_output_error_event` 也未动：外层有 retry/supersede 机制（`DATA_TYPE_DONE_SUPERSEDED_KEY`），
+要先读懂那套重试语义。
 
 ## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
 

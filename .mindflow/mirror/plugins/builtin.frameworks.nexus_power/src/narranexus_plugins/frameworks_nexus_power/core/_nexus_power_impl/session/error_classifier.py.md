@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/session/error_classifier.py
-last_verified: 2026-07-31
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+新增 `_IMAGE_REJECTION_MESSAGE_MARKERS`，在类名表之前匹配（包装同样是普通 BadRequestError）。每个标记都
+显式点名 image/vision/multimodal（OpenAI「image_url is only supported」、DeepSeek「unknown variant
+`image_url`」、vLLM「is not a multimodal model」等），普通 400 不会被误判。retryable=False：它是确定性
+错误，唯一的重试是 loop 的一次性撤图修复。
 
 ## 2026-07-31（当天二改）— PREFILL_REJECTED 是 retryable
 

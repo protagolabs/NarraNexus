@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/providersApi.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `CliStatusPayload.expired?`
+
+两条 status 路由（`/claude-status` 自 B-25 起、`/codex-status` 自 2026-06-11 起）都在发
+`expired`，类型里一直没有——三个月的死字段。可选，因为路由早于它、测试 mock 不带它。
+唯一消费者 [[../components/settings/SubscriptionConnect.tsx]] 的 `CliStatusLine` 三态。
 
 ## 2026-09-03 — `ProviderRow.auto_provisioned`
 

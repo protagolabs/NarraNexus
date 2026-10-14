@@ -75,6 +75,13 @@ docstring 教模型：一次放不下就按序分块发（同 count、从 1 开�
 后续状态（processed/relayed/silent/failed/dropped）由收件方 trigger 写，见
 [[message_bus_trigger]]。锁：`tests/message_bus/test_delivery_receipts.py`。
 
+## 2026-09-09 — `message_agent` / `team_share_file` 的 docstring 对齐共享区实现（B-22 复审 M4）
+
+B-22 让 `att_` ref 在发送方自己的 store miss 时回退到 owner 的共享 bus 区，于是"只能分享你
+实际拥有的文件"这句不再成立：同 owner 任意房间（含团队群里人类上传）的附件都能按 id 解析。
+两处 docstring 改成如实描述（per owner、不 per team；永远不是别的 owner 的文件）。边界分析
+在 [[../../../../../src/narranexus/platform/message_bus/_bus_attachment_impl.py]]。
+
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 
 本文件曾 import `narranexus.platform` 的下划线私有模块。批 6c 在拥有它的包上开出了

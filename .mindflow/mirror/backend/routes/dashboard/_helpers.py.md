@@ -1,8 +1,34 @@
 ---
 code_file: backend/routes/dashboard/_helpers.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 M2）— banner / 状态灯按状态分组派生
+
+`derive_attention_banners` / `derive_health` 不再硬写 `failed/blocked/paused` 三个状态名，改为数四个分组常量：
+`_FAILED_JOB_STATES=(failed)`、`_BLOCKED_JOB_STATES=(blocked, blocked_failed)`、
+`_PAUSED_JOB_STATES=(paused, paused_no_quota, paused_spend_cap)`、`_NOMINAL_JOB_STATES=(running, pending,
+active, cooling)`。banner `kind` 集合不变（`job_failed` / `job_blocked` / `jobs_paused`），前端无需改动；
+全部 job 被花费上限停掉的 agent 现在显示 `paused` 灯 + 「N jobs paused」banner，而不是 `healthy_idle`。
+测试钉住「`_LIVE_JOB_STATES` 每个状态恰好属于一个分组」，下一个新状态漏分组会直接变红。
+锁：`tests/backend/test_dashboard_live_job_states.py` 的 `test_every_live_state_has_exactly_one_attention_group`、
+`test_paused_family_raises_the_paused_banner_and_rail`、`test_blocked_family_raises_the_blocked_banner_and_warning_rail`、
+`test_nominal_states_raise_nothing`。
+
+## 2026-09-10（review r1 C1）— `_LIVE_JOB_STATES` + `paused_spend_cap`；`_QUEUED_JOB_STATES` 派生
+
+2026-06-01 注释里记录的 `paused_no_quota` 隐形缺口，`paused_spend_cap` 又踩了一遍：新状态没进
+WHERE，看板计数与 pending 列表把这类 job 直接滤掉。现在加入，并新增
+`_QUEUED_JOB_STATES = _LIVE_JOB_STATES - running` 供 [[routes.py]] 的两个逐状态循环派生——
+routes.py 原来手抄两份状态元组，改成只认这里一份。
+`tests/backend/test_dashboard_live_job_states.py` 钉死「`_LIVE_JOB_STATES` == 所有 JobStatus
+去掉 completed/cancelled」以及 [[_schema.py]] 的 `QueueCounts` 字段 / `queue_status` Literal
+与之对齐；`test_fetch_jobs_surfaces_a_spend_capped_job` 直接查库验证。
+r2 M-a：元组顺序只在一处有意义——`pending_jobs` 按 `_QUEUED_JOB_STATES` 顺序发射；派生后曾把原来的
+`pending, active, …` 变成 `active, pending, …`，现把 `_LIVE_JOB_STATES` 调回 `running, pending, active, …`，
+测试钉住 `_QUEUED_JOB_STATES[:2] == ("pending", "active")`。
+r2 M-e 记下的既有缺口已在 r3 M2 修掉（见上节）。
 
 # dashboard/_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 

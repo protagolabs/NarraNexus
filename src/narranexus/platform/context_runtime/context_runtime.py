@@ -8,6 +8,7 @@ import os
 """
 
 
+import hashlib
 import json
 from typing import List, Dict, Any, Tuple, Optional, Union
 from loguru import logger
@@ -86,6 +87,33 @@ def build_reply_language_section(language: str | None) -> str:
 #: ``[SYSPROMPT-BREAKDOWN]``. Negative so it can never collide with a real
 #: character count.
 MISSING_SECTION_SIZE = -1
+
+
+def _conversation_scope(ctx_data: ContextData, *, agent_id: str, user_id: str | None, event_id: str) -> str:
+    """A bearer-safe authorization scope built only from runtime routing facts.
+
+    Narratives can be shared across users and sources, so their id alone is
+    insufficient. Missing conversation routing degrades to this turn only;
+    it must never become a shared empty grant scope.
+    """
+    if not event_id:
+        return ""
+    extra = ctx_data.extra_data or {}
+    tag: Any = extra.get("channel_tag") or {}
+    serialize_tag = getattr(tag, "to_dict", None)
+    if callable(serialize_tag):
+        tag = serialize_tag()
+    if not isinstance(tag, dict):
+        tag = {}
+    source = str(getattr(ctx_data.working_source, "value", None) or ctx_data.working_source or "")
+    room = str(extra.get("bus_channel_id") or tag.get("room_id") or "")
+    narrative = ctx_data.narrative_id or ""
+    parts = [agent_id, user_id or "", source, str(tag.get("channel") or ""),
+             room, str(tag.get("thread_id") or ""), narrative]
+    if not narrative and not room:
+        parts.append(event_id)
+    digest = hashlib.sha256(json.dumps(parts, ensure_ascii=True).encode("utf-8")).hexdigest()
+    return f"thread_{digest}"
 
 
 class ContextRuntime:
@@ -1199,24 +1227,40 @@ class ContextRuntime:
         turn_extra = ctx_data.extra_data or {}
         errand_peer = str(turn_extra.get("bus_errand_peer") or "")
         errand_channel = str(turn_extra.get("bus_errand_channel") or "")
-        # Which trigger TREE this turn belongs to. A message the agent sends
-        # this turn becomes the trigger for someone else's run, and the tree
-        # would otherwise be lost at that hop — so the bus send tools stamp it
-        # onto the message. Empty when unknown; the cascade reads that as "not
-        # part of the tree being stopped".
-        root_run_id = str(turn_extra.get("root_run_id") or "")
-        # The turn's team, when it has one. Server-side on purpose: tools take
-        # agent_id as a model-filled parameter, so "am I in a team" can never
-        # be answered from tool arguments without letting a private turn claim
-        # a team it is not in.
-        team_id = str(turn_extra.get("bus_team_id") or "")
         # This turn's events-row id. Created in Step 0, so it is already known
         # by the time Step 3 builds this spec — which is what lets attribution
         # record WHICH turn changed an artifact instead of guessing.
         # getattr, not self.event_id: several tests build this object with
         # ``ContextRuntime.__new__`` and set only the attributes they exercise,
         # so a bare read would make an optional field break unrelated suites.
+        # Computed BEFORE root_run_id: a root turn's own id IS its root_run_id
+        # (see the fallback below).
         event_id = str(getattr(self, "event_id", None) or "")
+        thread_id = _conversation_scope(
+            ctx_data, agent_id=self.agent_id, user_id=self.user_id, event_id=event_id,
+        )
+        # Which trigger TREE this turn belongs to. A message the agent sends
+        # this turn becomes the trigger for someone else's run, and the tree
+        # would otherwise be lost at that hop — so the bus send tools stamp it
+        # onto the message.
+        #
+        # Falls back to this turn's OWN event_id when turn_extra carries none:
+        # that is exactly the case where nothing upstream handed us a tree to
+        # join, i.e. THIS turn is the root of a new one — the same rule
+        # RunRecorder already applies when it writes `events.root_run_id`
+        # (`inherited_root_run_id or run_id`). Skipping the fallback here left
+        # the header "" for a root turn while the events row correctly held
+        # the turn's own id, so anything this turn stamped via the header
+        # (e.g. a work-board item via `record_handoffs`) recorded root_run_id
+        # "" and could never be found again by `pause_by_root(root)` once the
+        # owner stopped the run — the item stayed in_progress forever even
+        # though the run itself did stop (GitHub #124).
+        root_run_id = str(turn_extra.get("root_run_id") or "") or event_id
+        # The turn's team, when it has one. Server-side on purpose: tools take
+        # agent_id as a model-filled parameter, so "am I in a team" can never
+        # be answered from tool arguments without letting a private turn claim
+        # a team it is not in.
+        team_id = str(turn_extra.get("bus_team_id") or "")
         # Delivery declaration (reply contract, both frameworks): each
         # module states which of its tools DELIVER content to a human.
         # Collected per module, then sorted by (origin_rank, priority,
@@ -1283,6 +1327,7 @@ class ContextRuntime:
                         root_run_id=root_run_id,
                         team_id=team_id,
                         event_id=event_id,
+                        thread_id=thread_id,
                     ),
                 }
                 collected_count += 1
@@ -1665,6 +1710,4 @@ class ContextRuntime:
             logger.debug(f"        Single message truncation: {truncated_count} overly long message(s) truncated")
 
         return truncated_messages
-
-
 

@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/pages/__tests__/AgentProfilePage.ui.test.tsx
-last_verified: 2026-08-25
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 删除走 useAgentActions
+
+新增用例 `Delete confirms, deletes through the shared agent actions and lands
+on the Dashboard`：Header ⋯ → Delete → 确认弹窗 → `api.deleteAgent('agent-1')`
+→ `chatState.clearAgent('agent-1')` → 落到 `/app/dashboard`。
+
+为什么钉这条：删除 / 改名的逻辑已抽成 [[useAgentActions]]，由两个门共用——
+档案页 Header 菜单和侧栏行菜单 [[AgentRowMenu]]（后者由
+`layout/__tests__/agentListRowMenu.test.tsx` 守）。这里守档案页这一半：
+确认后才删、清掉该 agent 的聊天状态、落地 Dashboard。改 `useAgentActions` 或
+改档案页删除后的落地页时，两个测试文件都要过。
 
 ## 2026-08-27 — 补两条:活动带的位置,以及公开 agent 什么都不给
 

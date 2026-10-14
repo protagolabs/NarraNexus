@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_health.py
-last_verified: 2026-07-30
+last_verified: 2026-09-10
 stub: false
 ---
 
@@ -17,8 +17,9 @@ stub: false
 - 入口是 step_3 的错误归因（[[failure]]`.classify_self_serviceable` →
   `model_not_found`，余额/限流/5xx 不会归到这里），不是新的文本解析。
 - `report_agent_slot_suspect` 在报错时刻把 agent slot 绑定解析回
-  (provider source, protocol, model)（agent_slots 覆盖 user_slots，镜像
-  resolver 的 overlay 顺序），写入 `model_probe_suspects` 表。
+  (provider source, protocol, model)（经 [[model_identity]] 的共享
+  `resolve_agent_config_slot`：agent_slots 覆盖 user_slots，与 resolver 同一条规则，
+  2026-09-10 起不再手写），写入 `model_probe_suspects` 表。
 - **嫌疑只加速复测，不直接摘除**：[[model_sync]] 把 suspect 视为立即过期、
   优先于 TTL 队列，probe verdict 仍是唯一裁决。误报的代价 = 一次探测调用。
 - 只记录可探测 source（netmind/openrouter/yunwu；system_pool 归一到 netmind）。

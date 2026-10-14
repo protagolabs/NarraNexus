@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/settings.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09 — `claude_max_tool_use_concurrency`（默认 6，0 = CLI 默认；只对订阅 auth）
+
+Claude Code agent loop 一条 assistant 消息里**所有并发安全工具调用**（并行 Read/Grep/MCP 与
+sub-agent Task launch 都算）的并行度；CLI 自身默认 10。sub-agent launch 是其中一类，所以它也是
+扇出的有界信号量：订阅账号每个 sub-agent 都是打同一配额的模型循环、CLI 对订阅 429 不重试，
+无界扇出 = 429 风暴。注入点在 [[api_config]] 的 `to_cli_env`（settings → `CLAUDE_CODE_*` 正规
+接缝），**只对 `SUBSCRIPTION_AUTH_TYPES`（oauth / oauth_token）注入**——keyed 账号 CLI 自己重试
+429，注入只会让并行读文件变慢（首轮 review I1：默认值不能改全体用户线上并行度）。默认值 2026-09-10 从 4
+抬到 6（二轮 review I3）：**背后没有测量**，只是「低于 CLI 的 10 / 比 4 少削并行读」的判断，旋钮保留。只限并发、
+每个调用仍会跑，不是轮次/时间封顶（铁律 #14）。Env `CLAUDE_MAX_TOOL_USE_CONCURRENCY`，已进
+`.env.example`；作用域同上面的 transient retry 旋钮（云端 executor 走代码默认值）。
 
 ## 2026-09-03（补注）— `is_cloud_mode` 不再读 `self.database_url`
 

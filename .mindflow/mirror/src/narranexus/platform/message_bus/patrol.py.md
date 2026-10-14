@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/message_bus/patrol.py
-last_verified: 2026-08-18
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+两处函数内 `parse_db_utc` 导入改为从 `narranexus.platform.utils.run_liveness` 导入（原来经
+`run_recorder` 转手），行为不变。
 
 ## 2026-08-17（三）— 板子只读一次；docstring 承认它会写库
 

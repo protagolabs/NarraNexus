@@ -207,6 +207,82 @@ class RunCollection:
         return self.error.severity not in self._NON_FATAL_SEVERITIES
 
 
+class RunErrorTracker:
+    """A run's error verdict, fed one runtime message at a time.
+
+    The ONE rule for "which failure does this run end with, and does it
+    leave the turn without output": ``collect_run`` folds it into its
+    ``RunCollection``; ``InProcessAgentRuntimeClient.run_stream`` — which
+    yields events and never builds a collection — uses the same object to
+    settle a circuit-breaker probe, so a streaming turn and a collected turn
+    can never disagree about whether they failed.
+
+    Last error wins, except that fatality is sticky (see ``error``).
+    """
+
+    def __init__(self) -> None:
+        self._last: Optional[RunError] = None
+        self._saw_fatal = False
+
+    def observe(self, msg: Any) -> None:
+        """Feed one runtime message; everything but ``ERROR`` is ignored."""
+        if getattr(msg, "message_type", None) != MessageType.ERROR:
+            return
+        severity = str(getattr(msg, "severity", "") or "")
+        self._last = RunError(
+            error_type=getattr(msg, "error_type", "unknown"),
+            error_message=getattr(msg, "error_message", str(msg)),
+            severity=severity,
+        )
+        # Fatality is sticky, because "last error wins" is the wrong rule
+        # for it: a run that hits a fatal and then emits a recoverable
+        # follow-up frame is still a run with no usable output, and letting
+        # the later frame overwrite the verdict would present a broken turn
+        # as a working one.
+        if severity not in RunCollection._NON_FATAL_SEVERITIES:
+            self._saw_fatal = True
+
+    @property
+    def error(self) -> Optional[RunError]:
+        """The run's error so far (None when none arrived).
+
+        A fatal seen anywhere in the run outranks a LESS informed last frame
+        — but not a MORE informed one. `recovered` and
+        `recovered_after_reply` are only ever emitted BECAUSE a fatal
+        happened; they are the verdict on that fatal ("the fallback answered
+        anyway", "the agent had already spoken"), not a competing claim
+        about it. Upgrading them here would undo the only thing they exist
+        to say, and the turn's real reply would be replaced by a failure
+        notice.
+
+        What the rule is actually for: a `recoverable` frame arriving after a
+        fatal, where the later frame knows less, not more.
+
+        `""` is exempt for a different reason than the verdicts: it already
+        READS as fatal (`is_fatal` takes the worse side for anything
+        unlabelled), so stamping it would change nothing except to destroy
+        the one thing the empty string carries — that the runtime did not
+        say.
+        """
+        error = self._last
+        if (
+            error is not None
+            and self._saw_fatal
+            and error.severity not in ("", "fatal", *VERDICT_ON_FATAL_SEVERITIES)
+        ):
+            return RunError(
+                error_type=error.error_type,
+                error_message=error.error_message,
+                severity="fatal",
+            )
+        return error
+
+    @property
+    def is_fatal(self) -> bool:
+        """Same answer as ``RunCollection.is_fatal`` for this error."""
+        return RunCollection(error=self.error).is_fatal
+
+
 async def collect_run(
     runtime,
     *,
@@ -266,8 +342,7 @@ async def collect_run(
     segments: list[dict] = segments_sink if segments_sink is not None else []
     tool_calls: list[str] = []
     raw_items: list[Any] = []
-    error: Optional[RunError] = None
-    saw_fatal = False
+    errors = RunErrorTracker()
     event_id: Optional[str] = None
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
@@ -311,20 +386,9 @@ async def collect_run(
         elif mt == MessageType.ERROR:
             # Last error wins — keep the most specific failure the run
             # reached (typically there's only one, but AgentRuntime may
-            # yield a generic + specific pair in edge cases).
-            severity = str(getattr(msg, "severity", "") or "")
-            error = RunError(
-                error_type=getattr(msg, "error_type", "unknown"),
-                error_message=getattr(msg, "error_message", str(msg)),
-                severity=severity,
-            )
-            # Fatality is sticky, because "last error wins" is the wrong rule
-            # for it: a run that hits a fatal and then emits a recoverable
-            # follow-up frame is still a run with no usable output, and letting
-            # the later frame overwrite the verdict would present a broken turn
-            # as a working one.
-            if severity not in RunCollection._NON_FATAL_SEVERITIES:
-                saw_fatal = True
+            # yield a generic + specific pair in edge cases). Fatality is
+            # sticky; the tracker owns both rules.
+            errors.observe(msg)
 
         # Raw payload on any message type (Lark needs it from TOOL_CALL
         # events; other triggers simply ignore the list).
@@ -400,31 +464,7 @@ async def collect_run(
                     except Exception:  # noqa: BLE001 — status must never break the run
                         logger.opt(exception=True).warning("on_event_id callback failed")
 
-    # A fatal seen anywhere in the run outranks a LESS informed last frame —
-    # but not a MORE informed one. `recovered` and `recovered_after_reply` are
-    # only ever emitted BECAUSE a fatal happened; they are the verdict on that
-    # fatal ("the fallback answered anyway", "the agent had already spoken"),
-    # not a competing claim about it. Upgrading them here would undo the only
-    # thing they exist to say, and the turn's real reply would be replaced by a
-    # failure notice.
-    #
-    # What the rule is actually for: a `recoverable` frame arriving after a
-    # fatal, where the later frame knows less, not more.
-    #
-    # `""` is exempt for a different reason than the verdicts: it already READS
-    # as fatal (`is_fatal` takes the worse side for anything unlabelled), so
-    # stamping it would change nothing except to destroy the one thing the
-    # empty string carries — that the runtime did not say.
-    if (
-        error is not None
-        and saw_fatal
-        and error.severity not in ("", "fatal", *VERDICT_ON_FATAL_SEVERITIES)
-    ):
-        error = RunError(
-            error_type=error.error_type,
-            error_message=error.error_message,
-            severity="fatal",
-        )
+    error = errors.error
 
     # A turn whose whole output is blank is dropped upstream (`if response_text`);
     # the segments must agree rather than resurrect an empty bubble.

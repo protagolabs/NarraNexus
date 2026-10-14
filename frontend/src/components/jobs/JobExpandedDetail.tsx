@@ -19,6 +19,7 @@ import {
   Play,
   Pause,
   CalendarClock,
+  Pencil,
 } from 'lucide-react';
 import { Button, Badge, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
@@ -48,6 +49,11 @@ interface JobExpandedDetailProps {
   canEdit?: boolean;
   /** Edit-execution-time callback */
   onEdit?: (e: React.MouseEvent, job: Job) => void;
+  /** Edit-content (title/description/payload) callback. Gated by the same
+   *  canEdit (non-running, non-terminal): a running job's payload edit would
+   *  not affect the run already in flight, and a terminal job's content no
+   *  longer matters. */
+  onEditPayload?: (e: React.MouseEvent, job: Job) => void;
 }
 
 /** 点击复制文本，显示短暂的勾号反馈 */
@@ -103,6 +109,7 @@ export function JobExpandedDetail({
   onPause,
   canEdit = false,
   onEdit,
+  onEditPayload,
 }: JobExpandedDetailProps) {
   const { t } = useTranslation();
   const [payloadExpanded, setPayloadExpanded] = useState(false);
@@ -350,6 +357,17 @@ export function JobExpandedDetail({
       {/* 9. Actions */}
       {(canCancel || canResume || canPause || canEdit) && (
         <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center gap-2">
+          {canEdit && onEditPayload && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => onEditPayload(e, job)}
+              className="text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]"
+            >
+              <Pencil className="w-3 h-3 mr-1.5" />
+              {t('jobs.action.editPayload')}
+            </Button>
+          )}
           {canEdit && onEdit && (
             <Button
               variant="ghost"

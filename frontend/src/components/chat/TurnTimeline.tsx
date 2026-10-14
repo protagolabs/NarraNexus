@@ -24,7 +24,7 @@
  * this component's local state — fine because the parent keeps the
  * same TurnTimeline mounted across re-renders during a single turn.
  */
-import { memo, useState, useMemo } from 'react';
+import { Suspense, memo, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain,
@@ -37,7 +37,7 @@ import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useNarrationTier } from '@/hooks/useNarrationTier';
-import { TIMELINE_EVENTS, useRegistryEntries } from '@/platform/registries';
+import { TIMELINE_EVENTS, TOOL_RENDERERS, toolRendererFor, useRegistryEntries } from '@/platform/registries';
 import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface TurnTimelineProps {
@@ -288,6 +288,9 @@ export function TurnTimeline({
   // Plugin-owned event types (ui.timelineEvents) render in the same rail;
   // subscribing keeps a late registration from being filtered out.
   const pluginEvents = useRegistryEntries(TIMELINE_EVENTS);
+  // A tool's output row may be owned by the plugin that ships the tool
+  // (ui.toolRenderers); unowned, declined or crashing → the generic row.
+  const toolRenderers = useRegistryEntries(TOOL_RENDERERS);
   const processEvents = useMemo(
     () => events.filter(
       (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output' || pluginEvents.some((p) => p.id === (e as { type: string }).type),
@@ -331,8 +334,8 @@ export function TurnTimeline({
                 pending={event.pending}
               />
             );
-          case 'tool_output':
-            return (
+          case 'tool_output': {
+            const generic = () => (
               <ToolOutputBlock
                 key={event.id}
                 toolName={event.tool_name}
@@ -340,6 +343,18 @@ export function TurnTimeline({
                 isStreaming={isStreaming}
               />
             );
+            const owner = toolRendererFor(toolRenderers, event.tool_name, event.output);
+            if (!owner) return generic();
+            const Custom = owner.value.component;
+            return (
+              <PluginBoundary key={event.id} owner={owner.owner} fallback={generic}>
+                {/* A lazily-loaded renderer shows the generic row until its chunk arrives. */}
+                <Suspense fallback={generic()}>
+                  <Custom toolName={event.tool_name} output={event.output} isStreaming={isStreaming} />
+                </Suspense>
+              </PluginBoundary>
+            );
+          }
           default: {
             const plugin = pluginEvents.find((p) => p.id === (event as { type: string }).type);
             if (!plugin) return null;

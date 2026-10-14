@@ -19,12 +19,13 @@ import { describe, expect, it } from 'vitest';
 
 import '@/platform/builtin';
 import '@/pages/settings/registerBuiltinSections';
-import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems, type PageDef } from '@/platform/registries';
+import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, TOOL_RENDERERS, sortedSettingsSections, sortedSidebarItems, type PageDef } from '@/platform/registries';
 import { builtinTabIds } from '@/components/bookmarks/tabs';
 import { BUILTIN_TAB_IDS } from '@/components/bookmarks/builtinTabIds';
 import {
   ArtifactsTab,
   AwarenessTab,
+  BrowserTab,
   BuilderTab,
   ChannelsTab,
   InboxTab,
@@ -120,11 +121,14 @@ describe('builtin sidebar', () => {
 
 describe('builtin panels', () => {
   it('every builtin rail tab has a panel component', () => {
-    for (const id of builtinTabIds()) expect(PANELS.get(id)?.component, id).toBeTruthy();
+    for (const id of BUILTIN_TAB_IDS) expect(PANELS.get(id)?.component, id).toBeTruthy();
   });
 
   it('the registry-derived builtin strip tabs are exactly the shell-authored BUILTIN_TAB_IDS', () => {
-    expect([...builtinTabIds()].sort()).toEqual([...BUILTIN_TAB_IDS].sort());
+    const featureTabs = PANELS.list()
+      .filter((entry) => entry.owner === 'builtin.browser' && entry.value.strip)
+      .map((entry) => entry.id);
+    expect([...builtinTabIds(), ...featureTabs].sort()).toEqual([...BUILTIN_TAB_IDS].sort());
   });
 
   it('each rail tab maps to its OWN builtin panel component, not a mismatched one', () => {
@@ -137,11 +141,19 @@ describe('builtin panels', () => {
     expect(PANELS.get('smarthome')?.component).toBe(SmartHomeTab);
     expect(PANELS.get('social')?.component).toBe(SocialTab);
     expect(PANELS.get('jobs')?.component).toBe(JobsTab);
+    expect(PANELS.get('browser')?.component).toBe(BrowserTab);
     expect(PANELS.get('inbox')?.component).toBe(InboxTab);
     expect(PANELS.get('artifacts')?.component).toBe(ArtifactsTab);
     expect(PANELS.get('skills')?.component).toBe(SkillsTab);
     expect(PANELS.get('mcp')?.component).toBe(McpTab);
     expect(PANELS.get('memory')?.component).toBe(MemoryTab);
+  });
+
+  it('browser_look output is owned by builtin.browser, so disabling the browser removes the card too', () => {
+    const entry = TOOL_RENDERERS.list().find((e) => e.id === 'browser_look');
+    expect(entry?.owner).toBe('builtin.browser');
+    expect(entry?.value.accepts?.('{"outcome": "OK"}')).toBe(true);
+    expect(entry?.value.accepts?.('not a look')).toBe(false);
   });
 });
 
@@ -149,10 +161,13 @@ describe('builtin settings sections', () => {
   it('keeps the old nav order and visibility gates', () => {
     const ids = (opts: { isTauri: boolean; isCloud: boolean }) => sortedSettingsSections(opts).map((e) => e.id);
     expect(ids({ isTauri: true, isCloud: false })).toEqual([
-      'account', 'providers', 'modeldefaults', 'plugins', 'artifacts', 'privacy', 'personalization', 'updates',
+      // 'browser' sits between artifacts and privacy (order 55) and is gated
+      // on NEITHER surface: the agent's "install the browser" refusal can be
+      // seen on web and desktop alike, so the destination exists on both.
+      'account', 'providers', 'modeldefaults', 'plugins', 'artifacts', 'browser', 'privacy', 'personalization', 'updates',
     ]);
     expect(ids({ isTauri: false, isCloud: true })).toEqual([
-      'account', 'providers', 'modeldefaults', 'artifacts', 'privacy', 'personalization',
+      'account', 'providers', 'modeldefaults', 'artifacts', 'browser', 'privacy', 'personalization',
     ]);
     expect(SETTINGS_SECTIONS.get('account')?.neverDefault).toBe(true);
   });

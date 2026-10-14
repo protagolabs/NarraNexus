@@ -53,6 +53,7 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `ui.sidebar_sections` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.sidebar_sections": ["pkg.module:SYMBOL"]` |
 | `ui.themes` | theme | 0 | `narranexus.contracts.ui:Theme` | `"ui.themes": ["pkg.module:SYMBOL"]` |
 | `ui.timeline_events` | ui | 1 | `narranexus.contracts.ui:TimelineEvent` | `"ui.timeline_events": ["pkg.module:SYMBOL"]` |
+| `ui.tool_renderers` | ui | 1 | `narranexus.contracts.ui:ToolRenderer` | `"ui.tool_renderers": ["pkg.module:SYMBOL"]` |
 | `ui.top_bar_items` | ui | 1 | `narranexus.contracts.ui:SlotComponent` | `"ui.top_bar_items": ["pkg.module:SYMBOL"]` |
 
 Frontend contributions are declared under `frontend.ui` (`pages`, `panels`, `commands`, `themes`) and registered by the plugin's bundle at activation.

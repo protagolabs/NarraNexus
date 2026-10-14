@@ -100,7 +100,9 @@ When the user attaches a file (image, PDF, document, code, data — anything),
 two things happen:
 
 1. The conversation message itself carries a marker like
-   `[User uploaded <kind>: name=..., path=/abs/path/..., mime=... — use Read tool to view]`.
+   `[User uploaded file: name="...", path="/abs/path/...", mime="...", kind="..." — use Read tool to view]`
+   (every value is a JSON string; for an ordinary path pass the text inside the
+   `path` quotes to Read, and decode any escapes such as `\\"`, `\\\\`, `\\t`, `\\n` first).
 2. If the upload happened on the *current* turn, this instruction gains a
    `## Files attached to the current message` block listing the same paths.
 
@@ -183,7 +185,7 @@ How it works:
 1. Write the artifact file(s) somewhere in your workspace. Files are
    invisible to the user until you register them.
 2. Call `register_artifact` with the entry file's path — it returns
-   `{artifact_id, url}` and the tab appears.
+   `{{artifact_id, url}}` and the tab appears.
 
 `register_artifact` only registers a **pointer**. It does not move or copy
 your files — keep them in place. Deleting an artifact also only removes the

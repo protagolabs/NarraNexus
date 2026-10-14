@@ -32,6 +32,47 @@ CHAT_HISTORY_END_INSTRUCTION = "\n=== Chat History End ===\n These are the chat 
 SYSTEM_PROMPT_TRUNCATION_WARNING = "\n\n[...truncated due to length limit...]"
 
 # ============================================================================
+# Task-list tools notice (platform-declared, per run)
+#
+# The Claude Code CLI ships a task LIST feature (TaskCreate / TaskGet /
+# TaskList / TaskUpdate) whose store lives only inside the CLI process; the
+# platform never reads it. Under the SDK's headless spawn the CLI already
+# leaves that family off (sdk.TASK_LIST_TOOLS has the gate), so the tools are
+# "not available" here rather than "taken away". What the model DOES hold is
+# its TodoWrite checklist — equally run-scoped, deliberately kept — and this
+# notice tells the model where work that must outlive the run goes. It says
+# nothing against in-run background commands: ``Bash(run_in_background)``
+# with TaskOutput / TaskStop keeps working and is read by the model itself.
+# The rule is generic — it names the platform's Job module, never a scenario —
+# and the tool list is rendered from sdk.TASK_LIST_TOOLS so the notice and the
+# pinned-off set cannot drift apart.
+# ============================================================================
+TASK_LIST_TOOLS_NOTICE_TEMPLATE = (
+    "\n\n---\n"
+    "Task list: the coding agent's built-in task-list tools ({tools}) are "
+    "not available on this platform, and your TodoWrite checklist lives only "
+    "inside this run — nothing reads either back later. Background commands "
+    "within this run (run_in_background, then TaskOutput / TaskStop) still "
+    "work as usual. For work that must outlive this run — deferred, "
+    "scheduled, or recurring — use the platform's Job module tools "
+    "(job_create and friends) when they are available to you; otherwise "
+    "finish the work in this turn."
+)
+
+
+def task_list_tools_notice(tools: "Sequence[str]") -> str:
+    """Render the task-list notice for the CLI tools ``sdk.py`` pins off.
+
+    Appended once to the base system prompt (stable bytes across turns, so the
+    cache prefix is unaffected). Empty ``tools`` → empty string: nothing
+    disabled means nothing to explain.
+    """
+    names = tuple(tools or ())
+    if not names:
+        return ""
+    return TASK_LIST_TOOLS_NOTICE_TEMPLATE.format(tools=", ".join(names))
+
+# ============================================================================
 # Reply-surface reminder (platform-declared, per turn)
 #
 # The CLI has no per-step injection seam, so the closest-to-generation

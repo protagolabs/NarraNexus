@@ -31,7 +31,9 @@ def _regs() -> Registries:
 
 def test_builtins_expose_their_services_and_release_them_with_the_owner():
     regs = _regs()
-    assert regs.services.ids() == ("jobs.instances", "jobs.run_once", "skills.workspaces")
+    assert regs.services.ids() == (
+        "jobs.instances", "jobs.resume_for_principal", "jobs.run_once", "skills.workspaces",
+    )
     assert regs.services.owner_of(SKILL_WORKSPACES) == "builtin.skills"
     regs.remove_owner("builtin.skills")
     assert regs.services.try_require(SKILL_WORKSPACES) is None
@@ -44,6 +46,7 @@ def test_platform_accessors_resolve_the_builtin_implementations():
     assert isinstance(plugin_services.skill_workspace("agent_x", "user_y"), SkillModule)
     assert hasattr(plugin_services.job_instances(object()), "create_job_with_instance")
     assert callable(plugin_services.try_job_run_once())
+    assert callable(plugin_services.try_job_resume_for_principal())
 
 
 @pytest.mark.asyncio

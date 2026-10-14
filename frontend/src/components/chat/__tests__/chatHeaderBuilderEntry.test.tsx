@@ -1,9 +1,9 @@
 /**
  * The ⋯ menu offers the creation studio's Builder panel as a CONDITIONAL
  * item: only while the studio is open or resumable on this agent. With the
- * drawer's tab switcher retired (#383) this is the desktop's only way back
- * into a studio the user collapsed — and a permanent entry would offer a
- * panel the conversation does not drive.
+ * drawer closed this is the desktop's way back into a studio the user
+ * collapsed — and a permanent entry would offer a panel the conversation
+ * does not drive.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';

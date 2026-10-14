@@ -4,10 +4,23 @@ last_verified: 2026-09-10
 stub: false
 ---
 
+## 2026-09-10 — `JobStatus` / `JobQueueStatus` / `QueueCounts` + `paused_spend_cap`
+
+后端 `JobStatus.PAUSED_SPEND_CAP`（日花费上限暂停，B-14）首版没登记到前端：`statusVisual()`
+兜底成 pending 的样子，`STATUS_ORDER` 没有它于是无 filter chip / meter 段，看板计数没有这一列。
+三个类型同批加入；`Record<JobStatus,…>` 的穷尽约束让 [[jobStatusVisuals.ts]] 与
+`lib/mock/fixtures.ts` 在 tsc 下必须跟着补。
+
 ## 2026-09-09 — `*CredentialData.disabled_reason?`（B-28）
 
 Telegram / Slack / Discord / WeChat / Narramessenger 五个凭据类型与泛型 `ChannelCredentialView` 都加了可选 `disabled_reason`（后端
 `to_public_dict` 新增的公开字段）；旧响应无此键时 UI 不显示原因。Lark 用自己的 `auth_status` 机制，不带。
+
+## 2026-09-09 — `CircuitBreakerStatus` gains `'probing'`
+
+[[circuit_breaker]] 新增半开态 PROBING（GitHub #117），`GET
+.../circuit-breaker` 现在会把它原样透传成 `cb_status`。补进联合类型，避免
+消费方（[[wsCircuitOpen]] 的轮询判定）以为只有三个值。
 
 ## 2026-09-07 — `PluginChannelRow`
 

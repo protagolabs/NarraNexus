@@ -1,8 +1,23 @@
 ---
 code_file: plugins/builtin.frameworks.codex_cli/src/narranexus_plugins/frameworks_codex_cli/official_sdk.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（B-05/#127）— turn 级交付跟踪，覆写失败 turn 的 `fatal`
+
+`agent_loop` 的流循环每条通知都经 `_translate_and_track_delivery(dump, ..., turn_had_message)`：
+调真实的 `output_transfer`，看到非空 `DATA_TYPE_TEXT_DELTA`（codex_official 翻译器里只由
+`item/agentMessage/delta` 产出）就置 `turn_had_message=True`；遇到带 `fatal` 键的错误帧
+（`turn/completed(status="failed")`）把它覆写成 `not turn_had_message`。
+
+口径与 [[output_transfer]] 同日条目一致：翻译器的 `True` 只是没有 turn 上下文时的保守默认，
+本调用方持有 turn 的交付历史，拥有最终判定权。`fatal` 契约 = 终局 **且** 本 turn 未交付任何输出
+（[[response_processor]]）；已流出正文后才失败 → `False` → 下游 `recovered_after_reply`，
+不抹掉已交付的回复。抽成模块级函数是为了让测试直接驱动这段真实逻辑，而不必起完整 SDK 子进程。
+
+测试：`tests/agent_framework/test_official_sdk_turn_delivery_tracking.py`（delta 后失败→`False`；
+无 delta→`True`；空 delta 不算交付）。
 
 ## 2026-08-04 — 平台自注入的 `X-NarraNexus-*` header 豁免 unsupported 告警
 

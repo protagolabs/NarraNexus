@@ -3,6 +3,42 @@ code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py
 last_verified: 2026-09-10
 ---
 
+## 2026-09-10（review r3 M1）— 同一次调用内按执行主体 memo
+
+`_poll_and_enqueue` 的入队门对每个 `exec_uid` 只调一次 `_non_transacting_status`（局部 dict `standing`）；
+`_resume_eligible_no_quota_jobs` 对每个 `exec_uid` 只调一次 `_user_can_run`；`_resume_spend_capped_jobs`
+对每个 `(exec_uid, tz)` 只扫一次 `_daily_spend_cap_exceeded`。memo 只活在单次调用里，不跨轮，判定结果与
+逐 job 查询相同（同一次调用内同一主体本来就得同一答案）。
+锁：`test_poll_and_enqueue_looks_each_principal_up_once`、`test_backstop_checks_each_principal_once_per_call`、
+`test_backstop_scans_each_principal_and_timezone_once`。
+
+## 2026-09-10（review r1 C1）— `PAUSED_SPEND_CAP` 每日自愈：`_resume_spend_capped_jobs`
+
+首版把花费封顶的 job 标成 `PAUSED_SPEND_CAP` 之后**没有任何路径能把它拉回来**：不在
+`_RESUMABLE_STATUSES`，不被任何 backstop 扫描，`get_due_jobs()` 也永远捞不到它——一个
+「日上限」变成了永久停服。现在 `_poll_and_enqueue` 的 900s backstop 段（紧跟
+`_resume_eligible_no_quota_jobs`）多跑一个 `_resume_spend_capped_jobs()`：扫
+`PAUSED_SPEND_CAP`，对每条 job 用**同一个** `_daily_spend_cap_exceeded(exec_uid, job时区)`
+重判（先算花费再翻状态；I6 的「今天」口径已定，暂停与恢复用同一个「今天」），未超就
+`compute_next_run(last_run_utc=now)` 向前推 + 翻 ACTIVE + 清 `paused_reason/paused_at`。
+于是 job 恰好在「一次全新启动本来就会被放行」的时刻恢复：用户当地次日零点之后，或 ops
+调低/关掉 cap 之后（cap=0 → 谓词恒 False → 全部恢复）。
+
+**为什么不并进 `_resume_eligible_no_quota_jobs` / `rearm_user_no_quota_jobs`**：那两条按
+provider readiness（登录/存 provider 的 edge）恢复，与花费无关，会在仍然超标时把 job 拉活，
+下一次 poll 又原地暂停——正是 `_EDGE_ONLY_RESUME_REASONS` 注释在防的重试风暴。
+
+恢复向前推而不是补跑：一条停了一天的 2 小时心跳 job 恢复瞬间不能补 12 次。next fire 落在
+`end_at` 之外的周期 job 直接 COMPLETED（与 `_rearm_cooled_jobs` / `_heal_unscheduled_active_jobs`
+同一条规则；注意 `_resume_eligible_no_quota_jobs` **没有** horizon 判定，是既有缺口，不在此列）。手动恢复也通了：[[job_recovery]] 的 `_RESUMABLE_STATUSES` 与前端 `canResume`
+同批加入该状态。spend_cap 的 inbox 文案改成说实话（次日自动恢复）。
+
+锁：`test_backstop_resumes_a_spend_capped_job_once_under_the_cap`（含 next_run 必须在未来）、
+`test_backstop_keeps_the_job_paused_while_still_over_the_cap`、
+`test_backstop_resumes_when_ops_disable_the_cap`、`test_poll_cycle_runs_the_spend_cap_backstop`（接线）；
+r2 M-d 补：`test_backstop_completes_a_job_whose_next_fire_is_past_end_at`（COMPLETED + 清 next_run + 实例 completed）、
+`test_backstop_judges_each_jobs_own_timezone`（同一笔花费，Asia/Shanghai 的 job 恢复、UTC 的 job 仍封顶）。
+
 ## 2026-09-10（review r2 I2）— 超长报告分片投递，超预算则明说，绝不静默丢
 
 `_deliver_to_origin`：bus 写入边拒绝超 `MAX_BUS_MESSAGE_BYTES` 的行后，这里原本只剩
@@ -17,6 +53,145 @@ last_verified: 2026-09-10
 被扣 grace。超预算那条说明行**以 agent 身份**发（r3 M7）：要带 run 的 event_id/root_run_id，
 「查看推理」与级联停止才追得到产出它的 run。锁：
 `test_job_origin_and_identity.py` 末尾两条（70 KB → 两块且拼回原文；>200 KB → 一条说明）。
+
+## 2026-09-10（review r1 I6/M6/M7）— 花费上限改成「用户当日全部花费」+ 以 job 时区算「今天」
+
+复审指出三处口径漂移，全部落在 `_daily_spend_usd_for_user` / `_daily_spend_cap_exceeded`：
+
+- **统计的是用户全部 LLM 花费，不止 job**。`cost_records` 没有 job 归因列，交互聊天、
+  memory consolidation、helper 调用、别的 job 全部计入同一个用户的当日总额。这是这个闸的
+  真实语义（「这个用户今天花够了」是用户属性，不是某条 job 的属性），所以 env 从
+  `NARRANEXUS_JOB_DAILY_SPEND_CAP_USD` 改名 **`NARRANEXUS_USER_DAILY_SPEND_CAP_USD`**，
+  `.env.example` 明写「统计该用户当日全部花费」。不做 `call_type` 过滤：job run 与
+  interactive run 写的 `call_type` 相同，过滤不出「只算 job」。
+- **「今天」= job 冻结时区（`trigger_config.timezone`）的当地零点转 UTC**，与本文件其他
+  时间判定同一口径（`_execute_job` 里就是同一个 `user_tz`）。此前用 UTC 零点：UTC+8 用户
+  的额度在当地上午 8 点重置，一个「日上限」横跨两个自然日。`local_day_start_utc(tz, now)`
+  是这条口径的唯一实现（未知时区回退 UTC 并告警，不让整个闸失效）；`now` 参数只给测试钉边界。
+- **SQL 只做预过滤，精确边界在 Python 判**。SQLite 里 `created_at` 文本有两种形状：列默认
+  `datetime('now')` 写空格形 `YYYY-MM-DD HH:MM:SS`，显式写入落 ISO `T` 形——同一天内 `T` 排在
+  空格之后，任何单一字符串 cutoff 在边界日都不可能精确。于是 SQL 用「零点前一整天」的
+  `YYYY-MM-DD HH:MM:SS` 字符串预过滤（只会多捞、绝不漏），再用 `coerce_utc`（两种形状 +
+  MySQL 原生 DATETIME 都能读）逐行按瞬时比较。改传字符串也顺手关掉了 M6 指出的
+  CPython 3.12 起 deprecated 的默认 datetime adapter 依赖。
+- **前提：DB 会话时钟 = UTC**。`created_at` 由列默认填（SQLite `datetime('now')` 恒 UTC；
+  MySQL `CURRENT_TIMESTAMP(6)` 取 SESSION 时区）。MySQL twin
+  `test_db_session_clock_is_utc` 断言 `NOW() = UTC_TIMESTAMP()`，会话不是 UTC 就在测试里红，
+  不在生产里静默偏移。
+- M7：`import os` 挪到模块顶部。
+
+锁：`test_local_day_start_follows_the_given_timezone`（三个时区三个零点）、
+`test_sums_from_the_local_midnight_of_the_jobs_timezone`（同一天里 ISO 形 + 空格形各一前一后，
+上海口径 5.0 / UTC 口径 13.0）、`test_execute_job_judges_today_in_the_jobs_timezone`（15:30Z 的
+花费在 UTC 口径下已触顶、在上海口径下未触顶 → job 照跑）+ MySQL 同款三条。
+
+## 2026-09-09 — B-14：每次调度前查日花费上限
+
+`_execute_job` 拿到执行锁之后、build prompt/调框架**之前**新增一步检查：
+`_daily_spend_cap_exceeded(exec_uid, user_tz)` 读 `NARRANEXUS_USER_DAILY_SPEND_CAP_USD`
+（0/未设=禁用，读的是环境变量，不是 pydantic Settings——跟
+`NARRANEXUS_ONBOARDING_GUIDE_AGENT` 等既有 `NARRANEXUS_*` 开关同一套
+`os.getenv` 读法）与 `_daily_spend_usd_for_user`（新增裸 SQL，
+`cost_records` 没有 repository；口径见上一节）比较，超了就把 job 标成
+`JobStatus.PAUSED_SPEND_CAP` + `paused_reason="spend_cap"`，复用 B-17 的
+`_notify_owner_job_paused` 通知 owner，然后 **return，从不 build prompt
+也不调 `_run_agent`**——只挡下一次调度，跟既有 `PAUSED_NO_QUOTA` 同形，
+绝不打断正在跑的 run（铁律 #14）。
+
+（首版还把 `trigger_config.max_tokens_per_run` 透传进 `trigger_extra_data`；
+复审 I7 查明没有任何消费方，已连同 schema 字段一起删除，见 [[job_schema]]。）
+
+**Fail open**：`_daily_spend_cap_exceeded` 对 env 值解析失败或 DB 查询失败
+都返回 `False`（不暂停）——一次数据库抖动不该冻结全平台的 job。
+
+## 2026-09-10（review r1 I1）— `_is_user_banned` → `_non_transacting_status`：认整套 `NON_TRANSACTING_USER_STATUSES`
+
+首版只认 `status == "banned"`，而仓里早有 `NON_TRANSACTING_USER_STATUSES = {banned, blocked, deleted}`
+（[[entity_schema]]，注释明写三者「equally must not transact」；auth 中间件 / WS 闸 / admin suspend
+都用它）。于是 `blocked` / `deleted` 用户的定时 job 照旧每周期入队、照旧打 401——B-13 声称修掉的
+风暴在这两个状态下原样存在。现在 `_non_transacting_status(user_id)` 返回命中的状态值（否则 None），
+`_poll_and_enqueue` 把**真实状态**写进 `paused_reason`（`banned` / `blocked` / `deleted`，都在
+VARCHAR(32) 内），`_user_can_run` 据此短路。这些值都不匹配 `_EDGE_ONLY_RESUME_REASONS`，也不是任何
+可恢复状态，所以扩值不会误触自动恢复。`inactive`（从未登录/休眠）刻意不在集合里，job 照跑。
+同一条「账户不能交易」的判据从此只有一份，下次加终态（如 `frozen`）两边自动跟上。
+锁：`test_poll_and_enqueue_pauses_every_non_transacting_status`（参数化三态 + paused_reason 是真实值）、
+`test_user_can_run_is_false_for_blocked_and_deleted`、`test_inactive_is_a_benign_state_and_still_runs`。
+
+## 2026-09-10（review r1 I8）— pause 通知过 `owner_notice_cooldowns` 冷却
+
+首版 `_notify_owner_job_paused` 无条件发 inbox：auth / no_quota 这两类 `paused_reason`
+不在 `_EDGE_ONLY_RESUME_REASONS`，15 分钟 backstop 只要静态 readiness 说「配置完整」就把 job
+翻回 ACTIVE → 到点跑 → 同样 401 → 再暂停 → **再发一封**——一个 key 还在但已失效的用户，
+按 job 调度频率无限期刷收件箱。现在用 PR #389 引入的 `OwnerNoticeCooldownRepository`
+（键 `(agent_id, target=job_id, category="job_paused:<reason>")`）做去重：
+- 窗口 `_PAUSE_NOTICE_COOLDOWN_SECONDS = 6h`，常量在本文件（窗口是 writer 的事，表只记时间）。
+  **必须远小于** bus 侧 `NOTICE_COOLDOWN_RETENTION_DAYS`（2 天）——那条每日 sweep 删更老的行，
+  窗口逼近它就会被中途重开；测试 `test_pause_notice_window_stays_well_inside_the_cooldown_retention`
+  钉住比例。
+- category 带 reason：`no_quota → auth` 是新事实，立刻再通知；同 reason 在窗口内不重发。
+  列宽 VARCHAR(32)，`_pause_notice_category` 对所有可能的 reason（auth / no_quota / spend_cap /
+  五个 self-serviceable）都 ≤ 32，参数化测试逐个钉住。
+- 冷却读失败 **fail open**（宁可重复也不静默），窗口只在 inbox 写成功之后 `arm`（写失败不开空窗）。
+  与 [[background_llm_alerts]] 同形。
+- C1 之后 spend_cap 也成了周期性事件（每天一次），同样过这条冷却。
+
+锁：`test_repeated_pause_for_the_same_reason_notifies_once`、`test_a_different_pause_reason_notifies_again`、
+`test_notifies_again_once_the_window_has_expired`、`test_window_is_not_armed_when_the_inbox_write_fails`、
+`test_cooldown_read_failure_still_notifies`。
+
+## 2026-09-09 — B-17：job 因额度/凭据被暂停时通知 owner
+
+`_finalize_job_execution` 把 job 标成 `PAUSED_NO_QUOTA` 那一段，之前只有
+`logger.warning`——用户对「一个定时任务从此再也不跑了」**完全没有信号**，
+除非自己去 Jobs 面板翻。新增 `_notify_owner_job_paused`，复用既有的 inbox
+通知机制（跟 [[background_llm_alerts]] 的 `alert_agent_paused` 同一套
+`InboxRepository.create_message` + `InboxMessageType.SYSTEM_NOTICE` +
+`MessageSource` 写法，不是新造一条通道），在 `PAUSED_NO_QUOTA` 分支
+`logger.warning` 之后调用。收件人是 `job.user_id`（JobModel 的既有语义
+「接收 job 结果通知的那个人」）；`user_id` 缺失就直接跳过，不报错。
+
+**只覆盖 no_quota/auth 暂停，不覆盖 `repeated_failure` 终态 FAILED**——B-17
+的范围明确是「跟 B-12 组合：额度耗尽暂停时通知」，`repeated_failure` 是
+瞬时故障用尽退避配额后的另一条终态路径，语义不同（不是"额度耗尽"而是
+"这个 provider/网络一直不稳定"），未在本次范围内一并加通知。
+
+**best-effort，从不让通知失败拖垮暂停本身**：`InboxRepository.create_message`
+抛异常只记 `logger.warning`，job 该暂停照样暂停（测试
+`test_notification_failure_does_not_break_the_pause` 钉死这点）。
+
+## 2026-09-09 — B-13：banned 用户不再自动跑 job
+
+**症状**：被封号用户的定时 job 每天照常触发，打出成堆 `Key is blocked` 401。根因是
+`_user_can_run`（PAUSED_NO_QUOTA 恢复闸）和 `_poll_and_enqueue`（到期扫描）对
+`users.status` **零引用**——`classify_provider_for_user` 只判「provider 能不能跑」，
+账户本身被封是另一个正交事实，谁都没查过。
+
+**修法两处**：
+1. 新增 `_is_user_banned(user_id)`（2026-09-10 起改名 `_non_transacting_status`，见上）：查 `users` 表 `status == "banned"`。DB 读失败
+   或行不存在都 fail **open**（返回 False）——这是刻意的：一次 DB 抖动不该让全平台
+   job 集体冻结，且「banned」是显式 opt-in 状态，行不存在≠被封。
+2. `_user_can_run` 把它加在 provider 分类**之前**短路返回 `False`——banned 用户不消耗
+   一次 provider 探测（省一次外呼，也让「账户不可用」与「provider 不可用」两条判据
+   互不掩盖）。`_poll_and_enqueue` 对每个到期 job 算出 `exec_uid = related_entity_id or
+   user_id`（与 `_user_can_run` 现有口径一致），banned 就地 `update_job` 成
+   `PAUSED` + `paused_reason="banned"`，**不进队列**——这样它在下一次 poll 也不会
+   再被 `get_due_jobs()` 捞到（因为不再是 PENDING/ACTIVE），而不是每个周期反复判一次。
+
+**为什么用 `PAUSED`+`paused_reason="banned"` 而不是新状态值**：`paused_reason`
+本来就是自由字符串字段（见 [[job_schema]]），复用现有 `PAUSED` 语义——「不会自动
+恢复，需要外部动作」——精确匹配「封号只能靠 reinstate/未来的人工操作」这件事，
+且不必碰 `JobStatus` 枚举（additive-only 铁律）。这个状态天然落在
+`_resume_eligible_no_quota_jobs` 只扫 `PAUSED_NO_QUOTA` 的范围之外，所以也不会被
+15 分钟 backstop 误拉活。
+
+**为什么 `rearm_user_no_quota_jobs`（登录/换 provider 触发的 edge 恢复）不用改**：
+它只从鉴权中间件放行的 backend 路由触发（登录、配额变更、provider 保存），而
+[[auth]] 的 account-state gate 会在到达这些路由前对 banned 账户返回 403——banned
+用户物理上摸不到这条边缘触发路径，不存在绕过口。
+
+**Swept**：`git grep -n "_user_can_run\|def _poll_and_enqueue"` 命中
+`module_poller.py` 的同名方法——不同子系统（检测 Instance 完成，不代表用户执行
+LLM 调用），不在本 bug 范围内，未改动。
 
 ## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
 

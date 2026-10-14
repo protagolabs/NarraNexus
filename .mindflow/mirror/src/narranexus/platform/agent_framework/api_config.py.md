@@ -1,8 +1,28 @@
 ---
 code_file: src/narranexus/platform/agent_framework/api_config.py
-last_verified: 2026-08-14
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09 — 订阅账号并行工具上限注入（`SUBSCRIPTION_AUTH_TYPES` 从 provider_schema import）
+
+- `SUBSCRIPTION_AUTH_TYPES = {oauth, oauth_token}`（CLI 判 `isSubscriber()` 的两种运输层）**不在本文件定义**：
+  2026-09-09 初版在这里硬写了一份、与 `framework_binding` 那份重复（二轮 review I3），2026-09-10 起唯一定义在
+  [[provider_schema]]（`AuthType` 旁），本文件与 claude driver 都从那里 import（sdk.py 私有副本已删）。
+- `CLI_MAX_TOOL_USE_CONCURRENCY_ENV = "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"`：CLI 自己的旋钮
+  （`parseInt(env)||10`），限一条 assistant 消息内**所有并发安全工具调用**的并行度，sub-agent
+  launch 是其中一类。判据收敛成**一个方法** `ClaudeConfig.cli_tool_concurrency_cap()`：
+  `auth_type ∈ SUBSCRIPTION_AUTH_TYPES` 且 `settings.claude_max_tool_use_concurrency > 0` 时返回该值，
+  否则 None。两个调用点：`to_cli_env`（在 `CLAUDE_CODE_MAX_RETRIES` 旁注入）与 claude driver
+  `sdk.py` 在 `cli_env.update(extra_env)` **之后**再落一次（2026-09-10 二轮 review I1：初版只在 merge
+  前注入，skill env 带 `=50` 或空串就能抬回 / 抹掉，与同 PR 的 `CLAUDE_CODE_ENABLE_TASKS` fail-closed
+  口径自相矛盾）。keyed 账号两处都不注入——skill 自己设的值原样保留（CLI 自己重试 429，注入只会拖慢并行读）。
+  默认 6（2026-09-10 从 4 抬到 6：**没有测量数据**，只是「低于 CLI 的 10、比 4 少削并行读」的判断，
+  留 env 旋钮）。0/负数 = 不发（CLI `||10` 语义下 "0" 等于不设，但我们干脆不发）。只限并发不封顶轮次
+  （铁律 #14）。不用 PreToolUse hook 做信号量：失败的工具调用没有释放事件，漏一个许可就卡死后续 launch。
+  测试 `tests/agent_framework/test_claude_fanout_concurrency.py` 经真实 adapter 驱动到 `options.env`：
+  `test_skill_env_cannot_raise_the_cap`（"50" / "" 都盖不过）、`test_skill_env_passes_through_for_keyed_auth`
+  （放行例）、`test_env_name_matches_the_bundled_cli_binary`（env 名对 bundled 二进制取证）。
 
 ## 2026-08-13 — 平台来源绑定：identity token 上 provider 配置
 

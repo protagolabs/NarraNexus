@@ -23,6 +23,7 @@ import type {
   TurnEvent,
 } from '@/types';
 import { generateId } from '@/lib/utils';
+import { INTERRUPTED_MARKER, NO_RESPONSE_MARKER } from '@/lib/turnMarkers';
 import { isBlankText } from '@/lib/isBlankText';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
@@ -500,8 +501,16 @@ export const useChatStore = create<ChatState>((_set, get) => {
         } else if (session.currentErrors.length > 0) {
           displayContent = session.currentErrors.join('\n\n');
           isError = true;
+        } else if (opts?.cancelled) {
+          // The user cut the turn short themselves — "the agent decided not
+          // to reply" is a lie in this branch (the agent never got to decide
+          // anything). Write the same marker the backend persists for an
+          // interrupted turn, so this bubble and its reloaded history row
+          // agree; MessageBubble localizes both markers at render time
+          // (see GitHub #87 and lib/turnMarkers.ts).
+          displayContent = INTERRUPTED_MARKER;
         } else {
-          displayContent = '(Agent decided no response needed)';
+          displayContent = NO_RESPONSE_MARKER;
         }
 
         const userMessage = session.messages.find((m) => m.role === 'user');

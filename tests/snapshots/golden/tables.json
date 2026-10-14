@@ -2982,6 +2982,20 @@
         false
       ],
       [
+        "probe_token",
+        "TEXT",
+        "VARCHAR(64)",
+        true,
+        false
+      ],
+      [
+        "probe_run_id",
+        "TEXT",
+        "VARCHAR(128)",
+        true,
+        false
+      ],
+      [
         "created_at",
         "TEXT",
         "DATETIME(6)",
@@ -3324,6 +3338,130 @@
         "idx_instance_awareness_instance_id",
         [
           "instance_id"
+        ],
+        true
+      ]
+    ]
+  },
+  "instance_browser_login_requests": {
+    "columns": [
+      [
+        "request_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        true
+      ],
+      [
+        "agent_id",
+        "TEXT",
+        "VARCHAR(128)",
+        false,
+        false
+      ],
+      [
+        "session_key",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "turn_id",
+        "TEXT",
+        "VARCHAR(128)",
+        false,
+        false
+      ],
+      [
+        "thread_id",
+        "TEXT",
+        "VARCHAR(128)",
+        false,
+        false
+      ],
+      [
+        "reason",
+        "TEXT",
+        "TEXT",
+        false,
+        false
+      ],
+      [
+        "state",
+        "TEXT",
+        "VARCHAR(32)",
+        false,
+        false
+      ],
+      [
+        "connection_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "requested_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ]
+    ],
+    "indexes": [
+      [
+        "idx_browser_login_agent",
+        [
+          "agent_id"
+        ],
+        false
+      ]
+    ]
+  },
+  "instance_browser_policies": {
+    "columns": [
+      [
+        "id",
+        "INTEGER",
+        "BIGINT UNSIGNED",
+        false,
+        true
+      ],
+      [
+        "agent_id",
+        "TEXT",
+        "VARCHAR(128)",
+        false,
+        false
+      ],
+      [
+        "policy_json",
+        "TEXT",
+        "MEDIUMTEXT",
+        true,
+        false
+      ],
+      [
+        "created_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ],
+      [
+        "updated_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ]
+    ],
+    "indexes": [
+      [
+        "idx_browser_policies_agent",
+        [
+          "agent_id"
         ],
         true
       ]

@@ -54,13 +54,14 @@ describe('status vocabulary', () => {
 
   it('covers every JobStatus exactly once', () => {
     expect(new Set(STATUS_ORDER).size).toBe(STATUS_ORDER.length);
-    expect(STATUS_ORDER).toHaveLength(11);
+    expect(STATUS_ORDER).toHaveLength(12);
   });
 
-  it('treats failed / dep-failed / no-quota as attention', () => {
+  it('treats failed / dep-failed / no-quota / spend-cap as attention', () => {
     expect(isAttentionStatus('failed')).toBe(true);
     expect(isAttentionStatus('blocked_failed')).toBe(true);
     expect(isAttentionStatus('paused_no_quota')).toBe(true);
+    expect(isAttentionStatus('paused_spend_cap')).toBe(true);
     expect(isAttentionStatus('pending')).toBe(false);
     expect(isAttentionStatus('completed')).toBe(false);
   });

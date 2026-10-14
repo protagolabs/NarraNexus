@@ -1276,6 +1276,15 @@ class MatrixTrigger(ChannelTriggerBase):
     # Reply sender + failure notification
     # ────────────────────────────────────────────────────────────────────
 
+    async def _send_circuit_refusal(
+        self, credential: Any, message: Any, text: str
+    ) -> bool:
+        """The base's refusal hook: this channel's ``send_channel_reply`` is
+        a no-op, so a circuit-breaker refusal goes out through the same
+        sender as a normal answer. True iff the homeserver accepted it (a
+        False hands the group window back, see the base)."""
+        return await self._send_matrix_reply(credential, message.chat_id, text)
+
     async def _send_matrix_reply(
         self,
         credential: NarramessengerCredential,
@@ -1688,11 +1697,17 @@ class MatrixTrigger(ChannelTriggerBase):
 
         Kept as the ``STREAMING_ENABLED=False`` fallback so a Matrix
         rate-limit spike or a debugging session can trivially bypass the
-        streaming state machine.
+        streaming state machine. A circuit-breaker refusal is NOT sent here:
+        the base gate already delivered it through ``_send_circuit_refusal``
+        (throttled per group window), so sending the returned text again
+        would double it and bypass the throttle (#394 fifth review N-3).
         """
-        text = await super()._build_and_run_agent(
+        output = await self._run_agent_turn(
             credential, message, sender_name, attachments=attachments
         )
+        text = output.text
+        if output.refused:
+            return text
         if not text or not text.strip():
             logger.info(
                 f"[matrix:{credential.agent_id}] agent chose silent "
@@ -1807,12 +1822,23 @@ class MatrixTrigger(ChannelTriggerBase):
         if turn_profile is not None:
             run_kwargs["turn_profile"] = turn_profile
 
+        # The base's circuit-breaker gate — this path replaces the base's
+        # run_and_collect with run_stream, so it calls the gate itself. The
+        # gate sends the refusal (throttled per group window) through
+        # ``_send_circuit_refusal``, overridden below for this channel.
+        admission, refusal = await self._circuit_admission(
+            credential, message, agent_id
+        )
+        if refusal is not None:
+            return refusal
+
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,
+            probe_token=admission.probe_token,
             **run_kwargs,
         )
         _t_voice_request = time.monotonic()
@@ -1834,6 +1860,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"[matrix:{credential.agent_id}] run_stream raised: "
                 f"{type(e).__name__}: {e}"
             )
+        finally:
+            # run_stream settles every exit it sees; this covers a consumer
+            # that stopped iterating before the stream could settle.
+            await self._release_unsettled_probe(agent_id, admission)
 
         # Finalize.
         if state.voice_bridge is not None:

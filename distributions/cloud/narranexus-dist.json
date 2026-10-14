@@ -34,7 +34,8 @@
   },
   "excludes": [
     "builtin.auth.local",
-    "builtin.nexus_plugins_module"
+    "builtin.nexus_plugins_module",
+    "builtin.browser"
   ],
   "branding": {
     "name": "NarraNexus Cloud",

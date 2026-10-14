@@ -1,8 +1,26 @@
 ---
 code_file: src/narranexus/platform/utils/timezone.py
-last_verified: 2026-08-19
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09 — `format_for_api` 对非 datetime/str 抛 `TypeError`（B-18 根因，复审 I3）
+
+同批把同一守卫落到 `to_user_timezone`（`format_for_api` 不是唯一入口：`format_timestamp_for_agent` /
+`format_time_for_user` 走的是这条门），两处异常文案各自具名，追栈时不会指向错的函数；
+`tests/utils/test_timezone_format_for_api.py` 对两个入口分别钉住。
+
+B-18 的表象是公告栏路由把整个 `entry.model_dump()` 喂给了 `format_for_api`；根因在这里：
+函数的 except 分支把**类型错误**（dict 上取 `.tzinfo` 的 `AttributeError`）当成"格式化失败"，
+落回 `str(dt)`——一整个 dict 的 Python repr，被调用方当成合法时间戳原样吐给前端，只有一条
+warning 日志说了实话。全仓 38 个调用点里下一个传错类型的，症状还会是"接口 200、字段是一坨
+repr"。现在进 try 之前先判 `isinstance(dt, (datetime, str))`，不是就抛
+`TypeError("format_for_api expects datetime | str | None, got <type>")`，在调用点炸出来。
+**没动的**：`None → None`；SQLite 字符串分支「解析失败原样返回」是设计（见 Gotchas）；
+输出格式定宽不变（`backend/routes/auth.py` 依赖它可排序）。测试
+`tests/utils/test_timezone_format_for_api.py`。
+**调用方契约**（复审 PR#393 M6）：DATETIME 列经 repository 读出只会是 `datetime`（SQLite 路径）或
+`str`（MySQL 路径）；新增调用点传 `datetime.date`、int 等别的类型就是 bug，会以 `TypeError` → 500 暴露。
 
 ## 2026-08-19（PR#327 审后）— 抽出共享的 `coerce_utc` / `to_datetime6_literal`
 

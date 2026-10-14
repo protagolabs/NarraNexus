@@ -473,6 +473,37 @@ class ResponseProcessor:
             # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
+            # Driver-side verdict (claude stamps it on every response.error);
+            # absent → None, never a fabricated False.
+            self_serviceable_flag = data.get("self_serviceable")
+            if self_serviceable_flag is not None:
+                self_serviceable_flag = bool(self_serviceable_flag)
+
+            # The ``fatal`` contract (the one authoritative description —
+            # producers point here). A framework may report a ``fatal``
+            # boolean on its OWN error event's raw payload, meaning "this
+            # turn is terminal AND it delivered nothing usable" — NOT merely
+            # "this turn ended". Today NexusPower (loop.py ``_fail``, via its
+            # event_adapter) and codex (output_transfer / official_sdk) set
+            # it; claude does not, and an absent key keeps every legacy
+            # branch below exactly as it was.
+            #   * ``fatal is False`` (explicit, never merely absent): the
+            #     framework already delivered a reply this turn before the
+            #     failure landed (a 429/5xx retry exhaustion, an
+            #     uncompactable context overflow, a key revoked mid-turn).
+            #     Every exit below then files it as
+            #     ``recovered_after_reply`` — the auth / self-serviceable
+            #     branches keep their specific error_type and copy, but must
+            #     not let a blanket fatal erase a reply the user already saw.
+            #   * ``fatal`` truthy: terminal with nothing delivered. Without
+            #     this a terminal NexusPower failure (e.g. output-budget
+            #     truncation) fell into the "recoverable" default and the
+            #     run finished state=completed with an empty reply and no
+            #     fatal marker (B-05/#127).
+            already_delivered = data.get("fatal") is False
+            terminal_severity = (
+                "recovered_after_reply" if already_delivered else "fatal"
+            )
 
             # Auth failures are NOT recoverable by retrying or by a helper
             # reply — the credentials are dead. Surface a fatal, actionable
@@ -489,7 +520,8 @@ class ResponseProcessor:
                     message=ErrorMessage(
                         error_message=_AUTH_EXPIRED_USER_MESSAGE,
                         error_type=AUTH_EXPIRED_ERROR_TYPE,
-                        severity="fatal",
+                        severity=terminal_severity,
+                        self_serviceable=True,  # re-login is the user's to do
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
@@ -516,8 +548,41 @@ class ResponseProcessor:
                             self_serviceable, error_message
                         ),
                         error_type=SELF_SERVICEABLE_ERROR_TYPE,
-                        severity="fatal",
+                        severity=terminal_severity,
                         action_reason=self_serviceable,
+                        self_serviceable=True,  # by definition of the class
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
+            # Framework-classified terminality (contract above). Both exits
+            # pass the driver's own ``self_serviceable`` through, exactly as
+            # the "recoverable" exit does — never a fabricated value.
+            if already_delivered:
+                logger.error(
+                    f"[AGENT-LOOP-RECOVERED-AFTER-REPLY] API error "
+                    f"({error_type}): {error_message}"
+                )
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=error_message,
+                        error_type=error_type,
+                        severity="recovered_after_reply",
+                        self_serviceable=self_serviceable_flag,
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
+            if data.get("fatal"):
+                logger.error(f"[AGENT-LOOP-FATAL] API error ({error_type}): {error_message}")
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=error_message,
+                        error_type=error_type,
+                        severity="fatal",
+                        self_serviceable=self_serviceable_flag,
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )
@@ -529,6 +594,7 @@ class ResponseProcessor:
                     error_message=error_message,
                     error_type=error_type,
                     severity="recoverable",
+                    self_serviceable=self_serviceable_flag,
                 ),
                 state_update={"method": "increment_response", "args": {}}
             )

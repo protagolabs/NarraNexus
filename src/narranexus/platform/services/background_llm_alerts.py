@@ -17,9 +17,11 @@ Two tiers, on purpose:
   - EVERY failure → a ``service_audit`` error row. Cheap, always-on, lets an
     operator ``SELECT`` "how many background LLM failures in the last N days"
     weeks later even after logs rotate.
-  - CREDENTIAL-class failures only → an owner inbox notice (redacted,
-    cooldown-deduped). Transient blips (timeouts, 5xx) are not actionable by
-    the owner, so they stay out of the inbox to avoid alarm fatigue.
+  - OWNER-ACTIONABLE failures only → an owner inbox notice (redacted,
+    cooldown-deduped): a credential error, or an out-of-credit one (empty
+    balance / spent free tier, per the shared `OUT_OF_CREDIT_REASONS`).
+    Transient blips (timeouts, 5xx) are not actionable by the owner, so they
+    stay out of the inbox to avoid alarm fatigue.
 
 The cooldown is persisted (``owner_notice_cooldowns``, the same row shape the
 message bus's failure notices use since 2026-09-09): a restart no longer
@@ -35,6 +37,9 @@ from typing import Optional
 from loguru import logger
 
 from narranexus.platform.agent_framework.llm.failure import (
+    OUT_OF_CREDIT_REASONS,
+    SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
+    classify_self_serviceable,
     is_credential_error,
     redact_secrets,
 )
@@ -46,15 +51,59 @@ from narranexus.platform.schema.inbox_schema import InboxMessageType, MessageSou
 from narranexus.platform.services.service_audit import ServiceAuditor
 from narranexus.platform.utils.db.db_factory import get_db_client
 
+# What the owner can do about each owner-actionable category.
+_CREDENTIAL_HINT = (
+    "Check the agent's LLM Helper (helper_llm) provider configuration "
+    "— API key and base URL — in Provider settings."
+)
+_BALANCE_HINT = (
+    "The provider behind the LLM Helper (helper_llm) slot reports insufficient "
+    "balance / quota. Top up that account or switch the slot's provider in "
+    "Settings → Providers."
+)
+_FREE_TIER_HINT = (
+    "Your free platform credit is used up. Upgrade to Nexus Pro in "
+    "Settings → Account & Subscription, or add your own provider key and "
+    "switch the LLM Helper slot to it in Settings → Providers."
+)
+
+
+def _out_of_credit_reason(error: object) -> Optional[str]:
+    """The shared classifier's out-of-credit reason for ``error``, else None."""
+    error_type = type(error).__name__ if isinstance(error, BaseException) else None
+    reason = classify_self_serviceable(error_type, str(error) if error is not None else "")
+    return reason if reason in OUT_OF_CREDIT_REASONS else None
+
+
 # Name the background LLM plane records under in the service_audit table.
 _AUDIT_SERVICE = "background_llm"
 
-# One owner inbox notice per (agent_id, target, category) per this window.
-# Matches the message bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner running
-# many background paths for one broken key gets at most one nudge per surface
-# per half hour. `target` is the source_id when the caller has one (a narrative,
-# an agent) so two sources failing for one agent are two facts, not one.
+# One owner inbox notice per dedup key per this window. Matches the message
+# bus's FAILURE_NOTIFY_COOLDOWN_SECONDS so an owner gets at most one nudge per
+# key per half hour. The key depends on the category (`_dedup_key`).
 ALERT_COOLDOWN_SECONDS = 1800
+
+# Balance-class notices are keyed on the owner alone: see `_dedup_key`.
+_OWNER_WIDE_TARGET = "owner"
+
+
+def _dedup_key(
+    category: str, *, agent_id: str, owner_user_id: str, source_id: str
+) -> tuple[str, str]:
+    """The (agent_id, target) half of the cooldown key for one notice.
+
+    A credential failure is keyed per source (a narrative, a team, an entity):
+    two sources may be configured differently, so two failing sources are two
+    facts. An out-of-credit failure is ONE fact about the owner's account — a
+    spent free tier or an empty provider balance stops every narrative, entity
+    and team of every agent at once, and the remedy is the same single top-up.
+    Keying it per source turned one empty balance into a notice per active
+    narrative / entity candidate every half hour, the alarm fatigue this module
+    exists to avoid. So balance notices collapse to one per owner per window.
+    """
+    if category == "provider_balance":
+        return owner_user_id, _OWNER_WIDE_TARGET
+    return agent_id, source_id or agent_id
 
 
 async def _cooling(db, agent_id: str, target: str, category: str) -> bool:
@@ -91,7 +140,8 @@ async def alert_background_llm_failure(
     owner_user_id: Optional[str] = None,
     source_id: str = "",
 ) -> None:
-    """Record a background LLM failure and, if credential-class, notify the owner.
+    """Record a background LLM failure and, when the owner can fix it
+    (credential or out-of-credit), notify them.
 
     ``source`` is a short label that lands in the audit detail and the
     notice title. The list below is authoritative — an operator reading it
@@ -102,8 +152,10 @@ async def alert_background_llm_failure(
     - ``post_turn_hooks`` — agent_runtime/agent_runtime.py
     - ``entity_summary`` / ``entity_dedup`` / ``entity_extraction`` /
       ``description_compression`` / ``persona_inference`` — the
-      social-network memory chain (module/social_network_module/
-      _entity_updater.py)
+      social-network memory chain (plugins/builtin.social_network/.../
+      social_network_module/_entity_updater.py)
+    - ``team_summary`` — the team bulletin's auto-summary
+      (plugins/builtin.teams/.../teams/summary_worker.py)
 
     (``memory_extraction`` used to be listed here and was never emitted by
     anything — a label that answers a SELECT with zero rows cannot tell an
@@ -117,8 +169,19 @@ async def alert_background_llm_failure(
     Never raises — an observer must not break the observed path (incident
     lesson #3's corollary: the alerter is best-effort).
     """
-    is_credential = is_credential_error(error)
-    category = "provider_credential" if is_credential else "generic"
+    # Out-of-credit is asked FIRST, the same order `classify_self_serviceable`
+    # uses (invalid credentials last): a 403 whose body reports an empty
+    # balance, or a quota error that echoes "API key", also matches the broad
+    # credential patterns, and telling that owner to re-check a working key is
+    # the wrong remedy.
+    credit_reason = _out_of_credit_reason(error)
+    if credit_reason is not None:
+        category = "provider_balance"
+        hint = _FREE_TIER_HINT if credit_reason == SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED else _BALANCE_HINT
+    elif is_credential_error(error):
+        category, hint = "provider_credential", _CREDENTIAL_HINT
+    else:
+        category, hint = "generic", ""
 
     # Tier 1 — always leave a durable, SQL-able trace.
     try:
@@ -134,38 +197,39 @@ async def alert_background_llm_failure(
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
         logger.warning(f"[background-llm] audit write failed: {e}")
 
-    # Tier 2 — owner inbox notice, credential-class only + owner known + deduped.
-    if not is_credential or not owner_user_id:
+    # Tier 2 — owner inbox notice, owner-actionable only + owner known + deduped.
+    if category == "generic" or not owner_user_id:
         return
 
     try:
         db = await get_db_client()
-        target = source_id or agent_id
-        if await _cooling(db, agent_id, target, category):
+        key_agent, target = _dedup_key(
+            category, agent_id=agent_id, owner_user_id=owner_user_id, source_id=source_id
+        )
+        if await _cooling(db, key_agent, target, category):
             return
         safe_error = redact_secrets(error)
+        problem = "credential" if category == "provider_credential" else "balance/quota"
         content = (
             f"A background task ({source}) for this agent is failing with what "
-            f"looks like a provider/credential error, so its long-memory "
-            f"updates are being skipped.\n\n"
+            f"looks like a provider {problem} error, so its background updates "
+            f"are being skipped.\n\n"
             f"Error: {safe_error}\n\n"
-            f"Check the agent's LLM Helper (helper_llm) provider configuration "
-            f"— API key and base URL — in Provider settings. Updates resume "
-            f"automatically once the credentials work again."
+            f"{hint} Updates resume automatically once the provider works again."
         )
         await InboxRepository(db).create_message(
             user_id=owner_user_id,
             message_id=f"bgllm_{uuid.uuid4().hex[:16]}",
-            title=f"Background memory updates failing: {agent_id}",
+            title=f"Background updates failing ({source}): {agent_id}",
             content=content,
             message_type=InboxMessageType.SYSTEM_NOTICE,
             source=MessageSource(type="background_llm_failure", id=source_id or agent_id),
         )
         # Arm cooldown only after a successful write — a transient DB blip must
         # not silently suppress the real notice for the rest of the window.
-        await _arm(db, agent_id, target, category)
+        await _arm(db, key_agent, target, category)
         logger.warning(
-            f"[background-llm] notified owner {owner_user_id} of credential "
+            f"[background-llm] notified owner {owner_user_id} of {category} "
             f"failure for agent {agent_id} (source={source})"
         )
     except Exception as e:  # noqa: BLE001 — notification is best-effort

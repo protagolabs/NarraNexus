@@ -21,6 +21,7 @@ from narranexus.kernel.plugins.builtins import load_builtins
 EXPECTED_MODULES = {
     "AwarenessModule", "BasicInfoModule", "ChatModule", "SocialNetworkModule", "JobModule", "SkillModule",
     "MessageBusModule", "CommonToolsModule", "GeneralMemoryModule", "HomeAssistantModule", "NexusPluginsModule",
+    "BrowserModule",
     "LarkModule", "SlackModule", "TelegramModule", "WeChatModule", "NarramessengerModule", "DiscordModule",
 }
 

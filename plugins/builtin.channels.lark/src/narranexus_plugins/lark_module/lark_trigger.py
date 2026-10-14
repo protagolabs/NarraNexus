@@ -1997,13 +1997,23 @@ class LarkTrigger(ChannelTriggerBase):
         # gating + run recording (observability) come with it.
         from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
-        result = await get_agent_runtime_client().run_and_collect(
-            agent_id=agent_id,
-            user_id=owner_user_id,
-            input_content=tagged_prompt,
-            working_source=WorkingSource.LARK,
-            trigger_extra_data=trigger_extra_data,
-        )
+        # The base's circuit-breaker gate — this override replaces the base
+        # method wholesale, so it must call the gate itself (a paused agent
+        # used to re-run a doomed turn for every Lark message).
+        admission, refusal = await self._circuit_admission(cred, message, agent_id)
+        if refusal is not None:
+            return refusal
+        try:
+            result = await get_agent_runtime_client().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=WorkingSource.LARK,
+                trigger_extra_data=trigger_extra_data,
+                probe_token=admission.probe_token,
+            )
+        finally:
+            await self._release_unsettled_probe(agent_id, admission)
 
         if result.is_error:
             friendly = format_lark_error_reply(result.error)

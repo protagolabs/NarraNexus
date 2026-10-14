@@ -1,7 +1,18 @@
 ---
 code_file: frontend/src/components/jobs/JobExpandedDetail.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-11
 ---
+
+## 2026-09-09 — Edit Content button next to Edit Time (GitHub #86)
+
+Payload was already displayed here (expand/collapse), but it was
+read-only — the backend's PUT /api/jobs/{job_id} had no frontend edit
+UI at all. Added an `onEditPayload` prop next to `onEdit`
+(execution-time editing). Both buttons sit behind the SAME `canEdit`
+prop (the caller's `canEdit(status)`: non-running, non-terminal) — one
+gate, not a second boolean that always carried the same value — same
+action-row placement, and the new one opens `JobPayloadEditDialog`
+instead of `JobScheduleEditDialog`.
 
 ## 2026-08-27 — description 从折叠行搬到这里（区块 0）
 
@@ -71,4 +82,4 @@ MCP schema/instructions 不教 end_at、trigger 也忽略，所以它本不该�
 类型来自 `types/api.ts` 的 `TriggerConfig.end_at?`（与后端 schema 对齐）；
 i18n `jobs.expanded.endAt` 十个 locale 全量（该块历史上就是全量翻译的，
 与 onboarding.* 只有 en/zh 的口径不同）。编辑对话框有意不加该字段
-（reschedule_job 的 _TIME_FIELDS 不含它，传了会被静默忽略）。
+（reschedule_job 的 _RESCHEDULE_FIELDS——2026-09-10 前叫 _TIME_FIELDS——不含它，传了会被静默忽略）。

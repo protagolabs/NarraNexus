@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-3）— 整体覆写的 `_build_and_run_agent` 过熔断器闸门
+
+本类整体覆写基类方法，所以自己在 `run_and_collect` 之前调基类 `_circuit_admission`：被拒 → 基类
+经 lark-cli 把拒绝文案发回会话并返回该文案；放行 → `probe_token` 交给 `run_and_collect`，
+`finally` 里 `_release_unsettled_probe` 兜底。锁：`test_lark_refuses_a_paused_agent`、
+`test_lark_claims_an_open_window`。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

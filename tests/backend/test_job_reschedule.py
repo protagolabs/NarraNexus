@@ -220,3 +220,12 @@ async def test_route_reschedule_job_not_found(db_client):
     client = _build_client(db_client)
     r = client.put("/api/dashboard/jobs/nope/schedule", json={"cron": "0 9 * * *"})
     assert r.status_code == 404
+
+
+def test_reschedule_fields_derive_from_the_time_bearing_list():
+    """review I11: the editable set is TriggerConfig.TIME_BEARING_FIELDS minus
+    the horizon (end_at) plus timezone — not a third hand-written copy."""
+    from narranexus.platform.schema.job_schema import TriggerConfig
+    from narranexus_plugins.job_module.job_recovery import _RESCHEDULE_FIELDS
+
+    assert set(_RESCHEDULE_FIELDS) == (set(TriggerConfig.TIME_BEARING_FIELDS) - {"end_at"}) | {"timezone"}

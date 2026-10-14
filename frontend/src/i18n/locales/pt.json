@@ -217,7 +217,8 @@
         "patrolOff": "Desligar",
         "editProfile": "Editar perfil (nome / cor / intro)",
         "clearData": "Limpar dados…"
-      }
+      },
+      "drawerCategory": "Sala da equipe"
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -310,6 +311,8 @@
     },
     "activityEmpty": "Ainda não há atividade em segundo plano",
     "activityEmptyHint": "As execuções que o agente inicia sozinho — tarefas, canais, colegas — aparecem aqui.",
+    "stoppedByUser": "Interrompido por você",
+    "noResponseNeeded": "O agente decidiu que não era necessário responder",
     "bootstrapGreeting": "Olá... acabei de acordar. Tudo parece completamente novo.\n\nAinda não tenho nome e não sei bem quem sou — mas sei que foi você quem me trouxe aqui.\n\nQuer me dizer como devo me chamar? E como devo chamar você?",
     "bootstrapGreetingNamed": "Olá — eu sou {{name}}. Acabei de ganhar vida, e foi você quem me trouxe aqui.\n\nJá sei quem devo ser, mas ainda não sei quem você é. Como devo chamar você?"
   },
@@ -698,6 +701,10 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "há {{hoursAgo}} h · {{count}} eventos"
+    },
+    "banners": {
+      "dismissAria": "Dispensar",
+      "dismissTitle": "Dispensar"
     }
   },
   "layout": {
@@ -741,6 +748,8 @@
     },
     "agentRowMenu": {
       "options": "Opções do agente",
+      "rename": "Renomear",
+      "modelFramework": "Modelo e framework",
       "clearData": "Limpar dados",
       "delete": "Excluir"
     },
@@ -862,7 +871,8 @@
       "desktopHeading": "Desktop",
       "desktopIntro": "Configurações que controlam como o NarraNexus interage com este computador. Disponível apenas no aplicativo desktop.",
       "lockedUseTitle": "Locked Use — manter o computador acordado",
-      "lockedUseDesc": "Impede que este computador entre em suspensão para que as automações em segundo plano continuem em execução. Mantido apenas enquanto o NarraNexus estiver aberto."
+      "lockedUseDesc": "Impede que este computador entre em suspensão para que as automações em segundo plano continuem em execução. Mantido apenas enquanto o NarraNexus estiver aberto.",
+      "navBrowser": "Navegador"
     },
     "provider": {
       "presetNetmindDesc": "Uma chave cobre os endpoints da Anthropic e da OpenAI",
@@ -928,6 +938,8 @@
       "loggedIn": "Sessão iniciada",
       "loggedInAs": "como",
       "notLoggedIn": "Sessão não iniciada",
+      "sessionExpired": "Sessão expirada",
+      "sessionExpiredHint": "A sessão da CLI expirou — faça login novamente acima para continuar usando este provedor.",
       "cliNotInstalled": "CLI não instalado",
       "expires": "· expira {{date}}",
       "reLoggingInCountdown": "A reiniciar sessão... {{time}} restante(s) (verifique o navegador)",
@@ -1008,6 +1020,56 @@
       "narraUsageTitle": "Usado pelo NarraNexus · últimos {{days}} dias",
       "narraUsageTokens": "tokens",
       "narraUsageEstimate": "≈ {{cost}} — estimado por preços públicos de tabela, então não corresponderá exatamente à sua fatura NetMind."
+    },
+    "browser": {
+      "title": "Navegador",
+      "intro": "O navegador é baixado separadamente e não vem incluído no aplicativo.",
+      "ready": "Instalado",
+      "absent": "Ainda não instalado.",
+      "broken": "Há um navegador instalado, mas ele não inicia.",
+      "install": "Instalar navegador",
+      "reinstall": "Reinstalar navegador",
+      "installingUnknown": "Baixando…",
+      "recheck": "Verificar novamente",
+      "installFailed": "Não foi possível instalar o navegador. Tente novamente.",
+      "cancelFailed": "Não foi possível cancelar a instalação. Tente novamente.",
+      "cancelling": "Solicitando cancelamento…",
+      "cancelRequested": "Cancelamento solicitado. Aguardando a instalação parar…",
+      "extracting": "Extraindo o navegador…",
+      "verifying": "Verificando o navegador…",
+      "starting": "Iniciando a instalação…",
+      "statusFailed": "Não foi possível verificar o status do navegador.",
+      "loading": "Verificando o status do navegador…",
+      "cancel": "Cancelar instalação",
+      "cancelled": "Instalação cancelada.",
+      "manualInstall": "Instalação manual",
+      "copyCommand": "Copiar comando",
+      "commandCopied": "Comando copiado.",
+      "copyFailed": "Não foi possível copiar. O comando está selecionado para cópia manual.",
+      "scriptsTitle": "Scripts avançados",
+      "scriptOrigin": "Origem do site",
+      "addScriptSite": "Adicionar site",
+      "scriptOriginInvalid": "Introduza uma origem HTTP ou HTTPS sem caminho nem credenciais.",
+      "refreshScripts": "Atualizar",
+      "scriptsFailed": "Não foi possível carregar as permissões de scripts.",
+      "scriptsLoading": "A carregar permissões de scripts...",
+      "permissionSaveFailed": "Não foi possível salvar esta permissão. Tente novamente.",
+      "advancedScripts": "Permitir scripts avançados",
+      "scriptsExplanation": "Permitir que o agente execute JavaScript arbitrário neste site, incluindo o conteúdo de páginas com sessão iniciada.",
+      "saveScripts": "Salvar permissão de scripts",
+      "agentLabel": "Agente",
+      "sourceLabel": "Origem do navegador",
+      "showWindow": "Mostrar janela do navegador",
+      "modeEffect": "O modo sem janela é o padrão. As alterações são aplicadas na próxima inicialização do navegador; os logins são mantidos. Alguns sites não aceitam acesso sem janela. Se um site indicar um navegador não compatível ou outros erros, ative manualmente o modo com janela, reinicie o navegador e tente novamente.",
+      "sourceEffect": "Aplica-se a novas sessões. As sessões existentes continuam. Cada navegador mantém seus logins separados.",
+      "sourceManaged": "Chrome for Testing gerenciado",
+      "sourceSystem": "Google Chrome instalado",
+      "systemUnavailable": "O Google Chrome está indisponível. Instale-o ou selecione o navegador gerenciado.",
+      "chooseAgent": "Selecione um agente",
+      "manualHost": "Execute no computador que hospeda o NarraNexus.",
+      "manualRoot": "Diretório de instalação",
+      "manualShell": "Shell",
+      "manualCommand": "Comando"
     }
   },
   "system": {
@@ -1083,7 +1145,8 @@
     "drawer": {
       "unpin": "Desafixar painel",
       "pin": "Afixar painel",
-      "close": "Fechar painel"
+      "close": "Fechar painel",
+      "switchPanel": "Trocar painel"
     },
     "coach": {
       "title": "Seus artefatos aparecem aqui",
@@ -1264,7 +1327,14 @@
       "forgotResetIntro": "Enviaremos um código de verificação para o e-mail da sua conta NetMind.",
       "forgotCodeSentHint": "Se existir uma conta para esse e-mail, enviamos um código de verificação.",
       "useDifferentEmail": "Usar outro e-mail",
-      "connectionFailed": "Falha na conexão. Tente novamente."
+      "connectionFailed": "Falha na conexão. Tente novamente.",
+      "resetPasswordDone": "Senha atualizada",
+      "resetPasswordDoneBody": "Agora você pode entrar com sua nova senha.",
+      "backToSignIn": "Voltar para o login",
+      "resetPasswordTitle": "Redefinir senha",
+      "sendCode": "Enviar código",
+      "verificationCodeLabel": "Código de verificação",
+      "newPasswordLabel": "Nova senha"
     },
     "modeSelect": {
       "welcome": "Bem-vindo",
@@ -1340,7 +1410,8 @@
         "modelDefaults": "Modelos padrão",
         "artifacts": "Artefatos",
         "updates": "Atualizações",
-        "plugins": "Plugins"
+        "plugins": "Plugins",
+        "browser": "Navegador"
       },
       "providers": {
         "label": "Provedores de LLM"
@@ -1367,9 +1438,16 @@
         "failed": "Falha na atualização ({{stage}})."
       },
       "modelDefaults": {
+        "saved": "Salvo",
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
-        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
+        "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local.",
+        "slotSaveRolledBack": "A mudança de framework foi desfeita e nada foi salvo: não foi possível salvar o modelo do agente ({{detail}}).",
+        "frameworkSavedSlotFailed": "O framework foi trocado, mas não foi possível salvar o modelo do agente ({{detail}}). Escolha um modelo e salve novamente.",
+        "agentSavedHelperFailed": "O modelo do agente foi salvo, mas o modelo auxiliar não ({{detail}}).",
+        "frameworkSavedHelperFailed": "O framework foi trocado, mas o modelo auxiliar não pôde ser salvo ({{detail}}).",
+        "frameworkRestoredBindingLost": "O framework salvo foi restaurado, mas não foi possível salvar o modelo do agente ({{detail}}) nem religar o cartão anterior, então o slot do agente ficou sem vínculo. Sua nova escolha de framework continua no formulário, ainda não salva — escolha um modelo e salve novamente para aplicá-la.",
+        "slotClearedPickModel": "O framework foi trocado e o cartão vinculado não consegue executá-lo, por isso foi desvinculado. Escolha um provedor e um modelo para o agente."
       },
       "privacy": {
         "label": "Privacidade",
@@ -1458,6 +1536,10 @@
           "protected": "protegido",
           "installDeps": "Instalar dependências ({{pip}})"
         }
+      },
+      "browser": {
+        "label": "Navegador",
+        "hint": "Instale o navegador que os agentes usam para operar sites."
       }
     },
     "system": {
@@ -2032,7 +2114,8 @@
       "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes.",
       "builder": "Descreva o que precisa; a conversa preenche este painel."
     },
-    "builder": "Builder"
+    "builder": "Builder",
+    "browser": "Navegador"
   },
   "jobs": {
     "title": "Tarefas",
@@ -2048,6 +2131,7 @@
       "running": "Em execução",
       "paused": "Pausada",
       "pausedNoQuota": "Sem cota",
+      "pausedSpendCap": "Limite de gasto",
       "cooling": "Tentando novamente",
       "blocked": "Bloqueada",
       "blockedFailed": "Dep. com falha",
@@ -2145,7 +2229,9 @@
       "cancelJob": "Cancelar tarefa",
       "cancelling": "Cancelando...",
       "editSchedule": "Editar hora",
-      "savingSchedule": "Salvando..."
+      "savingSchedule": "Salvando...",
+      "editPayload": "Editar conteúdo",
+      "savingPayload": "Salvando..."
     },
     "template": {
       "selectTemplate": "Selecionar modelo",
@@ -2183,6 +2269,17 @@
       "modeLabel": "Modo de disparo",
       "modeInterval": "Intervalo",
       "modeCron": "Expressão cron"
+    },
+    "editPayload": {
+      "title": "Editar conteúdo da tarefa",
+      "hint": "Altere o que esta tarefa executa. As alterações têm efeito na próxima execução.",
+      "titleLabel": "Título",
+      "descriptionLabel": "Descrição",
+      "payloadLabel": "Conteúdo / prompt",
+      "payloadHint": "O texto de instrução passado ao agente quando esta tarefa é executada.",
+      "titleRequired": "O título não pode ficar vazio",
+      "failedTitle": "Falha ao atualizar",
+      "failedMessage": "Não foi possível atualizar o conteúdo da tarefa. Tente novamente."
     },
     "row": {
       "every": "A cada {{interval}}",
@@ -2409,7 +2506,11 @@
     "livePreview": "Pré-visualização ao vivo"
   },
   "common": {
-    "close": "Close",
+    "close": "Fechar",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "back": "Voltar",
+    "edit": "Editar",
     "betaTooltip": "O NarraNexus está em fase beta. Os recursos podem mudar e podem ocorrer problemas ocasionais — seu feedback nos ajuda a melhorar.",
     "ok": "OK",
     "noticeTitle": "Um momento",
@@ -2490,6 +2591,63 @@
       "channelsHint": "Onde ele pode ser encontrado. Credenciais vão direto ao backend — nunca para a conversa.",
       "suggested": "Da conversa",
       "optional": "Opcional"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "Sua sessão expirou. Faça login novamente. (clique para dispensar)",
+    "sessionExpiringSoon": "Sua sessão expira em {{time}}. Saia e entre novamente para não perder seu trabalho. (clique para dispensar)",
+    "circuitPausedQuota": "Este agente foi pausado após falhas repetidas de cota/saldo. Corrija o provedor e retome.",
+    "circuitPausedAuth": "Este agente foi pausado após falhas repetidas de autenticação. Reautentique ou defina um provedor e retome.",
+    "circuitCooling": "Este agente falhou recentemente e está em um breve resfriamento. Tente novamente em instantes.",
+    "resumeAgent": "Retomar agente",
+    "resuming": "Retomando…",
+    "dismiss": "Dispensar",
+    "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "Não foi possível verificar as solicitações de login do navegador.",
+      "retry": "Tentar novamente"
+    },
+    "absentTitle": "Navegador não instalado",
+    "brokenTitle": "O navegador está instalado, mas não inicia",
+    "install": "Instalar navegador",
+    "reinstall": "Reinstalar navegador",
+    "cancelInstall": "Cancelar download",
+    "installFailed": "A solicitação de instalação do navegador falhou.",
+    "installingUnknown": "Baixando…",
+    "idle": "Ainda não há uma sessão ativa do navegador.",
+    "pages": "Abas do navegador",
+    "newTab": "Nova aba",
+    "agentTab": "Agente",
+    "closeTab": "Fechar aba",
+    "followAgent": "Seguir agente",
+    "webAddress": "Endereço web",
+    "go": "Ir",
+    "takeControlToNavigate": "Assuma o controle para abrir uma página",
+    "invalidAddress": "Insira um endereço HTTP ou HTTPS.",
+    "agentDriving": "O agente está no controle",
+    "youDriving": "Você está no controle",
+    "otherDriving": "Outra janela está no controle",
+    "takeControl": "Assumir o controle",
+    "handBack": "Devolver o controle ao agente",
+    "reconnect": "Reconectar",
+    "reconnecting": "Reconectando…",
+    "connecting": "Conectando…",
+    "disconnected": "Desconectado",
+    "screen": "Tela do navegador",
+    "keyboardInput": "Entrada de teclado do navegador",
+    "login": {
+      "title": "Login ou verificação necessária",
+      "inControl": "Devolva o controle no navegador quando terminar.",
+      "pending": "Aguardando você concluir o login ou a verificação no navegador.",
+      "openBrowser": "Abrir navegador"
+    },
+    "look": {
+      "looked": "Página visualizada",
+      "failed": "Não foi possível ver a página",
+      "area": "área {{width}}×{{height}}",
+      "open": "Abrir navegador"
     }
   }
 }

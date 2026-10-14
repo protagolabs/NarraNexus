@@ -1,8 +1,53 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/run_recorder.py
-last_verified: 2026-08-30
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（GH #127 / B-05）— FAILED 行也保留已流出的 final_output
+
+- STATE_FAILED 分支本身一直正确写 `error_message`；漏洞在调用方从不带 `had_fatal_error=True` 的 run
+  调 `finalize(STATE_FAILED, ...)`（见 [[client]]/[[background_run]] 同日条目）。原来那条
+  "deliberate asymmetry" 注释描述的正是被修掉的旧行为，已改写。
+- `final_output` 兜底的门从 `state == STATE_COMPLETED` 改为 `state != STATE_CANCELLED`：调用方现在会把
+  「已流出正文后才撞上 fatal」的 run（例如 claude_code 中途 401，那条分支仍无条件 fatal）落成
+  FAILED，旧门会让这种行只剩 error_message、丢掉用户其实已看到的回复。cancelled 行照旧不写。
+  「never overwrite a non-empty value」的读-改-写原样保留（step_4 写过的值不被覆盖）。
+
+测试：`tests/agent_runtime/test_run_recorder.py::test_finalize_failed_keeps_output_streamed_before_the_failure`
+（failed 保留、cancelled 不写）。
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— recorder 替探测认领者报出 run id
+
+`RunRecorder(..., agent_id=None, probe_token=None)`：run 携带半开探测认领时，`_bind_run_id`
+在「running init」那次写之后调 [[circuit_breaker]] `bind_probe_run`，把本 run 的 event_id
+记为认领者（token CAS，永不抛）。普通 run 两个参数都是 None，什么都不写。这是认领身份唯一的
+落点——WS/openai（[[background_run]]）与触发路径（[[client]] `_new_recorder`）都经过它。
+`sweep_stale_runs` 调 `release_orphaned_probe` 的判定随之变成「被绑定的那条 run 是否还活着」。
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则只剩一条 import 路径
+
+本模块不再 re-export 活性规则：只为自身使用导入 `HEARTBEAT_INTERVAL_S` / `STATE_RUNNING` /
+`run_is_live`，`__all__` 去掉了 `HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` /
+`parse_db_utc` / `run_is_live`。所有调用方（backend main/auth/websocket/runs、cancel_watcher、
+patrol、errand、测试）直接从 [[run_liveness]] 导入。状态机常量 `STATE_COMPLETED` /
+`STATE_CANCELLED` / `STATE_FAILED` / `TERMINAL_STATES` 仍住在本模块。门禁：
+`test_run_recorder.py::test_the_liveness_rule_has_one_import_path`（扫 src/backend/tests/scripts
+里从 run_recorder / background_run 导入活性名字的语句，含多行括号导入）。
+
+## 2026-09-10（PR #394 review I1/I4）— 活性规则搬到叶子模块；清扫改调 `release_orphaned_probe`
+
+`HEARTBEAT_INTERVAL_S` / `RUN_STALE_AFTER_S` / `STATE_RUNNING` / `parse_db_utc` /
+`run_is_live` 移到 [[run_liveness]]（`utils` 叶子）。（最初本模块原样 re-export；第二轮 review I-4 已删掉
+re-export，见上一节。）熔断器改从叶子模块导入，于是本模块对 [[circuit_breaker]] 的导入成了普通的模块级
+下行导入——原来两边各一个函数内 lazy import 互相掩护一个 loop↔runtime 环，已拆掉。
+
+`sweep_stale_runs` 每翻一行（failed 或 cancelled）对该 `agent_id` 调
+`release_orphaned_probe`：丢失的 run 带着 token 死了，只能靠时间判身份——行是 PROBING 且
+没有「认领之后才开始」的存活 run 时才归还（同 agent 更早就在跑的长 run 不再能把行焊在
+PROBING）。锁：`test_sweep_releases_the_lost_runs_half_open_probe`、
+`test_sweep_releases_a_lost_probe_despite_an_older_live_run`、
+`test_breaker_and_sweep_share_one_liveness_rule_without_a_cycle`。
 
 ## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
 

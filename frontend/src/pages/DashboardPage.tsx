@@ -68,6 +68,7 @@ import {
 import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
 import { cn, formatMessageAge } from '@/lib/utils';
+import { MASTER_DETAIL_ROW_CLASS, MASTER_NAV_CLASS, masterNavItemClass } from '@/lib/masterDetailNav';
 import type { AgentInfo, AgentStatus, OwnedAgentStatus } from '@/types';
 
 // The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
@@ -578,11 +579,13 @@ export function DashboardPage() {
         </h1>
       </header>
 
-      <div className="flex flex-1 min-h-0">
+      <div className={MASTER_DETAIL_ROW_CLASS}>
         {/* Left rail (master) — Manage Agents / Team Management / Export,
-            mirroring SettingsPage's master–detail nav. */}
+            mirroring SettingsPage's master–detail nav. Below md there's no
+            room for a fixed 224px column (GitHub #130); it becomes a
+            horizontal scroll strip above the content instead. */}
         <nav
-          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          className={MASTER_NAV_CLASS}
           style={{ borderColor: 'var(--nm-line)' }}
         >
           {TAB_ITEMS.map((item) => {
@@ -593,12 +596,7 @@ export function DashboardPage() {
                 key={item.id}
                 type="button"
                 onClick={() => selectTab(item.id)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors',
-                  isActive
-                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]',
-                )}
+                className={masterNavItemClass(isActive)}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 {t(item.labelKey)}

@@ -13,9 +13,10 @@
  * helpers in lib/agentFramework so this offers exactly the same choices the
  * Settings default editor does.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
@@ -60,7 +61,8 @@ const EMPTY_DRAFT: Draft = {
   model: '',
   thinking: '',
   reasoning_effort: '',
-  agent_framework: 'nexus_power',
+  // Filled by load() — no hardcoded framework id (see ownerFramework below).
+  agent_framework: '',
 };
 
 function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): Draft {
@@ -103,6 +105,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // (not `[]`) until a response actually lands.
   const [liveFrameworks, setLiveFrameworks] = useState<LiveFrameworkEntry[] | undefined>(undefined);
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
+  const knobIds = useId();
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
   // Snapshot of what was loaded — so Save only writes slots the user changed.
   const [agentInitial, setAgentInitial] = useState<Draft>(EMPTY_DRAFT);
@@ -110,15 +113,16 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // While the owner's cloud free tier has budget, the runtime pins every run to
-  // the fixed system model and ignores what's edited here — surface that
-  // honestly (the edits still persist and apply once the free tier is spent).
-  const [freeTier, setFreeTier] = useState<{ active: boolean; model: string | null }>({
-    active: false,
-    model: null,
-  });
+  // Success feedback (GitHub #96): a Save that landed used to look
+  // identical to a click that did nothing — the dialog stays open by
+  // design (see file header), but nothing told the user it worked. Mirrors
+  // ModelDefaultsSettings' "✓ Saved" indicator so the two editors read the
+  // same way.
+  const [saved, flashSaved] = useFlashFlag(2500);
 
-  const load = useCallback(async () => {
+  // `keepHelperDraft`: after a partial save, reload the stored state but keep
+  // the user's still-unsaved helper edit in the draft.
+  const load = useCallback(async (keepHelperDraft?: Draft) => {
     setLoading(true);
     setError('');
     try {
@@ -134,15 +138,24 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
-      setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
+      // No owner slot bound → the framework the backend resolved for this
+      // user (its default already skips uninstalled plugins). Never a
+      // frontend literal: a hardcoded id can name a framework whose plugin
+      // is not installed on this build.
       const ownerFramework =
-        s.agent?.owner_default?.agent_framework || 'nexus_power';
+        s.agent?.owner_default?.agent_framework || (fwRes?.success ? fwRes.data.framework : '');
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
-      const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
+      // The helper slot carries no framework (its save never sends one).
+      const h = draftFrom(s.helper_llm?.effective ?? null, '');
       setAgentDraft(a);
-      setHelperDraft(h);
+      setHelperDraft(keepHelperDraft ?? h);
       setAgentInitial(a);
       setHelperInitial(h);
+      // A soft failure of the framework endpoint leaves no framework list to
+      // offer (and providerBacksFramework fails closed on it), so the form
+      // would render an empty framework select with no explanation. Say the
+      // load failed instead.
+      if (!fwRes?.success) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
@@ -224,10 +237,19 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        if (!r.success) {
+          const failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+          if (!agentChanged) { setError(failure); return; }
+          // The agent half landed: reload it as saved, keep the helper edit.
+          await load(helperDraft);
+          onSaved?.();
+          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          return;
+        }
       }
       await load();
       onSaved?.();
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -242,6 +264,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       await api.resetAgentLlmConfig(agentId, slot);
       await load();
       onSaved?.();
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.resetFailed'));
     } finally {
@@ -290,13 +313,6 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           </p>
         ) : (
           <div className="space-y-6">
-            {freeTier.active && (
-              <div className="rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
-                {t('chat.model.freeTierBanner', {
-                  model: freeTier.model ? prettifyModel(freeTier.model) : '',
-                })}
-              </div>
-            )}
             <p className="text-sm text-[var(--text-tertiary)]">
               {t('pages.settings.modelDefaults.agentOnlyDescription', { agentId })}
             </p>
@@ -443,10 +459,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
+                  {/* Thinking / reasoning effort belong to the slot binding:
+                      editable only once a provider is chosen, like the model. */}
+                  <label htmlFor={`${knobIds}-thinking`} className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
                   <select
+                    id={`${knobIds}-thinking`}
                     className={selectCls}
                     value={agentDraft.thinking}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
@@ -456,10 +476,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
+                  <label htmlFor={`${knobIds}-effort`} className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
                   <select
+                    id={`${knobIds}-effort`}
                     className={selectCls}
                     value={agentDraft.reasoning_effort}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
@@ -583,6 +605,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             ? t('pages.settings.modelDefaults.saving')
             : t('pages.settings.modelDefaults.save')}
         </button>
+        {saved && !isDirty && (
+          <span className="text-sm text-[var(--color-success)]">
+            ✓ {t('pages.settings.modelDefaults.saved')}
+          </span>
+        )}
       </DialogFooter>
     </Dialog>
     {noticeDialog}

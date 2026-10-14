@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/dashboard/_schema.py
-last_verified: 2026-08-27
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r1 C1）— `paused_spend_cap` 进 `queue_status` Literal 与 `QueueCounts`
+
+同 2026-08-27 那节的教训再演一次：routes.py 一旦发出 `paused_spend_cap`，Literal 不含它就是
+整个 `/agents-status` 500。这次补齐的同时把「Literal / QueueCounts 字段 == `_LIVE_JOB_STATES`」
+写成测试（`tests/backend/test_dashboard_live_job_states.py`），下一个状态漏在这里会在 CI 红，
+不再靠人记 Gotcha。
 
 ## 2026-08-27 — 补齐 PendingJob / QueueCounts:这里曾让 `/agents-status` 直接 500
 

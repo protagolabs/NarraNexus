@@ -60,6 +60,18 @@ async def test_resume_paused_no_quota_job(db_client):
 
 
 @pytest.mark.asyncio
+async def test_resume_paused_spend_cap_job(db_client):
+    """A spend-capped job is manually resumable too (review C1) — the next
+    start re-checks the cap, so resuming early is harmless."""
+    await _insert(db_client, "job_p3b", JobStatus.PAUSED_SPEND_CAP.value)
+    ok, _ = await resume_job("job_p3b", db_client)
+    assert ok is True
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_p3b"})
+    assert row["status"] == JobStatus.ACTIVE.value
+    assert row["paused_reason"] is None
+
+
+@pytest.mark.asyncio
 async def test_resume_cooling_job_clears_backoff(db_client):
     await _insert(db_client, "job_p4", JobStatus.COOLING.value, failure_count=4)
     ok, _ = await resume_job("job_p4", db_client)

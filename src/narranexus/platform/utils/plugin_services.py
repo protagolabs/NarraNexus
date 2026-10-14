@@ -2,7 +2,7 @@
 @file_name: plugin_services.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Platform-side accessors for services builtins expose (skills workspace, job instances, run-once).
+@description: Platform-side accessors for services builtins expose (skills workspace, job instances, run-once, resume-for-principal).
 
 Thin wrappers over ``KERNEL_REGISTRIES.services`` + ``contracts.services``
 so the bundle importer, marketplace, skill sync, onboarding and Arena
@@ -20,7 +20,12 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from narranexus.contracts.services import JOB_INSTANCES, JOB_RUN_ONCE, SKILL_WORKSPACES
+from narranexus.contracts.services import (
+    JOB_INSTANCES,
+    JOB_RESUME_FOR_PRINCIPAL,
+    JOB_RUN_ONCE,
+    SKILL_WORKSPACES,
+)
 from narranexus.contracts.skill import SkillWorkspace
 
 
@@ -45,4 +50,9 @@ def try_job_run_once() -> Any:
     return _services().try_require(JOB_RUN_ONCE)
 
 
-__all__ = ["job_instances", "skill_workspace", "try_job_run_once"]
+def try_job_resume_for_principal() -> Any:
+    """``async (db, user_id, paused_reasons) -> int`` or None when builtin.job is disabled."""
+    return _services().try_require(JOB_RESUME_FOR_PRINCIPAL)
+
+
+__all__ = ["job_instances", "skill_workspace", "try_job_resume_for_principal", "try_job_run_once"]

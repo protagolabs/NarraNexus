@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/failure.py
-last_verified: 2026-09-10
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23：凭据服务暂时不可用不是凭据失效
+
+NetMind 返回 503 `API key channel binding is temporarily unavailable` 时，裸 api key
+词命中导致后台错误被归为 provider_credential，并发出误导性的密钥检查提示。共享严格
+分类器现在先保留明确鉴权异常类及 401/403，再排除服务不可用、超时和网关故障措辞，
+最后匹配凭据词。既有真实鉴权失败仍告警；503 保留审计，不产生凭据失效通知。
+实时熔断器原本已将这条错误归为 transient，本次不修改其冷却策略或模型配置。
 
 ## 2026-09-10（PR #389 I3）— 拆成严格 `is_credential_error` 与宽松 `is_auth_like_error`
 
@@ -60,6 +68,35 @@ owner 收到「去检查 Provider 设置」的误诊。规则变化三条：
 
 只影响 owner 提示文案 + 审计分类，不改重试/投递行为（与此前一致）。锁：
 `tests/agent_framework/test_llm_failure.py` 的 provider 假阳性参数组 + 类名判定用例。
+
+## 2026-09-08 — B-12：`credit_balance_exhausted` 字面量补进余额 marker（prod 446 次/天 429 风暴）
+
+一个 aggregator/OpenAI-compatible provider 把「余额耗尽」折成错误 **CODE**（塞进
+`error_type` 字段），报文本身只是普通的 `429 Too Many Requests`——不含任何既有余额
+marker（`insufficient balance` / `balance not enough` / `credit balance is too low`
+等）。旧逻辑因此把它判成瞬时限流（circuit_breaker 的 `_TRANSIENT_MARKERS` 里裸
+`"429"` 命中），job 层 `_is_no_quota_failure` 也判不出来——于是 job 每个调度周期
+原样重试，一天打出 446 次 429。
+
+修法两处，覆盖两个信号通道（type 字段单独出现字面量 / message 里折出同一字面量）：
+- `_SELF_SERVICEABLE_TYPES["credit_balance_exhausted"]` → `insufficient_balance`
+  （精确类型匹配，和既有 `billing_error` 同一张表）
+- `_INSUFFICIENT_BALANCE_MARKERS` 追加 `"credit_balance_exhausted"` 子串
+  （message 里出现同一个字面量时兜底）
+
+两处都命中同一个既有 reason（`insufficient_balance`），不新增 reason——它和已有
+「没钱了」场景补救措施相同（Settings → Providers 充值/换 provider），不属于
+`OUT_OF_CREDIT_REASONS` 需要拆分的「补救措施不同」情形。下游三个消费者
+（[[job_trigger]] 的 `_is_no_quota_failure` → `paused_no_quota` 且落进
+`_EDGE_ONLY_RESUME_REASONS`、不被时间兜底盲探拉起；[[circuit_breaker.py]] 的
+`_is_out_of_credit` → `QUOTA`；`providers/registry.py` 的模型健康探测）不用任何改动
+就自动拿到新分类——这正是本文件作为单一分类真源要保的性质。
+
+已 sweep：`nexus_power` 的 `error_classifier.py` 与 `frameworks_claude_code/sdk.py`
+各自维护一份 marker 表，但两者最终都把 raw message 原样折进 job 结果的 `error`
+字段，被 `job_trigger._is_no_quota_failure` 里对 `classify_self_serviceable` 的
+调用二次识别——不需要在那两个文件重复加 marker（`nexus_power` 的 `LoopError.
+legacy_error_type()` 只影响它自己的重试/熔断信号，不吞掉原始 message）。
 
 ## 2026-07-30 — 免费额度用完拆成自己的 reason + `OUT_OF_CREDIT_REASONS`
 

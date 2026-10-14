@@ -1,8 +1,53 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-08-19
+last_verified: 2026-09-13
 stub: false
 ---
+
+## 2026-09-13（PR#401 review 🟡2 → 第八轮）— marker 改走 `file_marker`，所有值编码，落盘后缀清洗
+
+`build_bus_markers` 不再自己拼 marker，改调 `attachment_schema.file_marker`（与用户上传同一函数）。marker 里
+**每个值**——文件名、path、mime、kind、发送者、transcript——都是 JSON 字面量（path 是无损的 `exact_literal`，
+由 `root / rel_path` 拼出的路径逐字节回解；`category` 原样传入，枚举由 `file_marker` 还原），只有 `Shared file`、键名和结尾是
+固定字面量；`mime_type` 可能是外部声明的 Content-Type，`category` 来自 dict，都不被当成可信平台值。
+`from_agent` 现在是**原始**发送者（句柄或显示名），由 `file_marker` 编码成 `from="…"`，调用方不再预编码。
+`_new_target` 收文件名并过 `on_disk_suffix`，换行/空格/逗号进不了落盘路径（纵深防御，不是这一行安全性的前提）。
+
+## 2026-09-11（PR#401）— `build_bus_markers` 一个 marker 只占一行
+
+文件名（`original_name`）和 transcript 由发送方写，可能带换行，原样拼进 marker 就能在团队房
+scrollback 里开出一行 `User: …`。现在两者经 `inline_field(x, None)` 折叠空白（不加引号：marker 内部
+形态与用户上传 marker `Attachment.synthesize_marker` 共享）。`from_agent` 按调用方给的原样打印——
+团队房传已编码的标签，peer 私聊传句柄。
+
+## 2026-09-09 — `_resolve_ref_to_source` 补上共享区回退（B-22，#122）
+
+`att_...` 格式的 ref 只试过 `resolve_attachment_path`（发送方自己的
+`user_upload_files`），从不试 `resolve_shared_file_by_id`（本文件后面就定义了它，
+只是没人从这里调）。两个 store 的 file_id 都由同一个 `generate_file_id()` 铸造，
+形状完全相同——区分不了「这是我自己传的」还是「这是团队群里别人（人类上传或另一个
+agent 已 stage 过）传的」，唯一的办法就是两边都探一遍。
+
+之前的行为：`team_share_file`（工具名；2026-08-19 条目记过的 `bus_*` 旧名早已退役，第一版又写回了旧名）转发一个团队群聊里的 `att_` 附件（人类在群里直接上传、
+或另一个 agent 已经 stage 进这个团队的文件）到另一个团队时，`resolve_attachment_path`
+在发送 agent 自己的 upload 目录里必然找不到，函数直接返回 `None`，ref 静默解析失败——
+调用方 `resolve_and_stage_refs` / `stage_path_into_team` 都把 `None` 当作「这条 ref 跳过」，
+所以症状是分享无声无息地丢了，没有任何错误。
+
+修法：`is_valid_file_id(ref)` 命中后，先探 `resolve_attachment_path`（发送方自己的
+store，最常见路径，保持不变），**miss 时**再探 `resolve_shared_file_by_id(owner_user_id,
+ref, base)`。顺序很重要——发送方自己的 upload 优先，共享区只是兜底，不反过来。
+
+**信任边界（复审 M4/M5，有意为之、记录在此）**：`resolve_shared_file_by_id(owner_user_id, ref, base)`
+只用 `bus_files_dir(user_id)` 拼根、`file_id` 已过 `^att_[a-z0-9]{8}$`，结构性禁闭在
+`{base}/{user_id}/_shared/bus_files` 内；`owner_user_id` 由工具从 `agents.created_by` 查出、
+`agent_id` 被注入身份强制覆盖，模型操纵不了——**跨用户不可能**。同 owner 内确有扩面：共享区按
+用户扁平（不按 team 分区），所以 agent A 现在能按 id 解析到它从未加入的团队群里人类上传的
+文件、再经 `team_share_file` 转进它所在的团队。但 `utils/workspace_paths.py::turn_accessible_roots`
+早已把整棵 `bus_files` 树无条件授予每个回合（注释明写 "user-wide by design"），这只是省掉了
+"先 Read 再按工作区相对路径附上"一步，不是新的读取原语。工具 docstring（`message_agent` /
+`team_share_file`）同批改成与实现一致（原来写"只能分享你实际拥有的文件"）。真正收口属于共享区
+按 team 分区的改造，记 todo。
 
 ## 2026-08-19 — 文档指针刷新
 
@@ -90,7 +135,7 @@ claude `bypassPermissions`）。**本地与云端同一条码路**，不分叉�
 ## 上下游
 
 - **被谁调用**：`_message_bus_mcp_tools.py`（`message_team` / `message_agent`
-  的 `attachment_refs` → `resolve_and_stage_refs`；`bus_share_to_team` → `stage_path_into_team`）；
+  的 `attachment_refs` → `resolve_and_stage_refs`；`team_share_file` → `stage_path_into_team`）；
   `message_bus_trigger.py` 两个 prompt builder → `build_bus_markers`。
 - **依赖谁**：`attachment_storage`（file_id 解析 + `generate_file_id`）、`workspace_paths`
   （`agent_workspace_path` / `bus_files_dir` / `team_shared_dir`）、`file_safety`
@@ -136,4 +181,4 @@ not guessed here.
   （与 attachment_storage 同规约）。MCP 工具里 owner 由 `agents.created_by` 反查，不信任 LLM。
 - 共享区**无 `_index.json`**：DB 里的 attachment dict 就是索引，rel_path 直接可解析。
 - team 共享区写入必须走服务端工具：cloud 沙箱下 agent 只能写自己 workspace，`_shared`
-  对 agent 是 read-only，所以 `bus_share_to_team` 由（非沙箱的）MCP server 进程代写。
+  对 agent 是 read-only，所以 `team_share_file` 由（非沙箱的）MCP server 进程代写。

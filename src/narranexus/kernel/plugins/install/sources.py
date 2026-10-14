@@ -95,7 +95,15 @@ class _ExtractBudget:
 def extract_zip(data: bytes, dest: Path, *, max_total_bytes: int = MAX_EXTRACT_BYTES, max_members: int = MAX_ARCHIVE_MEMBERS) -> int:
     budget = _ExtractBudget(max_total_bytes, max_members)
     count = 0
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        # A truncated or corrupt release asset. Every other refusal in this
+        # module is a SourceError — the install pipeline classifies and
+        # words those; a bare BadZipFile reached the user as a raw exception
+        # unrelated to the plugin source it came from.
+        raise SourceError(f"archive is not a valid zip file ({exc}); refused") from exc
+    with zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue

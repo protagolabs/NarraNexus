@@ -1,8 +1,54 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-04
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+挂载的浏览器通知组件改名为 `BrowserNotices`（只剩登录请求，审批 UI 已删除）。
+
+## 2026-09-22 - Browser reachability on phones and in the shell
+
+The mobile utility row adds an NM Browser command alongside Artifacts and cost.
+It subscribes to PANELS, exists only with an agent and a registered browser panel,
+and uses the same requestPanel funnel as the desktop header. It does not require
+an artifact to exist first. Desktop access remains in ChatHeader.
+
+BrowserApprovalNotice is mounted in the app shell so questions are reachable
+while reading chat or settings, even if the browser drawer is closed. The notice
+owns its active-agent polling and error handling independently of playback.
+
+## 2026-09-11 — a new agent's chat opens the drawer on Artifacts (Owner)
+
+ChatView now opens the drawer on `artifacts` for any agent whose chat was never
+shown on this desktop ([[drawerLayout]] `shouldAutoOpenForAgent`), for new and
+existing users alike — at mount via the `drawerTab` lazy initializer (together
+with the unchanged first-run coach) and on agent switches via derived state set
+during render (`drawerAgentId` vs `agentId`; no effect, so no flash of a closed
+drawer). An effect keyed on `agentId` marks the agent seen (skipped on phones,
+so a phone visit never spends the desktop first view). Afterwards the agent
+keeps whatever drawer state the user leaves; an agent already seen is not
+re-opened. Pinning follows the global preference (pinned by default, an
+explicit unpin is respected). A panel explicitly requested through uiStore
+(e.g. the creation studio's `builder`) still wins: the pending-panel effect runs
+after the initial render. `useConfigStore()` moved above the drawer state (the
+initializer needs `agentId`). The Owner-required title switcher (#395) is
+untouched.
+
+## 2026-09-11 — 抽屉重新接上标题切换器(Owner 要求)
+
+`<BookmarkDrawer>` 传 `activeTab={drawerTab}` / `onSelectTab={openPanel}` /
+`switcherCategories={visibleCategories({ studioOpen, studioResumable })}`,studio 两个标志取自
+`useStudioLifecycle` 的返回值。每次渲染现算、不 memo:`PANELS` 可能在挂载后才注册插件面板,
+派生只是十来项的排序。钉住的抽屉是独立窗口,必须能从标题自己切面板,见
+[[../bookmarks/BookmarkDrawer]] 同日条。下方 09-04「抽屉不再有切换器」条已作废。
+`onSelectTab` 是 `uiStore.openPanel`(`'open'` 模式),不直接写本地 `setDrawerTab`:切换器与聊天头部
+入口 / ⋯ 菜单 / ⌘K 走同一个 `pendingPanel` effect 漏斗,该 effect 的记账(`DRAWER_OPENED_ONCE_KEY`
+及以后加进去的任何东西)不会漏掉切换器这条路。用 `'open'` 而非 `requestPanel` 的 `'toggle'`:
+切换器本就不会对当前面板回调,两者等价,`'open'` 语义更准。
+测试:`__tests__/chatViewDrawerSwitcher.test.tsx`(去掉这三个 prop 即红;改回本地 setState 则
+opened-once 断言红)。
 
 ## 2026-09-04 (合并 dev #383 后) — 抽屉不再有切换器，`switcherCategories` 随之删除
 

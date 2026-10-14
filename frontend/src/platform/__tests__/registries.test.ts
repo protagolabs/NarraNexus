@@ -20,7 +20,7 @@ import { REGISTRIES } from '../registries';
 import { createHostApi } from '../host';
 import { disableBuiltinUi } from '../loader';
 
-/** The seventeen `ui.*` extension points, written out. Adding an eighteenth is an edit here too. */
+/** The eighteen `ui.*` extension points, written out. Adding a nineteenth is an edit here too. */
 const REGISTRY_NAMES = [
   'agentCardBadges',
   'artifactKinds',
@@ -38,6 +38,7 @@ const REGISTRY_NAMES = [
   'sidebarSections',
   'themes',
   'timelineEvents',
+  'toolRenderers',
   'topBarItems',
 ] as const;
 
@@ -50,7 +51,7 @@ const PROBE: Partial<Record<(typeof REGISTRY_NAMES)[number], unknown>> = {
 };
 const probeFor = (name: (typeof REGISTRY_NAMES)[number]) => PROBE[name] ?? {};
 
-describe('the seventeen registry names', () => {
+describe('the eighteen registry names', () => {
   it('REGISTRIES holds exactly them', () => {
     expect(Object.keys(REGISTRIES).sort()).toEqual([...REGISTRY_NAMES]);
   });

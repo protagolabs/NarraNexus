@@ -589,6 +589,24 @@ _register(
             Column("paused_reason", "TEXT", "VARCHAR(32)"),
             Column("paused_at", "TEXT", "DATETIME(6)"),
             Column("last_error", "TEXT", "TEXT"),  # already redacted at write time
+            # 2026-09-09 (GitHub #117 review, C2): the half-open probe claim's
+            # real compare-and-swap key. Equality-filtering on cb_status alone
+            # is not a CAS when the claim's own WRITE value equals the FROM
+            # value (the stale-PROBING self-heal branch writes cb_status=
+            # "probing" while reading cb_status=="probing" — the filter is
+            # unconditionally true after the first writer, so every later
+            # racer also matches). probe_token changes on every successful
+            # claim (fresh random value) and is reset to NULL whenever the row
+            # is written back to PAUSED/ACTIVE/COOLING, so it is always a
+            # value that differs before vs. after a real claim — additive,
+            # nullable, no backfill needed.
+            Column("probe_token", "TEXT", "VARCHAR(64)"),
+            # 2026-09-10 (#394 review I-1): the claimant's own run
+            # (events.event_id), bound once its run row exists; NULL together
+            # with probe_token. The crash-window fallback asks whether THIS
+            # run is alive, never whether any run of the agent is.
+            # Additive, nullable, no backfill.
+            Column("probe_run_id", "TEXT", "VARCHAR(128)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -3070,6 +3088,44 @@ _register(
             Column("app_version", "TEXT", "VARCHAR(64)"),
             Column("notes", "TEXT", "MEDIUMTEXT"),
         ],
+    )
+)
+
+# Login handoffs are notifications, never origin grants. Only the live session's
+# authenticated control connection can complete a request by explicitly releasing.
+_register(
+    TableDef(
+        name="instance_browser_login_requests",
+        columns=[
+            Column("request_id", "TEXT", "VARCHAR(64)", nullable=False, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("session_key", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("turn_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("reason", "TEXT", "TEXT", nullable=False),
+            Column("state", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("connection_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("requested_at", "TEXT", "DATETIME(6)", nullable=False),
+        ],
+        indexes=[Index("idx_browser_login_agent", ["agent_id"])],
+    )
+)
+
+# Privileged browser capabilities, one policy document per agent. The shape is
+# BrowserPolicy.to_dict(); it contains no website-access rules. Scoped grants
+# and decision receipts are persisted for cross-process visibility. The trusted
+# runtime turn/conversation scope determines whether a grant applies.
+_register(
+    TableDef(
+        name="instance_browser_policies",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("policy_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_browser_policies_agent", ["agent_id"], unique=True)],
     )
 )
 

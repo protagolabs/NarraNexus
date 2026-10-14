@@ -33,6 +33,7 @@ from narranexus.platform.agent_framework.providers.cloud_policy import (
     framework_locked_detail,
 )
 from narranexus.platform.agent_framework.providers.model_identity import (
+    config_override_wins,
     effective_agent_slot,
     framework_of,
 )
@@ -40,18 +41,6 @@ from narranexus.platform.agent_framework.providers.user_service import (
     validate_slot_binding,
 )
 from narranexus.platform.schema.provider_schema import SlotConfig, SlotName
-
-
-def _is_effective_override(row: Optional[dict]) -> bool:
-    """Whether an ``agent_slots`` row actually shadows the owner default.
-
-    A framework-only / empty-``provider_id`` stub is NOT an effective override:
-    the runtime resolver (``driver.resolver._apply_agent_overrides``) and the
-    per-agent llm-config endpoint (``routes.agents.llm_config._slot_view``)
-    both skip empty-provider rows, so the owner-level counters must too — else
-    the collapsed-row chip and the expanded card disagree on the same agent.
-    """
-    return bool(row and row.get("provider_id"))
 
 
 class AgentSlotService:
@@ -271,7 +260,7 @@ class AgentSlotService:
         for rows in by_agent.values():
             for r in rows:
                 slot = r.get("slot_name")
-                if slot in per_slot and _is_effective_override(r):
+                if slot in per_slot and config_override_wins(r):
                     per_slot[slot] += 1
         return {**per_slot, "total_agents": len(agent_ids)}
 
@@ -388,7 +377,7 @@ class AgentSlotService:
             for slot in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
                 override = override_by_slot.get(slot)
                 owner_default = owner_by_slot.get(slot)
-                if _is_effective_override(override):
+                if config_override_wins(override):
                     view = {"model": (override or {}).get("model") or "", "inheriting": False}
                 else:
                     view = {"model": (owner_default or {}).get("model") or "", "inheriting": True}

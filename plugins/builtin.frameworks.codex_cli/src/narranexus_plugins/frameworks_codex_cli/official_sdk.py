@@ -89,6 +89,7 @@ from .cli_sdk import (
     _stage_codex_oauth_credentials,
     _sse_url_to_streamable_http,
 )
+from narranexus.contracts.agent_events import DATA_TYPE_ERROR, DATA_TYPE_TEXT_DELTA
 from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 
 
@@ -565,6 +566,46 @@ def _prepare_codex_notification(
     return prepared, latest_turn_usage
 
 
+def _translate_and_track_delivery(
+    dump: dict[str, Any],
+    *,
+    transfer_type: str,
+    streaming: bool,
+    turn_had_message: bool,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Run one raw codex notification through ``output_transfer`` and
+    update this turn's "has it delivered anything yet" tracking.
+
+    Extracted out of ``agent_loop``'s streaming loop so this exact logic
+    (not a re-implementation of it) is directly testable with a real
+    ``output_transfer`` call and a scripted notification sequence,
+    without spinning up the full SDK/subprocess machinery ``agent_loop``
+    needs for everything else.
+
+    ``item/agentMessage/delta`` is the only emission site of
+    ``DATA_TYPE_TEXT_DELTA`` in the codex_official translator, so a
+    non-empty delta there is proof the agent has already spoken this
+    turn. When a terminal ``turn/completed(status="failed")`` arrives,
+    the translator's own default ``fatal: True`` is the conservative
+    "unknown context" answer (see output_transfer.py); this caller owns
+    the turn's actual delivery history, so it gets the final say — a
+    turn that already delivered a message must not be reported as
+    ``fatal: True`` (that would let a later provider error erase an
+    already-delivered reply, see response_processor.py's `fatal`
+    contract).
+    """
+    translated_batch = list(
+        output_transfer(dump, transfer_type=transfer_type, streaming=streaming)
+    )
+    for translated in translated_batch:
+        data = translated.get("data") or {}
+        if data.get("type") == DATA_TYPE_TEXT_DELTA and data.get("delta"):
+            turn_had_message = True
+        elif data.get("type") == DATA_TYPE_ERROR and "fatal" in data:
+            data["fatal"] = not turn_had_message
+    return translated_batch, turn_had_message
+
+
 # NOTE: An earlier draft of this file shipped an ``_aiter_stream``
 # wrapper that ran ``next(stream, SENTINEL)`` through
 # ``asyncio.to_thread`` — built on the (wrong) assumption that
@@ -828,6 +869,16 @@ class CodexSDKv2:
             # before the next event reaches the response_processor.
             event_count = 0
             latest_turn_usage: dict[str, int] | None = None
+            # Tracks whether THIS turn has already streamed any assistant
+            # message text. Read when a terminal ``turn/completed(status=
+            # "failed")`` arrives, so the ``fatal`` flag response_processor
+            # keys severity off reflects whether the agent already delivered
+            # output — not just "the loop is ending": a fatal-but-already-
+            # replied turn must not erase that reply, the same defect
+            # run_collector.py's "already replied" guards exist to prevent,
+            # reintroduced at the framework level. See
+            # ``_translate_and_track_delivery`` for the tracking logic.
+            turn_had_message = False
             try:
                 async for notification in stream:
                     event_count += 1
@@ -872,11 +923,13 @@ class CodexSDKv2:
                         latest_turn_usage,
                     )
 
-                    for translated in output_transfer(
+                    translated_batch, turn_had_message = _translate_and_track_delivery(
                         dump,
                         transfer_type="codex_official",
                         streaming=streaming,
-                    ):
+                        turn_had_message=turn_had_message,
+                    )
+                    for translated in translated_batch:
                         yield translated
             finally:
                 logger.info(

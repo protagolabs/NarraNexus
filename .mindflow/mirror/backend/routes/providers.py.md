@@ -1,8 +1,65 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — 熔断器恢复：只挂显式动作、按 provider 收窄（GitHub #117 预审 I1）
+
+上一版把 `_resume_agent_circuit_breakers(uid)` 挂到了 `GET /claude-status` /
+`GET /codex-status` 上——两个**只读**端点变成了写接口，而且它们报告的是**宿主机 CLI**
+的状态，跟一个因 NetMind key 余额耗尽而 PAUSED 的 agent 毫无关系。前端在打开 provider
+选卡弹窗、订阅页 mount 时都会并发拉它们：用户每点一次弹窗，全部 PAUSED agent 被清空 →
+积压 backlog 一口气放出 → 全部再失败 → 3 连败重新 PAUSE + 再告警 owner。熔断器对这类
+用户等于不存在。本轮：
+
+- 两个 GET 恢复成纯读，代码里留注释说明"不许再往 GET 上挂副作用"。
+- 恢复只挂在 **显式动作** 上：既有的 4 条重配置路径（add_provider / onboard /
+  use_subscription / set_slot，不带 provider_id = 该 owner 全量，因为用户刚改了 agent
+  跑在什么上）+ `POST /{provider_id}/test` 成功（带 `provider_id`）。
+- `reset_for_owner(uid, provider_id=...)`（[[circuit_breaker]]）按 agent 的有效 `agent`
+  slot 绑定收窄：`agent_slots` 覆盖优先、否则 `user_slots` 默认；绑在别的 provider 上的
+  agent 不动——测通 A 对跑在 B 上的 agent 没有任何信息量。既无 `agent_slots` 也无
+  `user_slots` 绑定的 agent 永远不会被 `POST /{id}/test` 恢复（它绑的 provider 未知）；
+  这类 agent 由 add-provider / set-slot 走的不带 provider_id 全量路径恢复。
+
+`tests/backend/test_providers_circuit_breaker_resume.py`：test 成功 → `("alice","p1")`；
+失败不恢复；两个 status 端点 `logged_in=True` 时**不**恢复（原来钉住相反行为的 4 条测试
+已删）。`test_reset_for_owner_scoped_to_the_tested_provider` 钉住收窄口径。
+
+## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111；复审 I3/I4/M6/M7 修订）
+
+`/codex-status` 在 2026-06-11 事故后已经学乖：文件/凭据存在不等于会话还活着，必须拿
+`expires_at` 跟"现在"比一次，过期就把 `logged_in` 掰回 `False` 并加一个 `expired` 字段。
+`_expiry_is_past` 那个 helper `/claude-status` 却从来没调用——`expires_at` 一路被填（CLI probe
+的 `claude auth status` 输出、或旧版 `.credentials.json` 兜底）却从未拿去比较，于是一个已
+过期的 token 仍然报 `logged_in=True`，Settings 页面显示"已登录"而实际每一轮 Claude 调用都
+会因未授权失败。修法照抄 `/codex-status`：两条填充路径跑完、`return` 之前统一比一次；
+fail-open 语义继承（解析不了的 `expires_at` 不算过期）。两条路由的 docstring 都登记了
+`expired` 字段。
+
+复审后三处收口：
+- **`_expiry_is_past` 提到两条路由之前**、去掉"codex"措辞——它服务两条路由，却原本定义在
+  `# Codex CLI Auth Status` 横幅之下、被 120 行之上的 `get_claude_status` 调用，读起来像 codex
+  私有。秒/毫秒阈值抽成常量 `EPOCH_MS_THRESHOLD = 1e11`（1e11 秒是 5138 年、1e11 毫秒是
+  1973 年，真 token 不会落在中间），前端 `SubscriptionConnect.tsx::formatExpiresAt` 原来用
+  `1e12`，1e11–1e12 之间两边解释相反，现在同一个值、互相注明。
+- **凭据文件路径改走 `driver/derive.py::resolve_claude_credentials_path`**（认
+  `CLAUDE_CLI_CREDENTIALS_PATH` / `CLAUDE_CLI_HOME`，默认 `~/.claude/.credentials.json`），
+  与 runtime 读的是同一个文件；此前硬编码 `Path.home()/.claude`，env override 下会基于一个
+  runtime 根本不用的文件把 `logged_in` 掰成 false（codex 那条早就认 `CODEX_HOME`，不对称）。
+  无 env 时行为不变；dev/prod 容器若设了这两个 env，取值会变——切版前用
+  `scripts/ec2_inspect.sh dev env-keys` 核一次。
+- **测试喂真实格式**：`claudeAiOauth.expiresAt` 是 epoch 毫秒整数，测试用 2020/2100 的毫秒
+  值各钉一条（claude + codex 两侧），删掉阈值那两行即红；`_run_json_subprocess` 全部 stub
+  掉（`shutil.which` 被 patch 成固定路径，装了真 `claude` 的机器会真跑子进程、结果随本机登录
+  态漂移）；另补 CLI probe 分支的过期用例和 `CLAUDE_CLI_HOME` override 用例；
+  `NARRANEXUS_DEPLOYMENT_MODE` 显式 delenv（`_is_cloud()` 先看它再看 DATABASE_URL）。
+
+同类「文件在=已登录」未修、记录口径（复审 I4）：`backend/integrations/plugins/service.py::
+_logged_in`（纯 `Path.exists()`，Plugins 设置页）、`plugins/builtin.providers/.../claude_oauth.py::
+probe`（`is_file()` 即 ok）、`tauri/src-tauri/src/commands/auth.rs::get_claude_login_status`
+（后端不可达时的第二套实现，字符串匹配 `"loggedIn":true`，无 `expires_at`）。本批只修路由层。
 
 ## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
 

@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-09-08
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — exports `useAgentActions` (+ `AgentActionDialogs`, `DeleteAgentOutcome`)
+
+Shared rename / delete for the profile page and the reinstated sidebar agent
+row ⋯ menu ([[../components/layout/AgentRowMenu]] is back as a self-drawn popover
+consumer of `useDismissOnOutside`).
+
+## 2026-09-10 — 导出 `useCircuitBannerAutoClear`
+
+熔断横幅自愈轮询钩子（[[useCircuitBannerAutoClear]]），App.tsx 经 barrel 引用。
 
 ## 2026-09-08 — 导出 `usePluginTheme`
 

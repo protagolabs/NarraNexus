@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-08-14
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-10（B-03）— `max_tokens` 取自 `requested_max_tokens`
+
+`stream_step()` 发送 `extra["max_tokens"] = requested_max_tokens(profile, params.extra, input_tokens_estimate,
+floor_multiplier=request.floor_multiplier)`（[[profiles]]）：用户在 `params.extra` 钉的值原样胜出，否则是
+`output_budget`。loop.py 的截断重试调同一函数判断「实际发了多少 / 翻倍能否更大」，两处不再各写一份
+「钉住优先」的规则。调用方的 `params.extra` 不被修改（先拷贝）。乘数语义见 [[model]]。
 
 ## 2026-08-14 — 自家网关名单补 `llm-gateway`
 
@@ -81,3 +88,13 @@ args 恒为 {}。旧的 _raw 兜底让截断调用带着丢失的字段继续执
 # modeling/model_client — litellm chunk→ModelEvent 翻译层
 
 LitellmClient 管连接透传,本类管语义:cache_plan 按方言注入 cache_control、usage 双词汇归一(OpenAI cached_tokens 含在 prompt 内→换算为 exclusive)、tool_use_start 名字先到(E3 时序安全)。重大坑:自定义 base_url 时路由必须**显式写死**——模型 id 自带斜杠(minimax/minimax-m2.5、deepseek-ai/DeepSeek-V3)会被 litellm 误当 provider 前缀。但写死的是 provider 决定的**协议**,不是「有 base_url 就 anthropic」:后者让 openai 协议的卡回 AnthropicException(实测)。且路由前缀**无条件前置、不做 startswith 豁免**——平台 id 本身可以以路由名开头(NetMind 的 anthropic/claude-sonnet-5、openai/gpt-5.4),litellm 恒吃掉第一段,豁免会把裸名发上游,NetMind 无裸名 alias 直接 404 unknown model(2026-07-30 dev 事故);双前缀外层被 litellm 消费,完整平台 id 才能上线。tool 方言重写同理,只在 anthropic 路由上做(绕开严格网关对 type:"custom" 的 serde 拒绝),openai 端原样透传。
+
+## 2026-09-11 — provider 文本全入口源头 scrub surrogate
+
+`stream_step` 的三个 provider 文本入口都在此处变成严格可 UTF-8 编码，subprocess 与进程内 executor 两种运行形态由同一处保证，
+不依赖出口层兜底：
+- `text_delta`（`delta.content`）与 `thinking_delta`（`delta.reasoning_content`）各一个 `SurrogateJoiner`（来自 [[arg_stream.py]]）：
+  provider 按 UTF-16 码元切 chunk 时，结尾的高位先挂起、与下一 chunk 开头的低位合成；流结束仍未配对的一半以 U+FFFD 补发一条 delta。
+- `arg_delta` 每个 call 一个 joiner，只作用于流式展示；`raw_arguments` 保留原始线上文本用于解析。
+- `_parse_args` 解析成功后 `scrub_json_strings`：`json.loads` 保留的孤立 `\uD8XX` 转义或跨 chunk 的原始半边，
+  在最终参数里合成或换 U+FFFD，ledger、事件存储、MCP 调用体都拿到干净值。

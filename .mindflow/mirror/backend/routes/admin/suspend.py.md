@@ -1,8 +1,86 @@
 ---
 code_file: backend/routes/admin/suspend.py
-last_verified: 2026-08-13
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 I1）— suspend 不再压平 BLOCKED / BLOCKED_FAILED / RUNNING
+
+`_pause_jobs_for_suspended_principal` 现在只暂停 `SUSPENDABLE_JOB_STATUSES`（PENDING / ACTIVE / COOLING）
+的 job（仓库层白名单）。下文 r2 段「非终态」一词已不准确：等依赖的 BLOCKED / BLOCKED_FAILED、在飞的
+RUNNING、自动暂停的 PAUSED_NO_QUOTA / PAUSED_SPEND_CAP 都保持原状，因此 reinstate 恢复成 ACTIVE 的
+只会是本来就可调度的 job，依赖链不会被封/解封提前拉起。`jobs_paused` 计数随之只数这三种状态。
+锁：`tests/backend/test_admin_suspend_route.py::test_suspend_then_reinstate_keeps_dependency_blocked_jobs_blocked`。
+
+## 2026-09-10（review r2 I-B）— 封号与解封对称：reinstate 恢复 suspend 暂停的那批 job
+
+r1 之后 suspend 会把执行主体名下所有非终态 job 打成 `paused/banned`，而 reinstate 只翻
+`users.status`，一条都不恢复——误封后即便 5 分钟内解封，用户的晨报/心跳 job 也全部永久停跑且无任何
+信号。**最终语义（两半对称）**：
+- **suspend**（仅当本次请求把账户切进停用态，`not already`）：`JobRepository.pause_jobs_for_execution_principal`
+  暂停以该用户身份执行的非终态、**且当前不是 `paused`** 的 job，写 `paused_reason="banned"`。已经
+  `paused` 的 job（用户自己暂停的 `'user'`、或 reason 为 NULL）**不再被改写 reason**——否则解封时会把
+  用户自己的暂停一并恢复。对已停用账户重复 suspend 不补暂停；仍在跑的 job 由 [[job_trigger]] 的逐 job
+  门在下次到期时拦下（门写入的 reason 是账户实际状态）。
+- **reinstate**（仅 `BANNED → ACTIVE`）：在 `update_user → 审计 → 清缓存` 之后，最后一步 best-effort
+  调 `_resume_jobs_for_reinstated_principal` → builtin.job 的 `jobs.resume_for_principal` 服务
+  （`job_recovery.resume_jobs_paused_for_principal`）。只选 **`status='paused'` 且 `paused_reason ∈
+  NON_TRANSACTING_USER_STATUSES`**（banned/blocked/deleted——suspend 与 poller 门写的全部取值）、执行主体
+  谓词与 pause 逐字相同的 job；每条走 job 层恢复而非盲翻状态：`compute_next_run` 从**现在**起算（封禁期间
+  错过的触发不补跑），越过 `end_at` 的周期 job 改判 COMPLETED（清 `next_run_time`、实例标 completed），
+  其余走 `resume_job`（清暂停/退避状态、ACTIVE）。
+- **响应体**：`ReinstateResponse` 新增 `jobs_resumed: int`、`jobs_resume_error: Optional[str]`（additive）。
+  恢复失败或 builtin.job 未加载时账户照样恢复、审计照写，错误写进 `jobs_resume_error`，不静默；遗留的
+  job 用户仍可在 Jobs 面板逐条恢复。
+锁：`test_suspend_then_reinstate_resumes_the_paused_jobs_forward`（往返 + `next_run_time` 向前 + 用户自停
+保持）、`test_reinstate_leaves_non_suspension_pauses_alone`、`test_reinstate_completes_a_job_already_past_its_end_at`、
+`test_reinstate_survives_a_job_resume_failure_and_still_audits`、`test_reinstate_reports_when_builtin_job_is_not_loaded`。
+
+
+## 2026-09-10（review r1 I2/I3/I4）— job 暂停改为最后一步、best-effort、按执行主体批量
+
+三条复审意见一次落地：
+- **I4 顺序**：原来 `update_user → 暂停 job → 写审计 → 清缓存`，暂停 job 中途抛错 → 请求 500，
+  但账户**已经 BANNED**、job 部分暂停、**审计一行没写**、中间件缓存没失效。现在顺序是
+  `update_user → 审计 → 清缓存 → 暂停 job`，暂停包在 `_pause_jobs_for_suspended_principal`
+  的 try/except 里（沿用 `_invalidate_cache` 的 best-effort 先例）：账户状态是真相源，审计与
+  缓存失效不能被 job 表的抖动带走；[[job_trigger]] 的 `_non_transacting_status` 逐 job 门是
+  持久兜底。**不静默**：`SuspendResponse` 新增 `jobs_paused: int` 与
+  `jobs_pause_error: Optional[str]`（additive，老调用方不受影响），日志也带上。
+- **I2 口径**：选行改成「会以该用户身份**执行**的 job」——
+  `JobRepository.pause_jobs_for_execution_principal`（[[job_repository]]），与 poller 的
+  `exec_uid = related_entity_id or user_id` 完全一致。owner 是被封者但 `related_entity_id`
+  是正常用户的 job **不**暂停（poller 会照跑，这里再标 banned 就是两个组件打架）。
+- **I3**：一条 UPDATE、返回 rowcount，不再有 500 行截断与 N 次往返。
+锁：`test_suspend_pauses_jobs_that_execute_as_the_suspended_user`、
+`test_suspend_leaves_jobs_that_execute_as_another_principal`、
+`test_suspend_pauses_more_than_five_hundred_jobs`、
+`test_suspend_survives_a_job_pause_failure_and_still_audits`。
+
+## 2026-09-09 — B-13：suspend 同请求内暂停该用户的活跃 job
+
+**问题**：`suspend_account` 只翻 `users.status`，从不碰 `instance_jobs`。job 调度层
+（[[job_trigger]]）对 `users.status` 全零引用，于是被封号用户的定时 job（如「每日
+签到」）继续按计划触发，天天撞 `Key is blocked` 401，直到 job 层自己独立发现账号
+被封（B-13 的另一半修复，见 job_trigger 的 `_is_user_banned`）才会在下一次 poll
+周期停下——中间那段窗口纯属浪费重试。
+
+**修法**（顺序与选行口径已于 2026-09-10 修订，见上一节）：`suspend_account` 在
+`not already` 时调用 `_pause_jobs_for_suspended_principal(db, user_id)`——同一个请求、
+同一次调用栈内完成，不等下一次 job poll。跳过终态 job（`completed`/`cancelled`/`failed`，反正不会
+再跑）和已经是 `paused_reason="banned"` 的 job（幂等；2026-09-10 r2 I-B 起改为跳过**所有**已 `paused` 的 job，见顶部）。用 `JobStatus.PAUSED` +
+`paused_reason="banned"`，不是新状态值——`paused_reason` 是自由字符串字段
+（`max_length=32`），加一个新取值是纯 additive 变更，不碰 schema。
+
+**为什么允许 backend 路由直接 import `JobRepository`**：`repository/` 是铁律里
+明确的「central」层（不是可热插拔 Module），`backend/routes/` 直接调用 repository
+是既有模式（本文件已经在用 `UserRepository`）——不违反铁律 #3（Module 独立）。
+
+**为什么不在这里检查 banned 用户「谁能恢复」**：`reinstate_account` 只管把
+`users.status` 翻回 `ACTIVE`，刻意不联动恢复 job——一个被封号又解封的用户，其 job
+走普通的手动/自动恢复路径（用户主动 resume，或原本就没被判 no-quota 的 job 保持
+`paused` 等用户自己操作），恢复账号本身不该悄悄把所有 job 重新拉活，那是另一个
+决策（用户可能就是想封号期间顺便清理掉这些 job）。
 
 # admin/suspend.py — 账户停用（account suspension）HTTP 端点
 
@@ -33,6 +111,7 @@ stub: false
 
 **依赖谁**：
 - `narranexus.platform.repository.user_repository.UserRepository`：读用户、写 `users.status`。
+- `narranexus.platform.repository.job_repository.JobRepository`（2026-09-09 起）：suspend 成功后暂停所有会以该用户身份执行的非终态 job（B-13，`pause_jobs_for_execution_principal`）。
 - `narranexus.platform.repository.ban_audit_repository.BanAuditRepository`（+ `ACTION_SUSPEND` / `ACTION_REINSTATE` 常量）：写审计行。
 - `narranexus.platform.schema.UserStatus` + `NON_TRANSACTING_USER_STATUSES`：状态枚举，以及三面共享的「不可交易」集合（`_SUSPENDED_STATES` 直接指向它，见下）。
 - `._admin_secret.require_admin_secret`：**共享**的 admin secret 校验 helper（与 [[migration.py]] / [[runtime.py]] 同一份，见 [[_admin_secret.py]]）。本模块仍保留 `from narranexus.platform.settings import settings` 的再导出，只是为了让测试可以通过 `mod.settings` 覆盖 secret（helper 读的是同一个 settings 单例对象）。

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/kernel/plugins/builtins.py
-last_verified: 2026-09-07
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 — 可选内置浏览器
+
+`builtin.browser` 在统一内置目录登记，manifest 和模块仍由独立的
+`narranexus_plugins.browser_module` wheel 提供。注册不启动 Chromium，也不下载运行时；
+发行配置和禁用状态决定贡献是否进入宿主。浏览器进程只在实际操作时由平台服务启动。
 
 ## 2026-09-04（批 3c.1）— 每个内置模块一份 manifest（17 份）
 

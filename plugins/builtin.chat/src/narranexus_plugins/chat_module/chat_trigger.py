@@ -132,6 +132,11 @@ from narranexus.platform.schema import (
 
 # Agent Runtime — via the client seam (in-process today; HTTP to the
 # extracted agent-runtime service later). See agent_runtime/client.py.
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    admit_turn,
+    describe_skip_reason,
+    release_probe,
+)
 from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
 # Utils
@@ -597,6 +602,16 @@ class A2AServer:
         agent_id = metadata.get("agent_id", "default_agent")
         user_id = metadata.get("user_id", "default_user")
 
+        # Agent circuit-breaker gate (both steps), immediately before the
+        # turn: a paused agent must not run a doomed turn per A2A call.
+        admission = await admit_turn(agent_id)
+        if not admission.allowed:
+            task.update_status(
+                TaskState.FAILED,
+                message=self._circuit_refusal_message(task.id, admission.reason),
+            )
+            return task.model_dump()
+
         # Execute Agent
         try:
             from narranexus.platform.schema.hook_schema import WorkingSource
@@ -607,6 +622,7 @@ class A2AServer:
                 input_content=user_input,
                 working_source=WorkingSource.CHAT,
                 trigger_extra_data={"trigger_id": f"a2a_{task.id}", "retrieval_anchor": user_input, "sender_user_id": user_id},
+                probe_token=admission.probe_token,
             )
 
             # Error path (Bug 2): previously this trigger collected on
@@ -657,8 +673,21 @@ class A2AServer:
                 task_id=task.id,
             )
             task.update_status(TaskState.FAILED, message=error_message)
+        finally:
+            # run_and_collect settles the probe on every exit it reaches;
+            # this token CAS is a no-op then and only catches the rest.
+            await release_probe(agent_id, admission.probe_token)
 
         return task.model_dump()
+
+    @staticmethod
+    def _circuit_refusal_message(task_id: str, reason: Optional[str]) -> A2AMessage:
+        """The FAILED-task message for a turn the agent circuit-breaker
+        refused: the breaker's own reason code plus its shared copy."""
+        return A2AMessage.create_agent_message(
+            text=f"Agent unavailable ({reason}): {describe_skip_reason(reason)}",
+            task_id=task_id,
+        )
 
     async def _handle_tasks_send_subscribe(
         self,
@@ -712,6 +741,7 @@ class A2AServer:
         async def event_generator():
             """SSE event generator"""
             nonlocal task
+            admission = None
 
             try:
                 # Send initial Task status
@@ -734,6 +764,29 @@ class A2AServer:
                     "data": json.dumps(status_event.model_dump(), ensure_ascii=False, default=str)
                 }
 
+                # Agent circuit-breaker gate (both steps), immediately
+                # before the turn; a refusal ends the stream as a failed task.
+                admission = await admit_turn(agent_id)
+                if not admission.allowed:
+                    task.update_status(
+                        TaskState.FAILED,
+                        message=self._circuit_refusal_message(task.id, admission.reason),
+                    )
+                    yield {
+                        "event": "taskStatusUpdate",
+                        "data": json.dumps(
+                            TaskStatusUpdateEvent(
+                                taskId=task.id,
+                                contextId=task.contextId,
+                                status=task.status,
+                                final=True,
+                            ).model_dump(),
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    }
+                    return
+
                 # Execute Agent
                 final_output = ""
                 artifact_id = f"artifact-{uuid.uuid4().hex[:8]}"
@@ -743,6 +796,7 @@ class A2AServer:
                     user_id=user_id,
                     input_content=user_input,
                     trigger_extra_data={"trigger_id": f"a2a_sse_{task.id}", "retrieval_anchor": user_input, "sender_user_id": user_id},
+                    probe_token=admission.probe_token,
                 ):
                     # Process text increments
                     if hasattr(response, 'delta'):
@@ -859,6 +913,12 @@ class A2AServer:
                         "error": str(e)
                     })
                 }
+            finally:
+                # run_stream settles the probe on every exit it reaches;
+                # this token CAS is a no-op then and only catches a stream
+                # the client abandoned before it could settle.
+                if admission is not None:
+                    await release_probe(agent_id, admission.probe_token)
 
         return EventSourceResponse(event_generator())
 

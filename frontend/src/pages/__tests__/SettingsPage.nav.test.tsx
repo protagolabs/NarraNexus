@@ -6,8 +6,8 @@
  * return target) must open the Account pane in place. Heavy content panels
  * are stubbed so the test only exercises the nav.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const { mockT } = vi.hoisted(() => {
   const copy: Record<string, string> = {
@@ -48,6 +48,7 @@ vi.mock('@/components/settings/ModelDefaultsSettings', () => ({ ModelDefaultsSet
 vi.mock('@/components/settings/PrivacySettings', () => ({
   PrivacySettings: () => <div data-testid="privacy-pane" />,
 }));
+vi.mock('@/components/settings/BrowserSettings', () => ({ default: () => <div data-testid="browser-pane" /> }));
 vi.mock('@/components/settings/ArtifactsSection', () => ({
   default: () => <div data-testid="artifacts-pane" />,
 }));
@@ -58,6 +59,24 @@ vi.mock('@/lib/tauri', () => ({ isTauri: () => false, kickUpdaterCheck: vi.fn(),
 vi.mock('@/stores/updaterStore', () => ({ useUpdaterStore: (sel: (s: unknown) => unknown) => sel({ status: 'idle' }) }));
 
 import SettingsPage from '../SettingsPage';
+import { PANELS, SETTINGS_SECTIONS, enableOwner } from '@/platform/registries';
+import { disableBuiltinUi } from '@/platform/loader';
+
+const browserPanel = PANELS.get('browser')!;
+const browserSection = SETTINGS_SECTIONS.get('browser')!;
+const panelOwner = PANELS.ownerOf('browser');
+const sectionOwner = SETTINGS_SECTIONS.ownerOf('browser');
+afterEach(() => {
+  cleanup();
+  enableOwner('builtin.browser');
+  PANELS.register('browser', browserPanel, { owner: panelOwner, replace: true });
+  SETTINGS_SECTIONS.register('browser', browserSection, { owner: sectionOwner, replace: true });
+});
+import {
+  MASTER_DETAIL_ROW_CLASS,
+  MASTER_NAV_CLASS,
+  MASTER_NAV_ITEM_CLASS,
+} from '@/lib/masterDetailNav';
 
 describe('SettingsPage nav', () => {
   beforeEach(() => {
@@ -106,6 +125,20 @@ describe('SettingsPage nav', () => {
     expect(screen.getByTestId('providers-pane')).toBeTruthy();
   });
 
+  test('the nav column collapses to a horizontal strip below md (GitHub #130)', () => {
+    // The rail's responsive classes live in one shared definition
+    // (lib/masterDetailNav) so this page and its sibling cannot drift; the
+    // breakpoint pin itself is asserted in masterDetailNav.test.ts.
+    render(<SettingsPage />);
+    const nav = screen.getByRole('navigation');
+    expect(nav.className).toBe(MASTER_NAV_CLASS);
+    expect(nav.parentElement?.className).toBe(MASTER_DETAIL_ROW_CLASS);
+    const item = nav.querySelector('button');
+    expect(item?.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(MASTER_NAV_ITEM_CLASS.split(' ')),
+    );
+  });
+
   test('personalization pane opens from the nav', () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.personalization/ }));
@@ -120,6 +153,15 @@ describe('SettingsPage nav', () => {
 // must forward there with the whole query preserved — landing the payer on a
 // random Settings pane would read as "my payment went nowhere".
 describe('SettingsPage ?tab= deep link', () => {
+  test('a disabled browser deep link falls back to providers without a Browser entry', () => {
+    disableBuiltinUi('builtin.browser');
+    mockSearch = 'tab=browser';
+    render(<SettingsPage />);
+    expect(screen.queryByRole('button', { name: 'pages.settings.nav.browser' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('browser-pane')).not.toBeInTheDocument();
+    expect(screen.getByTestId('providers-pane')).toBeInTheDocument();
+  });
+
   test('tab=account opens the account pane in place — Stripe returns land with the nav intact', () => {
     authState.netmindToken = 'tok';
     mockSearch = 'tab=account&status=success';

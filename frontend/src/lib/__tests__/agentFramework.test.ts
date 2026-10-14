@@ -59,6 +59,17 @@ describe('providerBacksFramework', () => {
     expect(providerBacksFramework(CODEX_LOGIN, 'nexus_power', LIVE_FRAMEWORKS)).toBe(false)
   })
 
+  test('no framework chosen yet is NOT read as Claude Code — a subscription card is unredeemable by "nothing"', () => {
+    // The fallback used to be a hardcoded `|| 'claude_code'`: an unresolved
+    // framework silently became Claude Code, which on the lightweight build
+    // is not even installed. The default is the backend's call, never a
+    // frontend literal.
+    expect(providerBacksFramework(CLAUDE_LOGIN, null, LIVE_FRAMEWORKS)).toBe(false)
+    expect(providerBacksFramework(CLAUDE_LOGIN, '', LIVE_FRAMEWORKS)).toBe(false)
+    // API-key cards have no redeemer to match and pass as before.
+    expect(providerBacksFramework(ANTHROPIC_KEY, null, LIVE_FRAMEWORKS)).toBe(true)
+  })
+
   test('API-key and bearer cards face the live list\'s protocol gate', () => {
     expect(providerBacksFramework(ANTHROPIC_KEY, 'claude_code', LIVE_FRAMEWORKS)).toBe(true)
     expect(providerBacksFramework(ANTHROPIC_KEY, 'codex_cli', LIVE_FRAMEWORKS)).toBe(false)

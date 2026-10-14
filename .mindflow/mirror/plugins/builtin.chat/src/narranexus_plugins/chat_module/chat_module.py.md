@@ -1,7 +1,19 @@
 ---
 code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_module.py
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10 — no-reply markers are a cross-repo contract
+
+The two placeholders persist_turn writes for a blank turn,
+`(Interrupted by user)` and `(Agent decided no response needed)`, have a
+byte-identical frontend copy in `frontend/src/lib/turnMarkers.ts`;
+`localizeTurnMarker` there maps them to localized labels by exact match. Comments at
+both places the literals appear (the persist_turn assignment and the
+no-reply return of the response extractor) now point at that file: changing the wording
+here without changing it there makes the UI show the raw English marker.
+Both sides pin the literals in tests (`tests/chat_module/test_blank_reply_guards.py`,
+`MessageBubble.turnMarkers.test.tsx`).
 
 ## 2026-08-21 — 活动摘要的 bus-source 判定改用共享常量
 

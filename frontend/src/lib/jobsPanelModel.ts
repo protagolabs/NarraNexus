@@ -25,6 +25,7 @@ export const ATTENTION_STATUSES: readonly JobStatus[] = [
   'failed',
   'blocked_failed',
   'paused_no_quota',
+  'paused_spend_cap',
 ];
 
 /**
@@ -37,6 +38,7 @@ export const STATUS_ORDER: readonly JobStatus[] = [
   'failed',
   'blocked_failed',
   'paused_no_quota',
+  'paused_spend_cap',
   // in progress
   'running',
   'active',

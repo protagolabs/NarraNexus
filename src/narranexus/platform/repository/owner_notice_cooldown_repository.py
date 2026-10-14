@@ -85,7 +85,8 @@ class OwnerNoticeCooldownRepository:
         rows deleted (best-effort; 0 on driver error).
 
         The caller's ``days`` MUST exceed every window this table serves
-        (the bus's 30-minute notices) by a wide margin — a sweep that reaches
+        (the bus's 30-minute notices and JobTrigger's 6-hour job-pause
+        notices, ``_PAUSE_NOTICE_COOLDOWN_SECONDS``) by a wide margin — a sweep that reaches
         into a live window re-opens it, which is the duplicate notice B-20.3
         removed. Run by ``MessageBusTrigger._maybe_run_steer_cleanup`` daily.
         """

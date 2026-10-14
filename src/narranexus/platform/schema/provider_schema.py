@@ -16,10 +16,14 @@ Core concepts:
 Schemas ONLY. The rules that decide which card may be bound to a slot read
 the framework registry, which lives above this layer; they are in
 ``platform.agent_framework.providers.framework_binding``
-(``SLOT_REQUIRED_PROTOCOLS`` / ``SUBSCRIPTION_AUTH_TYPES`` /
-``get_slot_required_protocols`` / ``framework_can_drive_provider``). Keep
-policy out of here: expressing the upward dependency as a function-body
-import is what made the layering violation invisible to import-linter.
+(``SLOT_REQUIRED_PROTOCOLS`` / ``get_slot_required_protocols`` /
+``framework_can_drive_provider``). Keep policy out of here: expressing the
+upward dependency as a function-body import is what made the layering
+violation invisible to import-linter. ``SUBSCRIPTION_AUTH_TYPES`` is the one
+exception that is NOT policy: it is a subset of the ``AuthType`` enum values
+(which transports carry a CLI subscription credential), consumed by
+``api_config``, the claude driver and ``framework_binding`` alike, so it is
+defined ONCE next to the enum and re-exported by ``framework_binding``.
 """
 
 from __future__ import annotations
@@ -49,6 +53,24 @@ class AuthType(str, Enum):
     OAUTH = "oauth"                  # Claude Code CLI managed OAuth (no key needed)
     OAUTH_TOKEN = "oauth_token"      # Long-lived subscription token from `claude setup-token`,
     #                                  env-injected as CLAUDE_CODE_OAUTH_TOKEN (no CLI credential store)
+
+
+SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset(
+    {AuthType.OAUTH.value, AuthType.OAUTH_TOKEN.value}
+)
+"""Auth types that carry a CLI SUBSCRIPTION credential rather than an API key.
+
+Both transports of the same thing: ``oauth`` = the CLI's own credential
+store on the host, ``oauth_token`` = a ``setup-token`` long-lived token
+env-injected at spawn. Neither can make a direct Messages /
+Chat-Completions call — only the CLI that owns the credential can spend it.
+This is also the set the Claude Code CLI treats as a subscriber
+(``isSubscriber()``): the only auth where the CLI skips its own 429 retry,
+which is why the claude driver's transient-retry gate and the parallel-tool
+cap in ``api_config`` key on it. THE definition — every other spelling is an
+import of this name (``framework_binding`` re-exports it; the frontend copy
+in ``lib/agentFramework.ts`` mirrors it by hand).
+"""
 
 
 class ProviderSource(str, Enum):

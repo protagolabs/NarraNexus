@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/tooling/mcp_channel.py
-last_verified: 2026-09-08
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+MCP `ImageContent` 转成 `ToolImage` 挂在 ToolResult.images；`_render_content` 跳过图片部件，文本里永不
+出现 base64。isError 结果只取文本（错误路径的图片没有下游消费者）。
 
 ## 2026-09-08 — stdio 传输
 

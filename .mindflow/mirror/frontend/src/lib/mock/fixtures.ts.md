@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/mock/fixtures.ts
-last_verified: 2026-09-04
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — `queue` 夹具补 `paused_spend_cap: 0`
+
+`QueueCounts` 新增字段，三处夹具字面量由 tsc 强制补齐（值 0，夹具场景不变）。
 
 ## 2026-09-03 — `bound_channels` 形状变为 `[{channel, active}]`
 

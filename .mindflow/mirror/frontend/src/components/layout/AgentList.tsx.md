@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — hosts the agent row ⋯ menu (OWNER-REQUIRED, reinstated after #383)
+
+AgentList passes `rowActions` to the flat AGENTS [[AgentGroupSection]]:
+Rename → `useAgentActions().renameAgent` (current `api.updateAgent`, list
+refresh, clash / identity-memory report), Delete → `useAgentActions().deleteAgent`
+(confirm dialog through this component's existing `useConfirm` host, current
+`api.deleteAgent`, list refresh, cached session dropped, active agent
+re-pointed when it was the deleted one) and then `navigate('/app/dashboard')`
+ONLY when the deleted agent was the active one — the same landing as the
+profile page; deleting some other agent leaves the current view alone.
+Model & framework opens an `AgentLlmConfigPanel` for that row (`configAgentId`
+state), `onSaved` refreshes the agent list (which also refreshes the composer
+model chip, see [[../chat/ComposerModelBadge]]). Clear data and the description
+editor stay on the profile page only. Owner-required entry — keep it.
 
 ## 2026-09-03 — 零 agent 空态 CTA 改为进创建分叉页
 

@@ -1,7 +1,16 @@
 ---
 code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/chat_trigger.py
-last_verified: 2026-06-11
+last_verified: 2026-09-10
 ---
+
+## 2026-09-10（PR #394 review 第四轮 I-3）— A2A 两个入口过熔断器闸门
+
+`tasks/send` 与 `tasks/sendSubscribe` 都在起 run 之前调 `circuit_breaker.admit_turn`。被拒 → 任务
+置 FAILED，消息为 `Agent unavailable (<reason>): <describe_skip_reason>`（`_circuit_refusal_message`；
+SSE 路径再推一条 final 的 `taskStatusUpdate` 后结束）。放行 → `probe_token` 交给
+`run_and_collect` / `run_stream`（二者结算），各自 `finally` 里 `release_probe` 兜底。
+锁：`test_a2a_send_refuses_a_paused_agent`、`test_a2a_send_claims_an_open_window_and_runs_healthy`。
+（顺带观察到：`tasks/send` 成功分支构造 `Artifact` 时报 pydantic 缺字段，是既有问题，本次未动。）
 
 ## 2026-06-11 — A2A passes sender_user_id
 

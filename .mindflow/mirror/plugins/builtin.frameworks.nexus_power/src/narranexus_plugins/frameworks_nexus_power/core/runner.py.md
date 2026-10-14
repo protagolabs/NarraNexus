@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/runner.py
-last_verified: 2026-09-08
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -67,3 +67,8 @@ reader 线程体包 try/except(事故教训 #2 线程版)。**准确表述**:run
 `serve_turn` 里 `TYPE_STEER_CONSUMED` 事件**不**走 `{"event": …}` 流,而写**独立行** `{"steer_consumed": ids}`。
 原因:bus 用 `output_mode=legacy_dict`,`LegacyEventAdapter.translate` 有类型白名单、会 drop 未知事件;消费信号是
 瞬态控制信号(非 turn 输出),独立行让 driver 直接拦截、不必进 AgentRuntime、也不必给它写一条 legacy 翻译。
+
+## 2026-09-11 — stdout 事件行改走 ndjson_line
+
+`write_line` 原先直接 `json.dumps(..., ensure_ascii=False)` 写 stdout，孤立 surrogate 会在管道编码处抛错；现在复用
+[[event_log.py]] 的 `ndjson_line`（已 scrub surrogate），与落盘日志同一出口规则。

@@ -28,6 +28,7 @@
         "plugins/builtin.chat/src", "plugins/builtin.prompts/src", "plugins/builtin.auth.local/src", "plugins/builtin.auth.netmind/src", "plugins/builtin.teams/src", "plugins/builtin.ui/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src",
         "plugins/builtin.common_tools/src",
         "plugins/builtin.general_memory/src",
+        "plugins/builtin.browser/src",
         "plugins/builtin.home_assistant/src",
         "plugins/builtin.job/src",
         "plugins/builtin.message_bus/src",

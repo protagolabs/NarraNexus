@@ -155,10 +155,12 @@ impl ProcessManager {
             // them None so the backend stays pure-local (username-only). A runtime
             // env var still wins (e.g. `open`ing the .app from a shell that set
             // it), keeping parity with how run.sh / dev-local.sh drive the same
-            // knobs. Note: build-desktop.sh is deliberately NOT edited — the
-            // frontend half is baked by exporting VITE_ENABLE_POWER_LOGIN before
-            // that script (vite reads exported VITE_* env), and cargo reads these
-            // via option_env! in the same build shell.
+            // knobs. The frontend half is baked by exporting VITE_* before
+            // build-desktop.sh (vite reads exported VITE_* env), and cargo reads
+            // these via option_env! in the same build shell; that script's
+            // first step (check_desktop_netmind_env.sh) refuses a missing,
+            // mismatched, or non-prod set, so a baked None here means a
+            // deliberate community build with Power login off.
             for (var, baked) in [
                 ("NARRANEXUS_ENABLE_POWER_LOGIN", option_env!("NARRANEXUS_ENABLE_POWER_LOGIN")),
                 ("NETMIND_USE_SUBSCRIPTION_ENABLED", option_env!("NETMIND_USE_SUBSCRIPTION_ENABLED")),

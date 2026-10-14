@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-09-07
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — `providerBacksFramework` no longer reads "no framework" as Claude Code
+
+The subscription-card branch compared `(framework || 'claude_code')` with the
+card's redeemer, so an unresolved framework silently became Claude Code — which
+on the lightweight local build is not installed. It is now
+`!!framework && framework === redeemer`: nothing redeems a subscription card
+until a framework is actually chosen. API-key / bearer cards are unaffected.
 
 ## 2026-09-07 — CORRECTION: `protocol` is a 3-valued enum (`'anthropic' | 'openai' | 'any'`); the id-based NexusPower gate is gone (B6, supersedes the entry below)
 

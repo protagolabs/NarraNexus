@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/session/turn_ledger.py
-last_verified: 2026-09-08
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+带图的工具结果：provider 视图里 tool 消息 content 为 [text, image_url...]，由 projector 再搬到 user 消息。
+事件日志（NDJSON 真相文件、子进程 stdout）只记 `ToolImage.describe()`（mime、base64 长度、sha256），
+不记字节——没有任何路径会用日志重建 provider 请求，存字节只会让每张截图多写几 MB。
 
 ## 2026-09-08 — 步内 CoT 折进 assistant 消息的 `reasoning_content`
 

@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.frameworks.nexus_power/src/narranexus_plugins/frameworks_nexus_power/core/_nexus_power_impl/modeling/projector.py
-last_verified: 2026-09-08
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 浏览器视觉输入
+
+`_project_tool_images`：OpenAI 兼容端点只接受 user 消息里的图片，不接受 tool 消息。投影时 tool 消息
+只留文本，同一批工具结果之后追加**一条** user 消息承载所有图片（前缀说明是工具观察、不是用户指令）。
+批内 tool 消息保持连续，并行调用配对不被打断。litellm 转 Anthropic 时会把 tool_result 与这条 user
+消息合并进同一个 user 轮（已用 anthropic_messages_pt 实测），两种协议都成立。
 
 ## 2026-09-08 — `thinking_replay` 有了第一个消费方
 

@@ -26,7 +26,7 @@ import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
 import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
 import { ResizableDivider } from '@/components/layout/ResizableDivider';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
@@ -844,8 +844,20 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const accent = team.team.color || 'var(--color-silicon)';
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex h-full flex-1 flex-col min-h-0">
+    <div className="flex h-full min-h-0 min-w-0">
+      {/* min-w-0 here is load-bearing on a phone-width viewport: this is a
+          flex-row item inside MainLayout's `<main>`, and without it the
+          browser's default flex auto-min-size lets any non-wrapping
+          descendant (long team/agent names, the roster strip, composer
+          chrome) stretch this column past the viewport. MainLayout's own
+          wrapper clips that overflow with `overflow-hidden`, so the excess
+          doesn't scroll into view — it just pushes the right-anchored send
+          button (`absolute right-2` on the composer) outside the visible,
+          clipped area. See GitHub #131. */}
+      <div
+        data-testid="team-room-shell"
+        className="flex h-full flex-1 min-w-0 flex-col min-h-0"
+      >
       {/* Member bar — team identity + the roster of agents in this room. */}
       <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
@@ -971,9 +983,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </button>
 
-        {/* Shared files — its own entry, because the drawer title is plain text
-            now and this panel has no other way in. A file the team shared is
-            invisible unless something advertises it, so the count rides here. */}
+        {/* Shared files — its own entry beside the drawer's title switcher (both
+            coexist). A file the team shared is invisible unless something
+            advertises it, so the count rides here too. */}
         <button
           type="button"
           onClick={() => toggleDrawerTab('files')}
@@ -1370,6 +1382,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           onPinnedChange={setDrawerPinned}
           onClose={() => setDrawerTab(null)}
           title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
+          // Title switcher (Owner-required): every team panel, incl. files and
+          // manage, is reachable from the drawer itself.
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
           inset={!isMobile}

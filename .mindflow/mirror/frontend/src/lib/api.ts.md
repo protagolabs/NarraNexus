@@ -1,8 +1,55 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-09-07
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`getBrowserApprovals` / `resolveBrowserApproval` 删除，改为 `getBrowserNotices`（`/api/browser/notices`，
+返回 `BrowserLoginRequest[]`）。
+
+## 2026-09-23 浏览器支持
+
+setBrowserMode 使用统一鉴权 PUT /api/browser/runtime/mode，窄请求体仅含 mode，
+返回完整运行时状态。保存错误沿用 ApiError，客户端不重启浏览器。
+
+setBrowserSource 通过统一鉴权 PUT /api/browser/runtime/source，只发送 source 枚举，
+返回新的运行时状态；不发送可执行文件路径，不发起会话关闭或刷新。
+
+高级脚本权限读取、单项更新、撤销复用统一 request；三个方法都返回服务端最新权限
+视图。能力类型仅 full_cdp_access，访问规则已退役。仅发送 origin/capability/verdict，
+不发送完整策略或客户端拼造的作用域。
+
+getBrowserApprovals 返回的联合类型包含 kind=login 通知；它只用于打开真实浏览器，
+不进入 resolveBrowserApproval。运行时与安装返回值包含安装器生成的 manual_install。
+
+新增浏览器运行时查询、安装、取消、按 Agent 查询审批及提交决定的方法。全部复用 request 的身份头与错误处理，不另写无鉴权 fetch；安装取消返回 ok，审批决定失败可返回 ok:false，消费方必须显示错误。
+
+## 2026-09-11 — `getAgentLlmConfig` response type drops `free_tier`
+
+The backend stopped sending `data.free_tier` on 2026-07-28 (the free tier
+became an ordinary provider card); the optional field lingered here and
+kept an unreachable banner alive in `AgentLlmConfigPanel`. Removed with
+that banner.
+
+## 2026-09-09 — `updateJob` added: the seam PUT had no frontend caller (GitHub #86)
+
+Backend PUT /api/jobs/{job_id} (mirrors the job_update MCP tool) has
+existed for a while; nothing in the frontend ever called it — `getJob`
+was similarly unused. Added `updateJob(jobId, agentId, fields)`:
+`agentId` scopes ownership (`assert_owned`), `fields` is
+title/description/payload, only the keys the caller actually passes are
+sent (undefined keys are omitted by `JSON.stringify`, matching the
+backend's None-means-unchanged `JobUpdateFields` semantics). Sibling of
+the existing `updateJobSchedule` (a different route,
+`/api/dashboard/jobs/{id}/schedule`, for trigger/timing fields only —
+content and schedule were always two separate routes, so they stay two
+separate client methods). The return type is the backend's
+`JobUpdateResponse` (`success`/`job_id`/`updated_fields`/`message`); a
+non-2xx surfaces as a thrown `ApiError`, never a returned `detail`.
+Test: `__tests__/api.updateJob.test.ts` asserts the exact
+method/URL/body shape.
 
 ## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
 

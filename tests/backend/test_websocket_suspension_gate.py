@@ -21,6 +21,8 @@ _account_state reader as the HTTP middleware, so the two cannot drift.
 """
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -103,10 +105,10 @@ async def test_active_user_ws_passes_the_gate(
     account_suspended."""
     await _seed(wire_db, "alice", status="active")
 
-    async def _skip(_agent_id):
-        return True, "cooling"
-
     import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _skip(_agent_id, db=None):
+        return cb_mod.GateVerdict(skip=True, reason="cooling")
 
     monkeypatch.setattr(cb_mod, "should_skip", _skip)
 
@@ -120,3 +122,79 @@ async def test_active_user_ws_passes_the_gate(
     assert frame.get("error_code") != ACCOUNT_SUSPENDED
     # ...and it reached the circuit-breaker gate just past the account check.
     assert frame["error_type"] == "agent_circuit_open"
+
+
+@pytest.mark.asyncio
+async def test_ws_claims_the_half_open_probe_before_recording_the_run(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch
+):
+    """should_skip is a pure read; the probe is claimed by try_begin_probe
+    right before the run is recorded. A lost claim answers with the
+    "probing" frame and nothing about the run is recorded."""
+    await _seed(wire_db, "alice", status="active")
+
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _open(_agent_id, db=None):
+        return cb_mod.GateVerdict(skip=False, reason=None)
+
+    async def _lost(_agent_id, db=None, *, prior=None):
+        return cb_mod.TurnAdmission(allowed=False, reason="probing")
+
+    recorded = []
+
+    async def _spy_record(**kw):
+        recorded.append(kw)
+
+    monkeypatch.setattr(cb_mod, "should_skip", _open)
+    monkeypatch.setattr(cb_mod, "try_begin_probe", _lost)
+    monkeypatch.setattr(ws_mod, "_record_message_accepted", _spy_record)
+
+    client = TestClient(_build_app())
+    with client.websocket_connect("/ws/agent/run") as ws:
+        ws.send_json(_first_message("alice"))
+        frame = ws.receive_json()
+
+    assert frame["error_type"] == "agent_circuit_open"
+    assert frame["cb_reason"] == "probing"
+    assert recorded == []
+
+
+@pytest.mark.asyncio
+async def test_ws_hands_back_a_won_probe_when_setup_throws_before_the_run(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch
+):
+    """The handler won the half-open probe but threw before a BackgroundRun
+    existed to carry the token: the claim is handed back by its token, not
+    left PROBING until the grant expires."""
+    await _seed(wire_db, "alice", status="active")
+
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _open(_agent_id, db=None):
+        return cb_mod.GateVerdict(skip=False, reason=None)
+
+    async def _won(_agent_id, db=None, *, prior=None):
+        return cb_mod.TurnAdmission(allowed=True, reason=None, probe_token="tok-ws")
+
+    released = []
+
+    async def _release(agent_id, probe_token, db=None):
+        released.append((agent_id, probe_token))
+        return True
+
+    async def _boom(**kw):
+        raise RuntimeError("setup failed")
+
+    monkeypatch.setattr(cb_mod, "should_skip", _open)
+    monkeypatch.setattr(cb_mod, "try_begin_probe", _won)
+    monkeypatch.setattr(cb_mod, "release_probe", _release)
+    monkeypatch.setattr(ws_mod, "_record_message_accepted", _boom)
+
+    client = TestClient(_build_app())
+    with client.websocket_connect("/ws/agent/run") as ws:
+        ws.send_json(_first_message("alice"))
+        with contextlib.suppress(Exception):
+            ws.receive_json()
+
+    assert released == [(_first_message("alice")["agent_id"], "tok-ws")]

@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
+
+claude 槽能否走 keyed helper-fallback 的判定（`not in`，方向不变）原先手写 `("oauth", "oauth_token")` 字面量，改为 import
+`narranexus.platform.schema.provider_schema.SUBSCRIPTION_AUTH_TYPES`（唯一定义）。行为不变；将来增删订阅
+运输层时这里自动跟随。全仓扫描守卫：`tests/agent_framework/test_claude_fanout_concurrency.py::test_no_consumer_spells_the_subscription_set_by_hand`
+（扫 `src/`、`backend/`、`plugins/*/src`；前端手抄件 `lib/agentFramework.ts` 不在射程内）。
+
+## 2026-09-09 — raw-exception 出口的 `ErrorMessage` 抽成 `_raw_exception_error`
+
+fallback-skip 的 raw-exception 出口（自称「mirroring response_processor」）此前没跟上
+`ErrorMessage.self_serviceable`：同一类 `config_actionable` 走 processor 出口带 true、走这里是
+undefined（首轮 review I2）。现在构造抽成模块级纯函数 `_raw_exception_error(message,
+skip_target_type, severity, action_reason)`：`config_actionable` → True，`infra_transient` →
+None（平台侧对照组，不伪造 False）。抽函数是为了让 `tests/agent_framework/
+test_cli_error_self_serviceable.py` 直接钉住两个分支，而不必搭整条 step_3 链路。
 
 ## 2026-09-04（批 3a）— 拆出 `step_3_assemble_context`（3.1–3.3）
 

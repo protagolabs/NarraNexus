@@ -1,8 +1,48 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r2 M-c/M-f）— 重复 `task_key` 检测改显式循环；两处过时说明改成事实
+
+M-c：原来用 `set.add` 返回 None 的副作用在集合推导里同时建 `seen`，行为正确但难读；改成显式循环
+（`task_keys` / `duplicate_keys` 两个集合），行为不变。M-f：「Gotcha」里「status 过滤是硬编码白名单」与
+「设计决策」里「不做拓扑排序、调用方必须保证顺序」两段早已与代码不符（前者从 `JobStatus` 派生，后者 B-16
+已加 Kahn 排序），按现状重写。
+
+## 2026-09-10（review r1 I9/M2）— 重复 `task_key` → 400；docstring 步骤 4 改成真实状态
+
+B-16 的 Kahn 排序按 `task_key` 建字典：请求里两条 job 用同一个 `task_key`（LLM 批量生成时完全
+可能），改动前两条都会建，改动后字典只留最后一条——接口回 `success=True`、`job_ids` 少一个，
+用户丢一个任务且没有任何报错，是本批引入的静默回归。现在校验步骤先查唯一性，重复则
+`HTTPException(400, "duplicate task_key(s) in job list: …")`，走既有的 `except HTTPException: raise`。
+
+**两种错误形态并存、为什么不统一**：cycle 与 duplicate 是「请求结构本身不合法」→ 400（与 B-16
+的 cycle 对齐）；「`depends_on` 指向不存在的 task_key」保持历史的 `200 success=False + error`——
+那是前端 `CreateJobComplexResponse.error` 已经在读的契约（`types/jobComplex.ts`），本轮不改
+既有消费面。`_topological_sort_job_complex` docstring 明写「调用方保证 task_key 唯一」。
+M2：`create_job_complex` docstring 第 4 步从「root ACTIVE / dependent PENDING」改成真实的
+「root PENDING 立即触发 / dependent BLOCKED 等依赖链」。
+锁：`test_duplicate_task_key_is_rejected_with_400`（且 `calls == []`，一个都不建）、
+`test_unique_task_keys_create_every_job`。
+
+## 2026-09-09 — B-16：`create_job_complex` 建前先 Kahn 排序 + 环检测
+
+`create_job_complex` 原来按 `body.jobs` 的**请求顺序**建 job，边建边查
+`task_key_to_job_id[dep]`——一个依赖写在自己**后面**的 forward reference
+（GitHub #114/#109 那种形状）必然 KeyError（#285 只把这个 500 的报错文案
+擦干净，没修排序本身）；一个环则会让环上所有 job 永远卡在 BLOCKED、没有任何
+诊断信息。
+
+新增纯函数 `_topological_sort_job_complex`：Kahn 算法，对 `depends_on` 建
+`task_key` 级的依赖图，返回重排后的 job 列表，或者 `(None, 环错误信息)`。
+挂在依赖合法性校验之后、真正建 job 之前；排序失败时 `raise HTTPException(400,
+detail=cycle_error)`——外层 `except Exception` 之前专门插了
+`except HTTPException: raise`，否则那个 400 会被通用兜底吞成
+`200 success=False`。
+
+未知 task_key（已被前一步 validate 挡掉）在排序函数里直接跳过，不重复报错。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 
@@ -164,9 +204,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 
 **Job Complex 的依赖解析**
 
-创建 Job Complex 时，`task_key` 是用户用来表达依赖关系的临时标识，最终要转换成实际的 `job_id`。转换是顺序的：按 `request.jobs` 的顺序逐一创建，每创建一个就把 `task_key -> job_id` 记录下来，下一个 job 的依赖解析就能用到之前的映射。这意味着 `request.jobs` 的顺序必须是拓扑序（被依赖的 job 先出现）；否则解析时找不到 `task_key`，会报 "Invalid dependency" 错误。
-
-实际上代码里会先校验所有 `task_key` 存在，但不做拓扑排序验证。如果 job A 依赖 job B，但 B 在请求列表里排在 A 后面，创建 B 时就能找到 A 的 job_id，但创建 A 时找不到 B 的 job_id——因为 B 还没创建。调用方必须自己保证顺序。
+创建 Job Complex 时，`task_key` 是用户用来表达依赖关系的临时标识，最终要转换成实际的 `job_id`。代码先校验 `task_key` 唯一（重复 → 400）且每个 `depends_on` 都指向列表内的 `task_key`（否则 `200 success=False` + "Invalid dependency"），再用 `_topological_sort_job_complex`（B-16，Kahn 排序）排出创建顺序——被依赖的 job 先建，与请求里的顺序无关；有环 → 400 并点名涉及的 `task_key`。然后按拓扑序逐一创建，每建一个记录 `task_key -> job_id`，后面的 job 用这张映射解析依赖。调用方不需要自己保证顺序。
 
 **`job_row_to_response` 的递归 JSON 解析**
 
@@ -175,7 +213,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 ## Gotcha / 边界情况
 
 - **取消 running 状态的 Job**：处于 `running` 状态的 Job 不能被中断（Agent 正在执行中），但可以被标记为 `cancelled`，标记后 ModulePoller 不会再重新调度这个 Job。当前执行不会停止。
-- **`status` 过滤的白名单**：列表接口对 `status` 参数有硬编码的有效值列表 `["pending", "active", "running", "completed", "failed", "blocked", "cancelled"]`。如果核心包里 `JobStatus` 枚举新增了状态值，这里的白名单需要同步更新，否则过滤会报 "Invalid status" 错误。
+- **`status` 过滤的有效值**：列表接口的 `status` 参数按 `[s.value for s in JobStatus]` 从枚举派生校验，`JobStatus` 新增状态值（如 `paused_spend_cap`）自动被接受，无需同步任何白名单；非法值返回 `success=False` + "Invalid status"。
 - **`format_for_api` 确保 UTC 时间格式**：`next_run_time` 等时间字段都通过 `format_for_api` 转换为带 `Z` 后缀的 ISO 8601 格式，以确保前端 `new Date()` 能正确识别为 UTC。
 - **`assert_owned` 必须在 try 块之外调用**：当你把 `await assert_owned(...)` 放进本文件其它端点惯用的 `try: ... except Exception as e: return XxxResponse(success=False, error=str(e))` 块内时 → 症状是所有权拒绝（403/404/503）被吞成 200 + `{"success": false}`，调用方再也拿不到正确的 HTTP 状态码 → 根因是 `HTTPException` 是 `Exception` 的子类，会被泛化的 `except Exception` 一并捕获。四个新端点都是先调用 `assert_owned`，再进入 `try` 块。
 

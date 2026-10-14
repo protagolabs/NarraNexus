@@ -28,7 +28,9 @@ import { useState, useEffect, Suspense } from 'react';
 import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { X, PanelLeft } from 'lucide-react';
+import { X, MonitorPlay, PanelLeft } from 'lucide-react';
+import { Button } from '@/components/nm/button';
+import { PANELS, useRegistryEntries } from '@/platform/registries';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
@@ -39,6 +41,7 @@ import {
   BookmarkPanelHost,
   tabLabelKey,
   tabDescKey,
+  visibleCategories,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -54,6 +57,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { NoProviderNotice } from './NoProviderNotice';
+import { BrowserNotices } from './BrowserNotices';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
@@ -61,8 +65,10 @@ import { useAutoRefresh } from '@/hooks';
 import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
 import {
   DRAWER_OPENED_ONCE_KEY,
+  markAgentDrawerSeen,
   markFirstRunSeen,
   shouldAutoOpenFirstRun,
+  shouldAutoOpenForAgent,
 } from './drawerLayout';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
 
@@ -91,9 +97,30 @@ export function ChatView() {
     // First-run decision is mount-time only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const { agentId, userId } = useConfigStore();
+  // Per-agent first view (Owner 2026-09-11): an agent whose chat was never
+  // shown on this desktop opens with the drawer on Artifacts — pinned, the
+  // pin default — so a new agent's explainer is visible immediately, for new
+  // AND existing users (the coach above only reaches brand-new profiles).
+  // Decided at mount (lazy initializer) and on every agent switch (derived
+  // state set during render — no effect → no flash of a closed drawer); the
+  // seen-marker is written from the effect below.
+  const isSmallViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767.98px)').matches;
+  const autoOpenFor = (id: string | null | undefined) =>
+    typeof window !== 'undefined' && shouldAutoOpenForAgent(window.localStorage, id, isSmallViewport());
   const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
-    () => (showDrawerCoach ? 'artifacts' : null),
+    () => (showDrawerCoach || autoOpenFor(agentId) ? 'artifacts' : null),
   );
+  const [drawerAgentId, setDrawerAgentId] = useState(agentId);
+  if (agentId !== drawerAgentId) {
+    setDrawerAgentId(agentId);
+    if (autoOpenFor(agentId)) setDrawerTab('artifacts');
+  }
+  useEffect(() => {
+    // A phone visit does not spend the agent's desktop first view.
+    if (agentId && !isSmallViewport()) markAgentDrawerSeen(window.localStorage, agentId);
+  }, [agentId]);
   const {
     pinned: drawerPinned,
     setPinned: setDrawerPinned,
@@ -102,23 +129,27 @@ export function ChatView() {
     handleResize: handleDrawerResize,
     handleResizeEnd: handleDrawerResizeEnd,
   } = usePinnedDrawer();
-  const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
   useBookmarkSignals(agentId);
 
   const isMobile = useIsMobile();
+  const browserOffered = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
   const pendingPanel = useUIStore((s) => s.pendingPanel);
   const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const openPanel = useUIStore((s) => s.openPanel);
 
   // The creation studio lives exactly as long as its panel is what this
   // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
   // not at each way the drawer can close. Which entries OFFER its tab is the
   // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
-  // the chat header's ⋯ menu and the ⌘K palette; the drawer itself has no
-  // switcher any more, so nothing here filters a tab list.
-  useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // the chat header's ⋯ menu, the ⌘K palette and the drawer's title switcher
+  // below (via visibleCategories, the same rule grouped by category).
+  const { studioOpen, studioResumable } = useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // Computed per render, not memoized: PANELS can gain plugin panels after
+  // mount, and the derivation is a sort over ~a dozen entries.
+  const switcherCategories = visibleCategories({ studioOpen, studioResumable });
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -126,7 +157,8 @@ export function ChatView() {
   };
 
   // A panel requested from the chat header entries / ⋯ detail menu / the
-  // command palette — all funnel through uiStore.requestPanel.
+  // command palette / the drawer's title switcher — all funnel through
+  // uiStore (requestPanel / openPanel).
   // Re-requesting the open tab closes the drawer (toggle).
   useEffect(() => {
     if (pendingPanel) {
@@ -171,8 +203,8 @@ export function ChatView() {
     // chat header's Artifacts entry.
     <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Mobile utility row — artifacts entry + cost chip (the desktop
-            header doesn't render on < md; this row keeps both one tap away). */}
+        {/* The desktop header is hidden on mobile; keep its activity panels
+            reachable here even before the agent has produced an artifact. */}
         {isMobile && agentId && (
           <div className="flex h-9 shrink-0 items-center justify-end gap-1 px-1.5 border-b border-[var(--nm-hairline)]">
             <button
@@ -184,6 +216,13 @@ export function ChatView() {
                 ? tr('layout.chatView.tabArtifactsCount', { count: artifactsLength })
                 : tr('layout.chatView.tabArtifacts')}
             </button>
+            {browserOffered && (
+              <Button variant="ghost" size="sm" onClick={() => requestPanel('browser')}
+                leading={<MonitorPlay className="h-3.5 w-3.5" />}
+                className="h-7 px-2 text-[11px] text-[var(--text-tertiary)]">
+                {tr('rail.browser', 'Browser')}
+              </Button>
+            )}
             <CostPopover compact />
           </div>
         )}
@@ -233,6 +272,13 @@ export function ChatView() {
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={effectiveDrawerWidth}
+          // Title switcher (Owner-required): a pinned drawer switches its own
+          // content without a trip back to the chat header. It goes through
+          // the same uiStore funnel as every other panel entry ('open' mode:
+          // the switcher never re-selects the open tab, so no toggle).
+          activeTab={drawerTab}
+          onSelectTab={openPanel}
+          switcherCategories={switcherCategories}
           banner={
             showDrawerCoach ? (
               <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />
@@ -364,6 +410,11 @@ export function MainLayout() {
           explains why the app can't answer yet. Self-clears once a provider
           exists; local only. */}
       <NoProviderNotice />
+
+      {/* A site the agent is blocked on. In the shell, not in the browser
+          panel: the user reads the refusal in chat, and a prompt that only
+          exists inside a panel they have not opened is no prompt at all. */}
+      <BrowserNotices />
 
       {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
           nothing on md+ (v4: the sidebar owns the full height there). */}

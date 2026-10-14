@@ -21,7 +21,7 @@
  * loading / load-failed / empty states.
  */
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight, ChevronDown, Loader2, Brain, Wrench, CheckCircle2, TerminalSquare,
@@ -33,6 +33,8 @@ import type { EventLogMeta, EventLogResponse, EventLogTimelineEntry } from '@/ty
 import { useNarrationTier } from '@/hooks/useNarrationTier';
 import { hasRunStats } from '@/lib/runStats';
 import { RunStatChips } from './RunStatChips';
+import { TOOL_RENDERERS, toolRendererFor, useRegistryEntries } from '@/platform/registries';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface SourceMeta {
   /** Brand name shown verbatim (IM channels). */
@@ -126,9 +128,21 @@ function RunOutput({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }
   );
 }
 
+/** Stored tool_output rows often carry no tool_name; in a time-ordered log an
+ *  output belongs to the nearest preceding call (same rule as segmentTurn's
+ *  history conversion), which is what lets a tool renderer recognise it. */
+function withOutputNames(entries: EventLogTimelineEntry[]): EventLogTimelineEntry[] {
+  let lastCall = '';
+  return entries.map((entry) => {
+    if (entry.type === 'tool_call') lastCall = entry.tool_name || '';
+    if (entry.type !== 'tool_output' || (entry.tool_name && entry.tool_name !== 'unknown')) return entry;
+    return { ...entry, tool_name: lastCall };
+  });
+}
+
 /** Prefer the structured timeline; fall back to legacy thinking + tool_calls. */
 function toEntries(res: EventLogResponse): EventLogTimelineEntry[] {
-  if (res.timeline && res.timeline.length) return res.timeline;
+  if (res.timeline && res.timeline.length) return withOutputNames(res.timeline);
   const out: EventLogTimelineEntry[] = [];
   if (res.thinking) out.push({ type: 'thinking', content: res.thinking });
   for (const tc of res.tool_calls ?? []) {
@@ -140,6 +154,29 @@ function toEntries(res: EventLogResponse): EventLogTimelineEntry[] {
     });
   }
   return out;
+}
+
+/** A tool output line, or the tool's registered renderer (ui.toolRenderers);
+ *  unowned, declined or crashing renderers leave the plain line. */
+function ToolOutputRow({ entry }: { entry: EventLogTimelineEntry }) {
+  const renderers = useRegistryEntries(TOOL_RENDERERS);
+  const output = entry.content ?? entry.tool_output ?? '';
+  const plain = () => (
+    <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+      <TerminalSquare className="w-3 h-3 mt-0.5 shrink-0" />
+      <span className="break-words font-mono">{output}</span>
+    </div>
+  );
+  const owner = toolRendererFor(renderers, entry.tool_name ?? '', output);
+  if (!owner) return plain();
+  const Custom = owner.value.component;
+  return (
+    <PluginBoundary owner={owner.owner} fallback={plain}>
+      <Suspense fallback={plain()}>
+        <Custom toolName={entry.tool_name ?? ''} output={output} />
+      </Suspense>
+    </PluginBoundary>
+  );
 }
 
 function EntryRow({
@@ -157,14 +194,7 @@ function EntryRow({
       </div>
     );
   }
-  if (entry.type === 'tool_output') {
-    return (
-      <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-        <TerminalSquare className="w-3 h-3 mt-0.5 shrink-0" />
-        <span className="break-words font-mono">{entry.content ?? entry.tool_output}</span>
-      </div>
-    );
-  }
+  if (entry.type === 'tool_output') return <ToolOutputRow entry={entry} />;
   if (entry.type === 'reply') {
     return (
       <div className="flex items-start gap-1.5 text-xs">

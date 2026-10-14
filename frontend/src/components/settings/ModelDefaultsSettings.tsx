@@ -9,12 +9,21 @@
  *   - PUT  /api/providers/slots/{agent|helper_llm}   (setProviderSlot)
  *   - POST /api/providers/agent-framework            (setAgentFramework)
  *
+ * The framework is a DRAFT like every other field: picking one writes nothing,
+ * it makes the form dirty, and Save commits it (framework first, then the
+ * slots — set_slot validates the provider against the stored framework).
+ * Framework + agent slot are one unit from the user's view: if the slot write
+ * fails after the framework landed, the framework (and a binding the switch
+ * cleared) is rolled back; if even that fails, the page reloads the stored
+ * state and says which half was saved.
+ *
  * Extracted out of ProviderSettings' old "Section ③" so LLM Providers is purely
  * the credential wallet. Option-building is shared via lib/agentFramework so the
  * choices match the per-agent panel + the provider dropdowns.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui';
@@ -59,6 +68,13 @@ interface SlotCfg {
   reasoning_effort?: string;
 }
 
+/** Drafts a post-failure reload keeps instead of the stored values. */
+interface KeepDrafts {
+  framework?: string;
+  agent?: AgentDraft;
+  helper?: HelperDraft;
+}
+
 interface Props {
   /** Jump to the LLM Providers settings section (switch the nav tab). */
   onManageProviders?: () => void;
@@ -74,7 +90,11 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
-  const [framework, setFramework] = useState('claude_code');
+  // Framework draft + the stored value it is compared against. No hardcoded
+  // initial id: the form renders only after load() filled both from the
+  // backend, which resolves the user's framework (default included).
+  const [framework, setFramework] = useState('');
+  const [frameworkInitial, setFrameworkInitial] = useState('');
   // Plugin-install gate (Claude Code / Codex CLI are user-installed local
   // plugins) — name→available, defaulted to available for any framework the
   // backend didn't mention (see lib/agentFramework frameworkAvailabilityMap).
@@ -97,8 +117,19 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
-  const load = useCallback(async () => {
+  const [saved, flashSaved] = useFlashFlag(2500);
+  // Provider/model a framework switch dropped from the draft, kept so picking
+  // a framework that can drive them again restores them.
+  const droppedByFrameworkRef = useRef<{ provider_id: string; model: string } | null>(null);
+  // The agent and helper blocks both carry "Provider" / "Model" labels; the
+  // agent selects are named by the block title + their own label so each one
+  // has a distinct accessible name.
+  const agentIds = useId();
+  const helperIds = useId();
+  // `keep`: after a partial save, reload the stored state as the baseline but
+  // keep the user's still-unsaved edits in the draft (so Save stays live and
+  // nothing the user picked silently disappears).
+  const load = useCallback(async (keep?: KeepDrafts) => {
     setLoading(true);
     setError('');
     try {
@@ -121,15 +152,25 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         reasoning_effort: a?.reasoning_effort || '',
       };
       const helper: HelperDraft = { provider_id: h?.provider_id || '', model: h?.model || '' };
-      setAgentDraft(agent);
-      setHelperDraft(helper);
+      // A kept agent draft keeps the pair a framework switch dropped too, so
+      // switching back still restores it after the reload.
+      if (!keep?.agent) droppedByFrameworkRef.current = null;
+      setAgentDraft(keep?.agent ?? agent);
+      setHelperDraft(keep?.helper ?? helper);
       setAgentInitial(agent);
       setHelperInitial(helper);
       if (fwRes?.success) {
-        setFramework(fwRes.data.framework);
+        setFramework(keep?.framework ?? fwRes.data.framework);
+        setFrameworkInitial(fwRes.data.framework);
         setProbe(fwRes.data.probe);
         setFrameworkAvailability(frameworkAvailabilityMap(fwRes.data.frameworks));
         setLiveFrameworks(fwRes.data.frameworks);
+      } else {
+        // A soft failure of the framework endpoint leaves no framework list
+        // (and providerBacksFramework fails closed on it), so both the
+        // framework and the agent-provider selects would render empty with
+        // no explanation. Say the load failed instead.
+        setError(t('pages.settings.modelDefaults.loadFailed'));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
@@ -181,45 +222,97 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const sameHelper = (a: HelperDraft, b: HelperDraft) =>
     a.provider_id === b.provider_id && a.model === b.model;
 
+  const frameworkChanged = framework !== frameworkInitial;
   const agentChanged = !sameAgent(agentDraft, agentInitial);
   const helperChanged = !sameHelper(helperDraft, helperInitial);
-  const isDirty = agentChanged || helperChanged;
+  // The framework is part of the dirty state (Owner bug 2026-09-11): it used
+  // to be written on change and left out of this check, so after picking a
+  // new default framework Save stayed disabled and the page never confirmed
+  // the choice — "changing the framework cannot be saved".
+  const isDirty = frameworkChanged || agentChanged || helperChanged;
 
-  // Framework switch persists immediately (it may auto-install codex + re-probe
-  // auth). The BACKEND decides whether the bound provider survives — a card the
-  // new framework can't drive (CLI subscription, or wrong protocol) is unbound
-  // server-side. Mirror that answer instead of clearing optimistically: a
-  // binding both frameworks can drive must keep the user's model pick.
-  const onFrameworkChange = async (next: string) => {
+  // Picking a framework only edits the draft. A bound provider the new
+  // framework cannot drive (wrong protocol, or a CLI subscription it cannot
+  // redeem) is dropped from the draft — same predicate the provider dropdown
+  // filters with — so the user picks one that can; a provider both frameworks
+  // can drive keeps the user's model pick. The dropped pair is remembered and
+  // put back when the user picks a framework that can drive it again (only
+  // while no other provider was picked in between).
+  const onFrameworkChange = (next: string) => {
     setFramework(next);
-    setFrameworkSaving(true);
     setError('');
     setInstall(null);
-    try {
-      const resp = await api.setAgentFramework(next);
-      if (resp.success) {
-        setProbe(resp.data.probe);
-        setInstall(resp.data.install);
-        if (resp.data.slot_cleared) {
-          const cleared = { provider_id: '', model: '' };
-          setAgentDraft((d) => ({ ...d, ...cleared }));
-          setAgentInitial((d) => ({ ...d, ...cleared }));
-        }
+    const bound = providers[agentDraft.provider_id];
+    if (bound && !providerBacksFramework(bound, next, liveFrameworks)) {
+      droppedByFrameworkRef.current = { provider_id: agentDraft.provider_id, model: agentDraft.model };
+      setAgentDraft((d) => ({ ...d, provider_id: '', model: '' }));
+      return;
+    }
+    const dropped = droppedByFrameworkRef.current;
+    if (!agentDraft.provider_id && dropped) {
+      const prov = providers[dropped.provider_id];
+      if (prov && providerBacksFramework(prov, next, liveFrameworks)) {
+        droppedByFrameworkRef.current = null;
+        setAgentDraft((d) => ({ ...d, ...dropped }));
       }
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : t('pages.settings.modelDefaults.frameworkSwitchFailed'),
-      );
-    } finally {
-      setFrameworkSaving(false);
+    }
+  };
+
+  const errorText = (e: unknown) =>
+    e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed');
+
+  // Undo a framework write whose agent-slot write then failed: the stored
+  // framework goes back, and so does the binding the switch cleared.
+  //  - 'rolled-back': nothing is stored any more;
+  //  - 'binding-lost': the framework is back, but the cleared binding could
+  //    not be written back (the slot is now unbound);
+  //  - 'failed': the framework could not be put back (it stays switched).
+  const rollbackFramework = async (
+    bindingCleared: boolean,
+  ): Promise<'rolled-back' | 'binding-lost' | 'failed'> => {
+    try {
+      const back = await api.setAgentFramework(frameworkInitial);
+      if (!back.success) return 'failed';
+      // The probe follows the framework the moment it is back.
+      setProbe(back.data.probe);
+      setInstall(null);
+    } catch {
+      return 'failed';
+    }
+    if (!bindingCleared || !agentInitial.provider_id) return 'rolled-back';
+    try {
+      const r = await api.setProviderSlot('agent', {
+        provider_id: agentInitial.provider_id,
+        model: agentInitial.model,
+        thinking: agentInitial.thinking,
+        reasoning_effort: agentInitial.reasoning_effort,
+      });
+      return r.success ? 'rolled-back' : 'binding-lost';
+    } catch {
+      return 'binding-lost';
     }
   };
 
   const apply = async () => {
     if (!isDirty || applying) return;
-    if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
+    // Only an agent-slot edit needs a provider + model. A framework change on
+    // its own is saved even while the agent slot is still unbound — the
+    // backend keeps the framework on a stub slot row until one is wired. That
+    // includes the case where the switch emptied the agent draft (the bound
+    // card cannot run the new framework): the framework is saved first and
+    // the page then asks for a card (`slotClearedPickModel`). A half-filled
+    // agent draft is still refused before anything is written, and so is a
+    // draft the USER emptied (picking the blank provider option, or editing
+    // thinking/effort on an unbound slot): only an untouched agent draft, or
+    // one the framework switch itself emptied (`droppedByFrameworkRef` set),
+    // counts as framework-only — otherwise the edit would be skipped while
+    // the page still flashes "Saved".
+    const agentDraftEmpty = !agentDraft.provider_id && !agentDraft.model;
+    const frameworkOnlyAgent =
+      frameworkChanged &&
+      agentDraftEmpty &&
+      (!agentChanged || droppedByFrameworkRef.current !== null);
+    if (agentChanged && !frameworkOnlyAgent && (!agentDraft.provider_id || !agentDraft.model)) {
       setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
@@ -231,30 +324,97 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     setError('');
     // Capture which slots changed BEFORE load() resets the initial snapshots —
     // only these are offered in the apply-to-agents dialog.
+    // An agent slot emptied by the switch has nothing to push onto agents.
     const dirtySlots: Array<'agent' | 'helper_llm'> = [
-      ...(agentChanged ? ['agent' as const] : []),
+      ...((agentChanged || frameworkChanged) && !agentDraftEmpty ? ['agent' as const] : []),
       ...(helperChanged ? ['helper_llm' as const] : []),
     ];
     try {
-      if (agentChanged) {
-        const r = await api.setProviderSlot('agent', {
-          provider_id: agentDraft.provider_id,
-          model: agentDraft.model,
-          thinking: agentDraft.thinking,
-          reasoning_effort: agentDraft.reasoning_effort,
-        });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+      // Framework FIRST: set_slot validates the agent provider against the
+      // user's stored framework. The backend may still unbind the stored
+      // provider (slot_cleared) — the draft's provider is then written below
+      // even if the slot fields themselves were untouched.
+      let slotCleared = false;
+      if (frameworkChanged) {
+        setFrameworkSaving(true);
+        try {
+          const resp = await api.setAgentFramework(framework);
+          if (!resp.success) { setError(t('pages.settings.modelDefaults.frameworkSwitchFailed')); return; }
+          setProbe(resp.data.probe);
+          setInstall(resp.data.install);
+          slotCleared = resp.data.slot_cleared;
+        } finally {
+          setFrameworkSaving(false);
+        }
+      }
+      // The switch unbound a card the draft has no replacement for: the
+      // framework is saved and the slot is now empty — no slot write, the
+      // page ends by asking for a card.
+      const needsCard = frameworkOnlyAgent && slotCleared;
+      if ((agentChanged || slotCleared) && !agentDraftEmpty) {
+        let failure = '';
+        try {
+          const r = await api.setProviderSlot('agent', {
+            provider_id: agentDraft.provider_id,
+            model: agentDraft.model,
+            thinking: agentDraft.thinking,
+            reasoning_effort: agentDraft.reasoning_effort,
+          });
+          if (!r.success) failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+        } catch (e) {
+          failure = errorText(e);
+        }
+        if (failure) {
+          if (!frameworkChanged) { setError(failure); return; }
+          const undo = await rollbackFramework(slotCleared);
+          if (undo === 'rolled-back') {
+            // Nothing is stored any more; the draft stays as the user left it.
+            setError(t('pages.settings.modelDefaults.slotSaveRolledBack', { detail: failure }));
+            return;
+          }
+          // Something half-landed: reload the stored state as the baseline,
+          // keep every edit the user made so Save can retry it.
+          await load({ framework, agent: agentDraft, helper: helperDraft });
+          setError(t(
+            undo === 'binding-lost'
+              ? 'pages.settings.modelDefaults.frameworkRestoredBindingLost'
+              : 'pages.settings.modelDefaults.frameworkSavedSlotFailed',
+            { detail: failure },
+          ));
+          return;
+        }
       }
       if (helperChanged) {
-        const r = await api.setProviderSlot('helper_llm', {
-          provider_id: helperDraft.provider_id,
-          model: helperDraft.model,
-        });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        let failure = '';
+        try {
+          const r = await api.setProviderSlot('helper_llm', {
+            provider_id: helperDraft.provider_id,
+            model: helperDraft.model,
+          });
+          if (!r.success) failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+        } catch (e) {
+          failure = errorText(e);
+        }
+        if (failure) {
+          if (!frameworkChanged && !agentChanged) { setError(failure); return; }
+          // The other half landed: show it as saved, keep the helper edit, and
+          // name what actually landed (the agent slot, or only the framework).
+          await load({ helper: helperDraft });
+          setError(t(
+            agentChanged && !agentDraftEmpty
+              ? 'pages.settings.modelDefaults.agentSavedHelperFailed'
+              : 'pages.settings.modelDefaults.frameworkSavedHelperFailed',
+            { detail: failure },
+          ));
+          return;
+        }
       }
       await load();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      if (needsCard) {
+        setError(t('pages.settings.modelDefaults.slotClearedPickModel'));
+        return;
+      }
+      flashSaved();
       // Offer to push the new default onto existing agents (clear-to-inherit).
       // Isolated try/catch: the save already succeeded, so a flaky stats GET
       // must NOT flip the UI to an error state — it just skips the dialog.
@@ -272,7 +432,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         /* preview failed — the default is saved; just don't offer the dialog */
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
+      setError(errorText(e));
     } finally {
       setApplying(false);
     }
@@ -332,14 +492,14 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
 
       {/* ---- Agent slot ---- */}
       <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+        <div id={`${agentIds}-title`} className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.agentMain')}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className={labelCls}>
+            <label id={`${agentIds}-framework`} htmlFor={`${agentIds}-framework-select`} className={labelCls}>
               {t('pages.settings.modelDefaults.framework')}
-              {probe && (
+              {probe && !frameworkChanged && (
                 <span
                   className={cn('ml-2 text-xs', probe.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}
                   title={probe.detail}
@@ -356,9 +516,11 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 interactive — a blocked pick pops an explanation and snaps back,
                 which reads friendlier than a greyed-out control. */}
             <select
+              id={`${agentIds}-framework-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-framework`}
               className={selectCls}
               value={framework}
-              disabled={frameworkSaving}
+              disabled={frameworkSaving || applying}
               onChange={(e) => {
                 const picked = frameworkOptions.find((f) => f.id === e.target.value);
                 // Plugin-install gate first: a framework that needs a local
@@ -427,7 +589,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                   e.target.value = framework;
                   return;
                 }
-                void onFrameworkChange(e.target.value);
+                onFrameworkChange(e.target.value);
               }}
             >
               {frameworkOptions.map((f) => (
@@ -457,14 +619,16 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 {t('pages.settings.modelDefaults.codexUnavailable', { reason: install.reason })}
               </div>
             )}
-            {probe && !probe.ok && !(install && install.action === 'install_failed') && (
+            {probe && !probe.ok && !frameworkChanged && !(install && install.action === 'install_failed') && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1">{probe.detail}</div>
             )}
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
+            <label id={`${agentIds}-provider`} htmlFor={`${agentIds}-provider-select`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
+              id={`${agentIds}-provider-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-provider`}
               className={selectCls}
               value={agentDraft.provider_id}
               onChange={(e) => {
@@ -480,8 +644,10 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
+            <label id={`${agentIds}-model`} htmlFor={`${agentIds}-model-select`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
+              id={`${agentIds}-model-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-model`}
               className={selectCls}
               value={agentDraft.model}
               disabled={!agentDraft.provider_id}
@@ -496,9 +662,18 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
-            <select className={selectCls} value={agentDraft.thinking}
-              onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}>
+            {/* Thinking / reasoning effort live on the slot row, so they are
+                only editable once a provider is chosen — like the model
+                select. An edit on an unbound slot would have nowhere to land. */}
+            <label id={`${agentIds}-thinking`} htmlFor={`${agentIds}-thinking-select`} className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
+            <select
+              id={`${agentIds}-thinking-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-thinking`}
+              className={selectCls}
+              value={agentDraft.thinking}
+              disabled={!agentDraft.provider_id}
+              onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
+            >
               <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
               <option value="on">{t('pages.settings.modelDefaults.on')}</option>
               <option value="off">{t('pages.settings.modelDefaults.off')}</option>
@@ -506,9 +681,15 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
           </div>
 
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
-            <select className={selectCls} value={agentDraft.reasoning_effort}
-              onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}>
+            <label id={`${agentIds}-effort`} htmlFor={`${agentIds}-effort-select`} className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
+            <select
+              id={`${agentIds}-effort-select`}
+              aria-labelledby={`${agentIds}-title ${agentIds}-effort`}
+              className={selectCls}
+              value={agentDraft.reasoning_effort}
+              disabled={!agentDraft.provider_id}
+              onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
+            >
               <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
               <option value="low">{t('pages.settings.modelDefaults.low')}</option>
               <option value="medium">{t('pages.settings.modelDefaults.medium')}</option>
@@ -521,13 +702,15 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
 
       {/* ---- Helper slot ---- */}
       <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+        <div id={`${helperIds}-title`} className="text-sm font-medium text-[var(--text-primary)] mb-3">
           {t('pages.settings.modelDefaults.helperTitle')}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
+            <label id={`${helperIds}-provider`} htmlFor={`${helperIds}-provider-select`} className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
+              id={`${helperIds}-provider-select`}
+              aria-labelledby={`${helperIds}-title ${helperIds}-provider`}
               className={selectCls}
               value={helperDraft.provider_id}
               onChange={(e) => {
@@ -543,8 +726,10 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
             </select>
           </div>
           <div>
-            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
+            <label id={`${helperIds}-model`} htmlFor={`${helperIds}-model-select`} className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
+              id={`${helperIds}-model-select`}
+              aria-labelledby={`${helperIds}-title ${helperIds}-model`}
               className={selectCls}
               value={helperDraft.model}
               disabled={!helperDraft.provider_id}

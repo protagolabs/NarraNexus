@@ -64,7 +64,7 @@ async def test_a_team_room_resolves_to_its_team_name(db_client, monkeypatch):
 
     labels = await _module(db_client)._room_labels({ROOM})
 
-    assert labels == {ROOM: "Ops"}, (
+    assert labels == {ROOM: {"name": "Ops", "team_id": TEAM}}, (
         "the room did not resolve — if this is {} the queries are failing and "
         "the fail-open is hiding it"
     )
@@ -89,7 +89,7 @@ async def test_a_mixed_window_labels_only_the_rooms(db_client, monkeypatch):
 
     labels = await _module(db_client)._room_labels({ROOM, DM, "ch_unknown"})
 
-    assert labels == {ROOM: "Ops"}
+    assert labels == {ROOM: {"name": "Ops", "team_id": TEAM}}
 
 
 @pytest.mark.asyncio

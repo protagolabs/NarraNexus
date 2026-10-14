@@ -69,20 +69,16 @@ from narranexus.platform.repository.artifact_event_repository import (
     ArtifactEventRepository,
 )
 from narranexus.platform.agent_runtime.run_recorder import (
-    HEARTBEAT_INTERVAL_S,
-    RUN_STALE_AFTER_S,
     RunRecorder,
     STATE_CANCELLED,
     STATE_COMPLETED,
     STATE_FAILED,
-    STATE_RUNNING,
     TERMINAL_STATES,
     classify_event,
     event_to_wire,
     normalise_event,
-    parse_db_utc,
-    run_is_live,
 )
+from narranexus.platform.utils.run_liveness import STATE_RUNNING
 
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
@@ -194,8 +190,14 @@ class BackgroundRun:
         active_runs: dict,
         cancellation: Optional[CancellationToken] = None,
         steering: Optional[Any] = None,
+        probe_token: Optional[str] = None,
     ) -> None:
         self.agent_id = agent_id
+        # The half-open probe claim this run won at its entry point
+        # (``circuit_breaker.try_begin_probe``), or None for an ordinary run.
+        # The claim's identity: only a run carrying it may settle the probe
+        # (#394 review I1), so it rides the run to ``_record_circuit_breaker``.
+        self.probe_token = probe_token
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
@@ -222,6 +224,8 @@ class BackgroundRun:
             db=db,
             on_run_id=self._on_run_id_assigned,
             on_thinking_buffer=self.broadcaster.set_current_thinking_buffer,
+            agent_id=agent_id,
+            probe_token=probe_token,
         )
         self.state: str = STATE_RUNNING
         self._task: Optional[asyncio.Task] = None
@@ -400,8 +404,18 @@ class BackgroundRun:
                         # on_event = emit + artifact outbox drain at tool
                         # output boundaries (the registry commit points).
                         await self.on_event(normalise_event(event))
-                # Natural end
-                self.state = STATE_COMPLETED
+                # Natural end. A fatal error (e.g. no provider configured,
+                # output-budget truncation exhausted) ends the generator
+                # naturally too -- the framework reports it as an in-band
+                # ErrorMessage, not a Python exception -- so `state` must
+                # consult `had_fatal_error`, not just "did the generator
+                # raise". Persisting STATE_COMPLETED for a fatal run left
+                # the events row with an empty error_message and no
+                # visible failure marker (GH #127 / B-05) even though the
+                # funnel/breaker signals below already knew better.
+                self.state = (
+                    STATE_FAILED if self.recorder.had_fatal_error else STATE_COMPLETED
+                )
                 # Funnel ⑤ fires only on a genuine reply. A fatal error
                 # (e.g. no provider configured) ends the generator naturally
                 # too, but the user got a "configure your key" notice, not an
@@ -539,12 +553,22 @@ class BackgroundRun:
         """Advance the Agent circuit-breaker from this turn's outcome.
 
         Outcome mapping:
-          * STATE_FAILED, or STATE_COMPLETED with a fatal error emitted
-            → record_failure (a fatal auth/quota error ends the generator
-              naturally, landing in STATE_COMPLETED, so state alone under-
-              counts failures — the had_fatal_error flag closes that gap).
+          * STATE_FAILED → record_failure. A fatal error that ends the
+            generator naturally is already STATE_FAILED here: drive()'s
+            natural-end branch consults ``had_fatal_error`` before this
+            runs. The "STATE_COMPLETED with a fatal error" clause below is
+            therefore unreachable from drive(); it stays as a guard so the
+            mapping never counts a fatal turn as a success if a future
+            caller sets the state without that conversion.
           * STATE_COMPLETED without a fatal error → record_success (resets).
-          * STATE_CANCELLED → no change (user stopped it; not the agent's fault).
+          * STATE_CANCELLED → no streak change (user stopped it; not the
+            agent's fault) — but a cancelled half-open PROBE is released
+            back to PAUSED (release_probe), or the row would sit PROBING,
+            refusing every entry point, until its grant expired.
+
+        Every call carries ``self.probe_token``: the probe's outcome is
+        decided only by the run that claimed it, by token CAS; an ordinary
+        run finishing while another run holds the probe leaves it alone.
 
         Wrapped whole in try/except: the breaker is an observer and must never
         break turn finalization (incident lesson #3's corollary). Lazy import
@@ -558,25 +582,26 @@ class BackgroundRun:
         is_success = (
             self.state == STATE_COMPLETED and not self.recorder.had_fatal_error
         )
-        if not (is_failure or is_success):
-            return  # cancelled or otherwise — leave breaker state untouched
         try:
             from narranexus.platform.agent_framework.loop import circuit_breaker as cb
-            if is_failure:
+            if not (is_failure or is_success):
+                # Cancelled: the streak is untouched, but a probe that never
+                # reported must not stay claimed.
+                await cb.release_probe(self.agent_id, self.probe_token)
+            elif is_failure:
                 await cb.record_failure(
                     self.agent_id,
                     self.recorder.last_error_type,
                     self.recorder.last_error_message,
+                    probe_token=self.probe_token,
                 )
             else:
-                await cb.record_success(self.agent_id)
+                await cb.record_success(self.agent_id, probe_token=self.probe_token)
         except Exception as e:  # noqa: BLE001 — observer never breaks observed
             logger.warning(
                 f"[BackgroundRun {self.run_id}] circuit-breaker record failed: {e}"
             )
 
 
-__all__ = ["BackgroundRun", "HEARTBEAT_INTERVAL_S", "RUN_STALE_AFTER_S",
-           "STATE_RUNNING", "STATE_COMPLETED", "STATE_CANCELLED",
-           "STATE_FAILED", "TERMINAL_STATES",
-           "parse_db_utc", "run_is_live"]
+__all__ = ["BackgroundRun", "STATE_COMPLETED", "STATE_CANCELLED",
+           "STATE_FAILED", "TERMINAL_STATES"]

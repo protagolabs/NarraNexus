@@ -4,9 +4,10 @@
  */
 
 import { useState, useEffect, useSyncExternalStore, lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
-import { usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
+import { useCircuitBannerAutoClear, usePluginTheme, useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
@@ -223,6 +224,7 @@ function RootRedirect() {
 }
 
 function App() {
+  const { t } = useTranslation();
   const { effectiveTheme } = useTheme();
   usePluginTheme();
   useTimezoneSync();
@@ -367,11 +369,23 @@ function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId: string; reason: string }>).detail;
-      if (detail?.agentId) setCircuitOpen(detail);
+      if (!detail?.agentId) return;
+      // Same agent + same reason → keep the existing state object. Every
+      // rejected turn fires this event; a fresh object per retry would
+      // re-render and re-key everything hanging off the banner for nothing.
+      setCircuitOpen((prev) =>
+        prev && prev.agentId === detail.agentId && prev.reason === detail.reason ? prev : detail,
+      );
     };
     window.addEventListener('narranexus:agent-circuit-open', handler);
     return () => window.removeEventListener('narranexus:agent-circuit-open', handler);
   }, []);
+  // GitHub #117: the banner above is purely event-driven — it never re-checks
+  // reality, so it stays up even after the agent self-heals. While a "paused"
+  // banner is showing (and the user is logged in), poll the existing
+  // per-agent status endpoint and close the banner once the breaker is no
+  // longer paused. See hooks/useCircuitBannerAutoClear for the contract.
+  useCircuitBannerAutoClear(circuitOpen, setCircuitOpen, isLoggedIn);
   const handleResumeAgent = async () => {
     if (!circuitOpen || resuming) return;
     setResuming(true);
@@ -478,7 +492,7 @@ function App() {
           onClick={() => setSessionExpired(false)}
           role="alert"
         >
-          Your session expired. Please sign in again. (click to dismiss)
+          {t('appBanners.sessionExpired')}
         </div>
       )}
       {!sessionExpired &&
@@ -489,7 +503,7 @@ function App() {
             onClick={() => setExpiryDismissedAt(expiresInMs)}
             role="status"
           >
-            {`Your session expires in ${formatExpiryDistance(expiresInMs)}. Sign out and back in to avoid losing work. (click to dismiss)`}
+            {t('appBanners.sessionExpiringSoon', { time: formatExpiryDistance(expiresInMs) })}
           </div>
         )}
       {circuitOpen && (
@@ -499,10 +513,10 @@ function App() {
         >
           <span>
             {circuitOpen.reason.startsWith('paused:quota')
-              ? 'This agent is paused after repeated quota/balance failures. Fix its provider, then resume.'
+              ? t('appBanners.circuitPausedQuota')
               : circuitOpen.reason.startsWith('paused')
-                ? 'This agent is paused after repeated authentication failures. Re-authenticate or set a provider, then resume.'
-                : 'This agent recently failed and is briefly cooling down. Try again shortly.'}
+                ? t('appBanners.circuitPausedAuth')
+                : t('appBanners.circuitCooling')}
           </span>
           {circuitOpen.reason.startsWith('paused') && (
             <button
@@ -511,14 +525,14 @@ function App() {
               onClick={handleResumeAgent}
               disabled={resuming}
             >
-              {resuming ? 'Resuming…' : 'Resume agent'}
+              {resuming ? t('appBanners.resuming') : t('appBanners.resumeAgent')}
             </button>
           )}
           <button
             type="button"
             className="opacity-80 hover:opacity-100"
             onClick={() => setCircuitOpen(null)}
-            aria-label="Dismiss"
+            aria-label={t('appBanners.dismiss')}
           >
             ✕
           </button>
@@ -530,8 +544,7 @@ function App() {
           onClick={() => setFreeTierSwitched(false)}
           role="status"
         >
-          Free-tier quota used up — switched to your own provider. New runs
-          use your own API key. (click to dismiss)
+          {t('appBanners.freeTierSwitched')}
         </div>
       )}
       <ChunkErrorBoundary>

@@ -31,6 +31,7 @@ import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
 import { decodeBuilderTurn, stripAgentDraft } from '@/lib/builderProtocol';
+import { localizeTurnMarker } from '@/lib/turnMarkers';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -139,7 +140,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   // Segment-mode: the turn renders as the m things the agent actually
   // said, each with its own process region. Only when at least one
   // segment has a reply — a zero-reply turn keeps the legacy path
-  // (content is "(Agent decided no response needed)", process behind
+  // (content is the no-response marker, see lib/turnMarkers.ts; process behind
   // the global toggle), per the design's "don't special-case" rule.
   const segmentsForRender: Segment[] | null = useMemo(() => {
     if (isUser || message.isError) return null;
@@ -229,9 +230,16 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   // Ordinary traffic passes through untouched, so this is safe for all
   // messages, and it must stay on the render path rather than the store:
   // useStudioTurn parses the raw block out of the settled message.
+  //
+  // A no-reply turn's content is a fixed English marker (the backend
+  // persists it, the live session writes the same one); it is localized
+  // here, on the render path, so live and reloaded history read alike.
   const visibleContent = useMemo(
-    () => (isUser ? decodeBuilderTurn(message.content) : stripAgentDraft(message.content)),
-    [isUser, message.content],
+    () =>
+      isUser
+        ? decodeBuilderTurn(message.content)
+        : localizeTurnMarker(stripAgentDraft(message.content), t),
+    [isUser, message.content, t],
   );
 
   const handleCopy = useCallback(async () => {

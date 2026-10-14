@@ -43,6 +43,8 @@
     "accountTitle": "账户"
   },
   "chat": {
+    "stoppedByUser": "已被你停止",
+    "noResponseNeeded": "Agent 判断无需回复",
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
@@ -269,7 +271,8 @@
         "patrolOff": "关闭",
         "editProfile": "编辑资料（名称 / 颜色 / 简介）",
         "clearData": "清理团队数据…"
-      }
+      },
+      "drawerCategory": "团队房间"
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -775,6 +778,10 @@
     "sparkline": {
       "unavailable": "{{hours}} 小时 · —",
       "barTitle": "{{hoursAgo}} 小时前 · {{count}} 个事件"
+    },
+    "banners": {
+      "dismissAria": "关闭",
+      "dismissTitle": "关闭"
     }
   },
   "layout": {
@@ -818,6 +825,8 @@
     },
     "agentRowMenu": {
       "options": "智能体选项",
+      "rename": "重命名",
+      "modelFramework": "模型与框架",
       "clearData": "清理数据",
       "delete": "删除"
     },
@@ -1125,7 +1134,8 @@
       "desktopHeading": "桌面",
       "desktopIntro": "控制 NarraNexus 与这台电脑交互方式的设置。仅在桌面应用中可用。",
       "lockedUseTitle": "Locked Use — 保持电脑唤醒",
-      "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。"
+      "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。",
+      "navBrowser": "浏览器"
     },
     "provider": {
       "oneKeyTitle": "一把密钥即可开始",
@@ -1219,6 +1229,8 @@
       "loggedIn": "已登录",
       "loggedInAs": "·",
       "notLoggedIn": "未登录",
+      "sessionExpired": "登录已过期",
+      "sessionExpiredHint": "CLI 登录已过期——请在上方重新登录，才能继续使用这个 provider。",
       "cliNotInstalled": "未安装 CLI",
       "expires": "· 到期 {{date}}",
       "reLoggingInCountdown": "正在重新登录… 剩余 {{time}}（请查看浏览器）",
@@ -1313,6 +1325,56 @@
       "claudeCodeSdkDesc": "Anthropic API key（sk-ant-…）。Agent 与 Helper 都跑在 Claude Code SDK 上。",
       "codexSdkDesc": "OpenAI API key。Agent 跑在 Codex SDK（gpt-5.5）上。",
       "tabOneKey": "API 密钥"
+    },
+    "browser": {
+      "title": "浏览器",
+      "intro": "浏览器需单独下载，不随应用打包。",
+      "ready": "已安装",
+      "absent": "尚未安装。",
+      "broken": "已安装浏览器，但它启动不了。",
+      "install": "安装浏览器",
+      "reinstall": "重新安装浏览器",
+      "installingUnknown": "下载中…",
+      "recheck": "重新检测",
+      "installFailed": "无法安装浏览器，请重试。",
+      "cancelFailed": "无法取消安装，请重试。",
+      "cancelling": "正在请求取消…",
+      "cancelRequested": "已请求取消，正在等待安装停止…",
+      "extracting": "正在解压浏览器…",
+      "verifying": "正在验证浏览器…",
+      "starting": "正在开始安装…",
+      "statusFailed": "无法查询浏览器状态。",
+      "loading": "正在查询浏览器状态…",
+      "cancel": "取消安装",
+      "cancelled": "安装已取消。",
+      "manualInstall": "手动安装",
+      "copyCommand": "复制命令",
+      "commandCopied": "命令已复制。",
+      "copyFailed": "无法复制，已选中命令，可手动复制。",
+      "scriptsTitle": "高级脚本",
+      "scriptOrigin": "网站源地址",
+      "addScriptSite": "添加网站",
+      "scriptOriginInvalid": "请输入不含路径或登录凭据的 HTTP 或 HTTPS 源地址。",
+      "refreshScripts": "刷新",
+      "scriptsFailed": "无法加载脚本权限。",
+      "scriptsLoading": "正在加载脚本权限…",
+      "permissionSaveFailed": "无法保存此权限，请重试。",
+      "advancedScripts": "允许高级脚本",
+      "scriptsExplanation": "允许智能体在此站点运行任意 JavaScript，包括操作登录后的页面内容。",
+      "saveScripts": "保存脚本权限",
+      "agentLabel": "智能体",
+      "sourceLabel": "浏览器来源",
+      "showWindow": "显示浏览器窗口（有头模式）",
+      "modeEffect": "默认使用无头模式，切换后下次启动生效，登录状态保留。部分网站不支持无头访问；若提示“不支持”或访问报错，请手动开启此开关（有头模式），重新启动浏览器后重试。",
+      "sourceEffect": "新浏览器会话生效，当前会话继续运行。两种浏览器分别保存登录状态。",
+      "sourceManaged": "托管 Chrome for Testing",
+      "sourceSystem": "本机 Google Chrome",
+      "systemUnavailable": "Google Chrome 不可用。请安装 Google Chrome，或在设置中选择托管浏览器。",
+      "chooseAgent": "选择智能体",
+      "manualHost": "请在运行 NarraNexus 的电脑上执行。",
+      "manualRoot": "安装目录",
+      "manualShell": "终端类型",
+      "manualCommand": "命令"
     }
   },
   "system": {
@@ -1416,7 +1478,8 @@
     "drawer": {
       "unpin": "取消固定面板",
       "pin": "固定面板",
-      "close": "关闭面板"
+      "close": "关闭面板",
+      "switchPanel": "切换面板"
     },
     "coach": {
       "title": "可视化产物会显示在这里",
@@ -1625,7 +1688,14 @@
       "forgotResetIntro": "我们会向你的 NetMind 账号邮箱发送验证码。",
       "forgotCodeSentHint": "如果该邮箱已注册，我们已发送验证码。",
       "useDifferentEmail": "换个邮箱",
-      "connectionFailed": "连接失败，请重试。"
+      "connectionFailed": "连接失败，请重试。",
+      "resetPasswordDone": "密码已更新",
+      "resetPasswordDoneBody": "现在可以用新密码登录了。",
+      "backToSignIn": "返回登录",
+      "resetPasswordTitle": "重置密码",
+      "sendCode": "发送验证码",
+      "verificationCodeLabel": "验证码",
+      "newPasswordLabel": "新密码"
     },
     "modeSelect": {
       "welcome": "欢迎",
@@ -1713,7 +1783,8 @@
         "updates": "应用更新",
         "privacy": "隐私",
         "personalization": "个性化",
-        "plugins": "插件"
+        "plugins": "插件",
+        "browser": "浏览器"
       },
       "providers": {
         "label": "LLM 服务商"
@@ -1788,7 +1859,13 @@
         "pluginRequiredTitle": "需要先安装插件",
         "pluginRequired": "该框架需要先安装对应插件才能使用。",
         "pluginRequiredLink": "前往 设置 › 插件 →",
-        "pluginNotInstalledSuffix": "插件未安装"
+        "pluginNotInstalledSuffix": "插件未安装",
+        "slotSaveRolledBack": "框架改动已撤回，本次什么都没保存：Agent 模型保存失败（{{detail}}）。",
+        "frameworkSavedSlotFailed": "框架已切换，但 Agent 模型保存失败（{{detail}}）。请重新选择模型并保存。",
+        "agentSavedHelperFailed": "Agent 模型已保存，但辅助模型保存失败（{{detail}}）。",
+        "frameworkSavedHelperFailed": "框架已切换，但辅助模型保存失败（{{detail}}）。",
+        "frameworkRestoredBindingLost": "已保存的框架已恢复为原来的，但 Agent 模型保存失败（{{detail}}），原来的卡也未能重新绑定，Agent 槽位现在是空的。你选的新框架仍保留在表单中、尚未保存——请选择模型后再次保存以生效。",
+        "slotClearedPickModel": "框架已切换，原先绑定的卡无法运行该框架，已被解除绑定。请为 Agent 重新选择服务商和模型。"
       },
       "updates": {
         "label": "应用更新",
@@ -1907,6 +1984,10 @@
           "protected": "受保护",
           "installDeps": "安装依赖（{{pip}}）"
         }
+      },
+      "browser": {
+        "label": "浏览器",
+        "hint": "安装智能体用来操作网页的浏览器。"
       }
     },
     "system": {
@@ -2491,7 +2572,8 @@
       "social": "Agent 认识的人和 Agent — 随着协作交往，联系人会自动累积。",
       "builder": "描述你的需求，对话会把这个面板填好。"
     },
-    "builder": "配置向导"
+    "builder": "配置向导",
+    "browser": "浏览器"
   },
   "jobs": {
     "title": "任务",
@@ -2507,6 +2589,7 @@
       "running": "运行中",
       "paused": "已暂停",
       "pausedNoQuota": "配额不足",
+      "pausedSpendCap": "花费上限",
       "cooling": "重试中",
       "blocked": "受阻",
       "blockedFailed": "依赖失败",
@@ -2604,7 +2687,9 @@
       "cancelJob": "取消任务",
       "cancelling": "正在取消…",
       "editSchedule": "改时间",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "编辑内容",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "选择模板",
@@ -2642,6 +2727,17 @@
       "modeLabel": "触发方式",
       "modeInterval": "间隔",
       "modeCron": "Cron 表达式"
+    },
+    "editPayload": {
+      "title": "编辑任务内容",
+      "hint": "修改此任务的执行内容，下次运行时生效。",
+      "titleLabel": "标题",
+      "descriptionLabel": "描述",
+      "payloadLabel": "内容 / 提示词",
+      "payloadHint": "任务运行时传给智能体的指令文本。",
+      "titleRequired": "标题不能为空",
+      "failedTitle": "更新失败",
+      "failedMessage": "无法更新任务内容，请重试。"
     },
     "row": {
       "every": "每 {{interval}}",
@@ -2927,6 +3023,7 @@
   "common": {
     "close": "Close",
     "cancel": "取消",
+    "save": "保存",
     "back": "返回",
     "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。",
     "ok": "好",
@@ -3009,6 +3106,63 @@
       "channelsHint": "它能在哪里被找到。凭证只在你和后端之间，绝不进入对话。",
       "suggested": "来自对话",
       "optional": "可选"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "登录已过期，请重新登录。（点击关闭）",
+    "sessionExpiringSoon": "登录将在 {{time}} 后过期。请重新登录以免丢失工作内容。（点击关闭）",
+    "circuitPausedQuota": "该智能体因多次额度/余额失败已暂停，修复其服务商配置后即可恢复。",
+    "circuitPausedAuth": "该智能体因多次身份验证失败已暂停，请重新验证或设置服务商后恢复。",
+    "circuitCooling": "该智能体最近运行失败，正在短暂冷却，请稍后重试。",
+    "resumeAgent": "恢复运行",
+    "resuming": "恢复中…",
+    "dismiss": "关闭",
+    "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "无法查询浏览器登录请求。",
+      "retry": "重试"
+    },
+    "absentTitle": "尚未安装浏览器",
+    "brokenTitle": "浏览器已安装，但无法启动",
+    "install": "安装浏览器",
+    "reinstall": "重新安装浏览器",
+    "cancelInstall": "取消下载",
+    "installFailed": "浏览器安装请求失败。",
+    "installingUnknown": "下载中…",
+    "idle": "暂无正在运行的浏览器会话。",
+    "pages": "浏览器标签页",
+    "newTab": "新标签页",
+    "agentTab": "智能体",
+    "closeTab": "关闭标签页",
+    "followAgent": "跟随智能体",
+    "webAddress": "网页地址",
+    "go": "前往",
+    "takeControlToNavigate": "接管后可打开网页",
+    "invalidAddress": "请输入 HTTP 或 HTTPS 网页地址。",
+    "agentDriving": "智能体正在控制浏览器",
+    "youDriving": "你正在控制浏览器",
+    "otherDriving": "另一个窗口正在控制浏览器",
+    "takeControl": "接管",
+    "handBack": "交还给智能体",
+    "reconnect": "重新连接",
+    "reconnecting": "正在重新连接…",
+    "connecting": "正在连接…",
+    "disconnected": "连接已断开",
+    "screen": "浏览器画面",
+    "keyboardInput": "浏览器键盘输入",
+    "login": {
+      "title": "需要登录或验证",
+      "inControl": "完成后，请在浏览器中交还控制权。",
+      "pending": "正在等待你在浏览器中完成登录或验证。",
+      "openBrowser": "打开浏览器"
+    },
+    "look": {
+      "looked": "查看了页面",
+      "failed": "无法查看页面",
+      "area": "区域 {{width}}×{{height}}",
+      "open": "打开浏览器"
     }
   }
 }

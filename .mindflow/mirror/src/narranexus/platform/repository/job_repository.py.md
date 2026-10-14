@@ -1,8 +1,99 @@
 ---
 code_file: src/narranexus/platform/repository/job_repository.py
-last_verified: 2026-08-14
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 I1）— suspend 只暂停可调度状态（白名单）
+
+`pause_jobs_for_execution_principal` 的状态条件从「`NOT IN` 终态 + paused」黑名单改为
+`status IN SUSPENDABLE_JOB_STATUSES`（[[job_schema]]：PENDING / ACTIVE / COOLING）。原因：reinstate 把
+suspend 暂停的每条 job 一律恢复成 ACTIVE（`resume_job`，next_run=从现在起算），这只对这三种正确；
+BLOCKED / BLOCKED_FAILED 若被压成 paused，解封后会以 ACTIVE 提前开跑（依赖输出尚不存在）；RUNNING
+由在飞 run 的 finalize 负责改写；PAUSED_NO_QUOTA / PAUSED_SPEND_CAP 保留自己的 reason。这些行本来就
+不会被 `get_due_jobs` 捞走，之后若变成到期，由 [[job_trigger]] 的入队门拦下。
+`get_jobs_paused_for_execution_principal` 不变（执行主体谓词与 pause 逐字相同，状态钉 `paused`+reason）。
+锁：`test_cooling_jobs_are_paused`、`test_non_schedulable_statuses_are_left_as_they_are`（参数化 5 个状态）、
+`test_suspend_then_reinstate_read_is_the_same_population`（加 blocked/blocked_failed）+ `_mysql` twin 同步。
+
+## 2026-09-10（review r2 I-B + M-b）— reinstate 的读半边 + pause 不再改写已暂停 job 的 reason
+
+- 新 `get_jobs_paused_for_execution_principal(user_id, paused_reasons)`：
+  `WHERE (与 pause 逐字相同的执行主体谓词) AND status = 'paused' AND paused_reason IN (...) ORDER BY id`，
+  无行数上限（调用方要恢复的是整批）。status 与 reason **同时钉住**：用户自停（`'user'`）、NULL / 空串
+  reason、quota/spend 暂停、其它执行主体都不会被选中；`paused_reasons` 为空直接返回 `[]`。供
+  [[job_recovery]] 的 `resume_jobs_paused_for_principal`（admin reinstate）使用。
+- `pause_jobs_for_execution_principal` 的排除条件从「终态 + 已因同一 reason 暂停（COALESCE）」改为
+  「终态 + **任何** `paused`」：r1 会把用户自停/NULL reason 的 job 改写成 `banned`，配上 reinstate 的
+  reason 过滤就等于解封时把用户自己的暂停一并恢复。COALESCE 分支随之删除。
+- **M-b SQLite 前提**：`paused_at` / `updated_at` 以 `to_datetime6_literal` 写成
+  `YYYY-MM-DD HH:MM:SS.ffffff`（空格），而 SQLite 下其它 `updated_at` 写入走 ISO-8601 adapter（带 `T`）；
+  同列两种文本形态按字符串排序时 `' ' < 'T'`，所以**仅 SQLite** 上 `get_jobs_by_entity_id` /
+  `get_jobs_by_status` 的 `ORDER BY updated_at` 对这些行的相对位置可能偏。MySQL 是真 DATETIME(6)，
+  dev/prod 不受影响。
+锁：`tests/repository/test_job_repository_pause_principal.py`（`test_already_paused_jobs_keep_their_own_reason`、
+`test_reinstate_read_*` 三条、含 `related_entity_id=''`/NULL 与空串/NULL reason）+ `_mysql` twin
+（`test_reinstate_read_on_mysql`，pause 断言改为已暂停行保持原 reason）。
+
+
+## 2026-09-10（review r1 I5）— 四个「活跃 job」读改用 `LIVE_JOB_STATUSES`
+
+`find_active_by_title` / `get_active_jobs_by_narrative` / `get_active_jobs_by_agent` /
+`get_active_jobs_summary` 原来各写一份状态字面量列表（两份 `('pending','active')`、两份带
+`running`），B-16 之后 BLOCKED 从这四处全部漏掉，COOLING 从来就漏。现在四处都拼
+`_LIVE_STATUS_SQL`（`status IN (%s, …)`，占位符数量随 [[job_schema]] 的 `LIVE_JOB_STATUSES`
+生成）+ `_LIVE_STATUS_PARAMS`——集合只在 schema 定义一次，SQL 里不再有裸字面量。
+`get_due_jobs` / `try_acquire_job` / `update_next_run_time_by_instance` 的状态集合**不**改：
+到期扫描只认 PENDING/ACTIVE 是 B-16 的修复本体。
+锁：`tests/repository/test_job_repository_live_statuses.py`（每个 live 状态可见、每个非 live 状态
+不可见、四个读结果集一致、`get_due_jobs` 不受影响）+ `_mysql` twin（含 `user_clause` 两种分支）。
+
+## 2026-09-10（review r1 I2/I3）— `pause_jobs_for_execution_principal`：一条 UPDATE，按执行主体选行
+
+admin suspend（[[suspend]]）原来 `get_jobs_by_user(user_id, limit=500)` 再逐条 `update_job`：
+(a) 只按 owner 选行，与 [[job_trigger]] 的 `exec_uid = related_entity_id or user_id` 口径相反——
+以被封号者身份执行、owner 正常的 job 不会被暂停，owner 被封、执行主体正常的 job 反而被标
+`banned`，两个组件对同一条 job 判断相反；(b) 静默截断 500（刷 job 的马甲正是超 500 的那种）
+且 N 次往返。新方法一条语句：
+`WHERE (related_entity_id = ? OR ((related_entity_id IS NULL OR related_entity_id = '') AND user_id = ?))
+AND status NOT IN (三终态)` + 「已暂停」排除（r1 为 COALESCE 同 reason 排除，r2 I-B 改为排除任何 `paused`，见顶部），
+返回 rowcount。`paused_at` /
+`updated_at` 用 `to_datetime6_literal` 字面量传参，两方言都不依赖驱动侧 datetime adapter。
+裸 SQL 配双方言：`tests/repository/test_job_repository_pause_principal.py`（含 520 行无上限、
+委托执行正反两例）+ `_mysql` twin（谓词 / 字面量 / rowcount）。
+
+## 2026-09-09 — B-16：`create_job` 加 `status` 参数 + BLOCKED 纳入激活集合
+
+两处改动，同一个根因（依赖链「永不触发」，GitHub #114/#109）：
+
+1. `create_job` 新增 `status: JobStatus = JobStatus.PENDING` 参数——此前硬编码
+   `JobStatus.PENDING`，即便调用方（[[job_service]] / `instance_sync_service`）
+   早就判定这个 job 的 ModuleInstance 该是 BLOCKED，Job 自己的状态也从不跟着变，
+   `get_due_jobs()`（只选 PENDING/ACTIVE）照样把它当成到期任务拉走。
+2. `update_next_run_time_by_instance`（`JobModule.on_instance_activated` 依赖
+   完成后调的那个方法）的 `WHERE status IN (...)` 原来只有 PENDING/ACTIVE——
+   docstring 早就写着「Used to activate BLOCKED Jobs」，代码却从没把 BLOCKED
+   放进去，是个从一开始就没兑现的方法。现在把 BLOCKED 纳入 WHERE，`SET`
+   里显式把 `status` 写成 ACTIVE。
+
+两处必须同时改：只改#1，job 正确落成 BLOCKED 但从此激活不了（0 rows
+affected）；只改#2，因为 job 状态从来不是 BLOCKED，这个分支永远轮不到。
+
+## 2026-09-09 — B-15：两处读路径改用 `TriggerConfig.from_stored_dict`
+
+`_row_to_entity`（`get_job`/`find` 等一切读路径的落脚点）和
+`recover_stuck_jobs` 的 next_run 重算，此前都用严格构造器
+`TriggerConfig(**trigger_config_data)` 重建已存的行。2026-04-21 才上线的
+`timezone_required_for_time_bearing_triggers` validator 让这两处对**更早写入**
+且缺 `timezone` 的旧行必炸 `ValidationError`——`_row_to_entity` 这处直接让
+`get_job()` 抛出，`job_module._load_related_jobs_context` 的宽 `except` 把它
+悄悄吞掉，整批相关 job 上下文消失不见；`recover_stuck_jobs` 那处有自己的
+try/except，会跳过重算 next_run（该行为不算错，但同样源于同一个洞）。
+
+改用 [[job_schema]] 新增的 `TriggerConfig.from_stored_dict`：只在内存里给缺失
+的 `timezone` 补 `"UTC"`，从不回写行本身。**其余** 4 个 `TriggerConfig(**...)`
+写路径（job_update 工具、reschedule、创建、instance 自动装配）保持严格——
+它们校验的是即将持久化的新数据，必须继续拒绝缺 timezone。
 
 ## 2026-08-14 — origin 两列贯通读写
 

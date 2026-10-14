@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/message_bus/errand.py
-last_verified: 2026-09-03
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+函数内 `parse_db_utc` 导入改为从 `narranexus.platform.utils.run_liveness` 导入（原来经
+`run_recorder` 转手），行为不变。
 
 ## 2026-09-03 — 只有用户和组长的 @ 才开差事（`opens_handoffs`）
 

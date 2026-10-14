@@ -297,7 +297,7 @@ def build_kernel_slot_tree() -> SlotTree:
         Slot("content.skills", many, "narranexus.contracts.skill:SkillSpec", KERNEL_OWNER,
              kind="skill", doc="Skill directories (SKILL.md) scanned into every agent's skill catalog."),
         # The frontend shell; builtin.ui (the root's provider) declares ui.* — the
-        # seventeen frontend registries (themes, pages, panels, artifact kinds, commands, slot points...).
+        # eighteen frontend registries (themes, pages, panels, artifact kinds, tool renderers, commands, slot points...).
         Slot("ui", one, "narranexus.contracts.ui:Shell", KERNEL_OWNER, default="builtin.ui",
              distribution_only=True, kind="ui", doc="Frontend (shell, themes, pages, panels, commands, slot points)"),
     ]

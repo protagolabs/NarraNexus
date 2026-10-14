@@ -1,8 +1,41 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-09-09
+last_verified: 2026-10-08
 stub: false
 ---
+
+## 2026-10-08（PR #410 review）
+
+`instance_browser_approvals` 不再注册（审批子系统删除）。不写 DROP TABLE（铁律 #6）：该表只在跑过此
+分支的本地库里存在、为空，留着无害。
+
+## 2026-09-23：浏览器登录通知与授权语义
+
+新增 instance_browser_login_requests：跨 MCP/API 进程的人工登录通知，独立于特权能力
+授权表；记录 request/agent/session/turn/thread、reason、state、连接归属及时间。
+SQLite/MySQL 列齐全，仅增表，不缩窄已有字段。正常完成、取消或会话关闭后清理，
+不保存密码、页面正文或截图。实际控制连接显式交还才完成；断线恢复待处理。
+对应 tables.json 快照已更新。
+
+浏览器表不承担普通 HTTP(S) 站点访问授权。turn/thread grants 和 decision receipts
+服务于独立的特权能力，实际保存在策略 JSON，
+以便另一个进程立即读取；是否适用于某次调用仍由可信运行时作用域匹配决定。
+授权通知的消费先写入策略凭据再删除待办；没有声称存在未实现的按年龄清扫。
+
+## 2026-09-10（PR #394 review 第四轮 I-1）— `probe_claimed_at` 换成 `probe_run_id`
+
+`instance_agent_circuit_breaker` 的新列改为 `probe_run_id`（TEXT / VARCHAR(128)，与
+`events.event_id` 同宽），additive、nullable、无回填；`probe_claimed_at` 从注册表删除（同一 PR
+引入，未到任何已发布环境；本地已跑过迁移的库留下的空列无害，`auto_migrate` 不删列）。golden
+`tests/snapshots/golden/tables.json` 已用 `NX_UPDATE_SNAPSHOTS=1` 重生成。
+
+## 2026-09-10（PR #394 review I1）— `instance_agent_circuit_breaker` 加 `probe_claimed_at`
+
+additive、nullable、无回填：半开探测认领时刻（`try_claim_probe` 写，所有离开 PROBING 的写
+与 `probe_token` 一起清 NULL）。[[circuit_breaker]] `_claimant_may_be_live` 用它区分「认领
+之后才开始的 run（可能是认领者）」与「更早就在跑的无关长 run」。golden
+`tests/snapshots/golden/tables.json` 同步重生成（`probe_token` 那次漏了，正是 CI
+`test_schema_registry_is_unchanged` 变红的原因）。
 
 ## 2026-09-09（review M6）— `bus_messages` 加索引 `idx_bus_msg_sender_time`
 
@@ -698,7 +731,7 @@ additive.
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
-注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳。
+注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳；2026-09-10 additive 加 `probe_token`（TEXT / VARCHAR(64)，nullable，无回填）——半开探测认领的 CAS 键；同日再加 `probe_claimed_at`（TEXT / DATETIME(6)，nullable，与 `probe_token` 同写同清）——认领时刻，崩溃窗口兜底只把「认领之后才开始」的 run 当作可能的认领者（PR #394 review I1）。存量表由 `auto_migrate` 的 ADD COLUMN 路径补上。
 
 ## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
 

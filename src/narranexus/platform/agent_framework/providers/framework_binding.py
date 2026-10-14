@@ -33,7 +33,7 @@ from narranexus.platform.agent_framework.loop.driver import (
     resolve_framework_name,
 )
 from narranexus.platform.schema.provider_schema import (
-    AuthType,
+    SUBSCRIPTION_AUTH_TYPES,
     ProviderProtocol,
     SlotName,
 )
@@ -53,16 +53,9 @@ derives the agent slot from the resolved framework's ``FrameworkMeta``. The
 other slots have no framework, so this table is their answer.
 """
 
-SUBSCRIPTION_AUTH_TYPES = frozenset(
-    {AuthType.OAUTH.value, AuthType.OAUTH_TOKEN.value}
-)
-"""Auth types that carry a CLI SUBSCRIPTION credential rather than an API key.
-
-Both transports of the same thing: ``oauth`` = the CLI's own credential
-store on the host, ``oauth_token`` = a ``setup-token`` long-lived token
-env-injected at spawn. Neither can make a direct Messages /
-Chat-Completions call — only the CLI that owns the credential can spend it.
-"""
+# ``SUBSCRIPTION_AUTH_TYPES`` is defined next to the ``AuthType`` enum in
+# ``provider_schema`` (it is a subset of enum values, not a registry rule) and
+# re-exported here so the binding rules keep one import site for callers.
 
 
 def resolved_framework_name(agent_framework: str | None = None) -> str:

@@ -3,11 +3,14 @@
  * @author:
  * @date: 2026-06-10
  * @description: The sidebar's Chats list — team rows + a flat agent list
- * with collapsible sections, unread + running indicators. Agent rows are
- * navigation only: every agent mutation (rename / clear data / delete) lives
- * on the agent profile page. Team rows keep their own ⋮ menu, since a team
- * has no profile page to move those actions to. Creation, import and export
- * moved to the sidebar's global nav (Chat UI v4).
+ * with collapsible sections, unread + running indicators. Each owned agent
+ * row has a ⋯ menu — Rename / Model & framework / Delete — an OWNER-REQUIRED
+ * entry reinstated 2026-09-11 after #383 moved every agent action to the
+ * profile page; the profile page stays a second door (and the only one for
+ * Clear data / description). Rename and delete run through the same
+ * `useAgentActions` hook as the profile page; Model & framework opens the
+ * same AgentLlmConfigPanel. Team rows keep their own ⋮ menu. Creation, import
+ * and export moved to the sidebar's global nav (Chat UI v4).
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -22,10 +25,11 @@ import {
 import { Button, useConfirm } from '@/components/ui';
 import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore, useTeamsStore, useUIStore } from '@/stores';
-import { useCreateAgent } from '@/hooks';
+import { useCreateAgent, useAgentActions } from '@/hooks';
+import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRead } from '@/lib/unread';
-import { AgentGroupSection } from './AgentGroupSection';
+import { AgentGroupSection, type AgentRowActions } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { TeamChatRow } from './TeamChatRow';
 
@@ -102,6 +106,24 @@ export function AgentList() {
   const teamsDelete = useTeamsStore((s) => s.deleteTeam);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
+  const { renameAgent, deleteAgent } = useAgentActions({ confirm, alert });
+  // The agent whose model & framework panel is open from its row's ⋯ menu.
+  const [configAgentId, setConfigAgentId] = useState<string | null>(null);
+
+  const rowActions: AgentRowActions = {
+    onRename: (id, name) => { void renameAgent(id, name); },
+    onOpenModelConfig: setConfigAgentId,
+    onDelete: (id) => {
+      void (async () => {
+        const target = rawAgents.find((a) => a.agent_id === id);
+        const { deleted, wasActive } = await deleteAgent(id, target?.name || id);
+        // Same landing as the profile page's delete: the view that showed the
+        // deleted agent is gone, so go to the Dashboard (its default tab).
+        // Deleting some OTHER agent leaves the current view alone.
+        if (deleted && wasActive) navigate('/app/dashboard');
+      })();
+    },
+  };
 
   // Ensure teams are loaded so grouping is accurate.
   useEffect(() => {
@@ -290,6 +312,14 @@ export function AgentList() {
   return (
     <div>
       {confirmDialog}
+      {configAgentId && (
+        <AgentLlmConfigPanel
+          agentId={configAgentId}
+          isOpen
+          onClose={() => setConfigAgentId(null)}
+          onSaved={() => void refreshAgents()}
+        />
+      )}
       {/* Header — v4: label + count with search (⌘K palette) and refresh.
           Creation / import / export moved to the sidebar's global nav. */}
       <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-2.5 pb-1.5">
@@ -411,6 +441,7 @@ export function AgentList() {
                     getIsStreaming={getIsStreaming}
                     completedAgentIds={completedAgentIds}
                     currentUserId={userId}
+                    rowActions={rowActions}
                   />
                 )
               )}

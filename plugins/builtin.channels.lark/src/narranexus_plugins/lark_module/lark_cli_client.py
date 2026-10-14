@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 
 # Validate format of Lark identifiers (message_id, file_key, image_key)
 # before they enter the resource-fetch URL. Lark's actual IDs are
@@ -132,6 +133,64 @@ def _resolve_lark_cli() -> tuple[str, tuple[str, ...]]:
         _LARK_CLI_BIN, _LARK_EXTRA_PATH = resolved, extra
         return resolved, extra
     return "lark-cli", extra
+
+
+# =============================================================================
+# Unknown +shortcut translation (2026-09-09)
+# =============================================================================
+# Agents hallucinate +shortcuts that do not exist (``docs +get``,
+# ``calendar +events-list``). lark-cli answers with a validation error and a
+# "run --help" hint, which the agent cannot act on without another blind
+# guess. We recognise that exact error shape, run ``lark-cli <domain> --help``
+# ONCE per domain (memoised for the process; the shortcut list only changes
+# with a CLI upgrade, which restarts us) and hand back the real list.
+# Only +shortcuts are offered: the raw ``service.resource`` rows in the same
+# help block are not what the ``+`` grammar the agent was using refers to.
+# Keyed by (executable, domain): a per-agent LARK_CLI_BIN or an in-place CLI
+# upgrade under a long-lived local process must not serve a stale list.
+_SHORTCUT_CACHE: dict[tuple[str, str], tuple[str, ...]] = {}
+# A FAILED probe is remembered only briefly (monotonic time of the failure):
+# an agent looping on the same hallucinated domain while `--help` is broken
+# must not pay an extra spawn and up to _HELP_PROBE_TIMEOUT on every call,
+# yet a CLI repaired mid-process is picked up again after the window.
+_SHORTCUT_PROBE_FAILED_AT: dict[tuple[str, str], float] = {}
+_SHORTCUT_PROBE_RETRY_SEC = 60.0
+# Ceiling for the --help probe; the probe never waits longer than the call
+# that triggered it.
+_HELP_PROBE_TIMEOUT = 15.0
+_UNKNOWN_SUBCOMMAND_RE = re.compile(
+    r'unknown subcommand "(?P<sub>[^"]+)" for "lark-cli (?P<domain>[A-Za-z0-9_-]+)"'
+)
+_HELP_SHORTCUT_RE = re.compile(r"^\s+(\+[A-Za-z0-9][A-Za-z0-9_-]*)\s", re.M)
+
+
+def _unknown_subcommand(error_data: dict | None) -> tuple[str, str] | None:
+    """``(domain, subcommand)`` when ``error_data`` is lark-cli's
+    unknown-subcommand validation error, else None. Keyed on the message
+    text the CLI emits (``unknown subcommand "+get" for "lark-cli docs"``),
+    cross-checked against the structured ``params`` reason when present so an
+    unrelated message that merely quotes those words does not match."""
+    if not isinstance(error_data, dict):
+        return None
+    m = _UNKNOWN_SUBCOMMAND_RE.search(str(error_data.get("message") or ""))
+    if not m:
+        return None
+    params = error_data.get("params")
+    if isinstance(params, list) and params and not any(
+        isinstance(p, dict) and p.get("reason") == "unknown subcommand" for p in params
+    ):
+        return None
+    return m.group("domain"), m.group("sub")
+
+
+def _parse_help_shortcuts(help_text: str) -> tuple[str, ...]:
+    """The ``+shortcut`` names listed under ``Available Commands:`` in a
+    ``lark-cli <domain> --help`` page, in the order the CLI prints them."""
+    block = help_text.split("Available Commands:", 1)
+    if len(block) < 2:
+        return ()
+    body = block[1].split("\nFlags:", 1)[0]
+    return tuple(_HELP_SHORTCUT_RE.findall(body))
 
 
 def _extract_reaction_id(data: Any) -> str:
@@ -341,8 +400,15 @@ class LarkCLIClient:
         cwd: Path | str | None = None,
         *,
         capture_binary: bool = False,
+        translate_unknown: bool = True,
     ) -> dict:
         """Spawn lark-cli, collect stdout, parse JSON, handle errors.
+
+        ``translate_unknown`` turns an unknown-subcommand validation error
+        into the domain's shortcut list (see ``_domain_shortcuts``). The
+        ``--help`` probe itself runs with it OFF: if a CLI ever answered the
+        probe with the same error shape, translating it would probe again,
+        and again — the guard is what makes the recursion impossible.
 
         ``cwd`` controls the child's working directory. Caller passes the
         agent workspace path so lark-cli's default-relative file outputs
@@ -415,16 +481,50 @@ class LarkCLIClient:
         if proc.returncode != 0:
             error_msg = stderr_str or stdout_str or f"CLI exited with code {proc.returncode}"
             error_data: dict = {}
-            try:
-                parsed = json.loads(stdout_str)
-                if isinstance(parsed, dict) and "error" in parsed:
+            # The JSON error envelope lands on stdout for API failures but on
+            # STDERR for the CLI's own validation errors (unknown subcommand,
+            # bad flag — verified against lark-cli 1.0.86, 2026-09-09). Read
+            # whichever stream carries it; without the stderr pass the agent
+            # got the raw envelope as one opaque error string.
+            for stream in (stdout_str, stderr_str):
+                try:
+                    parsed = json.loads(stream)
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
                     err = parsed["error"]
                     error_msg = err.get("message", error_msg)
                     if "console_url" in err:
                         error_msg += f"\n\nEnable permission here: {err['console_url']}"
                     error_data = err
-            except (json.JSONDecodeError, AttributeError):
-                pass
+                    break
+            unknown = _unknown_subcommand(error_data) if translate_unknown else None
+            if unknown is not None:
+                domain, sub = unknown
+                shortcuts = await self._domain_shortcuts(
+                    domain, cmd[0], env, cwd, timeout=timeout
+                )
+                error_data = dict(error_data)
+                error_data.setdefault("domain", domain)
+                if shortcuts:
+                    # Absent when the probe failed, so a consumer can tell
+                    # "no shortcuts exist" from "could not read them".
+                    error_data["valid_shortcuts"] = list(shortcuts)
+                else:
+                    error_data["shortcuts_unavailable"] = True
+                if shortcuts:
+                    error_msg = (
+                        f"Unknown subcommand '{sub}' for `lark-cli {domain}`. "
+                        f"Valid +shortcuts for {domain}: {', '.join(shortcuts)}. "
+                        f"Pick one of these; do not invent others. Raw API "
+                        f"resources are listed by `lark-cli {domain} --help`."
+                    )
+                else:
+                    error_msg = (
+                        f"Unknown subcommand '{sub}' for `lark-cli {domain}` "
+                        f"(the domain's shortcut list could not be read; run "
+                        f"`lark-cli {domain} --help`)."
+                    )
             return {"success": False, "error": error_msg, "error_data": error_data}
 
         if capture_binary:
@@ -438,6 +538,63 @@ class LarkCLIClient:
             data = {"raw_output": stdout_str}
 
         return {"success": True, "data": data}
+
+    async def _domain_shortcuts(
+        self,
+        domain: str,
+        executable: str,
+        env: dict | None,
+        cwd: Path | str | None,
+        *,
+        timeout: float,
+    ) -> tuple[str, ...]:
+        """``+shortcuts`` of ``lark-cli <domain>``, read from its ``--help``
+        page once per (executable, domain) for the process. Same executable /
+        env / cwd as the failing call so the probe sees the identical CLI,
+        and never a longer wait than that call. A SUCCESSFUL probe is cached
+        whatever it yielded — including an empty tuple (a domain without
+        +shortcuts) — so a domain that has none does not cost a spawn on
+        every hallucinated call; a FAILED probe is not cached for good: hits
+        within ``_SHORTCUT_PROBE_RETRY_SEC`` of the failure skip the probe,
+        the first hit after that retries it. The probe runs with
+        ``translate_unknown=False`` — the recursion guard."""
+        key = (executable, domain)
+        cached = _SHORTCUT_CACHE.get(key)
+        if cached is not None:
+            return cached
+        failed_at = _SHORTCUT_PROBE_FAILED_AT.get(key)
+        if failed_at is not None and time.monotonic() - failed_at < _SHORTCUT_PROBE_RETRY_SEC:
+            return ()
+        probe = await self._exec_lark_cli(
+            [executable, domain, "--help"],
+            "",
+            min(timeout, _HELP_PROBE_TIMEOUT),
+            env=env,
+            cwd=cwd,
+            translate_unknown=False,
+        )
+        if not probe.get("success"):
+            logger.warning(
+                f"[lark-cli] could not read `{domain} --help` for the shortcut "
+                f"list: {probe.get('error')}"
+            )
+            _SHORTCUT_PROBE_FAILED_AT[key] = time.monotonic()
+            return ()
+        _SHORTCUT_PROBE_FAILED_AT.pop(key, None)
+        data = probe.get("data")
+        text = data.get("raw_output", "") if isinstance(data, dict) else ""
+        shortcuts = _parse_help_shortcuts(text)
+        if not shortcuts:
+            # Either the domain has no +shortcuts, or the help page did not
+            # reach us as text (e.g. it parsed as JSON and carries no
+            # raw_output). Say so once — the empty result is cached below.
+            logger.warning(
+                f"[lark-cli] `{domain} --help` yielded no +shortcuts "
+                f"(help text {len(text)} chars); the unknown-subcommand "
+                f"error will carry no list for this domain"
+            )
+        _SHORTCUT_CACHE[key] = shortcuts
+        return shortcuts
 
     # =========================================================================
     # Lifecycle

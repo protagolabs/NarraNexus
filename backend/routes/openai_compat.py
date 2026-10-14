@@ -51,12 +51,19 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+from backend.run_lifecycle import RunTasks
 
 from backend.routes.manyfold.sync import (
     build_inbound_run_context,
     execute_job_once,
     parse_run_job_control,
     retag_managed_input,
+)
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    describe_skip_reason,
+    release_probe,
+    should_skip,
+    try_begin_probe,
 )
 from narranexus.platform.agent_runtime.background_run import BackgroundRun
 from narranexus.platform.agent_runtime.cancellation import CancellationToken
@@ -383,7 +390,7 @@ _RUN_JOB_HEARTBEAT_S = 15.0
 
 
 async def _run_job_completion(
-    *, agent_id: str, job_id: str, stream: bool
+    *, agent_id: str, job_id: str, stream: bool, run_tasks: RunTasks
 ):
     """Answer a `[[nx:run_job ...]]` turn with the job's execution outcome
     in both OpenAI shapes. No BackgroundRun is started — execute_job_once
@@ -392,7 +399,7 @@ async def _run_job_completion(
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created_ts = int(time.time())
 
-    task = asyncio.create_task(execute_job_once(agent_id, job_id))
+    task = run_tasks.start(execute_job_once(agent_id, job_id))
     # A disconnected client must never cancel the job run (铁律 #14) — the
     # task keeps going; the callback just retrieves a potential exception.
     task.add_done_callback(_log_orphaned_run_job)
@@ -538,10 +545,10 @@ def _managed_audit_details(managed_t0: float) -> dict:
     }
 
 
-def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
+def _schedule_managed_after_run(run_tasks: RunTasks, managed_ingress, **kwargs) -> None:
     """Fire-and-forget the post-run bookkeeping with a done-callback
     (engineering lesson #2: no unobserved task exceptions)."""
-    task = asyncio.create_task(managed_ingress.after_run(**kwargs))
+    task = run_tasks.start(managed_ingress.after_run(**kwargs))
     task.add_done_callback(_log_managed_after_run)
 
 
@@ -599,6 +606,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             agent_id=agent_id,
             job_id=run_job_id,
             stream=body.stream,
+            run_tasks=request.app.state.run_tasks,
         )
 
     db = await get_db_client()
@@ -689,28 +697,64 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 stream=body.stream,
             )
 
-    active_runs = request.app.state.active_runs
-    cancellation = CancellationToken()
-    bg = BackgroundRun(
-        agent_id=agent_id,
-        user_id=creator,
-        input_preview=user_input or "",
-        db=db,
-        active_runs=active_runs,
-        cancellation=cancellation,
+    # Circuit-breaker gate — the same two steps every turn-starting entry
+    # point takes (should_skip, then try_begin_probe at the last moment before
+    # the run exists). Placed AFTER every branch that answers without a turn
+    # (run-job control, managed-ingress deny, silent group ingest) so none of
+    # them can burn the single half-open probe grant. Without it this entry
+    # ran turns against a paused agent, and — because BackgroundRun feeds the
+    # breaker — an unclaimed turn here could decide another turn's probe.
+    cb_gate = await should_skip(agent_id, db=db)
+    cb_admission = (
+        await try_begin_probe(agent_id, db=db, prior=cb_gate)
+        if not cb_gate.skip
+        else None
     )
+    if cb_admission is None or not cb_admission.allowed:
+        cb_reason = cb_gate.reason if cb_admission is None else cb_admission.reason
+        return JSONResponse(
+            status_code=503,
+            content=_openai_error(
+                describe_skip_reason(cb_reason),
+                etype="agent_circuit_open",
+                code=cb_reason,
+                model_echo=agent_id,
+            ),
+        )
 
-    # Kick off the background agent run.
-    bg.task = asyncio.create_task(
-        bg.drive(
+    try:
+        active_runs = request.app.state.active_runs
+        cancellation = CancellationToken()
+        bg = BackgroundRun(
             agent_id=agent_id,
             user_id=creator,
-            input_content=run_input,
-            working_source=working_source,
-            pass_mcp_servers={},
-            trigger_extra_data=trigger_extra_data,
+            input_preview=user_input or "",
+            db=db,
+            active_runs=active_runs,
+            cancellation=cancellation,
+            # A won probe claim rides the run to its settlement.
+            probe_token=cb_admission.probe_token,
         )
-    )
+
+        # Kick off the background agent run.
+        bg.task = request.app.state.run_tasks.start(
+            bg.drive(
+                agent_id=agent_id,
+                user_id=creator,
+                input_content=run_input,
+                working_source=working_source,
+                pass_mcp_servers={},
+                trigger_extra_data=trigger_extra_data,
+            )
+        )
+    except BaseException:
+        # Claimed, but the run never started (setup threw before its task
+        # existed): hand the probe back by its token, the same belt the WS
+        # handler carries — else every entry is refused until the grant
+        # expires. Once the task exists the run owns the token and settles
+        # it itself, so nothing after this point may release it.
+        await release_probe(agent_id, cb_admission.probe_token, db=db)
+        raise
 
     # Wait until BackgroundRun publishes its run_id (Step 0 emitted),
     # otherwise the broadcaster subscribe race might miss early events.
@@ -921,6 +965,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 bg.broadcaster.unsubscribe(session_id)
                 if managed_ingress is not None:
                     _schedule_managed_after_run(
+                        request.app.state.run_tasks,
                         managed_ingress,
                         working_source=working_source,
                         agent_id=agent_id,
@@ -996,6 +1041,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         bg.broadcaster.unsubscribe(session_id)
         if managed_ingress is not None:
             _schedule_managed_after_run(
+                request.app.state.run_tasks,
                 managed_ingress,
                 working_source=working_source,
                 agent_id=agent_id,

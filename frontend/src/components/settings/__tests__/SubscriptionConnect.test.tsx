@@ -75,7 +75,7 @@ describe('SubscriptionConnect', () => {
       <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const claudeCard = await screen.findByTestId('claude-connect-card');
-    fireEvent.click(within(claudeCard).getByText('Add as Provider'));
+    fireEvent.click(await within(claudeCard).findByText('Add as Provider'));
     await waitFor(() =>
       expect(addProvider).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
     );
@@ -87,7 +87,7 @@ describe('SubscriptionConnect', () => {
       <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const codexCard = await screen.findByTestId('codex-connect-card');
-    fireEvent.click(within(codexCard).getByText('Add as Provider'));
+    fireEvent.click(await within(codexCard).findByText('Add as Provider'));
     await waitFor(() =>
       expect(addProvider).toHaveBeenCalledWith({ card_type: 'codex_oauth' }),
     );
@@ -164,6 +164,58 @@ describe('SubscriptionConnect', () => {
     expect(await screen.findByTestId('claude-connect-card')).toBeTruthy();
     expect(await screen.findByText('Retry')).toBeTruthy();
     expect(screen.queryByText('Checking status...')).toBeNull();
+  });
+
+  test('an EXPIRED session keeps the account and expiry visible, and is not "Not logged in"', async () => {
+    // The backend forces logged_in=false for an expired token (B-25). A
+    // two-state status line then showed the never-logged-in copy and hid
+    // the email and the date — the details the user needs to re-login
+    // the right account. Expired is its own state.
+    mockStatuses(
+      {
+        cli_installed: true,
+        logged_in: false,
+        expired: true,
+        email: 'old@example.com',
+        expires_at: '1592222400000', // 2020-06-15T12:00Z, epoch ms — the real format (mid-year: renders as 2020 in every zone)
+      },
+      loggedIn('codex@example.com'),
+    );
+    render(
+      <SubscriptionConnect providers={[]} addProvider={vi.fn()} />,
+    );
+    const claudeCard = await screen.findByTestId('claude-connect-card');
+    // One line, several nodes ("Session expired as <email> · expires …"):
+    // assert on the line's text rather than on node boundaries.
+    const line = (await within(claudeCard).findByTestId('cli-status-line')).textContent ?? '';
+    expect(line).toContain('Session expired');
+    expect(line).toContain('old@example.com');
+    expect(line).toMatch(/expires/);
+    // 2020, not 52,000-something: epoch ms is read as ms (threshold shared with the backend).
+    expect(line).toMatch(/2020/);
+    expect(line).not.toContain('Not logged in');
+  });
+
+  test('a provider record whose CLI session expired says so instead of a bare "added" tick', async () => {
+    mockStatuses(
+      { cli_installed: true, logged_in: false, expired: true, email: null, expires_at: null },
+      loggedIn('codex@example.com'),
+    );
+    render(
+      <SubscriptionConnect
+        providers={[{ id: 'p1', source: 'claude_oauth', auth_type: 'oauth', is_active: true } as never]}
+        addProvider={vi.fn()}
+      />,
+    );
+    // The cards render before the status probes resolve ("Checking status..."),
+    // so wait for the hint instead of asserting on the first paint.
+    const claudeCard = await screen.findByTestId('claude-connect-card');
+    expect(await within(claudeCard).findByTestId('provider-session-expired-hint')).toBeTruthy();
+    // The codex card's session is fine: no hint there — asserted only once its
+    // own probe has resolved, so the absence is not vacuous.
+    const codexCard = await screen.findByTestId('codex-connect-card');
+    await waitFor(() => expect(within(codexCard).queryByText(/Checking status/i)).toBeNull());
+    expect(within(codexCard).queryByTestId('provider-session-expired-hint')).toBeNull();
   });
 
   test('local mode (allowed undefined) renders both cards', async () => {

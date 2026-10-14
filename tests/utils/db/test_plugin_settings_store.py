@@ -111,10 +111,16 @@ def test_sync_bridge_from_no_running_loop(tmp_path):
     # or closed loop registered as this thread's default would break it.
     import threading
 
-    before = threading.active_count()
+    # Compare thread IDENTITIES, not the global count: the count also moves
+    # when an unrelated earlier thread exits mid-loop (an aiosqlite connection
+    # thread winding down after its test closed it), which is not a leak and
+    # made this flake in CI. A leak is a thread created during these calls
+    # that is still alive afterwards.
+    before = set(threading.enumerate())
     for i in range(10):
         settings.set("retries", i)
-    assert threading.active_count() == before, "sync bridge leaked a thread per call"
+    leaked = [t.name for t in threading.enumerate() if t not in before]
+    assert not leaked, f"sync bridge leaked threads: {leaked}"
 
     async def _probe() -> str:
         return "ok"

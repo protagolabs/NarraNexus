@@ -88,6 +88,7 @@ class PendingJob(BaseModel):
         'cooling',
         'paused_no_quota',
         'blocked_failed',
+        'paused_spend_cap',
     ] = 'pending'
 
 
@@ -102,6 +103,7 @@ class QueueCounts(BaseModel):
     cooling: int = 0
     paused_no_quota: int = 0
     blocked_failed: int = 0
+    paused_spend_cap: int = 0
     total: int = 0
 
 

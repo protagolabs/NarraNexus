@@ -81,6 +81,39 @@ def _display_for(framework: str) -> str:
         return framework
 
 
+def config_override_wins(override: dict | None) -> bool:
+    """Whether an ``agent_slots`` row replaces the owner default for CONFIG
+    resolution — i.e. which provider/model the agent's calls actually go to.
+
+    The PROVIDER rule, deliberately distinct from ``slot_rebinds`` (the
+    IDENTITY rule): any row with a non-empty ``provider_id`` wins, whether
+    or not it also names an ``agent_framework``. An empty-provider
+    (framework-only) stub never shadows the default. This is the rule
+    ``driver.resolver._apply_agent_overrides`` applies at resolve time; every
+    other "which provider does this agent run on" question must ask it here
+    instead of re-deriving it (#394 review I3). Routing such a question
+    through ``slot_rebinds`` would be wrong: a provider-only override would
+    read as "falls back to the owner default".
+    """
+    return bool(override and override.get("provider_id"))
+
+
+async def resolve_agent_config_slot(
+    db: Any, *, agent_id: str, user_id: str, slot_name: str = "agent"
+) -> dict | None:
+    """The slot row ``agent_id``'s ``slot_name`` calls resolve against: the
+    per-agent override when ``config_override_wins``, else the owner's
+    ``user_slots`` default (``user_id`` is the owner). None when neither
+    exists. Raises on DB errors — callers decide their own failure
+    direction."""
+    override = await db.get_one(
+        "agent_slots", {"agent_id": agent_id, "slot_name": slot_name}
+    )
+    if config_override_wins(override):
+        return override
+    return await db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})
+
+
 def slot_rebinds(override: dict | None) -> bool:
     """Whether an ``agent_slots`` row rebinds the agent slot for identity.
 

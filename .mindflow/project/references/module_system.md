@@ -1,6 +1,6 @@
 ---
 doc_type: reference
-last_verified: 2026-08-01
+last_verified: 2026-09-23
 scope:
   - src/narranexus/platform/module_system/
   - src/narranexus/platform/schema/module_schema.py
@@ -10,6 +10,37 @@ related_playbooks:
 ---
 
 # Module 系统参考文档
+
+## Browser integration contract (2026-09-23)
+
+`builtin.browser` is optional and mounted at `/mcp/browser_module` on the shared
+MCP host. Its stream bridge and shared service are initialized only when that
+server is mounted; host shutdown drains the service. Backend route and frontend
+availability must follow their own plugin integration.
+
+The bearer record currently has ten fields, in this order: `agent_id`,
+`turn_source`, `errand_peer`, `errand_channel`, `user_id`, `root_run_id`,
+`team_id`, `event_id`, `identity_token`, `thread_id`. The event identifies the
+current turn. ContextRuntime derives the conversation scope from agent, owner,
+source, channel/room and primary Narrative; without conversation routing it
+uses an event-scoped fallback. Token stamping preserves all ten fields.
+
+Every browser tool binds those runtime facts via BrowserSession.bind_scope,
+including calls on a cached session. No model argument can choose a permission
+scope. Each tool runs in an awaited task, keeping ContextVar bindings isolated
+without adding time or iteration ceilings. Missing identity/scope returns a
+structured browser error rather than sharing an empty grant identity.
+
+The module uses `gather` and `contribute_turn_context` to render readiness and
+configured origin policies into the actual turn prompt. A value in extra_data
+alone is not visible. Human login returns a panel handoff action; evidence uses
+ArtifactService and private workspace image files, not another storage system.
+
+Routine page interaction uses browser_act, forwarding fixed click/fill/select/
+press/scroll parameters to BrowserSession.act under ordinary site access.
+browser_run remains an advanced expression evaluator requiring deliberately
+configured full_cdp_access. Both paths use the same per-call scope and control
+arbitration. Fixed actions do not imply a network sandbox for site behavior.
 
 ## 1. Module 系统概览
 

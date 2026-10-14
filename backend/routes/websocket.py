@@ -51,7 +51,8 @@ from backend.auth_errors import (
 from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
 from narranexus.platform.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
-from narranexus.platform.agent_runtime.background_run import BackgroundRun, run_is_live
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.utils.run_liveness import run_is_live
 from narranexus.platform.agent_runtime.cancellation import CancellationToken, CancelledByUser
 from narranexus.platform.agent_runtime.steer_channel import SteerChannel
 from narranexus.platform.schema.steer_schema import SteerInjection
@@ -240,26 +241,15 @@ def _fresh_run_drive_kwargs(
 
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
     """Build the WS error frame shown when the Agent circuit-breaker skips a
-    fresh run. ``cb_reason`` is ``should_skip``'s reason
-    ("paused:auth" / "paused:quota" / "cooling"). Pure — unit-tested."""
-    reason = cb_reason or ""
-    if reason.startswith("paused:quota"):
-        msg = (
-            "This agent is paused after repeated quota/balance failures. "
-            "Top up or reassign the Agent slot's provider, then resume the "
-            "agent in Settings."
-        )
-    elif reason.startswith("paused"):
-        msg = (
-            "This agent is paused after repeated authentication failures. "
-            "Re-authenticate (codex/claude login) or assign a working API-key "
-            "provider to the Agent slot, then resume the agent in Settings."
-        )
-    else:  # cooling
-        msg = (
-            "This agent recently failed and is briefly cooling down before it "
-            "will accept new messages. Please try again shortly."
-        )
+    fresh run. ``cb_reason`` is the reason ``should_skip`` / ``try_begin_probe``
+    returned ("paused:auth" / "paused:quota" / "cooling" / "probing"); the
+    copy is ``circuit_breaker.describe_skip_reason``, shared with the
+    OpenAI-compatible endpoint. Pure — unit-tested."""
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        describe_skip_reason,
+    )
+
+    msg = describe_skip_reason(cb_reason)
     return {
         "type": "error",
         "error_message": msg,
@@ -1019,10 +1009,23 @@ async def websocket_agent_run(websocket: WebSocket):
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from narranexus.platform.agent_framework.loop.circuit_breaker import should_skip
-        cb_skip, cb_reason = await should_skip(request.agent_id)
-        if cb_skip:
-            await websocket.send_json(_circuit_open_frame(cb_reason))
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            should_skip,
+            try_begin_probe,
+        )
+        cb_gate = await should_skip(request.agent_id)
+        if cb_gate.skip:
+            await websocket.send_json(_circuit_open_frame(cb_gate.reason))
+            await websocket.close()
+            return
+        # The half-open probe is claimed HERE — the last gate before the run
+        # is recorded and created — never inside should_skip, so an entry
+        # point that asks and then does not run a turn cannot burn the single
+        # probe grant. A lost race answers with the "probing" copy. The gate's
+        # own read is reused (prior=), so an ordinary turn costs one read.
+        cb_admission = await try_begin_probe(request.agent_id, prior=cb_gate)
+        if not cb_admission.allowed:
+            await websocket.send_json(_circuit_open_frame(cb_admission.reason))
             await websocket.close()
             return
 
@@ -1090,9 +1093,8 @@ async def websocket_agent_run(websocket: WebSocket):
 
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
-        # never triggers cancel (iron rule #14). The only cancel paths are
-        # explicit user stop (via _listen_for_control) and run shutdown on
-        # backend exit.
+        # never triggers cancel (iron rule #14). Only explicit user stop
+        # cancels the run; graceful backend shutdown waits for it to finish.
         cancellation = CancellationToken()
 
         # ---- Live steering: the owner can fold a follow-up into the run ----
@@ -1157,9 +1159,9 @@ async def websocket_agent_run(websocket: WebSocket):
         #
         # Now:
         #  1. Create BackgroundRun (broadcaster + heartbeat + DB hooks)
-        #  2. asyncio.create_task(bg.drive(...))  — this task is OWNED
-        #     by app.state.active_runs[run_id] once Step 0 yields the
-        #     event_id; it is NOT awaited from here
+        #  2. run_tasks.start(bg.drive(...)) owns the task immediately,
+        #     including admission and Step 0, and drains it on shutdown.
+        #     active_runs indexes it by ID after Step 0; the WS never owns it.
         #  3. Subscribe this WS to bg.broadcaster
         #  4. Forward broadcaster events → ws.send_json
         #
@@ -1176,11 +1178,12 @@ async def websocket_agent_run(websocket: WebSocket):
                 active_runs=websocket.app.state.active_runs,
                 cancellation=cancellation,
                 steering=steer_channel,
+                # A won probe claim rides the run to its settlement.
+                probe_token=cb_admission.probe_token,
             )
 
-            # Kick off the agent run task. It self-registers in
-            # active_runs once Step 0 yields the event_id.
-            bg.task = asyncio.create_task(bg.drive(
+            # Retain the task even before Step 0 assigns its run ID.
+            bg.task = websocket.app.state.run_tasks.start(bg.drive(
                 **_fresh_run_drive_kwargs(
                     request,
                     session_id=_session_id,
@@ -1287,6 +1290,21 @@ async def websocket_agent_run(websocket: WebSocket):
             pass
 
     finally:
+        # A half-open probe this handler won but never handed to a
+        # BackgroundRun (setup threw between the claim and the run) is handed
+        # back by its token — else every entry point is refused until the
+        # grant expires. Once `bg.task` exists the run owns the token and settles
+        # it itself; releasing then would re-pause under a live probe.
+        if (
+            "cb_admission" in locals()
+            and cb_admission.probe_token
+            and ("bg" not in locals() or bg.task is None)
+        ):
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                release_probe,
+            )
+
+            await release_probe(request.agent_id, cb_admission.probe_token)
         # Dashboard v2 (TDR-2): remove session on every exit path. `_session_id`
         # may be unset if we exited before the registry add (auth failure, bad
         # payload) — guard against NameError.

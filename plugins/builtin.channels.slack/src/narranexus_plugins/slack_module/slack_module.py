@@ -304,12 +304,15 @@ _SLACK_IRON_RULES = """\
    downloaded to the agent's workspace. You will see a marker in the
    chat history like:
 
-       [User uploaded <kind>: name=foo.pdf,
-        path=/.../user_upload_files/2026-MM-DD/att_XXXXXXXX.pdf,
-        mime=application/pdf — use Read tool to view]
+       [User uploaded file: name="foo.pdf",
+        path="/.../user_upload_files/2026-MM-DD/att_XXXXXXXX.pdf",
+        mime="application/pdf", kind="document" — use Read tool to view]
 
    - To VIEW the file, call your built-in `Read` tool against the
-     absolute `path=` shown in the marker. Read is multimodal —
+     absolute `path=` shown in the marker. The value is a JSON string:
+     for an ordinary path it is just the text inside its quotes; if it
+     contains escapes (`\\"`, `\\\\`, `\\t`, `\\n`), decode them first.
+     Read is multimodal —
      PDFs and images return native content blocks; text / code / data
      files return their text contents.
    - For audio uploads the marker carries an extra `transcript=...`

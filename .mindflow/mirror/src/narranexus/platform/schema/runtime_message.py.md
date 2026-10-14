@@ -1,8 +1,27 @@
 ---
 code_file: src/narranexus/platform/schema/runtime_message.py
-last_verified: 2026-08-26
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — 新增 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`；`severity` 文档补 plain-text 交付
+
+`"output_budget_exhausted"`：nexus_power [[event_adapter]] 从 loop 自己的 OUTPUT_TRUNCATED 映出、
+[[circuit_breaker]] 据此不推进熔断的结构化 error_type。放在这个叶子模块与其他 error 标记同理（生产方插件与平台
+消费方都能 import、无循环）。刻意是 error_type 而不是 message 短语：message 可回显调用方可控文本。
+`ErrorMessage.severity` 的 `recovered_after_reply` 说明改为「经交付工具，或在没有交付工具的 turn 上以 plain text 写出回复」。
+
+## 2026-09-09 — `ErrorMessage.self_serviceable: Optional[bool]`
+
+用户能否自己清掉这个错（等/升级 rate limit、重登、充值）。**第一步只出线 True 侧**：
+`auth_expired` / `config_actionable` 按构造为 True（response_processor 的 inline 出口与
+step_3 的 raw-exception 出口两处都打，`_raw_exception_error` 钉住）；claude driver 分类过的
+`rate_limit` / `authentication_failed` / `billing_error` 为 True，`server_error` 等为 False；
+`None` = driver 没分类（codex / nexus_power）**或** `infra_transient`（executor OOM / 不可达）——
+后者是「平台坏了」这一侧的对照组，按「绝不伪造 False」原则暂时保持 None，所以 UI 目前只能
+分辨「你能修」，还不能主动说「这不是你的问题」；要补 False 侧得连同这条原则一起改。与
+`action_reason` 一样随 `model_dump()` 直接上 WS / inbox 行（`run_recorder` 的 `event_to_wire`
+全字段透传），前端类型 [[messages.ts]] 同步加 `self_serviceable?: boolean`。
 
 ## 2026-08-26 — Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
 

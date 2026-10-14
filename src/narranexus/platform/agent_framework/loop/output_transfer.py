@@ -18,6 +18,7 @@ from loguru import logger
 from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    cli_error_self_serviceable,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_MESSAGE_OUTPUT,
@@ -51,6 +52,39 @@ def tool_call_item(
     }
 
 
+def _image_descriptor(block: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Describe an inline image block without its base64 payload.
+
+    Two wire shapes exist: the Anthropic/Claude SDK block
+    (``{"type": "image", "source": {"media_type", "data"}}``) and the MCP
+    ``ImageContent`` (``{"type": "image", "mimeType", "data"}``). The model
+    received the pixels natively; the tool output string built here feeds the
+    UI, the database and later-turn history replay, where inlined base64 would
+    be megabytes of noise. Returns None for anything that is not an image.
+    """
+    if block.get("type") != "image":
+        return None
+    source = block.get("source") if isinstance(block.get("source"), dict) else block
+    data = source.get("data")
+    return {
+        "type": "image",
+        "mime_type": source.get("media_type") or source.get("mimeType") or "",
+        "base64_chars": len(data) if isinstance(data, str) else 0,
+    }
+
+
+def _without_inline_images(value: Any) -> Any:
+    """Recursively replace inline image blocks by their descriptors."""
+    if isinstance(value, dict):
+        descriptor = _image_descriptor(value)
+        if descriptor is not None:
+            return descriptor
+        return {key: _without_inline_images(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_inline_images(item) for item in value]
+    return value
+
+
 def _stringify_tool_result_content(content: Any) -> str:
     """Flatten a ToolResultBlock.content into the tool's plain-text payload.
 
@@ -66,6 +100,8 @@ def _stringify_tool_result_content(content: Any) -> str:
     (artifact discovery, quota-error detection) silently failed on it, so
     agent-created artifacts never surfaced until an unrelated reload. This
     flattens to the actual text payload so the result stays parseable.
+
+    Image blocks become a compact JSON descriptor (see ``_image_descriptor``).
     """
     if content is None:
         return ""
@@ -80,7 +116,7 @@ def _stringify_tool_result_content(content: Any) -> str:
                 text = item.get("text")
                 parts.append(
                     text if isinstance(text, str)
-                    else json.dumps(item, ensure_ascii=False)
+                    else json.dumps(_without_inline_images(item), ensure_ascii=False)
                 )
             elif hasattr(item, "text"):
                 parts.append(str(item.text))
@@ -252,14 +288,18 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
         }
         error_message = error_messages.get(error_type, f"Claude API error: {error_type}")
 
-        return [{
-            "type": TYPE_RAW_RESPONSE_EVENT,
-            "data": {
-                "type": DATA_TYPE_ERROR,
-                "error_message": error_message,
-                "error_type": error_type,
-            }
-        }]
+        data: Dict[str, Any] = {
+            "type": DATA_TYPE_ERROR,
+            "error_message": error_message,
+            "error_type": error_type,
+        }
+        # Can the user clear this alone (wait / upgrade / re-login / top
+        # up)? Keyed on the enum; see contracts.agent_events. No verdict
+        # (``unknown``) -> the key stays absent, never a fabricated False.
+        self_serviceable = cli_error_self_serviceable(error_type)
+        if self_serviceable is not None:
+            data["self_serviceable"] = self_serviceable
+        return [{"type": TYPE_RAW_RESPONSE_EVENT, "data": data}]
 
     if not hasattr(message, 'content') or not message.content:
         return [_empty_delta()]
@@ -783,7 +823,7 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
     if item_type == "mcp_tool_call":
         result = item.get("result")
         if isinstance(result, (dict, list)):
-            return json.dumps(result, ensure_ascii=False)
+            return json.dumps(_without_inline_images(result), ensure_ascii=False)
         return _stringify_tool_result_content(result)
     if item_type == "web_search":
         # web_search.results is usually a list of {title, url, snippet}
@@ -967,6 +1007,17 @@ def _codex_official_to_openai_agents(
                     "type": DATA_TYPE_ERROR,
                     "error_message": str(err_msg or "turn failed"),
                     "error_type": err_type or "turn.failed",
+                    # The SDK's own terminal verdict: turn/completed is a
+                    # ONE-SHOT lifecycle notification, so there is no
+                    # further streaming for this turn after it (unlike the
+                    # standalone ``error`` notification below, which can
+                    # precede a retry). ``fatal`` means "terminal AND
+                    # nothing was delivered this turn"; this translator
+                    # sees one notification at a time and cannot know
+                    # whether text already streamed, so ``True`` is only
+                    # the conservative default. official_sdk.py tracks
+                    # the turn's delivery and overrides it (B-05/#127).
+                    "fatal": True,
                 },
             }]
         # Healthy completion — emit response.done with usage.

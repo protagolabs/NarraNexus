@@ -194,6 +194,7 @@ class ToolDispatcher:
                     content=result.content,
                     error=result.error,
                     synthetic=result.synthetic,
+                    images=result.images,
                 )
         return ToolResult(call_id=call.id, ok=False, error=f"no channel serves {call.name!r}")
 

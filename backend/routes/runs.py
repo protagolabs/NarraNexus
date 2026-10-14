@@ -25,7 +25,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
-from narranexus.platform.agent_runtime.run_recorder import STATE_RUNNING
+from narranexus.platform.utils.run_liveness import STATE_RUNNING
 from narranexus.platform.repository.agent_repository import AgentRepository
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.message_bus.team_bulletin import STOP_NOTICE_MSG_TYPE

@@ -53,6 +53,12 @@ export interface CliStatusPayload {
   logged_in: boolean;
   email: string | null;
   expires_at: string | null;
+  /** The backend parsed `expires_at` confidently and it is in the past;
+   *  `logged_in` is forced false alongside it. Distinct from "never logged
+   *  in": the UI keeps showing WHO expired and WHEN so the user can
+   *  re-login the right account. Optional because both status routes
+   *  predate the field and test payloads omit it. */
+  expired?: boolean;
   allowed?: boolean;
 }
 

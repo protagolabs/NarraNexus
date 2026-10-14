@@ -1,7 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-08-11
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — build-desktop.sh now gates the baked NetMind env (comment only)
+
+The 2026-07-13 note below ("build-desktop.sh is intentionally NOT modified")
+no longer holds: build-desktop.sh's first step runs
+`scripts/release/check_desktop_netmind_env.sh env`, which refuses a missing,
+frontend/backend-mismatched, or non-prod (protago-dev, `test.*`) set of the
+same six vars plus the `VITE_NETMIND_*` frontend half. So a baked `None` here
+now only means a deliberate community build with Power login off. Code
+behaviour in this file is unchanged; the in-code comment was updated to say so.
+
 
 ## 2026-08-11 — NARRA_SURFACE injected into every sidecar
 

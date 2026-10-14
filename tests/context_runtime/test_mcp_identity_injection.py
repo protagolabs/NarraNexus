@@ -217,3 +217,61 @@ async def test_mcp_spec_carries_the_turn_owner():
         if expect is None:
             # No trailing blank either: the bearer drops empty tail fields.
             assert not headers["Authorization"].endswith(BEARER_FIELD_SEP)
+
+
+async def _headers_with_event_id(extra_data: dict, event_id: str) -> dict:
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData, WorkingSource
+
+    runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
+                             database_client=object(), event_id=event_id)
+    ctx = ContextData(agent_id=AGENT, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS
+    ctx.extra_data = extra_data
+    _m, servers, *_r = await runtime.build_input_for_framework(
+        messages=[],
+        system_prompt="sys",
+        active_instances=[
+            _instance("MessageBusModule",
+                      _FakeModule("message_bus_module", "http://x/sse"))
+        ],
+        ctx_data=ctx,
+    )
+    return servers["message_bus_module"]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_a_root_turn_stamps_its_own_event_id_as_root_run_id():
+    """A turn whose trigger carries no `root_run_id` (nothing sent this turn's
+    prompt on behalf of an existing tree) IS the root of a new tree — exactly
+    what `RunRecorder` already writes into `events.root_run_id` for it
+    (`inherited_root_run_id or run_id`).
+
+    Before this fix the MCP header stayed "" on a root turn, so any work-board
+    item this turn created (e.g. via `record_handoffs`) was stamped with an
+    EMPTY `root_run_id`. Stopping the run later reads the correct, non-empty
+    `root_run_id` off the `events` row and calls `pause_by_root(root)`, but
+    that lookup is `WHERE root_run_id = root` — it can never match a row that
+    was written with "" instead, so the item is silently orphaned forever
+    (in_progress) even though the run itself DID stop (GitHub #124).
+    """
+    from narranexus.platform.module_system._mcp_identity import ROOT_RUN_ID_HEADER
+
+    headers = await _headers_with_event_id({"bus_channel_id": "ch_dm_1"}, event_id="evt_root_1")
+
+    assert headers.get(ROOT_RUN_ID_HEADER) == "evt_root_1"
+
+
+@pytest.mark.asyncio
+async def test_a_child_turn_still_inherits_its_parents_root_run_id():
+    """A turn whose trigger DOES carry a `root_run_id` (this turn's prompt was
+    itself sent by a run inside an existing tree) must keep tracing that
+    tree — never overwrite it with its own event id."""
+    from narranexus.platform.module_system._mcp_identity import ROOT_RUN_ID_HEADER
+
+    headers = await _headers_with_event_id(
+        {"bus_channel_id": "ch_dm_1", "root_run_id": "evt_root_1"},
+        event_id="evt_child_2",
+    )
+
+    assert headers.get(ROOT_RUN_ID_HEADER) == "evt_root_1"

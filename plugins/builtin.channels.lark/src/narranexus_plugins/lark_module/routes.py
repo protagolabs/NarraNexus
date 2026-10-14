@@ -8,6 +8,23 @@ set-active are the generic ``/api/channels/lark/…`` routes since batch 4d.3):
   POST   /api/lark/auth/login    — Initiate OAuth login (returns auth URL)
   POST   /api/lark/auth/complete — Complete OAuth with device code
   GET    /api/lark/auth/status   — Check login status
+
+Every route is wrapped by ``structured_envelope`` (the shared outer fallback
+in ``narranexus.platform.utils.route_envelope``): an UNEXPECTED exception —
+a subprocess failure, the next bug in the CLI JSON parser — comes back as
+the same ``{"success": False, "error": ...}`` shape every EXPECTED failure
+here already returns (ownership rejected / no bot bound), instead of
+propagating past the handler into Starlette's plain-text "Internal Server
+Error" 500 the frontend cannot read an ``error`` field out of (GitHub #118
+residue; the #120 NameError that originally triggered this was already
+fixed in the CLI layer, but nothing here would have caught the NEXT one).
+
+Two things the wrapper deliberately does NOT do: it re-raises
+``HTTPException`` untouched (``_verify_agent_ownership`` raises 503 when
+the ownership lookup itself fails so a db outage stays a 5xx the access
+log can alarm on; ``AuthError`` is an ``HTTPException`` too), and it never
+returns ``str(e)`` — the client gets a fixed sentence plus a trace id that
+joins it to the ``logger.exception`` line.
 """
 
 from __future__ import annotations
@@ -24,6 +41,7 @@ from narranexus_plugins.lark_module._lark_credential_manager import (
 )
 from narranexus_plugins.lark_module._lark_service import determine_auth_status
 from narranexus_plugins.lark_module.lark_cli_client import LarkCLIClient
+from narranexus.platform.utils.route_envelope import structured_envelope
 
 
 # One canonical owner check (backend/routes/_ownership.py); module-level
@@ -68,6 +86,7 @@ async def _get_db():
 # =========================================================================
 
 @router.post("/auth/login")
+@structured_envelope("lark")
 async def lark_auth_login(request: Request, body: AgentRequest) -> dict[str, Any]:
     """Initiate OAuth login. Returns auth URL for browser authorization."""
     auth_err = await _verify_agent_ownership(request, body.agent_id)
@@ -91,6 +110,7 @@ async def lark_auth_login(request: Request, body: AgentRequest) -> dict[str, Any
 
 
 @router.post("/auth/complete")
+@structured_envelope("lark")
 async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dict[str, Any]:
     """Complete OAuth login with device code from a previous --no-wait call."""
     auth_err = await _verify_agent_ownership(request, body.agent_id)
@@ -137,6 +157,7 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
 
 
 @router.get("/auth/status")
+@structured_envelope("lark")
 async def lark_auth_status(request: Request, agent_id: str) -> dict[str, Any]:
     """Check the authentication status of the bound bot."""
     auth_err = await _verify_agent_ownership(request, agent_id)

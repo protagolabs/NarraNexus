@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/layout/TeamRowMenu.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — the dropdown shell moved to RowKebabMenu
+
+Same extraction as [[AgentRowMenu]]: this file is now the three items (Add
+agent — disabled while `addingAgent` — / Rename / Delete) on the shared
+[[RowKebabMenu]]. The trigger gained `type="button"` and `aria-expanded`,
+which the agent menu already had. The item handlers still receive the click
+event.
+
+## 2026-09-11 — file header: no longer "the last per-row menu"
+
+Comment-only: [[AgentRowMenu]] is back on agent rows (Owner-required), so the
+header now describes this menu by its own items and names its sibling.
 
 ## 2026-09-03 — 文件头改写：侧栏最后一个行菜单
 
