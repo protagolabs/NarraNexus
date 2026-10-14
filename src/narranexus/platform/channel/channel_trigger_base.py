@@ -1032,6 +1032,8 @@ class ChannelTriggerBase(ABC):
     async def _stop_subscriber(self, key: str) -> None:
         cred = self._subscriber_creds.pop(key, None)
         task = self._subscriber_tasks.pop(key, None)
+        if self._dedup_store is not None and cred is not None:
+            self._dedup_store.clear_agent_baseline(getattr(cred, "agent_id", ""))
         # An intentional stop is not a death — drop the start marks so the
         # breaker never counts it.
         self._subscriber_started_at.pop(key, None)
@@ -1242,8 +1244,16 @@ class ChannelTriggerBase(ABC):
         max_backoff = 120
         agent_id = getattr(credential, "agent_id", "")
         app_id = getattr(credential, "app_id", "")
+        sub_key = self._subscriber_key(credential)
 
         while self.running:
+            # Every (re)connect starts from the watcher's latest DB snapshot,
+            # not the credential captured when this loop was spawned. The
+            # watcher refreshes ``_subscriber_creds`` on every poll INCLUDING
+            # volatile write-back fields (Matrix's ``matrix_since_token``);
+            # reusing the spawn-time object made each reconnect replay
+            # everything since the subscriber started.
+            credential = self._subscriber_creds.get(sub_key, credential) if sub_key else credential
             session_started = time.monotonic()
             try:
                 await self._on_transport_connected(credential)
@@ -1391,6 +1401,11 @@ class ChannelTriggerBase(ABC):
                 if decision["layer"] == "historic"
                 else EVENT_INGRESS_DROPPED_DEDUP
             )
+            audit_details: dict[str, Any] = {"layer": decision["layer"]}
+            if "age_min" in decision:
+                # Lets triage tell a replay (age ~ time since last session)
+                # from a loss (a never-processed message dropped as old).
+                audit_details["age_min"] = round(decision["age_min"], 1)
             await self._audit(
                 event_name,
                 message_id=message.message_id,
@@ -1398,7 +1413,7 @@ class ChannelTriggerBase(ABC):
                 app_id=app_id,
                 chat_id=message.chat_id,
                 sender_id=message.sender_id,
-                details={"layer": decision["layer"]},
+                details=audit_details,
             )
 
     async def _enqueue_or_debounce(self, credential: Any, message: ParsedMessage) -> None:

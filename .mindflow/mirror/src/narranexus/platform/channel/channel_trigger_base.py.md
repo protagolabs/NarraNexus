@@ -1,8 +1,22 @@
 ---
 code_file: src/narranexus/platform/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-09-11
+last_verified: 2026-10-14
 ---
+
+## 2026-10-14 — `_subscribe_loop` 每次（重）连先取 watcher 的最新凭据；historic 审计带 `age_min`
+
+- **根因**：`_subscribe_loop(credential)` 把 spawn 时的凭据对象带过每一次重连，而 `_credential_watcher` 每轮
+  （10s）都把 DB 快照写回 `_subscriber_creds[key]`，**包括** `BREAKER_VOLATILE_CREDENTIAL_FIELDS`（那个集合只
+  影响熔断指纹，不影响缓存刷新）。结果 Matrix 每次重连都从订阅者启动时的 `matrix_since_token` 重放。现在每轮
+  循环顶部 `credential = self._subscriber_creds.get(sub_key, credential)`（key 缺失则沿用）。缓存最多滞后一个轮询
+  周期；要求精确游标的渠道（Matrix）仍在 `connect()` 里直读 DB。锁：
+  `test_credential_refresh.py::test_reconnect_uses_the_watchers_fresh_credential_not_the_captured_one`。
+- `_on_transport_connected` 默认仍推进**全局**基线（其它渠道行为不变）；Matrix 覆写为不动全局基线，改在 `connect()`
+  设 per-agent 基线（见 [[channel_dedup_store]]、[[matrix_trigger.py]]）。
+- `_stop_subscriber` 同时 `clear_agent_baseline`，不留残项。
+- `ingress_dropped_historic` 审计 `details` 增加 `age_min`（分钟，1 位小数），事后能区分「回放」与「丢失」。
+- **不做**：不对重放积压设年龄硬上限（铁律 #16）。
 
 ## 2026-09-11（PR #394 review 第五/六轮）— 静默批不过闸门、回执说真话；群聊拒绝提示按窗口节流
 
