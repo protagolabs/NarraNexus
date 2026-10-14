@@ -4,12 +4,14 @@ last_verified: 2026-10-14
 stub: false
 ---
 
-## 2026-10-14 — `CredentialSchema.reset_on_disable`：关闭即作废的传输状态
+## 2026-10-14 — `CredentialSchema.reset_on_reenable`：禁用期间的传输状态不许续用
 
-新增可选字段 `reset_on_disable: tuple[str, ...] = ()`（默认空，所有既有描述符行为不变）：列出绑定被**关闭**时平台要
-清成 "" 的存储值名。动机是流式游标——Matrix 的 `matrix_since_token` 在 开→关→开 之后若被续用，Synapse 会把关闭期间
-（数天/数周）的所有消息一次性送回，agent 会逐条回答过期消息。声明在 schema 上而不是在通用 store 里特判某个渠道，
-保持 store 频道无关。**不做**：启用、重新绑定（upsert 本来就整行覆盖）、每次 sync 都不清。
+可选字段 `reset_on_reenable: tuple[str, ...] = ()`（默认空，既有描述符行为不变）：列出绑定从**禁用变回启用**时平台要
+清成 "" 的存储值名。动机是流式游标——Matrix 的 `matrix_since_token` 在禁用期之后被续用，Synapse 会把禁用期间
+（数天/数周）的消息一次性送回，agent 会逐条回答过期消息。**挂在「禁用→启用」迁移而不是「禁用」动作上**：行变成禁用有很多
+条路（set-active 路由、`disable_credential`、bundle 导入一律落 `enabled=0` 且带着导出的游标、Lark 自己 `patch(enabled=False)`、
+声明出现之前就已禁用的存量行），并没有「禁用咽喉」；而回到启用的所有写法都在通用 store 里（见 [[credential_store]]）。
+**不做**：仍启用的行、全新绑定、每次 sync。
 
 ## 2026-09-07 — 渠道的「消息来源」变成描述符的字段；新增 MessageSourceSpec
 

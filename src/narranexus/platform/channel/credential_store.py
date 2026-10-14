@@ -204,11 +204,19 @@ class GenericCredentialStore:
             secret_error=secret_error,
         )
 
+    @staticmethod
+    def _reenable_resets(descriptor: ChannelDescriptor) -> dict[str, Any]:
+        """Values blanked on a disabled -> enabled transition (``CredentialSchema.reset_on_reenable``)."""
+        return {name: "" for name in descriptor.credential_schema.reset_on_reenable}
+
     async def upsert(self, channel: str, agent_id: str, values: dict[str, Any], *, enabled: Optional[bool] = None) -> CredentialRecord:
         """Create or replace the (channel, agent) binding from a flat value dict (public + secret fields)."""
         descriptor = self.descriptor(channel)
-        public, secret, external_id = split_values(descriptor, values)
         existing = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})
+        if enabled and existing and not bool(existing.get("enabled", 1)):
+            # disabled -> enabled transition: stream state of the disabled period must not resume
+            values = {**values, **self._reenable_resets(descriptor)}
+        public, secret, external_id = split_values(descriptor, values)
         row = {
             "external_id": external_id,
             "public_json": json.dumps(public, sort_keys=True, default=str),
@@ -257,6 +265,9 @@ class GenericCredentialStore:
             if expect is not None and any(merged_values.get(k, "") != v for k, v in expect.items()):
                 return None
             merged_values.update(fields)
+            if enabled and not current.enabled:
+                # disabled -> enabled transition, in this same versioned write
+                merged_values.update(self._reenable_resets(descriptor))
             public, secret, external_id = split_values(descriptor, merged_values)
             row = {
                 "external_id": external_id,
@@ -330,18 +341,14 @@ class GenericCredentialStore:
         the panel / status tools can show a readable cause instead of a bare
         inactive toggle. Enabling always clears it — the owner's re-enable
         (or a re-bind) is the fresh start. Goes through ``patch`` so it never
-        clobbers a concurrent write to other fields. Disabling also clears the
-        descriptor's ``credential_schema.reset_on_disable`` fields.
+        clobbers a concurrent write to other fields. Enabling a disabled row
+        also blanks the descriptor's ``credential_schema.reset_on_reenable``
+        fields (see ``patch``).
         """
         try:
             # str() once here so every consumer (panels, tg_status, plugin
             # channels) can rely on the field being a string.
-            fields: dict[str, Any] = {"disabled_reason": str(reason or "") if not enabled else ""}
-            if not enabled:
-                # Transport state the channel declared as invalid once it is off
-                # (e.g. a stream cursor): the next enable starts fresh.
-                fields.update({name: "" for name in self.descriptor(channel).credential_schema.reset_on_disable})
-            record = await self.patch(channel, agent_id, fields, enabled=enabled)
+            record = await self.patch(channel, agent_id, {"disabled_reason": str(reason or "") if not enabled else ""}, enabled=enabled)
         except RuntimeError as exc:
             # The version race is the only thing patch raises; keep the old
             # "never raises, False means not done" contract for the route and

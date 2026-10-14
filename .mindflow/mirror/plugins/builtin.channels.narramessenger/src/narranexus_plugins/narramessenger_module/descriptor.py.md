@@ -4,10 +4,11 @@ last_verified: 2026-10-14
 stub: false
 ---
 
-## 2026-10-14 — 声明 `reset_on_disable=("matrix_since_token",)`
+## 2026-10-14 — 声明 `reset_on_reenable=("matrix_since_token",)`
 
-用户关掉再打开绑定后，续用旧 /sync 游标会让 agent 回答关闭期间积压的全部消息（基线 0 不做历史过滤）。关闭时清掉
-游标 → 重新启用就是无游标首次 sync，由连接时刻基线丢弃历史（见 [[matrix_trigger.py]]）。机制在通用 store，见 [[credential_store]]。
+禁用期之后续用旧 /sync 游标会让 agent 回答禁用期间积压的全部消息（续传基线 0 不做历史过滤）。绑定从禁用回到启用时清掉游标
+→ 下一次 connect 是无游标首次 sync，由连接时刻基线丢弃历史（见 [[matrix_trigger.py]]）。机制在通用 store（[[credential_store]]）。
+注意该游标因名字含 token 被 store 归入 secret 一侧，清除在合并后的值上做，两侧都适用。
 
 ## 2026-09-07 — 描述符收下消息来源；删掉模块级 `SOURCE`
 

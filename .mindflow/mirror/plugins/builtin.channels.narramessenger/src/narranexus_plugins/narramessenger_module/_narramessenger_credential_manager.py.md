@@ -4,11 +4,11 @@ stub: false
 last_verified: 2026-10-14
 ---
 
-## 2026-10-14 — `update_since_token` 对已关闭的绑定不写
+## 2026-10-14 — 游标写入不加任何「已禁用就跳过」的检查
 
-watcher 最晚一个轮询周期后才停掉订阅者；这期间完成的 sync 若把游标写回，会让 `set_enabled(False)` 刚清掉的游标复活，
-之后重新启用又会续用旧游标。所以写前先读一次行，行不存在或 `enabled` 为假就直接返回（每次 sync 多一次读，不是清除）。
-`set_enabled(False)` 清游标由描述符的 `reset_on_disable` 触发，不在本文件里特判。
+迟到的游标写入（禁用后订阅者最晚一个轮询周期才停）会落在已禁用的行上，但那个值会在「禁用→启用」迁移时被
+`reset_on_reenable` 清掉（见 [[credential_store]]、[[descriptor.py]]），所以 `update_since_token` 保持单次窄 patch，
+不为此多读一次库。
 
 ## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28 I1）
 

@@ -410,3 +410,33 @@ async def test_legacy_per_table_bundle_still_imports(db_client, tmp_workspace_ro
     (row,) = await _rows(db_client, "telegram")
     assert row.agent_id != aid and row.enabled is False
     assert row.secret == {"bot_token": "tg-token"} and row.external_id == "4242" and row.public["bot_username"] == "oldbot"
+
+
+async def test_imported_narramessenger_cursor_is_blank_once_activated(db_client, tmp_workspace_root, tmp_path):
+    """The exported public view carries the SOURCE environment's Matrix /sync
+    cursor and import lands the row disabled. Activating it must start a
+    cursor-less first sync (whose historic filter drops the backlog), not resume
+    a cursor that belongs to another homeserver session."""
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
+
+    aid, uid = "agent_cred0090", "test_user"
+    await _seed_agent(db_client, aid, "Creddy90", uid)
+    store = GenericCredentialStore(db_client)
+    await store.upsert("narramessenger", aid, {
+        "matrix_homeserver_url": "https://h", "matrix_user_id": "@agent-x:h",
+        "matrix_access_token": "at", "matrix_since_token": "source_cursor",
+    })
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(agent_ids=[aid], include_channel_credentials=True), bundle)
+    await store.unbind("narramessenger", aid)  # the same bot may not be bound twice in one env
+    pre = await preflight(bundle, uid)
+    await confirm(pre["preflight_token"], uid)
+
+    (imported,) = await store.list_all("narramessenger")
+    assert imported.enabled is False
+    print("PUB", imported.public, "SEC", sorted(imported.secret))
+    assert imported.secret.get("matrix_since_token") == "source_cursor"  # premise
+    assert await store.set_enabled("narramessenger", imported.agent_id, True)
+    assert (await store.get("narramessenger", imported.agent_id)).secret["matrix_since_token"] == ""

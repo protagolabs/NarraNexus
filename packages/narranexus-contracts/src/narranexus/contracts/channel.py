@@ -65,13 +65,16 @@ class CredentialSchema:
     supports_test: bool = True
     # Identity field the platform treats as the channel-wide unique external id (bot id, app id).
     external_id_field: str = ""
-    # Stored value names the platform clears when the binding is switched OFF
-    # (``GenericCredentialStore.set_enabled(..., False)``, the single choke point of
-    # every disable path). For transport state that is only valid while the
-    # binding is live: a stream cursor kept across an off/on toggle would make
-    # the re-enabled subscriber resume it and deliver everything sent while it
-    # was off. Never cleared on enable, rebind, or per sync.
-    reset_on_disable: tuple[str, ...] = ()
+    # Stored value names the platform blanks whenever a binding goes from disabled to
+    # ENABLED (GenericCredentialStore: set_enabled(True), patch(enabled=True), upsert(enabled=True)
+    # over a disabled row — one versioned write). For transport state that is only valid
+    # while the binding is live: a stream cursor kept across a disabled period would make
+    # the re-enabled subscriber resume it and deliver everything sent meanwhile. Applied at
+    # the transition, not at disable time, because rows reach "disabled" by many routes
+    # (set-active, disable_credential, bundle import, a channel's own patch(enabled=False),
+    # rows disabled before the declaration existed). Never applied to rows that stay
+    # enabled, to fresh binds, or per sync.
+    reset_on_reenable: tuple[str, ...] = ()
 
     def secret_names(self) -> tuple[str, ...]:
         return tuple(f.name for f in self.fields if f.kind == "secret" or not f.public)

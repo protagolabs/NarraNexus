@@ -274,6 +274,16 @@ async def _toggle(h, agent_id: str, enabled: bool) -> None:
     assert await GenericCredentialStore(h.db).set_enabled("narramessenger", agent_id, enabled)
 
 
+async def _assert_reenabled_run_drops_history(h, cred) -> None:
+    stale = _event("$sent_while_off", _now_ms() - 3 * 24 * HOUR_MS)
+    fresh = _event("$fresh_after_on", _now_ms() - 2_000)
+    script = await _run(h, cred, [_batch("s2", stale, fresh)], upsert=False)
+    assert script.since[0] is None  # cursor-less first sync
+    assert _queued_ids(h.trigger) == ["$fresh_after_on"]
+    historic = await _audit_rows(h, "ingress_dropped_historic")
+    assert [r["message_id"] for r in historic] == ["$sent_while_off"]
+
+
 @pytest.mark.asyncio
 async def test_disable_then_enable_does_not_answer_what_was_sent_while_off(harness):
     """The user toggle (set-active route -> GenericCredentialStore.set_enabled)
@@ -285,36 +295,36 @@ async def test_disable_then_enable_does_not_answer_what_was_sent_while_off(harne
 
     await _toggle(harness, "agent_a", False)
     await _toggle(harness, "agent_a", True)
-
-    stale = _event("$sent_while_off", _now_ms() - 3 * 24 * HOUR_MS)
-    fresh = _event("$fresh_after_on", _now_ms() - 2_000)
-    script = await _run(harness, cred, [_batch("s2", stale, fresh)], upsert=False)
-    assert script.since[0] is None  # cursor-less first sync
-    assert _queued_ids(harness.trigger) == ["$fresh_after_on"]
-    historic = await _audit_rows(harness, "ingress_dropped_historic")
-    assert [r["message_id"] for r in historic] == ["$sent_while_off"]
+    await _assert_reenabled_run_drops_history(harness, cred)
 
 
 @pytest.mark.asyncio
-async def test_auto_disable_path_also_clears_the_cursor(harness):
-    """disable_credential (permanent auth failure etc.) goes through the
-    manager's set_enabled — the same choke point."""
-    cred = _cred("agent_a", cursor="s0")
-    await _run(harness, cred, [_batch("s1")])
-    await harness.trigger.disable_credential(cred, reason="revoked")
-    assert (await NarramessengerCredentialManager(harness.db).get("agent_a")).matrix_since_token == ""
+async def test_a_bundle_imported_binding_does_not_answer_backlog_after_activation(harness):
+    """Import lands every binding disabled (``upsert(enabled=False)``) carrying
+    the exported public view INCLUDING the source's matrix_since_token. The row
+    never passed through set_enabled(False)."""
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
+
+    cred = _cred("agent_a", cursor="source_env_cursor")
+    values = {k: v for k, v in cred.to_raw_dict().items()
+              if k not in ("agent_id", "enabled", "created_at", "updated_at")}
+    await GenericCredentialStore(harness.db).upsert("narramessenger", "agent_a", values, enabled=False)
+    await _toggle(harness, "agent_a", True)
+    await _assert_reenabled_run_drops_history(harness, cred)
 
 
 @pytest.mark.asyncio
-async def test_a_late_cursor_write_cannot_resurrect_the_cursor_of_a_disabled_binding(harness):
-    """The watcher stops a subscriber up to one poll after the toggle; a sync
-    that completes in that window must not write the cursor back."""
+async def test_a_late_cursor_write_after_the_toggle_is_cleared_at_re_enable(harness):
+    """The watcher stops a subscriber up to one poll after the toggle; the sync
+    finishing in that window writes the cursor onto the DISABLED row."""
     cred = _cred("agent_a", cursor="s0")
     await _run(harness, cred, [_batch("s1")])
     await _toggle(harness, "agent_a", False)
     mgr = NarramessengerCredentialManager(harness.db)
     await mgr.update_since_token("agent_a", "s_late")
-    assert (await mgr.get("agent_a")).matrix_since_token == ""
+    assert (await mgr.get("agent_a")).matrix_since_token == "s_late"
+    await _toggle(harness, "agent_a", True)
+    await _assert_reenabled_run_drops_history(harness, cred)
 
 
 @pytest.mark.asyncio

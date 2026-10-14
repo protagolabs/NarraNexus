@@ -9,10 +9,10 @@ last_verified: 2026-10-14
 - 删除上一版对 `_on_transport_connected` 的空覆写：`connect()` 总是在第一次 sync 前给该 agent 设 per-agent 基线，
   基类对全局基线的推进因此对本渠道不起作用（没有任何 Matrix agent 会读到它）。防串扰靠的是 per-agent 覆盖本身
   （`test_another_agent_connecting_without_a_cursor...` 现在让 B 先连上、A 再冷绑，B 随后收到旧积压；把覆盖退化成共享值即变红）。
-- **关→开**：用户开关/自动停用都走通用 store 的 `set_enabled(False)`，描述符的 `reset_on_disable` 清掉游标，重新启用就是无游标
-  首次 sync，关闭期间的消息被连接时刻基线丢弃（`ingress_dropped_historic`，带 `age_min`）。已关闭绑定上迟到的游标写入被
-  `update_since_token` 拦掉。普通重连（无开关）仍续传并处理积压。锁：`test_matrix_reconnect_replay.py` 的
-  `test_disable_then_enable_*` / `test_auto_disable_*` / `test_a_late_cursor_write_*` / `test_plain_reconnect_*`。
+- **禁用→启用**：不管行怎么变成禁用的（用户开关、自动停用、bundle 导入落 `enabled=0` 带源环境游标、存量禁用行），回到启用时通用
+  store 按描述符 `reset_on_reenable` 清掉游标，重新启用就是无游标首次 sync，禁用期间的消息被连接时刻基线丢弃
+  （`ingress_dropped_historic`，带 `age_min`）。迟到的游标写入同样在迁移处被清。普通重连（无禁用）仍续传并处理积压。
+  锁：`test_matrix_reconnect_replay.py` 的 `test_disable_then_enable_*` / `test_a_bundle_imported_*` / `test_a_late_cursor_write_*` / `test_plain_reconnect_*`。
 
 ## 2026-10-14 — 重连续传而非回放：游标从 DB 重读 + 历史过滤只用于无游标会话
 
