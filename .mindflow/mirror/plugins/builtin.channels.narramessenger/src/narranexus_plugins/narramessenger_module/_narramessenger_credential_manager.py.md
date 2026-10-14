@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-10-14
 ---
+
+## 2026-10-14 — 游标写入不加任何「已禁用就跳过」的检查
+
+迟到的游标写入（禁用后订阅者最晚一个轮询周期才停）会落在已禁用的行上，但那个值会在「禁用→启用」迁移时被
+`reset_on_reenable` 清掉（见 [[credential_store]]、[[descriptor.py]]），所以 `update_since_token` 保持单次窄 patch，
+不为此多读一次库。
 
 ## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28 I1）
 

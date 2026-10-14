@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/channel/channel_dedup_store.py
 stub: false
-last_verified: 2026-07-16
+last_verified: 2026-10-14
 ---
+
+## 2026-10-14 — 历史基线可按 agent 覆盖（Matrix 重连回放）
+
+线上 30 天 2011 条 `ingress_dropped_historic`（narramessenger）只有 186 个不同消息，182 条早已处理过；
+另有 4 条真丢。原因之一：基线 `_baseline_ms` 是**整个 channel 共用一个值**（144 个绑定），任何 agent 重连
+都把它推到 now，别人的积压也被当 historic 丢掉，且发生在 DB 去重层**之前**。
+
+新增 `set_agent_baseline(agent_id, value_ms)` / `clear_agent_baseline(agent_id)`：`classify` 里
+`self._agent_baselines.get(agent_id, self._baseline_ms)`——没有覆盖的 agent 行为与此前完全一致（Lark/Slack/
+Telegram/Discord/WeChat 不受影响，Lark 仍只用全局 `update_baseline`）。per-agent 覆盖**不单调**（恢复会话要能
+把此前无游标会话设的基线抬回去），`0` = 该 agent 永不 historic 丢弃，重叠交给 DB 去重层。用法见
+[[matrix_trigger.py]]。锁：`tests/channel/test_dedup_store_agent_baseline.py`。
 
 ## 2026-07-16 — Layer 3 (durable DB) partitions by agent_id too
 

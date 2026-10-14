@@ -2331,8 +2331,9 @@ class MatrixTrigger(ChannelTriggerBase):
         )
 
         try:
-            cursor = credential.matrix_since_token or None
+            cursor = await self._resume_cursor(mgr, credential)
             is_first_sync = cursor is None
+            self._set_session_baseline(agent_id, resumed=cursor is not None)
 
             while self.running:
                 # First sync (no cursor) uses a short server timeout so a
@@ -2489,6 +2490,55 @@ class MatrixTrigger(ChannelTriggerBase):
                 await client.close()
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _resume_cursor(
+        self,
+        mgr: Optional[NarramessengerCredentialManager],
+        credential: NarramessengerCredential,
+    ) -> Optional[str]:
+        """The /sync cursor to resume from: the one PERSISTED by the last sync.
+
+        ``credential`` is a snapshot (possibly days old for a long-lived
+        subscriber); the live cursor is written to the DB on every sync, so
+        read it back at the start of each connect. Falls back to the
+        credential's own field only when the read fails or the row is gone.
+        """
+        agent_id = credential.agent_id
+        token = credential.matrix_since_token
+        if mgr is not None:
+            try:
+                latest = await mgr.get(agent_id)
+                if latest is not None:
+                    token = latest.matrix_since_token
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[matrix:{agent_id}] could not re-read since_token from "
+                    f"the DB ({type(e).__name__}: {e}); falling back to the "
+                    f"credential snapshot's cursor (a replay is possible and "
+                    f"is absorbed by the DB dedup layer)"
+                )
+        return token or None
+
+    def _set_session_baseline(self, agent_id: str, *, resumed: bool) -> None:
+        """Historic filtering is only right for a CURSOR-LESS sync.
+
+        A first sync after bind / a lost token returns recent room history
+        that must not be answered: drop events older than this session's
+        connect time (minus the store's buffer). A sync resumed from a
+        persisted cursor returns events AFTER the last committed batch —
+        unprocessed backlog or an at-least-once overlap — so it is never
+        historic-dropped (rule #16); the DB dedup layer absorbs the overlap.
+        The baseline is per agent so one agent's reconnect never moves
+        another's filter. Every Matrix agent has an override here before its
+        first sync, so the channel-wide baseline (the base's default
+        ``_on_transport_connected`` still bumps it on each reconnect; Matrix
+        does not override that hook) is never consulted for this channel.
+        """
+        if self._dedup_store is None:
+            return
+        self._dedup_store.set_agent_baseline(
+            agent_id, 0 if resumed else int(time.time() * 1000)
+        )
 
     # ────────────────────────────────────────────────────────────────────
     # Event → raw dict wrapper

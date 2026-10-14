@@ -204,11 +204,19 @@ class GenericCredentialStore:
             secret_error=secret_error,
         )
 
+    @staticmethod
+    def _reenable_resets(descriptor: ChannelDescriptor) -> dict[str, Any]:
+        """Values blanked on a disabled -> enabled transition (``CredentialSchema.reset_on_reenable``)."""
+        return {name: "" for name in descriptor.credential_schema.reset_on_reenable}
+
     async def upsert(self, channel: str, agent_id: str, values: dict[str, Any], *, enabled: Optional[bool] = None) -> CredentialRecord:
         """Create or replace the (channel, agent) binding from a flat value dict (public + secret fields)."""
         descriptor = self.descriptor(channel)
-        public, secret, external_id = split_values(descriptor, values)
         existing = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})
+        if enabled and existing and not bool(existing.get("enabled", 1)):
+            # disabled -> enabled transition: stream state of the disabled period must not resume
+            values = {**values, **self._reenable_resets(descriptor)}
+        public, secret, external_id = split_values(descriptor, values)
         row = {
             "external_id": external_id,
             "public_json": json.dumps(public, sort_keys=True, default=str),
@@ -258,6 +266,19 @@ class GenericCredentialStore:
                 return None
             merged_values.update(fields)
             public, secret, external_id = split_values(descriptor, merged_values)
+            if enabled and not current.enabled:
+                # disabled -> enabled transition, in this same versioned write. Resets are
+                # applied AFTER the split so they never count as "the caller supplied new
+                # secrets" for the fail-closed guard below: on an unreadable row
+                # (``current.secret`` is EMPTY) a secret-side reset would make ``secret``
+                # non-empty and overwrite the original ciphertext. While unreadable the row
+                # cannot connect (list_active skips it), so only its public-side resets apply;
+                # if the key is later restored and the row is used as-is, its secret-side
+                # values (e.g. a stale stream cursor) were never reset -- rebinding resets them.
+                reset_public, reset_secret, _ = split_values(descriptor, self._reenable_resets(descriptor))
+                public.update(reset_public)
+                if not current.secret_error:
+                    secret.update(reset_secret)
             row = {
                 "external_id": external_id,
                 "public_json": json.dumps(public, sort_keys=True, default=str),
@@ -330,7 +351,9 @@ class GenericCredentialStore:
         the panel / status tools can show a readable cause instead of a bare
         inactive toggle. Enabling always clears it — the owner's re-enable
         (or a re-bind) is the fresh start. Goes through ``patch`` so it never
-        clobbers a concurrent write to other fields.
+        clobbers a concurrent write to other fields. Enabling a disabled row
+        also blanks the descriptor's ``credential_schema.reset_on_reenable``
+        fields (see ``patch``).
         """
         try:
             # str() once here so every consumer (panels, tg_status, plugin
