@@ -37,7 +37,10 @@ def test_cli_refuses_a_builtin_the_running_distribution_excludes(home: Path, mon
     monkeypatch.setenv(ENV_DISTRIBUTION, str(DISTRIBUTIONS / "minimal"))  # excludes builtin.browser
     for verb in ("enable", "disable"):
         assert cli(["plugin", verb, "builtin.browser"]) != 0
-        assert "excluded" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "excluded" in err
+        # A plugin-rule refusal is a user-facing answer, not a crash: no exception class name.
+        assert err.startswith("error: builtin.browser") and "RegistryError" not in err
     assert _overrides(home) == {}
 
 
