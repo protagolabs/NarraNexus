@@ -10,6 +10,12 @@ stub: false
 for the old "not enabled and not protected" case. `protected` only means "a user cannot switch this off"; it never meant a
 distribution that does not load the plugin still has its UI. `builtin.ui` stays skipped regardless.
 
+Fail-open behavior, by design: when the factory answer cannot be read (non-ok, 15 s timeout, network error) `loadPlugins`
+returns `[]`, disables nothing, and the boot still settles — the shell must not hang on a dead backend. A distribution-excluded
+builtin's UI then survives until the next successful pass; the per-feature safety net is the feature's own 404
+(`BrowserNotices` reads a 404 as "feature absent" and stops). Any other UI that depends on an excluded builtin's routes needs
+the same treatment.
+
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 
 仅注释：SHELL_REGISTRIES 说明去掉写死的注册表数量（数字每加一个注册表就会说谎）。

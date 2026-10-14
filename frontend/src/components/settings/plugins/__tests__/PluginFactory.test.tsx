@@ -217,7 +217,7 @@ it('a builtin the distribution excludes is labelled as such and offers no enable
   mocks.factoryList.mockResolvedValue(
     listing({
       builtins: [
-        { id: 'builtin.browser', display_name: 'Browser', description: '', version: '1.0.0', enabled: false, excluded: true, protected: false, hosts: ['backend'], provides: [], dependencies: {}, deps_missing: 'missing playwright' },
+        { id: 'builtin.browser', display_name: 'Browser', description: '', version: '1.0.0', enabled: false, excluded: true, protected: true, hosts: ['backend'], provides: [], dependencies: {}, deps_missing: 'missing playwright' },
       ],
     }),
   );
@@ -226,4 +226,5 @@ it('a builtin the distribution excludes is labelled as such and offers no enable
   expect(card).toHaveTextContent('not in this distribution');
   expect(card.querySelector('button')).toBeNull();
   expect(card).not.toHaveTextContent('dependencies missing');
+  expect(card).not.toHaveTextContent('protected'); // "cannot be disabled" is moot for something that is not loaded
 });

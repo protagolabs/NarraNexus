@@ -16,6 +16,10 @@ The Browser panel is registered unconditionally at import; only the factory list
 `disableBuiltinUi('builtin.browser')`) removes it where the distribution excludes the feature (cloud). `BrowserNotices` mounted
 and polled in the window before that pass finished, so a cloud user got a guaranteed 404 and the red "could not check for browser
 login requests" banner. It now also waits on `pluginsBootSettled()` (same external store `App.tsx` uses for plugin deep links).
+A 404 from `GET /api/browser/notices` is read as "this server never mounted the feature": polling stops for that agent and no
+banner shows (decided on `ApiError.status`, never message text; 5xx/network keep the visible retry banner). It covers the case where
+the factory listing failed (5xx/timeout/expired token) so the panel was never removed. The route's owner check can also 404 an
+agent the caller does not own; stopping the poll there is correct too (nothing to show), and an agent switch remounts and re-asks.
 Gotcha: any test that renders `BrowserNotices` must settle a boot pass first (`loadPlugins` with a failing fetch is enough).
 
 ## 行为

@@ -222,21 +222,28 @@ _DISTRIBUTIONS_DIR = Path(__file__).resolve().parents[2] / "distributions"
 _CLOUD_EXCLUDED = ("builtin.auth.local", "builtin.browser", "builtin.nexus_plugins_module")
 
 
-def _use_distribution(svc: FactoryService, name: str | None) -> None:
-    """Make the service see the shipped distribution ``name`` (``None`` = no distribution).
-
-    Injected on the service, not by patching ``plugins_boot.distribution``: the
-    auth provider reads that one too, and the cloud distribution's auth
-    (NetMind JWT) would turn this local-mode HTTP fixture into 401s.
-    """
+def _resolved(name: str):
     from narranexus.kernel.plugins.distribution import load_distribution, resolve_distribution
 
-    res = None
-    if name is not None:
-        spec, base = load_distribution(_DISTRIBUTIONS_DIR / name)
-        res = resolve_distribution(spec, base)
-        res.raise_for_problems()
-    svc.resolve_distribution = lambda: res
+    spec, base = load_distribution(_DISTRIBUTIONS_DIR / name)
+    res = resolve_distribution(spec, base)
+    res.raise_for_problems()
+    return res
+
+
+def _use_distribution(svc: FactoryService, name: str | None) -> None:
+    """Give the service the boot report a backend started under distribution ``name`` would hold.
+
+    This is the production path: ``backend/main.py`` assigns the lifespan boot's
+    ``BootReport`` (``excluded_builtins`` = what the distribution left out) to the factory service.
+    """
+    from narranexus.hosts.boot import BootReport
+
+    if name is None:
+        svc.boot_report = BootReport(role="backend")
+        return
+    res = _resolved(name)
+    svc.boot_report = BootReport(role="backend", distribution=res.spec.id, excluded_builtins=tuple(res.excluded))
 
 
 def _builtin_rows(c) -> dict:
@@ -304,3 +311,18 @@ def test_cloud_mode_still_refuses_toggles_and_lists_the_exclusion(client, monkey
     assert data["cloud_managed"] is True
     rows = {b["id"]: b for b in data["builtins"]}
     assert rows["builtin.browser"]["enabled"] is False and rows["builtin.browser"]["excluded"] is True
+
+
+def test_without_a_boot_report_the_process_distribution_decides(client, monkeypatch):
+    """Before the lifespan boot assigns a report (or when none ever does) the listing must still not claim
+    an excluded builtin runs: it falls back to the backend's own resolved distribution."""
+    from backend import plugins_boot
+
+    _, svc, _ = client
+    assert svc.boot_report is None
+    monkeypatch.setattr(plugins_boot, "distribution", lambda: _resolved("cloud"))
+    rows = {b["id"]: b for b in svc.list()["builtins"]}  # service call, not HTTP: the patched distribution also picks the auth provider
+    assert rows["builtin.browser"]["enabled"] is False and rows["builtin.browser"]["excluded"] is True
+    assert rows["builtin.teams"]["excluded"] is False
+    monkeypatch.setattr(plugins_boot, "distribution", lambda: None)
+    assert {b["id"]: b for b in svc.list()["builtins"]}["builtin.browser"]["enabled"] is True

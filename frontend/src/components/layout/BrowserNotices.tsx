@@ -15,7 +15,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useChatStore } from '@/stores';
 import type { BrowserLoginRequest } from '@/types/browser';
 import BrowserLoginNotice from './BrowserLoginNotice';
@@ -47,6 +47,8 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     let active = true;
+    // 404 = this server never mounted /api/browser (a distribution that excludes the feature).
+    let featureAbsent = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       setChecking(true);
@@ -58,12 +60,21 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
       } catch (e) {
         if (!active) return;
         setPending([]);
-        setError(e instanceof Error ? e.message : String(e));
+        // Decided on the HTTP status, never on message text. Only 404 is read as "feature absent":
+        // 5xx / network errors stay a visible, retried failure. This is the safety net for the case
+        // the factory listing could not be read (5xx, timeout, expired token) and so never removed
+        // the Browser panel; the listing remains the primary signal.
+        if (e instanceof ApiError && e.status === 404) {
+          featureAbsent = true;
+          setError(null);
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
         if (active) {
           setChecking(false);
           // Schedule only after settlement, so slow polls cannot overlap.
-          timer = setTimeout(() => { void load(); }, POLL_MS);
+          if (!featureAbsent) timer = setTimeout(() => { void load(); }, POLL_MS);
         }
       }
     };

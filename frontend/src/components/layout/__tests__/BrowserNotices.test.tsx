@@ -21,12 +21,19 @@ const mocks = vi.hoisted(() => ({
 }));
 const { getBrowserNotices } = mocks;
 
-vi.mock('@/lib/api', () => ({ api: { getBrowserNotices: mocks.getBrowserNotices } }));
+vi.mock('@/lib/api', () => ({
+  api: { getBrowserNotices: mocks.getBrowserNotices },
+  // Same shape as the real ApiError: the component must branch on `status`, never on message text.
+  ApiError: class ApiError extends Error {
+    constructor(readonly status: number, message: string) { super(message); }
+  },
+}));
 vi.mock('@/stores', () => ({
   useChatStore: (sel: (s: { activeAgentId: string | null }) => unknown) => sel(mocks.state),
 }));
 
 import { BrowserNotices } from '../BrowserNotices';
+import { ApiError } from '@/lib/api';
 import { PANELS, enableOwner } from '@/platform/registries';
 import { disableBuiltinUi, loadPlugins, pluginsBootSettled } from '@/platform/loader';
 
@@ -241,4 +248,28 @@ test('it starts polling once the boot settles with the browser feature still ena
   ] } }), { status: 200 }));
   await act(async () => { await boot; });
   await waitFor(() => expect(getBrowserNotices).toHaveBeenCalledWith('agent_1'));
+});
+
+test('a 404 means the feature is absent on this server: no banner and polling stops', async () => {
+  // Cloud distributions never mount /api/browser. If the factory listing could not be read (a
+  // transient 5xx, a timeout, an expired token) the Browser panel survives, and this poll is the
+  // only thing left that can notice the route is not there.
+  vi.useFakeTimers();
+  getBrowserNotices.mockRejectedValue(new ApiError(404, 'API error: 404 Not Found'));
+  render(shell());
+  await act(async () => {});
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(getBrowserNotices).toHaveBeenCalledTimes(1);
+});
+
+test('a 5xx is still a visible, retried failure (only 404 is read as "feature absent")', async () => {
+  vi.useFakeTimers();
+  getBrowserNotices.mockRejectedValueOnce(new ApiError(503, 'API error: 503 Service Unavailable')).mockResolvedValue({ pending: [] });
+  render(shell());
+  await act(async () => {});
+  expect(screen.getByRole('alert')).toHaveTextContent('503');
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(getBrowserNotices.mock.calls.length).toBeGreaterThan(1);
 });

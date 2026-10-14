@@ -19,12 +19,11 @@ from collections import deque
 from loguru import logger
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from narranexus.hosts.boot import BootReport
 from narranexus.kernel.deployment import is_cloud_mode
 from narranexus.kernel.plugins.bisect import Bisect
-from narranexus.kernel.plugins.distribution import DistributionResolution
 from narranexus.kernel.plugins.install import Installer, InstallResult
 from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.install.installer import InstallError
@@ -63,9 +62,6 @@ class FactoryService:
     installer: Installer | None = None
     index: Index | None = None
     boot_report: BootReport | None = None
-    # Which distribution this process runs; ``None`` = the backend's own (``backend.plugins_boot.distribution``).
-    # A seam for tests: the auth provider reads the process-wide one, so patching it would swap the auth too.
-    resolve_distribution: Callable[[], DistributionResolution | None] | None = None
     _errors: dict[str, deque[UiError]] = field(default_factory=dict)
 
     # ------------------------------------------------------------ helpers
@@ -100,13 +96,17 @@ class FactoryService:
             raise CloudManaged("plugins are managed by the platform in cloud mode")
 
     def _excluded_builtins(self) -> frozenset[str]:
-        """Builtins the RUNNING distribution leaves out (never loaded, routes never mounted)."""
-        if self.resolve_distribution is not None:
-            res = self.resolve_distribution()
-        else:
-            from backend import plugins_boot
+        """Builtins the RUNNING distribution leaves out (never loaded, routes never mounted).
 
-            res = plugins_boot.distribution()
+        The lifespan boot's report is authoritative (``backend/main.py`` hands it over). Until it
+        exists the backend's own resolved distribution answers, so a listing is never more
+        optimistic than the process.
+        """
+        if self.boot_report is not None:
+            return frozenset(self.boot_report.excluded_builtins)
+        from backend import plugins_boot
+
+        res = plugins_boot.distribution()
         return frozenset(res.excluded) if res is not None else frozenset()
 
     def _refuse_if_excluded(self, plugin_id: str) -> None:
@@ -192,8 +192,8 @@ class FactoryService:
                     "display_name": m.display_name,
                     "description": m.description,
                     "version": m.version,
-                    # An excluded builtin is not running at all, whatever registry.json says: the frontend
-                    # drops the UI of every row reported not enabled.
+                    # An excluded builtin is not running at all, whatever registry.json says. The frontend
+                    # drops the UI of an excluded row, and of a not-enabled row unless it is protected.
                     "enabled": m.id not in excluded and override.get("enabled", True) is not False,
                     "excluded": m.id in excluded,
                     "protected": bool(m.protected),

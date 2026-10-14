@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/platform/bootPlugins.ts
-last_verified: 2026-09-07
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — the login edge is watched from BEFORE the first pass
+
+The `isLoggedIn` flag is sampled and the store subscription installed before `await loadPlugins()`. Cloud inbound-token entry
+(`App.tsx` `exchangeInboundToken` -> `login()`) can flip the flag while the unauthenticated first fetch is in flight; that fetch
+401s, and a flag read only after the await never saw the edge, so no second pass ran until a reload. A login during the first
+pass now starts the second one immediately (overlapping passes are safe: the loader counts passes in flight). A normal
+boot-then-login is still exactly two passes.
 
 ## 2026-09-03（批 2d）— 应用级装配
 

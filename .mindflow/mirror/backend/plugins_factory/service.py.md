@@ -13,10 +13,11 @@ reported enabled, so the frontend kept its UI (Browser panel + `BrowserNotices` 
 cloud user). Rows now carry `excluded: true` and `enabled: false` for those ids. The frontend drops the UI of every row that
 is not enabled, and `excluded` additionally overrides `protected` there.
 
-The distribution comes from `backend.plugins_boot.distribution()` (resolved once from `NARRANEXUS_DIST`, the same object
-`register_builtins_for_import` and the lifespan boot use) — not re-parsed. `FactoryService.resolve_distribution` is an optional
-seam that replaces it; tests inject it because the auth provider reads the process-wide one, and swapping that for the cloud
-distribution turns the local-mode HTTP fixture into NetMind-JWT 401s.
+The excluded set is the lifespan boot's `BootReport.excluded_builtins`, which `backend/main.py` assigns to the factory
+service (`boot_report`) — nothing is re-parsed. When no report exists yet the backend's own resolved distribution
+(`backend.plugins_boot.distribution()`, resolved once from `NARRANEXUS_DIST`) answers, so a listing is never more optimistic
+than the process. Tests give the service a `BootReport` like they already do for `deps_missing`; there is no test-only seam
+(an earlier `resolve_distribution` field was dropped).
 
 `set_builtin_enabled` (both directions) and `install_builtin_deps` refuse an excluded builtin with `RegistryError` (HTTP 400):
 an override or a pip install for something the distribution never loads is a silent no-op that the UI would still report as

@@ -418,7 +418,7 @@ export function PluginFactory() {
                   {b.description && <div className="text-xs text-[var(--nm-ink70)] mt-1">{b.description}</div>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {b.protected && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
+                  {b.protected && !b.excluded && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
                   {b.excluded ? (
                     <StatusBadge status="neutral">{t(`${fp}.state.excluded`)}</StatusBadge>
                   ) : b.deps_missing ? (
