@@ -271,8 +271,10 @@ class GenericCredentialStore:
                 # applied AFTER the split so they never count as "the caller supplied new
                 # secrets" for the fail-closed guard below: on an unreadable row
                 # (``current.secret`` is EMPTY) a secret-side reset would make ``secret``
-                # non-empty and overwrite the original ciphertext. That row cannot connect
-                # anyway (list_active skips it), so only its public-side resets apply.
+                # non-empty and overwrite the original ciphertext. While unreadable the row
+                # cannot connect (list_active skips it), so only its public-side resets apply;
+                # if the key is later restored and the row is used as-is, its secret-side
+                # values (e.g. a stale stream cursor) were never reset -- rebinding resets them.
                 reset_public, reset_secret, _ = split_values(descriptor, self._reenable_resets(descriptor))
                 public.update(reset_public)
                 if not current.secret_error:
