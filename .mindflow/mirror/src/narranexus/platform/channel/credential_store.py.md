@@ -13,6 +13,7 @@ stub: false
 为什么不在 `set_enabled(False)` 清：bundle 导入 `upsert(enabled=False)` 带着源环境游标、Lark 自己 `patch(enabled=False)`、
 老的已禁用行都绕过它；而且禁用后订阅者最晚一个轮询周期才停，期间迟到的游标写入落在已禁用行上——在迁移处清，这些都无害，
 不需要每次 sync 多读一次库的写前检查。契约见 [[channel]]。
+**不可读密文（`secret_error`）**：重置在拆分之后才并入，且密文侧的重置在 `secret_error` 时跳过——否则 `matrix_since_token`（名字含 token，落在 secret 一侧）会让 `secret` 非空、绕过 fail-closed 守卫，把原密文（含 access token）覆盖成只含空游标的新 blob。不可读行本来就连不上（`list_active` 跳过），公共侧的重置照常；密文侧游标在该行被重新绑定前不会被清（key 恢复后若直接续用，会续旧游标——已记为残余风险，正常路径是重新绑定）。`upsert` 是整行重绑，不受影响。
 锁：`tests/channel/test_credential_reset_on_reenable.py`、`tests/bundle/test_channel_credentials.py::test_imported_narramessenger_cursor_is_blank_once_activated`。
 
 ## 2026-09-09 — `set_enabled(..., reason=)` 写通用 `disabled_reason`；`patch` 对不可读密文 fail-closed（B-28，复审 C1/I4）

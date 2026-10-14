@@ -28,7 +28,7 @@ B. 基类重连时把**全 channel 共用**的 historic 基线推到 now，掩�
 - `_set_session_baseline`：**无游标**（绑定后首次 sync/游标丢失）→ 该 agent 基线=本次 connect 时刻（沿用 5 分钟
   buffer），房间历史不被回答；**有游标续传**→ 基线 0，永不 historic 丢弃，至少一次的重叠由 DB 去重层
   （`channel_seen_messages`，键 `agent:event_id`）吸收，积压仍走 `ingress_processed` 审计。基线是 per-agent。
-- 覆写 `_on_transport_connected` 为空操作：不再动全局基线（见 [[channel_dedup_store]]）。
+- 不覆写 `_on_transport_connected`：基类仍会在重连时推进全局基线，但每个 Matrix agent 在首次 sync 前都已有 per-agent 覆盖，全局值对本渠道从不被读取（见 [[channel_dedup_store]]）。
 - **残余风险（记录不实现）**：停机很久后续传会回答全部积压；DB 去重保留 7 天，游标早于 7 天又写游标失败时可能
   重复处理。若需要「极旧积压」保护，应做成显式、可观测的策略，而不是静默 historic 丢弃。
 锁：`tests/narramessenger_module/test_matrix_reconnect_replay.py`（真实 `_subscribe_loop` + `connect()`，仅假 nio 客户端）。

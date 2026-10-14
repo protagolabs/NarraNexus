@@ -2530,9 +2530,9 @@ class MatrixTrigger(ChannelTriggerBase):
         historic-dropped (rule #16); the DB dedup layer absorbs the overlap.
         The baseline is per agent so one agent's reconnect never moves
         another's filter. Every Matrix agent has an override here before its
-        first sync, so the base's channel-wide baseline (still bumped on
-        each reconnect by ``_on_transport_connected``) is never consulted for
-        this channel.
+        first sync, so the channel-wide baseline (the base's default
+        ``_on_transport_connected`` still bumps it on each reconnect; Matrix
+        does not override that hook) is never consulted for this channel.
         """
         if self._dedup_store is None:
             return

@@ -265,10 +265,18 @@ class GenericCredentialStore:
             if expect is not None and any(merged_values.get(k, "") != v for k, v in expect.items()):
                 return None
             merged_values.update(fields)
-            if enabled and not current.enabled:
-                # disabled -> enabled transition, in this same versioned write
-                merged_values.update(self._reenable_resets(descriptor))
             public, secret, external_id = split_values(descriptor, merged_values)
+            if enabled and not current.enabled:
+                # disabled -> enabled transition, in this same versioned write. Resets are
+                # applied AFTER the split so they never count as "the caller supplied new
+                # secrets" for the fail-closed guard below: on an unreadable row
+                # (``current.secret`` is EMPTY) a secret-side reset would make ``secret``
+                # non-empty and overwrite the original ciphertext. That row cannot connect
+                # anyway (list_active skips it), so only its public-side resets apply.
+                reset_public, reset_secret, _ = split_values(descriptor, self._reenable_resets(descriptor))
+                public.update(reset_public)
+                if not current.secret_error:
+                    secret.update(reset_secret)
             row = {
                 "external_id": external_id,
                 "public_json": json.dumps(public, sort_keys=True, default=str),

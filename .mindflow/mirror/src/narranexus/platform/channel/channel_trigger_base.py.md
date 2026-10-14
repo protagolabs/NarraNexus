@@ -17,7 +17,7 @@ last_verified: 2026-10-14
   循环顶部 `credential = self._subscriber_creds.get(sub_key, credential)`（key 缺失则沿用）。缓存最多滞后一个轮询
   周期；要求精确游标的渠道（Matrix）仍在 `connect()` 里直读 DB。锁：
   `test_credential_refresh.py::test_reconnect_uses_the_watchers_fresh_credential_not_the_captured_one`。
-- `_on_transport_connected` 默认仍推进**全局**基线（其它渠道行为不变）；Matrix 覆写为不动全局基线，改在 `connect()`
+- `_on_transport_connected` 默认仍推进**全局**基线（所有渠道包括 Matrix 都不覆写，行为不变）；Matrix 不读全局基线，改在 `connect()`
   设 per-agent 基线（见 [[channel_dedup_store]]、[[matrix_trigger.py]]）。
 - `_stop_subscriber` 同时 `clear_agent_baseline`，不留残项。
 - `ingress_dropped_historic` 审计 `details` 增加 `age_min`（分钟，1 位小数），事后能区分「回放」与「丢失」。
