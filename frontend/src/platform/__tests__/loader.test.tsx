@@ -221,7 +221,7 @@ describe('loader', () => {
     // would blacklist that default owner forever AND wipe every builtin page/panel/sidebar/
     // command currently registered under it — bricking the whole shell. The factory always
     // reports it enabled+protected, but this guard does not trust that: it is unconditional.
-    const list = JSON.stringify({ data: { builtins: [{ id: 'builtin.ui', enabled: false, protected: false }] } });
+    const list = JSON.stringify({ data: { builtins: [{ id: 'builtin.ui', enabled: false, excluded: false, protected: false }] } });
     const fetchImpl = vi.fn(async () => new Response(list, { status: 200 })) as unknown as typeof fetch;
     await loadPlugins({ fetchImpl });
     expect(isOwnerDisabled('builtin.ui')).toBe(false);

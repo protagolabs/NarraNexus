@@ -11,16 +11,17 @@
  * everything: an agent blocked on a login it cannot complete itself otherwise
  * looks hung.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useChatStore } from '@/stores';
 import type { BrowserLoginRequest } from '@/types/browser';
 import BrowserLoginNotice from './BrowserLoginNotice';
 import { Button } from '@/components/nm/button';
 import { PANELS, useRegistryEntries } from '@/platform/registries';
+import { bootEverSettled, subscribePluginsBoot } from '@/platform/loader';
 
 /** How often to ask. Requests are raised by an agent turn, not by this tab. */
 const POLL_MS = 2000;
@@ -28,8 +29,14 @@ const POLL_MS = 2000;
 export function BrowserNotices() {
   const agentId = useChatStore((s) => s.activeAgentId);
   const browserAvailable = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
+  // The Browser panel is registered unconditionally at import; only the factory listing
+  // (`loadPlugins`) removes it when the running distribution excludes the feature. Until that
+  // pass has settled the panel's presence proves nothing (and a LATER pass, e.g. the login flip, must
+  // not unmount a live notice, hence "ever settled" rather than "settled now"), and polling now would hit a route
+  // the backend never mounted (404 -> error banner).
+  const pluginsSettled = useSyncExternalStore(subscribePluginsBoot, bootEverSettled, bootEverSettled);
   // A different agent owns different requests and errors.
-  return agentId && browserAvailable ? <AgentBrowserNotices key={agentId} agentId={agentId} /> : null;
+  return agentId && browserAvailable && pluginsSettled ? <AgentBrowserNotices key={agentId} agentId={agentId} /> : null;
 }
 
 function AgentBrowserNotices({ agentId }: { agentId: string }) {
@@ -41,6 +48,8 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     let active = true;
+    // 404 = this server never mounted /api/browser (a distribution that excludes the feature).
+    let featureAbsent = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       setChecking(true);
@@ -52,12 +61,21 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
       } catch (e) {
         if (!active) return;
         setPending([]);
-        setError(e instanceof Error ? e.message : String(e));
+        // Decided on the HTTP status, never on message text. Only 404 is read as "feature absent":
+        // 5xx / network errors stay a visible, retried failure. This is the safety net for the case
+        // the factory listing could not be read (5xx, timeout, expired token) and so never removed
+        // the Browser panel; the listing remains the primary signal.
+        if (e instanceof ApiError && e.status === 404) {
+          featureAbsent = true;
+          setError(null);
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
         if (active) {
           setChecking(false);
           // Schedule only after settlement, so slow polls cannot overlap.
-          timer = setTimeout(() => { void load(); }, POLL_MS);
+          if (!featureAbsent) timer = setTimeout(() => { void load(); }, POLL_MS);
         }
       }
     };

@@ -58,8 +58,8 @@ it('lists builtin features; disable toggles through the builtin endpoint and pro
   mocks.factoryList.mockResolvedValue(
     listing({
       builtins: [
-        { id: 'builtin.teams', display_name: 'Teams', description: 'Agent teams', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: ['backend.routes', 'backend.workers'], dependencies: {} },
-        { id: 'builtin.nexus_plugins_module', display_name: 'Nexus Plugins', description: '', version: '1.0.0', enabled: true, protected: true, hosts: ['backend'], provides: [], dependencies: {} },
+        { id: 'builtin.teams', display_name: 'Teams', description: 'Agent teams', version: '1.0.0', enabled: true, excluded: false, protected: false, hosts: ['backend'], provides: ['backend.routes', 'backend.workers'], dependencies: {} },
+        { id: 'builtin.nexus_plugins_module', display_name: 'Nexus Plugins', description: '', version: '1.0.0', enabled: true, excluded: false, protected: true, hosts: ['backend'], provides: [], dependencies: {} },
       ],
     }),
   );
@@ -201,7 +201,7 @@ it('a builtin whose on-demand dependencies are missing shows the reason and an i
   mocks.factoryList.mockResolvedValue(
     listing({
       builtins: [
-        { id: 'builtin.channels.lark', display_name: 'Lark', description: '', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: [], dependencies: {}, on_demand: true, pip: ['lark-oapi>=1.4.0,<2.0.0'], deps_missing: 'missing lark_oapi; dependency install failed (rc=1)' },
+        { id: 'builtin.channels.lark', display_name: 'Lark', description: '', version: '1.0.0', enabled: true, excluded: false, protected: false, hosts: ['backend'], provides: [], dependencies: {}, on_demand: true, pip: ['lark-oapi>=1.4.0,<2.0.0'], deps_missing: 'missing lark_oapi; dependency install failed (rc=1)' },
       ],
     }),
   );
@@ -211,4 +211,20 @@ it('a builtin whose on-demand dependencies are missing shows the reason and an i
   expect(card).toHaveTextContent('missing lark_oapi');
   fireEvent.click(screen.getByText('Install dependencies (lark-oapi>=1.4.0,<2.0.0)'));
   await waitFor(() => expect(mocks.factoryBuiltinInstallDeps).toHaveBeenCalledWith('builtin.channels.lark'));
+});
+
+it('a builtin the distribution excludes is labelled as such and offers no enable/disable/install-deps control', async () => {
+  mocks.factoryList.mockResolvedValue(
+    listing({
+      builtins: [
+        { id: 'builtin.browser', display_name: 'Browser', description: '', version: '1.0.0', enabled: false, excluded: true, protected: true, hosts: ['backend'], provides: [], dependencies: {}, deps_missing: 'missing playwright' },
+      ],
+    }),
+  );
+  render(<PluginFactory />);
+  const card = await screen.findByTestId('builtin-builtin.browser');
+  expect(card).toHaveTextContent('not in this distribution');
+  expect(card.querySelector('button')).toBeNull();
+  expect(card).not.toHaveTextContent('dependencies missing');
+  expect(card).not.toHaveTextContent('protected'); // "cannot be disabled" is moot for something that is not loaded
 });

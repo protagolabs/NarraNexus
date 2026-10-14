@@ -1519,6 +1519,7 @@
             "blocked": "차단됨",
             "missing": "누락",
             "deps_missing": "의존성 누락",
+            "excluded": "이 배포판에 포함되지 않음",
             "crashed": "충돌",
             "disabled": "비활성",
             "slow": "느림"

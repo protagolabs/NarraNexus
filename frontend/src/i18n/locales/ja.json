@@ -1519,6 +1519,7 @@
             "blocked": "ブロック",
             "missing": "見つからない",
             "deps_missing": "依存関係が不足",
+            "excluded": "このディストリビューションには含まれません",
             "crashed": "クラッシュ",
             "disabled": "無効",
             "slow": "低速"

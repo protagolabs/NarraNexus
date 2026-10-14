@@ -50,4 +50,25 @@ describe('bootPlugins (M-9)', () => {
     useConfigStore.getState().login('u1', 'token-2');
     expect(loadPlugins).toHaveBeenCalledTimes(1);
   });
+
+  it('a login that lands while the FIRST pass is still in flight triggers a second pass', async () => {
+    // Cloud inbound-token entry (App.tsx exchangeInboundToken -> login()) flips isLoggedIn while the
+    // unauthenticated first fetch is pending: that fetch 401s, and with the flag read only after
+    // the await no second pass ever ran.
+    let finishFirst!: (rows: []) => void;
+    vi.mocked(loadPlugins).mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }));
+    const booting = bootPlugins();
+    useConfigStore.getState().login('u1', 'token');
+    expect(loadPlugins).toHaveBeenCalledTimes(2);
+    finishFirst([]);
+    unsubscribe = await booting;
+    expect(loadPlugins).toHaveBeenCalledTimes(2); // the settled first pass does not fire a third
+  });
+
+  it('a normal boot-then-login still runs exactly two passes', async () => {
+    unsubscribe = await bootPlugins();
+    useConfigStore.getState().login('u1', 'token');
+    useConfigStore.getState().login('u1', 'token-2');
+    expect(loadPlugins).toHaveBeenCalledTimes(2);
+  });
 });

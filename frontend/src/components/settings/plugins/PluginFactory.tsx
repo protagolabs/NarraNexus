@@ -418,15 +418,17 @@ export function PluginFactory() {
                   {b.description && <div className="text-xs text-[var(--nm-ink70)] mt-1">{b.description}</div>}
                 </div>
                 <div className="flex items-center gap-2">
-                  {b.protected && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
-                  {b.deps_missing ? (
+                  {b.protected && !b.excluded && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
+                  {b.excluded ? (
+                    <StatusBadge status="neutral">{t(`${fp}.state.excluded`)}</StatusBadge>
+                  ) : b.deps_missing ? (
                     <StatusBadge status="warning">{t(`${fp}.state.deps_missing`)}</StatusBadge>
                   ) : (
                     <StatusBadge status={b.enabled ? 'success' : 'neutral'}>{t(`${fp}.state.${b.enabled ? 'enabled' : 'disabled'}`)}</StatusBadge>
                   )}
                 </div>
               </div>
-              {b.deps_missing && (
+              {b.deps_missing && !b.excluded && (
                 <div className="space-y-1" data-testid={`builtin-deps-${b.id}`}>
                   <p className="text-xs text-[var(--color-warning)]">{b.deps_missing}</p>
                   <Button size="sm" variant="secondary" leading={<Download className="h-3.5 w-3.5" />} disabled={busy !== null} loading={busy === `${b.id}:deps`} onClick={() => void run(`${b.id}:deps`, () => api.factoryBuiltinInstallDeps(b.id), t(`${fp}.restartRequired`))}>
@@ -434,7 +436,7 @@ export function PluginFactory() {
                   </Button>
                 </div>
               )}
-              {!b.protected && (
+              {!b.protected && !b.excluded && (
                 <div className="flex items-center gap-2">
                   {b.enabled ? (
                     <Button size="sm" variant="secondary" leading={<PowerOff className="h-3.5 w-3.5" />} disabled={busy !== null} onClick={() => void run(b.id, () => api.factoryBuiltinSetEnabled(b.id, false), t(`${fp}.restartRequired`))}>
