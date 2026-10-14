@@ -31,11 +31,15 @@ export async function bootPlugins(): Promise<() => void> {
       body: JSON.stringify(body),
     }),
   );
-  await loadPlugins();
-
+  // Subscribe BEFORE the first pass and read the login flag before it too: cloud inbound-token
+  // entry (App.tsx `exchangeInboundToken` -> `login()`) can flip `isLoggedIn` while the first,
+  // unauthenticated fetch is still in flight. That fetch then 401s, and a flag sampled only after
+  // the await would never see the edge, so no second pass would run until a full reload.
   let wasLoggedIn = useConfigStore.getState().isLoggedIn;
-  return useConfigStore.subscribe((state) => {
+  const unsubscribe = useConfigStore.subscribe((state) => {
     if (state.isLoggedIn && !wasLoggedIn) void loadPlugins();
     wasLoggedIn = state.isLoggedIn;
   });
+  await loadPlugins();
+  return unsubscribe;
 }

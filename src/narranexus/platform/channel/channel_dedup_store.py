@@ -97,8 +97,13 @@ class ChannelDedupStore:
         self._memory_cache: dict[str, float] = {}
         self._memory_lock = threading.Lock()
 
-        # Layer 1 state
+        # Layer 1 state. ``_baseline_ms`` is channel-wide (every subscriber
+        # shares it — correct for transports whose reconnect semantics are
+        # the same for all of them). ``_agent_baselines`` lets a channel
+        # that knows each subscriber's own session semantics override it
+        # per agent; absent agents keep the channel-wide value untouched.
         self._baseline_ms: int = 0
+        self._agent_baselines: dict[str, int] = {}
 
     @property
     def channel(self) -> str:
@@ -112,6 +117,22 @@ class ChannelDedupStore:
         """Advance the historic-replay baseline. Monotonic — never goes backwards."""
         if value_ms > self._baseline_ms:
             self._baseline_ms = value_ms
+
+    def set_agent_baseline(self, agent_id: str, value_ms: int) -> None:
+        """Override the historic baseline for ONE agent.
+
+        Unlike ``update_baseline`` this is NOT monotonic: a session that
+        resumed from a persisted cursor must be able to LIFT a baseline an
+        earlier cursor-less session set. ``0`` means "never historic-drop
+        for this agent" — the DB dedup layer alone handles the at-least-once
+        overlap of a resumed stream.
+        """
+        if agent_id:
+            self._agent_baselines[agent_id] = max(0, int(value_ms))
+
+    def clear_agent_baseline(self, agent_id: str) -> None:
+        """Drop the per-agent override; the agent falls back to the channel baseline."""
+        self._agent_baselines.pop(agent_id, None)
 
     async def classify(
         self,
@@ -144,10 +165,11 @@ class ChannelDedupStore:
         """
         # Layer 1: historic-replay filter. Only applies when we know both
         # the event timestamp and the baseline.
-        if create_time_ms and self._baseline_ms > 0:
-            cutoff = self._baseline_ms - self._history_buffer_ms
+        baseline_ms = self._agent_baselines.get(agent_id, self._baseline_ms)
+        if create_time_ms and baseline_ms > 0:
+            cutoff = baseline_ms - self._history_buffer_ms
             if create_time_ms < cutoff:
-                age_min = (self._baseline_ms - create_time_ms) / 60000.0
+                age_min = (baseline_ms - create_time_ms) / 60000.0
                 return {"accept": False, "layer": "historic", "age_min": age_min}
 
         if not message_id:

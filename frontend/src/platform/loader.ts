@@ -92,6 +92,8 @@ export interface FactoryPluginRow {
 export interface FactoryBuiltinRow {
   id: string;
   enabled: boolean;
+  /** Left out by the running distribution (its routes/workers never exist): unlike a user-disabled row, `protected` does not shield it. */
+  excluded: boolean;
   protected: boolean;
 }
 
@@ -325,10 +327,13 @@ export function activeHosts(): string[] {
  * of redirecting to chat, otherwise every deep link into a plugin page was lost on refresh.
  */
 let bootSettled = false;
+/** Monotonic: true once ANY pass has settled, never false again (unlike `bootSettled`, which every new pass resets). */
+let everSettled = false;
 /** Passes in flight: the pre-mount pass and the login-flip pass can overlap; settle only at zero. */
 let bootInFlight = 0;
 const bootListeners = new Set<() => void>();
 function setBootSettled(value: boolean): void {
+  if (value) everSettled = true;
   if (bootSettled === value) return;
   bootSettled = value;
   for (const l of bootListeners) l();
@@ -337,6 +342,15 @@ function setBootSettled(value: boolean): void {
 export const FACTORY_FETCH_TIMEOUT_MS = 15_000;
 export function pluginsBootSettled(): boolean {
   return bootSettled;
+}
+/**
+ * Whether the FIRST `loadPlugins()` pass has finished — and it stays true across every later pass. Gate a
+ * UI that must wait for the factory listing once (`BrowserNotices`) on this, not on `pluginsBootSettled()`:
+ * the login-flip pass resets that one to false and the gated component would unmount and remount.
+ * `App.tsx`'s plugin deep-link hold keeps using `pluginsBootSettled()`, which wants the per-pass reset.
+ */
+export function bootEverSettled(): boolean {
+  return everSettled;
 }
 export function subscribePluginsBoot(listener: () => void): () => void {
   bootListeners.add(listener);
@@ -372,7 +386,7 @@ async function loadPluginsInner(deps: LoaderDeps): Promise<FactoryPluginRow[]> {
       // panel/sidebar/command currently registered under it, bricking the whole shell. The
       // factory always reports this row enabled+protected, but this guard does not trust that.
       if (b.id === 'builtin.ui') continue;
-      if (!b.enabled && !b.protected) disableBuiltinUi(b.id);
+      if (b.excluded || (!b.enabled && !b.protected)) disableBuiltinUi(b.id);
     }
     rows = (body.data?.plugins ?? []).filter((r) => r.enabled && r.loaded && r.frontend);
   } catch (e) {

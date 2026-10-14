@@ -36,7 +36,7 @@ describe('disableBuiltinUi', () => {
 
   it('a disabled browser builtin removes its panel and settings through the plugin loader', async () => {
     const body = JSON.stringify({ data: { plugins: [], builtins: [
-      { id: 'builtin.browser', enabled: false, protected: false },
+      { id: 'builtin.browser', enabled: false, excluded: false, protected: false },
     ] } });
     await loadPlugins({ fetchImpl: vi.fn(async () => new Response(body, { status: 200 })) });
     expect(PANELS.has('browser')).toBe(false);
@@ -50,6 +50,14 @@ describe('disableBuiltinUi', () => {
     expect(disableBuiltinUi('builtin.browser')).toEqual([]);
   });
 
+  it('a builtin the distribution excludes loses its UI even when it is protected', async () => {
+    const body = JSON.stringify({ data: { plugins: [], builtins: [
+      { id: 'builtin.browser', enabled: false, excluded: true, protected: true },
+    ] } });
+    await loadPlugins({ fetchImpl: vi.fn(async () => new Response(body, { status: 200 })) });
+    expect(PANELS.has('browser')).toBe(false);
+  });
+
   it('builtin.ts tags the teams pages with the builtin.teams owner', () => {
     for (const id of TEAM_PAGES) expect(PAGES.list().find((e) => e.id === id)?.owner).toBe('builtin.teams');
     expect(PAGES.list().find((e) => e.id === 'settings')?.owner).toBe('builtin.ui');
@@ -61,9 +69,9 @@ describe('disableBuiltinUi', () => {
       data: {
         plugins: [],
         builtins: [
-          { id: 'builtin.nexus_plugins_module', enabled: false, protected: true },
-          { id: 'builtin.chat', enabled: true, protected: false },
-          { id: 'builtin.teams', enabled: false, protected: false },
+          { id: 'builtin.nexus_plugins_module', enabled: false, excluded: false, protected: true },
+          { id: 'builtin.chat', enabled: true, excluded: false, protected: false },
+          { id: 'builtin.teams', enabled: false, excluded: false, protected: false },
         ],
       },
     });

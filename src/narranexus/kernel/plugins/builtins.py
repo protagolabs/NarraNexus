@@ -20,7 +20,7 @@ from functools import lru_cache
 from loguru import logger
 import importlib.util
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection, Mapping
 
 from narranexus.kernel.plugins.manifest import Manifest, parse_manifest
 from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
@@ -179,4 +179,46 @@ def builtin_manifests() -> tuple[Manifest, ...]:
     return build_builtin_manifests(build_kernel_slot_tree())
 
 
-__all__ = ["BUILTIN_PLUGINS", "MANIFEST_FILENAME", "build_builtin_manifests", "builtin_manifest_data", "builtin_manifests", "load_builtins", "missing_builtins", "slot_tree_with_builtins"]
+def excluded_builtins_of_running_distribution(environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Builtins the distribution this process runs (``NARRANEXUS_DIST``) leaves out; empty when none is configured.
+
+    For processes WITHOUT a boot report (the ``narranexus`` CLI). A running backend already holds the
+    same answer as ``BootReport.excluded_builtins`` and passes that to ``check_builtin_toggle`` instead of
+    resolving again. A broken distribution raises ``DistributionError``: guessing "nothing excluded" there
+    would green-light exactly the toggles the distribution forbids.
+    """
+    from narranexus.kernel.plugins.distribution import resolve_from_env
+
+    res = resolve_from_env(environ)
+    return frozenset(res.excluded) if res is not None else frozenset()
+
+
+def check_builtin_toggle(plugin_id: str, enabled: bool, *, excluded: Collection[str] | None = None) -> Manifest:
+    """The ONE rule set for switching a builtin on/off through ``registry.json`` ``builtin_overrides``.
+
+    Raises ``KeyError`` for an unknown id, ``RegistryError`` for a builtin the running distribution
+    excludes (it is never loaded, so an override would be a silent no-op reported as done) or for
+    disabling a protected one. The factory API and the CLI both call this; add a new toggle rule here,
+    not in either caller. ``excluded=None`` resolves the distribution from the environment.
+    """
+    from narranexus.kernel.plugins.lifecycle import RegistryError
+
+    manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
+    if manifest is None:
+        raise KeyError(f"{plugin_id} is not a builtin plugin")
+    refuse_if_excluded(plugin_id, excluded)
+    if manifest.protected and not enabled:
+        raise RegistryError(f"{plugin_id} is protected and cannot be disabled")
+    return manifest
+
+
+def refuse_if_excluded(plugin_id: str, excluded: Collection[str] | None = None) -> None:
+    """Raise ``RegistryError`` when ``plugin_id`` is left out by the running distribution (``None`` = resolve from env)."""
+    from narranexus.kernel.plugins.lifecycle import RegistryError
+
+    left_out = excluded_builtins_of_running_distribution() if excluded is None else excluded
+    if plugin_id in left_out:
+        raise RegistryError(f"{plugin_id} is excluded by this distribution and cannot be changed here")
+
+
+__all__ = ["BUILTIN_PLUGINS", "MANIFEST_FILENAME", "build_builtin_manifests", "builtin_manifest_data", "builtin_manifests", "check_builtin_toggle", "excluded_builtins_of_running_distribution", "load_builtins", "missing_builtins", "refuse_if_excluded", "slot_tree_with_builtins"]

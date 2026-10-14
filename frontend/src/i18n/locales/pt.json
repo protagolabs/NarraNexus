@@ -1520,6 +1520,7 @@
             "blocked": "bloqueado",
             "missing": "ausente",
             "deps_missing": "dependências ausentes",
+            "excluded": "não incluído nesta distribuição",
             "crashed": "travou",
             "disabled": "desativado",
             "slow": "lento"

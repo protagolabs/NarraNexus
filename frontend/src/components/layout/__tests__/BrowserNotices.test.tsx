@@ -21,14 +21,28 @@ const mocks = vi.hoisted(() => ({
 }));
 const { getBrowserNotices } = mocks;
 
-vi.mock('@/lib/api', () => ({ api: { getBrowserNotices: mocks.getBrowserNotices } }));
+vi.mock('@/lib/api', () => ({
+  api: { getBrowserNotices: mocks.getBrowserNotices },
+  // Same shape as the real ApiError: the component must branch on `status`, never on message text.
+  ApiError: class ApiError extends Error {
+    constructor(readonly status: number, message: string) { super(message); }
+  },
+}));
 vi.mock('@/stores', () => ({
   useChatStore: (sel: (s: { activeAgentId: string | null }) => unknown) => sel(mocks.state),
 }));
 
 import { BrowserNotices } from '../BrowserNotices';
+import { ApiError } from '@/lib/api';
 import { PANELS, enableOwner } from '@/platform/registries';
-import { disableBuiltinUi } from '@/platform/loader';
+import { bootEverSettled, disableBuiltinUi, loadPlugins, pluginsBootSettled } from '@/platform/loader';
+
+vi.mock('@/stores/runtimeStore', () => ({ getApiBaseUrl: () => 'http://api' }));
+vi.mock('@/lib/authHeaders', () => ({ getAuthHeaders: () => ({}) }));
+
+// The shell only polls once the plugin boot pass has settled (see BrowserNotices); a failed
+// factory answer still settles it, which is all the other tests here need.
+const settledBoot = () => loadPlugins({ fetchImpl: vi.fn(async () => new Response('{}', { status: 500 })) as unknown as typeof fetch });
 
 const browserPanel = PANELS.get('browser')!;
 const browserOwner = PANELS.ownerOf('browser');
@@ -40,7 +54,11 @@ const login = {
 };
 type Notices = { pending: (typeof login)[] };
 
-beforeEach(() => {
+// Name marker of the one test that must observe the file's FIRST boot pass unsettled (see below).
+const FIRST_PASS_TEST = 'first-pass';
+
+beforeEach(async () => {
+  if (!expect.getState().currentTestName?.includes(FIRST_PASS_TEST)) await settledBoot();
   mocks.state.activeAgentId = 'agent_1';
   getBrowserNotices.mockReset();
 });
@@ -64,6 +82,28 @@ function LocationProbe() {
 }
 
 const shell = () => <MemoryRouter><BrowserNotices /></MemoryRouter>;
+
+test(`${FIRST_PASS_TEST}: it does not poll before the first plugin boot settles, and never when the distribution excludes the browser`, async () => {
+  // The cloud distribution excludes builtin.browser: the backend never mounts /api/browser, so a
+  // poll fired in the window before the factory listing removes the panel is a guaranteed 404.
+  // Module state is per test file and `bootEverSettled` is monotonic, so this must be the first
+  // pass of the file; the top-level beforeEach skips its own settling for this test.
+  expect(bootEverSettled()).toBe(false);
+  const listing = deferred<Response>();
+  const boot = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  render(shell());
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+
+  listing.resolve(new Response(JSON.stringify({ data: { plugins: [], builtins: [
+    { id: 'builtin.browser', enabled: false, excluded: true, protected: false },
+  ] } }), { status: 200 }));
+  await act(async () => { await boot; });
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(PANELS.has('browser')).toBe(false);
+  expect(getBrowserNotices).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
+});
 
 test('it polls for the agent the user is actually talking to', async () => {
   getBrowserNotices.mockResolvedValue({ pending: [] });
@@ -199,4 +239,47 @@ test('disabling the browser feature removes notices and stops polling', async ()
   expect(screen.queryByText(login.reason)).not.toBeInTheDocument();
   await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
   expect(getBrowserNotices).toHaveBeenCalledTimes(1);
+});
+
+test('a later loadPlugins pass (the login flip) does not unmount a live notice', async () => {
+  // `pluginsBootSettled()` goes false for every pass; gating on it would unmount and remount the
+  // poller (dropping the notice for a moment) each time. The gate is the monotonic bootEverSettled.
+  getBrowserNotices.mockResolvedValue({ pending: [login] });
+  render(shell());
+  await screen.findByText(login.reason);
+  const calls = getBrowserNotices.mock.calls.length;
+  const listing = deferred<Response>();
+  const second = loadPlugins({ fetchImpl: (() => listing.promise) as unknown as typeof fetch });
+  expect(pluginsBootSettled()).toBe(false);
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(screen.getByText(login.reason)).toBeInTheDocument();
+  // an unmount/remount would have asked again immediately
+  expect(getBrowserNotices.mock.calls.length).toBe(calls);
+  listing.resolve(new Response('{}', { status: 500 }));
+  await act(async () => { await second; });
+  expect(screen.getByText(login.reason)).toBeInTheDocument();
+});
+
+test('a 404 means the feature is absent on this server: no banner and polling stops', async () => {
+  // Cloud distributions never mount /api/browser. If the factory listing could not be read (a
+  // transient 5xx, a timeout, an expired token) the Browser panel survives, and this poll is the
+  // only thing left that can notice the route is not there.
+  vi.useFakeTimers();
+  getBrowserNotices.mockRejectedValue(new ApiError(404, 'API error: 404 Not Found'));
+  render(shell());
+  await act(async () => {});
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('browser-notices')).not.toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(getBrowserNotices).toHaveBeenCalledTimes(1);
+});
+
+test('a 5xx is still a visible, retried failure (only 404 is read as "feature absent")', async () => {
+  vi.useFakeTimers();
+  getBrowserNotices.mockRejectedValueOnce(new ApiError(503, 'API error: 503 Service Unavailable')).mockResolvedValue({ pending: [] });
+  render(shell());
+  await act(async () => {});
+  expect(screen.getByRole('alert')).toHaveTextContent('503');
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(getBrowserNotices.mock.calls.length).toBeGreaterThan(1);
 });

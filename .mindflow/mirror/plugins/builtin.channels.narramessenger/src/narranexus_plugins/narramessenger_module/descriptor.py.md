@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/descriptor.py
-last_verified: 2026-09-07
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — 声明 `reset_on_reenable=("matrix_since_token",)`
+
+禁用期之后续用旧 /sync 游标会让 agent 回答禁用期间积压的全部消息（续传基线 0 不做历史过滤）。绑定从禁用回到启用时清掉游标
+→ 下一次 connect 是无游标首次 sync，由连接时刻基线丢弃历史（见 [[matrix_trigger.py]]）。机制在通用 store（[[credential_store]]）。
+注意该游标因名字含 token 被 store 归入 secret 一侧：清除在拆分 public/secret 之后才并入；行的密文不可读（`secret_error`）时密文侧清除会跳过，以免覆盖原密文（含 access token）——该行在 key 恢复后若直接续用会续旧游标，正常路径是重新绑定（详见 [[credential_store]]）。
 
 ## 2026-09-07 — 描述符收下消息来源；删掉模块级 `SOURCE`
 

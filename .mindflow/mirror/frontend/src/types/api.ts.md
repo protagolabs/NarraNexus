@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-09-10
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — `FactoryBuiltin.excluded`
+
+Required flag (the backend always sends it; no old-payload shim) from `GET /api/plugin-factory` `builtins[]`: the running distribution leaves the builtin out (never loaded);
+`enabled` is false for such rows and cannot be changed.
 
 ## 2026-09-10 — `JobStatus` / `JobQueueStatus` / `QueueCounts` + `paused_spend_cap`
 

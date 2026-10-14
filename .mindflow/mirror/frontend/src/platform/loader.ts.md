@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — `bootEverSettled()` (monotonic) next to `pluginsBootSettled()`
+
+`pluginsBootSettled()` is false for every pass in flight (the login-flip pass resets it) — `App.tsx` needs exactly that to hold a
+plugin deep link during any pass. A component that only needs "the factory listing has been applied once" (`BrowserNotices`)
+would unmount and remount on every later pass if it used that one. `bootEverSettled()` flips to true with the first settle and
+never goes back; do not make `pluginsBootSettled()` monotonic. `FactoryBuiltinRow.excluded` is a required boolean: the backend
+always sends it and front/back ship together, so a missing field is a bug, not an old payload.
+
+## 2026-10-14 — `excluded` builtin rows drop their UI even when protected
+
+`loadPlugins` calls `disableBuiltinUi` for a builtin row that is `excluded` (left out by the running distribution) as well as
+for the old "not enabled and not protected" case. `protected` only means "a user cannot switch this off"; it never meant a
+distribution that does not load the plugin still has its UI. `builtin.ui` stays skipped regardless.
+
+Fail-open behavior, by design: when the factory answer cannot be read (non-ok, 15 s timeout, network error) `loadPlugins`
+returns `[]`, disables nothing, and the boot still settles — the shell must not hang on a dead backend. A distribution-excluded
+builtin's UI then survives until the next successful pass; the per-feature safety net is the feature's own 404
+(`BrowserNotices` reads a 404 as "feature absent" and stops). Any other UI that depends on an excluded builtin's routes needs
+the same treatment.
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 

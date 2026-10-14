@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from narranexus.contracts import BindingConflict, ManifestError, UnknownEntry
+from narranexus.contracts import BindingConflict, ManifestError, PluginError, UnknownEntry
 
 from narranexus.cli.scaffold import TEMPLATES_DIR  # noqa: E402 — one definition of where the templates live
 from narranexus.contracts.distribution import is_builtin_id
@@ -128,13 +128,11 @@ def _toggle_builtin(plugin_id: str, enabled: bool) -> bool:
     """builtin.* ids are toggled through registry.json builtin_overrides; returns False for non-builtins."""
     if not is_builtin_id(plugin_id):
         return False
-    from narranexus.kernel.plugins.builtins import builtin_manifests
+    from narranexus.kernel.plugins.builtins import check_builtin_toggle
 
-    manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
-    if manifest is None:
-        raise KeyError(f"{plugin_id} is not a builtin plugin")
-    if manifest.protected and not enabled:
-        raise PermissionError(f"{plugin_id} is protected and cannot be disabled")
+    # Same rules as the factory API (unknown / excluded by the distribution / protected); a refusal
+    # is a RegistryError, which main() prints to stderr with a non-zero exit.
+    check_builtin_toggle(plugin_id, enabled)
 
     def _mutate(reg):
         if enabled:
@@ -480,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
     fn: Callable[[argparse.Namespace], int] = args.fn
     try:
         return fn(args)
-    except (ManifestError, FileNotFoundError, KeyError, PermissionError, BindingConflict, UnknownEntry) as exc:
+    except (ManifestError, FileNotFoundError, KeyError, PermissionError, BindingConflict, UnknownEntry, PluginError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 — a CLI prints, it does not traceback

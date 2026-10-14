@@ -1968,6 +1968,7 @@
             "blocked": "blocked",
             "missing": "missing",
             "deps_missing": "dependencies missing",
+            "excluded": "not in this distribution",
             "crashed": "crashed",
             "disabled": "disabled",
             "slow": "slow"

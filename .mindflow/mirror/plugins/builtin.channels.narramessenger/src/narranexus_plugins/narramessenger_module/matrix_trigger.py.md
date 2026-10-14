@@ -1,8 +1,37 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-09-11
+last_verified: 2026-10-14
 ---
+
+## 2026-10-14（预审后）— 去掉空操作的 `_on_transport_connected` 覆写；关→开不回答积压
+
+- 删除上一版对 `_on_transport_connected` 的空覆写：`connect()` 总是在第一次 sync 前给该 agent 设 per-agent 基线，
+  基类对全局基线的推进因此对本渠道不起作用（没有任何 Matrix agent 会读到它）。防串扰靠的是 per-agent 覆盖本身
+  （`test_another_agent_connecting_without_a_cursor...` 现在让 B 先连上、A 再冷绑，B 随后收到旧积压；把覆盖退化成共享值即变红）。
+- **禁用→启用**：不管行怎么变成禁用的（用户开关、自动停用、bundle 导入落 `enabled=0` 带源环境游标、存量禁用行），回到启用时通用
+  store 按描述符 `reset_on_reenable` 清掉游标，重新启用就是无游标首次 sync，禁用期间的消息被连接时刻基线丢弃
+  （`ingress_dropped_historic`，带 `age_min`）。迟到的游标写入同样在迁移处被清。普通重连（无禁用）仍续传并处理积压。
+  锁：`test_matrix_reconnect_replay.py` 的 `test_disable_then_enable_*` / `test_a_bundle_imported_*` / `test_a_late_cursor_write_*` / `test_plain_reconnect_*`。
+
+## 2026-10-14 — 重连续传而非回放：游标从 DB 重读 + 历史过滤只用于无游标会话
+
+两个叠加缺陷（线上 2011 条 historic 丢弃 = 186 个不同消息，最多重复 35 次；4 条真丢）：
+A. `connect()` 用的是订阅者启动时的 `credential.matrix_since_token`，而活游标每次 sync 都写 DB——每次重连
+   （prod 约 1–5 天一次「Matrix /sync failed: unknown error」）都重放订阅者启动以来的全部事件。
+B. 基类重连时把**全 channel 共用**的 historic 基线推到 now，掩盖了 A 的重放（所以没出现双回复），但也把重连后
+   送达、真正没处理过的积压当成「过旧」丢了。
+
+修法（必须同时做，只修 B 会把 A 的重放变成大面积重复回复）：
+- `connect()` 开头 `_resume_cursor`：经 credential manager 读 DB 里的最新游标；读失败/行不存在才退回凭据快照
+  字段，并打 warning。
+- `_set_session_baseline`：**无游标**（绑定后首次 sync/游标丢失）→ 该 agent 基线=本次 connect 时刻（沿用 5 分钟
+  buffer），房间历史不被回答；**有游标续传**→ 基线 0，永不 historic 丢弃，至少一次的重叠由 DB 去重层
+  （`channel_seen_messages`，键 `agent:event_id`）吸收，积压仍走 `ingress_processed` 审计。基线是 per-agent。
+- 不覆写 `_on_transport_connected`：基类仍会在重连时推进全局基线，但每个 Matrix agent 在首次 sync 前都已有 per-agent 覆盖，全局值对本渠道从不被读取（见 [[channel_dedup_store]]）。
+- **残余风险（记录不实现）**：停机很久后续传会回答全部积压；DB 去重保留 7 天，游标早于 7 天又写游标失败时可能
+  重复处理。若需要「极旧积压」保护，应做成显式、可观测的策略，而不是静默 historic 丢弃。
+锁：`tests/narramessenger_module/test_matrix_reconnect_replay.py`（真实 `_subscribe_loop` + `connect()`，仅假 nio 客户端）。
 
 ## 2026-09-11（PR #394 review 第五/六轮）— 拒绝提示改走基类钩子（流式与 atomic 两条路径）
 

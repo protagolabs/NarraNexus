@@ -28,6 +28,12 @@ DESCRIPTOR = ChannelDescriptor(
         ),
         supports_test=False,
         external_id_field="matrix_user_id",
+        # The /sync cursor must not survive a disabled period: resumed after an off/on
+        # toggle (or an import that lands disabled), Synapse would hand the subscriber
+        # everything sent meanwhile and the agent would answer it. Blanked at the
+        # disabled -> enabled transition => the next connect is a cursor-less first sync,
+        # whose historic filter drops that backlog.
+        reset_on_reenable=("matrix_since_token",),
     ),
     trigger_ref=f"{_MOD}.narramessenger_module.matrix_trigger:MatrixTrigger",
     module_ref=f"{_MOD}.narramessenger_module.narramessenger_module:NarramessengerModule",

@@ -209,3 +209,132 @@ def test_leaving_safe_mode_resets_the_boot_crash_counters(client):
     assert c.post("/api/plugin-factory/safe-mode/leave", headers=H).json()["data"]["safe_mode"] is False
     assert not (home / ".booting-workers").exists()
     assert not (home / ".booting-mcp").exists()
+
+
+# --------------------------------------------------------------------------
+# Builtins excluded by the ACTIVE distribution must read as not enabled.
+# Regression: the cloud distribution excludes builtin.browser (its /api/browser
+# routes are never mounted), yet the listing reported it enabled, so the
+# frontend kept the Browser panel and polled the missing route forever.
+# --------------------------------------------------------------------------
+
+_DISTRIBUTIONS_DIR = Path(__file__).resolve().parents[2] / "distributions"
+_CLOUD_EXCLUDED = ("builtin.auth.local", "builtin.browser", "builtin.nexus_plugins_module")
+
+
+def _resolved(name: str):
+    from narranexus.kernel.plugins.distribution import load_distribution, resolve_distribution
+
+    spec, base = load_distribution(_DISTRIBUTIONS_DIR / name)
+    res = resolve_distribution(spec, base)
+    res.raise_for_problems()
+    return res
+
+
+def _use_distribution(svc: FactoryService, name: str | None) -> None:
+    """Give the service the boot report a backend started under distribution ``name`` would hold.
+
+    This is the production path: ``backend/main.py`` assigns the lifespan boot's
+    ``BootReport`` (``excluded_builtins`` = what the distribution left out) to the factory service.
+    """
+    from narranexus.hosts.boot import BootReport
+
+    if name is None:
+        svc.boot_report = BootReport(role="backend")
+        return
+    res = _resolved(name)
+    svc.boot_report = BootReport(role="backend", distribution=res.spec.id, excluded_builtins=tuple(res.excluded))
+
+
+def _builtin_rows(c) -> dict:
+    return {b["id"]: b for b in c.get("/api/plugin-factory", headers=H).json()["data"]["builtins"]}
+
+
+def test_cloud_distribution_reports_its_excluded_builtins_as_not_enabled(client):
+    c, svc, _ = client
+    _use_distribution(svc, "cloud")
+    rows = _builtin_rows(c)
+    for pid in _CLOUD_EXCLUDED:
+        assert rows[pid]["enabled"] is False and rows[pid]["excluded"] is True, pid
+    # a builtin the distribution keeps is untouched
+    assert rows["builtin.teams"]["enabled"] is True and rows["builtin.teams"]["excluded"] is False
+    assert rows["builtin.chat"]["enabled"] is True and rows["builtin.chat"]["excluded"] is False
+
+
+def test_desktop_and_no_distribution_keep_the_browser_enabled(client):
+    c, svc, _ = client
+    for name in ("desktop", None):
+        _use_distribution(svc, name)
+        row = _builtin_rows(c)["builtin.browser"]
+        assert row["enabled"] is True and row["excluded"] is False, name
+    # desktop excludes only the NetMind auth
+    _use_distribution(svc, "desktop")
+    rows = _builtin_rows(c)
+    assert rows["builtin.auth.netmind"]["enabled"] is False and rows["builtin.auth.netmind"]["excluded"] is True
+    assert rows["builtin.auth.local"]["enabled"] is True
+
+
+def test_an_excluded_builtin_cannot_be_toggled_back_on_or_off(client):
+    c, svc, home = client
+    _use_distribution(svc, "cloud")  # the test process itself is local, so the cloud 403 guard is not what answers
+    for action in ("enable", "disable"):
+        r = c.post(f"/api/plugin-factory/builtin/builtin.browser/{action}", headers=H)
+        assert r.status_code == 400 and "distribution" in r.json()["detail"], action
+    # protected + excluded (the plugin factory's own builtin) is refused too
+    assert c.post("/api/plugin-factory/builtin/builtin.nexus_plugins_module/enable", headers=H).status_code == 400
+    reg_file = home / "registry.json"
+    assert not reg_file.exists() or not json.loads(reg_file.read_text()).get("builtin_overrides")
+    # a kept builtin still toggles
+    assert c.post("/api/plugin-factory/builtin/builtin.teams/disable", headers=H).status_code == 200
+
+
+def test_an_excluded_builtin_does_not_get_its_dependencies_installed(client, monkeypatch):
+    from narranexus.kernel.plugins.install import builtin_deps
+
+    c, svc, _ = client
+    _use_distribution(svc, "minimal")  # excludes the on-demand lark channel
+    monkeypatch.setattr(builtin_deps, "ensure_builtin_deps", lambda *a, **k: pytest.fail("installed deps for an excluded builtin"))
+    r = c.post("/api/plugin-factory/builtin/builtin.channels.lark/install-deps", headers=H)
+    assert r.status_code == 400 and "distribution" in r.json()["detail"]
+
+
+def test_cloud_mode_still_refuses_toggles_and_lists_the_exclusion(client, monkeypatch):
+    # Cloud mode makes the HTTP layer demand a real JWT, so drive the service the route wraps.
+    from backend.plugins_factory.service import CloudManaged
+
+    _, svc, _ = client
+    _use_distribution(svc, "cloud")
+    monkeypatch.setattr("backend.plugins_factory.service.is_cloud_mode", lambda: True)
+    with pytest.raises(CloudManaged):
+        svc.set_builtin_enabled("builtin.browser", True)
+    data = svc.list()
+    assert data["cloud_managed"] is True
+    rows = {b["id"]: b for b in data["builtins"]}
+    assert rows["builtin.browser"]["enabled"] is False and rows["builtin.browser"]["excluded"] is True
+
+
+def test_without_a_boot_report_the_process_distribution_decides(client, monkeypatch):
+    """Before the lifespan boot assigns a report (or when none ever does) the listing must still not claim
+    an excluded builtin runs: it falls back to the backend's own resolved distribution."""
+    from backend import plugins_boot
+
+    _, svc, _ = client
+    assert svc.boot_report is None
+    monkeypatch.setattr(plugins_boot, "distribution", lambda: _resolved("cloud"))
+    rows = {b["id"]: b for b in svc.list()["builtins"]}  # service call, not HTTP: the patched distribution also picks the auth provider
+    assert rows["builtin.browser"]["enabled"] is False and rows["builtin.browser"]["excluded"] is True
+    assert rows["builtin.teams"]["excluded"] is False
+    monkeypatch.setattr(plugins_boot, "distribution", lambda: None)
+    assert {b["id"]: b for b in svc.list()["builtins"]}["builtin.browser"]["enabled"] is True
+
+
+def test_cascade_skips_dependants_the_distribution_excludes(client):
+    """A custom distribution may drop a dependant (teams) yet keep its dependency (message_bus): disabling the
+    dependency must not write a dead override for, or report as also-disabled, something that never loads."""
+    from narranexus.hosts.boot import BootReport
+
+    c, svc, home = client
+    svc.boot_report = BootReport(role="backend", distribution="acme.custom", excluded_builtins=("builtin.teams",))
+    r = c.post("/api/plugin-factory/builtin/builtin.message_bus/disable", headers=H)
+    assert r.status_code == 200 and r.json()["data"]["also_disabled"] == []
+    assert json.loads((home / "registry.json").read_text())["builtin_overrides"] == {"builtin.message_bus": {"enabled": False}}
