@@ -947,6 +947,10 @@ class ChannelTriggerBase(ABC):
                     dead_cred = self._subscriber_creds.get(key)
                     self._subscriber_tasks.pop(key, None)
                     self._subscriber_creds.pop(key, None)
+                    if self._dedup_store is not None and dead_cred is not None:
+                        self._dedup_store.clear_agent_baseline(
+                            getattr(dead_cred, "agent_id", "")
+                        )
                     await self._breaker_record_death(key, dead_cred)
 
                 # A subscriber that is still running after the fast-death

@@ -330,12 +330,18 @@ class GenericCredentialStore:
         the panel / status tools can show a readable cause instead of a bare
         inactive toggle. Enabling always clears it — the owner's re-enable
         (or a re-bind) is the fresh start. Goes through ``patch`` so it never
-        clobbers a concurrent write to other fields.
+        clobbers a concurrent write to other fields. Disabling also clears the
+        descriptor's ``credential_schema.reset_on_disable`` fields.
         """
         try:
             # str() once here so every consumer (panels, tg_status, plugin
             # channels) can rely on the field being a string.
-            record = await self.patch(channel, agent_id, {"disabled_reason": str(reason or "") if not enabled else ""}, enabled=enabled)
+            fields: dict[str, Any] = {"disabled_reason": str(reason or "") if not enabled else ""}
+            if not enabled:
+                # Transport state the channel declared as invalid once it is off
+                # (e.g. a stream cursor): the next enable starts fresh.
+                fields.update({name: "" for name in self.descriptor(channel).credential_schema.reset_on_disable})
+            record = await self.patch(channel, agent_id, fields, enabled=enabled)
         except RuntimeError as exc:
             # The version race is the only thing patch raises; keep the old
             # "never raises, False means not done" contract for the route and

@@ -252,8 +252,18 @@ class NarramessengerCredentialManager:
     async def update_since_token(
         self, agent_id: str, since_token: str
     ) -> None:
-        """Persist the Matrix sync token so a restart resumes where it left off."""
-        await _store(self._db).patch(CHANNEL, agent_id, {"matrix_since_token": since_token})
+        """Persist the Matrix sync token so a restart resumes where it left off.
+
+        Skipped for a binding that is switched off: the watcher stops a
+        subscriber up to one poll after the toggle, and a sync finishing in that
+        window must not write back the cursor ``set_enabled(False)`` just
+        cleared (a later enable would resume it and answer stale backlog).
+        """
+        store = _store(self._db)
+        record = await store.get(CHANNEL, agent_id)
+        if record is None or not record.enabled:
+            return
+        await store.patch(CHANNEL, agent_id, {"matrix_since_token": since_token})
 
     async def update_device_id(self, agent_id: str, device_id: str) -> None:
         """Persist the Matrix device id the login minted."""

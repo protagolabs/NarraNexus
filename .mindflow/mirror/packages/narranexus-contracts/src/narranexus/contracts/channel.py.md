@@ -1,8 +1,15 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/channel.py
-last_verified: 2026-09-07
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — `CredentialSchema.reset_on_disable`：关闭即作废的传输状态
+
+新增可选字段 `reset_on_disable: tuple[str, ...] = ()`（默认空，所有既有描述符行为不变）：列出绑定被**关闭**时平台要
+清成 "" 的存储值名。动机是流式游标——Matrix 的 `matrix_since_token` 在 开→关→开 之后若被续用，Synapse 会把关闭期间
+（数天/数周）的所有消息一次性送回，agent 会逐条回答过期消息。声明在 schema 上而不是在通用 store 里特判某个渠道，
+保持 store 频道无关。**不做**：启用、重新绑定（upsert 本来就整行覆盖）、每次 sync 都不清。
 
 ## 2026-09-07 — 渠道的「消息来源」变成描述符的字段；新增 MessageSourceSpec
 

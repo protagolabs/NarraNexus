@@ -77,10 +77,12 @@ class _Script:
     sync AFTER the script is exhausted, so ``_subscribe_loop`` ends
     deterministically once every scripted batch was consumed."""
 
-    def __init__(self, trigger, items):
+    def __init__(self, trigger, items, gates=None):
         self.trigger = trigger
         self.items = list(items)
         self.since: list = []
+        # sync-call index -> Event awaited before that call is served
+        self.gates = gates or {}
 
 
 def _install_fake_client(monkeypatch, script: _Script) -> None:
@@ -92,6 +94,9 @@ def _install_fake_client(monkeypatch, script: _Script) -> None:
 
         async def sync(self, timeout=None, since=None, full_state=False):
             script.since.append(since)
+            gate = script.gates.get(len(script.since) - 1)
+            if gate is not None:
+                await gate.wait()
             if not script.items:
                 # Script exhausted: every scripted batch has been fully
                 # consumed by the base loop. Stop the trigger and idle.
@@ -145,9 +150,13 @@ async def harness(db_client, monkeypatch):
     return SimpleNamespace(trigger=trigger, db=db_client, monkeypatch=monkeypatch)
 
 
-async def _run(h, cred: NarramessengerCredential, items) -> _Script:
-    """Persist ``cred`` and drive the real subscribe loop through ``items``."""
-    await NarramessengerCredentialManager(h.db).upsert(cred)
+async def _run(h, cred: NarramessengerCredential, items, *, upsert: bool = True) -> _Script:
+    """Persist ``cred`` and drive the real subscribe loop through ``items``.
+
+    ``upsert=False`` re-uses whatever the DB already holds (a re-bind would
+    overwrite the cursor, which is not what a plain re-enable does)."""
+    if upsert:
+        await NarramessengerCredentialManager(h.db).upsert(cred)
     h.trigger.running = True
     script = _Script(h.trigger, items)
     _install_fake_client(h.monkeypatch, script)
@@ -239,11 +248,82 @@ async def test_first_sync_without_a_cursor_still_drops_old_room_history(harness)
 
 @pytest.mark.asyncio
 async def test_another_agent_connecting_without_a_cursor_does_not_filter_this_agent(harness):
+    """B is ALREADY connected (resumed) when A cold-binds; B then receives an
+    hour-old unprocessed event. Per-agent isolation is what keeps B's filter
+    where B's own session put it."""
     backlog = _event("$b_backlog", _now_ms() - HOUR_MS)
-    # Agent A cold-binds (no cursor) first...
-    await _run(harness, _cred("agent_a", cursor=""), [_batch("a1")])
-    _queued_ids(harness.trigger)
-    # ...then agent B, resuming a persisted cursor, receives an hour-old
-    # unprocessed event. A's reconnect must not have moved B's filter.
-    await _run(harness, _cred("agent_b", cursor="b0"), [_batch("b1", backlog)])
+    gate = asyncio.Event()
+    cred_b = _cred("agent_b", cursor="b0")
+    await NarramessengerCredentialManager(harness.db).upsert(cred_b)
+    b_script = _Script(harness.trigger, [_batch("b1"), _batch("b2", backlog)], gates={1: gate})
+    _install_fake_client(harness.monkeypatch, b_script)
+    task_b = asyncio.create_task(harness.trigger._subscribe_loop(cred_b))
+    while len(b_script.since) < 2:  # B served sync #1 and is parked on the gate
+        await asyncio.sleep(0)
+
+    await _run(harness, _cred("agent_a", cursor=""), [_batch("a1")])  # A cold-binds meanwhile
+    harness.trigger.running = True  # A's script end stopped the shared trigger
+    gate.set()
+    await asyncio.wait_for(task_b, timeout=10)
     assert _queued_ids(harness.trigger) == ["$b_backlog"]
+
+
+async def _toggle(h, agent_id: str, enabled: bool) -> None:
+    from narranexus.platform.channel.credential_store import GenericCredentialStore
+
+    assert await GenericCredentialStore(h.db).set_enabled("narramessenger", agent_id, enabled)
+
+
+@pytest.mark.asyncio
+async def test_disable_then_enable_does_not_answer_what_was_sent_while_off(harness):
+    """The user toggle (set-active route -> GenericCredentialStore.set_enabled)
+    keeps the row; without clearing the cursor the re-enabled subscriber would
+    resume from it with no historic filter and answer days-old messages."""
+    cred = _cred("agent_a", cursor="s0")
+    await _run(harness, cred, [_batch("s1")])
+    assert (await NarramessengerCredentialManager(harness.db).get("agent_a")).matrix_since_token == "end"  # the live cursor
+
+    await _toggle(harness, "agent_a", False)
+    await _toggle(harness, "agent_a", True)
+
+    stale = _event("$sent_while_off", _now_ms() - 3 * 24 * HOUR_MS)
+    fresh = _event("$fresh_after_on", _now_ms() - 2_000)
+    script = await _run(harness, cred, [_batch("s2", stale, fresh)], upsert=False)
+    assert script.since[0] is None  # cursor-less first sync
+    assert _queued_ids(harness.trigger) == ["$fresh_after_on"]
+    historic = await _audit_rows(harness, "ingress_dropped_historic")
+    assert [r["message_id"] for r in historic] == ["$sent_while_off"]
+
+
+@pytest.mark.asyncio
+async def test_auto_disable_path_also_clears_the_cursor(harness):
+    """disable_credential (permanent auth failure etc.) goes through the
+    manager's set_enabled — the same choke point."""
+    cred = _cred("agent_a", cursor="s0")
+    await _run(harness, cred, [_batch("s1")])
+    await harness.trigger.disable_credential(cred, reason="revoked")
+    assert (await NarramessengerCredentialManager(harness.db).get("agent_a")).matrix_since_token == ""
+
+
+@pytest.mark.asyncio
+async def test_a_late_cursor_write_cannot_resurrect_the_cursor_of_a_disabled_binding(harness):
+    """The watcher stops a subscriber up to one poll after the toggle; a sync
+    that completes in that window must not write the cursor back."""
+    cred = _cred("agent_a", cursor="s0")
+    await _run(harness, cred, [_batch("s1")])
+    await _toggle(harness, "agent_a", False)
+    mgr = NarramessengerCredentialManager(harness.db)
+    await mgr.update_since_token("agent_a", "s_late")
+    assert (await mgr.get("agent_a")).matrix_since_token == ""
+
+
+@pytest.mark.asyncio
+async def test_plain_reconnect_without_a_toggle_still_resumes_and_processes_backlog(harness):
+    backlog = _event("$backlog", _now_ms() - 2 * HOUR_MS)
+    script = await _run(harness, _cred("agent_a", cursor="s0"), [
+        _batch("s1"),
+        RuntimeError("Matrix /sync failed: unknown error"),
+        _batch("s2", backlog),
+    ])
+    assert script.since[2] == "s1"
+    assert _queued_ids(harness.trigger) == ["$backlog"]

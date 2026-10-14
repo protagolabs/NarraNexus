@@ -397,17 +397,6 @@ class MatrixTrigger(ChannelTriggerBase):
         | frozenset({"matrix_since_token"})
     )
 
-    async def _on_transport_connected(self, credential: Any) -> None:
-        """Deliberately does NOT bump the channel-wide historic baseline.
-
-        The base bumps ONE baseline shared by every subscriber of the channel
-        (144 bindings in prod), so any agent's reconnect moved the filter for
-        all of them and dropped genuinely unprocessed backlog as "historic".
-        Whether a session may historic-drop depends on its cursor, which only
-        :meth:`connect` knows — it sets the PER-AGENT baseline there.
-        """
-        return None
-
     # ── Worker pool ──────────────────────────────────────────────────────
     # Concurrency tuning inherited from the pre-Matrix era; migration
     # kept identical characteristics so throughput per agent is unchanged.
@@ -2540,7 +2529,10 @@ class MatrixTrigger(ChannelTriggerBase):
         unprocessed backlog or an at-least-once overlap — so it is never
         historic-dropped (rule #16); the DB dedup layer absorbs the overlap.
         The baseline is per agent so one agent's reconnect never moves
-        another's filter.
+        another's filter. Every Matrix agent has an override here before its
+        first sync, so the base's channel-wide baseline (still bumped on
+        each reconnect by ``_on_transport_connected``) is never consulted for
+        this channel.
         """
         if self._dedup_store is None:
             return

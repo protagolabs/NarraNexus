@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-10-14
 ---
 
+## 2026-10-14（预审后）— 看门狗收割死订阅者时同样释放 per-agent 基线
+
+`_stop_subscriber` 与 watcher 的 dead-key 收割路径现在对称：都 `clear_agent_baseline(agent_id)`，不让一个已结束会话设的覆盖
+活过它自己。锁：`test_credential_refresh.py::test_stop_subscriber_releases_*` / `test_reaping_a_dead_subscriber_releases_*`。
+
 ## 2026-10-14 — `_subscribe_loop` 每次（重）连先取 watcher 的最新凭据；historic 审计带 `age_min`
 
 - **根因**：`_subscribe_loop(credential)` 把 spawn 时的凭据对象带过每一次重连，而 `_credential_watcher` 每轮

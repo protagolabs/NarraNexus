@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-10-14
 ---
+
+## 2026-10-14 — `update_since_token` 对已关闭的绑定不写
+
+watcher 最晚一个轮询周期后才停掉订阅者；这期间完成的 sync 若把游标写回，会让 `set_enabled(False)` 刚清掉的游标复活，
+之后重新启用又会续用旧游标。所以写前先读一次行，行不存在或 `enabled` 为假就直接返回（每次 sync 多一次读，不是清除）。
+`set_enabled(False)` 清游标由描述符的 `reset_on_disable` 触发，不在本文件里特判。
 
 ## 2026-09-09 — `disabled_reason` 公开字段 + `set_enabled(reason=)`（B-28 I1）
 

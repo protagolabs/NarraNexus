@@ -260,3 +260,40 @@ async def test_reconnect_uses_the_watchers_fresh_credential_not_the_captured_one
 
     assert trigger.seen[0] is captured  # first connect: the credential spawned with
     assert trigger.seen[1] is fresh     # reconnect: the refreshed snapshot
+
+
+# ── Test 4: per-agent dedup baselines are released when a subscriber goes away ──
+
+@pytest.mark.asyncio
+async def test_stop_subscriber_releases_the_agents_dedup_baseline(db_client):
+    trigger = _RefreshTrigger()
+    await trigger.start(db_client)
+    try:
+        cred = _MutCredential()
+        trigger._subscriber_creds["bot1"] = cred
+        trigger._dedup_store.set_agent_baseline(cred.agent_id, 123)
+        await trigger._stop_subscriber("bot1")
+        assert cred.agent_id not in trigger._dedup_store._agent_baselines
+    finally:
+        await trigger.stop()
+
+
+@pytest.mark.asyncio
+async def test_reaping_a_dead_subscriber_releases_the_agents_dedup_baseline(db_client):
+    """A crashed subscriber task is reaped by the watcher — the same release
+    as an intentional stop, or a stale per-agent override outlives the session
+    that set it."""
+    trigger = _RefreshTrigger()
+    await trigger.start(db_client)
+    try:
+        assert await _wait_until(lambda: "bot1" in trigger._subscriber_creds)
+        dead = asyncio.get_event_loop().create_future()
+        dead.set_result(None)  # a done "task"
+        trigger._subscriber_tasks["bot1"].cancel()
+        trigger._subscriber_tasks["bot1"] = dead
+        trigger._dedup_store.set_agent_baseline("agent_a", 123)
+        assert await _wait_until(
+            lambda: "agent_a" not in trigger._dedup_store._agent_baselines
+        )
+    finally:
+        await trigger.stop()

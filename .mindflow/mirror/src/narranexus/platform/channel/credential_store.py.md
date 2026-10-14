@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/channel/credential_store.py
-last_verified: 2026-09-09
+last_verified: 2026-10-14
 stub: false
 ---
+
+## 2026-10-14 — `set_enabled(False)` 同时清 `reset_on_disable` 声明的字段
+
+所有关闭路径（`/{channel}/set-active` 路由直调、`disable_credential` / 自动停用经各渠道 manager 的 `set_enabled`）
+最终都落到本方法，所以这里是唯一咽喉：禁用时把 `descriptor.credential_schema.reset_on_disable` 里的值与
+`disabled_reason` 一起走同一次版本化 `patch` 清成 ""（见 [[channel]] 契约）。启用不动这些字段。没声明的渠道零变化。
+锁：`tests/channel/test_credential_reset_on_disable.py`。
 
 ## 2026-09-09 — `set_enabled(..., reason=)` 写通用 `disabled_reason`；`patch` 对不可读密文 fail-closed（B-28，复审 C1/I4）
 
