@@ -14,8 +14,6 @@ export interface OnboardDefaultsResult {
   defaults: OnboardDefaults
 }
 
-const FAILED: OnboardDefaultsResult = { ok: false, defaults: {} }
-
 /**
  * Normalise the response field into a fresh table, or null when it is not an
  * object (a missing / malformed field is a failure, never an empty table).
@@ -50,6 +48,6 @@ export async function refreshOnboardDefaults(): Promise<OnboardDefaultsResult> {
     return { ok: true, defaults }
   } catch (e) {
     console.warn('onboard defaults unavailable', e)
-    return FAILED
+    return { ok: false, defaults: {} }
   }
 }

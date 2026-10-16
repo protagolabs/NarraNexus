@@ -12,14 +12,14 @@ stub: false
 服务端下发口径(N2 钉死):**每个有 onboarding 默认的 source**(netmind / netmind_free / yunwu / openrouter),不是 NetMind 专属白名单,
 UI 因此与后端 onboarding / 自愈对这些卡的取值一致(yunwu/openrouter 的 agent 默认在卡上时为 `claude-opus-4-8`)。测试:
 `test_self_heal_onboard_default.py::test_onboard_defaults_map_covers_sources_only_and_follows_env` 断言 yunwu/openrouter 条目。
-上文凡提到"`applyOnboardDefaults` 填充模块级表"的描述作废。
+注意:下方(更早的)条目里凡提到"`applyOnboardDefaults` 填充模块级表"的描述均已作废,以本条为准。
 
 ## 2026-10-16 (复审 M2 回归修正) — 推荐提示只点名"刻意选择"
 
 上一条把 `recommendedHelperModel` 直接等同 `defaultHelperModel` 是错的:后者无刻意选择在卡上时回落 `modelIds[0]`,于是"推荐:{{model}} — 小而快的模型"
 会在精选旗舰卡上写出 `claude-opus-4-8`、在 NetMind 卡上写出 omni 模型。现拆出内部 `deliberateHelperModel`(source 表 → 协议表 → OAuth 别名,均须在卡上,否则 '')。
 `defaultHelperModel` = 刻意选择 || 列表首个(自动选仍可回落首个);`recommendedHelperModel` = 刻意选择 || 协议表模型 || gpt-5.4-mini(**绝不回落列表首个**)。
-因此提示与自动选"在有刻意选择时一致",无刻意选择时二者分叉是有意的:自动选必须选个东西,提示不能把首个说成推荐。上条"必然一致/不会指向下拉里没有的模型"的说法作废
+因此提示与自动选"在有刻意选择时一致",无刻意选择时二者分叉是有意的:自动选必须选个东西,提示不能把首个说成推荐。下方(更早的)条目里"必然一致/不会指向下拉里没有的模型"的说法已作废
 (无刻意选择时提示显示协议表模型,它可能不在下拉里)。`applyOnboardDefaults` 参数现为必填对象(无 undefined 兼容)。
 
 ## 2026-10-16 (PR#413 review I2+M2) — 推荐默认改由服务端下发
@@ -28,7 +28,7 @@ UI 因此与后端 onboarding / 自愈对这些卡的取值一致(yunwu/openrout
 整体替换填充(数据来自 `GET /api/providers/catalog`,见 [[onboardDefaults]])。数据到达前/老服务端下表为空,所有选择回落"列表首个",确定且非空。
 `recommendedHelperModel(source, protocol, modelIds)` 现直接复用 `defaultHelperModel`(仅无 provider、无 ids 时回落协议表),
 因此"推荐:…"提示与选 provider 的自动选择必然一致、也不会指向下拉里没有的模型(取代上一条里"与自动选一致"的措辞,该措辞此前并不成立)。
-上文关于"镜像后端 `_ONBOARD_*_MODELS`"的描述已作废。
+下方(更早的)条目里关于"镜像后端 `_ONBOARD_*_MODELS`"的描述已作废。
 
 ## 2026-10-16 (预审修订) — recommendedHelperModel
 

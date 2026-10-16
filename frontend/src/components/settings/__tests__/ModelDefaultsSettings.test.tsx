@@ -530,6 +530,34 @@ test('load: a soft failure of the framework endpoint says the load failed instea
   expect(screen.getByRole('button', { name: SAVE_NAME })).toBeDisabled();
 });
 
+test('picking a NetMind provider selects the server-owned default, not the omni list head', async () => {
+  const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash';
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: {
+      providers: {
+        p_nm2: {
+          provider_id: 'p_nm2',
+          name: 'NetMind (Anthropic)',
+          source: 'netmind',
+          protocol: 'anthropic',
+          auth_type: 'bearer_token',
+          is_active: true,
+          models: ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B', FLASH],
+        },
+      },
+      slots: {},
+    },
+  });
+  mockGetProviderCatalog.mockResolvedValue({
+    success: true,
+    onboard_defaults: { netmind: { agent: FLASH, helper: FLASH } },
+  });
+  await renderLoaded();
+  fireEvent.change(agentProviderSelect(), { target: { value: 'p_nm2' } });
+  expect(agentModelSelect().value).toBe(FLASH);
+});
+
 test('load: a failed catalog fetch says the load failed instead of silently picking the list head', async () => {
   // Without the server's onboarding defaults a NetMind card would auto-select
   // its omni list head; the failure has to be visible, not a silent fallback.
