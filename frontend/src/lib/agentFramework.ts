@@ -297,7 +297,9 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
 // Per-SOURCE onboarding defaults — mirrors the netmind / netmind_free entries of
 // backend ``_ONBOARD_AGENT_MODELS`` / ``_ONBOARD_HELPER_MODELS`` (model_catalog.py).
 // NetMind's synced model list starts with an omni model, so ``models[0]`` is the
-// wrong pick there; only sources the platform has an opinion about are listed.
+// wrong pick there. The backend tables also key yunwu / openrouter; their cards
+// are user-curated (the onboarding default already heads them), so the UI keeps
+// list-order picks for every source not listed here.
 const NETMIND_DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash'
 export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {
   netmind: NETMIND_DEFAULT_MODEL,

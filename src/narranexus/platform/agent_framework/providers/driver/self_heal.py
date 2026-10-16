@@ -16,8 +16,9 @@ The self-heal path makes that pattern self-recovering:
 
 1. At resolve time, if ``slot.model NOT IN card.models``, pick a safe
    default (the platform's onboarding default for the card's source and
-   slot kind, then catalogue default, then first element of card.models;
-   see ``derive.pick_default_model``).
+   slot kind when it is on the card, else the first element of
+   card.models, else the catalogue head for an empty card; see
+   ``derive.pick_default_model``).
 2. Write the new model back to the slot.
 3. Insert a row into ``user_notifications`` so the user finds out at
    their next UI interaction.
