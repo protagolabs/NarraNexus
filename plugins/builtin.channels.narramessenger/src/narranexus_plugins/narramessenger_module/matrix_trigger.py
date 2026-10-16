@@ -73,12 +73,15 @@ from nio import (
     AsyncClientConfig,
     JoinError,
     LocalProtocolError,
+    RoomGetStateEventError,
+    RoomGetStateEventResponse,
     RoomMemberEvent,
     RoomMessageMedia,
     RoomMessageText,
     RoomSendError,
     RoomSendResponse,
     SyncResponse,
+    UnknownEvent,
 )
 
 from narranexus.platform.channel.channel_audit_events import (
@@ -314,6 +317,29 @@ _MEDIA_DOWNLOAD_PATH = "/_matrix/client/v1/media/download/{server_name}/{media_i
 # ``@agent-e7726996:matrix.netmind.chat``. The one place that spelling
 # lives on the receive path; see ``MatrixTrigger.is_agent_peer``.
 AGENT_MXID_PREFIX = "@agent-"
+
+# NarraMessenger's room-kind contract (the rule its own runtimes use), in
+# priority order:
+#   1. the ``ai.netmind.room_creation.v1`` state event (state_key ""),
+#      content ``{"message_mode": "managed", "room_type": "dm" | "group"}``;
+#   2. otherwise the joined-member count, NOT counting the appservice bot
+#      ``@hybrid-im-bot:<server_name>``. Since 2026-09-16 that bot joins
+#      every managed room, so a real 1:1 room has three joined members.
+ROOM_CREATION_STATE_TYPE = "ai.netmind.room_creation.v1"
+_SERVICE_SENDER_LOCALPART = "hybrid-im-bot"
+_ROOM_KINDS = ("dm", "group")
+
+
+def _service_sender_for(own_mxid: str) -> str:
+    """``@hybrid-im-bot:<server_name>`` on the server ``own_mxid`` lives on.
+
+    Empty when ``own_mxid`` has no server part: nothing is then excluded,
+    so an unparseable identity can only make a room look larger.
+    """
+    _, sep, server_name = (own_mxid or "").partition(":")
+    if not sep or not server_name:
+        return ""
+    return f"@{_SERVICE_SENDER_LOCALPART}:{server_name}"
 
 
 class MatrixMediaError(Exception):
@@ -574,6 +600,20 @@ class MatrixTrigger(ChannelTriggerBase):
         # The room's entry is dropped once the roster is adopted. A later
         # join removes the MXID again.
         self._room_left_unverified: dict[str, set[str]] = {}
+        # room_id -> room kind declared by the room's
+        # ``ai.netmind.room_creation.v1`` state. Outranks the member count.
+        # Written by the sync loop (state block + timeline) and by the
+        # REST lookup in _ensure_room_kind.
+        self._room_kind: dict[str, Literal["dm", "group"]] = {}
+        # Room ids whose creation state we have a definitive answer for:
+        # seen on /sync, fetched, or a 404 (the room has none). A transient
+        # REST failure leaves the room out so the next message asks again.
+        # Same lifecycle as the roster authority (_drop_roster_authority).
+        self._room_kind_checked: set[str] = set()
+        # room_id -> counter bumped by _drop_roster_authority. A creation
+        # state response whose request started before a drop predates it
+        # and is not recorded.
+        self._room_kind_gen: dict[str, int] = {}
         # (room_id, mxid) -> current displayname. Populated the same way,
         # since displayname lives on the ``m.room.member`` event content.
         # Used for @-mention detection AND per-message attribution when
@@ -857,6 +897,43 @@ class MatrixTrigger(ChannelTriggerBase):
         """
         self._room_roster_authoritative.discard(room_id)
         self._room_left_unverified.pop(room_id, None)
+        # The creation state is re-read with the roster: we may have missed
+        # a change while we were out of the room.
+        self._room_kind.pop(room_id, None)
+        self._room_kind_checked.discard(room_id)
+        self._room_kind_gen[room_id] = self._room_kind_gen.get(room_id, 0) + 1
+
+    @staticmethod
+    def _is_room_creation_event(event: Any) -> bool:
+        """True for an ``ai.netmind.room_creation.v1`` event from /sync.
+
+        nio has no class for the custom state type and parses it as
+        ``UnknownEvent``.
+        """
+        return (
+            isinstance(event, UnknownEvent)
+            and event.type == ROOM_CREATION_STATE_TYPE
+        )
+
+    def _apply_room_creation_event(self, room_id: str, event: Any) -> None:
+        """Record the room kind from a synced creation state event.
+
+        Only the ``state_key == ""`` instance is the room's creation state.
+        The latest one wins; a ``room_type`` outside ``dm`` / ``group``
+        clears the kind (count fallback) rather than keeping a stale one.
+        """
+        source = getattr(event, "source", None)
+        if not isinstance(source, dict) or source.get("state_key") != "":
+            return
+        self._set_room_kind(room_id, source.get("content"))
+
+    def _set_room_kind(self, room_id: str, content: Any) -> None:
+        room_type = content.get("room_type") if isinstance(content, dict) else None
+        if room_type in _ROOM_KINDS:
+            self._room_kind[room_id] = room_type
+        else:
+            self._room_kind.pop(room_id, None)
+        self._room_kind_checked.add(room_id)
 
     def _own_mxids(self) -> set[str]:
         """MXIDs of the agents this trigger currently runs a client for."""
@@ -867,13 +944,126 @@ class MatrixTrigger(ChannelTriggerBase):
         }
 
     def _known_member_count(self, room_id: str) -> int:
-        """Size of the roster seen so far, authoritative or not.
+        """Raw size of the roster seen so far, authoritative or not.
 
-        Synchronous hint for :meth:`parse_event`'s pre-classification
-        shape; 0 for a room we have no member data for. Routing decisions
-        go through :meth:`_get_member_count` instead.
+        Includes the ``@hybrid-im-bot`` service sender; 0 for a room we
+        have no member data for. Room shape decisions use
+        :meth:`_effective_member_count` / :meth:`_hinted_private`, which
+        exclude it.
         """
         return len(self._room_joined.get(room_id, ()))
+
+    def _service_sender_mxid(self, credential: NarramessengerCredential) -> str:
+        """The appservice bot MXID on the agent's own homeserver."""
+        return _service_sender_for(credential.matrix_user_id or "")
+
+    def _effective_member_count(
+        self, room_id: str, credential: NarramessengerCredential
+    ) -> int:
+        """Roster size without the ``@hybrid-im-bot`` service sender.
+
+        Exact MXID match only: a lookalike (another localpart, or the same
+        localpart on another server) is a real member and is counted.
+        """
+        return self._count_without_service_sender(
+            room_id, self._service_sender_mxid(credential)
+        )
+
+    def _count_without_service_sender(self, room_id: str, service_sender: str) -> int:
+        roster = self._room_joined.get(room_id, ())
+        return len(roster) - (1 if service_sender and service_sender in roster else 0)
+
+    def _hinted_private(self, room_id: str, own_mxid: str) -> bool:
+        """Pre-classification room shape for :meth:`parse_event`.
+
+        Same rule order as routing, on whatever is known so far: a recorded
+        room kind decides, else the (possibly partial) roster without the
+        service sender must be exactly 2. Unknown reads as group.
+        """
+        kind = self._room_kind.get(room_id)
+        if kind is not None:
+            return kind == "dm"
+        return (
+            self._count_without_service_sender(room_id, _service_sender_for(own_mxid))
+            == 2
+        )
+
+    async def _resolve_room_shape(
+        self,
+        client: AsyncClient,
+        room_id: str,
+        credential: NarramessengerCredential,
+    ) -> tuple[Optional[Literal["dm", "group"]], int]:
+        """Return ``(room_kind, effective_member_count)`` for routing.
+
+        Verifies the roster first (:meth:`_get_member_count` also backfills
+        display names, which mention detection needs), then the creation
+        state. The count is 0 when the roster could not be verified; the
+        kind is None when the room declares none or the lookup failed.
+        """
+        count = await self._get_member_count(client, room_id)
+        await self._ensure_room_kind(client, room_id)
+        effective = self._effective_member_count(room_id, credential) if count else 0
+        return self._room_kind.get(room_id), effective
+
+    async def _ensure_room_kind(self, client: AsyncClient, room_id: str) -> None:
+        """Fetch the room's creation state once, unless already known.
+
+        Only a 2xx response whose content is a JSON object without
+        ``errcode`` is a successful lookup. nio maps just 404 to
+        ``RoomGetStateEventError``; for 403 / 429 / 5xx it returns a
+        ``RoomGetStateEventResponse`` whose ``content`` is the error body,
+        so the class alone proves nothing. A 404 means the room has no
+        such state (kind stays unknown, not asked again). Any other
+        outcome, including a raised exception, records nothing, so the
+        next message retries.
+
+        A creation event the sync loop applies while the request is in
+        flight is newer and wins; a response whose request started before
+        :meth:`_drop_roster_authority` ran for the room is discarded.
+        """
+        if room_id in self._room_kind_checked:
+            return
+        generation = self._room_kind_gen.get(room_id, 0)
+        try:
+            resp = await client.room_get_state_event(
+                room_id, ROOM_CREATION_STATE_TYPE, ""
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[matrix] room_get_state_event({room_id}, "
+                f"{ROOM_CREATION_STATE_TYPE}) raised: {type(e).__name__}: {e}"
+            )
+            return
+        if (
+            room_id in self._room_kind_checked
+            or self._room_kind_gen.get(room_id, 0) != generation
+        ):
+            return
+        http_status = getattr(getattr(resp, "transport_response", None), "status", None)
+        content = getattr(resp, "content", None)
+        if (
+            isinstance(resp, RoomGetStateEventResponse)
+            and isinstance(http_status, int)
+            and http_status // 100 == 2
+            and isinstance(content, dict)
+            and "errcode" not in content
+        ):
+            self._set_room_kind(room_id, content)
+            return
+        errcode = getattr(resp, "status_code", None)
+        if http_status == 404 or (
+            isinstance(resp, RoomGetStateEventError) and errcode == "M_NOT_FOUND"
+        ):
+            self._room_kind_checked.add(room_id)
+            return
+        if errcode is None and isinstance(content, dict):
+            errcode = content.get("errcode")
+        logger.warning(
+            f"[matrix] room_get_state_event({room_id}, "
+            f"{ROOM_CREATION_STATE_TYPE}) failed (http={http_status}, "
+            f"errcode={errcode or 'unknown'}); retried on the next message"
+        )
 
     async def _get_member_count(
         self, client: AsyncClient, room_id: str
@@ -1054,36 +1244,46 @@ class MatrixTrigger(ChannelTriggerBase):
         *,
         mentioned: Optional[bool] = None,
         member_count: Optional[int] = None,
+        room_kind: Optional[Literal["dm", "group"]] = None,
     ) -> _ClassifyTarget:
         """Route a message to the right handler.
 
-        - Member count 2 → DM (1:1 owner-agent room, or any 2-person room)
-        - Member count >2 AND agent explicitly mentioned → group_mention
-        - Member count >2 AND agent NOT mentioned → group_silent
-        - Member count 0 (unknown) → group_silent (safe default: don't
-          auto-reply to a room we can't verify the shape of; the
-          silent-batch path still writes memory)
+        Rule order (NarraMessenger's room-kind contract):
+
+        - Creation state ``room_type: dm`` → DM, whatever the count
+        - Creation state ``room_type: group`` → mention rules below
+        - No creation state → member count without the ``@hybrid-im-bot``
+          service sender: 2 → DM (1:1 owner-agent room, or any 2-person
+          room); anything else → mention rules
+        - Mention rules: agent explicitly mentioned → group_mention,
+          otherwise group_silent. An unknown count (0) without a mention
+          is group_silent (safe default: don't auto-reply to a room we
+          can't verify the shape of; the silent-batch path still writes
+          memory)
 
         Args:
             mentioned: If already computed by the caller (e.g. the
                 authorize-event gate already needed it for its payload),
                 reuse rather than re-scanning the body. If None, we
                 compute via :meth:`_is_mentioning_us`.
-            member_count: If the caller already resolved the room shape
-                via :meth:`_get_member_count`, reuse it (a second lookup
-                after a failure would silently retry within one message).
-                If None, we look it up here.
+            member_count: Effective member count (service sender
+                excluded) the caller already resolved via
+                :meth:`_resolve_room_shape`, reused so a failed lookup is
+                not silently retried within one message. If None, the
+                shape (count AND ``room_kind``) is resolved here and the
+                ``room_kind`` argument is ignored.
+            room_kind: Creation-state kind from the same resolution; None
+                means the room declares none.
 
-        The production caller (:meth:`_process_message`) always passes both
-        ``member_count`` and ``mentioned``; the ``None`` fallbacks exist for
-        direct unit tests of the classification rules.
+        The production caller (:meth:`_process_message`) always passes
+        ``member_count``, ``room_kind`` and ``mentioned``; the ``None``
+        fallbacks exist for direct unit tests of the classification rules.
         """
-        count = (
-            member_count
-            if member_count is not None
-            else await self._get_member_count(client, message.chat_id)
-        )
-        if count == 2:
+        if member_count is None:
+            room_kind, member_count = await self._resolve_room_shape(
+                client, message.chat_id, credential
+            )
+        if room_kind == "dm" or (room_kind is None and member_count == 2):
             return "dm"
         if mentioned is None:
             mentioned = self._is_mentioning_us(message, credential)
@@ -1646,9 +1846,11 @@ class MatrixTrigger(ChannelTriggerBase):
         # The room shape is resolved BEFORE mention detection: the first
         # lookup of a fresh room backfills display names from the REST
         # roster, which ``@displayname`` detection needs for this very
-        # message. _classify then reuses the count instead of looking up
+        # message. _classify then reuses the shape instead of looking up
         # again.
-        member_count = await self._get_member_count(client, message.chat_id)
+        room_kind, member_count = await self._resolve_room_shape(
+            client, message.chat_id, credential
+        )
         mentioned = self._is_mentioning_us(message, credential)
         target = await self._classify(
             client,
@@ -1656,11 +1858,13 @@ class MatrixTrigger(ChannelTriggerBase):
             credential,
             mentioned=mentioned,
             member_count=member_count,
+            room_kind=room_kind,
         )
         logger.info(
             f"[matrix:{credential.agent_id}] CLASSIFY target={target} "
             f"(room={message.chat_id}, event={message.message_id}, "
-            f"mentioned={mentioned})"
+            f"mentioned={mentioned}, room_kind={room_kind}, "
+            f"members={member_count})"
         )
 
         # parse_event stamped chat_type (and possibly the voice register)
@@ -2656,6 +2860,8 @@ class MatrixTrigger(ChannelTriggerBase):
                     for event in state_events:
                         if isinstance(event, RoomMemberEvent):
                             self._apply_member_event(room_id, event)
+                        elif self._is_room_creation_event(event):
+                            self._apply_room_creation_event(room_id, event)
 
                     # Now walk the timeline. Member events here are LIVE
                     # membership changes (join/leave during this batch);
@@ -2665,6 +2871,9 @@ class MatrixTrigger(ChannelTriggerBase):
                     for event in room_info.timeline.events:
                         if isinstance(event, RoomMemberEvent):
                             self._apply_member_event(room_id, event)
+                            continue
+                        if self._is_room_creation_event(event):
+                            self._apply_room_creation_event(room_id, event)
                             continue
                         raw = self._wrap_event(
                             event=event,
@@ -2961,14 +3170,18 @@ class MatrixTrigger(ChannelTriggerBase):
         if not event_id or not room_id or not sender_id:
             return None
 
-        # Room shape from the roster populated by _apply_member_event
-        # during the sync loop (a hint — possibly partial). 0 (unknown)
-        # treated as GROUP so we don't accidentally auto-reply to a room
-        # we can't verify — the authoritative check happens again in
-        # _process_message via _classify, which does the one-time
-        # joined_members lookup for any room not yet verified.
-        member_count = self._known_member_count(room_id)
-        chat_type = ChatType.PRIVATE if member_count == 2 else ChatType.GROUP
+        # Room shape from what the sync loop recorded so far (a hint — the
+        # roster may be partial): a known creation-state kind, else the
+        # roster without the service sender. Unknown is treated as GROUP so
+        # we don't accidentally auto-reply to a room we can't verify — the
+        # authoritative check happens again in _process_message via
+        # _resolve_room_shape, which does the one-time joined_members and
+        # creation-state lookups for any room not yet verified.
+        chat_type = (
+            ChatType.PRIVATE
+            if self._hinted_private(room_id, raw.get("_our_user_id") or "")
+            else ChatType.GROUP
+        )
 
         # Display name from the cache (populated by state events); fall
         # back to MXID until the roster arrives.

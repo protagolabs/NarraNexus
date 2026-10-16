@@ -31,7 +31,13 @@ from typing import Any, Callable, Optional
 from unittest.mock import AsyncMock
 
 import pytest
-from nio import JoinError, JoinResponse
+from nio import (
+    JoinError,
+    JoinResponse,
+    RoomGetStateEventError,
+    RoomGetStateEventResponse,
+    UnknownEvent,
+)
 
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -49,6 +55,9 @@ ROOM = "!fresh:matrix.netmind.chat"
 AGENT_MXID = "@agent-abc:matrix.netmind.chat"
 USER_MXID = "@alice:matrix.netmind.chat"
 THIRD_MXID = "@bob:matrix.netmind.chat"
+# NarraMessenger's appservice bot joins every managed room (since 2026-09-16).
+BOT_MXID = "@hybrid-im-bot:matrix.netmind.chat"
+ROOM_CREATION = "ai.netmind.room_creation.v1"
 
 
 def _cred() -> NarramessengerCredential:
@@ -89,9 +98,19 @@ class _FakeClient:
     response without ``.members``), or a list of members (success).
     """
 
-    def __init__(self, *responses, user_id: str = AGENT_MXID):
+    def __init__(
+        self, *responses, user_id: str = AGENT_MXID, room_type: Optional[str] = None
+    ):
         self._responses = list(responses)
         self.calls: list[str] = []
+        # ``ai.netmind.room_creation.v1`` as the homeserver would serve it:
+        # None = the room has no such state (404 M_NOT_FOUND).
+        self.room_type = room_type
+        self.state_calls: list[tuple[str, str, str]] = []
+        # Responses served before falling back to ``room_type`` (one per
+        # call), and hooks run while a state request is in flight.
+        self.state_overrides: list[Any] = []
+        self.during_state: list[Optional[Callable[[], Any]]] = []
         self.user_id = user_id
         # One hook per lookup call (None = quiet), run inside the call before
         # the response is returned — models sync-loop work that lands while
@@ -115,6 +134,28 @@ class _FakeClient:
         if entry is None:
             return SimpleNamespace(status_code="M_FORBIDDEN")
         return SimpleNamespace(members=list(entry))
+
+    async def room_get_state_event(self, room_id, event_type, state_key=""):
+        self.state_calls.append((room_id, event_type, state_key))
+        hook = self.during_state.pop(0) if self.during_state else None
+        if hook is not None:
+            hook()
+        if self.state_overrides:
+            return self.state_overrides.pop(0)
+        if self.room_type is None:
+            return RoomGetStateEventError("Event not found.", "M_NOT_FOUND", room_id=room_id)
+        return _state_response(
+            {"message_mode": "managed", "room_type": self.room_type}, 200
+        )
+
+
+def _state_response(content: dict, status: int) -> RoomGetStateEventResponse:
+    """What nio returns for any non-404 HTTP status: the body as content."""
+    resp = RoomGetStateEventResponse(
+        content, "ai.netmind.room_creation.v1", "", ROOM
+    )
+    resp.transport_response = SimpleNamespace(status=status)  # type: ignore[assignment]
+    return resp
 
 
 def _msg(
@@ -956,3 +997,326 @@ def test_member_event_without_mxid_caches_nothing():
     )
     assert t._display_name_cache == {}
     assert ROOM not in t._room_joined
+
+
+# ────────────────────────────────────────────────────────────────────
+# Managed rooms: the @hybrid-im-bot service sender + room_creation state
+# ────────────────────────────────────────────────────────────────────
+# Since 2026-09-16 every NarraMessenger managed room carries a third joined
+# member, the appservice bot @hybrid-im-bot:<server_name>. A real 1:1 room
+# therefore has 3 joined members; counting them raw classified every DM
+# (owner rooms included) group_silent after #415.
+
+
+def _creation_event(room_type: str) -> UnknownEvent:
+    """``ai.netmind.room_creation.v1`` as nio parses it off /sync."""
+    return UnknownEvent.from_dict(
+        {
+            "type": ROOM_CREATION,
+            "state_key": "",
+            "sender": BOT_MXID,
+            "event_id": "$create",
+            "origin_server_ts": 1,
+            "content": {"message_mode": "managed", "room_type": room_type},
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_managed_dm_with_service_bot_reaches_pipeline_as_private(monkeypatch):
+    """Prod scenario: fresh room, roster {agent, user, bot}, no creation
+    state. The bot is not a participant: the room is a DM."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, BOT_MXID))
+    h = _Harness(client, allow=True)
+    t = h.trigger
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "join", prev_membership="invite"))
+
+    handed = await _full_path_message(h, _parse(t, "hello"), monkeypatch)
+    assert handed.chat_type == ChatType.PRIVATE
+    assert client.state_calls == [(ROOM, ROOM_CREATION, "")]
+
+
+@pytest.mark.asyncio
+async def test_owner_room_with_service_bot_is_dm():
+    owner = "@owner:matrix.netmind.chat"
+    client = _FakeClient(_roster(AGENT_MXID, owner, BOT_MXID))
+    h = _Harness(client)
+
+    assert await h.route(_msg(sender=owner)) == "dm"
+    assert await h.count() == 3  # the roster itself still holds the bot
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lookalike",
+    [
+        "@hybrid-im-bot-evil:matrix.netmind.chat",
+        "@hybrid-im-bot:other.server",
+        "@hybrid-im-bot2:matrix.netmind.chat",
+    ],
+)
+async def test_lookalike_service_bot_is_a_real_member(lookalike):
+    """Only the EXACT @hybrid-im-bot on our own server is excluded."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, lookalike))
+    h = _Harness(client)
+
+    assert await h.route(_msg()) == "group_silent"
+    assert await h.route(_msg("hey", mentions=[AGENT_MXID])) == "group_mention"
+
+
+@pytest.mark.asyncio
+async def test_service_bot_excluded_on_the_agents_own_server_only():
+    """server_name comes from the agent's MXID (CN / staging servers)."""
+    cn_agent = "@agent-abc:matrix-cn.narramessenger.cn"
+    cn_user = "@alice:matrix-cn.narramessenger.cn"
+    client = _FakeClient(
+        _roster(cn_agent, cn_user, "@hybrid-im-bot:matrix-cn.narramessenger.cn"),
+        user_id=cn_agent,
+    )
+    t = MatrixTrigger()
+    cred = NarramessengerCredential(
+        agent_id="agent_x",
+        bearer_token="narra-bearer",
+        backend_base_url="https://api.netmind.chat",
+        matrix_user_id=cn_agent,
+    )
+    assert t._service_sender_mxid(cred) == "@hybrid-im-bot:matrix-cn.narramessenger.cn"
+    kind, count = await t._resolve_room_shape(client, ROOM, cred)  # type: ignore[arg-type]
+    assert (kind, count) == (None, 2)
+    assert t._service_sender_mxid(_cred()) == BOT_MXID
+
+
+@pytest.mark.asyncio
+async def test_creation_state_dm_wins_over_member_count():
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID), room_type="dm"
+    )
+    h = _Harness(client)
+
+    assert await h.route(_msg("no mention")) == "dm"
+    assert await h.route(_msg("again")) == "dm"
+    assert len(client.state_calls) == 1  # cached with the verified roster
+
+
+@pytest.mark.asyncio
+async def test_creation_state_group_wins_over_two_members():
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID), room_type="group")
+    h = _Harness(client)
+
+    assert await h.route(_msg("just chatting")) == "group_silent"
+    assert await h.route(_msg("hey", mentions=[AGENT_MXID])) == "group_mention"
+
+
+@pytest.mark.asyncio
+async def test_creation_state_from_sync_needs_no_rest_state_call(monkeypatch):
+    """The state block of a /sync batch carries the creation event (nio
+    parses the custom type as UnknownEvent); the real connect() loop must
+    record it so classification honours it without a REST state call."""
+    t = MatrixTrigger()
+
+    class _SyncClient:
+        def __init__(self, **_kw):
+            self.device_id = None
+            self.access_token = None
+            self.user_id = None
+            self._synced = False
+
+        async def sync(self, timeout=None, since=None, full_state=False):
+            if self._synced:
+                t.running = False
+                return _SyncResp(rooms=SimpleNamespace(invite={}, join={}), next_batch="end")
+            self._synced = True
+            room = SimpleNamespace(
+                state=SimpleNamespace(events=[_creation_event("dm")]),
+                timeline=SimpleNamespace(events=[]),
+            )
+            return _SyncResp(
+                rooms=SimpleNamespace(invite={}, join={ROOM: room}), next_batch="b1"
+            )
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(mt, "AsyncClient", _SyncClient)
+    monkeypatch.setattr(mt, "SyncResponse", _SyncResp)
+    cred = NarramessengerCredential(
+        agent_id="agent_x",
+        bearer_token="narra-bearer",
+        matrix_homeserver_url="https://matrix.netmind.chat",
+        matrix_user_id=AGENT_MXID,
+        matrix_access_token="syt_fake",
+    )
+    t.running = True
+    async for _ in t.connect(cred):
+        pass
+
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID), room_type="group"
+    )
+    h = _Harness(client)
+    h.trigger = t
+    t._clients[t._subscriber_key(_cred())] = client  # type: ignore[assignment]
+    for name, mock in (
+        ("_authorize_event", h.authorize),
+        ("_send_matrix_notice", AsyncMock()),
+        ("_enqueue_silent", h.enqueue_silent),
+        ("_ingress_admitted", AsyncMock(return_value=True)),
+    ):
+        setattr(t, name, mock)
+
+    assert await h.route(_msg()) == "dm"
+    assert client.state_calls == []
+
+
+@pytest.mark.asyncio
+async def test_creation_state_in_timeline_updates_kind():
+    """A room created without the state completes it later: the timeline
+    event (applied by the sync loop) overrides the count fallback."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    assert await h.route(_msg()) == "group_silent"
+
+    t._apply_room_creation_event(ROOM, _creation_event("dm"))
+    assert await h.route(_msg()) == "dm"
+    assert len(client.state_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_transient_state_lookup_failure_is_retried():
+    """A non-404 failure is not "no state": the next message asks again."""
+
+    class _FlakyState(_FakeClient):
+        async def room_get_state_event(self, room_id, event_type, state_key=""):
+            if not self.state_calls:
+                self.state_calls.append((room_id, event_type, state_key))
+                raise RuntimeError("homeserver blip")
+            return await super().room_get_state_event(room_id, event_type, state_key)
+
+    client = _FlakyState(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID), room_type="dm"
+    )
+    h = _Harness(client)
+
+    assert await h.route(_msg()) == "group_silent"  # fail-closed fallback
+    assert await h.route(_msg()) == "dm"
+    assert len(client.state_calls) == 2
+    assert client.calls == [ROOM]  # the roster stays verified
+
+
+@pytest.mark.asyncio
+async def test_authorize_payload_keeps_the_service_bot():
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, BOT_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    assert await h.route(_msg()) == "dm"
+
+    assert BOT_MXID in t._room_member_mxids(ROOM)
+    assert t._room_member_mxids(ROOM) == sorted([AGENT_MXID, USER_MXID, BOT_MXID])
+
+
+def test_parse_event_shape_ignores_service_bot():
+    t = MatrixTrigger()
+    for mxid in (AGENT_MXID, USER_MXID, BOT_MXID):
+        t._apply_member_event(ROOM, _member_event(mxid, "join"))
+    parsed = t.parse_event(
+        {
+            "kind": "m.room.message.text",
+            "event_id": "$e1",
+            "room_id": ROOM,
+            "sender_id": USER_MXID,
+            "body": "hi",
+            "server_ts": 1,
+            "_our_user_id": AGENT_MXID,
+        }
+    )
+    assert parsed is not None
+    assert parsed.chat_type == ChatType.PRIVATE
+
+
+def test_parse_event_shape_honours_known_room_kind():
+    t = MatrixTrigger()
+    for mxid in (AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID):
+        t._apply_member_event(ROOM, _member_event(mxid, "join"))
+    t._apply_room_creation_event(ROOM, _creation_event("dm"))
+    parsed = t.parse_event(
+        {
+            "kind": "m.room.message.text",
+            "event_id": "$e1",
+            "room_id": ROOM,
+            "sender_id": USER_MXID,
+            "body": "hi",
+            "server_ts": 1,
+            "_our_user_id": AGENT_MXID,
+        }
+    )
+    assert parsed is not None
+    assert parsed.chat_type == ChatType.PRIVATE
+
+
+@pytest.mark.asyncio
+async def test_own_rejoin_forgets_room_kind():
+    """A dropped authority re-verifies the kind too (state may have changed
+    while we were out)."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID), room_type="dm")
+    h = _Harness(client)
+    t = h.trigger
+    assert await h.route(_msg()) == "dm"
+
+    t._drop_roster_authority(ROOM)
+    client.room_type = "group"
+    assert await h.route(_msg()) == "group_silent"
+    assert len(client.state_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_roster_failure_without_creation_state_stays_fail_closed():
+    client = _FakeClient(RuntimeError("down"))
+    h = _Harness(client)
+    t = h.trigger
+    for mxid in (AGENT_MXID, USER_MXID, BOT_MXID):
+        t._apply_member_event(ROOM, _member_event(mxid, "join"))
+
+    assert await h.route(_msg()) == "group_silent"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_response",
+    [
+        _state_response({"errcode": "M_FORBIDDEN", "error": "not allowed"}, 403),
+        _state_response({}, 502),
+        _state_response({"errcode": "M_LIMIT_EXCEEDED", "error": "slow"}, 429),
+    ],
+    ids=["403", "502", "429"],
+)
+async def test_non_404_error_response_is_retried_not_cached(error_response):
+    """nio maps only 404 to RoomGetStateEventError; a 403 / 5xx / 429 comes
+    back as a RoomGetStateEventResponse carrying the error body. That is a
+    failed lookup, not "the room declares no kind": retry next message."""
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID), room_type="dm"
+    )
+    client.state_overrides = [error_response]
+    h = _Harness(client)
+    t = h.trigger
+
+    assert await h.route(_msg()) == "group_silent"
+    assert ROOM not in t._room_kind_checked
+    assert await h.route(_msg()) == "dm"
+    assert len(client.state_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_state_response_after_authority_drop_is_discarded():
+    """The roster authority (and with it the room kind) was dropped while
+    the state request was in flight: the response predates the drop and
+    must not be recorded."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID), room_type="dm")
+    h = _Harness(client)
+    t = h.trigger
+    client.during_state = [lambda: t._drop_roster_authority(ROOM)]
+
+    await h.route(_msg())
+    assert ROOM not in t._room_kind_checked
+    assert ROOM not in t._room_kind
