@@ -19,6 +19,8 @@ import {
   frameworkAvailabilityMap,
   withFrameworkAvailability,
   isFrameworkAvailable,
+  defaultAgentModel,
+  defaultHelperModel,
 } from '../agentFramework'
 
 const card = (source: string, protocol: string, auth_type: string) => ({
@@ -172,5 +174,29 @@ describe('plugin-install availability (frameworkAvailabilityMap / withFrameworkA
     const map = frameworkAvailabilityMap(undefined)
     const merged = withFrameworkAvailability(AGENT_FRAMEWORKS, map)
     expect(merged.every((f) => isFrameworkAvailable(f))).toBe(true)
+  })
+})
+
+// Picking a provider must land on the platform's onboarding default for that
+// source, not on models[0]: NetMind's synced list starts with an omni model.
+describe('default model on provider pick (mirrors backend _ONBOARD_*_MODELS)', () => {
+  const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
+  const listed = ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B', FLASH]
+
+  test.each(['netmind', 'netmind_free'])('%s agent -> V4.1-Flash, not list head', (source) => {
+    expect(defaultAgentModel(source, listed)).toBe(FLASH)
+  })
+
+  test.each(['netmind', 'netmind_free'])('%s helper -> V4.1-Flash, not list head', (source) => {
+    expect(defaultHelperModel(source, 'openai', listed)).toBe(FLASH)
+  })
+
+  test('falls back to the list head when the default is not on the card', () => {
+    expect(defaultAgentModel('netmind', ['a', 'b'])).toBe('a')
+  })
+
+  test('sources without an onboarding default keep the list head', () => {
+    expect(defaultAgentModel('user', ['a', 'b'])).toBe('a')
+    expect(defaultAgentModel('netmind', [])).toBe('')
   })
 })

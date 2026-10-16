@@ -28,6 +28,7 @@ import {
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  defaultAgentModel,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -429,7 +430,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                         ? getModelsForSlot(prov, 'agent', agentDraft.agent_framework, {})
                         : [];
                       setAgentDraft((d) => ({
-                        ...d, provider_id: pid, model: models[0]?.model_id || '',
+                        ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id)),
                       }));
                     }}
                   >

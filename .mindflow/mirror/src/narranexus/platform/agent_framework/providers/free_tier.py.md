@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/free_tier.py
-last_verified: 2026-08-04
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — 默认 agent/helper 模型均为 DeepSeek-V4.1-Flash
+
+`_DEFAULT_AGENT_MODEL` 由 V4-Pro 改为 `deepseek-ai/DeepSeek-V4.1-Flash`,`_DEFAULT_HELPER_MODEL` 由 V4-Flash 改为同款
+(V4-Flash 已从 NetMind 公开目录消失)。环境变量 `FREE_TIER_AGENT_MODEL` / `FREE_TIER_HELPER_MODEL` 仍可覆盖。
 
 # free_tier.py — 免费额度这张「卡」的身份
 

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/self_heal.py
-last_verified: 2026-08-06
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — 修复目标改走 onboarding 默认(槽位种类下传)
+
+`self_heal_if_broken` 现把 `slot["slot_name"]` 传给 `pick_default_model`,修复落到该来源 + 槽位种类的 onboarding 默认
+(NetMind 两槽均为 `deepseek-ai/DeepSeek-V4.1-Flash`),而非卡表头(NetMind 表头是 omni 模型)。Claude 家族保持逻辑不变。
+详见 [[derive]] 同日条目。上文 "Repair policy" 第 2 步的"取 card.models 首个"已过时,以新顺序为准。
 
 ## 2026-08-06 — 成员测试改用 effective 口径 + Claude 家族保持
 

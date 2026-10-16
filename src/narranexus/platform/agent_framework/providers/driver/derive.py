@@ -273,28 +273,49 @@ def is_slot_broken(slot_model: str, card_models) -> bool:
     return slot_model not in models
 
 
-def pick_default_model(card_models, source: Optional[str], protocol: Optional[str]) -> Optional[str]:
+def pick_default_model(
+    card_models,
+    source: Optional[str],
+    protocol: Optional[str],
+    slot_name: Optional[str] = None,
+) -> Optional[str]:
     """Choose a safe default model to swap a broken slot to.
 
-    Strategy:
+    Strategy (first hit wins, each candidate must be on the card unless noted):
 
-    1. First element of the card's own ``models`` array (user-curated).
-    2. First element of ``model_catalog.get_default_models(source, protocol)``
-       — falls back to our canonical recommendation per aggregator+protocol.
-    3. ``None`` if neither has a usable value — the caller should leave
-       the slot alone and log an error.
+    1. The platform's onboarding default for ``source`` + ``slot_name``
+       (``model_catalog.get_onboard_default_model``) — so a repair lands where
+       a fresh onboarding would have, not on an arbitrary list head. NetMind
+       cards carry the synced catalogue whose head is an omni model; taking the
+       head silently re-pointed dozens of slots there.
+    2. Head of ``model_catalog.get_default_models(source, protocol)`` — the
+       catalogue's own recommendation for this aggregator + protocol.
+    3. First element of the card's own ``models`` array (user-curated).
+    4. Head of the catalogue even though it is off-card (empty card only).
+    5. ``None`` if nothing is usable — the caller should leave the slot alone
+       and log an error.
     """
-    on_card = _normalise_models(card_models)
-    if on_card:
-        return on_card[0]
+    # Lazy import to avoid circular deps at module load.
+    from narranexus.platform.agent_framework.providers.model_catalog import (
+        get_default_models,
+        get_onboard_default_model,
+    )
 
-    # Catalog fallback. Lazy import to avoid circular deps at module load.
-    from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+    on_card = _normalise_models(card_models)
+
+    onboard_default = get_onboard_default_model(source or "", slot_name)
+    if onboard_default and onboard_default in on_card:
+        return onboard_default
 
     try:
         catalog = get_default_models(source or "", protocol or "")
     except Exception:  # noqa: BLE001 — get_default_models shouldn't raise but be safe
         catalog = []
+    if catalog and catalog[0] in on_card:
+        return catalog[0]
+
+    if on_card:
+        return on_card[0]
     if catalog:
         return catalog[0]
     return None

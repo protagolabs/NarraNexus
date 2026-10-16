@@ -39,6 +39,7 @@ import {
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  defaultAgentModel,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -635,7 +636,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 const pid = e.target.value;
                 const prov = providers[pid];
                 const models = prov ? getModelsForSlot(prov, 'agent', framework, {}) : [];
-                setAgentDraft((d) => ({ ...d, provider_id: pid, model: models[0]?.model_id || '' }));
+                setAgentDraft((d) => ({ ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id)) }));
               }}
             >
               <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>

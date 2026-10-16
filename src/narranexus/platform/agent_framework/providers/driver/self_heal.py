@@ -15,7 +15,9 @@ user has no idea their PM agent stopped working.
 The self-heal path makes that pattern self-recovering:
 
 1. At resolve time, if ``slot.model NOT IN card.models``, pick a safe
-   default (first element of card.models, or catalog fallback).
+   default (the platform's onboarding default for the card's source and
+   slot kind, then catalogue default, then first element of card.models;
+   see ``derive.pick_default_model``).
 2. Write the new model back to the slot.
 3. Insert a row into ``user_notifications`` so the user finds out at
    their next UI interaction.
@@ -127,7 +129,9 @@ async def self_heal_if_broken(
     if family and family in card_models:
         new_model = family
     if not new_model:
-        new_model = pick_default_model(card_models, card.source, card.protocol)
+        new_model = pick_default_model(
+            card_models, card.source, card.protocol, slot.get("slot_name")
+        )
     if not new_model:
         logger.error(
             f"[self_heal] slot {slot.get('slot_name')!r} broken AND no safe default "

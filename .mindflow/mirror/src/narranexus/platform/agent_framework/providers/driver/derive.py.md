@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/derive.py
-last_verified: 2026-09-10
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — pick_default_model 优先 onboarding 默认,不再取 card.models 表头
+
+**根因**:NetMind 卡的 models 列表来自同步目录,表头是 `Qwen/Qwen3.5-Omni-Flash`。旧策略"取卡表头"让
+self-heal 把一批槽位(2026-09-11 单次 34 个 helper 槽,线上约 50 个)悄悄改指到多模态 omni 模型。
+(触发:V4-Flash 从 NetMind 公开目录消失,槽位 pin 的模型不在卡上 → 被判 broken → 取表头。)
+
+**新顺序**(每步候选须在卡上,除最后一步):onboarding 默认(`get_onboard_default_model(source, slot_name)`,
+仅 agent / helper_llm 有)→ 目录默认 `get_default_models(source, protocol)[0]` → 卡表头 → 目录表头(空卡)→ None。
+通用查表,无 NetMind 特判;没有 onboarding 条目的来源(普通 `user` BYOK)行为不变。`slot_name` 为空(如 embedding)
+时跳过第一步,不会把 agent 默认当成 embedding 默认。守卫:`tests/agent_framework/test_self_heal_onboard_default.py`。
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 
@@ -116,6 +127,7 @@ broken (a mis-configured row), because the sentinel check is an exact-membership
 truthiness one. Adding a second sentinel is a one-line change here and requires no edit to
 self_heal.
 
-``pick_default_model`` prefers the first element of card.models, falls
-back to ``model_catalog.get_default_models(source, protocol)[0]``,
-returns ``None`` if both are empty (caller logs and lets the call fail).
+``pick_default_model`` order: onboarding default for (source, slot kind) if on the card →
+``model_catalog.get_default_models(source, protocol)[0]`` if on the card → first element of
+card.models → catalogue head (empty card) → ``None`` (caller logs and lets the call fail).
+See the 2026-10-16 entry above for why the card head is no longer the first choice.

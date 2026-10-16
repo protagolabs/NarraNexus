@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-09-11
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — defaultAgentModel + 按 source 的推荐默认
+
+新增 `RECOMMENDED_AGENT/HELPER_MODEL_BY_SOURCE`(镜像后端 `_ONBOARD_*_MODELS` 的 netmind / netmind_free 条目:
+`deepseek-ai/DeepSeek-V4.1-Flash`)与 `defaultAgentModel(source, modelIds)`。选 provider 时默认模型:来源默认在卡上就用它,
+否则回退首个——NetMind 同步列表表头是 omni 模型,取 `models[0]` 是同一类错误。`defaultHelperModel` 先查 source 表再查协议表。
+`ModelDefaultsSettings` / `AgentLlmConfigPanel` 的 agent provider 切换改用 `defaultAgentModel`。
 
 ## 2026-09-11 — `providerBacksFramework` no longer reads "no framework" as Claude Code
 

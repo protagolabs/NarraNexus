@@ -82,6 +82,25 @@ def test_onboarding_defaults_exist_for_the_card():
     assert get_default_helper_model(FREE_TIER_SOURCE)
 
 
+@pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
+def test_netmind_family_defaults_both_slots_to_v4_flash(source):
+    """Owner decision: NetMind agent AND helper both start on V4.1-Flash."""
+    flash = "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert get_default_agent_model(source) == flash
+    assert get_default_helper_model(source) == flash
+
+
+def test_free_tier_provisioning_default_agent_is_v4_flash(monkeypatch):
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    from narranexus.platform.agent_framework.providers.free_tier import (
+        free_tier_default_models,
+    )
+    assert free_tier_default_models() == (
+        "deepseek-ai/DeepSeek-V4.1-Flash", "deepseek-ai/DeepSeek-V4.1-Flash",
+    )
+
+
 def test_cloud_policy_lets_the_free_card_drive_a_slot():
     """Cloud non-staff may only bind NetMind capacity. The free wallet IS
     NetMind capacity (through our gateway), so it must be bindable — otherwise
@@ -176,3 +195,14 @@ def test_build_dual_providers_accepts_per_protocol_model_dict():
     by_proto = {r["protocol"]: json.loads(r["models"]) for r in rows}
     assert by_proto["openai"] == ["a", "b"]
     assert by_proto["anthropic"] == ["a"]
+
+
+@pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
+def test_netmind_onboarding_defaults_are_registered_catalog_models(source):
+    """A default the catalogue has no metadata for loses thinking/budget flags."""
+    from narranexus.platform.agent_framework.providers.model_catalog import (
+        get_model_meta,
+    )
+    for model in (get_default_agent_model(source), get_default_helper_model(source)):
+        meta = get_model_meta(model)
+        assert meta is not None and meta.thinks_by_default is True

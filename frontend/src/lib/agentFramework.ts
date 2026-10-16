@@ -294,6 +294,28 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
   anthropic: 'claude-haiku-4-5',
 }
 
+// Per-SOURCE onboarding defaults — mirrors the netmind / netmind_free entries of
+// backend ``_ONBOARD_AGENT_MODELS`` / ``_ONBOARD_HELPER_MODELS`` (model_catalog.py).
+// NetMind's synced model list starts with an omni model, so ``models[0]`` is the
+// wrong pick there; only sources the platform has an opinion about are listed.
+const NETMIND_DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash'
+export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {
+  netmind: NETMIND_DEFAULT_MODEL,
+  netmind_free: NETMIND_DEFAULT_MODEL,
+}
+export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {
+  netmind: NETMIND_DEFAULT_MODEL,
+  netmind_free: NETMIND_DEFAULT_MODEL,
+}
+
+// Default agent-slot model when a provider is picked: the source's onboarding
+// default when it is on the card, else the first listed model.
+export function defaultAgentModel(source: string | undefined, modelIds: string[]): string {
+  const rec = RECOMMENDED_AGENT_MODEL_BY_SOURCE[source || '']
+  if (rec && modelIds.includes(rec)) return rec
+  return modelIds[0] || ''
+}
+
 // Default helper-slot model when a provider is picked: the recommended CHEAP
 // model, never the flagship models[0] (the helper does small structured jobs).
 // OAuth providers list CLI family aliases, so the concrete
@@ -305,6 +327,8 @@ export function defaultHelperModel(
   protocol: string | undefined,
   modelIds: string[],
 ): string {
+  const bySource = RECOMMENDED_HELPER_MODEL_BY_SOURCE[source || '']
+  if (bySource && modelIds.includes(bySource)) return bySource
   const rec = RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai']
   if (rec && modelIds.includes(rec)) return rec
   if (source === 'claude_oauth' && modelIds.includes('haiku')) return 'haiku'

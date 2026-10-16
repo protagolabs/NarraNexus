@@ -481,8 +481,8 @@ async def test_onboard_netmind_routes_each_slot_to_its_protocol_row():
     )
 
     assert meta["agent_framework"] == "claude_code"
-    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4-Pro"
-    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert len(new_ids) == 2
 
     agent_pid = config.slots["agent"].provider_id
@@ -501,9 +501,9 @@ async def test_onboard_netmind_resolves_end_to_end():
     cfg = await resolve_user_runtime_llm_configs("u1", db)
 
     assert cfg.claude.api_key == "netmind-key"
-    assert cfg.claude.model == "deepseek-ai/DeepSeek-V4-Pro"
+    assert cfg.claude.model == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert cfg.openai.api_key == "netmind-key"
-    assert cfg.openai.model == "deepseek-ai/DeepSeek-V4-Flash"
+    assert cfg.openai.model == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert cfg.anthropic_helper is None    # helper rides the openai row
 
 
@@ -872,8 +872,8 @@ async def test_onboard_free_tier_falls_back_to_catalog_without_env(monkeypatch):
         "u1", "wallet-key", provider_type="netmind_free",
     )
 
-    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4-Pro"
-    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
     agent_slot = next(
         s for s in db.slots.values()
         if s["user_id"] == "u1" and s["slot_name"] == "agent"

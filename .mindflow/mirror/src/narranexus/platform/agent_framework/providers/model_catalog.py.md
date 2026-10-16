@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/model_catalog.py
-last_verified: 2026-09-11
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — NetMind 默认改 DeepSeek-V4.1-Flash(agent 与 helper 同款)+ get_onboard_default_model
+
+Owner 决定:netmind / netmind_free 的 agent 与 helper_llm 默认均为 `deepseek-ai/DeepSeek-V4.1-Flash`(此前 agent=V4-Pro)。
+原因:V4-Flash 约 2026-09-11 从 NetMind 公开目录消失(探针账本仅作 `extra`,不上 Power 卡),槽位因此被 self-heal 翻到卡表头
+omni 模型;V4.1-Flash 在目录内且双协议通过。V4.1-Flash 已登记 `ModelMeta`(`thinks_by_default=True`,沿用 V4 家族,
+未单独实测;偏保守方向,只会抬高输出预算下限)并加入 `_DEFAULT_MODELS` 与离线账本。
+新增 `get_onboard_default_model(source, slot_name)`:无回退(未知来源返回 None),供 self-heal 判断平台对该卡是否有默认,
+与带回退的 `get_default_agent_model` / `get_default_helper_model` 区分。官方家族(anthropic/openai/yunwu/openrouter)agent 仍取最强款。
+下文 2026-06-10 条目里 "netmind = V4-Pro / V4-Flash" 已过时。
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 

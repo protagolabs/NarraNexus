@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-09-11
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — agent provider 切换默认模型走 defaultAgentModel
+
+切换 agent provider 时默认模型不再取 `models[0]`,改用 `defaultAgentModel(source, ids)`(NetMind 取 V4.1-Flash;见 [[agentFramework]])。
 
 ## 2026-09-11 — thinking / reasoning effort need a provider
 
