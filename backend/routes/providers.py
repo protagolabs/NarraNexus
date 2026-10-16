@@ -29,6 +29,7 @@ from narranexus.platform.agent_framework.providers.cloud_policy import (
 from narranexus.platform.agent_framework.providers.model_catalog import (
     get_all_known_models,
     get_default_models,
+    get_onboard_defaults,
     get_suggested_models,
     OFFICIAL_BASE_URLS,
 )
@@ -1164,6 +1165,10 @@ async def get_catalog():
             "anthropic": get_suggested_models("anthropic"),
             "openai": get_suggested_models("openai"),
         },
+        # Per-source onboarding default models (server-owned; netmind_free
+        # follows FREE_TIER_*_MODEL) -- the UI seeds its "recommended" picks
+        # from this instead of carrying its own copy.
+        "onboard_defaults": get_onboard_defaults(),
         "official_base_urls": {protocol: list(urls) for protocol, urls in OFFICIAL_BASE_URLS.items()},
         "slot_protocols": {slot.value: [p.value for p in protos] for slot, protos in SLOT_REQUIRED_PROTOCOLS.items()},
     }

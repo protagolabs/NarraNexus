@@ -59,8 +59,8 @@ _DEFAULT_OPENAI_BASE = "http://litellm:4000/v1"
 # Models the card is CREATED with. Not a restriction: the gateway serves the
 # whole upstream catalogue, `model_sync` refreshes the list daily, and the user
 # may switch to anything in it. These are only the sane starting slots.
-_DEFAULT_AGENT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
-_DEFAULT_HELPER_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
+_DEFAULT_AGENT_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash"
+_DEFAULT_HELPER_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash"
 
 
 @dataclass(frozen=True)
