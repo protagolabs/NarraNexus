@@ -31,6 +31,7 @@ from typing import Any, Callable, Optional
 from unittest.mock import AsyncMock
 
 import pytest
+from nio import JoinError, JoinResponse
 
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -665,8 +666,15 @@ class _SyncResp(SimpleNamespace):
     """Stands in for nio.SyncResponse (connect() isinstance-checks it)."""
 
 
-async def _drive_auto_join(monkeypatch, t: MatrixTrigger, *, join_error=None) -> list[str]:
-    """Run the real connect() for one /sync batch that invites us to ROOM."""
+async def _drive_auto_join(
+    monkeypatch, t: MatrixTrigger, *, join_error=None, join_response=None
+) -> list[str]:
+    """Run the real connect() for one /sync batch that invites us to ROOM.
+
+    ``join_error`` is raised by ``join`` (transport failure);
+    ``join_response`` replaces the success response (nio reports
+    server-side failures as a returned ``JoinError``, not an exception).
+    """
     joined: list[str] = []
 
     class _SyncClient:
@@ -691,7 +699,10 @@ async def _drive_auto_join(monkeypatch, t: MatrixTrigger, *, join_error=None) ->
         async def join(self, room_id):
             if join_error is not None:
                 raise join_error
+            if join_response is not None:
+                return join_response
             joined.append(room_id)
+            return JoinResponse(room_id)
 
         async def close(self):
             return None
@@ -740,3 +751,159 @@ async def test_failed_auto_join_keeps_authority(monkeypatch):
 
     assert await _drive_auto_join(monkeypatch, t, join_error=RuntimeError("blip")) == []
     assert ROOM in t._room_roster_authoritative
+
+
+@pytest.mark.asyncio
+async def test_join_error_response_keeps_authority(monkeypatch):
+    """nio returns JoinError (no exception) for M_FORBIDDEN / rate limits:
+    that is a failed join too, not an auto-join."""
+    t = await _verified_trigger()
+
+    await _drive_auto_join(
+        monkeypatch, t, join_response=JoinError("forbidden", "M_FORBIDDEN")
+    )
+    assert ROOM in t._room_roster_authoritative
+
+
+@pytest.mark.asyncio
+async def test_auto_join_clears_stale_unverified_leaves(monkeypatch):
+    """A leave recorded before we were (re)invited must not shrink the
+    roster verified after the auto-join: the member may have come back
+    while we were not watching."""
+    t = MatrixTrigger()
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "join"))
+    t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave"))
+
+    assert await _drive_auto_join(monkeypatch, t) == [ROOM]
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    assert await t._get_member_count(client, ROOM) == 3  # type: ignore[arg-type]
+    assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID, THIRD_MXID}
+
+
+# ────────────────────────────────────────────────────────────────────
+# Leaves of members the partial roster never saw join
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_unseen_member_leave_during_lookup_is_subtracted():
+    """Fresh room, only our own join synced. While joined_members is in
+    flight, B leaves; B's join was never seen, so the roster set does not
+    change. The snapshot predating the leave ({agent, A, B}) must not pin
+    the room as a 3-person group — it is a 1:1 room now."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    t._apply_member_event(
+        ROOM, _member_event(AGENT_MXID, "join", prev_membership="invite")
+    )
+    client.during_lookup = [
+        lambda: t._apply_member_event(
+            ROOM, _member_event(THIRD_MXID, "leave", prev_membership="join")
+        ),
+    ]
+
+    assert await h.route(_msg()) == "dm"
+    assert ROOM in t._room_roster_authoritative
+    assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID}
+    # The snapshot carried B's display name; B is gone, so it must not be
+    # backfilled (it would feed @-mention detection and attribution).
+    assert (ROOM, THIRD_MXID) not in t._display_name_cache
+    assert (ROOM, USER_MXID) in t._display_name_cache
+
+
+@pytest.mark.asyncio
+async def test_leave_synced_before_lookup_is_not_subtracted():
+    """B's leave was synced BEFORE the lookup started; B then rejoined on
+    the server and that join has not synced yet. A snapshot taken after the
+    leave is at least as new as it, so it is trusted as-is: subtracting B
+    would read a 3-person group as a DM and auto-reply in it."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "join"))
+    t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave"))
+
+    assert await h.route(_msg()) == "group_silent"
+    assert ROOM in t._room_roster_authoritative
+    assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID, THIRD_MXID}
+
+
+@pytest.mark.asyncio
+async def test_rejoin_after_unverified_leave_is_not_subtracted():
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave"))
+    t._apply_member_event(ROOM, _member_event(THIRD_MXID, "join"))
+
+    assert await h.count() == 3
+
+
+@pytest.mark.asyncio
+async def test_initial_sync_leave_tombstones_do_not_block_verification():
+    """A first sync's state block carries leave events for past members.
+    They describe people who are gone (absent from the REST roster too),
+    so they neither invalidate the lookup nor shrink the real roster."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    for gone in ("@old1:h", "@old2:h"):
+        t._apply_member_event(ROOM, _member_event(gone, "leave"))
+    client.during_lookup = [
+        lambda: t._apply_member_event(ROOM, _member_event("@old3:h", "ban")),
+    ]
+
+    assert await h.route(_msg()) == "dm"
+    assert client.calls == [ROOM]
+
+
+@pytest.mark.asyncio
+async def test_own_leave_clears_unverified_leaves():
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    h = _Harness(client)
+    t = h.trigger
+    t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave"))
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "leave"))
+
+    assert await h.count() == 3
+
+
+# ────────────────────────────────────────────────────────────────────
+# First-message @displayname mention in a fresh room
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_first_message_displayname_mention_uses_rest_backfill():
+    """Our display name is only known from the joined_members roster (our
+    own join was not synced). The room shape is primed before mention
+    detection, so the FIRST ``@displayname`` message is a mention."""
+    roster = [
+        SimpleNamespace(user_id=AGENT_MXID, display_name="Helper Bot"),
+        SimpleNamespace(user_id=USER_MXID, display_name="Alice"),
+        SimpleNamespace(user_id=THIRD_MXID, display_name="Bob"),
+    ]
+    client = _FakeClient(roster)
+    h = _Harness(client)
+
+    assert await h.route(_msg("@Helper Bot can you summarise?")) == "group_mention"
+    assert client.calls == [ROOM]
+
+
+def test_member_event_without_mxid_caches_nothing():
+    """No state_key and no sender: there is no member to attach the name
+    to, so neither the roster nor the display-name cache may change."""
+    t = MatrixTrigger()
+    t._apply_member_event(
+        ROOM,
+        SimpleNamespace(
+            state_key="",
+            sender="",
+            membership="join",
+            prev_membership="",
+            content={"displayname": "Ghost", "membership": "join"},
+        ),
+    )
+    assert t._display_name_cache == {}
+    assert ROOM not in t._room_joined

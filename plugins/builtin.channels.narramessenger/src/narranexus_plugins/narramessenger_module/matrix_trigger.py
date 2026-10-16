@@ -71,6 +71,7 @@ from loguru import logger
 from nio import (
     AsyncClient,
     AsyncClientConfig,
+    JoinError,
     LocalProtocolError,
     RoomMemberEvent,
     RoomMessageMedia,
@@ -553,14 +554,25 @@ class MatrixTrigger(ChannelTriggerBase):
         # appears in ``_room_roster_authoritative``.
         self._room_joined: dict[str, set[str]] = {}
         # Room ids whose roster was replaced by a successful
-        # ``joined_members`` REST lookup. One lookup per room per process;
-        # member events keep the roster current afterwards.
+        # ``joined_members`` REST lookup. One successful lookup per room per
+        # process; concurrent workers may each issue one, the first verified
+        # roster wins. Member events keep the roster current afterwards.
         self._room_roster_authoritative: set[str] = set()
         # room_id -> roster change counter, bumped by _apply_member_event
         # only when the set actually changes. _get_member_count compares it
         # across the joined_members await: a change means the response may
         # predate a membership event we already applied.
         self._room_roster_gen: dict[str, int] = {}
+        # room_id -> MXIDs seen leaving / banned while the room is NOT
+        # authoritative, whether or not their join was ever seen. A partial
+        # roster cannot tell "never joined" from "join not synced", so such
+        # a leave does not change the set (no generation bump) — yet a
+        # joined_members snapshot in flight may still list them. Only the
+        # entries added WHILE a lookup is in flight are subtracted from its
+        # response (a leave synced before the request is already reflected
+        # in any later snapshot); the room's entry is dropped once the
+        # roster is adopted. A later join removes the MXID again.
+        self._room_left_unverified: dict[str, set[str]] = {}
         # (room_id, mxid) -> current displayname. Populated the same way,
         # since displayname lives on the ``m.room.member`` event content.
         # Used for @-mention detection AND per-message attribution when
@@ -783,7 +795,14 @@ class MatrixTrigger(ChannelTriggerBase):
         roster seeded purely from sync events can be partial, so
         :meth:`_get_member_count` still performs the one-time REST lookup.
         A real change bumps the room's roster generation (so an in-flight
-        lookup knows its response may be stale).
+        lookup knows its response may be stale). In a non-authoritative
+        room a ``leave`` / ``ban`` is also recorded in
+        ``_room_left_unverified`` (and a ``join`` clears it), so a REST
+        snapshot that predates a leave synced during the request is
+        trimmed even when the leaver's join was never synced. Leaves
+        recorded before the request (including initial-sync tombstones)
+        are never subtracted: a snapshot taken after them already reflects
+        them, and the member may have rejoined since.
 
         One of our own agents leaving or being banned drops the room's
         authority, but this only fires when that event shows up in a
@@ -794,6 +813,8 @@ class MatrixTrigger(ChannelTriggerBase):
         it (re)joins.
         """
         mxid = event.state_key or event.sender or ""
+        if not mxid:
+            return
         membership = event.membership or ""
         content = event.content if isinstance(event.content, dict) else {}
         name = content.get("displayname") or ""
@@ -804,8 +825,6 @@ class MatrixTrigger(ChannelTriggerBase):
         elif membership == "leave":
             self._display_name_cache.pop((room_id, mxid), None)
 
-        if not mxid:
-            return
         joined = self._room_joined.get(room_id)
         changed = False
         if membership == "join":
@@ -814,14 +833,31 @@ class MatrixTrigger(ChannelTriggerBase):
             if mxid not in joined:
                 joined.add(mxid)
                 changed = True
+            left = self._room_left_unverified.get(room_id)
+            if left is not None:
+                left.discard(mxid)
         elif membership in ("leave", "ban"):
             if joined is not None and mxid in joined:
                 joined.discard(mxid)
                 changed = True
             if mxid in self._own_mxids():
-                self._room_roster_authoritative.discard(room_id)
+                self._drop_roster_authority(room_id)
+            elif room_id not in self._room_roster_authoritative:
+                self._room_left_unverified.setdefault(room_id, set()).add(mxid)
         if changed:
             self._room_roster_gen[room_id] = self._room_roster_gen.get(room_id, 0) + 1
+
+    def _drop_roster_authority(self, room_id: str) -> None:
+        """Make the next classification re-verify ``room_id`` via REST.
+
+        Also forgets the room's unverified leaves. This is bookkeeping:
+        only leaves recorded while a lookup is in flight are ever
+        subtracted, so older entries could not trim a fresh snapshot
+        anyway; dropping them keeps the map from carrying state for a
+        stretch we no longer trust.
+        """
+        self._room_roster_authoritative.discard(room_id)
+        self._room_left_unverified.pop(room_id, None)
 
     def _own_mxids(self) -> set[str]:
         """MXIDs of the agents this trigger currently runs a client for."""
@@ -874,6 +910,7 @@ class MatrixTrigger(ChannelTriggerBase):
             if room_id in self._room_roster_authoritative:
                 return self._known_member_count(room_id)
             generation = self._room_roster_gen.get(room_id, 0)
+            left_before = set(self._room_left_unverified.get(room_id, ()))
             members = await self._fetch_joined_members(client, room_id)
             if room_id in self._room_roster_authoritative:
                 return self._known_member_count(room_id)
@@ -886,16 +923,21 @@ class MatrixTrigger(ChannelTriggerBase):
                     f"membership changed while the lookup was in flight"
                 )
                 continue
+            # A leave synced while the request was in flight may postdate
+            # the snapshot, which then still lists the leaver; drop those.
+            # Leaves synced before the request are already reflected in it.
+            left = self._room_left_unverified.pop(room_id, set()) - left_before
             self._room_joined[room_id] = {
                 m.user_id for m in members if getattr(m, "user_id", None)
-            }
+            } - left
             self._room_roster_authoritative.add(room_id)
-            # Backfill display names from the roster too so the first
-            # message in a fresh room doesn't miss @-mention detection.
+            # Backfill display names from the roster too. _process_message
+            # primes the room shape before mention detection, so the first
+            # message in a fresh room already sees our display name.
             for m in members:
                 mxid = getattr(m, "user_id", None)
                 name = getattr(m, "display_name", None)
-                if mxid and name:
+                if mxid and name and mxid not in left:
                     self._display_name_cache[(room_id, mxid)] = name
             return self._known_member_count(room_id)
         return 0
@@ -999,6 +1041,7 @@ class MatrixTrigger(ChannelTriggerBase):
         credential: NarramessengerCredential,
         *,
         mentioned: Optional[bool] = None,
+        member_count: Optional[int] = None,
     ) -> _ClassifyTarget:
         """Route a message to the right handler.
 
@@ -1014,8 +1057,16 @@ class MatrixTrigger(ChannelTriggerBase):
                 authorize-event gate already needed it for its payload),
                 reuse rather than re-scanning the body. If None, we
                 compute via :meth:`_is_mentioning_us`.
+            member_count: If the caller already resolved the room shape
+                via :meth:`_get_member_count`, reuse it (a second lookup
+                after a failure would silently retry within one message).
+                If None, we look it up here.
         """
-        count = await self._get_member_count(client, message.chat_id)
+        count = (
+            member_count
+            if member_count is not None
+            else await self._get_member_count(client, message.chat_id)
+        )
         if count == 2:
             return "dm"
         if mentioned is None:
@@ -1576,9 +1627,19 @@ class MatrixTrigger(ChannelTriggerBase):
         # authorize-event per the owner override (see
         # ``SILENT_BYPASS_AUTHORIZE``). Computing target before the gate
         # lets us split the two dispositions cleanly.
+        # The room shape is resolved BEFORE mention detection: the first
+        # lookup of a fresh room backfills display names from the REST
+        # roster, which ``@displayname`` detection needs for this very
+        # message. _classify then reuses the count instead of looking up
+        # again.
+        member_count = await self._get_member_count(client, message.chat_id)
         mentioned = self._is_mentioning_us(message, credential)
         target = await self._classify(
-            client, message, credential, mentioned=mentioned
+            client,
+            message,
+            credential,
+            mentioned=mentioned,
+            member_count=member_count,
         )
         logger.info(
             f"[matrix:{credential.agent_id}] CLASSIFY target={target} "
@@ -2534,11 +2595,22 @@ class MatrixTrigger(ChannelTriggerBase):
                 ) or {}
                 for room_id in list(invite_rooms.keys()):
                     try:
-                        await client.join(room_id)
+                        join_resp = await client.join(room_id)
+                        if isinstance(join_resp, JoinError):
+                            # nio reports server-side refusals (M_FORBIDDEN,
+                            # rate limits) as a returned JoinError, not an
+                            # exception. Same handling as a raised failure:
+                            # the invite comes back on the next sync.
+                            logger.warning(
+                                f"[matrix:{agent_id}] auto-join refused for "
+                                f"{room_id}: {join_resp.status_code} "
+                                f"{join_resp.message}"
+                            )
+                            continue
                         # A re-invited room's old roster missed every
                         # membership change while we were out; re-verify
                         # it on the next classification.
-                        self._room_roster_authoritative.discard(room_id)
+                        self._drop_roster_authority(room_id)
                         logger.info(
                             f"[matrix:{agent_id}] auto-joined invited room "
                             f"{room_id}"

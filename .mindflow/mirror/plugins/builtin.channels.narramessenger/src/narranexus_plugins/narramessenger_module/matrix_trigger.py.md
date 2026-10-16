@@ -18,9 +18,10 @@ last_verified: 2026-10-16
 **修法**：
 - `_room_joined: dict[room_id, set[mxid]]` 取代计数器。`_apply_member_event` 按事件的**新** membership 改集合：
   `join` 加入；`leave`（含被踢）/`ban` 移除；`invite`/`knock` 不变；不再读 `prev_membership`。回放同一事件是空操作。
-  空 mxid 的事件直接忽略。显示名缓存规则未动（join 带名写入、leave 删除）。
-- 只由 sync 成员事件拼出来的集合**不权威**。`_get_member_count` 对每个房间（每进程）在第一次需要房型时调一次
-  `joined_members`，用响应**整体替换**集合、把房间记进 `_room_roster_authoritative`，并照旧回填显示名；之后直接返回集合
+  空 mxid（`state_key`、`sender` 都空）的事件在函数开头直接返回，集合和显示名缓存都不写（PR #415 M-3：之前显示名会被
+  记到 `(room_id, "")` 键下）。显示名缓存规则本身未动（join 带名写入、leave 删除）。
+- 只由 sync 成员事件拼出来的集合**不权威**。`_get_member_count` 对每个房间（每进程）在第一次需要房型时调
+  `joined_members`（每房每进程只需**一次成功**查询；并发 worker 可能各发一次，先核验成功的那份胜出），用响应**整体替换**集合、把房间记进 `_room_roster_authoritative`，并照旧回填显示名；之后直接返回集合
   大小，由成员事件持续增删维护，不再调 REST。
 - **fail-closed + 重试**：REST 抛错、返回错误响应、或成员列表为空 → 返回 0（未知 → `group_silent`），**不**标记权威，
   下一条消息重试。即使 sync 已经攒出两个 join，REST 失败时也不信它（部分视图正是老 bug 的来源）。`_classify` 规则本身未改。
@@ -33,7 +34,9 @@ last_verified: 2026-10-16
   - 同一房间两次查询重叠：await 返回后若房间已被另一次查询标为权威，就沿用那份（此后由成员事件维护）并返回其大小，
     不用自己这份（起得更早或同时、先后不明的快照）覆盖。REST 抛错时同样先看这一条。
   - **重新入房必须重新核验（可靠路径）**：`connect()` 自动入房分支在 `client.join(room_id)` 成功后撤销该房权威——
-    离开期间的成员变动我们全没看到，旧集合已过时。join 失败则保持原状（邀请下次 sync 还会再来）。
+    离开期间的成员变动我们全没看到，旧集合已过时。join 失败则保持原状（邀请下次 sync 还会再来）：抛异常、或 nio 返回
+    `JoinError` 响应对象（服务端拒绝如 `M_FORBIDDEN`、限流，nio 不抛异常）都算失败，打 warning、不打 auto-joined INFO、
+    不动权威（PR #415 M-2）。
   - 我们自己的 agent（`_clients` 里各 client 的 `user_id`）`leave`/`ban` 也会撤销权威，但只是补充：自己离开的事件
     通常在 `resp.rooms.leave` 里，sync 循环不遍历它，只有当它出现在某个已加入房间的 timeline 里（比如同房还有我们的
     另一个 agent）才会生效。
@@ -43,6 +46,27 @@ last_verified: 2026-10-16
   权威房型，而不是 parse_event 按提示猜的。群判定时如果 parse_event 已按「部分成员表=2」打上 `rtc_voice`，一并撤销：
   去掉 `rtc_voice`，正文还原为 `raw["body"]`（RTC 元数据没有来源绑定，语音模式只限 1:1）。dm 方向仍由
   `_late_voice_upgrade` 补齐。
+
+**PR #415 review（I-1）：没见过其 join 的成员离开**——非权威房间的集合可能是部分的，「不在集合里」分不清
+「本来没 join」和「join 没同步到」，所以这种 leave/ban 不改集合、不递增代数，在途 REST 快照（还带着刚离开的人）会被
+原样采信并钉成权威——例如只同步到自己 join 的新房间里，B 在查询途中退群，房间被永久钉成三人群（与 10-16 事故同症状）。
+- 修法是减法，且**只减查询在途期间同步到的离开**：`_room_left_unverified[room]` 记录房间**非权威**期间出现的
+  leave/ban（不管集合里有没有）；同一 mxid 再 `join` 就移除。`_get_member_count` 每次 attempt 在 await 前和代数一起
+  拍一份 `left_before`，响应回来后只减 `当前离开者 − left_before`（请求途中新到的离开），然后清掉该房条目（权威后不再
+  维护，避免第二份真相）；被减掉的人也不回填显示名。
+- 为什么只减在途窗口（Opus 预审）：请求开始前就同步到的离开，之后拍的快照至少和它一样新，已经反映了它；再减就错了——
+  例如 B 的离开先同步到，B 在服务端又加回来、加入事件还没同步，此时查询返回 {agent, A, B}，若减掉 B 就成了 2 人 = dm，
+  在三人群里自动回复（fail-open，旧实现在这里是 3）。首次 sync 的历史 leave 墓碑同样是查询前记下的，不进扣减。
+- 所有撤销权威的路径（自己 agent 的 leave/ban、`connect()` 自动入房）都经 `_drop_roster_authority`，同时清掉该房的
+  离开者集合。有了在途窗口之后，这一步和 `join` 时的移除都只是记账（旧条目本来就不会被扣减），不再影响结果。我们自己的
+  leave 不记入离开者集合（走撤销权威）。
+- 没选「非权威房间的 leave/ban 一律递增代数」：首次 sync 的 state 块会带历史成员的 leave 墓碑，若与在途查询重叠会把两次
+  attempt 都作废，换来一次误静默。
+
+**PR #415 review（M-1）：首条 `@显示名` 提及**——`_process_message` 现在先 `await _get_member_count(...)` 解析房型（新房间
+的首次查询顺带从 REST 名单回填显示名），再算 `mentioned`，然后把算好的数通过新增的可选参数 `_classify(..., member_count=)`
+传进去，`_classify` 不再自己查第二次（查询失败时第二次调用会在同一条消息内悄悄重试）。不传该参数时 `_classify` 行为不变。
+所以 agent 自己的 join 没同步到、只有 REST 名单里才有显示名时，新三人房的第一条 `@显示名` 消息就能判成 group_mention。
 
 **同类消费面（已扫）**：
 - `parse_event` 改读 `_known_member_count`（集合大小，权威与否都读；未知房为 0 → GROUP）。它只决定预分类的
@@ -57,6 +81,13 @@ last_verified: 2026-10-16
 成员频繁变动的房间：两次查询都被打断时这条消息按未知房型（group_silent）处理，要等到某条消息的查询碰上安静窗口
 才能判出 dm——fail-closed，但会有延迟。不经邀请、直接被加回房间的情况不会经过自动入房分支，只能依赖上面那条
 自己离开的事件。
+
+PR #415 这一轮的测试：`test_unseen_member_leave_during_lookup_is_subtracted`（I-1；用 623daf3ce 的实现会变红；同时断言
+被减掉的人不回填显示名，去掉该过滤即变红）、`test_leave_synced_before_lookup_is_not_subtracted`（在途窗口；不按窗口
+减时变红）、`test_initial_sync_leave_tombstones_do_not_block_verification`（改成「一律递增代数」时变红）、
+`test_rejoin_after_unverified_leave_is_not_subtracted` / `test_auto_join_clears_stale_unverified_leaves` /
+`test_own_leave_clears_unverified_leaves`（行为断言：这些场景下名单不被削小；在途窗口生效后它们不再依赖记账清理）、`test_first_message_displayname_mention_uses_rest_backfill`
+（M-1）、`test_join_error_response_keeps_authority`（M-2）、`test_member_event_without_mxid_caches_nothing`（M-3）。
 
 锁：`tests/narramessenger_module/test_matrix_room_shape.py`（真实 `_apply_member_event` / `_get_member_count` /
 `_process_message`，假 nio 客户端控制 `joined_members`；回退到 origin/dev 实现时 26 条里 19 条变红。其中
