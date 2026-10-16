@@ -522,6 +522,12 @@ class MatrixTrigger(ChannelTriggerBase):
     # (Slack-parity behavior — matches Narra's stated policy).
     SILENT_BYPASS_AUTHORIZE = True
 
+    # Bounded joined_members attempts per room-shape lookup. A membership
+    # event applied while a lookup is in flight invalidates its response;
+    # one immediate re-fetch usually lands in a quiet window, and the bound
+    # keeps a room with constant membership churn from looping.
+    ROSTER_LOOKUP_ATTEMPTS = 2
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
@@ -539,10 +545,22 @@ class MatrixTrigger(ChannelTriggerBase):
         self._clients: dict[str, AsyncClient] = {}
 
         # ── Caches populated by sync-response state / timeline walks ─────
-        # room_id -> current joined member count. Used to classify DM
-        # (==2) vs group (>2). Populated lazily on first sight; kept
-        # accurate by watching ``m.room.member`` events for join/leave.
-        self._room_member_count: dict[str, int] = {}
+        # room_id -> MXIDs currently joined. The room's shape (2 = DM,
+        # >2 = group) is the size of this set. Member events add/discard
+        # MXIDs, so replaying an event is a no-op. A roster built only from
+        # sync member events may be PARTIAL (a fresh room's first sync can
+        # carry just the agent's own join), so it is a hint until the room
+        # appears in ``_room_roster_authoritative``.
+        self._room_joined: dict[str, set[str]] = {}
+        # Room ids whose roster was replaced by a successful
+        # ``joined_members`` REST lookup. One lookup per room per process;
+        # member events keep the roster current afterwards.
+        self._room_roster_authoritative: set[str] = set()
+        # room_id -> roster change counter, bumped by _apply_member_event
+        # only when the set actually changes. _get_member_count compares it
+        # across the joined_members await: a change means the response may
+        # predate a membership event we already applied.
+        self._room_roster_gen: dict[str, int] = {}
         # (room_id, mxid) -> current displayname. Populated the same way,
         # since displayname lives on the ``m.room.member`` event content.
         # Used for @-mention detection AND per-message attribution when
@@ -749,20 +767,34 @@ class MatrixTrigger(ChannelTriggerBase):
     def _apply_member_event(self, room_id: str, event: RoomMemberEvent) -> None:
         """Update caches from a single ``m.room.member`` state event.
 
-        Called from the sync loop for both timeline events (live changes)
-        and state events (initial snapshot on first sync). Idempotent —
-        replaying the same event twice sets the cache to the same value.
+        Called from the sync loop for both state-block events and timeline
+        events. Idempotent — the roster is a set keyed by MXID, so replaying
+        the same event (state block + timeline, since-token rewind) leaves
+        it unchanged.
 
-        Membership transitions:
-          - ``join``  → +1 member if we hadn't counted them; refresh name
-          - ``leave`` → -1 member (never negative); drop the name entry
-          - ``ban`` / ``knock`` / ``invite`` → member-count changes only
-            when transitioning INTO join/OUT of join, so we skip these
-            for the count and just handle name refresh.
+        Membership (the event's NEW state; ``prev_membership`` is not
+        consulted):
+          - ``join``  → add the MXID to the roster; refresh the name
+          - ``leave`` (incl. kick) → discard the MXID; drop the name entry
+          - ``ban``   → discard the MXID
+          - ``invite`` / ``knock`` → roster unchanged (not joined yet)
+
+        This only edits the roster; it never makes it authoritative. A
+        roster seeded purely from sync events can be partial, so
+        :meth:`_get_member_count` still performs the one-time REST lookup.
+        A real change bumps the room's roster generation (so an in-flight
+        lookup knows its response may be stale).
+
+        One of our own agents leaving or being banned drops the room's
+        authority, but this only fires when that event shows up in a
+        joined room's timeline (e.g. another of our agents is still in the
+        room): our own leave is normally delivered under ``rooms.leave``,
+        which the sync loop does not walk. The reliable path is the
+        auto-join in :meth:`connect`, which drops authority for every room
+        it (re)joins.
         """
         mxid = event.state_key or event.sender or ""
         membership = event.membership or ""
-        prev_membership = event.prev_membership or ""
         content = event.content if isinstance(event.content, dict) else {}
         name = content.get("displayname") or ""
 
@@ -772,32 +804,110 @@ class MatrixTrigger(ChannelTriggerBase):
         elif membership == "leave":
             self._display_name_cache.pop((room_id, mxid), None)
 
-        # Member count deltas — only transitions INTO/OUT of "join" matter.
-        was_joined = prev_membership == "join"
-        is_joined = membership == "join"
-        if not was_joined and is_joined:
-            self._room_member_count[room_id] = (
-                self._room_member_count.get(room_id, 0) + 1
-            )
-        elif was_joined and not is_joined:
-            self._room_member_count[room_id] = max(
-                0, self._room_member_count.get(room_id, 1) - 1
-            )
+        if not mxid:
+            return
+        joined = self._room_joined.get(room_id)
+        changed = False
+        if membership == "join":
+            if joined is None:
+                joined = self._room_joined[room_id] = set()
+            if mxid not in joined:
+                joined.add(mxid)
+                changed = True
+        elif membership in ("leave", "ban"):
+            if joined is not None and mxid in joined:
+                joined.discard(mxid)
+                changed = True
+            if mxid in self._own_mxids():
+                self._room_roster_authoritative.discard(room_id)
+        if changed:
+            self._room_roster_gen[room_id] = self._room_roster_gen.get(room_id, 0) + 1
+
+    def _own_mxids(self) -> set[str]:
+        """MXIDs of the agents this trigger currently runs a client for."""
+        return {
+            user_id
+            for user_id in (getattr(c, "user_id", None) for c in self._clients.values())
+            if user_id
+        }
+
+    def _known_member_count(self, room_id: str) -> int:
+        """Size of the roster seen so far, authoritative or not.
+
+        Synchronous hint for :meth:`parse_event`'s pre-classification
+        shape; 0 for a room we have no member data for. Routing decisions
+        go through :meth:`_get_member_count` instead.
+        """
+        return len(self._room_joined.get(room_id, ()))
 
     async def _get_member_count(
         self, client: AsyncClient, room_id: str
     ) -> int:
-        """Return current joined-member count for ``room_id``.
+        """Return the authoritative joined-member count for ``room_id``.
 
-        Cache-first. On miss, one authenticated GET to
-        ``/_matrix/client/v3/rooms/{room}/joined_members`` populates the
-        cache. Returns 0 on failure — callers must treat 0 as "unknown,
-        default to group_silent" so we NEVER accidentally auto-reply to a
-        room whose shape we can't verify.
+        The first call for a room does one authenticated GET to
+        ``/_matrix/client/v3/rooms/{room}/joined_members`` and REPLACES the
+        roster with the response, even if sync member events already
+        seeded it — those can be partial (a freshly auto-joined room's
+        first sync may carry only the agent's own join, which used to pin
+        a new 1:1 room at 1 member and classify it group_silent forever).
+        After that the room is authoritative and later calls return the
+        roster size, kept current by :meth:`_apply_member_event`.
+
+        Returns 0 when the lookup raises or yields no members, WITHOUT
+        marking the room authoritative, so the next message retries.
+        Callers must treat 0 as "unknown, default to group_silent" so we
+        NEVER accidentally auto-reply to a room whose shape we can't verify.
+
+        Races across the await (the sync loop and other workers keep
+        running while the REST call is in flight):
+          - another lookup for the same room verified it first → keep that
+            roster (since maintained by member events) and return its size;
+            ours started earlier or concurrently and must not overwrite it.
+          - a member event changed the roster meanwhile → the response may
+            predate it, so it is discarded and the lookup is repeated
+            immediately, at most :attr:`ROSTER_LOOKUP_ATTEMPTS` times in
+            total. If every attempt is invalidated, return 0 and stay
+            non-authoritative (retried on the next message).
         """
-        cached = self._room_member_count.get(room_id)
-        if cached is not None:
-            return cached
+        for attempt in range(1, self.ROSTER_LOOKUP_ATTEMPTS + 1):
+            if room_id in self._room_roster_authoritative:
+                return self._known_member_count(room_id)
+            generation = self._room_roster_gen.get(room_id, 0)
+            members = await self._fetch_joined_members(client, room_id)
+            if room_id in self._room_roster_authoritative:
+                return self._known_member_count(room_id)
+            if members is None:
+                return 0
+            if self._room_roster_gen.get(room_id, 0) != generation:
+                logger.info(
+                    f"[matrix] joined_members({room_id}) discarded "
+                    f"(attempt {attempt}/{self.ROSTER_LOOKUP_ATTEMPTS}): "
+                    f"membership changed while the lookup was in flight"
+                )
+                continue
+            self._room_joined[room_id] = {
+                m.user_id for m in members if getattr(m, "user_id", None)
+            }
+            self._room_roster_authoritative.add(room_id)
+            # Backfill display names from the roster too so the first
+            # message in a fresh room doesn't miss @-mention detection.
+            for m in members:
+                mxid = getattr(m, "user_id", None)
+                name = getattr(m, "display_name", None)
+                if mxid and name:
+                    self._display_name_cache[(room_id, mxid)] = name
+            return self._known_member_count(room_id)
+        return 0
+
+    async def _fetch_joined_members(
+        self, client: AsyncClient, room_id: str
+    ) -> Optional[list]:
+        """One ``joined_members`` call; the member list, or None on failure.
+
+        An empty roster counts as a failure: we are a member ourselves, so
+        it is not a shape, and treating it as one would cache 0.
+        """
         try:
             resp = await client.joined_members(room_id)
         except Exception as e:  # noqa: BLE001
@@ -805,26 +915,19 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"[matrix] joined_members({room_id}) raised: "
                 f"{type(e).__name__}: {e}"
             )
-            return 0
+            return None
         # nio returns JoinedMembersResponse (success) or JoinedMembersError
         # (failure). Success has .members (list of RoomMember dataclasses).
         members = getattr(resp, "members", None)
-        if not isinstance(members, list):
+        if not isinstance(members, list) or not any(
+            getattr(m, "user_id", None) for m in members
+        ):
             logger.warning(
                 f"[matrix] joined_members({room_id}) returned no members "
                 f"(status={getattr(resp, 'status_code', 'unknown')})"
             )
-            return 0
-        count = len(members)
-        self._room_member_count[room_id] = count
-        # Backfill display names from the roster too so the first message
-        # in a fresh room doesn't miss @-mention detection.
-        for m in members:
-            mxid = getattr(m, "user_id", None)
-            name = getattr(m, "display_name", None)
-            if mxid and name:
-                self._display_name_cache[(room_id, mxid)] = name
-        return count
+            return None
+        return members
 
     # ────────────────────────────────────────────────────────────────────
     # Classification (DM / group_mention / group_silent)
@@ -1063,12 +1166,18 @@ class MatrixTrigger(ChannelTriggerBase):
     def _room_member_mxids(self, room_id: str) -> list[str]:
         """Return the joined-member MXIDs we've seen for ``room_id``.
 
+        Prefers the roster (sorted), falling back to the display-name
+        cache keys when no member data was recorded for the room.
+
         Narra explicitly says it does NOT trust caller-supplied
         membership as authority (see setup-guide.md `Direct Group
         Context` section) — the server re-verifies. So this is a hint,
         not a source of truth. Empty list is fine; the server will
         still authorize based on its own view of the room.
         """
+        roster = self._room_joined.get(room_id)
+        if roster:
+            return sorted(roster)
         return [
             mxid
             for (rid, mxid) in self._display_name_cache.keys()
@@ -1477,6 +1586,11 @@ class MatrixTrigger(ChannelTriggerBase):
             f"mentioned={mentioned})"
         )
 
+        # parse_event stamped chat_type (and possibly the voice register)
+        # from a roster hint; align the message with the authoritative
+        # verdict so every consumer downstream sees the same shape.
+        message = self._reconcile_room_shape(message, target)
+
         if target == "dm":
             # Cold-roster fallback (review #17): parse_event gates voice
             # mode on the cached member count, which reads GROUP for an
@@ -1596,6 +1710,43 @@ class MatrixTrigger(ChannelTriggerBase):
         return await self._build_and_run_agent_atomic(
             credential, message, sender_name, attachments=attachments
         )
+
+    def _reconcile_room_shape(
+        self, message: ParsedMessage, target: _ClassifyTarget
+    ) -> ParsedMessage:
+        """Re-stamp the room shape parse_event guessed from the roster hint.
+
+        ``dm`` → PRIVATE. Any group verdict (including the fail-closed
+        unknown-shape group_silent) → GROUP, matching how the room is
+        being routed. Consumers keyed on ``chat_type`` (context builder
+        room_type, inbox thread type, circuit-refusal throttling) would
+        otherwise act on the guess.
+
+        A group verdict also undoes a voice stamp: parse_event's 1:1 voice
+        gate may have read a partial roster as 2 members, and RTC metadata
+        has no source binding, so a group turn must run as plain text with
+        its original body. The dm direction is handled by
+        :meth:`_late_voice_upgrade`.
+        """
+        if target == "dm":
+            if message.chat_type == ChatType.PRIVATE:
+                return message
+            return replace(message, chat_type=ChatType.PRIVATE)
+        raw = message.raw or {}
+        if raw.get("rtc_voice"):
+            logger.info(
+                f"[matrix:{message.chat_id}] voice stamp dropped: room "
+                f"classified {target}, voice mode is 1:1-only"
+            )
+            return replace(
+                message,
+                chat_type=ChatType.GROUP,
+                content=raw.get("body") or message.content,
+                raw={k: v for k, v in raw.items() if k != "rtc_voice"},
+            )
+        if message.chat_type == ChatType.GROUP:
+            return message
+        return replace(message, chat_type=ChatType.GROUP)
 
     def _late_voice_upgrade(
         self, message: ParsedMessage, *, authoritative_dm: bool
@@ -2384,6 +2535,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 for room_id in list(invite_rooms.keys()):
                     try:
                         await client.join(room_id)
+                        # A re-invited room's old roster missed every
+                        # membership change while we were out; re-verify
+                        # it on the next classification.
+                        self._room_roster_authoritative.discard(room_id)
                         logger.info(
                             f"[matrix:{agent_id}] auto-joined invited room "
                             f"{room_id}"
@@ -2401,10 +2556,12 @@ class MatrixTrigger(ChannelTriggerBase):
                 # Yield each interesting event from joined rooms.
                 for room_id, room_info in resp.rooms.join.items():
                     # Consume state-block member events FIRST so the
-                    # member count + display name caches are populated
-                    # BEFORE any message from the same batch gets
-                    # classified. On first sync this is the whole room
-                    # roster; on incremental sync it's changes only.
+                    # roster + display name caches are populated BEFORE
+                    # any message from the same batch gets classified.
+                    # This is NOT guaranteed to be the whole roster (a
+                    # freshly joined room's first sync may carry only some
+                    # member events); _get_member_count verifies the shape
+                    # via joined_members before routing trusts it.
                     state_events = getattr(
                         getattr(room_info, "state", None), "events", []
                     ) or []
@@ -2716,12 +2873,13 @@ class MatrixTrigger(ChannelTriggerBase):
         if not event_id or not room_id or not sender_id:
             return None
 
-        # Room shape from the cache populated by _apply_member_event
-        # during the sync loop. 0 (unknown) treated as GROUP so we don't
-        # accidentally auto-reply to a room we can't verify — the
-        # authoritative check happens again in _process_message via
-        # _classify, which does an async fallback lookup on cache miss.
-        member_count = self._room_member_count.get(room_id, 0)
+        # Room shape from the roster populated by _apply_member_event
+        # during the sync loop (a hint — possibly partial). 0 (unknown)
+        # treated as GROUP so we don't accidentally auto-reply to a room
+        # we can't verify — the authoritative check happens again in
+        # _process_message via _classify, which does the one-time
+        # joined_members lookup for any room not yet verified.
+        member_count = self._known_member_count(room_id)
         chat_type = ChatType.PRIVATE if member_count == 2 else ChatType.GROUP
 
         # Display name from the cache (populated by state events); fall

@@ -1,8 +1,70 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-10-14
+last_verified: 2026-10-16
 ---
+
+## 2026-10-16 — 新建 1:1 房间被判成 group_silent：房型改为成员集合 + 每房一次权威 `joined_members`
+
+**现象（prod 日志）**：官方公开 agent 被用户加好友 → NarraMessenger 新建 1:1 房间并邀请 agent → sync 循环自动入房 →
+用户第一条消息 `CLASSIFY target=group_silent (… mentioned=False)`，只记忆不回复。老房间、或重启后首次出现且 sync 里没有
+成员事件的房间走 REST 查成员，判 `dm` 正常。
+
+**根因**：`_room_member_count` 是流水账计数器（进入 join +1、离开 join −1、未见过的房从 0 起），而 `_get_member_count`
+缓存优先——任何成员事件写过一个数以后就再也不调 `joined_members`。新入房后的第一次 sync 只带部分 `m.room.member`
+事件（常常只有 agent 自己的 join），缓存卡在 1，`count == 2` 永远不成立，房间在进程重启前一直当群处理。docstring
+声称的「幂等」也不成立：同一 join 事件回放两次（state 块 + timeline、since 回退）会计两次。
+
+**修法**：
+- `_room_joined: dict[room_id, set[mxid]]` 取代计数器。`_apply_member_event` 按事件的**新** membership 改集合：
+  `join` 加入；`leave`（含被踢）/`ban` 移除；`invite`/`knock` 不变；不再读 `prev_membership`。回放同一事件是空操作。
+  空 mxid 的事件直接忽略。显示名缓存规则未动（join 带名写入、leave 删除）。
+- 只由 sync 成员事件拼出来的集合**不权威**。`_get_member_count` 对每个房间（每进程）在第一次需要房型时调一次
+  `joined_members`，用响应**整体替换**集合、把房间记进 `_room_roster_authoritative`，并照旧回填显示名；之后直接返回集合
+  大小，由成员事件持续增删维护，不再调 REST。
+- **fail-closed + 重试**：REST 抛错、返回错误响应、或成员列表为空 → 返回 0（未知 → `group_silent`），**不**标记权威，
+  下一条消息重试。即使 sync 已经攒出两个 join，REST 失败时也不信它（部分视图正是老 bug 的来源）。`_classify` 规则本身未改。
+- **await 期间的竞态（预审 I-1）**：REST 在途时 sync 循环/其他 worker 仍在跑。
+  - `_room_roster_gen[room]` 只在 `_apply_member_event` **真正改动**集合时 +1（回放已有成员不算）。`_get_member_count`
+    在 await 前记下代数，返回后若代数变了 → 响应可能早于已应用的成员事件，丢弃并**立即重查一次**（总共最多
+    `ROSTER_LOOKUP_ATTEMPTS = 2` 次；单次 REST 调用拆到 `_fetch_joined_members`）。两次都被打断才返回 0、不标权威
+    （下一条消息再查）。不这样做的话，真实三人房可能被钉成 2（=dm，误自动回复），或 1:1 被钉成 3；有上限是为了
+    成员不停变动的房间不会一直循环。
+  - 同一房间两次查询重叠：await 返回后若房间已被另一次查询标为权威，就沿用那份（此后由成员事件维护）并返回其大小，
+    不用自己这份（起得更早或同时、先后不明的快照）覆盖。REST 抛错时同样先看这一条。
+  - **重新入房必须重新核验（可靠路径）**：`connect()` 自动入房分支在 `client.join(room_id)` 成功后撤销该房权威——
+    离开期间的成员变动我们全没看到，旧集合已过时。join 失败则保持原状（邀请下次 sync 还会再来）。
+  - 我们自己的 agent（`_clients` 里各 client 的 `user_id`）`leave`/`ban` 也会撤销权威，但只是补充：自己离开的事件
+    通常在 `resp.rooms.leave` 里，sync 循环不遍历它，只有当它出现在某个已加入房间的 timeline 里（比如同房还有我们的
+    另一个 agent）才会生效。
+- **房型回写（预审 I-2）**：`_process_message` 在 `_classify` 之后、语音补升级与 silent/完整路径分叉之前调
+  `_reconcile_room_shape`：`dm` → `chat_type=PRIVATE`；任何群判定（含未知房型 fail-closed 的 group_silent）→ `GROUP`。
+  下游按 `chat_type` 分支的地方（context builder 的 room_type、inbox 线程类型、熔断拒绝提示的群节流）因此看到的是
+  权威房型，而不是 parse_event 按提示猜的。群判定时如果 parse_event 已按「部分成员表=2」打上 `rtc_voice`，一并撤销：
+  去掉 `rtc_voice`，正文还原为 `raw["body"]`（RTC 元数据没有来源绑定，语音模式只限 1:1）。dm 方向仍由
+  `_late_voice_upgrade` 补齐。
+
+**同类消费面（已扫）**：
+- `parse_event` 改读 `_known_member_count`（集合大小，权威与否都读；未知房为 0 → GROUP）。它只决定预分类的
+  chat_type / 语音 1:1 门，权威 dm 判定后 `_late_voice_upgrade` 照旧补齐，行为与原来一致（只是数据源从计数器换成集合）。
+- `_room_member_mxids`（authorize-event 载荷的成员提示）优先返回排序后的集合，集合为空才退回显示名缓存的键；仍只是提示，
+  Narra 服务端自行复核。
+- sync 循环的注释改正：state 块**不保证**是完整成员表。
+- `SILENT_BYPASS_AUTHORIZE`、authorize-event 门、`_classify` 的三分规则均未改。
+
+**已知残余（记录不实现）**：`parse_event` 打的 `chat_type`/语音标记仍是按提示猜的，只在 `_process_message` 里回写；
+托管（Manyfold 转发）入口不经过 `_process_message`，没有成员数据，靠 `_authorize_event` 的「sender + 自己」兜底。
+成员频繁变动的房间：两次查询都被打断时这条消息按未知房型（group_silent）处理，要等到某条消息的查询碰上安静窗口
+才能判出 dm——fail-closed，但会有延迟。不经邀请、直接被加回房间的情况不会经过自动入房分支，只能依赖上面那条
+自己离开的事件。
+
+锁：`tests/narramessenger_module/test_matrix_room_shape.py`（真实 `_apply_member_event` / `_get_member_count` /
+`_process_message`，假 nio 客户端控制 `joined_members`；回退到 origin/dev 实现时 26 条里 19 条变红。其中
+`test_member_event_during_lookup_triggers_one_refetch` / `test_lookup_invalidated_twice_fails_closed`（重查一次 + 上限）/
+`test_late_landing_lookup_does_not_overwrite_verified_roster` / `test_own_leave_drops_authority_so_a_rejoin_is_reverified` /
+`test_auto_join_of_reinvited_room_drops_its_authority` + `test_failed_auto_join_keeps_authority`（跑真实 `connect()`）锁 I-1，`test_fresh_dm_reaches_pipeline_as_private` /
+`test_group_with_dm_looking_partial_roster_reaches_pipeline_as_group` / `test_group_silent_buffer_receives_group_shape` /
+`test_voice_stamp_from_partial_roster_is_undone_in_a_group` 锁 I-2）；`test_matrix_classifier_and_cache.py` 的回放用例改为断言计一次。
 
 ## 2026-10-14（预审后）— 去掉空操作的 `_on_transport_connected` 覆写；关→开不回答积压
 
@@ -941,7 +1003,9 @@ the same agent set during migration.
   as DM. Mention detection covers (1) MSC3952 intentional mentions
   (`m.mentions.user_ids`), (2) raw MXID inline, and (3) `@displayname`
   inline — the three surfaces different clients emit.
-- `"group_silent"` — 3+ members AND no mention. Route to per-(agent,
+- `"group_silent"` — 3+ members AND no mention, OR shape unknown (count 0:
+  the one-time `joined_members` lookup failed / returned nobody — retried on
+  the next message). Route to per-(agent,
   room) buffer, no agent LLM invocation. Flushed via debounce OR
   burst-cap OR reconnect-burst drain OR `stop()` drain.
 
@@ -952,7 +1016,7 @@ The sync loop follows a strict ordering:
 ```
 resp = await client.sync(since=X, timeout=30s)
 for room in resp.rooms.join:
-    apply member state events        # populate caches BEFORE classification
+    apply member state events        # roster hint BEFORE classification (may be partial)
     for message event in timeline:
         yield event                    # base awaits _dedup_and_handle inline
 if self._silent_buffer:
