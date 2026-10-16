@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (复审 M2 回归修正) — 推荐提示不再回落列表首个
+
+`helperRecModel` 走 `recommendedHelperModel`,只点名刻意选择(source 表/协议表/OAuth 别名在卡上),否则显示协议表模型;与"选 provider 后自动选"在无刻意选择时有意分叉(自动选回落首个)。
+上一条"与自动选一致"的措辞作废,见 [[agentFramework]]。
+
 ## 2026-10-16 (PR#413 review I2+M2) — load 时刷新服务端默认表;推荐提示复用自动选
 
 `load()` 与 getProviders/getAgentFramework 并行调用 `refreshOnboardDefaults()`(永不 reject,失败回落列表首个),保证渲染与 provider 切换前表已就位。

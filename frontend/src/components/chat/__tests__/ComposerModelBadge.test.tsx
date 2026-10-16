@@ -29,6 +29,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getAgentLlmConfig: (...a: unknown[]) => mockGetAgentLlmConfig(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
+    getProviderCatalog: () => Promise.resolve({ success: true, onboard_defaults: {} }),
   },
 }));
 

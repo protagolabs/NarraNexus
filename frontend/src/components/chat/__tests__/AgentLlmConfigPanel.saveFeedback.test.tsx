@@ -15,6 +15,7 @@ const setAgentLlmConfig = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
+    getProviderCatalog: () => Promise.resolve({ success: true, onboard_defaults: {} }),
     getAgentLlmConfig: () =>
       Promise.resolve({
         success: true,

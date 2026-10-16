@@ -49,6 +49,7 @@ const mockApplySlotsToAgents = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
+    getProviderCatalog: () => Promise.resolve({ success: true, onboard_defaults: {} }),
     getAgentFramework: (...a: unknown[]) => mockGetAgentFramework(...a),
     setAgentFramework: (...a: unknown[]) => mockSetAgentFramework(...a),
     getMyQuota: (...a: unknown[]) => mockGetMyQuota(...a),

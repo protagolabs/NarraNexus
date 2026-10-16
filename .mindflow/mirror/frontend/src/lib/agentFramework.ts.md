@@ -4,6 +4,14 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (复审 M2 回归修正) — 推荐提示只点名"刻意选择"
+
+上一条把 `recommendedHelperModel` 直接等同 `defaultHelperModel` 是错的:后者无刻意选择在卡上时回落 `modelIds[0]`,于是"推荐:{{model}} — 小而快的模型"
+会在精选旗舰卡上写出 `claude-opus-4-8`、在 NetMind 卡上写出 omni 模型。现拆出内部 `deliberateHelperModel`(source 表 → 协议表 → OAuth 别名,均须在卡上,否则 '')。
+`defaultHelperModel` = 刻意选择 || 列表首个(自动选仍可回落首个);`recommendedHelperModel` = 刻意选择 || 协议表模型 || gpt-5.4-mini(**绝不回落列表首个**)。
+因此提示与自动选"在有刻意选择时一致",无刻意选择时二者分叉是有意的:自动选必须选个东西,提示不能把首个说成推荐。上条"必然一致/不会指向下拉里没有的模型"的说法作废
+(无刻意选择时提示显示协议表模型,它可能不在下拉里)。`applyOnboardDefaults` 参数现为必填对象(无 undefined 兼容)。
+
 ## 2026-10-16 (PR#413 review I2+M2) — 推荐默认改由服务端下发
 
 `RECOMMENDED_AGENT/HELPER_MODEL_BY_SOURCE` 不再含任何硬编码模型 id(删除 `NETMIND_DEFAULT_MODEL`),由 `applyOnboardDefaults(onboard_defaults)`

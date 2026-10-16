@@ -308,31 +308,15 @@ export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {}
 
 /** Replace (not merge) both per-source maps from the catalog's ``onboard_defaults``. */
 export function applyOnboardDefaults(
-  defaults: Record<string, { agent?: string; helper?: string }> | undefined,
+  defaults: Record<string, { agent?: string; helper?: string }>,
 ): void {
   for (const map of [RECOMMENDED_AGENT_MODEL_BY_SOURCE, RECOMMENDED_HELPER_MODEL_BY_SOURCE]) {
     for (const key of Object.keys(map)) delete map[key]
   }
-  for (const [source, entry] of Object.entries(defaults ?? {})) {
-    if (entry?.agent) RECOMMENDED_AGENT_MODEL_BY_SOURCE[source] = entry.agent
-    if (entry?.helper) RECOMMENDED_HELPER_MODEL_BY_SOURCE[source] = entry.helper
+  for (const [source, entry] of Object.entries(defaults)) {
+    if (entry.agent) RECOMMENDED_AGENT_MODEL_BY_SOURCE[source] = entry.agent
+    if (entry.helper) RECOMMENDED_HELPER_MODEL_BY_SOURCE[source] = entry.helper
   }
-}
-
-// The "Recommended: ..." helper hint is the auto-pick itself: it reuses
-// defaultHelperModel with the card's model ids, so it can never name a model the
-// dropdown lacks or disagree with what picking the provider selects. Only when
-// no provider is chosen yet (no ids) does it show the protocol-table model.
-export function recommendedHelperModel(
-  source: string | undefined,
-  protocol: string | undefined,
-  modelIds: string[],
-): string {
-  return (
-    defaultHelperModel(source, protocol, modelIds) ||
-    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
-    'gpt-5.4-mini'
-  )
 }
 
 // Default agent-slot model when a provider is picked: the source's onboarding
@@ -343,13 +327,13 @@ export function defaultAgentModel(source: string | undefined, modelIds: string[]
   return modelIds[0] || ''
 }
 
-// Default helper-slot model when a provider is picked: the recommended CHEAP
-// model, never the flagship models[0] (the helper does small structured jobs).
-// OAuth providers list CLI family aliases, so the concrete
-// RECOMMENDED_HELPER_MODEL_BY_PROTOCOL id may be absent — map those to the alias
-// the backend auto-bind uses (claude→haiku, codex→gpt-5.4-mini). Falls back to
-// the first model only when none of the above is available.
-export function defaultHelperModel(
+// The DELIBERATE helper pick for a provider — a model somebody chose on purpose
+// that is on the card: the source's server-owned onboarding default, the
+// protocol's recommended cheap model, or the OAuth CLI alias (OAuth providers
+// list family aliases, so the concrete protocol id may be absent — map those to
+// the alias the backend auto-bind uses: claude→haiku, codex→gpt-5.4-mini).
+// '' when none of them is on the card.
+function deliberateHelperModel(
   source: string | undefined,
   protocol: string | undefined,
   modelIds: string[],
@@ -360,7 +344,35 @@ export function defaultHelperModel(
   if (rec && modelIds.includes(rec)) return rec
   if (source === 'claude_oauth' && modelIds.includes('haiku')) return 'haiku'
   if (source === 'codex_oauth' && modelIds.includes('gpt-5.4-mini')) return 'gpt-5.4-mini'
-  return modelIds[0] || ''
+  return ''
+}
+
+// Default helper-slot model when a provider is picked: the deliberate pick,
+// never the flagship models[0] by preference (the helper does small structured
+// jobs) — the first listed model only when no deliberate pick is on the card.
+export function defaultHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+  modelIds: string[],
+): string {
+  return deliberateHelperModel(source, protocol, modelIds) || modelIds[0] || ''
+}
+
+// The "Recommended: ..." helper hint. It names only a DELIBERATE pick: unlike the
+// auto-pick it must never fall back to the list head (that would read "Recommended:
+// claude-opus-4-8 — a small, fast model" on a curated flagship card, or the omni
+// model on a NetMind card). When no deliberate pick is on the card it shows the
+// protocol-table model instead.
+export function recommendedHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+  modelIds: string[],
+): string {
+  return (
+    deliberateHelperModel(source, protocol, modelIds) ||
+    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
+    'gpt-5.4-mini'
+  )
 }
 
 // Curated model list OpenAI's OWN codex backend (codex_oauth) accepts, gated by

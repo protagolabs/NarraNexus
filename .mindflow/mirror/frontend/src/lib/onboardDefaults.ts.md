@@ -11,8 +11,7 @@ stub: false
 本文件 `refreshOnboardDefaults()` 调 `api.getProviderCatalog()`,把 `onboard_defaults` 交给 `agentFramework.applyOnboardDefaults`。
 
 ## 不做什么
-不持有任何模型 id;不缓存/节流(调用方是两个设置面板的 `load()`,频率低);不 reject——失败(网络、老服务端缺字段、被部分 mock 的 api)
-一律保持原表,选择回落"列表首个"。
+不持有任何模型 id;不缓存/节流(调用方是两个设置面板的 `load()`,频率低);不 reject——请求失败(网络)保持原表,选择回落"列表首个"。前后端同发布,不为"老服务端"或测试 mock 弯曲生产代码(响应字段必填)。
 
 ## Gotcha
 - **触发**:新增调用点不 `await` 它就渲染推荐提示 → **症状**:首屏提示用回落值 → **根因**:表是模块级可变状态,无响应式。两个现有调用点把它放进 `load()` 的 `Promise.all`。

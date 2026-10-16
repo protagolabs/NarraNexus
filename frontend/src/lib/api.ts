@@ -1383,7 +1383,7 @@ class ApiClient {
    * FREE_TIER_*_MODEL ops env) — see lib/onboardDefaults.ts. */
   async getProviderCatalog(): Promise<{
     success: boolean;
-    onboard_defaults?: Record<string, { agent?: string; helper?: string }>;
+    onboard_defaults: Record<string, { agent?: string; helper?: string }>;
   }> {
     return this.request(`/api/providers/catalog`);
   }
