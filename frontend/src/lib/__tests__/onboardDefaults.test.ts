@@ -1,40 +1,74 @@
 /**
- * refreshOnboardDefaults feeds the UI's per-source default maps from
- * GET /api/providers/catalog (`onboard_defaults`) -- the server owns the table.
- * A failed fetch (network) must leave the deterministic list-head fallback.
+ * refreshOnboardDefaults loads the server-owned per-source onboarding default
+ * models (GET /api/providers/catalog -> onboard_defaults) and RETURNS them; it
+ * never rejects and never hides a failure: ok=false + a console.warn, so the
+ * panels can say the load failed instead of silently picking the list head
+ * (an omni model on NetMind cards).
  */
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 const { mockGetProviderCatalog } = vi.hoisted(() => ({ mockGetProviderCatalog: vi.fn() }))
 vi.mock('@/lib/api', () => ({ api: { getProviderCatalog: mockGetProviderCatalog } }))
 
-import { applyOnboardDefaults, defaultAgentModel, defaultHelperModel } from '../agentFramework'
 import { refreshOnboardDefaults } from '../onboardDefaults'
 
 const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
-const listed = ['Qwen/Qwen3.5-Omni-Flash', FLASH]
+let warn: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   mockGetProviderCatalog.mockReset()
-  applyOnboardDefaults({})
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
-afterEach(() => applyOnboardDefaults({}))
+afterEach(() => warn.mockRestore())
 
-test('maps are populated from the catalog response', async () => {
+test('success returns the server defaults', async () => {
   mockGetProviderCatalog.mockResolvedValue({
     success: true,
     onboard_defaults: { netmind: { agent: FLASH, helper: FLASH } },
   })
-  expect(defaultAgentModel('netmind', listed)).toBe('Qwen/Qwen3.5-Omni-Flash') // before
 
-  await refreshOnboardDefaults()
+  const res = await refreshOnboardDefaults()
 
-  expect(defaultAgentModel('netmind', listed)).toBe(FLASH)
-  expect(defaultHelperModel('netmind', 'openai', listed)).toBe(FLASH)
+  expect(res).toEqual({ ok: true, defaults: { netmind: { agent: FLASH, helper: FLASH } } })
+  expect(warn).not.toHaveBeenCalled()
 })
 
-test('a failed fetch never throws and keeps the list-head fallback', async () => {
+test('a rejected request warns, returns ok=false and never rejects', async () => {
   mockGetProviderCatalog.mockRejectedValue(new Error('network'))
-  await expect(refreshOnboardDefaults()).resolves.toBeUndefined()
-  expect(defaultAgentModel('netmind', listed)).toBe('Qwen/Qwen3.5-Omni-Flash')
+
+  await expect(refreshOnboardDefaults()).resolves.toEqual({ ok: false, defaults: {} })
+
+  expect(warn).toHaveBeenCalledWith('onboard defaults unavailable', expect.any(Error))
+})
+
+test('success=false is a failure too', async () => {
+  mockGetProviderCatalog.mockResolvedValue({ success: false })
+
+  await expect(refreshOnboardDefaults()).resolves.toEqual({ ok: false, defaults: {} })
+
+  expect(warn).toHaveBeenCalled()
+})
+
+test.each([
+  ['missing', undefined],
+  ['null', null],
+  ['an array', []],
+  ['a string', 'x'],
+])('a %s onboard_defaults field is a failure, not an empty table', async (_name, bad) => {
+  mockGetProviderCatalog.mockResolvedValue({ success: true, onboard_defaults: bad })
+
+  await expect(refreshOnboardDefaults()).resolves.toEqual({ ok: false, defaults: {} })
+
+  expect(warn).toHaveBeenCalled()
+})
+
+test('malformed entries are dropped, well-formed ones kept', async () => {
+  mockGetProviderCatalog.mockResolvedValue({
+    success: true,
+    onboard_defaults: { netmind: { agent: FLASH, helper: 5 }, broken: 'x', empty: {} },
+  })
+
+  const res = await refreshOnboardDefaults()
+
+  expect(res).toEqual({ ok: true, defaults: { netmind: { agent: FLASH } } })
 })

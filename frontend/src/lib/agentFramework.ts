@@ -295,35 +295,27 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
 }
 
 // Per-SOURCE onboarding defaults. The table is SERVER-owned (model_catalog.py
-// ``get_onboard_defaults``; netmind_free follows the FREE_TIER_*_MODEL ops env):
-// ``refreshOnboardDefaults`` (lib/onboardDefaults.ts) loads it from
-// GET /api/providers/catalog -> ``onboard_defaults`` and ``applyOnboardDefaults``
-// fills these maps. The per-source defaults live only on the server, so a
-// backend default change needs no frontend edit (the per-PROTOCOL helper table
-// below is a separate, frontend-owned fallback). Until the response arrives, or
-// if the fetch fails, the maps are empty and every pick falls back to the first
-// listed model -- deterministic, never an empty model. NetMind's synced list
-// starts with an omni model, which is why that fallback is only a fallback.
-export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {}
-export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {}
-
-/** Replace (not merge) both per-source maps from the catalog's ``onboard_defaults``. */
-export function applyOnboardDefaults(
-  defaults: Record<string, { agent?: string; helper?: string }>,
-): void {
-  for (const map of [RECOMMENDED_AGENT_MODEL_BY_SOURCE, RECOMMENDED_HELPER_MODEL_BY_SOURCE]) {
-    for (const key of Object.keys(map)) delete map[key]
-  }
-  for (const [source, entry] of Object.entries(defaults)) {
-    if (entry.agent) RECOMMENDED_AGENT_MODEL_BY_SOURCE[source] = entry.agent
-    if (entry.helper) RECOMMENDED_HELPER_MODEL_BY_SOURCE[source] = entry.helper
-  }
-}
+// ``get_onboard_defaults``: every source with an onboarding default; netmind_free
+// follows the FREE_TIER_*_MODEL ops env). ``refreshOnboardDefaults``
+// (lib/onboardDefaults.ts) loads it from GET /api/providers/catalog ->
+// ``onboard_defaults`` and the panels keep it in React state, passing it to the
+// pickers below as an explicit argument -- there is no module-level state, and
+// this file holds NO per-source model ids, so a backend default change needs no
+// frontend edit (the per-PROTOCOL helper table above is a separate,
+// frontend-owned fallback). With ``{}`` (not loaded) every pick falls back to the
+// first listed model -- deterministic, never an empty model. NetMind's synced
+// list starts with an omni model, which is why the panels report a failed load
+// instead of silently living on that fallback.
+export type OnboardDefaults = Record<string, { agent?: string; helper?: string }>
 
 // Default agent-slot model when a provider is picked: the source's onboarding
 // default when it is on the card, else the first listed model.
-export function defaultAgentModel(source: string | undefined, modelIds: string[]): string {
-  const rec = RECOMMENDED_AGENT_MODEL_BY_SOURCE[source || '']
+export function defaultAgentModel(
+  source: string | undefined,
+  modelIds: string[],
+  defaults: OnboardDefaults,
+): string {
+  const rec = defaults[source || '']?.agent
   if (rec && modelIds.includes(rec)) return rec
   return modelIds[0] || ''
 }
@@ -338,8 +330,9 @@ function deliberateHelperModel(
   source: string | undefined,
   protocol: string | undefined,
   modelIds: string[],
+  defaults: OnboardDefaults,
 ): string {
-  const bySource = RECOMMENDED_HELPER_MODEL_BY_SOURCE[source || '']
+  const bySource = defaults[source || '']?.helper
   if (bySource && modelIds.includes(bySource)) return bySource
   const rec = RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai']
   if (rec && modelIds.includes(rec)) return rec
@@ -355,8 +348,9 @@ export function defaultHelperModel(
   source: string | undefined,
   protocol: string | undefined,
   modelIds: string[],
+  defaults: OnboardDefaults,
 ): string {
-  return deliberateHelperModel(source, protocol, modelIds) || modelIds[0] || ''
+  return deliberateHelperModel(source, protocol, modelIds, defaults) || modelIds[0] || ''
 }
 
 // The "Recommended: ..." helper hint. It names only a DELIBERATE pick: unlike the
@@ -368,9 +362,10 @@ export function recommendedHelperModel(
   source: string | undefined,
   protocol: string | undefined,
   modelIds: string[],
+  defaults: OnboardDefaults,
 ): string {
   return (
-    deliberateHelperModel(source, protocol, modelIds) ||
+    deliberateHelperModel(source, protocol, modelIds, defaults) ||
     RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
     'gpt-5.4-mini'
   )

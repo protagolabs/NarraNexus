@@ -4,6 +4,16 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 round 2: N2/N3/N4) — 默认表改为显式参数,无模块级状态
+
+删除模块级可变表 `RECOMMENDED_*_MODEL_BY_SOURCE` 与 `applyOnboardDefaults`(它"先清后填"非原子,失败窗口会把有值表变空)。改为导出类型 `OnboardDefaults`,
+`defaultAgentModel` / `defaultHelperModel` / `recommendedHelperModel` 多一个**显式** `defaults` 参数;两个面板把 `refreshOnboardDefaults()` 的结果放进 React state
+(整体 `setState` 替换,失败时保留旧表)再传入。`{}`(未加载)时一律回落列表首个。
+服务端下发口径(N2 钉死):**每个有 onboarding 默认的 source**(netmind / netmind_free / yunwu / openrouter),不是 NetMind 专属白名单,
+UI 因此与后端 onboarding / 自愈对这些卡的取值一致(yunwu/openrouter 的 agent 默认在卡上时为 `claude-opus-4-8`)。测试:
+`test_self_heal_onboard_default.py::test_onboard_defaults_map_covers_sources_only_and_follows_env` 断言 yunwu/openrouter 条目。
+上文凡提到"`applyOnboardDefaults` 填充模块级表"的描述作废。
+
 ## 2026-10-16 (复审 M2 回归修正) — 推荐提示只点名"刻意选择"
 
 上一条把 `recommendedHelperModel` 直接等同 `defaultHelperModel` 是错的:后者无刻意选择在卡上时回落 `modelIds[0]`,于是"推荐:{{model}} — 小而快的模型"

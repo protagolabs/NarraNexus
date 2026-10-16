@@ -4,6 +4,13 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 round 2: N1/N3/N4) — 返回结果、失败可见、校验字段
+
+`refreshOnboardDefaults()` 现返回 `{ ok, defaults }`,不再写任何全局表。失败(请求异常 / `success` 为假 / `onboard_defaults` 缺失或非对象)一律
+`console.warn('onboard defaults unavailable', e)` 并返回 `ok:false, defaults:{}`;依旧**永不 reject**(它在面板 `Promise.all` 里,reject 会让整个 load 进 catch、连 provider 列表都渲染不出)。
+字段先被规范化成全新对象(丢弃非对象条目、非字符串/空模型 id),"缺失字段"算失败而非空表,不会把已有值抹掉。两个面板在 `ok:false` 时 `setError(loadFailed)`
+(沿用既有 key,同 `fwRes?.success` 软失败范式),否则 NetMind 卡会静默自动选 omni 列表首个。上文"不 reject——请求失败(网络)保持原表"的描述以本条为准。
+
 # onboardDefaults.ts — 把服务端的 per-source 默认模型表灌进前端
 
 ## 为什么存在

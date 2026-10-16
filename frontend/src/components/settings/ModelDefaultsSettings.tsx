@@ -41,6 +41,7 @@ import {
   defaultHelperModel,
   defaultAgentModel,
   recommendedHelperModel,
+  type OnboardDefaults,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -92,6 +93,8 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
+  // Server-owned per-source default models (see lib/onboardDefaults); {} until loaded.
+  const [onboardDefaults, setOnboardDefaults] = useState<OnboardDefaults>({});
   // Framework draft + the stored value it is compared against. No hardcoded
   // initial id: the form renders only after load() filled both from the
   // backend, which resolves the user's framework (default included).
@@ -138,14 +141,16 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
       // No free-tier banner any more: the free tier is an ordinary provider
       // card, so these defaults are never preempted — what is set here is what
       // runs, on the free wallet just as on a user's own key.
-      const [provRes, fwRes] = await Promise.all([
+      const [provRes, fwRes, defaultsRes] = await Promise.all([
         api.getProviders(),
         api.getAgentFramework(),
-        // Per-source default models are server-owned; never rejects.
+        // Per-source default models are server-owned; never rejects, reports ok.
         refreshOnboardDefaults(),
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
+      // Whole replace; a failed fetch keeps the previous table (and says so below).
+      if (defaultsRes.ok) setOnboardDefaults(defaultsRes.defaults);
       const slots = (provRes?.data?.slots ?? {}) as Record<string, { config?: SlotCfg | null }>;
       const a = slots.agent?.config ?? null;
       const h = slots.helper_llm?.config ?? null;
@@ -176,6 +181,9 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
         // no explanation. Say the load failed instead.
         setError(t('pages.settings.modelDefaults.loadFailed'));
       }
+      // Without the server's onboarding defaults a NetMind card would silently
+      // auto-select its omni list head: report it like the framework failure.
+      if (!defaultsRes.ok) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
@@ -453,6 +461,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     helperProvider?.source,
     helperProvider?.protocol,
     helperProvider ? getModelsForSlot(helperProvider, 'helper_llm', null, {}).map((m) => m.model_id) : [],
+    onboardDefaults,
   );
 
   if (loading) {
@@ -643,7 +652,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 const pid = e.target.value;
                 const prov = providers[pid];
                 const models = prov ? getModelsForSlot(prov, 'agent', framework, {}) : [];
-                setAgentDraft((d) => ({ ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id)) }));
+                setAgentDraft((d) => ({ ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id), onboardDefaults) }));
               }}
             >
               <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>
@@ -725,7 +734,7 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
                 const pid = e.target.value;
                 const prov = providers[pid];
                 const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
-                const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id), onboardDefaults);
                 setHelperDraft({ provider_id: pid, model });
               }}
             >

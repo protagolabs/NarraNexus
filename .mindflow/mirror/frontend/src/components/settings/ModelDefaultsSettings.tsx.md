@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 round 2: N1/N4) — 默认表进 React state,取不到就报加载失败
+
+`load()` 解构 `refreshOnboardDefaults()` 的 `{ok, defaults}`:成功则整体 `setOnboardDefaults`;`ok:false` 则 `setError(t('…loadFailed'))`(同 `fwRes?.success` 为假的既有做法,无新 i18n key)。
+选 provider / 推荐提示把 `onboardDefaults` 显式传给 `defaultAgentModel` / `defaultHelperModel` / `recommendedHelperModel`。测试覆盖失败路径(报错可见)与成功路径(NetMind 选 V4.1-Flash 而非 omni 首个)。
+
 ## 2026-10-16 (复审 M2 回归修正) — 推荐提示不再回落列表首个
 
 `helperRecModel` 走 `recommendedHelperModel`,只点名刻意选择(source 表/协议表/OAuth 别名在卡上),否则显示协议表模型;与"选 provider 后自动选"在无刻意选择时有意分叉(自动选回落首个)。

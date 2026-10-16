@@ -4,6 +4,10 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 round 2: N2) — 钉住 /catalog 下发的 source 口径
+
+`get_onboard_defaults()` 的口径是"每个有 onboarding 默认的 source":测试新增断言 yunwu / openrouter 条目(agent=claude-opus-4-8、helper=gpt-5.4-mini),并注明不做 NetMind 专属白名单。
+
 ## 2026-10-16 (PR#413 review) — 补充
 
 新增:`netmind_free` 自愈跟随 `FREE_TIER_*_MODEL`(原先与 netmind 并列断言同一常量,会反向锁死错误行为)、空 env 回落常量、

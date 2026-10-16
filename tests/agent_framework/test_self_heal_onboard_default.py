@@ -128,6 +128,11 @@ def test_onboard_defaults_map_covers_sources_only_and_follows_env(monkeypatch):
     assert "anthropic" not in defaults and "openai" not in defaults
     assert defaults["netmind"] == {"agent": FLASH, "helper": FLASH}
     assert defaults["netmind_free"] == {"agent": "x/agent", "helper": FLASH}
+    # Intended scope = EVERY source that has an onboarding default, not a
+    # NetMind-only whitelist: the UI mirrors what backend onboarding / self-heal
+    # would pick for these cards.
+    for source in ("yunwu", "openrouter"):
+        assert defaults[source] == {"agent": "claude-opus-4-8", "helper": "gpt-5.4-mini"}
 
 
 @pytest.mark.asyncio

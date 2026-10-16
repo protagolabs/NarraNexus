@@ -41,6 +41,7 @@ vi.mock('@/lib/runtimeConfig', async (importOriginal) => {
 
 const mockGetProviders = vi.fn();
 const mockGetAgentFramework = vi.fn();
+const mockGetProviderCatalog = vi.fn();
 const mockSetAgentFramework = vi.fn();
 const mockGetMyQuota = vi.fn();
 const mockSetProviderSlot = vi.fn();
@@ -49,7 +50,7 @@ const mockApplySlotsToAgents = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
-    getProviderCatalog: () => Promise.resolve({ success: true, onboard_defaults: {} }),
+    getProviderCatalog: (...a: unknown[]) => mockGetProviderCatalog(...a),
     getAgentFramework: (...a: unknown[]) => mockGetAgentFramework(...a),
     setAgentFramework: (...a: unknown[]) => mockSetAgentFramework(...a),
     getMyQuota: (...a: unknown[]) => mockGetMyQuota(...a),
@@ -110,6 +111,7 @@ const LIVE_FRAMEWORKS = [
 ];
 
 beforeEach(() => {
+  mockGetProviderCatalog.mockReset().mockResolvedValue({ success: true, onboard_defaults: {} });
   mockRole = 'user';
   mockForcedCloud = false;
   mockGetProviders.mockReset().mockResolvedValue({
@@ -526,6 +528,18 @@ test('load: a soft failure of the framework endpoint says the load failed instea
   expect(screen.getByText('pages.settings.modelDefaults.loadFailed')).toBeInTheDocument();
   // No framework is invented on the frontend, so Save stays disabled.
   expect(screen.getByRole('button', { name: SAVE_NAME })).toBeDisabled();
+});
+
+test('load: a failed catalog fetch says the load failed instead of silently picking the list head', async () => {
+  // Without the server's onboarding defaults a NetMind card would auto-select
+  // its omni list head; the failure has to be visible, not a silent fallback.
+  withBoundAgentSlot();
+  mockGetProviderCatalog.mockRejectedValue(new Error('catalog down'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await renderLoaded();
+  expect(screen.getByText('pages.settings.modelDefaults.loadFailed')).toBeInTheDocument();
+  expect(warn).toHaveBeenCalledWith('onboard defaults unavailable', expect.any(Error));
+  warn.mockRestore();
 });
 
 test('load: a successful framework endpoint shows no load error', async () => {
