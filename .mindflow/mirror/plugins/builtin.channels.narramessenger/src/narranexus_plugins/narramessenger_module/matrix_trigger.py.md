@@ -4,6 +4,73 @@ stub: false
 last_verified: 2026-10-16
 ---
 
+## 2026-10-16（二）— 托管 DM 有三个成员：先认 `ai.netmind.room_creation.v1`，计数时排除精确的 `@hybrid-im-bot`
+
+**现象（#415 上 prod 后）**：4/4 条消息（含 owner 房间）都是 `CLASSIFY target=group_silent`，agent 谁都不回。
+**根因**：2026-09-16 起 NarraMessenger 每个托管房间都多一个已加入成员——Synapse appservice 机器人
+`@hybrid-im-bot:<server_name>`（会议服务的发送方），agent 入房约 1 秒后加入。真实 1:1 房间 joined 成员是 3，`count == 2`
+永远不成立。#415 之前 owner 房间能回，只是旧的部分计数器碰巧停在 2。
+
+**房型规则（与 NarraMessenger 自家 runtime 一致，按优先级）**：
+1. 房间状态事件 `ai.netmind.room_creation.v1`（state_key `""`），content 的 `room_type` 为 `dm` / `group` 时直接决定：
+   `dm` → 不看人数一律 dm；`group` → 走提及规则（2 人也一样）。
+2. 没有该状态 → joined 成员数**减去精确等于** `@hybrid-im-bot:<server_name>` 的那一个，`== 2` → dm，其余走提及规则；
+   未知（0）且未提及 → group_silent（fail-closed 不变）。`server_name` 取 agent 自己 MXID（`credential.matrix_user_id`）
+   冒号后的部分，所以国际服/CN（`matrix-cn.narramessenger.cn`）/staging 各自排除本服的机器人。只做精确匹配：
+   `@hybrid-im-bot-evil:…`、`@hybrid-im-bot:别的服` 都算真实成员。MXID 没有服务器部分时不排除任何人（只会把房间看大）。
+   NarraMessenger 规则里的第 2 档 `m.direct` account data 没实现。
+
+**实现**：
+- `_room_kind`（room_id → `dm`/`group`）+ `_room_kind_checked`（这个房间的创建状态已有确定答案：sync 见过、REST 取到、
+  或 404）。来源两条：
+  - sync 循环：nio 把这个自定义状态类型解析成 `UnknownEvent`；`connect()` 在调 `_apply_member_event` 的同两处
+    （state 块、timeline）调 `_apply_room_creation_event`。只认 `state_key == ""`；后来的覆盖先前的；`room_type`
+    不是 dm/group 时清掉 kind（回落计数），不保留旧值。
+  - REST：`_resolve_room_shape` 先 `_get_member_count`（名单权威 + 回填显示名，逻辑未改，返回的仍是**含机器人的原始**
+    人数），再 `_ensure_room_kind`：已有确定答案就不查；否则 `client.room_get_state_event(room, type, "")`。
+    只有「HTTP 2xx（`transport_response.status`）+ `RoomGetStateEventResponse` + content 是不含 `errcode` 的 dict」
+    才算查到 → 记 kind。nio 只把 404 映射成 `RoomGetStateEventError`；403/429/5xx 返回的是
+    `RoomGetStateEventResponse`，`content` 是错误体（如 `{"errcode":"M_FORBIDDEN",…}`，502 是 `{}`），所以不能只看类型。
+    404（HTTP 404，或 `RoomGetStateEventError` 且 `M_NOT_FOUND`）→ 记为已查、kind 未知；其他一切（错误体响应、
+    其他错误、抛异常）→ 什么都不记，打 warning，下一条消息再查（名单权威不受影响，不重查 joined_members）。
+    请求在途时 sync 先写进了创建状态 → 以 sync 的为准，不覆盖；请求在途时该房 `_drop_roster_authority` 过
+    （`_room_kind_gen` 计数变了）→ 响应早于撤销，丢弃不记。名单查询失败时也照样查创建状态：声明为 dm 的房间名单
+    查不到也判 dm。
+- `_drop_roster_authority`（自己 agent leave/ban、`connect()` 自动入房成功）同时清掉 `_room_kind` / `_room_kind_checked`
+  并递增 `_room_kind_gen`，下次分类重新读创建状态，在途的旧响应作废。
+- `_classify` 新增 `room_kind=` 参数；`member_count=` 语义改为**有效人数**（已排除机器人）。`member_count` 为 None 时
+  在函数内 `_resolve_room_shape`，并忽略传入的 `room_kind`。`_process_message` 用 `_resolve_room_shape` 一次拿到
+  `(room_kind, 有效人数)` 传给 `_classify`；`CLASSIFY` 日志多打 `room_kind=` 和 `members=`（有效人数）。
+- `parse_event` 的预分类房型改用 `_hinted_private(room_id, raw["_our_user_id"])`：已知 kind 说了算，否则（可能不完整的）
+  名单去掉机器人后 `== 2` 才是 PRIVATE。`_reconcile_room_shape` 照旧在分类后回写。
+- `_known_member_count` 仍是原始人数（含机器人），只给 `_get_member_count` 返回用；房型判断一律走
+  `_effective_member_count` / `_hinted_private`。
+- `_room_member_mxids`（authorize-event 的 `memberMatrixUserIds`）**不变**：完整名单，含机器人（NarraMessenger 要求）。
+- **语音档位按有效人数，不按房型（PR #416 review I-1）**：路由按房型（创建状态 dm 压过人数），但 RTC 语音元数据没有
+  来源绑定、创建状态的发送者也不校验，所以 `voice_instructions` 注入面仍只开给**有效人数恰好为 2** 的房间：
+  - `parse_event`：`_hinted_voice_one_to_one` = `_hinted_private` **且**已知名单去掉机器人后 == 2，才调 `_detect_voice_turn`。
+  - `_process_message` 的 dm 分支：`voice_one_to_one = (有效人数 == 2)`（未知 0 也关闭）；不成立时先用
+    `_strip_voice_stamp` 撤掉 parse_event 按部分名单打的 `rtc_voice`（正文还原 `raw["body"]`，`chat_type` 不动），
+    再 `_late_voice_upgrade(authoritative_dm=voice_one_to_one)`。冷名单的 {agent,user,bot} 首条语音照旧补升级。
+  - 结果：声明为 dm 的多人房按 PRIVATE 路由、正常回复，但是纯文本、没有语音档位——有意的保守方向。
+  - `_reconcile_room_shape` 的群判定撤语音戳改走同一个 `_strip_voice_stamp`（行为不变）；dm 判定时不撤，交给 dm 分支。
+- `_classify` 传了 `room_kind` 却没传 `member_count` → `ValueError`（否则 `room_kind` 会被函数内重新解析悄悄丢掉）。
+
+**测试**：`test_matrix_room_shape.py` 末尾新增一组（{agent,user,bot}→dm 且以 PRIVATE 进管线、owner 房间→dm、
+三种冒牌机器人不排除、CN 服排除本服机器人、创建状态 dm 压过 4 人 / group 压过 2 人、sync state 块里的创建状态
+不触发 REST、timeline 补来的创建状态生效、非 404 失败下条重试（抛异常，以及 403/502/429 错误体响应三例）、
+在途撤销权威后响应不记、非空 state_key 的创建事件被忽略、非法 `room_type` 清掉已记 kind、声明 dm 的 4 人房
+路由 dm 但无语音、parse_event 按部分名单打的语音戳在核验后被撤、parse_event 语音门要求有效 2 人、{agent,user,bot}
+冷名单语音补升级、`_classify` 参数契约、authorize 载荷含机器人、parse_event 两例、
+撤销权威后重读 kind、名单失败且无创建状态仍 fail-closed）。`test_matrix_classifier_and_cache.py` 的
+`_seed_verified_roster` 同时把房间记进 `_room_kind_checked`（「已核验」现在也包括创建状态），否则 SimpleNamespace
+假 client 会被调 `room_get_state_event`。
+
+**已知残余（记录不实现）**：声明为 dm 但有效人数不是 2 的房间拿不到语音档位，按纯文本回复（PR #416 review I-1
+的有意取舍）。创建状态的发送者不做校验——房间里有足够权限发状态事件的成员可以把群声明成 dm，
+让 agent 在群里自动回复；authorize-event 仍由服务端复核。`_room_kind` / `_room_kind_checked` 与其他按房间结构一样
+（及 `_room_kind_gen`）没有淘汰。被 redact 的创建状态事件不会清掉已记的 kind。`_classify` 在人数未知（0）但被提及时返回 group_mention（沿用原代码行为）。
+
 ## 2026-10-16 — 新建 1:1 房间被判成 group_silent：房型改为成员集合 + 每房一次权威 `joined_members`
 
 **现象（prod 日志）**：官方公开 agent 被用户加好友 → NarraMessenger 新建 1:1 房间并邀请 agent → sync 循环自动入房 →
