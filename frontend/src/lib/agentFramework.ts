@@ -298,9 +298,10 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
 // ``get_onboard_defaults``; netmind_free follows the FREE_TIER_*_MODEL ops env):
 // ``refreshOnboardDefaults`` (lib/onboardDefaults.ts) loads it from
 // GET /api/providers/catalog -> ``onboard_defaults`` and ``applyOnboardDefaults``
-// fills these maps. This file keeps NO model ids of its own, so a backend
-// default change needs no frontend edit. Until the response arrives (or against
-// an older server) the maps are empty and every pick falls back to the first
+// fills these maps. The per-source defaults live only on the server, so a
+// backend default change needs no frontend edit (the per-PROTOCOL helper table
+// below is a separate, frontend-owned fallback). Until the response arrives, or
+// if the fetch fails, the maps are empty and every pick falls back to the first
 // listed model -- deterministic, never an empty model. NetMind's synced list
 // starts with an omni model, which is why that fallback is only a fallback.
 export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {}
