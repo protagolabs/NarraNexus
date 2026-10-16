@@ -308,6 +308,19 @@ export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {
   netmind_free: NETMIND_DEFAULT_MODEL,
 }
 
+// The "Recommended: ..." helper hint — must agree with defaultHelperModel's
+// auto-pick: source table first, then the protocol table, then gpt-5.4-mini.
+export function recommendedHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+): string {
+  return (
+    RECOMMENDED_HELPER_MODEL_BY_SOURCE[source || ''] ||
+    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
+    'gpt-5.4-mini'
+  )
+}
+
 // Default agent-slot model when a provider is picked: the source's onboarding
 // default when it is on the card, else the first listed model.
 export function defaultAgentModel(source: string | undefined, modelIds: string[]): string {

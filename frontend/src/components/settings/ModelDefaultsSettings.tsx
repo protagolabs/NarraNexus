@@ -37,9 +37,9 @@ import {
   isCodexFramework,
   getModelsForSlot,
   prettifyModel,
-  RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   defaultAgentModel,
+  recommendedHelperModel,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -445,8 +445,8 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
   const btnPrimary =
     'px-5 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
 
-  const helperRecModel =
-    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[providers[helperDraft.provider_id]?.protocol || 'openai'] || 'gpt-5.4-mini';
+  const helperProvider = providers[helperDraft.provider_id];
+  const helperRecModel = recommendedHelperModel(helperProvider?.source, helperProvider?.protocol);
 
   if (loading) {
     return (

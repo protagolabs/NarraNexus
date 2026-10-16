@@ -21,6 +21,7 @@ import {
   isFrameworkAvailable,
   defaultAgentModel,
   defaultHelperModel,
+  recommendedHelperModel,
 } from '../agentFramework'
 
 const card = (source: string, protocol: string, auth_type: string) => ({
@@ -198,5 +199,17 @@ describe('default model on provider pick (mirrors backend _ONBOARD_*_MODELS)', (
   test('sources without an onboarding default keep the list head', () => {
     expect(defaultAgentModel('user', ['a', 'b'])).toBe('a')
     expect(defaultAgentModel('netmind', [])).toBe('')
+  })
+})
+
+describe('recommendedHelperModel (the "Recommended: ..." hint)', () => {
+  test('NetMind sources show V4.1-Flash, matching the auto-pick', () => {
+    expect(recommendedHelperModel('netmind', 'openai')).toBe('deepseek-ai/DeepSeek-V4.1-Flash')
+    expect(recommendedHelperModel('netmind_free', 'anthropic')).toBe('deepseek-ai/DeepSeek-V4.1-Flash')
+  })
+  test('other sources keep the protocol table, then the openai fallback', () => {
+    expect(recommendedHelperModel('user', 'anthropic')).toBe('claude-haiku-4-5')
+    expect(recommendedHelperModel('user', 'openai')).toBe('gpt-5.4-mini')
+    expect(recommendedHelperModel(undefined, undefined)).toBe('gpt-5.4-mini')
   })
 })

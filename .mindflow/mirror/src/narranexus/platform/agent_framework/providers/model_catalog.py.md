@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (预审修订) — 离线账本 V4.1-Flash 条目取自线上库
+
+`model_probe_ledger.json` 里手加的 V4.1-Flash 条目抄自 prod DB 账本(anthropic/openai=pass、context=1M、tested_at=2026-10-13T05:00:17Z),
+并非本仓探测。`get_onboard_default_model` 用于 self-heal 时,目录默认不再参与(见 [[derive]]):未知来源返回 None 即"卡序行为"。
+
 ## 2026-10-16 — NetMind 默认改 DeepSeek-V4.1-Flash(agent 与 helper 同款)+ get_onboard_default_model
 
 Owner 决定:netmind / netmind_free 的 agent 与 helper_llm 默认均为 `deepseek-ai/DeepSeek-V4.1-Flash`(此前 agent=V4-Pro)。

@@ -281,19 +281,24 @@ def pick_default_model(
 ) -> Optional[str]:
     """Choose a safe default model to swap a broken slot to.
 
-    Strategy (first hit wins, each candidate must be on the card unless noted):
+    Strategy (first hit wins):
 
     1. The platform's onboarding default for ``source`` + ``slot_name``
-       (``model_catalog.get_onboard_default_model``) — so a repair lands where
-       a fresh onboarding would have, not on an arbitrary list head. NetMind
-       cards carry the synced catalogue whose head is an omni model; taking the
-       head silently re-pointed dozens of slots there.
-    2. Head of ``model_catalog.get_default_models(source, protocol)`` — the
-       catalogue's own recommendation for this aggregator + protocol.
-    3. First element of the card's own ``models`` array (user-curated).
-    4. Head of the catalogue even though it is off-card (empty card only).
-    5. ``None`` if nothing is usable — the caller should leave the slot alone
+       (``model_catalog.get_onboard_default_model``), when it is on the card —
+       so a repair lands where a fresh onboarding would have, not on an
+       arbitrary list head. NetMind cards carry the synced catalogue whose head
+       is an omni model; taking the head silently re-pointed dozens of slots
+       there.
+    2. First element of the card's own ``models`` array (user-curated).
+    3. Head of ``model_catalog.get_default_models(source, protocol)`` — only
+       reached for an empty card.
+    4. ``None`` if nothing is usable — the caller should leave the slot alone
        and log an error.
+
+    The catalogue head is deliberately NOT preferred over the card head even
+    when it is on the card: it is the head of a committed ledger snapshot (an
+    alphabetical list, not a recommendation) and for plain BYOK sources it is
+    a flagship id the user never chose.
     """
     # Lazy import to avoid circular deps at module load.
     from narranexus.platform.agent_framework.providers.model_catalog import (
@@ -307,15 +312,13 @@ def pick_default_model(
     if onboard_default and onboard_default in on_card:
         return onboard_default
 
+    if on_card:
+        return on_card[0]
+
     try:
         catalog = get_default_models(source or "", protocol or "")
     except Exception:  # noqa: BLE001 — get_default_models shouldn't raise but be safe
         catalog = []
-    if catalog and catalog[0] in on_card:
-        return catalog[0]
-
-    if on_card:
-        return on_card[0]
     if catalog:
         return catalog[0]
     return None

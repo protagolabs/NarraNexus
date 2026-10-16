@@ -26,9 +26,9 @@ import {
   providerBacksFramework,
   getModelsForSlot,
   prettifyModel,
-  RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   defaultAgentModel,
+  recommendedHelperModel,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -294,10 +294,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       </span>
     );
 
-  const helperRecModel =
-    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[
-      providers[helperDraft.provider_id]?.protocol || 'openai'
-    ] || 'gpt-5.4-mini';
+  const helperProvider = providers[helperDraft.provider_id];
+  const helperRecModel = recommendedHelperModel(helperProvider?.source, helperProvider?.protocol);
 
   return (
     <>

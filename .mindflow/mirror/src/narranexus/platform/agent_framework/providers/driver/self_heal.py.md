@@ -4,6 +4,10 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (预审修订) — 修复顺序去掉"目录默认"一步
+
+最终顺序:onboarding 默认(在卡上)→ 卡表头 → 目录表头(空卡)。理由见 [[derive]] 同日条目(I1)。上条里"目录默认"已作废。
+
 ## 2026-10-16 — 修复目标改走 onboarding 默认(槽位种类下传)
 
 `self_heal_if_broken` 现把 `slot["slot_name"]` 传给 `pick_default_model`,修复落到该来源 + 槽位种类的 onboarding 默认

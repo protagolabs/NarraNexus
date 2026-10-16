@@ -9,9 +9,11 @@ mass heal (34 helper slots on 2026-09-11) silently re-pointed slots at an
 omni/multimodal model. The repair order is now:
 
 1. onboarding default for (source, slot kind) -- when on the card
-2. catalogue default for (source, protocol)    -- when on the card
-3. first model on the card
-4. catalogue head
+2. first model on the card
+3. catalogue head (empty card only)
+
+The catalogue head is deliberately NOT preferred over the card head: it is the
+alphabetical head of a ledger snapshot, not a recommendation.
 """
 from collections import defaultdict
 
@@ -105,15 +107,16 @@ def test_falls_back_to_first_on_card_when_flash_is_absent():
     assert pick_default_model(card_models, "netmind", "openai", "agent") == OMNI
 
 
-def test_catalogue_default_beats_card_head_when_on_card(monkeypatch):
-    """Onboarding default is off-card, but the catalogue's own default is on
-    the card -> use it rather than the card's arbitrary first entry."""
+def test_catalogue_head_on_card_does_not_beat_card_head(monkeypatch):
+    """The catalogue "default" is just the head of a committed ledger snapshot
+    (alphabetical -- e.g. a 32k-context Qwen). Even when it is on the card it
+    must NOT outrank the card's own head."""
     monkeypatch.setattr(
         model_catalog, "get_default_models",
-        lambda source, protocol: ["cat-default", "cat-other"],
+        lambda source, protocol: ["cat-head", "cat-other"],
     )
-    got = pick_default_model(["card-head", "cat-default"], "netmind", "openai", "agent")
-    assert got == "cat-default"
+    got = pick_default_model(["card-head", "cat-head"], "netmind", "openai", "agent")
+    assert got == "card-head"
 
 
 def test_catalogue_head_is_last_resort_for_empty_card(monkeypatch):
@@ -133,5 +136,5 @@ def test_no_slot_kind_skips_onboarding_default():
 def test_source_without_onboarding_default_keeps_card_head():
     """A plain BYOK card ('user') has no onboarding entry -> unchanged
     list-head behaviour."""
-    got = pick_default_model(["a", "b"], "user", "anthropic", "agent")
+    got = pick_default_model(["a", "claude-opus-4-8"], "user", "anthropic", "agent")
     assert got == "a"

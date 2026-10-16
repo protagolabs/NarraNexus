@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (预审修订) — recommendedHelperModel
+
+新增 `recommendedHelperModel(source, protocol)`:"推荐:…"提示文案走与 `defaultHelperModel` 相同的优先级(source 表 → 协议表 → gpt-5.4-mini),
+此前 NetMind 卡上提示仍写 gpt-5.4-mini 而自动选的是 V4.1-Flash。`ModelDefaultsSettings` / `AgentLlmConfigPanel` 的 `helperRecModel` 改用它。
+
 ## 2026-10-16 — defaultAgentModel + 按 source 的推荐默认
 
 新增 `RECOMMENDED_AGENT/HELPER_MODEL_BY_SOURCE`(镜像后端 `_ONBOARD_*_MODELS` 的 netmind / netmind_free 条目:
