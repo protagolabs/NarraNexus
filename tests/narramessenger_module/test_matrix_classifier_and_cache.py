@@ -87,10 +87,12 @@ def _member_event(
 
 
 def _seed_verified_roster(t: MatrixTrigger, room: str, size: int) -> None:
-    """Seed a roster that a joined_members lookup already verified, so the
-    classifier trusts it without touching the (fake) client."""
+    """Seed a roster that a joined_members lookup already verified, and a
+    room with no ``ai.netmind.room_creation.v1`` state (404 already seen),
+    so the classifier trusts both without touching the (fake) client."""
     t._room_joined[room] = {f"@member{i}:h" for i in range(size)}
     t._room_roster_authoritative.add(room)
+    t._room_kind_checked.add(room)
 
 
 def test_apply_member_join_adds_to_roster_and_stores_displayname():
