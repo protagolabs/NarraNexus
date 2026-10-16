@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review I1) — 默认模型也被自愈与 /catalog 读取
+
+`free_tier_default_models()` 现在是免费卡默认模型的唯一入口:onboarding、slot self-heal、`/api/providers/catalog` 的 `onboard_defaults`
+都经 `model_catalog.get_onboard_default_model` 调到这里。改 env 即全链路同步;空 env 回落常量。
+
 ## 2026-10-16 — 默认 agent/helper 模型均为 DeepSeek-V4.1-Flash
 
 `_DEFAULT_AGENT_MODEL` 由 V4-Pro 改为 `deepseek-ai/DeepSeek-V4.1-Flash`,`_DEFAULT_HELPER_MODEL` 由 V4-Flash 改为同款

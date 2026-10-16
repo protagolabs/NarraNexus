@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-10-08
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — getProviderCatalog
+
+新增 `getProviderCatalog()`(GET `/api/providers/catalog`),前端只读取其 `onboard_defaults`(见 [[onboardDefaults]])。
 
 ## 2026-10-08（PR #410 review）
 

@@ -294,30 +294,42 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
   anthropic: 'claude-haiku-4-5',
 }
 
-// Per-SOURCE onboarding defaults — mirrors the netmind / netmind_free entries of
-// backend ``_ONBOARD_AGENT_MODELS`` / ``_ONBOARD_HELPER_MODELS`` (model_catalog.py).
-// NetMind's synced model list starts with an omni model, so ``models[0]`` is the
-// wrong pick there. The backend tables also key yunwu / openrouter; their cards
-// are user-curated (the onboarding default already heads them), so the UI keeps
-// list-order picks for every source not listed here.
-const NETMIND_DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash'
-export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {
-  netmind: NETMIND_DEFAULT_MODEL,
-  netmind_free: NETMIND_DEFAULT_MODEL,
-}
-export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {
-  netmind: NETMIND_DEFAULT_MODEL,
-  netmind_free: NETMIND_DEFAULT_MODEL,
+// Per-SOURCE onboarding defaults. The table is SERVER-owned (model_catalog.py
+// ``get_onboard_defaults``; netmind_free follows the FREE_TIER_*_MODEL ops env):
+// ``refreshOnboardDefaults`` (lib/onboardDefaults.ts) loads it from
+// GET /api/providers/catalog -> ``onboard_defaults`` and ``applyOnboardDefaults``
+// fills these maps. This file keeps NO model ids of its own, so a backend
+// default change needs no frontend edit. Until the response arrives (or against
+// an older server) the maps are empty and every pick falls back to the first
+// listed model -- deterministic, never an empty model. NetMind's synced list
+// starts with an omni model, which is why that fallback is only a fallback.
+export const RECOMMENDED_AGENT_MODEL_BY_SOURCE: Record<string, string> = {}
+export const RECOMMENDED_HELPER_MODEL_BY_SOURCE: Record<string, string> = {}
+
+/** Replace (not merge) both per-source maps from the catalog's ``onboard_defaults``. */
+export function applyOnboardDefaults(
+  defaults: Record<string, { agent?: string; helper?: string }> | undefined,
+): void {
+  for (const map of [RECOMMENDED_AGENT_MODEL_BY_SOURCE, RECOMMENDED_HELPER_MODEL_BY_SOURCE]) {
+    for (const key of Object.keys(map)) delete map[key]
+  }
+  for (const [source, entry] of Object.entries(defaults ?? {})) {
+    if (entry?.agent) RECOMMENDED_AGENT_MODEL_BY_SOURCE[source] = entry.agent
+    if (entry?.helper) RECOMMENDED_HELPER_MODEL_BY_SOURCE[source] = entry.helper
+  }
 }
 
-// The "Recommended: ..." helper hint — must agree with defaultHelperModel's
-// auto-pick: source table first, then the protocol table, then gpt-5.4-mini.
+// The "Recommended: ..." helper hint is the auto-pick itself: it reuses
+// defaultHelperModel with the card's model ids, so it can never name a model the
+// dropdown lacks or disagree with what picking the provider selects. Only when
+// no provider is chosen yet (no ids) does it show the protocol-table model.
 export function recommendedHelperModel(
   source: string | undefined,
   protocol: string | undefined,
+  modelIds: string[],
 ): string {
   return (
-    RECOMMENDED_HELPER_MODEL_BY_SOURCE[source || ''] ||
+    defaultHelperModel(source, protocol, modelIds) ||
     RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
     'gpt-5.4-mini'
   )

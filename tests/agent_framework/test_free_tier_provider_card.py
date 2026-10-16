@@ -83,8 +83,10 @@ def test_onboarding_defaults_exist_for_the_card():
 
 
 @pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
-def test_netmind_family_defaults_both_slots_to_v4_flash(source):
+def test_netmind_family_defaults_both_slots_to_v4_flash(source, monkeypatch):
     """Owner decision: NetMind agent AND helper both start on V4.1-Flash."""
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
     flash = "deepseek-ai/DeepSeek-V4.1-Flash"
     assert get_default_agent_model(source) == flash
     assert get_default_helper_model(source) == flash
@@ -198,11 +200,22 @@ def test_build_dual_providers_accepts_per_protocol_model_dict():
 
 
 @pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
-def test_netmind_onboarding_defaults_are_registered_catalog_models(source):
+def test_netmind_onboarding_defaults_are_registered_catalog_models(source, monkeypatch):
     """A default the catalogue has no metadata for loses thinking/budget flags."""
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
     from narranexus.platform.agent_framework.providers.model_catalog import (
         get_model_meta,
     )
     for model in (get_default_agent_model(source), get_default_helper_model(source)):
-        meta = get_model_meta(model)
-        assert meta is not None and meta.thinks_by_default is True
+        assert get_model_meta(model) is not None
+
+
+def test_v41_flash_thinks_by_default_is_the_mirrored_v4_family_guess():
+    """Pins the thinks_by_default flag that was COPIED from the V4 family, not
+    measured. If V4.1-Flash is ever measured otherwise, change this together
+    with the ModelMeta entry -- a red here is that reminder, not a regression."""
+    from narranexus.platform.agent_framework.providers.model_catalog import (
+        get_model_meta,
+    )
+    assert get_model_meta("deepseek-ai/DeepSeek-V4.1-Flash").thinks_by_default is True

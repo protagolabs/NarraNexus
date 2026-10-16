@@ -277,7 +277,7 @@ def pick_default_model(
     card_models,
     source: Optional[str],
     protocol: Optional[str],
-    slot_name: Optional[str] = None,
+    slot_name: Optional[str],
 ) -> Optional[str]:
     """Choose a safe default model to swap a broken slot to.
 

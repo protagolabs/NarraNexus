@@ -25,6 +25,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { api } from '@/lib/api';
+import { refreshOnboardDefaults } from '@/lib/onboardDefaults';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui';
 import { ApplyDefaultsToAgentsDialog } from './ApplyDefaultsToAgentsDialog';
@@ -140,6 +141,8 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
       const [provRes, fwRes] = await Promise.all([
         api.getProviders(),
         api.getAgentFramework(),
+        // Per-source default models are server-owned; never rejects.
+        refreshOnboardDefaults(),
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
@@ -446,7 +449,11 @@ export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Pr
     'px-5 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
 
   const helperProvider = providers[helperDraft.provider_id];
-  const helperRecModel = recommendedHelperModel(helperProvider?.source, helperProvider?.protocol);
+  const helperRecModel = recommendedHelperModel(
+    helperProvider?.source,
+    helperProvider?.protocol,
+    helperProvider ? getModelsForSlot(helperProvider, 'helper_llm', null, {}).map((m) => m.model_id) : [],
+  );
 
   if (loading) {
     return (

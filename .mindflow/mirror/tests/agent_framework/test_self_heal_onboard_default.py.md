@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review) — 补充
+
+新增:`netmind_free` 自愈跟随 `FREE_TIER_*_MODEL`(原先与 netmind 并列断言同一常量,会反向锁死错误行为)、空 env 回落常量、
+`get_onboard_defaults()` 只含来源键且 netmind_free 跟随 env、`slot_name` 必填。
+
 # test_self_heal_onboard_default.py — self-heal 修复目标守卫
 
 锁定 `pick_default_model` / `self_heal_if_broken` 的修复顺序(onboarding 默认 → 卡表头 → 目录表头(仅空卡);目录表头即使在卡上也不压过卡表头)。

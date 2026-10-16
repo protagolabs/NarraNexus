@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review I2+M2) — load 时刷新服务端默认表;推荐提示复用自动选
+
+`load()` 与 getProviders/getAgentFramework 并行调用 `refreshOnboardDefaults()`(永不 reject,失败回落列表首个),保证渲染与 provider 切换前表已就位。
+`helperRecModel` 现用该 helper provider 的模型列表调 `recommendedHelperModel`,与自动选一致。
+
 ## 2026-10-16 (预审修订) — helper "推荐"提示走 recommendedHelperModel
 
 `helperRecModel` 不再只查协议表,改调 `recommendedHelperModel(source, protocol)`,与自动选模型一致(见 [[agentFramework]])。

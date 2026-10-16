@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { refreshOnboardDefaults } from '@/lib/onboardDefaults';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
@@ -131,6 +132,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         api.getAgentLlmConfig(agentId),
         api.getProviders(),
         api.getAgentFramework(),
+        // Per-source default models are server-owned; never rejects.
+        refreshOnboardDefaults(),
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
@@ -295,7 +298,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     );
 
   const helperProvider = providers[helperDraft.provider_id];
-  const helperRecModel = recommendedHelperModel(helperProvider?.source, helperProvider?.protocol);
+  const helperRecModel = recommendedHelperModel(
+    helperProvider?.source,
+    helperProvider?.protocol,
+    helperProvider ? getModelsForSlot(helperProvider, 'helper_llm', null, {}).map((m) => m.model_id) : [],
+  );
 
   return (
     <>

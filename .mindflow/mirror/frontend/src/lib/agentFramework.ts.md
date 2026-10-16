@@ -4,6 +4,14 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review I2+M2) — 推荐默认改由服务端下发
+
+`RECOMMENDED_AGENT/HELPER_MODEL_BY_SOURCE` 不再含任何硬编码模型 id(删除 `NETMIND_DEFAULT_MODEL`),由 `applyOnboardDefaults(onboard_defaults)`
+整体替换填充(数据来自 `GET /api/providers/catalog`,见 [[onboardDefaults]])。数据到达前/老服务端下表为空,所有选择回落"列表首个",确定且非空。
+`recommendedHelperModel(source, protocol, modelIds)` 现直接复用 `defaultHelperModel`(仅无 provider、无 ids 时回落协议表),
+因此"推荐:…"提示与选 provider 的自动选择必然一致、也不会指向下拉里没有的模型(取代上一条里"与自动选一致"的措辞,该措辞此前并不成立)。
+上文关于"镜像后端 `_ONBOARD_*_MODELS`"的描述已作废。
+
 ## 2026-10-16 (预审修订) — recommendedHelperModel
 
 新增 `recommendedHelperModel(source, protocol)`:"推荐:…"提示文案走与 `defaultHelperModel` 相同的优先级(source 表 → 协议表 → gpt-5.4-mini),

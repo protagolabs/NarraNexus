@@ -23,7 +23,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
+from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
+    ProviderProtocol,
+    SlotName,
+)
 
 
 # =============================================================================
@@ -617,30 +621,74 @@ _ONBOARD_HELPER_MODELS: dict[str, str] = {
 }
 
 
-def get_default_agent_model(protocol: str) -> str:
-    """Default agent-slot model for one-key onboarding, per protocol."""
-    return _ONBOARD_AGENT_MODELS.get(protocol, _ONBOARD_AGENT_MODELS["anthropic"])
+def get_default_agent_model(provider_type: str) -> str:
+    """Default agent-slot model for one-key onboarding, per provider type."""
+    return get_onboard_default_model(provider_type, SlotName.AGENT.value) or (
+        _ONBOARD_AGENT_MODELS["anthropic"]
+    )
 
 
-def get_default_helper_model(protocol: str) -> str:
-    """Default helper_llm-slot model for one-key onboarding, per protocol."""
-    return _ONBOARD_HELPER_MODELS.get(protocol, _ONBOARD_HELPER_MODELS["openai"])
+def get_default_helper_model(provider_type: str) -> str:
+    """Default helper_llm-slot model for one-key onboarding, per provider type."""
+    return get_onboard_default_model(provider_type, SlotName.HELPER_LLM.value) or (
+        _ONBOARD_HELPER_MODELS["openai"]
+    )
 
 
 def get_onboard_default_model(source: str, slot_name: Optional[str]) -> Optional[str]:
-    """Onboarding default for an explicit ``source`` + slot kind, or ``None``.
+    """Onboarding default for ``source`` (a provider type / card source) + slot kind, or ``None``.
+
+    THE single server-side source of truth for "which model does the platform
+    put a card on": one-key onboarding, slot self-heal and the ``/catalog``
+    endpoint (``get_onboard_defaults``) all read it. The free-tier card is the
+    one source whose default is an ops decision, so it goes through
+    ``free_tier.free_tier_default_models()`` (env ``FREE_TIER_AGENT_MODEL`` /
+    ``FREE_TIER_HELPER_MODEL``, empty env -> constant).
 
     Unlike ``get_default_*_model`` this does NOT fall back to the anthropic /
     openai entry for unknown keys: slot self-heal uses it to decide whether the
     platform has an opinion about this card at all (a plain ``user`` BYOK card
-    has none, so its repair keeps the card-order behaviour). Only the
-    ``agent`` and ``helper_llm`` slots have onboarding defaults.
+    has none, so its repair keeps the card-order behaviour). Only the agent
+    and helper_llm slots have onboarding defaults.
     """
-    if slot_name == "agent":
-        return _ONBOARD_AGENT_MODELS.get(source)
-    if slot_name == "helper_llm":
-        return _ONBOARD_HELPER_MODELS.get(source)
-    return None
+    if slot_name not in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
+        return None
+    # Function-local: free_tier imports from this package at module load.
+    from narranexus.platform.agent_framework.providers.free_tier import (
+        FREE_TIER_SOURCE,
+        free_tier_default_models,
+    )
+
+    is_agent = slot_name == SlotName.AGENT.value
+    if source == FREE_TIER_SOURCE:
+        agent_model, helper_model = free_tier_default_models()
+        return agent_model if is_agent else helper_model
+    table = _ONBOARD_AGENT_MODELS if is_agent else _ONBOARD_HELPER_MODELS
+    return table.get(source)
+
+
+def get_onboard_defaults() -> dict[str, dict[str, str]]:
+    """``{source: {"agent": model, "helper": model}}`` for every card SOURCE the
+    platform has onboarding defaults for -- what ``GET /api/providers/catalog``
+    ships so the UI never keeps its own copy of the table.
+
+    The tables also carry the ``anthropic`` / ``openai`` provider-type keys
+    (a different key space: official BYOK cards have source ``user``), which are
+    not sources and are left out.
+    """
+    protocols = {p.value for p in ProviderProtocol}
+    out: dict[str, dict[str, str]] = {}
+    for key in {*_ONBOARD_AGENT_MODELS, *_ONBOARD_HELPER_MODELS} - protocols:
+        agent_model = get_onboard_default_model(key, SlotName.AGENT.value)
+        helper_model = get_onboard_default_model(key, SlotName.HELPER_LLM.value)
+        entry = {
+            name: model
+            for name, model in (("agent", agent_model), ("helper", helper_model))
+            if model
+        }
+        if entry:
+            out[key] = entry
+    return out
 
 
 # =============================================================================

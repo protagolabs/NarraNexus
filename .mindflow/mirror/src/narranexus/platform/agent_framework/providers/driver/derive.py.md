@@ -4,6 +4,11 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review M1) — slot_name 必填
+
+`pick_default_model` 的 `slot_name` 去掉默认值:漏传会静默退回"取卡表头"(即 2026-09-11 事故行为),唯一调用方 self_heal 已传。
+无槽位种类(如 embedding)请显式传 `None`。
+
 ## 2026-10-16 — pick_default_model 优先 onboarding 默认,不再取 card.models 表头
 
 **根因**:NetMind 卡的 models 列表来自同步目录,表头是 `Qwen/Qwen3.5-Omni-Flash`。旧策略"取卡表头"让

@@ -11,7 +11,7 @@
  * hardcoded table — every assertion below passes an explicit live
  * `frameworks` list (or, for the fail-closed cases, deliberately omits one).
  */
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import {
   availableFrameworks,
   providerBacksFramework,
@@ -22,6 +22,7 @@ import {
   defaultAgentModel,
   defaultHelperModel,
   recommendedHelperModel,
+  applyOnboardDefaults,
 } from '../agentFramework'
 
 const card = (source: string, protocol: string, auth_type: string) => ({
@@ -180,16 +181,38 @@ describe('plugin-install availability (frameworkAvailabilityMap / withFrameworkA
 
 // Picking a provider must land on the platform's onboarding default for that
 // source, not on models[0]: NetMind's synced list starts with an omni model.
-describe('default model on provider pick (mirrors backend _ONBOARD_*_MODELS)', () => {
+// The defaults are SERVER-owned: they arrive via GET /api/providers/catalog
+// (`onboard_defaults`) and are loaded with applyOnboardDefaults.
+describe('default model on provider pick (fed from the catalog response)', () => {
   const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
   const listed = ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B', FLASH]
+  const catalogDefaults = {
+    netmind: { agent: FLASH, helper: FLASH },
+    netmind_free: { agent: FLASH, helper: FLASH },
+  }
 
-  test.each(['netmind', 'netmind_free'])('%s agent -> V4.1-Flash, not list head', (source) => {
+  beforeEach(() => applyOnboardDefaults(catalogDefaults))
+  afterEach(() => applyOnboardDefaults(undefined))
+
+  test.each(['netmind', 'netmind_free'])('%s agent -> catalog default, not list head', (source) => {
     expect(defaultAgentModel(source, listed)).toBe(FLASH)
   })
 
-  test.each(['netmind', 'netmind_free'])('%s helper -> V4.1-Flash, not list head', (source) => {
+  test.each(['netmind', 'netmind_free'])('%s helper -> catalog default, not list head', (source) => {
     expect(defaultHelperModel(source, 'openai', listed)).toBe(FLASH)
+  })
+
+  test('the maps follow whatever the server sent (ops env override for the free card)', () => {
+    applyOnboardDefaults({ netmind_free: { agent: 'Qwen/Qwen3-32B', helper: FLASH } })
+    expect(defaultAgentModel('netmind_free', listed)).toBe('Qwen/Qwen3-32B')
+    // a reload replaces, not merges: netmind is gone now
+    expect(defaultAgentModel('netmind', listed)).toBe('Qwen/Qwen3.5-Omni-Flash')
+  })
+
+  test('before the catalog arrives the pick is the list head, never empty', () => {
+    applyOnboardDefaults(undefined)
+    expect(defaultAgentModel('netmind', listed)).toBe('Qwen/Qwen3.5-Omni-Flash')
+    expect(defaultHelperModel('netmind', 'openai', ['x', 'y'])).toBe('x')
   })
 
   test('falls back to the list head when the default is not on the card', () => {
@@ -203,13 +226,28 @@ describe('default model on provider pick (mirrors backend _ONBOARD_*_MODELS)', (
 })
 
 describe('recommendedHelperModel (the "Recommended: ..." hint)', () => {
-  test('NetMind sources show V4.1-Flash, matching the auto-pick', () => {
-    expect(recommendedHelperModel('netmind', 'openai')).toBe('deepseek-ai/DeepSeek-V4.1-Flash')
-    expect(recommendedHelperModel('netmind_free', 'anthropic')).toBe('deepseek-ai/DeepSeek-V4.1-Flash')
+  const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
+  beforeEach(() => applyOnboardDefaults({ netmind: { agent: FLASH, helper: FLASH } }))
+  afterEach(() => applyOnboardDefaults(undefined))
+
+  test('is exactly the auto-pick: same inputs, same answer', () => {
+    const cases: Array<[string, string, string[]]> = [
+      ['netmind', 'openai', ['Qwen/Qwen3.5-Omni-Flash', FLASH]],
+      // default absent from the card -> the hint must not name a model the
+      // dropdown does not contain
+      ['netmind', 'openai', ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B']],
+      ['claude_oauth', 'anthropic', ['opus', 'sonnet', 'haiku']],
+      ['codex_oauth', 'openai', ['gpt-5.5', 'gpt-5.4-mini']],
+      ['user', 'openai', ['gpt-5.5', 'gpt-5.4-mini']],
+    ]
+    for (const [source, protocol, ids] of cases) {
+      expect(recommendedHelperModel(source, protocol, ids)).toBe(defaultHelperModel(source, protocol, ids))
+    }
+    expect(recommendedHelperModel('claude_oauth', 'anthropic', ['opus', 'haiku'])).toBe('haiku')
   })
-  test('other sources keep the protocol table, then the openai fallback', () => {
-    expect(recommendedHelperModel('user', 'anthropic')).toBe('claude-haiku-4-5')
-    expect(recommendedHelperModel('user', 'openai')).toBe('gpt-5.4-mini')
-    expect(recommendedHelperModel(undefined, undefined)).toBe('gpt-5.4-mini')
+
+  test('no provider chosen yet -> protocol-table fallback, never empty', () => {
+    expect(recommendedHelperModel(undefined, undefined, [])).toBe('gpt-5.4-mini')
+    expect(recommendedHelperModel('user', 'anthropic', [])).toBe('claude-haiku-4-5')
   })
 })

@@ -1378,6 +1378,16 @@ class ApiClient {
     return this.request(`/api/providers`);
   }
 
+  /** Server-owned provider catalogue. The UI only reads ``onboard_defaults``
+   * (per-source default agent/helper model ids; netmind_free follows the
+   * FREE_TIER_*_MODEL ops env) — see lib/onboardDefaults.ts. */
+  async getProviderCatalog(): Promise<{
+    success: boolean;
+    onboard_defaults?: Record<string, { agent?: string; helper?: string }>;
+  }> {
+    return this.request(`/api/providers/catalog`);
+  }
+
   /** Add a provider card (claude_oauth / codex_oauth / one of the key
    * card types). Business rejections arrive as HTTPException -> this
    * THROWS ApiError (read err.detail for the backend's reason); map

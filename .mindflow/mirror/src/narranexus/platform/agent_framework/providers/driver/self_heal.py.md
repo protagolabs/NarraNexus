@@ -4,6 +4,10 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review I1) — netmind_free 自愈跟随 env
+
+自愈目标来自 `get_onboard_default_model`,对 `netmind_free` 即 `FREE_TIER_*_MODEL`(与全新 onboarding 一致),不再是代码常量。
+
 ## 2026-10-16 (预审修订) — 修复顺序去掉"目录默认"一步
 
 最终顺序:onboarding 默认(在卡上)→ 卡表头 → 目录表头(空卡)。理由见 [[derive]] 同日条目(I1)。上条里"目录默认"已作废。

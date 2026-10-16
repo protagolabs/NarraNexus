@@ -73,7 +73,9 @@ def _slot(slot_name: str, model: str = "retired-model") -> dict:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["netmind", "netmind_free"])
 @pytest.mark.parametrize("slot_name", ["agent", "helper_llm"])
-async def test_netmind_slot_heals_to_flash_not_list_head(source, slot_name):
+async def test_netmind_slot_heals_to_flash_not_list_head(source, slot_name, monkeypatch):
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
     db = _FakeDB()
     slot = _slot(slot_name)
     db.tables["user_slots"].append(dict(slot))
@@ -84,6 +86,48 @@ async def test_netmind_slot_heals_to_flash_not_list_head(source, slot_name):
     assert healed["model"] == FLASH
     rows = await db.get("user_slots", {"user_id": "u1", "slot_name": slot_name})
     assert rows[0]["model"] == FLASH
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slot_name, env_var", [
+    ("agent", "FREE_TIER_AGENT_MODEL"),
+    ("helper_llm", "FREE_TIER_HELPER_MODEL"),
+])
+async def test_netmind_free_heal_follows_the_ops_env_knob(slot_name, env_var, monkeypatch):
+    """The free wallet's model is an ops decision (FREE_TIER_*_MODEL). A heal
+    must land where a fresh free-tier onboarding would, not on the code constant."""
+    ops_pick = "Qwen/Qwen3-32B"
+    monkeypatch.setenv(env_var, ops_pick)
+    db = _FakeDB()
+    slot = _slot(slot_name)
+    db.tables["user_slots"].append(dict(slot))
+    card = _card("netmind_free", [OMNI, ops_pick, FLASH])
+
+    _, healed = await self_heal_if_broken(card, slot, db)
+
+    assert healed["model"] == ops_pick
+
+
+@pytest.mark.parametrize("slot_name, env_var", [
+    ("agent", "FREE_TIER_AGENT_MODEL"),
+    ("helper_llm", "FREE_TIER_HELPER_MODEL"),
+])
+def test_empty_free_tier_env_falls_back_to_the_constant(slot_name, env_var, monkeypatch):
+    """An empty env string must never yield "" (a falsy target would silently
+    drop the heal back to the card head)."""
+    monkeypatch.setenv(env_var, "")
+    assert model_catalog.get_onboard_default_model("netmind_free", slot_name) == FLASH
+
+
+def test_onboard_defaults_map_covers_sources_only_and_follows_env(monkeypatch):
+    """The map the /catalog endpoint ships to the UI: keyed by SOURCE (never the
+    anthropic/openai protocol keys), netmind_free built from the env knob."""
+    monkeypatch.setenv("FREE_TIER_AGENT_MODEL", "x/agent")
+    monkeypatch.delenv("FREE_TIER_HELPER_MODEL", raising=False)
+    defaults = model_catalog.get_onboard_defaults()
+    assert "anthropic" not in defaults and "openai" not in defaults
+    assert defaults["netmind"] == {"agent": FLASH, "helper": FLASH}
+    assert defaults["netmind_free"] == {"agent": "x/agent", "helper": FLASH}
 
 
 @pytest.mark.asyncio
@@ -129,7 +173,7 @@ def test_catalogue_head_is_last_resort_for_empty_card(monkeypatch):
 
 def test_no_slot_kind_skips_onboarding_default():
     """Unknown slot kind (e.g. embedding) must not inherit the agent default."""
-    got = pick_default_model([OMNI, FLASH], "netmind", "openai", None)
+    got = pick_default_model([OMNI, FLASH], "netmind", "openai", None)  # embedding etc.
     assert got == OMNI
 
 
@@ -138,3 +182,10 @@ def test_source_without_onboarding_default_keeps_card_head():
     list-head behaviour."""
     got = pick_default_model(["a", "claude-opus-4-8"], "user", "anthropic", "agent")
     assert got == "a"
+
+
+def test_slot_name_is_a_required_argument():
+    """A forgotten slot kind would silently fall back to the card head -- the
+    exact bug this module guards -- so there must be no default."""
+    with pytest.raises(TypeError):
+        pick_default_model([OMNI, FLASH], "netmind", "openai")  # type: ignore[call-arg]

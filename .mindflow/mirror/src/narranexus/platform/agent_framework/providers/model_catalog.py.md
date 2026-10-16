@@ -4,6 +4,16 @@ last_verified: 2026-10-16
 stub: false
 ---
 
+## 2026-10-16 (PR#413 review I1+I2+M4) — onboarding 默认的唯一服务端事实来源
+
+`get_onboard_default_model(source, slot_name)` 是"平台把一张卡开在哪个模型"的**唯一**来源:onboarding(`get_default_agent_model` /
+`get_default_helper_model` 现在也走它)、slot self-heal、`GET /api/providers/catalog` 的 `onboard_defaults`(`get_onboard_defaults()`)三处共用。
+`netmind_free` 一支走 `free_tier.free_tier_default_models()`(env `FREE_TIER_AGENT_MODEL` / `FREE_TIER_HELPER_MODEL`,空串回落常量),
+所以 ops 改 env 后,免费卡的自愈目标与 UI 推荐同步跟随;`free_tier` ↔ `model_catalog` 成环,故函数内 lazy import(同 `user_service` 先例)。
+`get_onboard_defaults()` 只输出**来源**键(排除 `anthropic`/`openai` 这两个协议键:官方 BYOK 卡的 source 是 `user`),避免两种键空间混用。
+`get_default_*_model` 的参数名 `protocol` → `provider_type`;槽位名用 `SlotName` 枚举而非字面量。
+上文 "2026-10-16 (预审修订)" 里"未知来源返回 None 即卡序行为"仍成立。
+
 ## 2026-10-16 (预审修订) — 离线账本 V4.1-Flash 条目取自线上库
 
 `model_probe_ledger.json` 里手加的 V4.1-Flash 条目抄自 prod DB 账本(anthropic/openai=pass、context=1M、tested_at=2026-10-13T05:00:17Z),
