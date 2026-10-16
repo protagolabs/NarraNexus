@@ -12,9 +12,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const setAgentLlmConfig = vi.fn();
+const getProviderCatalog = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
+    getProviderCatalog: (...args: unknown[]) => getProviderCatalog(...args),
     getAgentLlmConfig: () =>
       Promise.resolve({
         success: true,
@@ -39,6 +41,15 @@ vi.mock('@/lib/api', () => ({
               auth_type: 'api_key',
               is_active: true,
               models: ['claude-x'],
+            },
+            prov_nm: {
+              provider_id: 'prov_nm',
+              name: 'NetMind',
+              source: 'netmind',
+              protocol: 'anthropic',
+              auth_type: 'bearer_token',
+              is_active: true,
+              models: ['Qwen/Qwen3.5-Omni-Flash', 'deepseek-ai/DeepSeek-V4.1-Flash'],
             },
           },
         },
@@ -68,10 +79,49 @@ vi.mock('@/stores/configStore', () => ({
 import { AgentLlmConfigPanel } from '../AgentLlmConfigPanel';
 
 beforeEach(() => {
+  getProviderCatalog.mockReset().mockResolvedValue({ success: true, onboard_defaults: {} });
   setAgentLlmConfig.mockReset().mockResolvedValue({ success: true });
 });
 
 describe('AgentLlmConfigPanel save feedback', () => {
+  test('picking a NetMind provider selects the server-owned default, not the omni list head', async () => {
+    getProviderCatalog.mockResolvedValue({
+      success: true,
+      onboard_defaults: { netmind: { agent: 'deepseek-ai/DeepSeek-V4.1-Flash', helper: 'deepseek-ai/DeepSeek-V4.1-Flash' } },
+    });
+    render(
+      <MemoryRouter>
+        <AgentLlmConfigPanel agentId="agent_1" isOpen onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    const providerSelect = (await screen.findAllByDisplayValue('Select provider…'))[0];
+    fireEvent.change(providerSelect, { target: { value: 'prov_nm' } });
+    const saveButton = screen.getByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(setAgentLlmConfig).toHaveBeenCalledWith(
+      'agent_1',
+      'agent',
+      expect.objectContaining({ provider_id: 'prov_nm', model: 'deepseek-ai/DeepSeek-V4.1-Flash' }),
+    ));
+  });
+
+  test('a failed catalog fetch says the load failed instead of silently picking the list head', async () => {
+    getProviderCatalog.mockRejectedValue(new Error('catalog down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(
+      <MemoryRouter>
+        <AgentLlmConfigPanel agentId="agent_1" isOpen onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+    expect(warn).toHaveBeenCalledWith('onboard defaults unavailable', expect.any(Error));
+    warn.mockRestore();
+  });
+
   test('a successful save shows a confirmation instead of silently doing nothing', async () => {
     render(
       <MemoryRouter>

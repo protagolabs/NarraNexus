@@ -1,8 +1,13 @@
 ---
 code_file: tests/agent_framework/test_claude_oauth_slot_self_heal.py
-last_verified: 2026-08-06
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — 兄弟测试
+
+`test_non_family_garbage_on_claude_oauth_heals_to_list_head` 仍成立(claude_oauth 无 onboarding 条目,目录默认 = 表头 `opus`)。
+NetMind 修复目标另见 `test_self_heal_onboard_default.py`。
 
 # test_claude_oauth_slot_self_heal.py — self-heal 用 effective 口径判 broken
 

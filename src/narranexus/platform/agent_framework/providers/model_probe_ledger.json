@@ -185,6 +185,13 @@
           "openai": "pass",
           "tested_at": "2026-06-24T08:48:50.834256+00:00"
         },
+        "deepseek-ai/DeepSeek-V4.1-Flash": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "DeepSeek-V4.1-Flash",
+          "openai": "pass",
+          "tested_at": "2026-10-13T05:00:17.764802+00:00"
+        },
         "doubao/Doubao-1.5-pro": {
           "anthropic": "fail",
           "context": "32K",

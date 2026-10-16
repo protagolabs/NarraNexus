@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-09-11
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 (PR#413 round 2: N1/N4) — 默认表进 React state,取不到就报加载失败
+
+`load()` 解构 `refreshOnboardDefaults()` 的 `{ok, defaults}`:成功则整体 `setOnboardDefaults`;`ok:false` 则 `setError(t('…loadFailed'))`(同 `fwRes?.success` 为假的既有做法,无新 i18n key)。
+选 provider / 推荐提示把 `onboardDefaults` 显式传给 `defaultAgentModel` / `defaultHelperModel` / `recommendedHelperModel`。测试覆盖失败路径(报错可见)与成功路径(NetMind 选 V4.1-Flash 而非 omni 首个)。
+
+## 2026-10-16 (复审 M2 回归修正) — 推荐提示不再回落列表首个
+
+`helperRecModel` 走 `recommendedHelperModel`,只点名刻意选择(source 表/协议表/OAuth 别名在卡上),否则显示协议表模型;与"选 provider 后自动选"在无刻意选择时有意分叉(自动选回落首个)。
+上一条"与自动选一致"的措辞作废,见 [[agentFramework]]。
+
+## 2026-10-16 (PR#413 review I2+M2) — load 时刷新服务端默认表;推荐提示复用自动选
+
+`load()` 与 getProviders/getAgentFramework 并行调用 `refreshOnboardDefaults()`(永不 reject,失败回落列表首个),保证渲染与 provider 切换前表已就位。
+`helperRecModel` 现用该 helper provider 的模型列表调 `recommendedHelperModel`,与自动选一致。
+
+## 2026-10-16 (预审修订) — helper "推荐"提示走 recommendedHelperModel
+
+`helperRecModel` 不再只查协议表,改调 `recommendedHelperModel(source, protocol)`,与自动选模型一致(见 [[agentFramework]])。
+
+## 2026-10-16 — agent provider 切换默认模型走 defaultAgentModel
+
+切换 agent provider 时默认模型不再取 `models[0]`,改用 `defaultAgentModel(source, ids)`(NetMind 取 V4.1-Flash;见 [[agentFramework]])。
 
 ## 2026-09-11 — thinking / reasoning effort need a provider
 

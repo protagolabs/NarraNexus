@@ -19,6 +19,10 @@ import {
   frameworkAvailabilityMap,
   withFrameworkAvailability,
   isFrameworkAvailable,
+  defaultAgentModel,
+  defaultHelperModel,
+  recommendedHelperModel,
+  type OnboardDefaults,
 } from '../agentFramework'
 
 const card = (source: string, protocol: string, auth_type: string) => ({
@@ -172,5 +176,80 @@ describe('plugin-install availability (frameworkAvailabilityMap / withFrameworkA
     const map = frameworkAvailabilityMap(undefined)
     const merged = withFrameworkAvailability(AGENT_FRAMEWORKS, map)
     expect(merged.every((f) => isFrameworkAvailable(f))).toBe(true)
+  })
+})
+
+// Picking a provider must land on the platform's onboarding default for that
+// source, not on models[0]: NetMind's synced list starts with an omni model.
+// The defaults are SERVER-owned (GET /api/providers/catalog -> `onboard_defaults`)
+// and handed to the pickers as an explicit argument -- no module-level state.
+describe('default model on provider pick (explicit defaults argument)', () => {
+  const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
+  const listed = ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B', FLASH]
+  const defaults: OnboardDefaults = {
+    netmind: { agent: FLASH, helper: FLASH },
+    netmind_free: { agent: FLASH, helper: FLASH },
+  }
+
+  test.each(['netmind', 'netmind_free'])('%s agent -> server default, not list head', (source) => {
+    expect(defaultAgentModel(source, listed, defaults)).toBe(FLASH)
+  })
+
+  test.each(['netmind', 'netmind_free'])('%s helper -> server default, not list head', (source) => {
+    expect(defaultHelperModel(source, 'openai', listed, defaults)).toBe(FLASH)
+  })
+
+  test('the pick follows whatever defaults it is handed (ops env override for the free card)', () => {
+    const ops: OnboardDefaults = { netmind_free: { agent: 'Qwen/Qwen3-32B', helper: FLASH } }
+    expect(defaultAgentModel('netmind_free', listed, ops)).toBe('Qwen/Qwen3-32B')
+    // a different defaults object has no memory of the previous one
+    expect(defaultAgentModel('netmind', listed, ops)).toBe('Qwen/Qwen3.5-Omni-Flash')
+  })
+
+  test('no defaults yet (not loaded / failed) -> list head, never empty', () => {
+    expect(defaultAgentModel('netmind', listed, {})).toBe('Qwen/Qwen3.5-Omni-Flash')
+    expect(defaultHelperModel('netmind', 'openai', ['x', 'y'], {})).toBe('x')
+  })
+
+  test('falls back to the list head when the default is not on the card', () => {
+    expect(defaultAgentModel('netmind', ['a', 'b'], defaults)).toBe('a')
+  })
+
+  test('sources without an onboarding default keep the list head', () => {
+    expect(defaultAgentModel('user', ['a', 'b'], defaults)).toBe('a')
+    expect(defaultAgentModel('netmind', [], defaults)).toBe('')
+  })
+})
+
+describe('recommendedHelperModel (the "Recommended: ..." hint)', () => {
+  const FLASH = 'deepseek-ai/DeepSeek-V4.1-Flash'
+  const defaults: OnboardDefaults = { netmind: { agent: FLASH, helper: FLASH } }
+
+  test('names the deliberate pick when it is on the card (same as the auto-pick)', () => {
+    expect(recommendedHelperModel('netmind', 'openai', ['Qwen/Qwen3.5-Omni-Flash', FLASH], defaults)).toBe(FLASH)
+    expect(recommendedHelperModel('claude_oauth', 'anthropic', ['opus', 'haiku'], defaults)).toBe('haiku')
+    expect(recommendedHelperModel('codex_oauth', 'openai', ['gpt-5.5', 'gpt-5.4-mini'], defaults)).toBe('gpt-5.4-mini')
+    expect(recommendedHelperModel('user', 'openai', ['gpt-5.5', 'gpt-5.4-mini'], defaults)).toBe('gpt-5.4-mini')
+  })
+
+  test('never names a list head the platform did not pick (curated flagship card)', () => {
+    const hint = recommendedHelperModel('user', 'anthropic', ['claude-opus-4-8', 'claude-sonnet-4-6'], defaults)
+    expect(hint).not.toBe('claude-opus-4-8')
+    expect(hint).toBe('claude-haiku-4-5') // protocol-table model
+  })
+
+  test('NetMind card without the default does not recommend the omni head', () => {
+    const hint = recommendedHelperModel('netmind', 'openai', ['Qwen/Qwen3.5-Omni-Flash', 'Qwen/Qwen3-32B'], defaults)
+    expect(hint).not.toBe('Qwen/Qwen3.5-Omni-Flash')
+    expect(hint).toBe('gpt-5.4-mini')
+  })
+
+  test('the auto-pick still falls back to the list head (only the hint is stricter)', () => {
+    expect(defaultHelperModel('user', 'anthropic', ['claude-opus-4-8', 'claude-sonnet-4-6'], defaults)).toBe('claude-opus-4-8')
+  })
+
+  test('no provider chosen yet -> protocol-table fallback, never empty', () => {
+    expect(recommendedHelperModel(undefined, undefined, [], defaults)).toBe('gpt-5.4-mini')
+    expect(recommendedHelperModel('user', 'anthropic', [], defaults)).toBe('claude-haiku-4-5')
   })
 })

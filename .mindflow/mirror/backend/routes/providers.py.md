@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-10
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 (PR#413 review I2) — /catalog 新增 onboard_defaults
+
+`GET /api/providers/catalog` 增加 `onboard_defaults: {source: {agent, helper}}`(`model_catalog.get_onboard_defaults()`;`netmind_free` 跟随
+`FREE_TIER_*_MODEL`)。前端 `lib/onboardDefaults.ts` 用它填充"推荐模型"表,前端不再持有模型 id。只下发模型 id,不带钱包 thinking/余额策略。
 
 ## 2026-09-10 — 熔断器恢复：只挂显式动作、按 provider 收窄（GitHub #117 预审 I1）
 

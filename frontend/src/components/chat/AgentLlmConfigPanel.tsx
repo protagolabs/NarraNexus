@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { refreshOnboardDefaults } from '@/lib/onboardDefaults';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
@@ -26,8 +27,10 @@ import {
   providerBacksFramework,
   getModelsForSlot,
   prettifyModel,
-  RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  defaultAgentModel,
+  recommendedHelperModel,
+  type OnboardDefaults,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
@@ -92,6 +95,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
+  // Server-owned per-source default models (see lib/onboardDefaults); {} until loaded.
+  const [onboardDefaults, setOnboardDefaults] = useState<OnboardDefaults>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
   // Plugin-install gate (Claude Code / Codex CLI are user-installed local
   // plugins, not baked into the image) — name→available. This is an
@@ -126,13 +131,17 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     setLoading(true);
     setError('');
     try {
-      const [cfgRes, provRes, fwRes] = await Promise.all([
+      const [cfgRes, provRes, fwRes, defaultsRes] = await Promise.all([
         api.getAgentLlmConfig(agentId),
         api.getProviders(),
         api.getAgentFramework(),
+        // Per-source default models are server-owned; never rejects, reports ok.
+        refreshOnboardDefaults(),
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
+      // Whole replace; a failed fetch keeps the previous table (and says so below).
+      if (defaultsRes.ok) setOnboardDefaults(defaultsRes.defaults);
       const liveFwList = fwRes?.success ? fwRes.data.frameworks : undefined;
       setFrameworkAvailability(frameworkAvailabilityMap(liveFwList));
       setLiveFrameworks(liveFwList);
@@ -155,7 +164,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       // offer (and providerBacksFramework fails closed on it), so the form
       // would render an empty framework select with no explanation. Say the
       // load failed instead.
-      if (!fwRes?.success) setError(t('pages.settings.modelDefaults.loadFailed'));
+      // The same goes for the server's onboarding defaults: without them a
+      // NetMind card would silently auto-select its omni list head.
+      if (!fwRes?.success || !defaultsRes.ok) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
@@ -293,10 +304,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       </span>
     );
 
-  const helperRecModel =
-    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[
-      providers[helperDraft.provider_id]?.protocol || 'openai'
-    ] || 'gpt-5.4-mini';
+  const helperProvider = providers[helperDraft.provider_id];
+  const helperRecModel = recommendedHelperModel(
+    helperProvider?.source,
+    helperProvider?.protocol,
+    helperProvider ? getModelsForSlot(helperProvider, 'helper_llm', null, {}).map((m) => m.model_id) : [],
+    onboardDefaults,
+  );
 
   return (
     <>
@@ -429,7 +443,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                         ? getModelsForSlot(prov, 'agent', agentDraft.agent_framework, {})
                         : [];
                       setAgentDraft((d) => ({
-                        ...d, provider_id: pid, model: models[0]?.model_id || '',
+                        ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id), onboardDefaults),
                       }));
                     }}
                   >
@@ -521,7 +535,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       const pid = e.target.value;
                       const prov = providers[pid];
                       const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
-                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id), onboardDefaults);
                       setHelperDraft((d) => ({ ...d, provider_id: pid, model }));
                     }}
                   >

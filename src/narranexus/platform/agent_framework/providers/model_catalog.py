@@ -23,7 +23,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from narranexus.platform.schema.provider_schema import SUBSCRIPTION_AUTH_TYPES
+from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
+    ProviderProtocol,
+    SlotName,
+)
 
 
 # =============================================================================
@@ -79,7 +83,7 @@ def _register(*models: ModelMeta) -> None:
 # we have not yet verified — callers fall back to the provider's own cap.
 #
 # `thinks_by_default` sourcing (added for B-03, the output-budget-floor fix):
-# - DeepSeek-V4-Pro / V4-Flash: True, measured IN-REPO against NetMind's
+# - DeepSeek-V4-Pro / V4-Flash (and V4.1-Flash, mirrored): True, measured IN-REPO against NetMind's
 #   OpenAI-protocol endpoint (2026-09-08 incident — see profiles.py's
 #   ``_THINKING_MIN_OUTPUT_TOKENS`` comment for the empty-run counts at
 #   each max_tokens value tried). The strongest evidence tier we have.
@@ -107,6 +111,11 @@ _register(
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
     ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro", thinks_by_default=True),
     ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash", thinks_by_default=True),
+    # V4.1-Flash replaced V4-Flash as the NetMind onboarding default (V4-Flash
+    # left NetMind's public catalogue ~2026-09-11). Flag mirrored from the
+    # V4 family; not separately measured in-repo — True is the conservative
+    # direction (it only raises the output-budget floor).
+    ModelMeta("deepseek-ai/DeepSeek-V4.1-Flash", "DeepSeek V4.1 Flash", thinks_by_default=True),
     # Anthropic Claude routed via NetMind's anthropic-protocol endpoint.
     # NetMind prefixes the upstream model id with "anthropic/", which is
     # how its inference router dispatches; the prefix is part of the
@@ -264,6 +273,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "minimax/minimax-m2.7",
         "deepseek-ai/DeepSeek-V4-Pro",
         "deepseek-ai/DeepSeek-V4-Flash",
+        "deepseek-ai/DeepSeek-V4.1-Flash",
         "Qwen/Qwen3.6-Plus",
         "Qwen/Qwen3.6-Flash",
         "zai-org/GLM-5.1",
@@ -280,6 +290,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "deepseek-ai/DeepSeek-V3",
         "deepseek-ai/DeepSeek-V4-Pro",
         "deepseek-ai/DeepSeek-V4-Flash",
+        "deepseek-ai/DeepSeek-V4.1-Flash",
         "Qwen/Qwen3.6-Plus",
         "Qwen/Qwen3.6-Flash",
         "Qwen/Qwen3.6-35B-A3B",
@@ -575,19 +586,23 @@ def get_suggested_models(protocol: str) -> list[str]:
 
 # Defaults the /api/providers/onboard endpoint wires when a user pastes a
 # single key. BYOK rationale: the user pays with their own key, so the
-# agent slot defaults to the strongest model of that family;
+# agent slot of the OFFICIAL families (anthropic / openai / yunwu /
+# openrouter) defaults to the strongest model of that family;
 # cost-sensitive users downgrade in Settings → Providers (Advanced).
-# The cloud free tier is the OPPOSITE scenario — the platform pays out of a
-# fixed wallet — so it starts on the cost-effective model and lets the user
-# trade balance for capability by switching (see providers/free_tier.py).
+# The NetMind.AI Power sources (netmind / netmind_free) are the exception
+# by Owner decision: agent AND helper both start on the cost-effective
+# DeepSeek-V4.1-Flash and the user trades cost for capability by switching.
+# The cloud free tier additionally pays out of a fixed wallet (see
+# providers/free_tier.py). The same table is the slot self-heal's preferred
+# repair target (see get_onboard_default_model).
 _ONBOARD_AGENT_MODELS: dict[str, str] = {
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.5",          # codex_cli's current flagship default
-    # NetMind one-key card: DeepSeek is the cost-effective default on
-    # the aggregator; Claude-via-NetMind stays available in the
-    # dropdown for users who want it.
-    "netmind": "deepseek-ai/DeepSeek-V4-Pro",
-    "netmind_free": "deepseek-ai/DeepSeek-V4-Pro",
+    # NetMind one-key card: DeepSeek-V4.1-Flash is the default on the
+    # aggregator (Owner decision, same as the helper slot); V4-Pro and
+    # Claude-via-NetMind stay available in the dropdown.
+    "netmind": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "netmind_free": "deepseek-ai/DeepSeek-V4.1-Flash",
     # Yunwu / OpenRouter proxy the official APIs — same defaults as a
     # direct Claude key.
     "yunwu": "claude-opus-4-8",
@@ -599,21 +614,81 @@ _ONBOARD_AGENT_MODELS: dict[str, str] = {
 _ONBOARD_HELPER_MODELS: dict[str, str] = {
     "anthropic": "claude-haiku-4-5",
     "openai": "gpt-5.4-mini",
-    "netmind": "deepseek-ai/DeepSeek-V4-Flash",
-    "netmind_free": "deepseek-ai/DeepSeek-V4-Flash",
+    "netmind": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "netmind_free": "deepseek-ai/DeepSeek-V4.1-Flash",
     "yunwu": "gpt-5.4-mini",
     "openrouter": "gpt-5.4-mini",
 }
 
 
-def get_default_agent_model(protocol: str) -> str:
-    """Default agent-slot model for one-key onboarding, per protocol."""
-    return _ONBOARD_AGENT_MODELS.get(protocol, _ONBOARD_AGENT_MODELS["anthropic"])
+def get_default_agent_model(provider_type: str) -> str:
+    """Default agent-slot model for one-key onboarding, per provider type."""
+    return get_onboard_default_model(provider_type, SlotName.AGENT.value) or (
+        _ONBOARD_AGENT_MODELS["anthropic"]
+    )
 
 
-def get_default_helper_model(protocol: str) -> str:
-    """Default helper_llm-slot model for one-key onboarding, per protocol."""
-    return _ONBOARD_HELPER_MODELS.get(protocol, _ONBOARD_HELPER_MODELS["openai"])
+def get_default_helper_model(provider_type: str) -> str:
+    """Default helper_llm-slot model for one-key onboarding, per provider type."""
+    return get_onboard_default_model(provider_type, SlotName.HELPER_LLM.value) or (
+        _ONBOARD_HELPER_MODELS["openai"]
+    )
+
+
+def get_onboard_default_model(source: str, slot_name: Optional[str]) -> Optional[str]:
+    """Onboarding default for ``source`` (a provider type / card source) + slot kind, or ``None``.
+
+    THE single server-side source of truth for "which model does the platform
+    put a card on": one-key onboarding, slot self-heal and the ``/catalog``
+    endpoint (``get_onboard_defaults``) all read it. The free-tier card is the
+    one source whose default is an ops decision, so it goes through
+    ``free_tier.free_tier_default_models()`` (env ``FREE_TIER_AGENT_MODEL`` /
+    ``FREE_TIER_HELPER_MODEL``, empty env -> constant).
+
+    Unlike ``get_default_*_model`` this does NOT fall back to the anthropic /
+    openai entry for unknown keys: slot self-heal uses it to decide whether the
+    platform has an opinion about this card at all (a plain ``user`` BYOK card
+    has none, so its repair keeps the card-order behaviour). Only the agent
+    and helper_llm slots have onboarding defaults.
+    """
+    if slot_name not in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
+        return None
+    # Function-local: free_tier imports from this package at module load.
+    from narranexus.platform.agent_framework.providers.free_tier import (
+        FREE_TIER_SOURCE,
+        free_tier_default_models,
+    )
+
+    is_agent = slot_name == SlotName.AGENT.value
+    if source == FREE_TIER_SOURCE:
+        agent_model, helper_model = free_tier_default_models()
+        return agent_model if is_agent else helper_model
+    table = _ONBOARD_AGENT_MODELS if is_agent else _ONBOARD_HELPER_MODELS
+    return table.get(source)
+
+
+def get_onboard_defaults() -> dict[str, dict[str, str]]:
+    """``{source: {"agent": model, "helper": model}}`` for every card SOURCE the
+    platform has onboarding defaults for -- what ``GET /api/providers/catalog``
+    ships so the UI never keeps its own copy of the table.
+
+    The tables also carry the ``anthropic`` / ``openai`` provider-type keys
+    (a different key space: official BYOK cards have source ``user``), which are
+    not sources and are left out.
+    """
+    protocols = {p.value for p in ProviderProtocol}
+    out: dict[str, dict[str, str]] = {}
+    for key in {*_ONBOARD_AGENT_MODELS, *_ONBOARD_HELPER_MODELS} - protocols:
+        agent_model = get_onboard_default_model(key, SlotName.AGENT.value)
+        helper_model = get_onboard_default_model(key, SlotName.HELPER_LLM.value)
+        entry = {
+            name: model
+            for name, model in (("agent", agent_model), ("helper", helper_model))
+            if model
+        }
+        if entry:
+            out[key] = entry
+    return out
 
 
 # =============================================================================
