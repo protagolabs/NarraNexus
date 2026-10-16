@@ -786,12 +786,16 @@ async def test_auto_join_clears_stale_unverified_leaves(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unseen_member_leave_during_lookup_is_subtracted():
+async def test_unseen_member_leave_during_lookup_triggers_refetch():
     """Fresh room, only our own join synced. While joined_members is in
     flight, B leaves; B's join was never seen, so the roster set does not
-    change. The snapshot predating the leave ({agent, A, B}) must not pin
-    the room as a 3-person group — it is a 1:1 room now."""
-    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
+    change (no generation bump). The snapshot may predate the leave
+    ({agent, A, B}) and must not pin the room as a 3-person group: the
+    lookup is repeated, and the quiet second snapshot ({agent, A}) wins."""
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID),
+        _roster(AGENT_MXID, USER_MXID),
+    )
     h = _Harness(client)
     t = h.trigger
     t._apply_member_event(
@@ -804,12 +808,56 @@ async def test_unseen_member_leave_during_lookup_is_subtracted():
     ]
 
     assert await h.route(_msg()) == "dm"
+    assert client.calls == [ROOM, ROOM]
     assert ROOM in t._room_roster_authoritative
     assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID}
-    # The snapshot carried B's display name; B is gone, so it must not be
-    # backfilled (it would feed @-mention detection and attribution).
     assert (ROOM, THIRD_MXID) not in t._display_name_cache
-    assert (ROOM, USER_MXID) in t._display_name_cache
+    assert ROOM not in t._room_left_unverified
+
+
+@pytest.mark.asyncio
+async def test_leave_then_rejoin_within_lookup_keeps_the_member():
+    """B's (delayed) leave is synced while the request is in flight, but B
+    rejoined before the server took the snapshot, which correctly lists B.
+    Subtracting B would read a 3-person group as a DM for this message;
+    the re-fetch sees B again instead."""
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID),
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID),
+    )
+    h = _Harness(client)
+    t = h.trigger
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "join"))
+    client.during_lookup = [
+        lambda: t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave")),
+    ]
+
+    assert await h.route(_msg()) == "group_silent"
+    assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID, THIRD_MXID}
+    assert client.calls == [ROOM, ROOM]
+
+
+@pytest.mark.asyncio
+async def test_leave_in_flight_on_both_attempts_fails_closed():
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID),
+        _roster(AGENT_MXID, USER_MXID, "@carol:h"),
+        _roster(AGENT_MXID, USER_MXID),
+    )
+    h = _Harness(client)
+    t = h.trigger
+    client.during_lookup = [
+        lambda: t._apply_member_event(ROOM, _member_event(THIRD_MXID, "leave")),
+        lambda: t._apply_member_event(ROOM, _member_event("@carol:h", "leave")),
+    ]
+
+    assert await h.route(_msg()) == "group_silent"
+    assert ROOM not in t._room_roster_authoritative
+    assert client.calls == [ROOM, ROOM]  # bounded: no third attempt
+
+    # Next message: both leaves are now pre-lookup, the quiet snapshot wins.
+    assert await h.route(_msg()) == "dm"
+    assert ROOM in t._room_roster_authoritative
 
 
 @pytest.mark.asyncio
@@ -827,6 +875,7 @@ async def test_leave_synced_before_lookup_is_not_subtracted():
     assert await h.route(_msg()) == "group_silent"
     assert ROOM in t._room_roster_authoritative
     assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID, THIRD_MXID}
+    assert client.calls == [ROOM]
 
 
 @pytest.mark.asyncio
@@ -842,20 +891,20 @@ async def test_rejoin_after_unverified_leave_is_not_subtracted():
 
 @pytest.mark.asyncio
 async def test_initial_sync_leave_tombstones_do_not_block_verification():
-    """A first sync's state block carries leave events for past members.
-    They describe people who are gone (absent from the REST roster too),
-    so they neither invalidate the lookup nor shrink the real roster."""
+    """A first sync's state block carries leave/ban events for past
+    members. The sync loop applies the state block before yielding the
+    batch's messages, so these are recorded BEFORE any lookup starts and
+    must not invalidate it: one REST call verifies the room."""
     client = _FakeClient(_roster(AGENT_MXID, USER_MXID))
     h = _Harness(client)
     t = h.trigger
-    for gone in ("@old1:h", "@old2:h"):
-        t._apply_member_event(ROOM, _member_event(gone, "leave"))
-    client.during_lookup = [
-        lambda: t._apply_member_event(ROOM, _member_event("@old3:h", "ban")),
-    ]
+    t._apply_member_event(ROOM, _member_event("@old1:h", "leave"))
+    t._apply_member_event(ROOM, _member_event("@old2:h", "leave"))
+    t._apply_member_event(ROOM, _member_event("@old3:h", "ban"))
 
     assert await h.route(_msg()) == "dm"
     assert client.calls == [ROOM]
+    assert ROOM not in t._room_left_unverified
 
 
 @pytest.mark.asyncio

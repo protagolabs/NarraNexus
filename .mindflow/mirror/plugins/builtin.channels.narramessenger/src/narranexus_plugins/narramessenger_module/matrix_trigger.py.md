@@ -50,22 +50,26 @@ last_verified: 2026-10-16
 **PR #415 review（I-1）：没见过其 join 的成员离开**——非权威房间的集合可能是部分的，「不在集合里」分不清
 「本来没 join」和「join 没同步到」，所以这种 leave/ban 不改集合、不递增代数，在途 REST 快照（还带着刚离开的人）会被
 原样采信并钉成权威——例如只同步到自己 join 的新房间里，B 在查询途中退群，房间被永久钉成三人群（与 10-16 事故同症状）。
-- 修法是减法，且**只减查询在途期间同步到的离开**：`_room_left_unverified[room]` 记录房间**非权威**期间出现的
-  leave/ban（不管集合里有没有）；同一 mxid 再 `join` 就移除。`_get_member_count` 每次 attempt 在 await 前和代数一起
-  拍一份 `left_before`，响应回来后只减 `当前离开者 − left_before`（请求途中新到的离开），然后清掉该房条目（权威后不再
-  维护，避免第二份真相）；被减掉的人也不回填显示名。
-- 为什么只减在途窗口（Opus 预审）：请求开始前就同步到的离开，之后拍的快照至少和它一样新，已经反映了它；再减就错了——
-  例如 B 的离开先同步到，B 在服务端又加回来、加入事件还没同步，此时查询返回 {agent, A, B}，若减掉 B 就成了 2 人 = dm，
-  在三人群里自动回复（fail-open，旧实现在这里是 3）。首次 sync 的历史 leave 墓碑同样是查询前记下的，不进扣减。
+- 修法是**重查**，不是扣减：`_room_left_unverified[room]` 记录房间**非权威**期间出现的 leave/ban（不管集合里有没有）；
+  同一 mxid 再 `join` 就移除。`_get_member_count` 每次 attempt 在 await 前和代数一起拍一份 `left_before`；响应回来后
+  若 `当前离开者 − left_before` 非空（请求途中有人离开），就和代数变化一样作废这次响应、立即重查（日志与代数作废同形，
+  文案是 "a member left while the lookup was in flight"，可区分）。重查时这条离开已在新的 `left_before` 里，不会再触发；
+  两次 attempt 都碰上在途离开才返回 0、不标权威（与代数两次作废同语义）。只有在真正采纳名单时才清掉该房条目（权威后
+  不再维护，避免第二份真相）。名单原样采纳，不做扣减，显示名照常回填。
+- 为什么不扣减（PR #415 两轮 review）：扣减「请求前同步到的离开」是错的——之后拍的快照至少和它一样新；扣减「在途同步到
+  的离开」也不总对——sync 投递有延迟，一条早于请求的离开可能在途才到，而那人在快照前又加回来了，快照正确地含他，扣掉
+  就把三人群读成 2 人 = dm、在群里自动回复（fail-open）。重查让新快照自己反映离开和随后的回归，两种情况都不需要猜。
+  请求前记下的离开（包括首次 sync state 块里的历史墓碑——sync 循环先应用 state 块再交出这一批的消息）不触发重查。
 - 所有撤销权威的路径（自己 agent 的 leave/ban、`connect()` 自动入房）都经 `_drop_roster_authority`，同时清掉该房的
-  离开者集合。有了在途窗口之后，这一步和 `join` 时的移除都只是记账（旧条目本来就不会被扣减），不再影响结果。我们自己的
+  离开者集合。这一步和 `join` 时的移除都只是记账（只有在途新增的离开才会作废查询，旧条目不影响结果）。我们自己的
   leave 不记入离开者集合（走撤销权威）。
-- 没选「非权威房间的 leave/ban 一律递增代数」：首次 sync 的 state 块会带历史成员的 leave 墓碑，若与在途查询重叠会把两次
-  attempt 都作废，换来一次误静默。
+- 没选「非权威房间的 leave/ban 一律递增代数」：代数不区分请求前/在途，首次 sync 的历史墓碑会被当成变动；用
+  `left_before` 基线比较则只有在途新增的离开才算。
 
 **PR #415 review（M-1）：首条 `@显示名` 提及**——`_process_message` 现在先 `await _get_member_count(...)` 解析房型（新房间
 的首次查询顺带从 REST 名单回填显示名），再算 `mentioned`，然后把算好的数通过新增的可选参数 `_classify(..., member_count=)`
-传进去，`_classify` 不再自己查第二次（查询失败时第二次调用会在同一条消息内悄悄重试）。不传该参数时 `_classify` 行为不变。
+传进去，`_classify` 不再自己查第二次（查询失败时第二次调用会在同一条消息内悄悄重试）。生产路径（`_process_message`）
+总是同时传 `member_count` 和 `mentioned`；两个参数为 `None` 时的回退只给直接测试分类规则的单测用（docstring 已写明）。
 所以 agent 自己的 join 没同步到、只有 REST 名单里才有显示名时，新三人房的第一条 `@显示名` 消息就能判成 group_mention。
 
 **同类消费面（已扫）**：
@@ -80,17 +84,21 @@ last_verified: 2026-10-16
 托管（Manyfold 转发）入口不经过 `_process_message`，没有成员数据，靠 `_authorize_event` 的「sender + 自己」兜底。
 成员频繁变动的房间：两次查询都被打断时这条消息按未知房型（group_silent）处理，要等到某条消息的查询碰上安静窗口
 才能判出 dm——fail-closed，但会有延迟。不经邀请、直接被加回房间的情况不会经过自动入房分支，只能依赖上面那条
-自己离开的事件。
+自己离开的事件。按房间累积的进程内结构都没有淘汰（PR #415 review M-4，延后）：`_room_joined`、
+`_room_roster_authoritative`、`_room_roster_gen`、`_display_name_cache`、`_room_left_unverified`（最后这个在核验成功或撤销
+权威时会清，但从没收到过消息的房间只进不出）。将来做淘汰时成员集合和权威标记必须一起淘汰。
 
-PR #415 这一轮的测试：`test_unseen_member_leave_during_lookup_is_subtracted`（I-1；用 623daf3ce 的实现会变红；同时断言
-被减掉的人不回填显示名，去掉该过滤即变红）、`test_leave_synced_before_lookup_is_not_subtracted`（在途窗口；不按窗口
-减时变红）、`test_initial_sync_leave_tombstones_do_not_block_verification`（改成「一律递增代数」时变红）、
+PR #415 这一轮的测试：`test_unseen_member_leave_during_lookup_triggers_refetch`（I-1：在途离开 → 重查 → dm、2 次调用）、
+`test_leave_then_rejoin_within_lookup_keeps_the_member`（在途离开但快照正确含该人 → 重查后仍是三人群；扣减实现下变 dm）、
+`test_leave_in_flight_on_both_attempts_fails_closed`（两次都有在途离开 → 0、不标权威）——这三条在去掉在途离开的 `continue`
+时都会变红；`test_leave_synced_before_lookup_is_not_subtracted`（请求前的离开不触发重查、1 次调用、保留该人）、
+`test_initial_sync_leave_tombstones_do_not_block_verification`（state 块墓碑先于查询应用，1 次调用核验完成）、
 `test_rejoin_after_unverified_leave_is_not_subtracted` / `test_auto_join_clears_stale_unverified_leaves` /
 `test_own_leave_clears_unverified_leaves`（行为断言：这些场景下名单不被削小；在途窗口生效后它们不再依赖记账清理）、`test_first_message_displayname_mention_uses_rest_backfill`
 （M-1）、`test_join_error_response_keeps_authority`（M-2）、`test_member_event_without_mxid_caches_nothing`（M-3）。
 
 锁：`tests/narramessenger_module/test_matrix_room_shape.py`（真实 `_apply_member_event` / `_get_member_count` /
-`_process_message`，假 nio 客户端控制 `joined_members`；回退到 origin/dev 实现时 26 条里 19 条变红。其中
+`_process_message`，假 nio 客户端控制 `joined_members`；回退到 origin/dev 实现时 37 条里 29 条变红。其中
 `test_member_event_during_lookup_triggers_one_refetch` / `test_lookup_invalidated_twice_fails_closed`（重查一次 + 上限）/
 `test_late_landing_lookup_does_not_overwrite_verified_roster` / `test_own_leave_drops_authority_so_a_rejoin_is_reverified` /
 `test_auto_join_of_reinvited_room_drops_its_authority` + `test_failed_auto_join_keeps_authority`（跑真实 `connect()`）锁 I-1，`test_fresh_dm_reaches_pipeline_as_private` /

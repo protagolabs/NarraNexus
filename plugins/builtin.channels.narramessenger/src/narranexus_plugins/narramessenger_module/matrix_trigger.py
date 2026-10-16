@@ -567,11 +567,12 @@ class MatrixTrigger(ChannelTriggerBase):
         # authoritative, whether or not their join was ever seen. A partial
         # roster cannot tell "never joined" from "join not synced", so such
         # a leave does not change the set (no generation bump) — yet a
-        # joined_members snapshot in flight may still list them. Only the
-        # entries added WHILE a lookup is in flight are subtracted from its
-        # response (a leave synced before the request is already reflected
-        # in any later snapshot); the room's entry is dropped once the
-        # roster is adopted. A later join removes the MXID again.
+        # joined_members snapshot in flight may still list them. An entry
+        # added WHILE a lookup is in flight invalidates that response (it
+        # is fetched again, like a generation change); entries recorded
+        # before the request, including initial-sync tombstones, never do.
+        # The room's entry is dropped once the roster is adopted. A later
+        # join removes the MXID again.
         self._room_left_unverified: dict[str, set[str]] = {}
         # (room_id, mxid) -> current displayname. Populated the same way,
         # since displayname lives on the ``m.room.member`` event content.
@@ -797,12 +798,11 @@ class MatrixTrigger(ChannelTriggerBase):
         A real change bumps the room's roster generation (so an in-flight
         lookup knows its response may be stale). In a non-authoritative
         room a ``leave`` / ``ban`` is also recorded in
-        ``_room_left_unverified`` (and a ``join`` clears it), so a REST
-        snapshot that predates a leave synced during the request is
-        trimmed even when the leaver's join was never synced. Leaves
-        recorded before the request (including initial-sync tombstones)
-        are never subtracted: a snapshot taken after them already reflects
-        them, and the member may have rejoined since.
+        ``_room_left_unverified`` (and a ``join`` clears it), so a leave
+        synced while a lookup is in flight invalidates that lookup even
+        when the leaver's join was never synced. Leaves recorded before
+        the request (including initial-sync tombstones) do not: a snapshot
+        taken after them already reflects them.
 
         One of our own agents leaving or being banned drops the room's
         authority, but this only fires when that event shows up in a
@@ -851,10 +851,9 @@ class MatrixTrigger(ChannelTriggerBase):
         """Make the next classification re-verify ``room_id`` via REST.
 
         Also forgets the room's unverified leaves. This is bookkeeping:
-        only leaves recorded while a lookup is in flight are ever
-        subtracted, so older entries could not trim a fresh snapshot
-        anyway; dropping them keeps the map from carrying state for a
-        stretch we no longer trust.
+        only leaves recorded while a lookup is in flight invalidate it, so
+        older entries have no effect anyway; dropping them keeps the map
+        from carrying state for a stretch we no longer trust.
         """
         self._room_roster_authoritative.discard(room_id)
         self._room_left_unverified.pop(room_id, None)
@@ -900,11 +899,12 @@ class MatrixTrigger(ChannelTriggerBase):
           - another lookup for the same room verified it first → keep that
             roster (since maintained by member events) and return its size;
             ours started earlier or concurrently and must not overwrite it.
-          - a member event changed the roster meanwhile → the response may
-            predate it, so it is discarded and the lookup is repeated
-            immediately, at most :attr:`ROSTER_LOOKUP_ATTEMPTS` times in
-            total. If every attempt is invalidated, return 0 and stay
-            non-authoritative (retried on the next message).
+          - a member event changed the roster meanwhile, or a leave/ban
+            arrived for a member the partial roster never saw join → the
+            response may predate it, so it is discarded and the lookup is
+            repeated immediately, at most :attr:`ROSTER_LOOKUP_ATTEMPTS`
+            times in total. If every attempt is invalidated, return 0 and
+            stay non-authoritative (retried on the next message).
         """
         for attempt in range(1, self.ROSTER_LOOKUP_ATTEMPTS + 1):
             if room_id in self._room_roster_authoritative:
@@ -923,13 +923,25 @@ class MatrixTrigger(ChannelTriggerBase):
                     f"membership changed while the lookup was in flight"
                 )
                 continue
-            # A leave synced while the request was in flight may postdate
-            # the snapshot, which then still lists the leaver; drop those.
-            # Leaves synced before the request are already reflected in it.
-            left = self._room_left_unverified.pop(room_id, set()) - left_before
+            # A leave of a member we never saw join changes neither the set
+            # nor the generation, but the snapshot may still list them (or
+            # list them correctly, if they came straight back). Fetch again:
+            # this leave is then in the next attempt's left_before, so it does
+            # not re-trigger. The entry is only dropped on adoption below.
+            left_in_flight = (
+                self._room_left_unverified.get(room_id, set()) - left_before
+            )
+            if left_in_flight:
+                logger.info(
+                    f"[matrix] joined_members({room_id}) discarded "
+                    f"(attempt {attempt}/{self.ROSTER_LOOKUP_ATTEMPTS}): "
+                    f"a member left while the lookup was in flight"
+                )
+                continue
+            self._room_left_unverified.pop(room_id, None)
             self._room_joined[room_id] = {
                 m.user_id for m in members if getattr(m, "user_id", None)
-            } - left
+            }
             self._room_roster_authoritative.add(room_id)
             # Backfill display names from the roster too. _process_message
             # primes the room shape before mention detection, so the first
@@ -937,7 +949,7 @@ class MatrixTrigger(ChannelTriggerBase):
             for m in members:
                 mxid = getattr(m, "user_id", None)
                 name = getattr(m, "display_name", None)
-                if mxid and name and mxid not in left:
+                if mxid and name:
                     self._display_name_cache[(room_id, mxid)] = name
             return self._known_member_count(room_id)
         return 0
@@ -1061,6 +1073,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 via :meth:`_get_member_count`, reuse it (a second lookup
                 after a failure would silently retry within one message).
                 If None, we look it up here.
+
+        The production caller (:meth:`_process_message`) always passes both
+        ``member_count`` and ``mentioned``; the ``None`` fallbacks exist for
+        direct unit tests of the classification rules.
         """
         count = (
             member_count
