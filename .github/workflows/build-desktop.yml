@@ -93,12 +93,14 @@ jobs:
           which cargo
           which rustc
           rustc -vV
-          # Exact version + --locked. An unpinned `^2` resolved tauri-cli 2.12.3 on
-          # 2026-10-16, whose `zip = "^8"` requirement had every 8.x release yanked
-          # on crates.io, so the v1.21.7 tag build failed before compiling.
-          # --locked installs from the crate's own Cargo.lock, which still resolves
-          # yanked versions it already pins. 2.12.2 is what built v1.21.6. Keep it in
-          # lockstep with the @tauri-apps/cli pin in the updater-signing step below.
+          # --locked + exact version. tauri-cli 2.12.x (2.12.2 included) depends on
+          # `zip = "^8"`, and every zip 8.x release is yanked on crates.io, so a
+          # fresh resolve fails before compiling (the v1.21.7 tag build, 2026-10-16).
+          # --locked is what fixes it: it installs from the crate's own bundled
+          # Cargo.lock, which pins zip 8.0.0, and yanked versions already pinned in a
+          # lockfile still resolve. The exact version adds reproducibility: 2.12.2
+          # is what built v1.21.6. Keep it in lockstep with the @tauri-apps/cli pin
+          # in the updater-signing step below.
           cargo install tauri-cli --version "=2.12.2" --locked
 
       # Import the Developer ID cert into a temp keychain so build-desktop.sh's
