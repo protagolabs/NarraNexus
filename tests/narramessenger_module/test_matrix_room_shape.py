@@ -151,9 +151,7 @@ class _FakeClient:
 
 def _state_response(content: dict, status: int) -> RoomGetStateEventResponse:
     """What nio returns for any non-404 HTTP status: the body as content."""
-    resp = RoomGetStateEventResponse(
-        content, "ai.netmind.room_creation.v1", "", ROOM
-    )
+    resp = RoomGetStateEventResponse(content, ROOM_CREATION, "", ROOM)
     resp.transport_response = SimpleNamespace(status=status)  # type: ignore[assignment]
     return resp
 
@@ -1320,3 +1318,168 @@ async def test_state_response_after_authority_drop_is_discarded():
     await h.route(_msg())
     assert ROOM not in t._room_kind_checked
     assert ROOM not in t._room_kind
+
+
+
+# ────────────────────────────────────────────────────────────────────
+# Voice register stays 1:1 by effective member count, not by room kind
+# ────────────────────────────────────────────────────────────────────
+# Creation state room_type "dm" now routes a room as dm whatever its
+# count, and the state's sender is not validated. RTC voice metadata has
+# no source binding, so the voice register (voice_instructions injection)
+# is only granted when the room really has two participants.
+
+
+def _voice_extra() -> dict:
+    return {
+        "ai.netmind.rtc.voice_input": {
+            "version": 1,
+            "rtc_session_id": "rtc-s1",
+            "turn_id": "t1",
+            "invocation_id": "inv1",
+            "agent_profile_id": "prof1",
+            "seq": 1,
+            "transcript_final": True,
+            "transport": "matrix",
+            "voice_instructions": "Reply for a real-time voice call.",
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_declared_dm_with_four_members_routes_dm_without_voice(monkeypatch):
+    client = _FakeClient(
+        _roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID), room_type="dm"
+    )
+    h = _Harness(client, allow=True)
+    body = VOICE_ENVELOPE + VOICE_TRANSCRIPT
+    parsed = _parse(h.trigger, body, content_extra=_voice_extra())
+
+    handed = await _full_path_message(h, parsed, monkeypatch)
+    assert handed.chat_type == ChatType.PRIVATE  # routed dm (conservative: no voice)
+    assert "rtc_voice" not in (handed.raw or {})
+    assert handed.content == body
+
+
+@pytest.mark.asyncio
+async def test_parse_event_stamp_is_undone_when_declared_dm_has_more_members(monkeypatch):
+    """Kind dm from sync + a partial roster {agent, user} let parse_event
+    stamp voice; the verified roster has a third participant, so the
+    routed-dm turn must run as plain text."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID))
+    h = _Harness(client, allow=True)
+    t = h.trigger
+    t._apply_room_creation_event(ROOM, _creation_event("dm"))
+    t._apply_member_event(ROOM, _member_event(AGENT_MXID, "join"))
+    t._apply_member_event(ROOM, _member_event(USER_MXID, "join"))
+    body = VOICE_ENVELOPE + VOICE_TRANSCRIPT
+    parsed = t.parse_event(
+        {
+            "kind": "m.room.message.text",
+            "event_id": "$e1",
+            "room_id": ROOM,
+            "sender_id": USER_MXID,
+            "body": body,
+            "server_ts": 1,
+            "_our_user_id": AGENT_MXID,
+            "_nio_event": SimpleNamespace(
+                source={
+                    "type": "m.room.message",
+                    "content": {"msgtype": "m.text", "body": body, **_voice_extra()},
+                }
+            ),
+        }
+    )
+    assert parsed is not None
+    assert (parsed.raw or {}).get("rtc_voice")  # stamped off the partial roster
+
+    handed = await _full_path_message(h, parsed, monkeypatch)
+    assert handed.chat_type == ChatType.PRIVATE
+    assert "rtc_voice" not in (handed.raw or {})
+    assert handed.content == body
+
+
+def test_parse_event_voice_gate_needs_two_effective_members():
+    """Known kind dm but a 3-participant roster: PRIVATE, yet no voice."""
+    t = MatrixTrigger()
+    for mxid in (AGENT_MXID, USER_MXID, THIRD_MXID, BOT_MXID):
+        t._apply_member_event(ROOM, _member_event(mxid, "join"))
+    t._apply_room_creation_event(ROOM, _creation_event("dm"))
+    body = VOICE_ENVELOPE + VOICE_TRANSCRIPT
+    parsed = t.parse_event(
+        {
+            "kind": "m.room.message.text",
+            "event_id": "$e1",
+            "room_id": ROOM,
+            "sender_id": USER_MXID,
+            "body": body,
+            "server_ts": 1,
+            "_our_user_id": AGENT_MXID,
+            "_nio_event": SimpleNamespace(
+                source={
+                    "type": "m.room.message",
+                    "content": {"msgtype": "m.text", "body": body, **_voice_extra()},
+                }
+            ),
+        }
+    )
+    assert parsed is not None
+    assert parsed.chat_type == ChatType.PRIVATE
+    assert "rtc_voice" not in (parsed.raw or {})
+    assert parsed.content == body
+
+
+@pytest.mark.asyncio
+async def test_managed_one_to_one_with_service_bot_gets_voice(monkeypatch):
+    """Prod 1:1 shape {agent, user, bot}, cold roster: the voice register
+    is recovered after the authoritative lookup."""
+    client = _FakeClient(_roster(AGENT_MXID, USER_MXID, BOT_MXID))
+    h = _Harness(client, allow=True)
+    parsed = _parse(h.trigger, VOICE_ENVELOPE + VOICE_TRANSCRIPT, content_extra=_voice_extra())
+    assert "rtc_voice" not in (parsed.raw or {})  # cold roster: refused at parse
+
+    handed = await _full_path_message(h, parsed, monkeypatch)
+    assert handed.chat_type == ChatType.PRIVATE
+    assert (handed.raw or {}).get("rtc_voice")
+    assert handed.content == VOICE_TRANSCRIPT
+
+
+# ────────────────────────────────────────────────────────────────────
+# Creation event parsing + _classify argument contract
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_creation_event_with_non_empty_state_key_is_ignored():
+    t = MatrixTrigger()
+    event = UnknownEvent.from_dict(
+        {
+            "type": ROOM_CREATION,
+            "state_key": "@someone:matrix.netmind.chat",
+            "sender": USER_MXID,
+            "event_id": "$x",
+            "origin_server_ts": 1,
+            "content": {"message_mode": "managed", "room_type": "dm"},
+        }
+    )
+    t._apply_room_creation_event(ROOM, event)
+    assert ROOM not in t._room_kind
+    assert ROOM not in t._room_kind_checked
+
+
+def test_invalid_room_type_clears_a_recorded_kind():
+    t = MatrixTrigger()
+    t._apply_room_creation_event(ROOM, _creation_event("dm"))
+    assert t._room_kind[ROOM] == "dm"
+
+    t._apply_room_creation_event(ROOM, _creation_event("channel"))
+    assert ROOM not in t._room_kind
+    assert ROOM in t._room_kind_checked
+
+
+@pytest.mark.asyncio
+async def test_classify_rejects_room_kind_without_member_count():
+    t = MatrixTrigger()
+    with pytest.raises(ValueError):
+        await t._classify(
+            SimpleNamespace(), _msg(), _cred(), room_kind="dm"  # type: ignore[arg-type]
+        )

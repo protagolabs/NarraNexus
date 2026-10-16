@@ -988,6 +988,22 @@ class MatrixTrigger(ChannelTriggerBase):
             == 2
         )
 
+    def _hinted_voice_one_to_one(self, room_id: str, own_mxid: str) -> bool:
+        """parse_event's RTC voice gate: hinted PRIVATE AND exactly two
+        participants on the known roster (service sender excluded).
+
+        Stricter than :meth:`_hinted_private` on purpose: a declared
+        ``room_type: dm`` routes a room as dm whatever its size, but the
+        voice register is an injection surface and stays 1:1-only.
+        """
+        return (
+            self._hinted_private(room_id, own_mxid)
+            and self._count_without_service_sender(
+                room_id, _service_sender_for(own_mxid)
+            )
+            == 2
+        )
+
     async def _resolve_room_shape(
         self,
         client: AsyncClient,
@@ -1273,12 +1289,16 @@ class MatrixTrigger(ChannelTriggerBase):
                 shape (count AND ``room_kind``) is resolved here and the
                 ``room_kind`` argument is ignored.
             room_kind: Creation-state kind from the same resolution; None
-                means the room declares none.
+                means the room declares none. Passing it without
+                ``member_count`` raises ``ValueError``: it would be
+                silently discarded by the re-resolution.
 
         The production caller (:meth:`_process_message`) always passes
         ``member_count``, ``room_kind`` and ``mentioned``; the ``None``
         fallbacks exist for direct unit tests of the classification rules.
         """
+        if room_kind is not None and member_count is None:
+            raise ValueError("room_kind requires member_count from the same resolution")
         if member_count is None:
             room_kind, member_count = await self._resolve_room_shape(
                 client, message.chat_id, credential
@@ -1873,16 +1893,28 @@ class MatrixTrigger(ChannelTriggerBase):
         message = self._reconcile_room_shape(message, target)
 
         if target == "dm":
-            # Cold-roster fallback (review #17): parse_event gates voice
-            # mode on the cached member count, which reads GROUP for an
-            # unseen room — degrading the FIRST turn of a real call.
-            # _classify just did the authoritative lookup; re-run the same
-            # pure detection so a cold cache only costs time, not
-            # correctness. Group rooms never reach this branch, so the
-            # 1:1-only injection boundary is unchanged. None = valid
-            # metadata with an envelope-only body → drop the turn, same
-            # rule as parse_event (review #21).
-            upgraded = self._late_voice_upgrade(message, authoritative_dm=True)
+            # Routing follows the room kind, but the voice register is
+            # granted by the EFFECTIVE member count alone: a declared
+            # ``room_type: dm`` beats the count (and its sender is not
+            # validated), so "dm" no longer implies two participants.
+            # _reconcile_room_shape has stamped PRIVATE even when voice is
+            # refused here — the intended conservative direction: the turn
+            # is answered, as plain text. An unknown count (0) stays closed.
+            voice_one_to_one = member_count == 2
+            if not voice_one_to_one:
+                # parse_event may have stamped voice off a partial roster.
+                message = self._strip_voice_stamp(
+                    message, f"dm with {member_count} effective members"
+                )
+            # Cold-roster fallback (review #17): parse_event refuses voice
+            # for an unseen room, degrading the FIRST turn of a real call.
+            # The authoritative lookup just ran; re-run the same pure
+            # detection so a cold cache only costs time, not correctness.
+            # None = valid metadata with an envelope-only body → drop the
+            # turn, same rule as parse_event (review #21).
+            upgraded = self._late_voice_upgrade(
+                message, authoritative_dm=voice_one_to_one
+            )
             if upgraded is None:
                 return
             message = upgraded
@@ -2006,42 +2038,55 @@ class MatrixTrigger(ChannelTriggerBase):
         A group verdict also undoes a voice stamp: parse_event's 1:1 voice
         gate may have read a partial roster as 2 members, and RTC metadata
         has no source binding, so a group turn must run as plain text with
-        its original body. The dm direction is handled by
-        :meth:`_late_voice_upgrade`.
+        its original body. A dm verdict keeps the stamp here; the dm branch
+        of :meth:`_process_message` strips it unless the effective member
+        count is exactly 2, and :meth:`_late_voice_upgrade` handles the
+        upgrade direction.
         """
         if target == "dm":
             if message.chat_type == ChatType.PRIVATE:
                 return message
             return replace(message, chat_type=ChatType.PRIVATE)
-        raw = message.raw or {}
-        if raw.get("rtc_voice"):
-            logger.info(
-                f"[matrix:{message.chat_id}] voice stamp dropped: room "
-                f"classified {target}, voice mode is 1:1-only"
-            )
-            return replace(
-                message,
-                chat_type=ChatType.GROUP,
-                content=raw.get("body") or message.content,
-                raw={k: v for k, v in raw.items() if k != "rtc_voice"},
-            )
+        message = self._strip_voice_stamp(message, f"room classified {target}")
         if message.chat_type == ChatType.GROUP:
             return message
         return replace(message, chat_type=ChatType.GROUP)
 
+    @staticmethod
+    def _strip_voice_stamp(message: ParsedMessage, reason: str) -> ParsedMessage:
+        """Undo parse_event's voice stamp: plain text with the original body.
+
+        Voice mode is 1:1-only; ``chat_type`` is left as it is.
+        """
+        raw = message.raw or {}
+        if not raw.get("rtc_voice"):
+            return message
+        logger.info(
+            f"[matrix:{message.chat_id}] voice stamp dropped: {reason}, "
+            f"voice mode is 1:1-only"
+        )
+        return replace(
+            message,
+            content=raw.get("body") or message.content,
+            raw={k: v for k, v in raw.items() if k != "rtc_voice"},
+        )
+
     def _late_voice_upgrade(
         self, message: ParsedMessage, *, authoritative_dm: bool
     ) -> Optional[ParsedMessage]:
-        """Re-run voice detection after _classify confirmed a 1:1 room.
+        """Re-run voice detection once the room is verified as 1:1.
 
-        parse_event's PRIVATE gate is conservative on a cold roster cache
-        (unknown member count parses as GROUP); this recovers the voice
-        register for authoritative DMs. Inert on plain messages and
+        parse_event's voice gate is conservative on a cold roster cache
+        (unknown member count refuses voice); this recovers the voice
+        register for verified 1:1 rooms. Inert on plain messages and
         idempotent on already-stamped ones.
 
         ``authoritative_dm`` must be the CALLER'S declaration that
-        _classify returned "dm" — the 1:1 injection boundary is asserted
-        here, not by call-site position alone (review #23). Returns None
+        _classify returned "dm" AND the verified effective member count
+        (service sender excluded) is exactly 2. A dm verdict alone is not
+        enough: a declared ``room_type: dm`` routes larger rooms as dm too.
+        The 1:1 injection boundary is asserted here, not by call-site
+        position alone (review #23). Returns None
         for a metadata-valid but envelope-only body: the turn is DROPPED,
         same rule as parse_event — the envelope must never run the agent
         as user content (review #21).
@@ -3221,17 +3266,23 @@ class MatrixTrigger(ChannelTriggerBase):
             # never trustworthy to begin with, so this PRIVATE gate
             # carries the WHOLE injection argument for BOTH levels — do
             # not weaken it on the theory that level 1 "validated" the
-            # block. F13 RTC calls are Agent-Human 1:1 by product shape,
-            # so gating on PRIVATE loses nothing. A cold roster cache
-            # (unknown member count) parses as GROUP and is conservatively
-            # refused HERE; _process_message recovers it after _classify's
-            # authoritative dm verdict — see _late_voice_upgrade. The
-            # argument chain closes there.
+            # block. F13 RTC calls are Agent-Human 1:1 by product shape.
+            # The gate is NOT the PRIVATE stamp alone: a declared
+            # ``room_type: dm`` (sender not validated) makes a room PRIVATE
+            # whatever its size, so voice also needs exactly two
+            # participants on the known roster, service sender excluded.
+            # A cold roster cache (unknown member count) is conservatively
+            # refused HERE; _process_message recovers it after the
+            # authoritative lookup when the room is dm AND the verified
+            # effective count is 2 — see _late_voice_upgrade. The argument
+            # chain closes there.
             detected = (
                 _detect_voice_turn(
                     body, getattr(raw.get("_nio_event"), "source", None)
                 )
-                if chat_type == ChatType.PRIVATE
+                if self._hinted_voice_one_to_one(
+                    room_id, raw.get("_our_user_id") or ""
+                )
                 else None
             )
             if detected is not None:

@@ -46,16 +46,28 @@ last_verified: 2026-10-16
 - `_known_member_count` 仍是原始人数（含机器人），只给 `_get_member_count` 返回用；房型判断一律走
   `_effective_member_count` / `_hinted_private`。
 - `_room_member_mxids`（authorize-event 的 `memberMatrixUserIds`）**不变**：完整名单，含机器人（NarraMessenger 要求）。
+- **语音档位按有效人数，不按房型（PR #416 review I-1）**：路由按房型（创建状态 dm 压过人数），但 RTC 语音元数据没有
+  来源绑定、创建状态的发送者也不校验，所以 `voice_instructions` 注入面仍只开给**有效人数恰好为 2** 的房间：
+  - `parse_event`：`_hinted_voice_one_to_one` = `_hinted_private` **且**已知名单去掉机器人后 == 2，才调 `_detect_voice_turn`。
+  - `_process_message` 的 dm 分支：`voice_one_to_one = (有效人数 == 2)`（未知 0 也关闭）；不成立时先用
+    `_strip_voice_stamp` 撤掉 parse_event 按部分名单打的 `rtc_voice`（正文还原 `raw["body"]`，`chat_type` 不动），
+    再 `_late_voice_upgrade(authoritative_dm=voice_one_to_one)`。冷名单的 {agent,user,bot} 首条语音照旧补升级。
+  - 结果：声明为 dm 的多人房按 PRIVATE 路由、正常回复，但是纯文本、没有语音档位——有意的保守方向。
+  - `_reconcile_room_shape` 的群判定撤语音戳改走同一个 `_strip_voice_stamp`（行为不变）；dm 判定时不撤，交给 dm 分支。
+- `_classify` 传了 `room_kind` 却没传 `member_count` → `ValueError`（否则 `room_kind` 会被函数内重新解析悄悄丢掉）。
 
 **测试**：`test_matrix_room_shape.py` 末尾新增一组（{agent,user,bot}→dm 且以 PRIVATE 进管线、owner 房间→dm、
 三种冒牌机器人不排除、CN 服排除本服机器人、创建状态 dm 压过 4 人 / group 压过 2 人、sync state 块里的创建状态
 不触发 REST、timeline 补来的创建状态生效、非 404 失败下条重试（抛异常，以及 403/502/429 错误体响应三例）、
-在途撤销权威后响应不记、authorize 载荷含机器人、parse_event 两例、
+在途撤销权威后响应不记、非空 state_key 的创建事件被忽略、非法 `room_type` 清掉已记 kind、声明 dm 的 4 人房
+路由 dm 但无语音、parse_event 按部分名单打的语音戳在核验后被撤、parse_event 语音门要求有效 2 人、{agent,user,bot}
+冷名单语音补升级、`_classify` 参数契约、authorize 载荷含机器人、parse_event 两例、
 撤销权威后重读 kind、名单失败且无创建状态仍 fail-closed）。`test_matrix_classifier_and_cache.py` 的
 `_seed_verified_roster` 同时把房间记进 `_room_kind_checked`（「已核验」现在也包括创建状态），否则 SimpleNamespace
 假 client 会被调 `room_get_state_event`。
 
-**已知残余（记录不实现）**：创建状态的发送者不做校验——房间里有足够权限发状态事件的成员可以把群声明成 dm，
+**已知残余（记录不实现）**：声明为 dm 但有效人数不是 2 的房间拿不到语音档位，按纯文本回复（PR #416 review I-1
+的有意取舍）。创建状态的发送者不做校验——房间里有足够权限发状态事件的成员可以把群声明成 dm，
 让 agent 在群里自动回复；authorize-event 仍由服务端复核。`_room_kind` / `_room_kind_checked` 与其他按房间结构一样
 （及 `_room_kind_gen`）没有淘汰。被 redact 的创建状态事件不会清掉已记的 kind。`_classify` 在人数未知（0）但被提及时返回 group_mention（沿用原代码行为）。
 
