@@ -93,7 +93,13 @@ jobs:
           which cargo
           which rustc
           rustc -vV
-          cargo install tauri-cli --version "^2"
+          # Exact version + --locked. An unpinned `^2` resolved tauri-cli 2.12.3 on
+          # 2026-10-16, whose `zip = "^8"` requirement had every 8.x release yanked
+          # on crates.io, so the v1.21.7 tag build failed before compiling.
+          # --locked installs from the crate's own Cargo.lock, which still resolves
+          # yanked versions it already pins. 2.12.2 is what built v1.21.6. Keep it in
+          # lockstep with the @tauri-apps/cli pin in the updater-signing step below.
+          cargo install tauri-cli --version "=2.12.2" --locked
 
       # Import the Developer ID cert into a temp keychain so build-desktop.sh's
       # `codesign --sign "$APPLE_SIGNING_IDENTITY"` calls can find it.
@@ -424,7 +430,7 @@ jobs:
           APP_DIR="tauri/src-tauri/target/release/bundle/macos"
           [ -d "$APP_DIR/NarraNexus.app" ] || { echo "::error::NarraNexus.app not found at $APP_DIR"; exit 1; }
           tar -czf dist/NarraNexus.app.tar.gz -C "$APP_DIR" NarraNexus.app
-          npx --yes @tauri-apps/cli@^2 signer sign \
+          npx --yes @tauri-apps/cli@2.12.2 signer sign \
             --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
             --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
             dist/NarraNexus.app.tar.gz
