@@ -102,7 +102,7 @@ def _voice_event(*, body: str = ENVELOPE + TRANSCRIPT, meta: Any = "default") ->
 def _parse(ev) -> ParsedMessage:
     trigger = MatrixTrigger()
     # Voice mode is 1:1-only (finding #3); positive cases need a known DM.
-    trigger._room_member_count["!call:h"] = 2
+    trigger._room_joined["!call:h"] = {SENDER, "@agent:h"}
     raw = trigger._wrap_event(event=ev, room_id="!call:h", credential=_cred())
     assert raw is not None
     msg = trigger.parse_event(raw)
@@ -189,7 +189,7 @@ def test_group_room_never_enters_voice_mode():
     matching F13's Agent-Human 1:1 call product shape. A group member
     posting crafted metadata gets a plain text turn."""
     trigger = MatrixTrigger()
-    trigger._room_member_count["!group:h"] = 3
+    trigger._room_joined["!group:h"] = {SENDER, "@agent:h", "@carol:h"}
     raw = trigger._wrap_event(
         event=_voice_event(), room_id="!group:h", credential=_cred()
     )
