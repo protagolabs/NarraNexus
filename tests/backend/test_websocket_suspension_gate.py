@@ -68,6 +68,11 @@ async def _seed(db_client, user_id, status="active"):
     await db_client.insert(
         "users", {"user_id": user_id, "user_type": "individual", "status": status}
     )
+    # The run path proves agent ownership right after the account gate
+    # (2026-10-28), so the test user must own the agent the message names.
+    await db_client.insert(
+        "agents", {"agent_id": "agent_1", "agent_name": "a1", "created_by": user_id}
+    )
 
 
 def _first_message(user_id):

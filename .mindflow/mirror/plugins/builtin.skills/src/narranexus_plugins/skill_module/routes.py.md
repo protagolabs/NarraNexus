@@ -4,6 +4,11 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28 — 500 不再回显异常原文
+
+十处 `HTTPException(500, detail=str(e))` 改为固定文案 "Skill operation failed."；异常细节
+由各 handler 原有的那一行 `logger.exception` 记录（每个异常只记一次）——2026-08-11 P2-2 的脱敏在插件里回退了。用户可操作的 400
+（ValueError 文案）保持。
 ## 2026-10-28 — `skill_name` 段校验
 
 带 `skill_name` 的 8 个 handler 在确权之后立刻 `_require_skill_name`（`safe_id_segment`

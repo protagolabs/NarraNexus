@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends
 from loguru import logger
 from pydantic import BaseModel
 
@@ -39,7 +39,7 @@ from narranexus.platform.repository.gateway_key_misuse_repository import (
     GatewayKeyMisuseRepository,
 )
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -124,10 +124,8 @@ def _clip(value: Optional[str], limit: int) -> Optional[str]:
 @router.post("/gateway-key-misuse", response_model=GatewayKeyMisuseResponse)
 async def record_gateway_key_misuse(
     request: GatewayKeyMisuseRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> GatewayKeyMisuseResponse:
-    require_admin_secret(x_admin_secret)
-
     # Clip every attacker-influenced field to its column width. An event must
     # ALWAYS land: never 422/500 a real misuse event away just because a field
     # is over-long (dropping one row = missing one enforcement).

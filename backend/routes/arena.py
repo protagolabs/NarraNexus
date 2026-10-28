@@ -60,4 +60,4 @@ async def provision_arena(request: Request) -> dict:
         raise
     except Exception as e:
         logger.exception(f"[arena.provision] failed for user {user_id}: {e}")
-        raise HTTPException(status_code=502, detail=f"Arena provisioning failed: {e}")
+        raise HTTPException(status_code=502, detail="Arena provisioning failed")

@@ -46,6 +46,11 @@ from backend.routes.dashboard._helpers import (
     to_response,
 )
 from backend.routes.dashboard._schema import DashboardResponse
+# Visibility (owned OR public) lives in the canonical ownership module; it is
+# re-exported under its historical name because plugin_sdk_host publishes it on
+# the contracts.web.WebHost seam as ``agent_visible`` and this module's detail
+# endpoints call it.
+from backend.routes._ownership import assert_visible as assert_agent_visible
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from backend.state.active_sessions import get_session_registry
 
@@ -299,27 +304,6 @@ async def resolve_viewer(request: Request) -> str:
             detail="user_id query param not accepted; viewer identified by session",
         )
     return await resolve_current_user_id(request)
-
-
-async def assert_agent_visible(viewer_id: str, agent_id: str) -> dict:
-    """Ensure viewer can see this agent (owned OR public). Returns agent row.
-
-    Public for the same reason as ``resolve_viewer`` — it is part of the
-    ``contracts.web.WebHost`` surface plugin routers call.
-    """
-    from narranexus.platform.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    rows = await db.execute(
-        "SELECT agent_id, agent_name, created_by, is_public "
-        "FROM agents WHERE agent_id=%s LIMIT 1",
-        (agent_id,),
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="agent not found")
-    row = rows[0]
-    if row["created_by"] != viewer_id and not row.get("is_public"):
-        raise HTTPException(status_code=404, detail="agent not found")  # don't leak existence
-    return row
 
 
 @router.get("/jobs/{job_id}")

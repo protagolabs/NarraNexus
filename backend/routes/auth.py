@@ -454,9 +454,33 @@ async def register_account(payload: SignupRequest, request: Request) -> dict:
 #     addresses).
 # (Contrast send-code's per-email limiter: THERE the spent resource is
 # per-email mail, so email is the right key. Here it is not.)
-_funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
-_funnel_report_ip_limiter = SlidingWindowRateLimiter(limit=30, window_sec=60.0)
-_funnel_report_global_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
+FUNNEL_REPORT_WINDOW_SECONDS = 60.0
+# env-tunable like the signup buckets above — same reasoning: a typo in a
+# deploy env must not take the backend down, and an operator may need to
+# retune these under live abuse without a code change (2026-10-28 audit).
+DEFAULT_FUNNEL_REPORT_PER_EMAIL_LIMIT = 10
+DEFAULT_FUNNEL_REPORT_PER_IP_LIMIT = 30
+# Backstop only — the per-IP bucket is the real limit. 120/min let four IPs
+# starve everyone else's reports (2026-10-28 audit).
+DEFAULT_FUNNEL_REPORT_GLOBAL_LIMIT = 2000
+FUNNEL_REPORT_PER_EMAIL_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_PER_EMAIL_LIMIT", DEFAULT_FUNNEL_REPORT_PER_EMAIL_LIMIT
+)
+FUNNEL_REPORT_PER_IP_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_PER_IP_LIMIT", DEFAULT_FUNNEL_REPORT_PER_IP_LIMIT
+)
+FUNNEL_REPORT_GLOBAL_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_GLOBAL_LIMIT", DEFAULT_FUNNEL_REPORT_GLOBAL_LIMIT
+)
+_funnel_report_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_PER_EMAIL_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
+_funnel_report_ip_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_PER_IP_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
+_funnel_report_global_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_GLOBAL_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
 
 # Over-limit reports are dropped silently toward the USER (never stack an
 # error on the failure they are already looking at) — but not toward OPS:
@@ -906,9 +930,15 @@ async def get_agents(request: Request):
         # final_output IS NOT NULL filters out events that crashed before
         # producing a reply; an empty string is treated the same since
         # the user wouldn't want "" rendered as preview.
+        # Only the caller's OWN agents get a preview: a public agent's latest
+        # reply belongs to whoever is talking to it, not to every viewer
+        # (2026-10-28 — the list used to pull previews for public agents too).
+        preview_agent_ids = [
+            row["agent_id"] for row in rows if row.get("created_by") == user_id
+        ]
         last_assistant_by_agent: dict[str, dict] = {}
-        if agent_ids:
-            placeholders = ",".join(["%s"] * len(agent_ids))
+        if preview_agent_ids:
+            placeholders = ",".join(["%s"] * len(preview_agent_ids))
             try:
                 preview_rows = await db_client.execute(
                     f"""
@@ -929,7 +959,7 @@ async def get_agents(request: Request):
                     ) ranked
                     WHERE rn = 1
                     """,
-                    tuple(agent_ids),
+                    tuple(preview_agent_ids),
                 )
                 for r in preview_rows or []:
                     aid = r.get('agent_id')

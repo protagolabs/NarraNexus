@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/admin/gateway_key_misuse.py
-last_verified: 2026-08-19
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — secret 改为 `Depends(admin_secret_dependency)`
+
+见 [[_admin_secret]]：依赖项先于 body 校验执行，未认证请求一律 403，不再 422 泄露字段名。
+行为对持有 secret 的调用方不变。
 
 # admin/gateway_key_misuse.py — 网关 key 异常使用事件落库内部端点
 

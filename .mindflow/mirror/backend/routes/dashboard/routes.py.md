@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #419 review I-4）— `assert_agent_visible` 的实现搬走，名字保留
+
+实现移到 [[_ownership.py]] 的 `assert_visible`；本文件 `from backend.routes._ownership import
+assert_visible as assert_agent_visible` 再导出，内部 4 处调用与 [[plugin_sdk_host]] 的 WebHost
+发布面都不变（`test_dashboard_reexports_the_canonical_visibility_helper` 钉住同一对象）。
 
 ## 2026-09-10（review r1 C1）— 逐状态循环改为派生自 `_LIVE_JOB_STATES`
 

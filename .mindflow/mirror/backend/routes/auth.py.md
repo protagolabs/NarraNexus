@@ -4,6 +4,27 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT` / `_PER_IP_LIMIT` / `_GLOBAL_LIMIT` 从写死常量改为
+`env_limit("NARRANEXUS_FUNNEL_REPORT_*", DEFAULT_…)`，与同文件 signup / netmind-login
+五个桶同一写法：线下活动或实时滥用时运维可只改 env 调限额，不动代码；env 里的空值 /
+非整数 / <1 回落默认，不会让 backend 启动期崩。默认值不变（10 / 30 / 2000），`.env.example`
+加了三行注释示例。`WINDOW_SECONDS`(60) 不是限额，仍写死。
+
+## 2026-10-28（PR #419 review M-4）— funnel 限流数字改为具名常量
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT`(10) / `FUNNEL_REPORT_PER_IP_LIMIT`(30) /
+`FUNNEL_REPORT_GLOBAL_LIMIT`(2000) / `FUNNEL_REPORT_WINDOW_SECONDS`(60)。值不变；
+`test_auth_funnel_observability.py` 的 fixture 改用这些常量重建桶（原来手抄了过时的
+global=120），测试跑的就是线上尺寸。丢弃汇总日志的 60s 节拍是另一回事，未并入。
+
+## 2026-10-28 — `/agents` 预览只给自己的 agent；funnel 全局桶改为兜底
+
+- 侧栏"最近一条回复"预览原来对列表里的**公开 agent**也查：任何人能看到别人公开 agent
+  最近回复的前 200 字。现在只对 `created_by == 调用者` 的 agent 查预览。
+- funnel-report 的全局桶 120/min 四个 IP 就能把正常用户的上报挤掉；按 IP 的 30/min
+  才是真正的限制，全局改成 2000/min 的兜底。
 ## 2026-10-28 — signup / send-code 加 per-IP 桶 + 一次性邮箱拒收
 
 事件：同一 IP 自助注册两个号后对 API fuzz 4 小时。审计发现 send-code 只有

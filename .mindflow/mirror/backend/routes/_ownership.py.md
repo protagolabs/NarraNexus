@@ -4,11 +4,44 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（PR #419 review I-4）— `assert_visible` 搬进来
+
+"这个 viewer 能不能看到/驱动这个 agent（自有 **或** 公开）"原来住在
+`dashboard/routes.py::assert_agent_visible`，`/ws/agent/run` 从一个大路由模块 import 鉴权原语。
+现在本模块是它的家：`assert_visible(viewer_id, agent_id)`，行为原样（自有或 `is_public`，
+未知与外人私有统一 404，返回 agent 行）。dashboard 以旧名再导出（[[plugin_sdk_host]] 把它
+发布到 `contracts.web.WebHost.agent_visible`，builtin.job 的 dashboard router 在用），
+websocket 直接用 `_ownership.assert_visible`。
+
+**与 `check_owned` / `assert_owned` 的契约差异（刻意保留，不是漏改）**：
+- 入参是已解析的 `viewer_id`，不是 request → **没有 local no-op**；local 下调用方传入
+  `?x_user_id=` 锚定的本地用户，照样判定。
+- **不走 `_deny_reason`**：DB 失败不转 503，而是原样抛出非 HTTP 异常——WS 的
+  `except HTTPException` 接不住它，落到外层变 `InternalError` 帧，dashboard 侧变 500。两者都
+  不会把 DB 故障报成"agent 不存在"，这次是写下来的设计而非碰巧。若把它改成走 `_deny_reason`，
+  WS 那里的 `except HTTPException` 会把 503 重写成 `AgentNotFound`，故不做。
+- DB 访问保持原样：调用时从 `db_factory` 取 `get_db_client`（不用模块级名字），这样 patch
+  `db_factory.get_db_client` 的既有测试继续命中。
 ## 2026-10-28（审后）— `_deny_reason` 接受已解析的 `user_id`
 
 `require_owned_workspace_agent` 先 `resolve_current_user_id`（无身份 401），再把这个 user_id
 显式传给 `_deny_reason(user_id=...)`：决策里的 local-mode 放行分支对它不可达，不再依赖
 "两处读同一个 request.state 字段恰好一致"。两个旧 surface 不传，语义一字不改。
+
+## 2026-10-28（PR #419 review I-7 / M-13）— 第四个 surface：`assert_visible`
+
+合并 #419 后本文件是**四个** surface，不是三个。docstring 的 `Three surfaces` 一句已
+改成 `Four surfaces`，并补上第四条。四个 surface 按「调用方拿到什么形状」区分：
+
+| surface | 返回 / 抛出 | 典型调用方 | local 模式 |
+|---|---|---|---|
+| `check_owned` | error string \| None | 渠道路由（包成 `{"success": False, "error": …}`） | 跳过鉴权 |
+| `assert_owned` | 抛 HTTPException 404/403 | home_assistant 式路由 | 跳过鉴权 |
+| `require_owned_workspace_agent` | 返回 user_id，统一 404 | 把 agent_id 变成 workspace 目录的路由（files/attachments/skills） | **要身份，不跳过** |
+| `assert_visible` | 非自有且非公开则抛 | 读 / 驱动面（websocket、chat event-log） | 无 no-op（调用方传本地 user_id） |
+
+前三个共享 `_deny_reason` 的同一决策；`assert_visible` 走另一条问题线（能不能看/驱动，
+自有 OR 公开），查库失败直接把 db 异常抛出去（非 HTTP，5xx），不经 `_deny_reason`。
 
 ## 2026-10-28 — 第三个 surface：`require_owned_workspace_agent`（跨租户读事件）
 

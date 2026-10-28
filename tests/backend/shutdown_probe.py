@@ -72,6 +72,12 @@ def serve(root: Path, socket_fd: int) -> None:
     @asynccontextmanager
     async def lifespan(app):
         async with main.lifespan(app):
+            # /ws/agent/run only drives an agent the caller can see.
+            db = await get_db_client()
+            await db.insert("agents", {
+                "agent_id": "agent_synthetic", "agent_name": "Synthetic probe",
+                "created_by": "user_synthetic",
+            })
             mark("ready")
             yield
         mark("lifespan_done")

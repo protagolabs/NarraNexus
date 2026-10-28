@@ -4,6 +4,22 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-2）— `BundleForbidden`
+
+新增 `class BundleForbidden(ValueError)`：`assert_team_owned` 与 agent 归属校验（"not owned"）
+都抛它，路由按类型映射 403，不再依赖消息前缀这条隐形契约。继承 `ValueError` 让既有
+`except ValueError` 调用方行为不变。**未知 agent 的 `ValueError("Agent not found…")` 刻意
+不归入**——它落 500，不确认存在性。以后在 builder 里加新的归属检查，抛 `BundleForbidden`
+即可得到 403。回归测试：`tests/bundle/test_roundtrip.py` 的 team / agent 两条
+（`pytest.raises(BundleForbidden)`，且断言未知 agent 不是该类型）。
+
+## 2026-10-28 — 导出的 team 必须归导出者所有
+
+agent 列表早有 created_by 校验，team 只按 id 读：传别人的 team_id 能把对方团队的名称、
+intro、公告栏、工作板打进 manifest。新增 `assert_team_owned`（与 agent 校验同形的
+ValueError "Forbidden"），在读 team 行之后立刻调用；`backend/routes/bundle.py` 把它映射成 403。
+team 行不存在时放行（没有可泄露的内容）。`build_bundle` 级回归测试在
+`tests/bundle/test_roundtrip.py::test_export_refuses_a_team_the_exporter_does_not_own`。
 ## 2026-10-28（PR #421 复审 Minor 8）— 链接 workspace 降级为逐 agent warning
 
 `_pack_workspace`（async 包装）在丢给线程前先 `refuse_symlinked_dir(src)`，只接住这一个
