@@ -386,3 +386,25 @@ async def test_an_uploaded_file_name_cannot_put_whitespace_into_the_stored_path(
     assert plain["rel_path"].endswith(".pdf")
     marker = build_bus_markers([forged], base=str(tmp_path))
     assert marker.count("\n") == 0 and "path=" in marker
+
+
+@pytest.mark.asyncio
+async def test_symlinked_sender_workspace_stages_nothing(tmp_path):
+    """The sender's workspace dir swapped for a link to another user's: the
+    workspace root is lexical, so no file over there can be staged."""
+    victim = tmp_path / "user_victim" / "agent_v"
+    victim.mkdir(parents=True)
+    (victim / "secret.txt").write_bytes(b"victim")
+    ws = agent_workspace_path(AGENT, OWNER, base=str(tmp_path))
+    ws.parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(victim, ws)
+    staged = await resolve_and_stage_refs(
+        sender_agent_id=AGENT,
+        owner_user_id=OWNER,
+        refs=["secret.txt", str(victim / "secret.txt")],
+        base=str(tmp_path),
+    )
+    assert staged == []
+    assert not bus_files_dir(OWNER, base=str(tmp_path)).exists() or not any(
+        p.is_file() for p in bus_files_dir(OWNER, base=str(tmp_path)).rglob("*")
+    )

@@ -11,6 +11,11 @@ host allowlist 只钉住「哪台主机」；`http://` 或 `:22` / `:8443` 落�
 443（`_scheme_and_port_allowed`；非法端口如 `:99999` 也拒），否则 400，下载前就拦。
 本地 / 桌面不加此限制：本地默认 allowlist 本来就为 `http://localhost:3001` 的 dev 网站
 服务。判定用 `settings.is_cloud_mode`，和 allowlist 的模式判定同源。
+## 2026-10-28 — preflight 落盘用固定文件名
+
+`tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
+`../x` 或绝对路径就决定了写到哪（随后 `unlink`）。改为固定 `upload.nxbundle`，与
+marketplace publish 同一规则。
 
 ## 2026-08-18 三审 — 闸口挪进线程
 

@@ -6,10 +6,16 @@ stub: false
 
 ## 2026-10-28 — skill_name 只能是单个目录名
 
-`_resolve_skill_dir` / `remove_skill` / `disable_skill` / `enable_skill` 入口先过
-[[workspace_paths]] 的 `safe_id_segment`：`..` 会把 `skills_dir / ".."` 指到 workspace 根，
+`remove_skill` / `disable_skill` / `enable_skill` 入口先过 [[workspace_paths]] 的
+`safe_id_segment`，不安全的名字抛 ValueError：`..` 会把 `skills_dir / ".."` 指到 workspace 根，
 remove 就是 rmtree 整个 workspace。影响只限调用者自己，但必须堵。路由层另有 404
-（[[routes]]），这里是给 MCP 工具等直接调用方的兜底（ValueError）。
+（[[routes]]），这里是给 MCP 工具等直接调用方的兜底。
+
+`_resolve_skill_dir` **不抛**：名字可能来自 agent 自己写的 SKILL.md frontmatter（`org/pdf`），
+抛错会让 env 注入对所有 skill 一起失败。不安全的名字只是**跳过直接拼接**
+`skills_dir / name`，仍走 frontmatter 扫描（只会返回 `iterdir` 出来的真实子目录）；扫描不中
+就返回 None。测试在 skills_dir 上一层放了一个真实的 `pdf-tools/SKILL.md`，
+`_resolve_skill_dir("../pdf-tools")` 返回 None 才证明直接拼接确实被跳过。
 
 ## 2026-10-28 — `fetch_github_repo` 的 git 参数卫生
 

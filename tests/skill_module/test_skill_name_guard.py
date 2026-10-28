@@ -39,6 +39,11 @@ def test_unsafe_frontmatter_name_still_resolves_by_scan_and_never_raises(module)
     d = module.skills_dir / "pdf-tools"
     d.mkdir()
     (d / "SKILL.md").write_text("---\nname: org/pdf\ndescription: x\n---\n# pdf\n", encoding="utf-8")
+    # A real skill dir one level ABOVE skills_dir: if the unsafe name were
+    # still joined directly, ``skills_dir / "../pdf-tools"`` would resolve to it.
+    outside = module.skills_dir.parent / "pdf-tools"
+    outside.mkdir()
+    (outside / "SKILL.md").write_text("---\nname: outside\ndescription: x\n---\n", encoding="utf-8")
     assert module._resolve_skill_dir("org/pdf") == d
     assert module._resolve_skill_dir("../pdf-tools") is None
     assert isinstance(module.get_all_skill_env_vars(), dict)

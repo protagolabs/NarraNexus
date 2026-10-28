@@ -54,6 +54,7 @@ from narranexus.platform.utils.file_safety import ensure_within_directory
 from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
+    resolve_inside_workspace,
     team_shared_dir,
 )
 
@@ -109,7 +110,8 @@ def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, b
       gives every turn on the whole `bus_files` tree; the fallback removes
       a Read-then-attach detour, not a partition.
     - anything else → a path relative to the sender's workspace, validated to
-      stay inside that workspace (rejects ``../`` escapes and absolute paths).
+      stay inside that workspace (rejects ``../`` escapes, absolute paths
+      elsewhere, and a symlinked workspace dir — see resolve_inside_workspace).
     """
     ref = (ref or "").strip()
     if not ref:
@@ -121,10 +123,14 @@ def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, b
             return own_upload
         return resolve_shared_file_by_id(owner_user_id, ref, base)
 
-    workspace = agent_workspace_path(sender_agent_id, owner_user_id, base=base).resolve()
-    candidate = (workspace / ref).resolve()
-    if not candidate.is_relative_to(workspace):
-        logger.warning(f"[bus attachment] rejected workspace-escaping ref: {ref!r}")
+    # Lexical workspace on a realpath-ed base: the sender can swap its own
+    # workspace dir for a link to another tenant's, and resolving the root
+    # would make that tree "the workspace" (2026-10-28).
+    workspace = agent_workspace_path(sender_agent_id, owner_user_id, base=os.path.realpath(base))
+    try:
+        candidate = resolve_inside_workspace(workspace, ref)
+    except ValueError as e:
+        logger.warning(f"[bus attachment] rejected workspace-escaping ref: {ref!r} ({e})")
         return None
     if not candidate.is_file():
         logger.warning(f"[bus attachment] ref not found: {ref!r}")

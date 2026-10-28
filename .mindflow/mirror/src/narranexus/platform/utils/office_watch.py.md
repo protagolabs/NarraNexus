@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/utils/office_watch.py
-last_verified: 2026-08-13
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 两处路径解析都走 `resolve_inside_workspace`
+
+`resolve_watch_file` 与 `ensure_watch` 原来都对 workspace（或候选）做 `.resolve()` 后比较；
+workspace 目录被换成指向别的租户的链接时，会在对方树里起 watch、写 `.officecli_watch_*`
+log/meta sidecar，并把对方文档经预览代理送出去。现在两处都以字面 workspace
+（`resolve_existing_workspace` 只 realpath base）调用 [[workspace_paths]] 的
+`resolve_inside_workspace`。`resolve_watch_file` 保持原有的 ValueError + 可读文案；
+`ensure_watch` 是 executor `/watch/ensure` 的直接入口，失败契约本来就是返回 None，所以这里
+记 warning 返回 None，不 spawn、不占端口。测试：`test_office_watch.py::
+test_resolve_watch_file_refuses_a_symlinked_workspace` / `test_ensure_watch_refuses_a_symlinked_workspace`。
 
 ## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
 

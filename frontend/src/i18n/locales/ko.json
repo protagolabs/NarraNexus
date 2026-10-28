@@ -562,6 +562,7 @@
       "dragFiles": "여기로 파일을 끌어다 놓거나",
       "browse": "찾아보기",
       "empty": "워크스페이스가 비어 있습니다",
+      "partialListing": "일부만 표시됨 — 이 워크스페이스는 너무 커서 전체를 표시할 수 없습니다. 나머지를 보려면 에이전트에게 특정 폴더 목록을 요청하세요.",
       "kindOffice": "Office 문서(실시간)"
     },
     "homeAssistant": {
