@@ -1,8 +1,13 @@
 ---
 code_file: packages/narranexus-sdk/src/narranexus/sdk/web.py
-last_verified: 2026-09-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `require_workspace_agent_owner`
+
+转发 `WebHost.require_workspace_agent_owner`。路由要把 `agent_id` 拼进 workspace 路径时用它，
+不要用 `current_user_id` + 自己拼。
 
 # sdk/web.py — 插件路由真正调用的那扇门
 

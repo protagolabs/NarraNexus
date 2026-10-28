@@ -35,6 +35,8 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
+from narranexus.platform.utils.workspace_paths import safe_id_segment
+
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
 from narranexus.platform.schema import (
     ModuleConfig,
@@ -924,9 +926,18 @@ class SkillModule(XYZBaseModule):
         # no user_id). `iterdir()` would raise FileNotFoundError below.
         if not self.skills_dir or not self.skills_dir.exists():
             return None
-        # Direct match
-        direct = self.skills_dir / skill_name
-        if direct.exists() and direct.is_dir():
+        # Direct match — only for a name that is a single safe path segment.
+        # The name may come from SKILL.md frontmatter the agent wrote
+        # (``org/pdf``, ``.x``); such a name must not be joined onto the
+        # skills dir, but it can still be matched by the scan below, which
+        # only ever returns real directories from ``iterdir``.
+        try:
+            safe_id_segment(skill_name, label="skill name")
+        except ValueError:
+            direct = None
+        else:
+            direct = self.skills_dir / skill_name
+        if direct is not None and direct.exists() and direct.is_dir():
             return direct
         # Scan and match by parsed name from SKILL.md. Name-sorted (R4d) so
         # that when two directories declare the same frontmatter name the
@@ -1497,6 +1508,7 @@ class SkillModule(XYZBaseModule):
                 and cannot be deleted (they would re-materialize anyway). Disable
                 it instead.
         """
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 
@@ -1520,6 +1532,7 @@ class SkillModule(XYZBaseModule):
 
     def disable_skill(self, skill_name: str) -> bool:
         """Disable a Skill"""
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 
@@ -1536,6 +1549,7 @@ class SkillModule(XYZBaseModule):
 
     def enable_skill(self, skill_name: str) -> bool:
         """Enable a Skill"""
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 

@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_matrix_send.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28 — 保持单一错误类型
+
+`agent_workspace_path` 自 2026-10-28 起对不安全的 id 抛 `ValueError`；这里包成
+`MatrixSendError("bad_path")`，`resolve_workspace_file` 的"越界一律 MatrixSendError"契约不变。
 
 ## 2026-07-20 — doc-only: dropped a stale `narra_room_members` cross-reference
 
