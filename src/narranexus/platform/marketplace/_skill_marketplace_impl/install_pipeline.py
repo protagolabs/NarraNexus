@@ -36,6 +36,7 @@ from loguru import logger
 
 from narranexus.contracts.skill import SkillWorkspace
 from narranexus.platform.utils.plugin_services import skill_workspace
+from narranexus.platform.utils.workspace_paths import safe_id_segment
 from narranexus.platform.schema.skill_schema import SkillInfo
 
 from .scanner import scan_skill_dir
@@ -302,6 +303,13 @@ class InstallPipeline:
         incoming_name = sanitize_filename(
             catalog_skill_id or incoming.name, label="skill name"
         )
+        # Same fence the remove/disable/enable side applies (2026-10-28): a
+        # dot-led name must not be installable, or it becomes installed-but-
+        # undeletable. sanitize_filename alone lets dot-led names through.
+        try:
+            safe_id_segment(incoming_name, label="skill name")
+        except ValueError as e:
+            raise ValueError(str(e)) from e
 
         # Step 4.5 — security scan gate. Unvetted sources (zip/github/url)
         # are scanned here; marketplace packages were scanned at publish time

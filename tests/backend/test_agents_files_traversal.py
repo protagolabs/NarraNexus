@@ -286,6 +286,8 @@ def test_skills_routes_reject_unsafe_skill_name(setup, bad_name):
         ("PUT", f"/api/skills/{bad_name}/enable", {}),
         ("GET", f"/api/skills/{bad_name}/env", {}),
         ("PUT", f"/api/skills/{bad_name}/env", {"json": {"env": {}}}),
+        ("POST", f"/api/skills/{bad_name}/study", {"json": {}}),
+        ("GET", f"/api/skills/{bad_name}/study", {}),
     ):
         r = client.request(method, path, params={"agent_id": OWNED_AGENT}, headers=AS_OWNER, **kw)
         assert r.status_code == 404, (method, path, r.text)
