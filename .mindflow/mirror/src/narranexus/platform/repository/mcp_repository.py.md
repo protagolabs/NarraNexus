@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/repository/mcp_repository.py
-last_verified: 2026-08-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `validate_mcp_sse_connection` 不再把上游内容写进 `last_error`
+
+返回的错误文本会被路由写进 `mcp_urls.last_error` 并展示给用户。以前非 200 时读响应体
+前 200 字节拼进 `HTTP <code>: <body>`，`ConnectError` / 其他异常拼 `str(e)`——门放过的
+公网 host 若经 rebinding 落到内网，响应体就被读回来了；异常文本还会带出内网地址。
+现在非 200 只回 `HTTP <code> from the MCP server`（**响应体根本不读**），连接错误 /
+其他异常回固定文案、细节进日志；超时文案不含上游内容，保留。原有 SSRF 门与
+`follow_redirects=False` 不变。测试：`tests/repository/test_mcp_repository_ssrf.py`。
 
 # mcp_repository.py
 

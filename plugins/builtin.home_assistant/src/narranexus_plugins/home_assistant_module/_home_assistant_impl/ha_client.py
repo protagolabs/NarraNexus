@@ -12,20 +12,23 @@ bounded timeout.
 
 SSRF note: the user supplies `base_url`, so the backend makes an outbound
 request to a user-controlled host. Validation is DEPLOYMENT-AWARE:
+- Cloud (agent.narra.nexus): the backend container shares a network with the
+  metadata endpoint, broker / mcp / llm-gateway and every other internal
+  service. Every request first passes the shared egress gate
+  (`url_safety.assert_public_http_url`): the host must resolve, and only to
+  public addresses — a DNS failure is a reject, not a pass. Cloud users bring a
+  PUBLIC HA (Nabu Casa etc.).
 - Local/desktop: a real HA lives on the LAN (192.168.x / homeassistant.local),
-  so private ranges are allowed; we only refuse the link-local metadata range.
-- Cloud (agent.narra.nexus): the backend container shares a network with broker
-  / mcp / other internal services, so a user-supplied private/loopback host is an
-  SSRF vector into the cluster. Cloud users bring a PUBLIC HA (Nabu Casa etc.),
-  so cloud rejects any host resolving to a private/loopback/link-local address.
-Error strings also never echo the upstream response body (would turn a blind
-SSRF into a readable one) — only the status code.
+  so private ranges stay allowed; only the literal metadata host / link-local
+  addresses are refused.
+Redirects are never followed (a public host could 302 into the cluster), and
+error strings never echo the upstream body or the network exception text —
+status code / generic wording only, details go to the log.
 """
 
 from __future__ import annotations
 
 import ipaddress
-import socket
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -33,22 +36,29 @@ import aiohttp
 from loguru import logger
 
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.url_safety import assert_public_http_url
 
 _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=8)
 # Cloud metadata service — never a legitimate HA host; refuse to dial it.
 _BLOCKED_HOSTS = {"169.254.169.254", "metadata.google.internal"}
+
+_CLOUD_PUBLIC_ONLY = (
+    "Home Assistant URL is not allowed: in the cloud it must be a public host "
+    "(expose your Home Assistant publicly, e.g. Nabu Casa)"
+)
 
 
 class HAError(Exception):
     """A Home Assistant request failed (network, auth, or non-2xx)."""
 
 
-def validate_base_url(base_url: str) -> str:
-    """Return the normalized base URL or raise HAError.
+def _check_url_shape(base_url: str) -> str:
+    """Synchronous, DNS-free checks; return the normalized base URL or raise.
 
-    Enforces http/https, refuses the cloud metadata address, and — in cloud mode
-    only — refuses hosts resolving to private/loopback/link-local addresses
-    (SSRF guard). Local mode keeps LAN hosts allowed.
+    http/https only, a host present, never the metadata host or a literal
+    link-local address. This runs at construction so an obviously bad URL is
+    refused before any client exists; the network-aware gate is
+    `validate_base_url`.
     """
     parsed = urlparse(base_url.strip())
     if parsed.scheme not in ("http", "https"):
@@ -57,29 +67,37 @@ def validate_base_url(base_url: str) -> str:
     if not host:
         raise HAError("base_url has no host")
     if host in _BLOCKED_HOSTS:
-        raise HAError(f"host not allowed: {host}")
-    cloud = is_cloud_mode()
+        raise HAError("host not allowed")
     try:
-        for info in socket.getaddrinfo(host, None):
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_link_local:
-                raise HAError(f"host resolves to a link-local address: {ip}")
-            if cloud and (ip.is_private or ip.is_loopback or ip.is_reserved):
-                raise HAError(
-                    "in cloud mode base_url must be a public host "
-                    f"(got internal address {ip}); expose your Home Assistant publicly (e.g. Nabu Casa)"
-                )
-    except socket.gaierror:
-        # DNS failure surfaces later as a connection error; don't hard-fail here.
-        pass
-    return base_url.rstrip("/")
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None and literal.is_link_local:
+        raise HAError("host not allowed")
+    return base_url.strip().rstrip("/")
+
+
+async def validate_base_url(base_url: str) -> str:
+    """Return the normalized base URL or raise HAError.
+
+    Shape checks always; in cloud mode additionally the shared egress gate
+    (post-resolution, fail-closed). Local mode keeps LAN hosts allowed.
+    """
+    normalized = _check_url_shape(base_url)
+    if is_cloud_mode():
+        try:
+            await assert_public_http_url(normalized)
+        except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+            logger.warning(f"HA base_url refused by egress gate ({type(e).__name__}): {e}")
+            raise HAError(_CLOUD_PUBLIC_ONLY) from e
+    return normalized
 
 
 class HAClient:
     """Minimal Home Assistant REST client."""
 
     def __init__(self, base_url: str, token: str, verify_tls: bool = True):
-        self._base = validate_base_url(base_url)
+        self._base = _check_url_shape(base_url)
         self._token = token
         self._verify_tls = verify_tls
 
@@ -88,13 +106,23 @@ class HAClient:
         return {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
 
     async def _request(self, method: str, path: str, json_body: Optional[dict] = None) -> Any:
+        # Gate EVERY request, not just construction: a client outlives one DNS
+        # answer, and re-checking narrows (does not close) the rebinding window.
+        await validate_base_url(self._base)
         url = f"{self._base}{path}"
         connector = aiohttp.TCPConnector(ssl=self._verify_tls)
         try:
             async with aiohttp.ClientSession(timeout=_DEFAULT_TIMEOUT, connector=connector) as session:
-                async with session.request(method, url, headers=self._headers, json=json_body) as resp:
+                async with session.request(
+                    method, url, headers=self._headers, json=json_body, allow_redirects=False
+                ) as resp:
                     if resp.status == 401:
                         raise HAError("unauthorized — check the Home Assistant token")
+                    if 300 <= resp.status < 400:
+                        raise HAError(
+                            f"Home Assistant answered with a redirect (HTTP {resp.status}); "
+                            "use the final URL of your instance"
+                        )
                     if resp.status >= 400:
                         # Do NOT echo the upstream body — that would turn a blind
                         # SSRF into a readable one. Status code only.
@@ -103,8 +131,8 @@ class HAClient:
                         return await resp.json()
                     return await resp.text()
         except aiohttp.ClientError as e:
-            logger.warning(f"HA request failed ({method} {url}): {e}")
-            raise HAError(f"could not reach Home Assistant at {self._base}: {e}") from e
+            logger.warning(f"HA request failed ({method} {url}): {type(e).__name__}: {e}")
+            raise HAError("could not reach Home Assistant") from e
 
     async def ping(self) -> bool:
         """True if the API is reachable and the token authenticates."""

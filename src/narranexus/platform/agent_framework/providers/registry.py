@@ -42,6 +42,35 @@ from narranexus.platform.agent_framework.providers.framework_binding import (
     SLOT_REQUIRED_PROTOCOLS,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.url_safety import assert_public_http_url
+
+
+# Shown to the user whenever a user-supplied base_url fails the egress gate.
+# Deliberately generic: never echo the resolved address (it would turn the
+# gate into a DNS oracle for the internal network).
+UNSAFE_BASE_URL_MESSAGE = (
+    "Base URL is not allowed: in the cloud it must be a public http(s) endpoint"
+)
+
+
+async def assert_user_base_url_allowed(base_url: str) -> None:
+    """SSRF egress gate for a USER-supplied provider base_url.
+
+    Cloud only: the backend shares a network with the metadata endpoint and
+    every internal service, so a user's custom endpoint must resolve to public
+    addresses (shared ``assert_public_http_url``). Local/desktop is a single
+    trusted user who legitimately points at localhost (Ollama, LM Studio).
+    An empty base_url means "provider default" (hard-coded official hosts),
+    not user-controlled, so it is not gated.
+
+    Raises ``UnsafeUrlError`` (a ``ValueError``) — or a bare ``ValueError`` for
+    an unparseable URL — when the URL is refused. Callers fail closed on any
+    exception.
+    """
+    if not base_url or not is_cloud_mode():
+        return
+    await assert_public_http_url(base_url)
 
 
 # =============================================================================
@@ -602,6 +631,19 @@ class ProviderRegistry:
                 "save the provider and use its Test action (live CLI check)"
             )
 
+        # Egress gate BEFORE any request. Decided by the card's source: only a
+        # user-supplied base_url is gated. Platform-issued cards (netmind,
+        # netmind_free on our own gateway, yunwu, openrouter) carry fixed
+        # base_urls we wrote ourselves — the free-tier one is internal by design.
+        if provider.source == ProviderSource.USER:
+            try:
+                await assert_user_base_url_allowed(provider.base_url)
+            except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+                logger.warning(
+                    f"[provider-test] refused user base_url ({type(e).__name__}): {e}"
+                )
+                return False, UNSAFE_BASE_URL_MESSAGE
+
         try:
             if provider.protocol == ProviderProtocol.OPENAI:
                 return await self._test_openai_provider(provider)
@@ -610,7 +652,10 @@ class ProviderRegistry:
             else:
                 return False, f"Unknown protocol: {provider.protocol}"
         except Exception as e:
-            return False, f"Connection failed: {e}"
+            # Exception text can carry internal addresses / upstream detail —
+            # log it, show the user a generic verdict.
+            logger.warning(f"[provider-test] connection failed: {type(e).__name__}: {e}")
+            return False, "Connection failed (could not reach the provider)"
 
     async def _test_openai_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
         """Test an OpenAI-protocol provider.
@@ -628,7 +673,7 @@ class ProviderRegistry:
 
         if is_official_provider("openai", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.get(f"{base_url}/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -637,14 +682,14 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+                return ProviderRegistry._unexpected_status(resp)
         else:
             # Non-official: minimal chat completion with a real model name
             test_model = provider.models[0] if provider.models else "test"
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)
@@ -669,7 +714,7 @@ class ProviderRegistry:
 
         if is_official_provider("anthropic", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.get(f"{base_url}/v1/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -678,14 +723,14 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+                return ProviderRegistry._unexpected_status(resp)
         else:
             # Non-official: minimal messages request with a real model name
             test_model = provider.models[0] if provider.models else "test"
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.post(f"{base_url}/v1/messages", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)
@@ -721,7 +766,18 @@ class ProviderRegistry:
         elif resp.status_code in (502, 503, 529):
             return True, "API reachable (upstream temporarily unavailable)"
         else:
-            return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+            return ProviderRegistry._unexpected_status(resp)
+
+    @staticmethod
+    def _unexpected_status(resp) -> tuple[bool, str]:
+        """Verdict for a status we don't interpret: status code only.
+
+        The upstream body stays in the log — echoing it to the user is what
+        turns a blind server-side fetch into a readable one.
+        """
+        body = (getattr(resp, "text", "") or "")[:200]
+        logger.info(f"[provider-test] unexpected HTTP {resp.status_code}: {body}")
+        return False, f"HTTP {resp.status_code} from the provider"
 
 
 # =============================================================================

@@ -1,8 +1,35 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/registry.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 用户 base_url 的出网门（SSRF 整改）
+
+背景：10/28 入侵中，登录用户用 provider「测试连接」让服务端去打 `169.254.169.254`、
+`quota-api` / `llm-gateway` / `broker` / `litellm` 等内网目标。
+
+- `assert_user_base_url_allowed(base_url)` 是 provider 层**唯一**的门（save 路径 [[user_service]]
+  也调它），内部就是共享的 `url_safety.assert_public_http_url`，不另写检查器。**仅云端**
+  （铁律 #7：桌面版用户合法指向 localhost 的 Ollama / LM Studio）；空 base_url = 官方默认
+  主机、非用户可控，不门。
+- `test_provider` 在**任何请求之前**按卡的 `source` 判定：只有 `source == USER` 过门。平台卡
+  （netmind / netmind_free / yunwu / openrouter）的 base_url 是我们自己写的——free-tier 卡
+  本来就指向内网网关 `http://litellm:4000` / `http://llm-gateway:4000`，门它就把免费档打挂。
+  **刻意不用 `api_config._is_own_gateway_url` 给用户卡开白名单**：`_OWN_GATEWAY_HOSTS`
+  含 `localhost` / `127.0.0.1`，用户卡一旦按它放行就等于把回环 SSRF 放回来。所以用户卡
+  指向 `llm-gateway` 一律拒，平台卡靠 source 放行。
+- 任何判定失败（不安全 / 解析不了 / URL 畸形）都 fail closed，回固定文案
+  `UNSAFE_BASE_URL_MESSAGE`，**绝不回显解析出的内网 IP**（否则门本身成了内网 DNS 探针）。
+- httpx 四处调用显式 `follow_redirects=False`（httpx 默认也不跟，写明是为了别人改动时不误开）。
+- 不再把上游响应体 / 异常文本回给用户：未识别状态码走 `_unexpected_status` 只回
+  `HTTP <code> from the provider`，响应体前 200 字节进日志；异常只回
+  `Connection failed (could not reach the provider)`。`_interpret_test_response` 的
+  self-serviceable 分类结果是我们自己的词表，保留。
+- 未做（后续项）：连接 pinning 到已校验 IP——门只**缩小** DNS-rebinding 窗口，httpx 连接时
+  会重新解析。见 [[url_safety]]。
+- 测试：`tests/backend/test_provider_egress_gate.py`（含 netmind_free 内网网关卡照常可测 /
+  user 卡同 URL 被拒的对照）。
 
 ## 2026-07-31 — test_provider 对 OAuth fail closed
 

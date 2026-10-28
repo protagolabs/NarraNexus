@@ -28,6 +28,14 @@ host a Matrix client — supported by NarraMessenger via
 by this bind flow anymore. If the owner needs Gateway later, they can hit
 that endpoint directly with the stored bearer.
 
+Egress gate (cloud): the bind link is pasted by the user and the homeserver URL
+is scraped from whatever that link's host serves, so BOTH are attacker-
+influenced server-side fetch targets. Before any request the link's base URL
+passes the shared ``assert_public_http_url`` gate, and the parsed homeserver
+passes it before ``runtime-ready`` completes the remote bind or anything is
+persisted. Redirects are never followed (a public host could 302 into the
+cluster). Local/desktop skips the gate (single trusted user).
+
 Caveat: extracting the bearer relies on regexing the rendered markdown, and the
 bind state machine may require a human confirmation step on the NarraMessenger
 side (``creator_confirmed``) before the bearer is revealed — in which case
@@ -41,6 +49,9 @@ from typing import Any, Optional, Tuple
 
 import aiohttp
 from loguru import logger
+
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.url_safety import assert_public_http_url
 
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -147,8 +158,25 @@ def _parse_setup_guide(md: str) -> dict[str, str]:
     return out
 
 
+async def _is_allowed_target(url: str) -> bool:
+    """Cloud-only SSRF egress gate for a bind-time fetch target.
+
+    False on ANY failure to decide (unsafe, unresolvable, malformed) — fail
+    closed. The reason goes to the log only; callers return a generic message
+    so the gate never becomes an oracle for the internal network.
+    """
+    if not is_cloud_mode():
+        return True
+    try:
+        await assert_public_http_url(url)
+    except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+        logger.warning(f"[narramessenger] bind target refused by egress gate ({type(e).__name__}): {e}")
+        return False
+    return True
+
+
 async def _get_text(session: aiohttp.ClientSession, url: str) -> str:
-    async with session.get(url) as resp:
+    async with session.get(url, allow_redirects=False) as resp:
         if 200 <= resp.status < 300:
             return await resp.text()
         return ""
@@ -160,7 +188,7 @@ async def _post_json(
     headers = {"Content-Type": "application/json"}
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
-    kwargs: dict[str, Any] = {"headers": headers}
+    kwargs: dict[str, Any] = {"headers": headers, "allow_redirects": False}
     if body is not None:
         kwargs["json"] = body
     async with session.post(url, **kwargs) as resp:
@@ -191,6 +219,12 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
         }
     name, bio = await _agent_profile(db, agent_id)
     base = base_url.rstrip("/")
+    if not await _is_allowed_target(base):
+        return {
+            "success": False,
+            "error": "The bind link does not point at a public NarraMessenger "
+            "host. Re-copy the bind link from My Agents → Bind Agents.",
+        }
 
     try:
         async with aiohttp.ClientSession(
@@ -229,6 +263,18 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                     "revealed yet — the bind session may still need confirmation on "
                     "the NarraMessenger side. Confirm it there, then paste the link "
                     "again.",
+                }
+
+            # The homeserver is scraped from content the link's host served;
+            # gate it BEFORE runtime-ready so a refused bind is never completed
+            # on the NarraMessenger side, and nothing is persisted. A missing
+            # homeserver is left to the existing downstream handling.
+            homeserver_url = parsed.get("homeserver", "")
+            if homeserver_url and not await _is_allowed_target(homeserver_url):
+                return {
+                    "success": False,
+                    "error": "The setup guide names a Matrix homeserver that is "
+                    "not a public host; the bind was not completed.",
                 }
 
             # Direct Matrix bind. This is a bind-token URL (query param

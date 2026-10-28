@@ -36,6 +36,10 @@ from narranexus.sdk.web import require_agent_owner
 
 router = APIRouter()
 
+# Returned for any failure that is not an HAError: exception text can carry
+# internal addresses or upstream detail, so it stays in the log.
+_GENERIC_FAILURE = "Could not connect to Home Assistant."
+
 
 class HABindingBody(BaseModel):
     agent_id: str
@@ -103,10 +107,12 @@ async def test_connection(request: Request, body: HATestBody) -> dict:
         states = await client.list_states()
         return {"ok": True, "entity_count": len(states)}
     except HAError as e:
+        # HAError text is our own vocabulary (status code / generic wording),
+        # never upstream content.
         return {"ok": False, "error": str(e)}
     except Exception as e:  # noqa: BLE001 — never 500 on a user-supplied URL
-        logger.warning(f"HA test connection failed: {e}")
-        return {"ok": False, "error": str(e)}
+        logger.warning(f"HA test connection failed: {type(e).__name__}: {e}")
+        return {"ok": False, "error": _GENERIC_FAILURE}
 
 
 @router.post("/verify")
@@ -123,6 +129,7 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     await require_agent_owner(request, body.agent_id)
     # Import here to avoid pulling module code into route import time.
     from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import resolve_client
+    from narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client import HAError
 
     client, reason = await resolve_client(body.agent_id)
     if client is None:
@@ -131,9 +138,11 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
         await client.ping()
         states = await client.list_states()
         return {"ok": True, "entity_count": len(states)}
-    except Exception as e:  # noqa: BLE001 — surface as a message, never 500
-        logger.warning(f"HA verify binding failed for {body.agent_id}: {e}")
+    except HAError as e:
         return {"ok": False, "error": str(e)}
+    except Exception as e:  # noqa: BLE001 — surface as a message, never 500
+        logger.warning(f"HA verify binding failed for {body.agent_id}: {type(e).__name__}: {e}")
+        return {"ok": False, "error": _GENERIC_FAILURE}
 
 
 # ---- plugin contribution (batch 3c.5): this router belongs to builtin.home_assistant and is

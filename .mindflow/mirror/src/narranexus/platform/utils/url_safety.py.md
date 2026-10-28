@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/utils/url_safety.py
-last_verified: 2026-08-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 消费方扩到全部用户可控的服务端抓取（代码未改，仅记录）
+
+10/28 入侵审计后，`assert_public_http_url` 接进了：provider 测试连接与自定义卡保存
+（[[registry]] / [[user_service]]，按卡 source 只门用户卡）、转写 multipart 后端、Home
+Assistant 客户端（每次请求前）、NarraMessenger bind（链接 host + guide 里的 homeserver）。
+这些接入点**全部仅云端**（铁律 #7），失败一律 fail closed、对用户不回显解析出的地址。
+
+**后续项（刻意未做）：连接 pinning。** 本门是**解析后**校验，但调用方（httpx / aiohttp /
+matrix-nio）连接时会**重新解析**主机名——TTL=0 的记录可以在校验与连接之间从公网翻到内网
+（DNS-rebinding TOCTOU）。门只缩小窗口，不封死。彻底封死要把连接钉在本函数返回的已校验
+IP 上（自定义 transport / resolver，同时保留 TLS SNI 与 Host 头为原主机名）。返回值已是
+「已校验 IP 列表」，就是为这一步留的。
 
 ## 2026-08-11 — 加 `is_obviously_non_public_url`（parse-safe 存前筛）
 

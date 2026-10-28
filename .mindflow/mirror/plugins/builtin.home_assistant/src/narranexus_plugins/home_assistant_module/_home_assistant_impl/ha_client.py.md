@@ -1,8 +1,25 @@
 ---
 code_file: plugins/builtin.home_assistant/src/narranexus_plugins/home_assistant_module/_home_assistant_impl/ha_client.py
-last_verified: 2026-07-17
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 自写的 URL 检查换成共享出网门；DNS 失败改为拒
+
+- 旧 `validate_base_url` 自己 `socket.getaddrinfo` 判段，且 **DNS 失败直接放行**（注释写着
+  "surfaces later as a connection error"）——云端等于给 rebinding / 解析抖动留了口子。
+  现在：`_check_url_shape`（同步、无 DNS：http/https、有 host、拒元数据主机名和字面
+  link-local IP）在构造时跑；`validate_base_url` 改成 **async**，云端再走共享
+  `assert_public_http_url`（解析后判定，DNS 失败 = 拒），失败统一 `HAError` 固定文案，
+  不回显解析出的 IP。
+- 门在 **每次 `_request` 之前**跑，而不只是构造时：客户端活得比一次 DNS 应答久，每次重验
+  缩小（不封死）rebinding 窗口。
+- aiohttp 请求 `allow_redirects=False`；3xx 报 `HAError`（提示填最终 URL），不跟——公网 HA
+  302 到内网就是绕门。
+- `aiohttp.ClientError` 的异常文本只进日志，`HAError` 只说 "could not reach Home Assistant"。
+- 本地模式：LAN 照常放行（192.168.x / homeassistant.local 是本地 HA 的正常形态），只拒元数据
+  主机名与字面 link-local IP；不再做 DNS（旧的「本地按解析结果拒 link-local」随自写检查一起
+  删除——本地是单可信用户，与 MCP 本地不门的先例一致）。
 
 # ha_client.py — HA REST 薄客户端
 
@@ -16,12 +33,13 @@ API**(HA Core Apache-2.0),品牌无关(小米/Aqara/Hue 都是 HA entity)。每�
 - 方法:`ping`(GET /api/,连通+鉴权探测)、`list_states`、`get_state`、`list_services`、`call_service`。
 - `HAError` 统一封装网络/鉴权/非 2xx;401 特判为"检查 token"。**错误串绝不回显上游响应体**——否则
   盲 SSRF 变成可读 SSRF;只留状态码。
-- **SSRF 护栏(`validate_base_url`,部署感知)**:恒拒非 http/https + 云元数据地址(169.254.169.254)+
-  link-local。**本地/桌面**放行私网段(本地 HA 合法在 192.168.x / homeassistant.local)。**云端**
-  (`is_cloud_mode()`)额外拒解析到 private/loopback/reserved 的 host——backend 容器和 broker/mcp 同网,
-  用户自填私网 host 就是打进集群的 SSRF;云端用户本就自带公网 HA(Nabu Casa)。
+- **SSRF 护栏(部署感知,2026-10-28 改)**:构造时 `_check_url_shape` 恒拒非 http/https + 元数据主机名 +
+  字面 link-local IP;每次请求前 async `validate_base_url`——**云端**走共享 `assert_public_http_url`
+  (解析后判定、DNS 失败即拒),**本地/桌面**放行私网段(本地 HA 合法在 192.168.x / homeassistant.local)。
+  backend 容器和 broker/mcp/llm-gateway 同网,用户自填内网 host 就是打进集群的 SSRF;云端用户本就自带
+  公网 HA(Nabu Casa)。不跟重定向。
 
 ## 上下游
 
-- **被谁用**:`binding.resolve_client`(构造)、`backend/routes/home_assistant`(测连 ping)。
-- **依赖**:aiohttp。
+- **被谁用**:`binding.resolve_client`(构造)、`routes`(测连 ping)、MCP 工具(经 resolve_client)。
+- **依赖**:aiohttp、`utils.url_safety`(云端出网门)、`utils.deployment_mode`。

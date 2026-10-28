@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/user_service.py
-last_verified: 2026-09-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 出网门：save 时拦 + 保存行测试按**存储的 source** 判定
+
+- `add_provider` 的自定义卡（`anthropic` / `openai`，source=user）在落库前过
+  [[registry]] 的 `assert_user_base_url_allowed`（仅云端）。被拒抛 `ValueError` 固定文案
+  （路由已有 → 400），**不写行**。理由：存下来的卡之后会被 agent loop / helper LLM /
+  Test 按钮反复从服务端去打，内网地址绝不能持久化。云端用户把卡指向**公网**的自建
+  OpenAI 兼容端点仍然允许。平台卡（dual-provider 表）base_url 由我们写死，不过门。
+- 「更新 base_url」路径不存在（只有 `update_models` 改 models），所以没有第二个 save 点要门。
+- 修了一个会让门失效的现象：`test_provider`（保存行）以前把**所有**行都当 `source=USER`
+  委托给 `test_provider_config`——那样门要么误杀 free-tier 卡（其 base_url 就是内网网关），
+  要么只能放弃按 source 判断。现在 transient ProviderConfig 的构造点收敛到私有
+  `_probe_api_key_card(source=...)`：表单探测（`test_provider_config`）固定传 USER（原始
+  表单值天然是用户输入），保存行传行里真实的 `source`；缺失或未知 source 一律当 USER
+  （被门的一侧，fail closed）。两道白名单仍只此一处。
+- 测试：`tests/backend/test_provider_egress_gate.py`。
 
 ## 2026-09-11 — onboarding framework follows plugin availability
 
@@ -223,7 +239,7 @@ anthropic/openai；`auth_type` 只收 api_key/bearer_token。后者非可选防�
 两者都变成干净的 `(False, ...)`。
 
 **`test_provider`（有状态）已收敛为「读行 → oauth 短路 → 委托
-`test_provider_config`」**：transient ProviderConfig 的构造点只剩一处，
+`_probe_api_key_card`（带行的真实 source，2026-10-28 起；此前委托 `test_provider_config`）」**：transient ProviderConfig 的构造点只剩一处，
 消除将来漂移。oauth 短路**留在有状态侧**（已落库凭据由 CLI 托管，报连通
 属实），正是无状态孪生刻意拒绝 oauth 的镜像。
 

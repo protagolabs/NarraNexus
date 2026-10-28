@@ -1,8 +1,29 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28 — bind 时的出网门（SSRF 整改）
+
+`do_bind` 有两个服务端抓取目标都受攻击者影响：用户粘贴的 bind 链接的 host（正则只限定
+`https://<host>`，`https://quota-api/...` 照样匹配），以及从该 host 返回的 setup-guide 里
+**爬出来**的 homeserver URL。云端现在：
+
+- 链接 base 在**开任何 session 之前**过共享 `assert_public_http_url`（`_is_allowed_target`，
+  任何判定失败 = 拒，fail closed）；被拒回固定文案，不回显解析结果。
+- 解析出的 homeserver 在 `runtime-ready` **之前**过同一个门：被拒则远端 bind 不会被完成、
+  凭据也不落库。guide 里没有 homeserver 时维持原有下游处理。
+- `_get_text` / `_post_json` 都 `allow_redirects=False`：host 门之后再跟 302 就等于没门。
+  实测（2026-10-28）api.netmind.chat 的 setup-guide / bind-agent 端点直接回 404/500，不走
+  重定向，所以这条不影响正常 bind。
+- 本地 / 桌面跳过门（单可信用户，与 MCP 先例一致）。
+
+**后续项（本 PR 刻意不做）**：worker 侧加载已存 homeserver 时再门一次——
+`matrix_trigger.MatrixTrigger` 的 connect / 媒体下载、`_matrix_send` 的上传 / 发送 / 编辑 /
+撤回、MCP 工具与 module 的发送路径都直接用存储的 `matrix_homeserver_url`。bind 是唯一
+写入口时 bind 门够用，但 `channel_credentials` 的通用 put 路径理论上也能写这个字段，
+所以加载时复查仍值得做（connect 时一次 DNS 很便宜；send 路径需评估每次的开销）。
 
 ## 2026-08-19 — `runtime-ready` now carries `platform="nexus"`
 

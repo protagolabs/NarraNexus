@@ -1,8 +1,18 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `fetch_github_repo` 的 git 参数卫生
+
+`branch` 是用户输入、直接上 git 命令行。现在克隆前过 `_validate_git_branch`：只收
+`[A-Za-z0-9._/-]`，拒以 `-` 开头（选项注入，如 `--upload-pack=...`）、含 `..`（ref 穿越）、
+空串、空白与 shell 元字符；不合法直接 `ValueError`，git 不会被调用。命令行在位置参数前加
+`--`，url / dest 永远不会被当成选项。克隆失败不再把 git stderr（可能带解析出的主机 / 内部
+细节）拼进返回给用户的错误，只回固定文案，stderr 进日志。三个调用方（自身
+`install_from_github`、marketplace InstallPipeline、bundle importer）共用这一处。
+测试：`tests/skill_module/test_github_skill_layouts.py`。
 
 ## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
 

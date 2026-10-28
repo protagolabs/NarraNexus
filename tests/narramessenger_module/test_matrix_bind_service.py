@@ -327,3 +327,146 @@ async def test_do_bind_first_call_reports_profile_before_runtime_ready(
     # report-profile is skipped whenever the bearer is already revealed.
     assert set(guide_scripts["post_calls"][0][1]) == {"name", "bio"}
     assert guide_scripts["post_calls"][1][1] == {"platform": "nexus"}
+
+
+# ────────────────────────────────────────────────────────────────────
+# SSRF egress gate at bind time (cloud): the pasted link's host and the
+# homeserver parsed from the guide are both attacker-influenced.
+# ────────────────────────────────────────────────────────────────────
+
+
+_BIND_DNS = {
+    "api.netmind.chat": ["104.18.1.1"],
+    "matrix.netmind.chat": ["104.18.1.2"],
+    "quota-api": ["172.20.0.7"],
+    "evil-homeserver.example": ["172.20.0.18"],
+}
+
+
+@pytest.fixture
+def cloud_gate(monkeypatch):
+    from narranexus.platform.utils import url_safety
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+
+    async def _resolver(host, port):
+        if host not in _BIND_DNS:
+            raise OSError(f"unknown host {host}")
+        return _BIND_DNS[host]
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _resolver)
+
+
+@pytest.fixture
+def no_session(monkeypatch):
+    """Constructing an aiohttp session at all means a request could go out."""
+    def _boom(*_a, **_k):
+        raise AssertionError("no HTTP session may be opened for a refused bind link")
+
+    monkeypatch.setattr(svc.aiohttp, "ClientSession", _boom)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://quota-api/tok123/setup-guide.md",          # docker service name
+        "https://169.254.169.254/tok123/setup-guide.md",    # metadata IP
+        "https://172.20.0.18/tok123/setup-guide.md",        # docker literal
+        "https://unknown-host.invalid/tok123/setup-guide.md",  # DNS failure
+    ],
+)
+async def test_cloud_internal_bind_link_refused_before_any_request(
+    stub_db, fake_manager, guide_scripts, cloud_gate, no_session, link
+):
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=link)
+
+    assert result["success"] is False
+    assert "172.20" not in result["error"] and "169.254" not in result["error"]
+    assert guide_scripts["post_calls"] == []
+    assert fake_manager.upserts == []
+
+
+INTERNAL_HOMESERVER_GUIDE = CONNECTED_GUIDE_FRAGMENT.replace(
+    "https://matrix.netmind.chat`", "https://evil-homeserver.example`"
+)
+
+
+@pytest.mark.asyncio
+async def test_cloud_internal_homeserver_from_guide_refused_before_runtime_ready(
+    stub_db, fake_manager, guide_scripts, cloud_gate
+):
+    guide_scripts["guides"] = [INTERNAL_HOMESERVER_GUIDE]
+    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/tok123/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    assert "172.20" not in result["error"]
+    # The remote bind is never completed and nothing is persisted.
+    assert guide_scripts["post_calls"] == []
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_cloud_public_link_and_homeserver_still_bind(
+    stub_db, fake_manager, guide_scripts, cloud_gate
+):
+    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/tok123/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert fake_manager.upserts[0].matrix_homeserver_url == "https://matrix.netmind.chat"
+
+
+class _RecordingSession:
+    def __init__(self, status=302):
+        self.calls: list[tuple[str, str, dict]] = []
+        self.status = status
+
+    def _resp(self):
+        outer = self
+
+        class _R:
+            status = outer.status
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def text(self):
+                return "REDIRECT-TARGET-BODY"
+
+            async def json(self):
+                return {}
+
+        return _R()
+
+    def get(self, url, **kw):
+        self.calls.append(("GET", url, kw))
+        return self._resp()
+
+    def post(self, url, **kw):
+        self.calls.append(("POST", url, kw))
+        return self._resp()
+
+
+@pytest.mark.asyncio
+async def test_bind_http_helpers_do_not_follow_redirects():
+    session = _RecordingSession(status=302)
+
+    assert await svc._get_text(session, "https://api.netmind.chat/t/setup-guide.md") == ""
+    out = await svc._post_json(session, "https://api.netmind.chat/bind-agent/x", {"a": 1})
+
+    assert out["ok"] is False
+    assert all(kw.get("allow_redirects") is False for _m, _u, kw in session.calls)

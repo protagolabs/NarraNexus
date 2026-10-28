@@ -260,6 +260,8 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
 #  - URL host allowlist  → SSRF defense (the classic Capital-One-style attack
 #    where a public fetch endpoint is turned into a tunnel into internal
 #    services / cloud metadata IPs)
+#  - cloud: https + default port (443) only → an allowlisted host can't be
+#    port-scanned / reached over plaintext through this endpoint
 #  - per-request size cap → bound disk usage
 #  - per-request timeout  → bound request lifetime / connection-pool exhaustion
 #  - optional sha256      → integrity + prevents the website serving a wrong
@@ -310,6 +312,26 @@ def _host_allowed(host: Optional[str]) -> bool:
     if not host:
         return False
     return host.lower() in _allowed_fetch_hosts()
+
+
+def _scheme_and_port_allowed(parsed) -> bool:
+    """Cloud only: https on the default port, on top of the host allowlist.
+
+    The allowlist pins WHICH host; without this, ``http://`` or ``:22`` /
+    ``:8443`` on an allowlisted host still lets a caller probe other services
+    on it. Local/desktop keeps http + any port (the dev website runs on
+    ``http://localhost:3001``). An unparseable port is a reject.
+    """
+    from narranexus.platform.settings import settings  # late import — avoid cycle
+    if not settings.is_cloud_mode:
+        return True
+    if parsed.scheme != "https":
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return port in (None, 443)
 
 
 async def _stream_download(url: str, dst: Path) -> None:
@@ -387,6 +409,11 @@ async def import_from_url(payload: ImportFromUrlRequest, request: Request):
                 f"URL host {parsed.hostname!r} is not in the bundle-fetch "
                 "allowlist. Set BUNDLE_FETCH_ALLOWED_HOSTS to extend."
             ),
+        )
+    if not _scheme_and_port_allowed(parsed):
+        raise HTTPException(
+            status_code=400,
+            detail="bundle URLs must use https on the default port (443)",
         )
 
     # ── 2. Fetch + (optional) sha256 verify + preflight ───────────────────
