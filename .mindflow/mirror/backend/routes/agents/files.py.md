@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/agents/files.py
-last_verified: 2026-08-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — agent_id 段先确权，再碰磁盘（跨租户读事件）
+
+事件：外部账号用 `GET /api/agents/../files` 与 `files/raw?path=<user>/<agent>/…` 读走了
+246 个用户的 workspace 文件。根因是四个 handler 只校验 `?path=` 相对部分，`{agent_id}`
+段原样进入 `resolve_existing_workspace` → nested 布局下 `{base}/{user_id}/..` 就是整个
+base，`_resolve_within_workspace` 看到的"workspace"也是 base，于是任何用户的
+`<user>/<agent>/x` 都在"范围内"。DELETE 同理可越权。
+
+修法：四个 handler 的第一行从"解析身份"改为 [[_ownership]] 的 `require_owned_workspace_agent`
+——先过 `safe_id_segment`（见 [[workspace_paths]]），再查 `agents.created_by == 当前用户`，
+不满足一律 404（不区分"不存在"与"不是你的"，避免存在性探测）。只有通过的 agent_id 才
+进入 `_get_workspace_path`。`?path=` 的既有校验保持不变，它管的是 workspace 内部。
+
+两道栅栏各司其职：DB 确权把路径钉在本用户真实拥有的目录；`safe_id_segment` 是底层
+格式栅栏，保护所有不经过路由的调用方。回归测试在 `tests/backend/test_agents_files_traversal.py`。
 
 ## 2026-08-11 — 内部错文案脱敏（安全审计 P2-2）
 

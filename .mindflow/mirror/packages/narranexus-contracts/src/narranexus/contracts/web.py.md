@@ -1,8 +1,14 @@
 ---
 code_file: packages/narranexus-contracts/src/narranexus/contracts/web.py
-last_verified: 2026-09-11
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `WebHost.require_workspace_agent_owner`
+
+与 `require_agent_owner` 并列的第三个确权方法，语义更严：身份必填（401）、路径不安全 /
+不存在 / 非本人统一 404、查库失败 503，返回 user_id。给任何要把 agent_id 变成工作区目录的
+插件路由用；来自 2026-10-28 跨租户读事件。
 
 # contracts/web.py — 让插件路由不必伸手进宿主的私有模块
 

@@ -65,6 +65,11 @@ class BackendWebHost:
 
         return await check_owned(request, agent_id)
 
+    async def require_workspace_agent_owner(self, request: Any, agent_id: str) -> str:
+        from backend.routes._ownership import require_owned_workspace_agent
+
+        return await require_owned_workspace_agent(request, agent_id)
+
     async def resolve_viewer(self, request: Any) -> str:
         from backend.routes.dashboard.routes import resolve_viewer
 

@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — agent_id 先确权（与 files 路由同类的洞）
+
+十个 handler 都从 query/form 取 `agent_id`，直接交给 `SkillModule` 拼
+`{base}/{caller}/{agent_id}/skills`，没有确权：`?agent_id=../<victim>/<agent>` 能列、读、改 env、
+删，甚至把 skill **装进别人的 agent**。事件日志里没发现有人打过这条路，但同类必须同批修。
+现在每个 handler 第一行是 `require_workspace_agent_owner(request, agent_id)`（经 [[web]] seam
+到 [[_ownership]]）：身份必填、段安全、不是自己的一律 404；通过后才构造 `SkillModule`。
+`current_user_id` 不再单独调用——身份与确权绑在一起返回。
 
 ## 2026-09-09 — install 端点分开汇报成功与失败（GitHub #95，复审 C3）
 

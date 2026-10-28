@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.common_tools/src/narranexus_plugins/common_tools_module/_common_tools_impl/artifact_lines.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 空 user_id 不再传给 `agent_workspace_relpath`
+
+[[workspace_paths]] 自 2026-10-28 起拒绝空 id。这里之前用 `user_id or ''` 拼"本工作区前缀"，
+空 user 时得到的前缀本来就不可能匹配任何 artifact，所以改成没有 user 就不生成前缀——
+行为相同（全部按绝对路径渲染），只是不再触发 ValueError。
 
 # artifact_lines.py — agent 面清单行的唯一渲染方
 
