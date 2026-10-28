@@ -4,6 +4,11 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28 — `skill_name` 段校验
+
+带 `skill_name` 的 8 个 handler 在确权之后立刻 `_require_skill_name`（`safe_id_segment`
+失败 → 404，与未知 skill 同口径），再构造 `SkillModule`。
+
 ## 2026-10-28 — agent_id 先确权（与 files 路由同类的洞）
 
 十个 handler 都从 query/form 取 `agent_id`，直接交给 `SkillModule` 拼

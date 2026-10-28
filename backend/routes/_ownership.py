@@ -66,7 +66,9 @@ def _caller_user_id(request: Request) -> Optional[str]:
     return uid or None
 
 
-async def _deny_reason(request: Request, agent_id: str) -> Optional[str]:
+async def _deny_reason(
+    request: Request, agent_id: str, *, user_id: Optional[str] = None
+) -> Optional[str]:
     """Why the caller may NOT touch ``agent_id`` — or None to allow.
 
     Local mode (no user_id) allows: see the module docstring's security
@@ -76,7 +78,9 @@ async def _deny_reason(request: Request, agent_id: str) -> Optional[str]:
     would make a db outage look like a batch of users' agents vanishing,
     with no 5xx metric to alarm on.
     """
-    user_id = _caller_user_id(request)
+    # A caller that already resolved (and REQUIRED) the identity passes it in,
+    # which makes the local-mode pass-through below unreachable for it.
+    user_id = user_id or _caller_user_id(request)
     if not user_id:
         return None  # local mode — no auth enforcement
     db = await get_db_client()
@@ -156,7 +160,7 @@ async def require_owned_workspace_agent(request: Request, agent_id: str) -> str:
         safe_id_segment(agent_id, label="agent_id")
     except ValueError:
         raise HTTPException(status_code=404, detail="agent not found")
-    reason = await _deny_reason(request, agent_id)
+    reason = await _deny_reason(request, agent_id, user_id=user_id)
     if reason is not None:
         raise HTTPException(status_code=404, detail="agent not found")
     return user_id

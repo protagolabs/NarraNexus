@@ -27,6 +27,7 @@ from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPExcep
 from loguru import logger
 
 from narranexus.sdk.web import filter_public_mcp_servers, host_settings, require_workspace_agent_owner
+from narranexus.platform.utils.workspace_paths import safe_id_segment
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.schema.skill_schema import (
@@ -119,6 +120,16 @@ async def _extract_requirements_via_llm(
 
     except Exception as e:
         logger.warning(f"LLM requirements extraction failed for '{skill_name}': {e}")
+
+
+
+def _require_skill_name(skill_name: str) -> None:
+    """``skill_name`` becomes ``skills_dir / skill_name``: reject anything that is
+    not a single safe path segment (404, like an unknown skill)."""
+    try:
+        safe_id_segment(skill_name, label="skill name")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Skill not found")
 
 
 def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
@@ -423,6 +434,7 @@ async def remove_skill(
 ):
     """Remove a Skill. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -455,6 +467,7 @@ async def disable_skill(
 ):
     """Disable a Skill. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"PUT /api/skills/{skill_name}/disable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -481,6 +494,7 @@ async def enable_skill(
 ):
     """Enable a Skill. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"PUT /api/skills/{skill_name}/enable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -521,6 +535,7 @@ async def study_skill(
     4. Background task automatically updates study_status and study_result upon completion
     """
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"POST /api/skills/{skill_name}/study - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -565,6 +580,7 @@ async def get_study_status(
 ):
     """Get Skill study status (for frontend polling). Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         study_info = skill_module.get_study_status(skill_name)
@@ -593,6 +609,7 @@ async def get_skill_env(
 ):
     """Get skill's required env vars and their configuration status. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -642,6 +659,7 @@ async def set_skill_env(
 ):
     """Set env var values for a skill. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -695,6 +713,7 @@ async def get_skill(
 ):
     """Get Skill details. Identity from auth_middleware."""
     user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"GET /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:

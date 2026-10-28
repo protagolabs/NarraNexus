@@ -274,3 +274,19 @@ def test_skills_list_for_owner_still_works(setup):
     r = client.get("/api/skills", params={"agent_id": OWNED_AGENT}, headers=AS_OWNER)
     assert r.status_code == 200, r.text
     assert isinstance(r.json().get("skills"), list)
+
+
+@pytest.mark.parametrize("bad_name", ["%2e%2e", "...", ".disabled", "..%5cx"])
+def test_skills_routes_reject_unsafe_skill_name(setup, bad_name):
+    client = setup["client"]
+    for method, path, kw in (
+        ("GET", f"/api/skills/{bad_name}", {}),
+        ("DELETE", f"/api/skills/{bad_name}", {}),
+        ("PUT", f"/api/skills/{bad_name}/disable", {}),
+        ("PUT", f"/api/skills/{bad_name}/enable", {}),
+        ("GET", f"/api/skills/{bad_name}/env", {}),
+        ("PUT", f"/api/skills/{bad_name}/env", {"json": {"env": {}}}),
+    ):
+        r = client.request(method, path, params={"agent_id": OWNED_AGENT}, headers=AS_OWNER, **kw)
+        assert r.status_code == 404, (method, path, r.text)
+    assert (setup["base"] / f"{OWNER}/{OWNED_AGENT}/mine.txt").exists()

@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（审后）— `_deny_reason` 接受已解析的 `user_id`
+
+`require_owned_workspace_agent` 先 `resolve_current_user_id`（无身份 401），再把这个 user_id
+显式传给 `_deny_reason(user_id=...)`：决策里的 local-mode 放行分支对它不可达，不再依赖
+"两处读同一个 request.state 字段恰好一致"。两个旧 surface 不传，语义一字不改。
+
 ## 2026-10-28 — 第三个 surface：`require_owned_workspace_agent`（跨租户读事件）
 
 `/api/agents/../files` 把 URL 段拼进 `{base}/{user_id}/{agent_id}` 读走了 246 个用户的文件。
