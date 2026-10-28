@@ -132,3 +132,80 @@ def test_store_time_screen_allows_everything_in_local(monkeypatch, url):
     """Local mode never blocks — localhost MCP is a first-class desktop use."""
     monkeypatch.setattr(mcps_route, "is_cloud_mode", lambda: False)
     assert mcps_route._blocks_internal_url(url) is False
+
+
+# ── error text never echoes upstream body / exception detail ──────────
+# The returned message is written into mcp_urls.last_error and shown to the
+# user, so any upstream content in it turns a blind fetch into a readable one.
+
+UPSTREAM_SECRET = "UPSTREAM-SECRET-imds-AccessKeyId"
+
+
+async def _public_resolver(host, port):
+    return ["93.184.216.34"]
+
+
+def _install_fake_httpx(monkeypatch, *, status=500, body=b"", raise_exc=None):
+    import httpx
+
+    class _Resp:
+        status_code = status
+        headers = {"content-type": "application/json"}
+
+        async def aiter_bytes(self):
+            yield body
+
+    class _Ctx:
+        async def __aenter__(self):
+            if raise_exc is not None:
+                raise raise_exc
+            return _Resp()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, headers=None):
+            return _Ctx()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+
+@pytest.mark.asyncio
+async def test_validate_error_status_does_not_echo_body(monkeypatch):
+    _install_fake_httpx(monkeypatch, status=500, body=UPSTREAM_SECRET.encode())
+
+    ok, error = await validate_mcp_sse_connection(
+        "https://mcp.example.com/sse", resolver=_public_resolver
+    )
+
+    assert ok is False
+    assert "500" in error
+    assert UPSTREAM_SECRET not in error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exc_kind", ["connect", "other"])
+async def test_validate_exception_does_not_echo_detail(monkeypatch, exc_kind):
+    import httpx
+
+    detail = f"connect to 172.20.0.7:8080 refused {UPSTREAM_SECRET}"
+    exc = httpx.ConnectError(detail) if exc_kind == "connect" else RuntimeError(detail)
+    _install_fake_httpx(monkeypatch, raise_exc=exc)
+
+    ok, error = await validate_mcp_sse_connection(
+        "https://mcp.example.com/sse", resolver=_public_resolver
+    )
+
+    assert ok is False
+    assert UPSTREAM_SECRET not in error
+    assert "172.20" not in error

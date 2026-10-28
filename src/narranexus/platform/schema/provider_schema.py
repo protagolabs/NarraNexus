@@ -74,14 +74,27 @@ in ``lib/agentFramework.ts`` mirrors it by hand).
 
 
 class ProviderSource(str, Enum):
-    """How this provider was created (informational, not logic-driving)"""
+    """How this provider was created. SECURITY-RELEVANT, not informational.
+
+    USER rows (and rows whose source is missing or unknown, fail closed) carry
+    a user-supplied base_url and are gated by the cloud SSRF egress gate on
+    save, Test and read (``registry.assert_user_base_url_allowed`` /
+    ``registry.is_stored_user_base_url_blocked``); platform rows are trusted
+    (netmind_free legitimately points at our internal gateway). Never relabel
+    a row's source: that silently switches its egress gate off.
+
+    This enum is NOT the full value domain of ``user_providers.source``: the
+    cloud free-tier pool is stored as ``system`` / ``system_pool`` with no
+    member here. The trust decision therefore reads
+    ``registry.PLATFORM_PROVIDER_SOURCES``, never enum membership.
+    """
     NETMIND = "netmind"            # Auto-created from NetMind one-key card
     NETMIND_FREE = "netmind_free"  # Platform free-tier wallet card (see providers/free_tier)
     YUNWU = "yunwu"                # Auto-created from Yunwu one-key card
     OPENROUTER = "openrouter"      # Auto-created from OpenRouter one-key card
     CLAUDE_OAUTH = "claude_oauth"  # Auto-created from Claude Code Login card
     CODEX_OAUTH = "codex_oauth"    # Auto-created from Codex CLI Login card
-    USER = "user"                  # User-configured (Anthropic/OpenAI protocol cards)
+    USER = "user"                  # User-configured cards; base_url is egress-gated (cloud)
 
 
 class SlotName(str, Enum):

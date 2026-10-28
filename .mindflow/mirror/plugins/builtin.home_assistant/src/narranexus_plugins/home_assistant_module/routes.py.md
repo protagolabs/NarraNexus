@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.home_assistant/src/narranexus_plugins/home_assistant_module/routes.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `/test` `/verify` 不再回显异常文本
+
+两个端点以前 `except Exception as e: return {"ok": False, "error": str(e)}`——任意异常文本
+（可能带内网地址 / 上游细节）直接回给用户。现在只有 `HAError` 的文本原样返回（那是
+[[ha_client]] 自己的词表：状态码 / 固定措辞，不含上游内容），其余异常回固定
+`_GENERIC_FAILURE`，细节进日志。`/verify` 补了显式 `except HAError` 分支，两端点行为一致。
+云端内网 URL 由 ha_client 每次请求前的共享出网门拒掉（请求根本不发）。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

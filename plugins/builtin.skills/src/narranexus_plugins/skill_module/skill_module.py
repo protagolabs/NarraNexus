@@ -21,6 +21,7 @@ MCP Tools:
 """
 
 import os
+import re
 import shutil
 import tempfile
 import subprocess
@@ -341,6 +342,26 @@ def _skill_runtime_requires(metadata_field: dict) -> dict:
             requires = block.get("requires", {})
             return requires if isinstance(requires, dict) else {}
     return {}
+
+
+# A branch name is user input placed on the git command line. Allowed alphabet
+# only; a leading "-" (option injection), ".." (ref traversal) and anything
+# else (whitespace, shell metacharacters) are refused before git runs.
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def _validate_git_branch(branch: str) -> None:
+    """Raise ValueError unless ``branch`` is a safe git branch name."""
+    if (
+        not branch
+        or branch.startswith("-")
+        or ".." in branch
+        or not _BRANCH_RE.fullmatch(branch)
+    ):
+        raise ValueError(
+            "Invalid branch name: use letters, digits, '.', '_', '-' or '/' "
+            "(must not start with '-' or contain '..')"
+        )
 
 
 class SkillModule(XYZBaseModule):
@@ -1435,17 +1456,24 @@ class SkillModule(XYZBaseModule):
             raise ValueError("GitHub URLs with embedded credentials are not allowed")
         if not parsed.path or parsed.path == "/":
             raise ValueError("Invalid GitHub repository URL")
+        _validate_git_branch(branch)
 
         logger.info(f"Cloning {url} (branch: {branch}) to {dest_dir}")
         try:
+            # "--" ends option parsing: url / dest can never be read as options.
             subprocess.run(
-                ["git", "clone", "--depth", "1", "-b", branch, url, str(dest_dir)],
+                ["git", "clone", "--depth", "1", "-b", branch, "--", url, str(dest_dir)],
                 check=True,
                 capture_output=True,
                 text=True,
             )
         except subprocess.CalledProcessError as e:
-            raise ValueError(f"Failed to clone {url}: {e.stderr}")
+            # git stderr can carry resolved hosts / internal detail — log only.
+            logger.warning(f"git clone failed for {url} (branch {branch}): {e.stderr}")
+            raise ValueError(
+                "Failed to clone the repository — check that the URL and branch exist "
+                "and the repository is public"
+            ) from e
 
         # Remove .git directory (version control not needed)
         git_dir = dest_dir / ".git"

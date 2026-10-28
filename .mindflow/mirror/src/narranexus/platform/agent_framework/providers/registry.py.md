@@ -1,8 +1,84 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/registry.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（三）— 信任判据改为平台 source 白名单，不再是「枚举成员资格」
+
+PR#418 增量 review C1：上一版把「source 不在 `ProviderSource` 枚举里」一律当 USER（fail closed），
+但 `user_providers.source` 的取值域**大于**枚举：云端系统免费额度池卡存成 `system`
+（`driver/derive.py` → `system_pool` driver、`system_quota` 计费）或 `system_pool`
+（`model_sync.apply_ledger_to_db` 每日刷 models），两者都没有枚举成员，base_url 与
+`netmind_free` 同形（内网网关）。结果 runtime builder 会对绑着这类卡的云端用户每一次 agent 运行 /
+helper 调用抛 `LLMConfigNotConfigured`。
+
+- 现在唯一判据是模块常量 `PLATFORM_PROVIDER_SOURCES`（6 个平台枚举值 + `system` + `system_pool`）
+  与 `is_platform_provider_source()`：在白名单里 → 平台卡、信任；`user` / 缺失 / 真正未知 → 过门
+  （fail closed 只覆盖真正未知的值）。读取路径筛 `is_stored_user_base_url_blocked`、
+  `test_provider` 的出网门、[[user_service]] 保存行 Test 都走这一个判据，没有第二份枚举转换。
+- **显式列出而非从枚举推导**：新增枚举成员默认被门，直到有人确认它是平台卡——fail closed。
+  代价是新增平台 source 时要同步这里；漏了的症状是「该平台卡在云端被当用户卡拒」，测试
+  `test_cloud_read_screen_trusts_every_platform_source` 列着当前全集。
+- `system` 与 `system_pool` 两种拼写是 derive.py 与 model_sync 之间**既有的不一致**，本处两个都收；
+  统一它会动计费与 ledger 路径，不在本 PR 范围。
+- `test_provider` 新增仅关键字参数 `stored_source`：保存行探测时由它（行里的原始 source 字符串）
+  决定是否过门，因为 transient `ProviderConfig.source` 是严格枚举、装不下 `system_pool`；
+  不传时按 `provider.source` 判（onboarding / 表单等 transient 配置）。
+- `is_stored_user_base_url_blocked` 的 `provider_id` 改为必填（M10：默认空串会让日志去重串台）。
+- `_REPORTED_BLOCKED_PROVIDER_IDS` 注释写明是**纯日志去重**（M9）：进程级、不跨 worker 共享、
+  **绝不缓存拦截结论**——判定每次重算，别把它改成结论缓存（那就是缓存失败哨兵值）。
+
+## 2026-10-28（二）— review 收口：共享包装 + 读取路径筛
+
+- `assert_user_base_url_allowed` 退化为「空 base_url 直接放行 + 调
+  `url_safety.assert_public_http_url_in_cloud`」：部署判定不再在本文件里（review I1）。
+- 新增 `is_stored_user_base_url_blocked(source, base_url, provider_id)`（review I2）：**已存库**的
+  user 卡（10/28 前存下、没过 save 门的行）在读取路径上的筛。两个调用方：
+  [[user_service]] `get_user_config`（命中则卡照常列出、但 `is_active=False`，用户还能看见并删除，
+  completeness / 绑定校验 / resolver classify 都当它不可用）与 [[driver/resolver]]
+  `resolve_user_runtime_llm_configs`（命中则 `LLMConfigNotConfigured`，不回显 base_url）。
+  后者必须单独加：它按 provider_id 直接读行，per-agent override（`agent_slots`）走到它时
+  根本不经过 `get_user_config`。
+- **只用 DNS-free 的 `is_obviously_non_public_url`**：它在 agent loop 热路径上，每轮都跑，不能解析。
+  覆盖字面私网/metadata IP、localhost、`.local`、单标签 docker 服务名（`llm-gateway` / `quota-api`）；
+  **不覆盖**解析到内网的多标签名（如 `x.internal`）——那类靠 save / Test 的全量门与离线盘点。
+- 判定按**存库 source**：只有不在平台白名单 `PLATFORM_PROVIDER_SOURCES` 里的 source
+  （`user` / 缺失 / 真正未知）才筛；`netmind_free` 与 `system` / `system_pool` 的内网网关卡不受影响
+  （见「（三）」）。local/desktop 永不拦。
+- 日志按 provider_id 只打一次（模块级集合），否则每次读配置都刷屏。
+- 测试 `_test_openai_provider` / `_test_anthropic_provider` 内改用 `self._unexpected_status`
+  （review M5）；staticmethod `_interpret_test_response` 里保留类名调用。
+- 测试：`tests/backend/test_provider_egress_gate.py` 读取路径 5 例（cloud 拒 / local 用 /
+  netmind_free 云端照用 / runtime builder 云端拒且不回显 / local 用）。
+
+## 2026-10-28 — 用户 base_url 的出网门（SSRF 整改）
+
+背景：10/28 入侵中，登录用户用 provider「测试连接」让服务端去打 `169.254.169.254`、
+`quota-api` / `llm-gateway` / `broker` / `litellm` 等内网目标。
+
+- `assert_user_base_url_allowed(base_url)` 是 provider 层**唯一**的门（save 路径 [[user_service]]
+  也调它），内部就是共享的 `url_safety.assert_public_http_url`，不另写检查器。**仅云端**
+  （沿用 MCP 存前筛的部署分流先例：桌面版用户合法指向 localhost 的 Ollama / LM Studio）；空 base_url = 官方默认
+  主机、非用户可控，不门。
+- `test_provider` 在**任何请求之前**按卡的 `source` 判定：只有非平台 source 过门（原为
+  `source == USER`，见「（三）」改为平台白名单）。平台卡
+  （netmind / netmind_free / yunwu / openrouter）的 base_url 是我们自己写的——free-tier 卡
+  本来就指向内网网关 `http://litellm:4000` / `http://llm-gateway:4000`，门它就把免费档打挂。
+  **刻意不用 `api_config._is_own_gateway_url` 给用户卡开白名单**：`_OWN_GATEWAY_HOSTS`
+  含 `localhost` / `127.0.0.1`，用户卡一旦按它放行就等于把回环 SSRF 放回来。所以用户卡
+  指向 `llm-gateway` 一律拒，平台卡靠 source 放行。
+- 任何判定失败（不安全 / 解析不了 / URL 畸形）都 fail closed，回固定文案
+  `UNSAFE_BASE_URL_MESSAGE`，**绝不回显解析出的内网 IP**（否则门本身成了内网 DNS 探针）。
+- httpx 四处调用显式 `follow_redirects=False`（httpx 默认也不跟，写明是为了别人改动时不误开）。
+- 不再把上游响应体 / 异常文本回给用户：未识别状态码走 `_unexpected_status` 只回
+  `HTTP <code> from the provider`，响应体前 200 字节进日志；异常只回
+  `Connection failed (could not reach the provider)`。`_interpret_test_response` 的
+  self-serviceable 分类结果是我们自己的词表，保留。
+- 未做（后续项）：连接 pinning 到已校验 IP——门只**缩小** DNS-rebinding 窗口，httpx 连接时
+  会重新解析。见 [[url_safety]]。
+- 测试：`tests/backend/test_provider_egress_gate.py`（含 netmind_free 内网网关卡照常可测 /
+  user 卡同 URL 被拒的对照）。
 
 ## 2026-07-31 — test_provider 对 OAuth fail closed
 

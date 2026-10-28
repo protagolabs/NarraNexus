@@ -143,3 +143,65 @@ def test_more_than_max_skills_per_repo_is_rejected_before_installing(module, mon
     # Exactly the cap is fine.
     _stub_clone(monkeypatch, {f"skills/s{i:03d}/SKILL.md": _skill_md(f"s{i:03d}") for i in range(cap)})
     assert len(module.install_from_github(URL)) == cap
+
+
+# ── clone argument hygiene: branch is user input on the git command line ──
+
+
+@pytest.mark.parametrize(
+    "branch",
+    [
+        "--upload-pack=touch /tmp/pwn",   # option injection
+        "-c",
+        "main dev",                        # whitespace
+        "main\tx",
+        "../../etc",                       # traversal
+        "feature/../main",
+        "main;rm -rf /",                   # outside the allowed alphabet
+        "$(id)",
+        "",
+    ],
+)
+def test_invalid_branch_rejected_before_git_runs(module, monkeypatch, tmp_path, branch):
+    def _must_not_run(cmd, **kwargs):
+        raise AssertionError(f"git must not run for branch {branch!r}: {cmd}")
+
+    monkeypatch.setattr(skill_module_mod.subprocess, "run", _must_not_run)
+
+    with pytest.raises(ValueError):
+        module.fetch_github_repo(URL, branch, tmp_path / "clone")
+
+
+@pytest.mark.parametrize("branch", ["main", "release/v1.2", "feat_x-1.0"])
+def test_valid_branch_is_passed_after_double_dash(module, monkeypatch, tmp_path, branch):
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        dest = Path(cmd[-1])
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "SKILL.md").write_text(_skill_md("ok-skill"), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(skill_module_mod.subprocess, "run", fake_run)
+
+    module.fetch_github_repo(URL, branch, tmp_path / "clone")
+
+    cmd = seen[0]
+    assert cmd[cmd.index("-b") + 1] == branch
+    # Positional args (url, dest) come after "--" so neither can be read as an option.
+    assert cmd[-3:] == ["--", URL, str(tmp_path / "clone")]
+
+
+def test_clone_failure_returns_generic_error_not_git_stderr(module, monkeypatch, tmp_path):
+    def failing_run(cmd, **kwargs):
+        raise subprocess.CalledProcessError(
+            128, cmd, stderr="fatal: unable to access 'https://10.0.0.9/': SECRET-STDERR"
+        )
+
+    monkeypatch.setattr(skill_module_mod.subprocess, "run", failing_run)
+
+    with pytest.raises(ValueError) as exc:
+        module.fetch_github_repo(URL, "main", tmp_path / "clone")
+    assert "SECRET-STDERR" not in str(exc.value)
+    assert "10.0.0.9" not in str(exc.value)

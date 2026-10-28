@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/schema/provider_schema.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `ProviderSource` 是安全判定字段，不再是「信息字段」
+
+PR#418 review I3：SSRF 出网闸口按**存库的** `source` 决定是否过门——`user`（以及缺失/未知值，fail closed）的
+base_url 是用户填的，云端在保存、Test、读取三处都要过门（`registry.assert_user_base_url_allowed` /
+`registry.is_stored_user_base_url_blocked`）；平台行（`netmind_free` 指向内网网关 `llm-gateway:4000`）不过门。
+旧 docstring 写着 "informational, not logic-driving"，与这条不变量正相反，已改为明示安全语义。
+
+- **触发**：为了统计/迁移批量重贴某行的 `source`（例如把自定义卡归到 `netmind`）→ **症状**：该卡的出网闸口
+  静默关闭，没有测试会红、没有日志会报 → **根因**：闸口只看 `source`，不看 base_url 指向哪里。
+  结论：**永远不要重贴一行的 source**。
+- **本枚举不是 `user_providers.source` 的全部取值**（PR#418 增量 review C1）：云端系统免费额度池存成
+  `system` / `system_pool`，没有成员。信任判定读 `registry.PLATFORM_PROVIDER_SOURCES`，不读枚举成员资格；
+  docstring 已写明。**刻意没补这两个成员**：补了之后这些行会第一次能被 `ProviderConfig` 装下、出现在
+  `get_user_config` / 设置页里（`owner_user_id=NULL` 语义是对所有人可见），是本 PR 范围外的可见性变更。
 
 ## 2026-09-10 — `SUBSCRIPTION_AUTH_TYPES` 回到本文件（唯一定义）
 

@@ -4,6 +4,13 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28 — from-url 云端只收 https + 默认端口
+
+host allowlist 只钉住「哪台主机」；`http://` 或 `:22` / `:8443` 落在白名单主机上照样能借
+这个端点探该主机的其他服务。云端现在在 allowlist 之后再要求 scheme 为 https、端口为空或
+443（`_scheme_and_port_allowed`；非法端口如 `:99999` 也拒），否则 400，下载前就拦。
+本地 / 桌面不加此限制：本地默认 allowlist 本来就为 `http://localhost:3001` 的 dev 网站
+服务。判定用 `settings.is_cloud_mode`，和 allowlist 的模式判定同源。
 ## 2026-10-28 — preflight 落盘用固定文件名
 
 `tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
@@ -156,6 +163,7 @@ review 页"的一键体验。
 |---|---|
 | URL host allowlist | SSRF(Capital One 类:把后端骗去访问 `169.254.169.254/...` 拿 IAM 凭证) |
 | 拒 redirect | 上游 302 → 内网/metadata IP 绕过 allowlist |
+| 云端只收 https + 443(2026-10-28) | 白名单主机上的其他端口/明文服务被借道探测 |
 | size cap(MAX_BUNDLE_BYTES = 500 MB) | 50 GB 文件填满磁盘 |
 | timeout 30s | hang server 占满连接池 |
 | optional sha256 | 上游服务器被攻破后投放替换包 / URL 写错指向旧版本 |
