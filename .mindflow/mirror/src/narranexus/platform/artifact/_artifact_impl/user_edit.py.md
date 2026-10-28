@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/user_edit.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 写入前先过属主限定
+
+`save_user_content` 与 `commit_office_user_edit` 原来 `os.path.join(base, file_path)` 直接
+写，完全没有范围限制：导入包塞进来的 `../` 指针能覆盖别人的文件，409 返回的
+current_hash 还能当探针。现在两处都先经 [[confinement]] 的 `confine_entry`，越界一律
+`ArtifactNotFound`（与路由 404 口径一致），之后才检查存在性和 hash。
 
 # user_edit.py — 用户编辑保存管线
 

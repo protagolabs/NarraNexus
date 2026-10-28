@@ -99,8 +99,47 @@ _TEAMS_DIRNAME = "teams"
 def _shared_base(base: Optional[str]) -> str:
     if base is None:
         from narranexus.platform.settings import settings
-        return settings.base_working_path
-    return base
+        base = settings.base_working_path
+    return os.path.realpath(base)  # platform-owned; the tenant tail stays lexical
+
+
+def refuse_symlinked_dir(path: "Path | str", *, label: str) -> None:
+    """Fail closed when a tenant-writable directory has been swapped for a link.
+
+    Every workspace / team folder sits inside the owner's bind mount, so the
+    owner can replace it with a symlink to another tenant's tree; any code
+    that then resolves paths "inside the workspace" would be inside the
+    victim's. Raises ValueError.
+    """
+    if os.path.islink(path):
+        raise ValueError(f"{label} is a symlink: {path}")
+
+
+def resolve_inside_workspace(workspace: "Path | str", candidate: "str | Path") -> Path:
+    """Resolve ``candidate`` and prove it sits inside ``workspace``.
+
+    The one sanctioned way for host-side code to turn an agent-supplied path
+    (relative to the workspace, or absolute) into a file it will read, copy,
+    send or watch. ``workspace`` is used LEXICALLY and must be built on a
+    realpath-ed base (``resolve_existing_workspace`` does that; otherwise pass
+    ``base=os.path.realpath(base)``): the tenant tail is inside the tenant's own
+    mount and may have been swapped for a symlink to another tenant's tree, so
+    resolving it would make the link target "the workspace". The candidate IS
+    resolved, so ``..``, an absolute path elsewhere, or a link anywhere on its
+    path lands outside the lexical root and fails closed.
+
+    Raises:
+        ValueError: the workspace is a symlink, or the candidate escapes it.
+            Callers wrap it in their own error type.
+    """
+    root = Path(os.path.abspath(workspace))  # normalise only; never follows links
+    refuse_symlinked_dir(root, label="agent workspace")
+    target = (root / candidate).resolve()  # an absolute candidate replaces root
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise ValueError(f"path escapes the agent workspace: {candidate}") from None
+    return target
 
 
 def user_shared_root(user_id: str, base: Optional[str] = None) -> Path:
@@ -185,7 +224,12 @@ def resolve_existing_workspace(
     if base is None:
         from narranexus.platform.settings import settings
         base = settings.base_working_path
-    root = Path(base)
+    # The base is platform-owned, so resolving it is safe; the per-tenant tail
+    # is appended LEXICALLY and never resolved — a tenant can turn its own
+    # workspace dir into a symlink, and resolving here would make the link's
+    # target "the workspace" (2026-10-28). Callers that realpath an entry can
+    # then compare it against this lexical root and fail closed.
+    root = Path(os.path.realpath(base))
     for rel in _candidate_relpaths(agent_id, user_id):
         p = root / rel
         if p.is_dir():

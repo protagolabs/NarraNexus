@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/raw_access.py
-last_verified: 2026-08-24
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 限定改为"属主根"而不是 base
+
+原来只检查 `artifact_root` 在 `base_working_path` 之下——那是所有租户的总根，一条指向
+别的用户目录的 `file_path` 照样通过。改为 [[confinement]] 的 `confine_entry`：entry 必须
+在该 agent 的 workspace 候选目录（当前 nested + legacy flat）内，团队 artifact 另加该 team
+的共享目录；**用户整根不在其中**（兄弟 agent 的文件同样 404）。后续的"单文件模式"和子路径
+限定不变；单文件模式判定用的容器根（workspace、team 目录）也改为字面路径（base 已
+realpath）——`confine_entry` 已拒绝链接根，这里再 realpath 只会和刚检查过的根口径不一致。
 
 ## 2026-08-24 (#349 M3) — `application/x-url` 也进渲染标记集
 

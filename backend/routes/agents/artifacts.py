@@ -43,6 +43,7 @@ from narranexus.platform.artifact import (
     ArtifactEditConflict,
     ArtifactError,
     ArtifactService,
+    ArtifactPathEscape,
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.settings import settings
@@ -462,7 +463,11 @@ async def upload_office_asset(
     if not art.file_path:
         raise HTTPException(410, "artifact has no entry file")
 
-    entry_dir = os.path.dirname(os.path.join(settings.base_working_path, art.file_path))
+    try:
+        entry_abs = ArtifactService(db).resolve_owned_entry(art)
+    except ArtifactPathEscape:
+        raise HTTPException(404, "artifact not found")
+    entry_dir = os.path.dirname(entry_abs)
     if not os.path.isdir(entry_dir):
         raise HTTPException(410, "entry directory is gone")
 

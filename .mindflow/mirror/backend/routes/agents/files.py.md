@@ -4,6 +4,17 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（复审后）— workspace 根字面化、拒绝符号链接、目录树上限
+
+- `_get_workspace_path` 对解析出的 workspace 目录做 `refuse_symlinked_dir`：租户能把自己的
+  workspace 目录换成指向别人目录的链接，`resolve()` 之后"在 workspace 内"就成了"在受害者
+  目录内"。链接一律 404，三个 handler 的宽 except 都显式放行 `HTTPException`。
+- `_resolve_within_workspace` 不再对 workspace 做 `resolve()`（根由
+  `resolve_existing_workspace` 以 realpath(base)+字面尾段给出），只解析候选文件；候选路径上
+  任何链接都会落到根外被拒。
+- 目录树加 `MAX_TREE_NODES=5000` / `MAX_TREE_DEPTH=16`，超限停止并在响应 `truncated=true`
+  里说明（事故里一次请求吐了 124MB，且一个文件很多的正常 workspace 也能拖垮后端）。
+
 ## 2026-10-28 — agent_id 段先确权，再碰磁盘（跨租户读事件）
 
 事件：外部账号用 `GET /api/agents/../files` 与 `files/raw?path=<user>/<agent>/…` 读走了

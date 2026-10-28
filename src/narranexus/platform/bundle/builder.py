@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
+from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+
 from narranexus.platform.bundle.team_bulletin_transfer import (
     collect_bulletin_for_export,
 )
@@ -939,7 +941,10 @@ async def build_bundle(
                         not selection.include_skill_secrets,
                     )
                     full_sha = await asyncio.to_thread(file_sha256, tgt_zip)
-                except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as e:
+                except (OSError, ValueError, zipfile.BadZipFile) as e:
+                    # ValueError covers a non-UTF-8 `.skill_meta.json`
+                    # (UnicodeDecodeError) and a skill dir swapped for a
+                    # symlink (`_zip_dir` refuses it) — both are one bad skill.
                     # Deliberately not `except Exception`: SensitiveZipDetected
                     # and friends are control flow and must keep propagating.
                     tgt_zip.unlink(missing_ok=True)
@@ -1367,6 +1372,9 @@ def _builtin_skill_relpaths(src: Path) -> set:
 def _pack_workspace_sync(
     src: Path, out: Path, excl_set: set, user_id: str = "", scrub_skill_secrets: bool = False
 ) -> Path:
+    # os.walk follows the TOP-LEVEL path even with followlinks=False: a
+    # workspace dir swapped for a symlink would pack another tenant's tree.
+    refuse_symlinked_dir(src, label="workspace")
     from narranexus.platform.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
 
     text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
@@ -1492,7 +1500,11 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     ``scrub_secrets=True`` (full_copy without include_skill_secrets): drop
     sensitive files (credentials.json / *_token* / .env …) and blank the
     ``env_config`` values inside ``.skill_meta.json``, so a full_copy skill does
-    not leak secrets when the exporter didn't opt in."""
+    not leak secrets when the exporter didn't opt in.
+
+    Raises ValueError when ``src`` itself is a symlink: ``os.walk`` follows the
+    top-level path even with ``followlinks=False``."""
+    refuse_symlinked_dir(src, label="skill directory")
     from narranexus.platform.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
 
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1500,6 +1512,10 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
             for fn in files:
                 full = Path(root) / fn
                 rel = full.relative_to(src)
+                if full.is_symlink():
+                    # Never follow a link into the archive: its target can be
+                    # anything the backend can read (2026-10-28).
+                    continue
                 if scrub_secrets:
                     if is_sensitive_path(str(rel).replace("\\", "/")):
                         continue

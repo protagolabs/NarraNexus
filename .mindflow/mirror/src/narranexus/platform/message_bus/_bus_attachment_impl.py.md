@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-09-13
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 工作区相对 ref 走 `resolve_inside_workspace`，workspace 根不再 resolve
+
+`_resolve_ref_to_source` 原来 `agent_workspace_path(...).resolve()` 再 `is_relative_to`：发送方
+把自己的 workspace 目录（在它自己的挂载里）换成指向别的租户 workspace 的链接后，`resolve()`
+让对方目录成了"自己的 workspace"，`ref` 指向的对方文件就被硬链/复制进本用户的 bus_files，
+再经消息投递读出来。现在根 = realpath(base) + 字面尾段，交给 [[workspace_paths]] 的
+`resolve_inside_workspace`（拒绝链接根、候选 realpath 后必须落在字面根内）；ValueError 在这里
+降级为"记 warning、该 ref 什么也不 stage"，与原来的越界处理一致。`att_` 句柄路径不受影响。
+测试：`test_attachment_staging.py::test_symlinked_sender_workspace_stages_nothing`。
 
 ## 2026-09-13（PR#401 review 🟡2 → 第八轮）— marker 改走 `file_marker`，所有值编码，落盘后缀清洗
 

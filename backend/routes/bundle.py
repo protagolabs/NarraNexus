@@ -208,7 +208,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
 async def import_preflight(file: UploadFile = File(...), request: Request = None):
     user_id = await _user_id_for_request(request)
     tmpdir = Path(tempfile.mkdtemp(prefix="nx-preflight-"))
-    bundle_path = tmpdir / (file.filename or "upload.nxbundle")
+    # FIXED name: the multipart filename is client-controlled and Starlette
+    # passes it through verbatim — "../x" or "/abs/path" would decide where
+    # the bytes land (and get unlinked afterwards). Same rule as marketplace.
+    bundle_path = tmpdir / "upload.nxbundle"
 
     try:
         contents = await file.read()

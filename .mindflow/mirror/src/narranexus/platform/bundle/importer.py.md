@@ -1,8 +1,31 @@
 ---
 code_file: src/narranexus/platform/bundle/importer.py
-last_verified: 2026-09-09
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（二审）— `artifacts.json` 行改写提成 `rewrite_artifact_row`
+
+导入循环里"校验 `file_path` → 前缀接收方 workspace → 清 session、置 pinned、去时间戳"整段
+提成模块级 `rewrite_artifact_row(new_ar, new_aid, user_id)`，调用点只剩一行，因此校验确实
+被调用这件事可以直接测（`..` → ValueError；正常路径 → 带 `{user}/{agent}/` 前缀）。
+ValueError 不在该段的 `except (OSError, JSONDecodeError)` 里——坏指针仍是终止整个导入，
+不是跳过一行。
+
+## 2026-10-28（复审后）— `copy_skill_into_agent` 提到模块级；tar 只解普通文件/目录
+
+闭包 `_copy_skill_to_agent` 的实体提成模块级 `copy_skill_into_agent(src, aid, user, name, base=)`，
+符号链接行为可直接测试；闭包只做转发。`_extract_tar_safely` 的手工过滤改为只放行
+`isfile()/isdir()`（原来只剔链接，FIFO/设备会被解出来），`filter="data"` 作第二道（剥 setuid）。
+
+## 2026-10-28 — 包内容是攻击者可控的：三处收口
+
+- `artifacts.json` 的 `file_path` 新增 `artifact_relpath_or_raise`：复用
+  `validate_zip_member_path`，`..`/绝对/反斜杠/NUL/空一律 ValueError 终止导入（原来只
+  `lstrip("/")`）。
+- `_copy_skill_to_agent` 改走模块级 `copy_skill_dir`（`copytree(symlinks=True)`）：不再把
+  克隆仓库里的符号链接解引用成 workspace 里的真实文件。
+- `_extract_tar_safely` 的 `extractall` 加 `filter="data"`，拒绝设备/FIFO 条目。
 
 ## 2026-09-09 — url 安装法只装 bundle 行点名的那个 skill（GitHub #95，复审 C4）
 
