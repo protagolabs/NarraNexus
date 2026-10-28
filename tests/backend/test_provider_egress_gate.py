@@ -327,3 +327,86 @@ async def test_saved_row_with_unknown_or_missing_source_is_gated_as_user(cloud, 
     assert ok is False
     assert "public" in msg.lower()
     assert fake_http.requests == []
+
+
+# ── read path: a STORED user card on an internal host is unusable (cloud) ───
+#
+# Rows saved before the save-time gate existed (2026-10-28 incident) must not
+# keep driving server-side requests. The read path uses the DNS-free screen
+# (`is_obviously_non_public_url`) — no resolution on the agent-loop hot path.
+
+
+def _slot(slot_name: str, provider_id: str, model: str = "m1") -> dict:
+    return {"user_id": "u1", "slot_name": slot_name, "provider_id": provider_id, "model": model}
+
+
+async def _seed_bound_row(source: str, protocol: str = "openai") -> FakeDB:
+    db = FakeDB()
+    row = _row("p1", source, "http://llm-gateway:4000/v1")
+    row["protocol"] = protocol
+    await db.insert("user_providers", row)
+    await db.insert("user_slots", _slot("agent", "p1"))
+    await db.insert("user_slots", _slot("helper_llm", "p1"))
+    return db
+
+
+@pytest.mark.asyncio
+async def test_cloud_read_path_marks_stored_internal_user_card_unusable(cloud, fake_http):
+    from narranexus.platform.agent_framework.providers.resolver import (
+        is_user_config_complete,
+    )
+
+    db = await _seed_bound_row("user")
+    cfg = await UserProviderService(db).get_user_config("u1")
+
+    assert cfg.providers["p1"].is_active is False  # still listed, so it can be deleted
+    assert is_user_config_complete(cfg) is False   # but never resolved for a run
+    assert fake_http.requests == []
+
+
+@pytest.mark.asyncio
+async def test_local_read_path_keeps_stored_internal_user_card(local, fake_http):
+    db = await _seed_bound_row("user")
+    cfg = await UserProviderService(db).get_user_config("u1")
+
+    assert cfg.providers["p1"].is_active is True
+
+
+@pytest.mark.asyncio
+async def test_cloud_read_path_keeps_platform_free_tier_card_on_internal_gateway(cloud, fake_http):
+    from narranexus.platform.agent_framework.providers.resolver import (
+        is_user_config_complete,
+    )
+
+    db = await _seed_bound_row("netmind_free")
+    cfg = await UserProviderService(db).get_user_config("u1")
+
+    assert cfg.providers["p1"].is_active is True
+    assert is_user_config_complete(cfg) is True
+
+
+@pytest.mark.asyncio
+async def test_cloud_runtime_builder_refuses_stored_internal_user_card(cloud, fake_http):
+    """The runtime builder reads user_providers by provider_id directly (and is
+    reached through per-agent overrides that `get_user_config` never sees), so
+    it must apply the same read-path screen."""
+    from narranexus.platform.agent_framework.api_config import LLMConfigNotConfigured
+    from narranexus.platform.agent_framework.providers.driver import (
+        resolve_user_runtime_llm_configs,
+    )
+
+    db = await _seed_bound_row("user", protocol="anthropic")
+    with pytest.raises(LLMConfigNotConfigured) as exc:
+        await resolve_user_runtime_llm_configs("u1", db)
+    assert "llm-gateway" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_local_runtime_builder_keeps_stored_internal_user_card(local, fake_http):
+    from narranexus.platform.agent_framework.providers.driver import (
+        resolve_user_runtime_llm_configs,
+    )
+
+    db = await _seed_bound_row("user", protocol="anthropic")
+    cfgs = await resolve_user_runtime_llm_configs("u1", db)
+    assert cfgs.claude.base_url == "http://llm-gateway:4000/v1"

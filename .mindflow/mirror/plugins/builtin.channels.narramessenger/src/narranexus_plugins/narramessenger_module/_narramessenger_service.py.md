@@ -4,6 +4,16 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（二）— `_is_allowed_target` 改调共享包装；3xx 记日志
+
+- PR#418 review I1：`_is_allowed_target` 不再自己判 `is_cloud_mode()`，改调
+  `url_safety.assert_public_http_url_in_cloud`（部署感知只在 [[url_safety]] 一处），本层只保留
+  「任何异常 → 记日志 + 返回 False」的约定；local 下包装直接放行，行为不变。
+- review M6：`_get_text` 遇到 3xx（重定向一律不跟）时 `logger.warning` 记**状态码**，否则调用方把
+  空串映射成「Bind token not found or expired」，上游一旦加 301 跳转，排查方向会被带偏。
+  **只记状态码，绝不记 / 回显 `Location`**（上游可控内容，等于把反射面从 body 挪到 header）。
+  测试 `test_refused_redirect_is_logged_by_status_without_location`。
+
 ## 2026-10-28 — bind 时的出网门（SSRF 整改）
 
 `do_bind` 有两个服务端抓取目标都受攻击者影响：用户粘贴的 bind 链接的 host（正则只限定

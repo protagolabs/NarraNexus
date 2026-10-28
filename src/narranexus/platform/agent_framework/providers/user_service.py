@@ -45,6 +45,9 @@ from narranexus.platform.schema.provider_schema import (
     SlotConfig,
     SlotName,
 )
+from narranexus.platform.agent_framework.providers.registry import (
+    is_stored_user_base_url_blocked,
+)
 from narranexus.platform.agent_framework.providers.framework_binding import (
     framework_can_drive_provider,
     get_slot_required_protocols,
@@ -258,6 +261,13 @@ class UserProviderService:
             )
             raw_models = json.loads(row["models"]) if row.get("models") else []
             stored_models = effective_card_models(row.get("source"), raw_models)
+            # Read-path egress screen (cloud, USER rows, DNS-free): a stored
+            # custom card on an internal host stays LISTED (so the user can
+            # delete it) but inactive, which every consumer — completeness
+            # check, slot validation, resolver classify — treats as unusable.
+            is_active = bool(row.get("is_active", 1)) and not is_stored_user_base_url_blocked(
+                row.get("source"), row.get("base_url", ""), row["provider_id"]
+            )
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],
@@ -268,7 +278,7 @@ class UserProviderService:
                 base_url=row.get("base_url", ""),
                 models=stored_models,
                 linked_group=row.get("linked_group", ""),
-                is_active=bool(row.get("is_active", 1)),
+                is_active=is_active,
                 supports_anthropic_server_tools=bool(_server_tools),
             )
             providers[prov.provider_id] = prov

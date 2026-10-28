@@ -4,6 +4,19 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（二）— cloud 分支改调共享包装，本地策略不动
+
+PR#418 review I1：`validate_base_url` 的 cloud 分支改调 `url_safety.assert_public_http_url_in_cloud`
+（部署感知判定只在 [[url_safety]] 一处），失败仍翻译成本层的 `HAError(_CLOUD_PUBLIC_ONLY)`。
+**local 分支的 `_assert_not_link_local` 刻意不并入**：本地 HA 合法在私网，只拒 link-local，
+是另一种策略；并进包装会把局域网 HA 一起拒掉。所以本文件仍自己按 `is_cloud_mode()` 分流。
+
+- **触发**：测试只 patch `ha_client.is_cloud_mode` → **症状**：走了 cloud 分支但包装按 env 判成
+  local，内网 host 被放行 → **根因**：cloud 判定实际由包装再做一次。HA 测试已改为
+  `monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", ...)`，两处判定读同一个 env。
+- 未做（review M2/M3，留后续）：`PUT /binding` 保存时不校验 base_url（请求时每次都过门，无 SSRF）；
+  每次请求都重新解析 DNS。
+
 ## 2026-10-28 — 自写的 URL 检查换成共享出网门；DNS 失败改为拒
 
 - 旧 `validate_base_url` 自己 `socket.getaddrinfo` 判段，且 **DNS 失败直接放行**（注释写着

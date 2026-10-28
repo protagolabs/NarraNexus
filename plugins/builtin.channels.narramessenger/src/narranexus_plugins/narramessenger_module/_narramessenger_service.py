@@ -31,7 +31,7 @@ that endpoint directly with the stored bearer.
 Egress gate (cloud): the bind link is pasted by the user and the homeserver URL
 is scraped from whatever that link's host serves, so BOTH are attacker-
 influenced server-side fetch targets. Before any request the link's base URL
-passes the shared ``assert_public_http_url`` gate, and the parsed homeserver
+passes the shared ``assert_public_http_url_in_cloud`` gate, and the parsed homeserver
 passes it before ``runtime-ready`` completes the remote bind or anything is
 persisted. Redirects are never followed (a public host could 302 into the
 cluster). Local/desktop skips the gate (single trusted user).
@@ -50,8 +50,7 @@ from typing import Any, Optional, Tuple
 import aiohttp
 from loguru import logger
 
-from narranexus.platform.utils.deployment_mode import is_cloud_mode
-from narranexus.platform.utils.url_safety import assert_public_http_url
+from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
 
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -170,10 +169,8 @@ async def _is_allowed_target(url: str) -> bool:
     closed. The reason goes to the log only; callers return a generic message
     so the gate never becomes an oracle for the internal network.
     """
-    if not is_cloud_mode():
-        return True
     try:
-        await assert_public_http_url(url)
+        await assert_public_http_url_in_cloud(url)
     except Exception as e:  # noqa: BLE001 — any decision failure fails closed
         logger.warning(f"[narramessenger] bind target refused by egress gate ({type(e).__name__}): {e}")
         return False
@@ -184,6 +181,11 @@ async def _get_text(session: aiohttp.ClientSession, url: str) -> str:
     async with session.get(url, allow_redirects=False) as resp:
         if 200 <= resp.status < 300:
             return await resp.text()
+        if 300 <= resp.status < 400:
+            # Redirects are refused, and the caller maps "" to "token not found";
+            # log the status so an upstream redirect is not misread as a bad
+            # token. Never log or surface Location (upstream-controlled).
+            logger.warning(f"[narramessenger] bind GET refused a {resp.status} redirect")
         return ""
 
 

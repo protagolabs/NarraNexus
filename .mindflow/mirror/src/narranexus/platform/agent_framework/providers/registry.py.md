@@ -4,6 +4,28 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（二）— review 收口：共享包装 + 读取路径筛
+
+- `assert_user_base_url_allowed` 退化为「空 base_url 直接放行 + 调
+  `url_safety.assert_public_http_url_in_cloud`」：部署判定不再在本文件里（review I1）。
+- 新增 `is_stored_user_base_url_blocked(source, base_url, provider_id)`（review I2）：**已存库**的
+  user 卡（10/28 前存下、没过 save 门的行）在读取路径上的筛。两个调用方：
+  [[user_service]] `get_user_config`（命中则卡照常列出、但 `is_active=False`，用户还能看见并删除，
+  completeness / 绑定校验 / resolver classify 都当它不可用）与 [[driver/resolver]]
+  `resolve_user_runtime_llm_configs`（命中则 `LLMConfigNotConfigured`，不回显 base_url）。
+  后者必须单独加：它按 provider_id 直接读行，per-agent override（`agent_slots`）走到它时
+  根本不经过 `get_user_config`。
+- **只用 DNS-free 的 `is_obviously_non_public_url`**：它在 agent loop 热路径上，每轮都跑，不能解析。
+  覆盖字面私网/metadata IP、localhost、`.local`、单标签 docker 服务名（`llm-gateway` / `quota-api`）；
+  **不覆盖**解析到内网的多标签名（如 `x.internal`）——那类靠 save / Test 的全量门与离线盘点。
+- 判定照旧按**存库 source**：只有 USER（缺失/未知 source 也算 USER，fail closed）被筛；
+  `netmind_free` 的内网网关卡不受影响。local/desktop 永不拦。
+- 日志按 provider_id 只打一次（模块级集合），否则每次读配置都刷屏。
+- 测试 `_test_openai_provider` / `_test_anthropic_provider` 内改用 `self._unexpected_status`
+  （review M5）；staticmethod `_interpret_test_response` 里保留类名调用。
+- 测试：`tests/backend/test_provider_egress_gate.py` 读取路径 5 例（cloud 拒 / local 用 /
+  netmind_free 云端照用 / runtime builder 云端拒且不回显 / local 用）。
+
 ## 2026-10-28 — 用户 base_url 的出网门（SSRF 整改）
 
 背景：10/28 入侵中，登录用户用 provider「测试连接」让服务端去打 `169.254.169.254`、
@@ -11,7 +33,7 @@ stub: false
 
 - `assert_user_base_url_allowed(base_url)` 是 provider 层**唯一**的门（save 路径 [[user_service]]
   也调它），内部就是共享的 `url_safety.assert_public_http_url`，不另写检查器。**仅云端**
-  （铁律 #7：桌面版用户合法指向 localhost 的 Ollama / LM Studio）；空 base_url = 官方默认
+  （沿用 MCP 存前筛的部署分流先例：桌面版用户合法指向 localhost 的 Ollama / LM Studio）；空 base_url = 官方默认
   主机、非用户可控，不门。
 - `test_provider` 在**任何请求之前**按卡的 `source` 判定：只有 `source == USER` 过门。平台卡
   （netmind / netmind_free / yunwu / openrouter）的 base_url 是我们自己写的——free-tier 卡

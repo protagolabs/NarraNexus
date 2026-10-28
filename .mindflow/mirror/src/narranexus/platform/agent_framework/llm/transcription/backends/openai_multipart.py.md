@@ -4,6 +4,16 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28 (II) — the cloud check moved into the shared wrapper
+
+PR#418 review I1: the inline `if is_cloud_mode(): assert_public_http_url(url)`
+now calls `url_safety.assert_public_http_url_in_cloud(url)`, the single place
+that decides "cloud enforces, local allows". This backend keeps only its own
+failure contract — a refusal still returns `None` (the service tries the next
+candidate) and logs the reason — and it still gates the FULL assembled
+`.../audio/transcriptions` URL, not the bare base (do not "unify" it to the
+base: that would change which scheme/port `urlparse` judges).
+
 ## 2026-10-28 — Egress gate before posting (cloud)
 
 The resolver can hand this backend a custom openai card's `base_url` — user-

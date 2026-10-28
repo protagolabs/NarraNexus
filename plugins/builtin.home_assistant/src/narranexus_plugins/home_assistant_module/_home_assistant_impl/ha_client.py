@@ -14,9 +14,9 @@ SSRF note: the user supplies `base_url`, so the backend makes an outbound
 request to a user-controlled host. Validation is DEPLOYMENT-AWARE:
 - Cloud (agent.narra.nexus): the backend container shares a network with the
   metadata endpoint, broker / mcp / llm-gateway and every other internal
-  service. Every request first passes the shared egress gate
-  (`url_safety.assert_public_http_url`): the host must resolve, and only to
-  public addresses — a DNS failure is a reject, not a pass. Cloud users bring a
+  service. Every request first passes the shared deployment-aware egress
+  gate (`url_safety.assert_public_http_url_in_cloud`): the host must resolve,
+  and only to public addresses — a DNS failure is a reject, not a pass. Cloud users bring a
   PUBLIC HA (Nabu Casa etc.).
 - Local/desktop: a real HA lives on the LAN (192.168.x / homeassistant.local),
   so private ranges stay allowed; the host is still resolved and any
@@ -39,7 +39,7 @@ import aiohttp
 from loguru import logger
 
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
-from narranexus.platform.utils.url_safety import assert_public_http_url
+from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
 
 _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=8)
 # Cloud metadata service — never a legitimate HA host; refuse to dial it.
@@ -108,7 +108,7 @@ async def validate_base_url(base_url: str) -> str:
     normalized = _check_url_shape(base_url)
     if is_cloud_mode():
         try:
-            await assert_public_http_url(normalized)
+            await assert_public_http_url_in_cloud(normalized)
         except Exception as e:  # noqa: BLE001 — any decision failure fails closed
             logger.warning(f"HA base_url refused by egress gate ({type(e).__name__}): {e}")
             raise HAError(_CLOUD_PUBLIC_ONLY) from e

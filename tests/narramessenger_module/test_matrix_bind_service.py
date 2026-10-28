@@ -473,6 +473,23 @@ async def test_bind_http_helpers_do_not_follow_redirects():
 
 
 @pytest.mark.asyncio
+async def test_refused_redirect_is_logged_by_status_without_location():
+    """An upstream redirect collapses to "" (→ "token not found" for the user);
+    the log must say it was a redirect so on-call is not sent after the token."""
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        await svc._get_text(_RecordingSession(status=301), "https://api.netmind.chat/t/setup-guide.md")
+    finally:
+        logger.remove(sink_id)
+
+    assert any("301" in m and "redirect" in m for m in messages)
+    assert not any("REDIRECT-TARGET-BODY" in m for m in messages)
+
+
+@pytest.mark.asyncio
 async def test_local_mode_skips_the_bind_gate(
     stub_db, fake_manager, guide_scripts, monkeypatch
 ):

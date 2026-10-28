@@ -4,6 +4,23 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（二）— 读取路径筛：已存 user 卡指向内网 → 不可用（云端）
+
+PR#418 review I2：save / Test 有门，但 10/28 之前存下的 `source=user` 行仍可能指向
+`http://llm-gateway:4000` / `quota-api` 等。`get_user_config` 组装 `ProviderConfig` 时对每行调
+[[registry]] 的 `is_stored_user_base_url_blocked`（仅云端、仅 USER 行——缺失/未知 source 也算 USER、
+DNS-free `is_obviously_non_public_url`、日志按 provider_id 只打一次），命中则 **`is_active=False`**：
+
+- **选「标记不可用」而不是「跳过」**：跳过会让卡从设置页消失，用户删不掉也看不见原因；
+  inactive 则被 `is_user_config_complete`（→ resolver classify 判 NO_PROVIDER）、`validate`、
+  绑定校验统一当成不可用。
+- 本函数**不是** agent loop 的唯一读取口：真正构建运行配置的
+  [[driver/resolver]] `resolve_user_runtime_llm_configs` 按 provider_id 直接读行，per-agent
+  override 也不经过这里，所以那边同样调了这道筛（命中抛 `LLMConfigNotConfigured`）。
+- 热路径上不做 DNS；解析到内网的多标签名不在本筛覆盖范围，靠 save / Test 的全量门。
+- `netmind_free` 等平台卡（base_url 本就是内网网关）不受影响；local/desktop 永不拦。
+- 测试：`tests/backend/test_provider_egress_gate.py` 读取路径组。
+
 ## 2026-10-28 — 出网门：save 时拦 + 保存行测试按**存储的 source** 判定
 
 - `add_provider` 的自定义卡（`anthropic` / `openai`，source=user）在落库前过

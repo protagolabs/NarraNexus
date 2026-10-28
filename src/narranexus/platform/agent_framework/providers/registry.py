@@ -42,8 +42,11 @@ from narranexus.platform.agent_framework.providers.framework_binding import (
     SLOT_REQUIRED_PROTOCOLS,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
-from narranexus.platform.utils.deployment_mode import is_cloud_mode
-from narranexus.platform.utils.url_safety import assert_public_http_url
+from narranexus.platform.utils import deployment_mode
+from narranexus.platform.utils.url_safety import (
+    assert_public_http_url_in_cloud,
+    is_obviously_non_public_url,
+)
 
 
 # Shown to the user whenever a user-supplied base_url fails the egress gate.
@@ -57,10 +60,10 @@ UNSAFE_BASE_URL_MESSAGE = (
 async def assert_user_base_url_allowed(base_url: str) -> None:
     """SSRF egress gate for a USER-supplied provider base_url.
 
-    Cloud only: the backend shares a network with the metadata endpoint and
-    every internal service, so a user's custom endpoint must resolve to public
-    addresses (shared ``assert_public_http_url``). Local/desktop is a single
-    trusted user who legitimately points at localhost (Ollama, LM Studio).
+    Cloud only, decided by the shared deployment-aware wrapper
+    ``assert_public_http_url_in_cloud`` (the backend shares a network with the
+    metadata endpoint and every internal service; local/desktop is a single
+    trusted user who legitimately points at localhost — Ollama, LM Studio).
     An empty base_url means "provider default" (hard-coded official hosts),
     not user-controlled, so it is not gated.
 
@@ -68,9 +71,53 @@ async def assert_user_base_url_allowed(base_url: str) -> None:
     an unparseable URL — when the URL is refused. Callers fail closed on any
     exception.
     """
-    if not base_url or not is_cloud_mode():
+    if not base_url:
         return
-    await assert_public_http_url(base_url)
+    await assert_public_http_url_in_cloud(base_url)
+
+
+# provider_ids already reported by the read-path screen; the screen runs on
+# every config read, so one warning per offending card is enough.
+_REPORTED_BLOCKED_PROVIDER_IDS: set[str] = set()
+
+
+def is_stored_user_base_url_blocked(
+    source: Optional[str], base_url: Optional[str], provider_id: str = ""
+) -> bool:
+    """Read-path egress screen for a STORED provider row (cloud only).
+
+    The save path and the Test button run the full DNS-resolving gate, but rows
+    saved before that gate existed can still point at an internal host and
+    would keep driving server-side requests from the agent loop / helper LLM.
+    This screen runs where a stored row becomes usable config, so it must be
+    cheap: DNS-free ``is_obviously_non_public_url`` (literal private/metadata
+    IPs, localhost, ``.local``, single-label docker service names such as
+    ``llm-gateway``). It narrows the legacy-row gap; it is not a substitute
+    for the save-time gate.
+
+    Decided by the STORED source, like the Test path: only USER rows (missing
+    or unknown source counts as USER — fail closed) are screened; platform rows
+    (``netmind_free`` on our internal gateway) are trusted. An empty base_url
+    means "provider default", not user-controlled. Local/desktop never blocks.
+    """
+    if not base_url or not deployment_mode.is_cloud_mode():
+        return False
+    try:
+        parsed_source = ProviderSource(source or ProviderSource.USER.value)
+    except ValueError:
+        parsed_source = ProviderSource.USER
+    if parsed_source != ProviderSource.USER:
+        return False
+    if not is_obviously_non_public_url(base_url):
+        return False
+    if provider_id not in _REPORTED_BLOCKED_PROVIDER_IDS:
+        _REPORTED_BLOCKED_PROVIDER_IDS.add(provider_id)
+        logger.warning(
+            f"[providers] stored user card {provider_id!r} has a non-public "
+            f"base_url; treated as unusable in cloud (delete and re-add it "
+            f"with a public endpoint)"
+        )
+    return True
 
 
 # =============================================================================
@@ -682,7 +729,7 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return ProviderRegistry._unexpected_status(resp)
+                return self._unexpected_status(resp)
         else:
             # Non-official: minimal chat completion with a real model name
             test_model = provider.models[0] if provider.models else "test"
@@ -723,7 +770,7 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return ProviderRegistry._unexpected_status(resp)
+                return self._unexpected_status(resp)
         else:
             # Non-official: minimal messages request with a real model name
             test_model = provider.models[0] if provider.models else "test"

@@ -38,8 +38,7 @@ from narranexus.platform.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )
-from narranexus.platform.utils.deployment_mode import is_cloud_mode
-from narranexus.platform.utils.url_safety import assert_public_http_url
+from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
 
 
 # Whisper hard limit; second-line guard since backend max_upload_bytes
@@ -112,22 +111,22 @@ class OpenAIMultipartBackend(TranscriptionBackend):
 
         url = f"{cred.base_url.rstrip('/')}/audio/transcriptions"
 
-        # SSRF egress gate (cloud only). The resolver can hand us a custom
+        # SSRF egress gate (cloud only, via the shared deployment-aware
+        # wrapper; gates the FULL assembled URL, not the base). The resolver can hand us a custom
         # openai card's base_url — user-controlled — and a 200 body becomes the
         # transcript that lands in the agent's context. No candidate this
         # backend serves legitimately points inside our network (the free-tier
         # card goes through the gateway backend), so every credential is gated.
         # A refusal is "this candidate can't transcribe" (None → the service
         # tries the next one), never a 500.
-        if is_cloud_mode():
-            try:
-                await assert_public_http_url(url)
-            except Exception as e:  # noqa: BLE001 — any decision failure fails closed
-                logger.warning(
-                    f"openai_multipart via {cred.source_tag}: base_url refused by "
-                    f"egress gate ({type(e).__name__}): {e}"
-                )
-                return None
+        try:
+            await assert_public_http_url_in_cloud(url)
+        except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+            logger.warning(
+                f"openai_multipart via {cred.source_tag}: base_url refused by "
+                f"egress gate ({type(e).__name__}): {e}"
+            )
+            return None
 
         data = {"model": cred.model, "response_format": "text"}
         if language:

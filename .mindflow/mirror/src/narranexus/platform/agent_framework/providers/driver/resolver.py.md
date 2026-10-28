@@ -1,8 +1,20 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/resolver.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #418 review I2）— 运行配置构建前的出网筛
+
+本函数按 provider_id **直接**读 `user_providers` 行（per-agent override 指向的卡也从这里进，
+不经过 `UserProviderService.get_user_config`），所以 is_active 检查之后再调
+[[registry]] 的 `is_stored_user_base_url_blocked`：云端、USER 行（缺失/未知 source 算 USER）、
+base_url 明显非公网（DNS-free）→ 抛 `LLMConfigNotConfigured`，调用方已有的友好报错路径接住；
+文案**不回显 base_url**。平台卡（`netmind_free` 的内网网关）与 local 不受影响。
+
+- **触发**：只在 `get_user_config` 加筛 → **症状**：user_slots 绑定的坏卡被拦，但某个 agent 的
+  `agent_slots` override 指向同一张卡时 agent loop 照样向内网发请求 → **根因**：resolver
+  classify 只看 user 级 slot，override 叠加只发生在本函数里。
 
 ## 2026-09-10（PR #394 review I3）— `_apply_agent_overrides` 用共享判据
 

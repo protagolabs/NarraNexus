@@ -82,7 +82,7 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
     # user-supplied private/loopback host is an SSRF vector — reject it.
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     for internal in ("http://127.0.0.1:8123", "http://192.168.1.10:8123", "http://10.0.0.5:8000"):
         with pytest.raises(HAError):
             _validate(internal)
@@ -93,7 +93,7 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
 def test_validate_base_url_local_allows_lan(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     assert _validate("http://192.168.1.10:8123") == "http://192.168.1.10:8123"
 
 
@@ -101,7 +101,7 @@ def test_validate_base_url_cloud_rejects_docker_service_name(monkeypatch):
     """A docker-network name (broker / quota-api) resolves internal → refused."""
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
 
     def _resolve(host, port, *_a, **_k):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.20.0.9", port or 0))]
@@ -116,7 +116,7 @@ def test_validate_base_url_cloud_dns_failure_rejects(monkeypatch):
     """DNS failure used to PASS the guard; it must reject (fail closed)."""
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
 
     def _fail(*_a, **_k):
         raise socket.gaierror("Name or service not known")
@@ -180,7 +180,7 @@ class _FakeHASessions:
 def test_cloud_internal_host_refused_before_any_request(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     fake = _FakeHASessions()
     fake.install(monkeypatch, hc)
 
@@ -193,7 +193,7 @@ def test_cloud_internal_host_refused_before_any_request(monkeypatch):
 def test_cloud_public_host_requests_without_following_redirects(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     fake = _FakeHASessions()
     fake.install(monkeypatch, hc)
 
@@ -205,7 +205,7 @@ def test_cloud_public_host_requests_without_following_redirects(monkeypatch):
 def test_redirect_is_not_followed_and_reported_generically(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     fake = _FakeHASessions()
     fake.response = _FakeHAResponse(status=302)
     fake.install(monkeypatch, hc)
@@ -221,7 +221,7 @@ def test_network_error_text_is_not_echoed(monkeypatch):
 
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     fake = _FakeHASessions()
     fake.raise_exc = aiohttp.ClientError("connect to 10.1.2.3:8123 refused SECRET-DETAIL")
     fake.install(monkeypatch, hc)
@@ -246,7 +246,7 @@ def _call_test_route(monkeypatch, base_url):
 def test_test_route_returns_generic_error_for_internal_host(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     fake = _FakeHASessions()
     fake.install(monkeypatch, hc)
 
@@ -259,7 +259,7 @@ def test_test_route_returns_generic_error_for_internal_host(monkeypatch):
 def test_test_route_never_echoes_unexpected_exception_text(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
 
     async def _boom(self):
         raise RuntimeError("internal traceback detail SECRET-XYZ")
@@ -413,7 +413,7 @@ def test_verify_route_never_echoes_unexpected_exception_text(monkeypatch):
 def test_local_mode_refuses_literal_link_local(monkeypatch, url):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     with pytest.raises(HAError):
         _validate(url)
 
@@ -431,7 +431,7 @@ def test_local_mode_refuses_names_resolving_link_local(monkeypatch, url):
     any link-local answer — spellings that slip past a literal-only check."""
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
 
     def _resolve(host, port, *_a, **_k):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port or 0))]
@@ -444,7 +444,7 @@ def test_local_mode_refuses_names_resolving_link_local(monkeypatch, url):
 def test_local_mode_lan_name_resolving_private_still_allowed(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
 
     def _resolve(host, port, *_a, **_k):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", port or 0))]
