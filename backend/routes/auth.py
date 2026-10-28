@@ -75,7 +75,8 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._client_ip import client_ip
-from backend.routes._rate_limiter import SlidingWindowRateLimiter
+from backend.routes._email_policy import is_blocked_email
+from backend.routes._rate_limiter import SlidingWindowRateLimiter, env_limit
 from narranexus.platform.agent_profile import apply_agent_profile_change
 from narranexus.platform.utils.deployment_mode import is_power_login_enabled
 from narranexus.platform.utils import is_valid_timezone
@@ -182,13 +183,118 @@ def _get_netmind_auth_client():
 # ---------------------------------------------------------------------------
 
 # One code request per email per 60s — the same beat as the UI countdown, so a
-# well-behaved client never trips it. Keyed by email rather than IP: the abuse
-# we care about is one mailbox being flooded, and NAT would make IP both too
-# coarse and too easy to rotate around.
+# well-behaved client never trips it. This bucket protects ONE mailbox from
+# being flooded; on its own it is no protection for the mail channel itself,
+# because a caller rotating to a fresh address per request never hits it
+# (2026-10-28). The per-IP buckets below close that.
 _signup_code_limiter = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
 # A far looser ceiling on account creation attempts per email, so a wrong code
 # can be retried a few times without opening a brute-force window on it.
 _signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
+
+# Per-client-IP buckets (``client_ip`` — the same edge-appended XFF entry the
+# funnel-report buckets use). They cap what ONE source can spend no matter how
+# many addresses it rotates through: send-code mail (minute + hour, so a burst
+# and a slow drip are both bounded) and signup (two hour buckets: a loose one
+# charged for EVERY attempt and never refunded, and a tight one charged only
+# for accounts actually created). Evaluated BEFORE the per-email bucket: the IP
+# key is trusted and bounded, the email key is caller-chosen, so per-IP in
+# front is what caps per-email key allocation (same invariant as
+# funnel-report). On signup the never-refunded attempt bucket is what makes
+# that cap real — the creation bucket refunds every failed attempt, so on its
+# own it would let a caller with a junk code send unlimited requests (and
+# unlimited upstream register calls) from one IP.
+# Defaults are sized for an office / event NAT where a room of real people
+# shares one egress; env-tunable beyond that. These buckets are defence in
+# depth, not a closed loop: NetMind's own signup is public, so the login-time
+# free-credit gate (_free_credit_withheld) is the backstop for the blocklist.
+DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE = 10
+DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR = 60
+DEFAULT_SIGNUP_PER_IP_PER_HOUR = 20
+DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = 60
+SIGNUP_CODE_PER_IP_PER_MINUTE = env_limit(
+    "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE", DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
+)
+SIGNUP_CODE_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_HOUR", DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR
+)
+SIGNUP_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR", DEFAULT_SIGNUP_PER_IP_PER_HOUR
+)
+SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR",
+    DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR,
+)
+_signup_code_ip_minute_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_CODE_PER_IP_PER_MINUTE, window_sec=60.0
+)
+_signup_code_ip_hour_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_CODE_PER_IP_PER_HOUR, window_sec=3600.0
+)
+_signup_ip_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_PER_IP_PER_HOUR, window_sec=3600.0
+)
+_signup_attempt_ip_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_ATTEMPTS_PER_IP_PER_HOUR, window_sec=3600.0
+)
+
+# /api/auth/netmind-login is unauthenticated too, and every request costs one
+# upstream verify_token call — an invalid token included. A loose per-IP hour
+# bucket, charged for every request and never refunded, keeps one source from
+# turning us into an amplifier against NetMind's auth API. Loose because a
+# real user logs in a handful of times a day and a whole office / event NAT
+# shares one egress; env-tunable like the signup buckets.
+DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR = 120
+NETMIND_LOGIN_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_NETMIND_LOGIN_PER_IP_PER_HOUR",
+    DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR,
+)
+_netmind_login_ip_limiter = SlidingWindowRateLimiter(
+    limit=NETMIND_LOGIN_PER_IP_PER_HOUR, window_sec=3600.0
+)
+
+# Neutral on purpose: naming the rule ("disposable") tells a prober exactly
+# which domains to swap to.
+_BLOCKED_EMAIL_DETAIL = (
+    "This email address can't be used to sign up. Please use a different one."
+)
+
+
+def _rate_limited(limiter: SlidingWindowRateLimiter, key: str, detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail=detail,
+        headers={"Retry-After": str(limiter.retry_after(key))},
+    )
+
+
+def _enforce_ip_buckets(
+    limiters: Iterable[SlidingWindowRateLimiter],
+    ip: str,
+    route: str,
+    *,
+    funnel: str = "signup-funnel",
+) -> None:
+    """Raise 429 (with Retry-After) on the first per-IP bucket that refuses.
+
+    Short-circuits: a request the narrower bucket refuses never spends the
+    wider one's budget. The reverse does not hold: when the hour bucket
+    rejects, the minute bucket was already charged for that request.
+    ``funnel`` is the log tag, so a refusal lands in the same grep as the
+    rest of that route's funnel lines.
+    """
+    for limiter in limiters:
+        if not limiter.allow(ip):
+            logger.info(f"[{funnel}] {route} rate-limited ip={ip}")
+            raise _rate_limited(
+                limiter, ip, "Too many requests. Please try again later."
+            )
+
+
+def _refuse_blocked_email(email: str, route: str) -> None:
+    if is_blocked_email(email):
+        logger.info(f"[signup-funnel] {route} blocked-domain email={email}")
+        raise HTTPException(status_code=400, detail=_BLOCKED_EMAIL_DETAIL)
 
 
 class SendSignupCodeRequest(BaseModel):
@@ -212,8 +318,12 @@ def _register_client():
 
 
 @router.post("/signup/send-code")
-async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
-    """Email a 6-digit registration code."""
+async def send_signup_code(payload: SendSignupCodeRequest, request: Request) -> dict:
+    """Email a 6-digit registration code.
+
+    Gate order: blocked domain (spends nothing) -> per-IP minute/hour ->
+    per-email -> upstream.
+    """
     from backend.integrations.netmind.netmind_register_client import (
         RegistrationError,
         RegistrationUpstreamError,
@@ -221,13 +331,20 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
 
     client = _register_client()
     email = payload.email.strip().lower()
+    _refuse_blocked_email(email, "send-code")
+    _enforce_ip_buckets(
+        (_signup_code_ip_minute_limiter, _signup_code_ip_hour_limiter),
+        client_ip(request),
+        "send-code",
+    )
     if not _signup_code_limiter.allow(email):
         # Logged, not just refused: seventeen 400s with zero server-side
         # trace is how the 2026-08-01 funnel post-mortem went blind.
         logger.info(f"[signup-funnel] send-code rate-limited email={email}")
-        raise HTTPException(
-            status_code=429,
-            detail="A code was just sent. Please wait a minute before retrying.",
+        raise _rate_limited(
+            _signup_code_limiter,
+            email,
+            "A code was just sent. Please wait a minute before retrying.",
         )
     try:
         await client.send_code(email)
@@ -243,7 +360,7 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
 
 
 @router.post("/signup")
-async def register_account(payload: SignupRequest) -> dict:
+async def register_account(payload: SignupRequest, request: Request) -> dict:
     """Create a NetMind account from our own signup form.
 
     Deliberately does NOT log the user in. The page holds the credentials it
@@ -259,6 +376,7 @@ async def register_account(payload: SignupRequest) -> dict:
 
     client = _register_client()
     email = payload.email.strip().lower()
+    _refuse_blocked_email(email, "signup")
 
     # Re-checked server-side: the UI validates the same rules for feedback, but
     # that is a convenience, not a guarantee.
@@ -268,21 +386,46 @@ async def register_account(payload: SignupRequest) -> dict:
         logger.info(f"[signup-funnel] policy reject email={email}: {policy_error}")
         raise HTTPException(status_code=400, detail=policy_error)
 
-    if not _signup_attempt_limiter.allow(email):
-        logger.info(f"[signup-funnel] signup rate-limited email={email}")
-        raise HTTPException(
-            status_code=429, detail="Too many attempts. Please try again later."
-        )
+    # Per-IP after the policy check: a rejected weak password spends nothing
+    # upstream, so it must not burn a shared network's hourly allowance.
+    # Two buckets, attempt bucket FIRST (the check short-circuits, so a request
+    # it refuses never reserves a creation hit that nothing would refund):
+    # - _signup_attempt_ip_limiter is charged for every attempt and NEVER
+    #   refunded — it is the per-IP ceiling on requests (and upstream calls);
+    # - _signup_ip_limiter is a shared network's budget for CREATED accounts:
+    #   the hit is reserved here (so parallel attempts cannot all slip past one
+    #   check) and refunded unless an account was actually created. A wrong
+    #   code, an "already registered", an upstream 502 or the per-email 429
+    #   below creates nothing; brute force on the code is the per-email
+    #   bucket's job.
+    ip = client_ip(request)
+    _enforce_ip_buckets(
+        (_signup_attempt_ip_limiter, _signup_ip_limiter), ip, "signup"
+    )
+    created = False
     try:
-        await client.register(email, payload.password, payload.verify_code.strip())
-    except RegistrationError as e:
-        # The refusal detail is already logged at the source (_post).
-        raise HTTPException(status_code=400, detail=str(e))
-    except RegistrationUpstreamError as e:
-        logger.error(f"[signup-funnel] register upstream failure email={email}: {e}")
-        raise HTTPException(
-            status_code=502, detail="Sign-up service unavailable, try again"
-        )
+        if not _signup_attempt_limiter.allow(email):
+            logger.info(f"[signup-funnel] signup rate-limited email={email}")
+            raise _rate_limited(
+                _signup_attempt_limiter, email, "Too many attempts. Please try again later."
+            )
+        try:
+            await client.register(email, payload.password, payload.verify_code.strip())
+        except RegistrationError as e:
+            # The refusal detail is already logged at the source (_post).
+            raise HTTPException(status_code=400, detail=str(e))
+        except RegistrationUpstreamError as e:
+            logger.error(f"[signup-funnel] register upstream failure email={email}: {e}")
+            raise HTTPException(
+                status_code=502, detail="Sign-up service unavailable, try again"
+            )
+        created = True
+    finally:
+        # Also covers cancellation (client disconnect mid-call). Only the
+        # creation bucket is refunded; refunding the attempt bucket would
+        # remove the per-IP ceiling on failed attempts.
+        if not created:
+            _signup_ip_limiter.refund(ip)
     return {"success": True}
 
 
@@ -404,7 +547,30 @@ async def report_funnel_event(payload: FunnelReportRequest, request: Request) ->
     return {"success": True}
 
 
-async def _provision_providers(user_id: str, netmind_token: str) -> None:
+def _free_credit_withheld(user_id: str, email: str) -> bool:
+    """Whether this login must NOT receive the free-tier wallet and guide agent.
+
+    The signup routes refuse throwaway domains, but they are not the only way
+    in: NetMind's own signup is public (its auth URL ships in /config.js), and
+    the free credit is handed out HERE, at login. So the blocklist is applied
+    again at the point the credit is spent. The user still logs in and keeps
+    their own NetMind card — they just get nothing free. Logs the domain only,
+    stricter than the signup funnel (which logs the full address to trace one
+    rejected attempt), because this check runs on EVERY login, not only on
+    refused signups.
+    """
+    if not is_blocked_email(email):
+        return False
+    domain = email.rsplit("@", 1)[1].strip().lower()
+    logger.warning(
+        f"[login] free credit withheld: blocked email domain={domain} user={user_id}"
+    )
+    return True
+
+
+async def _provision_providers(
+    user_id: str, netmind_token: str, *, free_tier: bool = True
+) -> None:
     """Register the user's provider cards — free tier first, then their own.
 
     The ORDER is the point; see the call site for the race it closes. Kept as a
@@ -413,27 +579,32 @@ async def _provision_providers(user_id: str, netmind_token: str) -> None:
 
     Each step is independently non-fatal: a wallet-service outage must not stop
     the user's own NetMind card from being registered, and vice versa.
+    ``free_tier=False`` (see :func:`_free_credit_withheld`) skips the wallet
+    entirely — no wallet-service call at all — and only registers their own.
     """
-    from backend.integrations.free_tier import provisioner as free_tier
+    from backend.integrations.free_tier import provisioner as free_tier_mod
     from backend.integrations.netmind import netmind_provisioner as netmind
 
-    try:
-        await free_tier.ensure_free_tier_provider(user_id)
-    except Exception as e:  # noqa: BLE001 — retried on the next login
-        logger.warning(f"[login] free-tier provisioning failed for {user_id}: {e!r}")
+    if free_tier:
+        try:
+            await free_tier_mod.ensure_free_tier_provider(user_id)
+        except Exception as e:  # noqa: BLE001 — retried on the next login
+            logger.warning(f"[login] free-tier provisioning failed for {user_id}: {e!r}")
     try:
         await netmind.ensure_netmind_provider(user_id, netmind_token)
     except Exception as e:  # noqa: BLE001 — same
         logger.warning(f"[login] netmind provisioning failed for {user_id}: {e!r}")
 
 
-def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
+def _schedule_provider_provisioning(
+    user_id: str, netmind_token: str, *, free_tier: bool = True
+) -> None:
     """Run :func:`_provision_providers` off the login path."""
     import asyncio
 
     try:
         task = asyncio.get_running_loop().create_task(
-            _provision_providers(user_id, netmind_token)
+            _provision_providers(user_id, netmind_token, free_tier=free_tier)
         )
     except RuntimeError:
         return  # no loop (not the request path) — nothing to schedule
@@ -522,6 +693,14 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
+
+    # Before the upstream call: a refused request costs NetMind nothing.
+    _enforce_ip_buckets(
+        (_netmind_login_ip_limiter,),
+        client_ip(http_request),
+        "netmind-login",
+        funnel="login-funnel",
+    )
 
     try:
         netmind_user = await _get_netmind_auth_client().verify_token(
@@ -623,12 +802,19 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     # works. A fresh Power account has no credit, and an existing funded one is
     # unaffected — the NetMind provisioner still registers-only when it finds a
     # complete config, which after chaining it actually does.
-    _schedule_provider_provisioning(user.user_id, request.netmind_token)
+    #
+    # A blocked (throwaway) email domain gets neither the wallet nor the guide
+    # agent below — see _free_credit_withheld for why this gate lives at login.
+    free_credit = not _free_credit_withheld(user.user_id, netmind_user.email or "")
+    _schedule_provider_provisioning(
+        user.user_id, request.netmind_token, free_tier=free_credit
+    )
 
     # Onboarding guide agent — new users and existing zero-agent users get
     # their first companion. Behind the suspended-account gate above, so a
     # suspended login never provisions anything.
-    _schedule_guide_agent_provisioning(user.user_id, is_new=is_new)
+    if free_credit:
+        _schedule_guide_agent_provisioning(user.user_id, is_new=is_new)
 
     return NetmindLoginResponse(
         success=True,
@@ -636,7 +822,9 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         token=token,
         role=role,
         is_new_user=is_new,
-        guide_agent_provisioning=_guide_agent_feature_on(),
+        # Same gate as the scheduling above: the coachmark must not promise a
+        # guide agent that a withheld login will never get.
+        guide_agent_provisioning=free_credit and _guide_agent_feature_on(),
         display_name=user.display_name,
         email=user.email,
     )

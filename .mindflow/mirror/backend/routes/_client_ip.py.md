@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/_client_ip.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
 
@@ -51,7 +51,8 @@ precedent).
 
 ## Upstream / downstream
 
-- Used by: `backend/routes/auth.py` (funnel report limiter),
+- Used by: `backend/routes/auth.py` (funnel report limiter; signup,
+  send-code and netmind-login per-IP buckets),
   `backend/routes/channels/generic.py` (anonymous webhook IP limiter).
 - Tests: `tests/backend/test_auth_funnel_observability.py` (hop parsing and
   counting-from-the-right), `tests/backend/test_channel_webhook_middleware.py`
