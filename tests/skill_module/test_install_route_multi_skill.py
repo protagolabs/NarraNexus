@@ -27,10 +27,10 @@ def _client(monkeypatch, results):
         async def install_from_github(self, url, branch="main"):
             return results
 
-    async def _user(_request):
+    async def _user(_request, _agent_id):
         return "u1"
 
-    monkeypatch.setattr(skills_routes, "current_user_id", _user)
+    monkeypatch.setattr(skills_routes, "require_workspace_agent_owner", _user)
     monkeypatch.setattr(skills_routes, "_get_skill_module", lambda agent_id, user_id: object())
     import narranexus.platform.marketplace as marketplace
 
@@ -81,10 +81,10 @@ def test_repo_level_value_error_is_still_a_400(monkeypatch):
         async def install_from_github(self, url, branch="main"):
             raise ValueError("Invalid skill: no SKILL.md found in https://github.com/acme/mixed (branch main)")
 
-    async def _user(_request):
+    async def _user(_request, _agent_id):
         return "u1"
 
-    monkeypatch.setattr(skills_routes, "current_user_id", _user)
+    monkeypatch.setattr(skills_routes, "require_workspace_agent_owner", _user)
     monkeypatch.setattr(skills_routes, "_get_skill_module", lambda agent_id, user_id: object())
     import narranexus.platform.marketplace as marketplace
 

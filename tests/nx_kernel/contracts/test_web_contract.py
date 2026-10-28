@@ -39,6 +39,7 @@ def test_the_surface_is_exactly_what_a_router_needs():
         "decode_session_token",
         "auth_error",
         "require_agent_owner",
+        "require_workspace_agent_owner",
         "check_agent_owner",
         "resolve_viewer",
         "agent_visible",
@@ -53,7 +54,13 @@ def test_ownership_is_request_scoped_not_user_id_scoped():
     # The local/cloud identity difference is encapsulated in the host
     # middleware; a seam that took a pre-extracted user_id would force every
     # plugin to reimplement it (and local mode's deliberate no-enforcement).
-    for name in ("require_agent_owner", "check_agent_owner", "current_user_id", "resolve_viewer"):
+    for name in (
+        "require_agent_owner",
+        "require_workspace_agent_owner",
+        "check_agent_owner",
+        "current_user_id",
+        "resolve_viewer",
+    ):
         assert list(inspect.signature(getattr(WebHost, name)).parameters)[1] == "request"
 
 

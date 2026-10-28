@@ -28,8 +28,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
+from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema import (
     FileInfo,
     FileListResponse,
@@ -47,7 +47,11 @@ router = APIRouter()
 
 
 def _get_workspace_path(agent_id: str, user_id: str) -> str:
-    """Get Agent-User workspace path (current layout, legacy-flat fallback)."""
+    """Get Agent-User workspace path (current layout, legacy-flat fallback).
+
+    Only call with an ``agent_id`` that passed
+    :func:`backend.routes._ownership.require_owned_workspace_agent`.
+    """
     from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
     return str(resolve_existing_workspace(agent_id, user_id))
 
@@ -157,8 +161,9 @@ async def list_workspace_files(
     Identity comes from auth_middleware (JWT in cloud, X-User-Id header in
     local); the URL no longer accepts a ``user_id`` param to avoid the
     cross-account-leak class of bug (a client could otherwise list any
-    other user's workspace tree by changing the query string)."""
-    user_id = await resolve_current_user_id(request)
+    other user's workspace tree by changing the query string). The
+    ``agent_id`` segment is proven owned by that identity first."""
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.debug(f"Listing workspace tree for agent: {agent_id}, user: {user_id}")
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
@@ -185,7 +190,7 @@ async def fetch_workspace_file(
     Identity comes from auth_middleware, not the URL — see the listing
     endpoint above for the rationale.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
     target = _resolve_within_workspace(workspace, path)
     if not target.is_file():
@@ -204,7 +209,7 @@ async def upload_file(
 
     Identity comes from auth_middleware, not the URL.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.info(f"Uploading file '{file.filename}' for agent: {agent_id}, user: {user_id}")
     try:
         safe_filename = sanitize_filename(file.filename or "", label="filename")
@@ -249,7 +254,7 @@ async def delete_file(
 
     Identity comes from auth_middleware, not the URL.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))

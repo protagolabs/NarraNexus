@@ -41,10 +41,12 @@ def format_artifact_lines(
     EXPLICIT pairing (review #334 I11): the state block attaches per-artifact
     markers to these lines, and a positional zip would silently misalign the
     moment any kind ever renders two lines — the id travels with its line."""
+    # No user → no own-workspace prefix can match (the relpath helpers refuse
+    # an empty id since 2026-10-28), so every artifact renders by absolute path.
     workspace_prefixes = (
-        f"{agent_workspace_relpath(agent_id, user_id or '')}/",
-        f"{agent_id}_{user_id or ''}/",  # legacy flat layout
-    )
+        f"{agent_workspace_relpath(agent_id, user_id)}/",
+        f"{agent_id}_{user_id}/",  # legacy flat layout
+    ) if user_id else ()
     base = os.path.realpath(settings.base_working_path)
 
     lines: List[Tuple[str, str]] = []

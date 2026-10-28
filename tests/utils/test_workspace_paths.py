@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import narranexus.platform.utils.workspace_paths as wp
 
 
@@ -141,3 +142,37 @@ def test_resolve_file_missing_returns_direct(tmp_path, monkeypatch):
     monkeypatch.setattr(wp, "_LAYOUT", "nested")
     got = wp.resolve_workspace_relative_file("u/agent_x/nope.html", "agent_x", "u", str(tmp_path))
     assert got == tmp_path / "u/agent_x/nope.html"
+
+
+# --- 2026-10-28: id segments can never escape the base dir ---------------------
+
+@pytest.mark.parametrize("bad", ["", ".", "..", "...", "..;", ".hidden", "a/b", "a\\b", "a\x00b", "../x"])
+def test_agent_id_segment_rejected(bad, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath(bad, "user")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_path(bad, "user", base="/base")
+    with pytest.raises(ValueError):
+        wp.resolve_existing_workspace(bad, "user", base="/base")
+
+
+@pytest.mark.parametrize("bad", ["", "..", "x/y", ".dot"])
+def test_user_and_team_id_segments_rejected(bad):
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath("agent_x", bad)
+    with pytest.raises(ValueError):
+        wp.user_shared_root(bad, base="/base")
+    with pytest.raises(ValueError):
+        wp.team_shared_dir("user", bad, base="/base")
+
+
+def test_flat_layout_also_rejects_escaping_ids(monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "flat")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath("../x", "user")
+
+
+def test_legacy_shaped_ids_still_accepted():
+    # Real rows on disk: user ids with spaces, agent ids like agent_a_abb17376.
+    assert wp.agent_workspace_relpath("agent_a_abb17376", "Shan Zhang") == "Shan Zhang/agent_a_abb17376"

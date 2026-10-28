@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 安装侧与删除侧用同一道名字栅栏
+
+落盘目录名在 `sanitize_filename` 之后再过 `safe_id_segment`：删除/禁用/启用侧（skill_module）
+拒绝点开头的名字，若安装侧放行，点开头的 skill 就会"装得进、删不掉"。`.disabled` 是
+skills_dir 下的容器目录、不是 skill 名，不经过这里。
 
 ## 2026-09-10（PR #388 round-2 M2）— 逐 skill 失败文本带类名并封顶
 

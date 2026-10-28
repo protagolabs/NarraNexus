@@ -25,8 +25,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
+from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema.attachment_schema import (
     derive_category_from_mime,
 )
@@ -87,8 +87,9 @@ async def upload_attachment(
     file: UploadFile = File(..., description="File to upload as a chat attachment"),
 ):
     """Upload a single file to be referenced by an upcoming chat message.
-    Identity comes from auth_middleware (X-User-Id / JWT)."""
-    user_id = await resolve_current_user_id(request)
+    Identity comes from auth_middleware (X-User-Id / JWT); the agent
+    segment is proven owned by that identity before anything is written."""
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.info(
         f"Uploading attachment '{file.filename}' agent={agent_id} user={user_id}"
     )
@@ -197,7 +198,7 @@ async def get_attachment_raw(
     uses, so a bad / orphaned file_id returns 404 instead of escaping
     the workspace.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     path = resolve_attachment_path(agent_id, user_id, file_id)
     if path is None:
         return JSONResponse(
