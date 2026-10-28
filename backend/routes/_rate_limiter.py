@@ -10,8 +10,9 @@ design doc TDR-6 + security critic M-5.
 
 Also the one limiter behind every per-key bucket on the unauthenticated auth
 routes (signup / send-code / funnel-report) and the anonymous channel webhook;
-``env_limit`` is the shared parser for operator-tunable limits and
-``retry_after`` feeds the 429 ``Retry-After`` header.
+``env_limit`` is the shared parser for operator-tunable limits,
+``retry_after`` feeds the 429 ``Retry-After`` header, and ``refund`` returns
+a reserved hit when the guarded action did not happen.
 
 Multi-worker deployments: this is process-local; each worker enforces its
 own limit. Real-world accepted given current single-process dev + Tauri
@@ -107,6 +108,22 @@ class SlidingWindowRateLimiter:
         if not dq:
             return max(1, math.ceil(self._window))
         return max(1, math.ceil(dq[0] + self._window - monotonic()))
+
+    def refund(self, key: str) -> None:
+        """Hand back one hit previously granted by ``allow(key)``.
+
+        For a caller that reserves a slot BEFORE an outcome is known and keeps
+        it only on success (signup charges a created account, not an attempt).
+        Reserve-then-refund, rather than check-then-record, keeps the limit
+        exact under concurrency: an in-flight attempt holds its slot, so N
+        parallel requests cannot all pass a check that none has recorded yet.
+        Pops the NEWEST hit: in-window hits are interchangeable for the count,
+        and the only drift is that the remaining hits may expire up to one
+        in-flight duration sooner. A key with no state is a no-op.
+        """
+        dq = self._deques.get(key)
+        if dq:
+            dq.pop()
 
     def _cleanup(self) -> None:
         now = monotonic()

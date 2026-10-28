@@ -11,21 +11,32 @@ These tests pin the closures:
 
   1. per-client-IP sliding-window buckets on send-code (minute + hour) and
      on signup (hour), keyed by the shared ``client_ip`` helper — the N+1th
-     request from one IP is 429 with Retry-After while another IP passes,
+     request from one IP is 429 with Retry-After while another IP passes.
+     The signup bucket only keeps a hit for an account actually created: a
+     wrong code, an "already registered", an upstream 502 or a per-email 429
+     hands the hit back, so failures cannot lock a shared office out,
   2. the per-email limits still apply on top,
   3. throwaway-mailbox domains (and their subdomains) are refused with a
      neutral 400 BEFORE any bucket is spent or any upstream call is made,
-  4. the per-IP numbers are env-configurable with forgiving parsing.
+  4. the per-IP numbers are env-configurable with forgiving parsing,
+  5. a blocked-domain account created directly at NetMind (the auth API URL
+     is public) still logs in, but gets no free-tier wallet and no
+     onboarding guide agent.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.routes.auth as auth_mod
+from backend.integrations.netmind.netmind_auth_client import NetmindUser
+from backend.integrations.netmind.netmind_register_client import (
+    RegistrationError,
+    RegistrationUpstreamError,
+)
 from backend.routes._rate_limiter import SlidingWindowRateLimiter, env_limit
 
 GOOD_PW = "Aa1!aaaa"
@@ -36,6 +47,12 @@ def _xff(ip: str) -> dict:
     # client -> caddy -> nginx -> backend: the edge-appended entry is 2nd
     # from the right (TRUSTED_PROXY_HOPS default).
     return {"X-Forwarded-For": f"{ip}, {PROXY_HOP}"}
+
+
+# The SHIPPED limits, independent of whatever a developer's env sets.
+CODE_PER_MINUTE = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
+CODE_PER_HOUR = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR
+SIGNUP_PER_HOUR = auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR
 
 
 def _fresh(limit: int, window: float) -> SlidingWindowRateLimiter:
@@ -50,16 +67,13 @@ def client(monkeypatch):
     monkeypatch.setattr(auth_mod, "_signup_code_limiter", _fresh(1, 60.0))
     monkeypatch.setattr(auth_mod, "_signup_attempt_limiter", _fresh(10, 600.0))
     monkeypatch.setattr(
-        auth_mod, "_signup_code_ip_minute_limiter",
-        _fresh(auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE, 60.0),
+        auth_mod, "_signup_code_ip_minute_limiter", _fresh(CODE_PER_MINUTE, 60.0)
     )
     monkeypatch.setattr(
-        auth_mod, "_signup_code_ip_hour_limiter",
-        _fresh(auth_mod.SIGNUP_CODE_PER_IP_PER_HOUR, 3600.0),
+        auth_mod, "_signup_code_ip_hour_limiter", _fresh(CODE_PER_HOUR, 3600.0)
     )
     monkeypatch.setattr(
-        auth_mod, "_signup_ip_limiter",
-        _fresh(auth_mod.SIGNUP_PER_IP_PER_HOUR, 3600.0),
+        auth_mod, "_signup_ip_limiter", _fresh(SIGNUP_PER_HOUR, 3600.0)
     )
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
@@ -92,9 +106,21 @@ def _signup(client, email, ip):
 # ── shipped defaults ───────────────────────────────────────────────────────
 
 def test_shipped_defaults():
-    assert auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE == 5
-    assert auth_mod.SIGNUP_CODE_PER_IP_PER_HOUR == 30
-    assert auth_mod.SIGNUP_PER_IP_PER_HOUR == 5
+    """The defaults handed to ``env_limit`` — never the env-resolved values, so
+    a developer's own env cannot turn this red. Sized for an office / event
+    NAT: a room of real people sharing one egress must fit."""
+    assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE == 10
+    assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR == 60
+    assert auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR == 20
+
+
+def test_unset_env_resolves_to_the_shipped_defaults(monkeypatch):
+    for name in ("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
+                 "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_HOUR",
+                 "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR"):
+        monkeypatch.delenv(name, raising=False)
+    assert env_limit("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
+                     auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE) == 10
 
 
 # ── 1. per-IP buckets ──────────────────────────────────────────────────────
@@ -102,7 +128,7 @@ def test_shipped_defaults():
 def test_send_code_per_ip_minute_bucket_rotating_emails(client, upstream):
     """A fresh email per request used to be unlimited: one IP could aim our
     mail channel at any number of mailboxes."""
-    limit = auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE
+    limit = CODE_PER_MINUTE
     for i in range(limit):
         assert _send_code(client, f"victim{i}@example.com", "51.0.0.7").status_code == 200
     r = _send_code(client, "victim-next@example.com", "51.0.0.7")
@@ -117,7 +143,7 @@ def test_send_code_per_ip_minute_bucket_rotating_emails(client, upstream):
 def test_send_code_per_ip_hour_bucket(client, upstream, monkeypatch):
     # Neutralise the minute bucket so the hour bucket is what is under test.
     monkeypatch.setattr(auth_mod, "_signup_code_ip_minute_limiter", _fresh(10_000, 60.0))
-    limit = auth_mod.SIGNUP_CODE_PER_IP_PER_HOUR
+    limit = CODE_PER_HOUR
     for i in range(limit):
         assert _send_code(client, f"v{i}@example.com", "51.0.0.7").status_code == 200
     r = _send_code(client, "v-next@example.com", "51.0.0.7")
@@ -128,7 +154,7 @@ def test_send_code_per_ip_hour_bucket(client, upstream, monkeypatch):
 
 def test_send_code_ip_is_the_edge_entry_not_the_forged_first_hop(client, upstream):
     """Rotating a forged leading XFF entry must not mint a new bucket."""
-    limit = auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE
+    limit = CODE_PER_MINUTE
     for i in range(limit):
         r = client.post(
             "/api/auth/signup/send-code",
@@ -154,7 +180,7 @@ def test_send_code_per_email_limit_still_applies(client, upstream):
 def test_send_code_per_ip_rejection_allocates_no_email_keys(client, upstream):
     """Per-IP runs before the caller-keyed per-email bucket: a flood rejected
     by per-IP must not grow the per-email key space."""
-    limit = auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE
+    limit = CODE_PER_MINUTE
     for i in range(limit):
         _send_code(client, f"warm{i}@example.com", "51.0.0.7")
     keys_before = len(auth_mod._signup_code_limiter._deques)
@@ -164,7 +190,7 @@ def test_send_code_per_ip_rejection_allocates_no_email_keys(client, upstream):
 
 
 def test_signup_per_ip_hour_bucket(client, upstream):
-    limit = auth_mod.SIGNUP_PER_IP_PER_HOUR
+    limit = SIGNUP_PER_HOUR
     for i in range(limit):
         assert _signup(client, f"new{i}@example.com", "51.0.0.7").status_code == 200
     r = _signup(client, "new-next@example.com", "51.0.0.7")
@@ -183,10 +209,51 @@ def test_signup_per_email_limit_still_applies(client, upstream, monkeypatch):
     assert "Retry-After" in r.headers
 
 
+def _assert_full_ip_budget_left(client, ip):
+    """Exactly SIGNUP_PER_HOUR fresh signups from ``ip`` succeed, then 429 —
+    i.e. nothing earlier was charged to this IP."""
+    for i in range(SIGNUP_PER_HOUR):
+        assert _signup(client, f"later{i}@example.com", ip).status_code == 200, i
+    assert _signup(client, "later-next@example.com", ip).status_code == 429
+
+
+@pytest.mark.parametrize("failure,status", [
+    (RegistrationError("Invalid verification code"), 400),
+    (RegistrationError("Email already registered"), 400),
+    (RegistrationUpstreamError("NetMind 503"), 502),
+])
+def test_failed_signup_does_not_spend_the_ip_bucket(client, upstream, failure, status):
+    """The per-IP signup bucket is a shared office's budget for CREATING
+    accounts. A mistyped code, a re-register or a NetMind outage creates
+    nothing, so it must hand its hit back — code brute force is the per-email
+    bucket's job."""
+    upstream.side_effect = failure
+    for i in range(SIGNUP_PER_HOUR + 3):
+        assert _signup(client, f"fail{i}@example.com", "51.0.0.7").status_code == status
+    upstream.side_effect = None
+    _assert_full_ip_budget_left(client, "51.0.0.7")
+
+
+def test_per_email_429_does_not_spend_the_ip_bucket(client, upstream, monkeypatch):
+    monkeypatch.setattr(auth_mod, "_signup_attempt_limiter", _fresh(0, 600.0))
+    for _ in range(SIGNUP_PER_HOUR + 3):
+        assert _signup(client, "same@example.com", "51.0.0.7").status_code == 429
+    upstream.assert_not_awaited()
+    monkeypatch.setattr(auth_mod, "_signup_attempt_limiter", _fresh(10_000, 600.0))
+    _assert_full_ip_budget_left(client, "51.0.0.7")
+
+
+def test_signup_blocked_domain_does_not_spend_the_ip_bucket(client, upstream):
+    for _ in range(SIGNUP_PER_HOUR + 3):
+        assert _signup(client, "x@mailinator.com", "51.0.0.7").status_code == 400
+    upstream.assert_not_awaited()
+    _assert_full_ip_budget_left(client, "51.0.0.7")
+
+
 def test_weak_password_does_not_spend_the_ip_bucket(client, upstream):
     """Policy rejects spend nothing upstream, so they must not lock a real
     user's network out of signup for an hour."""
-    for _ in range(auth_mod.SIGNUP_PER_IP_PER_HOUR + 2):
+    for _ in range(SIGNUP_PER_HOUR + 2):
         r = client.post(
             "/api/auth/signup",
             json={"email": "a@example.com", "password": "weak", "verify_code": "1"},
@@ -220,7 +287,7 @@ def test_signup_refuses_disposable_domains(client, upstream):
 
 
 def test_blocked_domain_spends_no_bucket(client, upstream):
-    for _ in range(auth_mod.SIGNUP_CODE_PER_IP_PER_MINUTE + 3):
+    for _ in range(CODE_PER_MINUTE + 3):
         assert _send_code(client, "x@mailinator.com", "51.0.0.7").status_code == 400
     assert _send_code(client, "real@example.com", "51.0.0.7").status_code == 200
 
@@ -260,3 +327,90 @@ def test_retry_after_counts_down_from_the_oldest_hit(monkeypatch):
     assert lim.allow("k") is False
     assert lim.retry_after("k") == 40  # ceil(60 - 20.5)
     assert SlidingWindowRateLimiter(limit=0, window_sec=60.0).retry_after("x") == 60
+
+
+def test_refund_hands_back_one_granted_hit():
+    lim = SlidingWindowRateLimiter(limit=2, window_sec=60.0)
+    assert lim.allow("k") and lim.allow("k")
+    assert lim.allow("k") is False
+    lim.refund("k")
+    assert lim.allow("k") is True
+    assert lim.allow("k") is False
+    lim.refund("never-seen")  # no state: a no-op, never an error
+
+
+# ── 5. login-time provisioning (NetMind-direct registration bypass) ────────
+
+_LOGIN_CODE = "b" * 32
+
+
+@pytest.mark.parametrize("email,eligible", [
+    ("bulk@mailinator.com", False),
+    ("bulk@eu.yopmail.com", False),   # subdomain of a listed domain
+    ("bulk@example.com", True),
+])
+def test_login_withholds_free_credit_from_blocked_domains(
+    db_client, monkeypatch, email, eligible
+):
+    """send-code / signup refuse throwaway domains, but NetMind's own signup
+    is public (its auth URL ships in /config.js), and the free wallet and the
+    onboarding guide agent are provisioned at LOGIN. The blocked user still
+    gets in — they just get no free credit."""
+    import backend.integrations.free_tier.provisioner as free_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_mod
+    import backend.onboarding.provisioning as ob_pkg
+    from narranexus.platform.utils.db import db_factory
+
+    async def _db():
+        return db_client
+
+    monkeypatch.setattr(auth_mod, "get_db_client", _db)
+    monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: True)
+
+    class _Verifier:
+        async def verify_token(self, token):
+            return NetmindUser(user_system_code=_LOGIN_CODE, email=email, nickname="B")
+
+    monkeypatch.setattr(auth_mod, "_get_netmind_auth_client", lambda: _Verifier())
+
+    # The REAL free-tier provisioner runs; only its wallet service and its
+    # dedup read are stubbed, so "no wallet call" is observed at the wallet.
+    wallet = MagicMock()
+    wallet.provision = AsyncMock(side_effect=RuntimeError("wallet reached"))
+    monkeypatch.setattr(free_mod, "is_free_tier_enabled", lambda: True)
+    monkeypatch.setattr(
+        free_mod.WalletClient, "from_settings", classmethod(lambda cls: wallet)
+    )
+    dedup_db = MagicMock()
+    dedup_db.get_one = AsyncMock(return_value=None)
+    monkeypatch.setattr(db_factory, "get_db_client", AsyncMock(return_value=dedup_db))
+    free_mod._locks.clear()
+
+    own_card: list[str] = []
+
+    async def _netmind(user_id, token, **_kw):
+        own_card.append(user_id)
+
+    monkeypatch.setattr(nm_mod, "ensure_netmind_provider", _netmind)
+
+    monkeypatch.setenv("NARRANEXUS_ONBOARDING_GUIDE_AGENT", "1")
+    guide: list[str] = []
+
+    async def _guide(db, user_id, *, is_new_user=False):
+        guide.append(user_id)
+
+    monkeypatch.setattr(ob_pkg, "ensure_guide_agent", _guide)
+
+    app = FastAPI()
+    app.include_router(auth_mod.router, prefix="/api/auth")
+    with TestClient(app) as client:  # keeps the loop alive for the tasks
+        resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
+
+    assert resp.status_code == 200
+    assert resp.json()["user_id"] == _LOGIN_CODE
+    assert wallet.provision.await_count == (1 if eligible else 0)
+    assert guide == ([_LOGIN_CODE] if eligible else [])
+    # The frontend coachmark must not promise a guide that will never come.
+    assert resp.json()["guide_agent_provisioning"] is eligible
+    # Their OWN NetMind card is theirs to use either way.
+    assert own_card == [_LOGIN_CODE]

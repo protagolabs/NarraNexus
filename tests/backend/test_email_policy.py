@@ -31,6 +31,18 @@ def test_list_is_explicit_and_normalised():
     ("a@maxxspace.com", True),
     ("a@nimail.cn", True),
     ("a@cc.cd", True),
+    ("a@guerrillamail.net", True),
+    ("a@guerrillamail.org", True),
+    ("a@guerrillamail.biz", True),
+    ("a@grr.la", True),
+    ("a@guerrillamailblock.com", True),
+    ("a@10minutemail.net", True),
+    ("a@temp-mail.io", True),
+    # Long-lived alias / forwarding services front real, durable inboxes —
+    # deliberately NOT listed.
+    ("a@33mail.com", False),
+    ("a@spamgourmet.com", False),
+    ("a@burnermail.io", False),
     ("a@gmail.com", False),
     ("a@mailinator.com.evil.org", False),  # listed name as a LEFT label
     ("a@notyopmail.com", False),

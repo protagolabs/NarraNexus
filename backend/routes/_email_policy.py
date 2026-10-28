@@ -6,13 +6,16 @@
 
 POST /api/auth/signup/send-code and POST /api/auth/signup are
 unauthenticated by definition, and send-code spends our NetMind mail channel.
-Throwaway-mailbox services are how one actor mints many accounts (the
-2026-10-28 incident registered from such domains), so both routes refuse them
-before any rate-limit bucket is spent or any upstream call is made.
+Throwaway mailboxes are the cheap way to mint many accounts, so both routes
+refuse them before any rate-limit bucket is spent or any upstream call is
+made. Login-time free-credit provisioning applies the same check (accounts
+can also be created directly at NetMind, bypassing these routes).
 
 The list is deliberately small and explicit — well-known disposable services
 only, reviewable in a diff — rather than a vendored third-party list that
-changes under us and false-positives real providers. Operators extend it
+changes under us and false-positives real providers. Long-lived alias /
+forwarding services (they front a real, durable inbox) are deliberately not
+listed — they are not throwaway. Operators extend it
 without a release via ``NARRANEXUS_BLOCKED_EMAIL_DOMAINS`` (comma-separated),
 read per call (cheap: one split) so tests and operators see the current env.
 
@@ -29,11 +32,10 @@ BLOCKED_EMAIL_DOMAINS_ENV = "NARRANEXUS_BLOCKED_EMAIL_DOMAINS"
 
 DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset({
     "10minutemail.com",
+    "10minutemail.net",
     "1secmail.com",
-    "33mail.com",
     "anonbox.net",
     "armyspy.com",
-    "burnermail.io",
     "cc.cd",
     "crazymailing.com",
     "cuvox.de",
@@ -48,7 +50,12 @@ DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset({
     "fleckens.hu",
     "generator.email",
     "getnada.com",
+    "grr.la",
+    "guerrillamail.biz",
     "guerrillamail.com",
+    "guerrillamail.net",
+    "guerrillamail.org",
+    "guerrillamailblock.com",
     "gustr.com",
     "harakirimail.com",
     "inboxkitten.com",
@@ -71,9 +78,9 @@ DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset({
     "nimail.cn",
     "rhyta.com",
     "sharklasers.com",
-    "spamgourmet.com",
     "superrito.com",
     "teleworm.us",
+    "temp-mail.io",
     "temp-mail.org",
     "tempail.com",
     "tempinbox.com",
