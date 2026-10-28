@@ -200,12 +200,17 @@ def turn_accessible_roots(
     return tuple(roots)
 
 
-def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
+def workspace_candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
     """All workspace-dir relpath forms, current layout first then legacy.
 
     Used by readers of EXISTING data so a row/dir written under the old flat
     layout still resolves after the flip to nested (and vice-versa), without
     a database rewrite. Order matters: the current layout wins.
+
+    Public because the artifact owner-root confinement
+    (``artifact/_artifact_impl/confinement.owner_roots``) treats every form as
+    a legitimate home of that agent; a signature change here changes which
+    roots an artifact may be served from.
     """
     return [
         agent_workspace_relpath(agent_id, user_id),   # current layout
@@ -230,7 +235,7 @@ def resolve_existing_workspace(
     # target "the workspace" (2026-10-28). Callers that realpath an entry can
     # then compare it against this lexical root and fail closed.
     root = Path(os.path.realpath(base))
-    for rel in _candidate_relpaths(agent_id, user_id):
+    for rel in workspace_candidate_relpaths(agent_id, user_id):
         p = root / rel
         if p.is_dir():
             return p
@@ -257,7 +262,7 @@ def resolve_workspace_relative_file(
     if direct.exists():
         return direct
     norm = file_path.replace("\\", "/")
-    for rel in _candidate_relpaths(agent_id, user_id):
+    for rel in workspace_candidate_relpaths(agent_id, user_id):
         prefix = rel + "/"
         if norm.startswith(prefix):
             rest = norm[len(prefix):]

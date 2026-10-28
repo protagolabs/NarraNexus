@@ -89,15 +89,26 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     Sort order: directories first, then files, each alphabetically — so the
     tree renders predictably.
 
-    Returns ``(tree, truncated)``: ``truncated`` is True when MAX_TREE_NODES or
-    MAX_TREE_DEPTH stopped the walk; the UI shows a "partial listing" note.
+    Returns ``(tree, truncated)``: ``truncated`` is True only when something
+    visible was actually left out — MAX_TREE_NODES ran out with entries still
+    pending, or a directory at MAX_TREE_DEPTH has at least one non-hidden
+    entry below it (an empty folder at the last level is a complete listing).
+    The workspace panel (frontend ``FileUpload``) renders a "partial listing"
+    note from it, so files past the cap read as "not shown", never as gone.
     """
     budget = {"nodes": MAX_TREE_NODES, "truncated": False}
 
     def _walk(dir_path: Path, depth: int = 0) -> List[FileInfo]:
         nodes: List[FileInfo] = []
         if depth >= MAX_TREE_DEPTH:
-            budget["truncated"] = True
+            # Look before claiming truncation: only a visible entry below the
+            # ceiling is content the listing omits.
+            try:
+                with os.scandir(dir_path) as it:
+                    if any(not e.name.startswith(".") for e in it):
+                        budget["truncated"] = True
+            except OSError as e:
+                logger.warning(f"workspace scan failed at {dir_path}: {e}")
             return nodes
         try:
             entries = list(os.scandir(dir_path))
@@ -314,8 +325,6 @@ async def delete_file(
     except OSError as e:
         logger.exception(f"OS error deleting workspace path: {e}")
         return FileDeleteResponse(success=False, error="Failed to delete the file.")
-    except HTTPException:
-        raise
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error deleting workspace path: {e}")
         return FileDeleteResponse(success=False, error="Failed to delete the file.")

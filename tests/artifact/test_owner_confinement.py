@@ -185,3 +185,74 @@ async def test_registration_stores_a_clean_pointer_under_a_symlinked_base(env, t
     )
     stored = (await env["repo"].get_by_id(res.artifact_id)).file_path
     assert stored == f"{OWNER}/{A_OWN}/report/index.html", stored
+
+
+# --- freshness detection uses the same owner roots -----------------------------
+
+def _hash(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _past_row(aid, uid, path, content, kind="text/html", art_id="art_fresh0001"):
+    from datetime import timedelta
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    return Artifact(
+        artifact_id=art_id, agent_id=aid, user_id=uid, session_id="s",
+        title="t", kind=kind, file_path=path, size_bytes=1,
+        content_hash=_hash(content), created_at=past, updated_at=past,
+    )
+
+
+async def _history_actions(db, art_id):
+    rows = await db.execute(
+        "SELECT action FROM instance_artifact_history WHERE artifact_id = %s",
+        params=(art_id,), fetch=True)
+    return [r["action"] for r in rows]
+
+
+async def test_freshness_does_not_follow_a_swapped_link_into_another_tenant(env):
+    """Registered while ``report`` was a real dir, then ``report`` is swapped for
+    a link to the victim's folder. The detector must not stat/hash the victim's
+    bytes nor write their hash/size back onto the attacker's row."""
+    base = env["base"]
+    await env["repo"].create(_past_row(A_OWN, OWNER, f"{OWNER}/{A_OWN}/report/index.html", "<p>mine</p>"))
+    own_report = base / OWNER / A_OWN / "report"
+    shutil.rmtree(own_report)
+    os.symlink(env["vic"].parent, own_report)
+    os.utime(env["vic"])  # victim edits after our last commit point
+
+    verdict = await ArtifactService(env["db"]).refresh_external_state(
+        await env["repo"].get_by_id("art_fresh0001"))
+    assert verdict == "missing"
+    row = await env["repo"].get_by_id("art_fresh0001")
+    assert row.content_hash == _hash("<p>mine</p>")
+    assert await _history_actions(env["db"], "art_fresh0001") == []
+
+
+async def test_freshness_still_detects_external_edits_on_legacy_flat_rows(env):
+    await env["repo"].create(_past_row(A_OWN, OWNER, f"{A_OWN}_{OWNER}/old/index.html", "<p>before</p>"))
+    verdict = await ArtifactService(env["db"]).refresh_external_state(
+        await env["repo"].get_by_id("art_fresh0001"))
+    assert verdict == "external"
+    row = await env["repo"].get_by_id("art_fresh0001")
+    assert row.content_hash == _hash("<p>legacy</p>")
+    assert await _history_actions(env["db"], "art_fresh0001") == ["external_edited"]
+
+
+# --- single-file mode knows every container root -----------------------------
+
+async def test_raw_refuses_siblings_of_an_entry_at_the_legacy_flat_root(env):
+    """Nested AND legacy flat dirs both exist (the common post-migration state);
+    the entry sits directly in the legacy root. A view token for it must not
+    serve the agent's other top-level files."""
+    flat_root = env["base"] / f"{A_OWN}_{OWNER}"
+    (flat_root / "top.html").write_text("<p>top</p>", encoding="utf-8")
+    (flat_root / "credentials.json").write_text("{\"k\": \"secret\"}", encoding="utf-8")
+    await env["repo"].create(_row(A_OWN, OWNER, f"{A_OWN}_{OWNER}/top.html"))
+    svc = ArtifactService(env["db"])
+    with pytest.raises(ArtifactNotFound):
+        await svc.resolve_raw_file(agent_id=A_OWN, artifact_id="art_test0001", file_path="credentials.json")
+    # The entry itself (and its basename alias) still serves.
+    resolved = await svc.resolve_raw_file(agent_id=A_OWN, artifact_id="art_test0001", file_path="top.html")
+    assert resolved.path == str((flat_root / "top.html").resolve())

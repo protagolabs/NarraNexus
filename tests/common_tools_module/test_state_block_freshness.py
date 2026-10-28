@@ -118,3 +118,31 @@ async def test_office_lock_is_flagged(env):
     (env["base"] / WS_REL / "~$deck.pptx").write_bytes(b"lock")
     block = await env["mod"]._render_artifact_state_block()
     assert "desktop Office" in block
+
+
+@pytest.mark.asyncio
+async def test_office_lock_probe_does_not_follow_a_link_into_another_tenant(env):
+    """The artifact's folder was swapped for a link to another tenant's folder
+    holding an open document. The lock probe must not look there: no note, and
+    the freshness pass must not commit the victim's hash onto our row."""
+    import os
+
+    victim = env["base"] / agent_workspace_relpath("agent_v", "user_v") / "docs"
+    victim.mkdir(parents=True)
+    (victim / "deck.pptx").write_bytes(b"victim-deck")
+    (victim / "~$deck.pptx").write_bytes(b"lock")
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    await env["repo"].create(Artifact(
+        artifact_id="art_office02", agent_id="agent_x", user_id="user_y",
+        session_id=None, title="deck", kind="application/vnd.officecli-live",
+        pinned=True, file_path=f"{WS_REL}/docs/deck.pptx", size_bytes=7,
+        content_hash=_sha("pk-fake"), created_at=past, updated_at=past,
+    ))
+    os.symlink(victim, env["base"] / WS_REL / "docs")
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "art_office02" in block
+    assert "desktop Office" not in block
+    assert "EXTERNALLY MODIFIED" not in block
+    row = await env["repo"].get_by_id("art_office02")
+    assert row.content_hash == _sha("pk-fake")

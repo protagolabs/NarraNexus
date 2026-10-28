@@ -562,6 +562,7 @@
       "dragFiles": "Arrastra los archivos aquí o",
       "browse": "explorar",
       "empty": "El espacio de trabajo está vacío",
+      "partialListing": "Listado parcial: este espacio de trabajo es demasiado grande para mostrarse completo. Pide al agente que liste una carpeta concreta para ver el resto.",
       "kindOffice": "Documento de Office (en vivo)"
     },
     "homeAssistant": {

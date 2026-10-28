@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/freshness.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
 
@@ -33,6 +33,19 @@ watch version 轮询(带 ~$ lock 旗标)。**没有 watcher**——3′/3″/3�
 - 检测**永不移指针**(file_path 原样传回 update_pointer)。
 - entry 消失返回 "missing" 且零提交——那是 heal 的领土,别在这里
   标 deleted。
+
+## 2026-10-28（PR #421 复审 I1）— 指针先过属主限定，越界按 "missing"
+
+原来 `os.path.join(base_working_path, file_path)` 后直接 `os.stat` / `compute_entry_hash`。
+攻击链：正常注册 `report/index.html` → 把 `report` 换成指向受害者目录的链接 → 状态块
+每次渲染（[[common_tools_module]]，全自动、用户不用点）都对受害者文件 stat + 哈希、判
+external、经 [[commit.py]] 对受害者目录求 size，并把哈希/size/"刚改过"写进攻击者自己的
+行和历史——一个长期在线的元数据/哈希 oracle。现在先 [[confinement]] `confine_entry`
+（与 raw/编辑同一口径，legacy flat 行照样检测），`ArtifactPathEscape` → "missing"（原有分支，
+零提交，不新增错误类型）；确权后的 realpath 同时用于 legacy 认领分支的 size 与
+`commit_content_refresh(abs_entry=...)`。测试：
+`test_freshness_does_not_follow_a_swapped_link_into_another_tenant`、
+`test_freshness_still_detects_external_edits_on_legacy_flat_rows`（test_owner_confinement.py）。
 
 ## 2026-08-20 — 提交尾巴移交 [[commit.py]]
 

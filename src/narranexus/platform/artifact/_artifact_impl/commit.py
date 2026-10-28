@@ -11,6 +11,12 @@ updated_at, file_path UNCHANGED), append one history row, stage one
 "updated" event. This module owns that tail so the three callers cannot
 drift apart (the size rule or the event shape changing in one copy but not
 the others is exactly the class of bug a shared owner prevents).
+
+It never resolves ``file_path`` itself: every caller has already confined the
+entry to the owner's roots (``confinement.confine_entry``) and hands that
+realpath in. A second, independent ``base + file_path`` join here would be the
+same fact expressed twice — and the unconfined copy is the one that followed a
+swapped-in symlink into another tenant's tree (2026-10-28).
 """
 
 from __future__ import annotations
@@ -24,7 +30,6 @@ from narranexus.platform.artifact._artifact_impl.registration import (
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
-from narranexus.platform.settings import settings
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
@@ -42,19 +47,21 @@ async def commit_content_refresh(
     db: AsyncDatabaseClient,
     artifact: Artifact,
     *,
+    abs_entry: str,
     new_hash: str,
     history_action: str,
     external: bool = False,
 ) -> Artifact:
     """Commit a content change on ``artifact``'s UNMOVED entry file.
 
+    ``abs_entry`` is the entry's realpath as returned by ``confine_entry`` —
+    the caller proves ownership, this function only measures and records.
     Refreshes hash/size/updated_at through the repository, appends one
     history row with ``history_action`` (user_edited / external_edited),
     and stages one "updated" event (``external`` marks detector-sourced
     commits). Returns the refreshed row.
     """
     repo = ArtifactRepository(db)
-    abs_entry = os.path.join(settings.base_working_path, artifact.file_path)
     size_bytes = entry_size_bytes(abs_entry, artifact.file_path)
 
     await repo.update_pointer(

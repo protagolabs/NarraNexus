@@ -8,12 +8,18 @@ stub: false
 
 - `_get_workspace_path` 对解析出的 workspace 目录做 `refuse_symlinked_dir`：租户能把自己的
   workspace 目录换成指向别人目录的链接，`resolve()` 之后"在 workspace 内"就成了"在受害者
-  目录内"。链接一律 404，三个 handler 的宽 except 都显式放行 `HTTPException`。
+  目录内"。链接一律 404，三个 handler 的宽 except 都显式放行 `HTTPException`（`delete_file`
+  里曾留下第二个不可达的 `except HTTPException`，PR #421 复审后删掉）。
 - `_resolve_within_workspace` 不再对 workspace 做 `resolve()`（根由
   `resolve_existing_workspace` 以 realpath(base)+字面尾段给出），只解析候选文件；候选路径上
   任何链接都会落到根外被拒。
 - 目录树加 `MAX_TREE_NODES=5000` / `MAX_TREE_DEPTH=16`，超限停止并在响应 `truncated=true`
   里说明（事故里一次请求吐了 124MB，且一个文件很多的正常 workspace 也能拖垮后端）。
+  `truncated` 只在**真有可见条目被略掉**时置位：节点预算耗尽时仍有待列条目，或深度触顶的
+  目录下至少有一个非点号条目（触顶的空目录 = 完整列表，不置位；PR #421 复审 Minor 7）。
+  前端 `FileUpload` 据此在树下渲染"部分列表"提示（`awareness.workspace.partialListing`，
+  10 份 locale），让被截掉的文件读作"未显示"而不是"不见了"（铁律 #16）；失败分支
+  （`success=False`，`truncated` 默认 False）不渲染该提示。
 
 ## 2026-10-28 — agent_id 段先确权，再碰磁盘（跨租户读事件）
 

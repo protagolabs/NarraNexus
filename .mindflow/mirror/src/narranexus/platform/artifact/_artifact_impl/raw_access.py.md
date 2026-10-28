@@ -4,6 +4,17 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #421 复审 I4）— 单文件模式的容器根 = `owner_roots`
+
+容器根原来是 `resolve_existing_workspace`（只取**第一个存在**的 workspace 目录）∪ team 目录，
+而 `confine_entry` 认可的是全部三种布局形态。nested 与 legacy flat 同时存在时（迁移后最常见
+的现状），entry 直接落在 legacy flat 根上的 artifact 不被认作"坐在容器根上"，`?path=`
+就能把该 agent 在 legacy 根下的 `credentials.json`、`skills/*/.env` 服务出去——而这条路由只凭
+view token、不过 JWT。现在直接复用 [[confinement]] 的 `owner_roots`（三种 workspace 形态 + team
+目录）。两边都是字面串比较：`confine_entry` 已证明 realpath 后的 entry 落在其中某个字面根内，
+**不要**再对 `artifact_root` 做 realpath（会和刚校验过的口径分叉）。
+测试：`test_raw_refuses_siblings_of_an_entry_at_the_legacy_flat_root`（同时钉住 basename 别名仍可用）。
+
 ## 2026-10-28 — 限定改为"属主根"而不是 base
 
 原来只检查 `artifact_root` 在 `base_working_path` 之下——那是所有租户的总根，一条指向

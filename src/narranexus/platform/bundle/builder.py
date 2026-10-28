@@ -708,6 +708,7 @@ async def build_bundle(
                 agent_dir,
                 excludes=selection.workspace_excludes.get(aid, []),
                 scrub_skill_secrets=not selection.include_skill_secrets,
+                warnings=warnings,
             )
             agents_summary.append(
                 {
@@ -1319,10 +1320,18 @@ async def _pack_workspace(
     agent_dir: Path,
     excludes: List[str],
     scrub_skill_secrets: bool = False,
+    warnings: Optional[List[str]] = None,
 ) -> Optional[Path]:
     """Tar.gz agent's workspace dir to agent_dir/workspace.tar.gz; respects sensitive-pattern filter.
     The tarfile compression itself is offloaded to a worker thread so the main
-    asyncio event loop stays responsive for other users during big workspaces."""
+    asyncio event loop stays responsive for other users during big workspaces.
+
+    A workspace dir swapped for a symlink is refused PER AGENT — logged, named
+    in ``warnings`` and exported without a workspace (returns None) — the same
+    shape as a symlinked full_copy skill dir, so one bad agent cannot fail a
+    multi-agent export with an unattributed 500. Only that one check is caught:
+    any other error from the packer (disk full, permissions) still propagates
+    rather than masquerading as an empty workspace."""
     # SINGLE-WORKER ASSUMPTION: workspaces live on this process's local fs.
     # Multi-pod scale requires shared volume (compose already mounts it
     # under /opt/narranexus/workspaces). See
@@ -1343,6 +1352,13 @@ async def _pack_workspace(
     ]
     src = next((c for c in candidates if c.is_dir()), None)
     if not src:
+        return None
+    try:
+        refuse_symlinked_dir(src, label="workspace")
+    except ValueError as e:
+        logger.warning(f"bundle export: agent {agent_id}: {e}; workspace not exported")
+        if warnings is not None:
+            warnings.append(f"agent {agent_id}: workspace is a symlink, not exported")
         return None
 
     out = agent_dir / "workspace.tar.gz"

@@ -336,3 +336,21 @@ def test_tree_listing_is_capped_and_says_so(setup, monkeypatch):
         return sum(1 + _count(n.get("children") or []) for n in nodes)
     assert _count(body["tree"]) <= 10
     assert "leaf.txt" not in r.text
+
+
+def test_depth_cap_on_an_empty_directory_is_not_reported_as_truncated(setup, monkeypatch):
+    """Reaching the depth ceiling only truncates when there is something below
+    it; an empty folder at the last level is a complete listing."""
+    import backend.routes.agents.files as files_mod
+    monkeypatch.setattr(files_mod, "MAX_TREE_DEPTH", 3)
+    ws = setup["base"] / OWNER / OWNED_AGENT
+    (ws / "d1" / "d2" / "d3").mkdir(parents=True)
+    (ws / "d1" / "d2" / "d3" / ".hidden").write_text("x", encoding="utf-8")
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 200, r.text
+    assert r.json()["truncated"] is False
+
+    (ws / "d1" / "d2" / "d3" / "below.txt").write_text("x", encoding="utf-8")
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.json()["truncated"] is True
+    assert "below.txt" not in r.text

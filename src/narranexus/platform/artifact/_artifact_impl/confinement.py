@@ -29,7 +29,7 @@ import os
 from typing import Optional
 
 from narranexus.platform.utils.workspace_paths import (
-    _candidate_relpaths,
+    workspace_candidate_relpaths,
     resolve_workspace_relative_file,
     team_shared_dir,
 )
@@ -44,7 +44,7 @@ def owner_roots(
     base_real = os.path.realpath(base)
     roots = {
         os.path.normpath(os.path.join(base_real, rel))
-        for rel in _candidate_relpaths(agent_id, user_id)
+        for rel in workspace_candidate_relpaths(agent_id, user_id)
     }
     if team_id:
         roots.add(os.path.normpath(str(team_shared_dir(user_id, team_id, base=base_real))))

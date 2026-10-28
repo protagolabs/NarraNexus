@@ -131,7 +131,7 @@ async def save_user_content(
 
     new_hash = hashlib.sha256(raw).hexdigest()
     return await commit_content_refresh(
-        db, artifact, new_hash=new_hash, history_action="user_edited"
+        db, artifact, abs_entry=abs_entry, new_hash=new_hash, history_action="user_edited"
     )
 
 
@@ -176,5 +176,5 @@ async def commit_office_user_edit(
         return artifact  # nothing changed — not a commit point
 
     return await commit_content_refresh(
-        db, artifact, new_hash=new_hash, history_action="user_edited"
+        db, artifact, abs_entry=abs_entry, new_hash=new_hash, history_action="user_edited"
     )

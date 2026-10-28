@@ -4,6 +4,15 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #421 复审 Minor 8）— 链接 workspace 降级为逐 agent warning
+
+`_pack_workspace`（async 包装）在丢给线程前先 `refuse_symlinked_dir(src)`，只接住这一个
+ValueError：记 log、往 `build_bundle` 的 `warnings` 写一条带 `agent_id` 的说明、返回 None
+（该 agent 的 `workspace_path` 为 None，summary 已支持）。其他 agent 照常导出——与 full_copy
+skill 目录的逐个降级同口径；之前整次多 agent 导出以一条不带 agent_id 的 500 失败。
+`_pack_workspace_sync` 里的拒绝保留（直接调用方的纵深防御）；它的其他 OSError（磁盘满、权限）
+**不**被吞，免得变成"workspace 为空"。测试：`tests/bundle/test_export_symlinked_workspace.py`。
+
 ## 2026-10-28（复审后）— 打包入口拒绝符号链接目录
 
 `_pack_workspace_sync` 与 `_zip_dir` 开头 `refuse_symlinked_dir(src)`：`os.walk` 对顶层路径

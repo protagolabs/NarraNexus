@@ -293,3 +293,54 @@ async def test_heal_user_pick_is_attributed_and_broadcast(env):
     last = (await _outbox_events(env["db"]))[-1]
     assert last["action"] == "repointed"
     assert last["extra"]["hash_matched"] is False
+
+
+# --- heal never scans or hashes another tenant's tree --------------------------
+
+def _victim_workspace(env):
+    """A different tenant's workspace next to ours, under the same base."""
+    victim = env["workspace"].parent.parent / agent_workspace_relpath("agent_v", "user_v")
+    (victim / "report").mkdir(parents=True)
+    (victim / "report" / "index.html").write_text("<p>victim</p>", encoding="utf-8")
+    (victim / "notes.html").write_text("<p>victim notes</p>", encoding="utf-8")
+    return victim
+
+
+@pytest.mark.asyncio
+async def test_heal_refuses_a_workspace_swapped_for_a_link(env):
+    """The tenant replaces its own workspace dir with a link to the victim's.
+    Heal must neither call the pointer "already valid" (the victim happens to
+    hold report/index.html), nor list or hash the victim's files, nor repoint."""
+    import shutil
+
+    victim = _victim_workspace(env)
+    before = await env["repo"].get_by_id(env["artifact_id"])
+    shutil.rmtree(env["workspace"])
+    os.symlink(victim, env["workspace"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+    assert result.recovered is False
+    assert result.candidates == []
+    assert "victim" not in result.message
+    row = await env["repo"].get_by_id(env["artifact_id"])
+    assert row.file_path == before.file_path
+    assert row.content_hash == before.content_hash
+
+
+@pytest.mark.asyncio
+async def test_heal_skips_a_file_link_that_points_outside_the_workspace(env):
+    """A link inside the workspace whose target is the victim's file (same bytes
+    as our lost entry, so the hash tier would match) is not a candidate: it is
+    neither offered, nor stat-ed for size/mtime, nor hashed."""
+    victim = _victim_workspace(env)
+    (victim / "report" / "index.html").write_bytes(env["entry"].read_bytes())
+    env["entry"].unlink()
+    os.symlink(victim / "report" / "index.html", env["workspace"] / "report" / "leak.html")
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+    assert result.recovered is False
+    assert result.candidates == []

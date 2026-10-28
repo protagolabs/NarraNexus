@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（PR #421 复审）— `_candidate_relpaths` 改为公共名 `workspace_candidate_relpaths`
+
+[[confinement]] 的 `owner_roots` 把三种布局形态都当作该 agent 的合法根，跨模块依赖它；
+私有名会让改签名的人在本模块里 grep 不到外部调用点。三处内部调用同步改名，无别名
+（铁律 #2）。改它的返回集合 = 改 artifact 能从哪些根被服务/编辑/检测。
+
 ## 2026-10-28（二审）— `resolve_inside_workspace`：主机侧解析 agent 给的路径只走这一处
 
 主机侧代码要把 agent 提供的路径（相对 workspace 或绝对）变成要读/复制/发送/监视的文件时，
@@ -21,6 +27,9 @@ realpath 后落进受害者目录的候选挡在外面——拒绝那一步只�
 [[skill_backup]] 的 `archive_local_zip`（→ ValueError）、[[office_watch]] 的
 `resolve_watch_file`（→ ValueError）与 `ensure_watch`（→ 返回 None）。backend
 `agents/files.py` 的 `_resolve_within_workspace` 是同一口径的内联写法（字面根、realpath 候选）。
+[[heal]]（PR #421 复审后从"豁免"挪到这里）：scope 根（workspace 或 team 目录）字面构造、
+是链接就直接返回空结果；每个候选在 stat / 哈希 / "指针已有效"判定前都经
+`resolve_inside_workspace` 确认仍在根内（→ 丢弃该候选）。
 
 ## 2026-10-28（复审后）— base 只做一次 realpath，租户尾段永远字面；新增 `refuse_symlinked_dir`
 
@@ -36,7 +45,6 @@ artifact 注册/限定（[[confinement]]、[[registration]]、[[raw_access]]）�
   任意 agent，不存在"租户越权"面。
 - NexusPower `policy.py` / `files.py` —— 运行在 executor 容器里，那里只挂了本用户的根，
   指向主机路径的链接在容器内是悬空的。
-- `artifact/_artifact_impl/heal.py:224` —— 只产出候选列表；真正的读仍经 `confine_entry`。
 - `migration/applier.py::_copy_local_skill` —— 仅本地/桌面的 `POST /migrate/apply`（云端 503），
   单一属主，agent 调不到，见 [[applier]]。
 - `_bus_attachment_impl.resolve_shared_file_for_user` 对 `{base}/{user_id}` 的 resolve —— 那是
@@ -48,7 +56,7 @@ artifact 注册/限定（[[confinement]]、[[registration]]、[[raw_access]]）�
 在拼路径前都先过它：空、含 `/` `\\` NUL、以 `.` 开头（覆盖 `.` `..` `...` `..;`
 `.hidden`）一律 `ValueError`。它是**路径安全**栅栏，不是 id 形状校验——磁盘上真实存在
 带空格的 user_id 和 `agent_a_abb17376` 这类 agent_id，必须继续解析，所以不能上严格
-正则。`_candidate_relpaths` 经由 `agent_workspace_relpath` 自动受保护，因此
+正则。`workspace_candidate_relpaths` 经由 `agent_workspace_relpath` 自动受保护，因此
 `resolve_existing_workspace` 和 `resolve_workspace_relative_file` 的 **id 参数**也一并覆盖。
 注意 `resolve_workspace_relative_file` 的 `file_path` 参数仍是原样 join（绝对路径会直接
 胜出），其范围限制一直由调用方（artifact raw_access 等）负责，本次未改。
