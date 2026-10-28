@@ -70,3 +70,17 @@ def test_env_change_is_seen_on_the_next_call(monkeypatch):
     monkeypatch.delenv("NARRANEXUS_BLOCKED_EMAIL_DOMAINS")
     assert not is_blocked_email("a@second-burner.io")
     assert is_blocked_email("a@mailinator.com")
+
+
+def test_unchanged_env_reuses_the_merged_set(monkeypatch):
+    """is_blocked_email runs on every NetMind login: an unchanged env must
+    not rebuild the built-in + env union per call."""
+    from backend.routes import _email_policy
+
+    monkeypatch.setenv("NARRANEXUS_BLOCKED_EMAIL_DOMAINS", "cached-burner.io")
+    _email_policy._blocked_domains.cache_clear()
+    assert is_blocked_email("a@cached-burner.io")
+    assert is_blocked_email("b@cached-burner.io")
+    assert not is_blocked_email("c@example.com")
+    info = _email_policy._blocked_domains.cache_info()
+    assert (info.misses, info.hits) == (1, 2)

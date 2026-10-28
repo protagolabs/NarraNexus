@@ -9,7 +9,7 @@ stub: false
 ## 为什么存在
 
 所有 per-key 限流桶（dashboard agents-status、analytics、渠道匿名 webhook、
-auth 的 signup / send-code / funnel-report）共用这一个实现。不要另起第二个限流器。
+auth 的 signup / send-code / netmind-login / funnel-report）共用这一个实现。不要另起第二个限流器。
 
 ## 设计决策
 

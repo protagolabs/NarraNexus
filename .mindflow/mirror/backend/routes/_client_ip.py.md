@@ -51,8 +51,8 @@ precedent).
 
 ## Upstream / downstream
 
-- Used by: `backend/routes/auth.py` (funnel report limiter; signup and
-  send-code per-IP buckets),
+- Used by: `backend/routes/auth.py` (funnel report limiter; signup,
+  send-code and netmind-login per-IP buckets),
   `backend/routes/channels/generic.py` (anonymous webhook IP limiter).
 - Tests: `tests/backend/test_auth_funnel_observability.py` (hop parsing and
   counting-from-the-right), `tests/backend/test_channel_webhook_middleware.py`

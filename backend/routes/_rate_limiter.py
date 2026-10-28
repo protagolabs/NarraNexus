@@ -9,7 +9,8 @@ Used by GET /api/dashboard/agents-status to cap per-viewer request rate at
 design doc TDR-6 + security critic M-5.
 
 Also the one limiter behind every per-key bucket on the unauthenticated auth
-routes (signup / send-code / funnel-report) and the anonymous channel webhook;
+routes (signup / send-code / netmind-login / funnel-report) and the anonymous
+channel webhook;
 ``env_limit`` is the shared parser for operator-tunable limits,
 ``retry_after`` feeds the 429 ``Retry-After`` header, and ``refund`` returns
 a reserved hit when the guarded action did not happen.

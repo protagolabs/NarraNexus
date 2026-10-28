@@ -23,7 +23,9 @@ These tests pin the closures:
   4. the per-IP numbers are env-configurable with forgiving parsing,
   5. a blocked-domain account created directly at NetMind (the auth API URL
      is public) still logs in, but gets no free-tier wallet and no
-     onboarding guide agent.
+     onboarding guide agent,
+  6. POST /api/auth/netmind-login (unauthenticated, one upstream
+     verify_token call per request) has a loose per-IP hour bucket.
 """
 from __future__ import annotations
 
@@ -56,6 +58,7 @@ CODE_PER_MINUTE = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
 CODE_PER_HOUR = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR
 SIGNUP_PER_HOUR = auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR
 SIGNUP_ATTEMPTS_PER_HOUR = auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR
+NETMIND_LOGIN_PER_HOUR = auth_mod.DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR
 
 
 def _fresh(limit: int, window: float) -> SlidingWindowRateLimiter:
@@ -82,6 +85,11 @@ def client(monkeypatch):
         auth_mod,
         "_signup_attempt_ip_limiter",
         _fresh(SIGNUP_ATTEMPTS_PER_HOUR, 3600.0),
+    )
+    monkeypatch.setattr(
+        auth_mod,
+        "_netmind_login_ip_limiter",
+        _fresh(NETMIND_LOGIN_PER_HOUR, 3600.0),
     )
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
@@ -120,19 +128,23 @@ def test_shipped_defaults():
     assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE == 10
     assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR == 60
     assert auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR == 20
-    assert auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR == 200
+    assert auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR == 60
+    assert auth_mod.DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR == 120
 
 
 def test_unset_env_resolves_to_the_shipped_defaults(monkeypatch):
     for name in ("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
                  "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_HOUR",
                  "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR",
-                 "NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR"):
+                 "NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR",
+                 "NARRANEXUS_NETMIND_LOGIN_PER_IP_PER_HOUR"):
         monkeypatch.delenv(name, raising=False)
     assert env_limit("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
                      auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE) == 10
     assert env_limit("NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR",
-                     auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR) == 200
+                     auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR) == 60
+    assert env_limit("NARRANEXUS_NETMIND_LOGIN_PER_IP_PER_HOUR",
+                     auth_mod.DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR) == 120
 
 
 # ── 1. per-IP buckets ──────────────────────────────────────────────────────
@@ -471,3 +483,58 @@ def test_login_withholds_free_credit_from_blocked_domains(
     assert resp.json()["guide_agent_provisioning"] is eligible
     # Their OWN NetMind card is theirs to use either way.
     assert own_card == [_LOGIN_CODE]
+
+
+# ── 6. netmind-login per-IP bucket ─────────────────────────────────────────
+
+class _RejectingVerifier:
+    """A NetMind auth client that refuses every token, counting the calls."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def verify_token(self, token):
+        from backend.integrations.netmind.netmind_auth_client import (
+            NetmindAuthError,
+        )
+
+        self.calls += 1
+        raise NetmindAuthError("401 token invalid")
+
+
+def _netmind_login(client, ip):
+    return client.post(
+        "/api/auth/netmind-login", json={"netmind_token": "junk"}, headers=_xff(ip)
+    )
+
+
+def test_netmind_login_per_ip_hour_bucket(client, monkeypatch):
+    """Unauthenticated, and every request costs one upstream verify_token
+    call — an invalid token included. The bucket is charged for every
+    request (never refunded) and checked before the upstream call."""
+    verifier = _RejectingVerifier()
+    monkeypatch.setattr(auth_mod, "_get_netmind_auth_client", lambda: verifier)
+    for i in range(NETMIND_LOGIN_PER_HOUR):
+        assert _netmind_login(client, "51.0.0.7").status_code == 401, i
+    r = _netmind_login(client, "51.0.0.7")
+    assert r.status_code == 429
+    assert 60 < int(r.headers["Retry-After"]) <= 3600
+    assert verifier.calls == NETMIND_LOGIN_PER_HOUR
+    # Another client IP has its own bucket.
+    assert _netmind_login(client, "51.0.0.8").status_code == 401
+    assert verifier.calls == NETMIND_LOGIN_PER_HOUR + 1
+
+
+def test_netmind_login_bucket_not_spent_when_power_login_is_off(client, monkeypatch):
+    """Local mode without Power login answers 404 before the bucket, like
+    the signup routes: nothing is charged."""
+    verifier = _RejectingVerifier()
+    monkeypatch.setattr(auth_mod, "_get_netmind_auth_client", lambda: verifier)
+    monkeypatch.setattr(auth_mod, "_netmind_login_ip_limiter", _fresh(1, 3600.0))
+    monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: False)
+    for _ in range(3):
+        assert _netmind_login(client, "51.0.0.7").status_code == 404
+    monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: True)
+    assert _netmind_login(client, "51.0.0.7").status_code == 401
+    assert _netmind_login(client, "51.0.0.7").status_code == 429
+    assert verifier.calls == 1

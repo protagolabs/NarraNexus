@@ -211,7 +211,7 @@ _signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
 DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE = 10
 DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR = 60
 DEFAULT_SIGNUP_PER_IP_PER_HOUR = 20
-DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = 200
+DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = 60
 SIGNUP_CODE_PER_IP_PER_MINUTE = env_limit(
     "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE", DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
 )
@@ -238,6 +238,21 @@ _signup_attempt_ip_limiter = SlidingWindowRateLimiter(
     limit=SIGNUP_ATTEMPTS_PER_IP_PER_HOUR, window_sec=3600.0
 )
 
+# /api/auth/netmind-login is unauthenticated too, and every request costs one
+# upstream verify_token call — an invalid token included. A loose per-IP hour
+# bucket, charged for every request and never refunded, keeps one source from
+# turning us into an amplifier against NetMind's auth API. Loose because a
+# real user logs in a handful of times a day and a whole office / event NAT
+# shares one egress; env-tunable like the signup buckets.
+DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR = 120
+NETMIND_LOGIN_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_NETMIND_LOGIN_PER_IP_PER_HOUR",
+    DEFAULT_NETMIND_LOGIN_PER_IP_PER_HOUR,
+)
+_netmind_login_ip_limiter = SlidingWindowRateLimiter(
+    limit=NETMIND_LOGIN_PER_IP_PER_HOUR, window_sec=3600.0
+)
+
 # Neutral on purpose: naming the rule ("disposable") tells a prober exactly
 # which domains to swap to.
 _BLOCKED_EMAIL_DETAIL = (
@@ -254,17 +269,23 @@ def _rate_limited(limiter: SlidingWindowRateLimiter, key: str, detail: str) -> H
 
 
 def _enforce_ip_buckets(
-    limiters: Iterable[SlidingWindowRateLimiter], ip: str, route: str
+    limiters: Iterable[SlidingWindowRateLimiter],
+    ip: str,
+    route: str,
+    *,
+    funnel: str = "signup-funnel",
 ) -> None:
     """Raise 429 (with Retry-After) on the first per-IP bucket that refuses.
 
     Short-circuits: a request the narrower bucket refuses never spends the
     wider one's budget. The reverse does not hold: when the hour bucket
     rejects, the minute bucket was already charged for that request.
+    ``funnel`` is the log tag, so a refusal lands in the same grep as the
+    rest of that route's funnel lines.
     """
     for limiter in limiters:
         if not limiter.allow(ip):
-            logger.info(f"[signup-funnel] {route} rate-limited ip={ip}")
+            logger.info(f"[{funnel}] {route} rate-limited ip={ip}")
             raise _rate_limited(
                 limiter, ip, "Too many requests. Please try again later."
             )
@@ -660,6 +681,14 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
 
     if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
+
+    # Before the upstream call: a refused request costs NetMind nothing.
+    _enforce_ip_buckets(
+        (_netmind_login_ip_limiter,),
+        client_ip(http_request),
+        "netmind-login",
+        funnel="login-funnel",
+    )
 
     try:
         netmind_user = await _get_netmind_auth_client().verify_token(
