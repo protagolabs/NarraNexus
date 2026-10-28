@@ -55,6 +55,9 @@ from narranexus.platform.agent_framework.api_config import (
 from narranexus.platform.agent_framework.providers.model_identity import (
     config_override_wins,
 )
+from narranexus.platform.agent_framework.providers.registry import (
+    is_stored_user_base_url_blocked,
+)
 from narranexus.platform.agent_framework.providers.driver.base import (
     ProviderCard,
 )
@@ -285,6 +288,19 @@ async def resolve_user_runtime_llm_configs(
             raise LLMConfigNotConfigured(
                 f"User {user_id!r} slot {slot_name!r} → provider {provider_id!r} "
                 f"is inactive."
+            )
+
+        # Same read-path egress screen as UserProviderService.get_user_config:
+        # this builder reads the row directly (and per-agent overrides reach it
+        # without passing classify), so it must refuse a stored user card on an
+        # internal host itself. Never echo the base_url back.
+        if is_stored_user_base_url_blocked(
+            row.get("source"), row.get("base_url", ""), provider_id
+        ):
+            raise LLMConfigNotConfigured(
+                f"User {user_id!r} slot {slot_name!r} → provider {provider_id!r} "
+                f"has a base_url that is not allowed in the cloud (it must be a "
+                f"public http(s) endpoint). Re-add the provider with a public URL."
             )
 
         # Self-heal: rewrites slot in-place if model ∉ card.models, with

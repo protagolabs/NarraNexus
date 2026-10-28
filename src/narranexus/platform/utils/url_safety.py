@@ -10,9 +10,17 @@ tricked into hitting internal services — the classic SSRF vector, and on
 EC2 the cloud metadata endpoint `169.254.169.254`. This module is the single
 gate every such fetch must pass through.
 
-Deliberately generic and dependency-light (stdlib only, injectable resolver)
-so it lives in `utils/` with no artifact coupling — the RenderService and the
-streaming browser will import the same function.
+Deliberately generic and dependency-light (stdlib plus the env-only
+`deployment_mode` leaf, injectable resolver) so it lives in `utils/` with no
+artifact coupling — the RenderService and the streaming browser will import the
+same function.
+
+Deployment awareness lives HERE too: `assert_public_http_url_in_cloud` is the
+one place that decides "cloud enforces, local/desktop allows". Sinks whose
+targets are user-supplied (provider base_url, transcription endpoint, Home
+Assistant, NarraMessenger bind) call it and only translate a refusal into their
+own return contract and user-facing text — they never re-implement the
+cloud check.
 
 Note the trust boundary: this guards requests WE originate server-side. An
 `<iframe src>` is fetched by the USER's browser, not us, so it is not on this
@@ -26,6 +34,8 @@ import asyncio
 import ipaddress
 from typing import Awaitable, Callable, List, Optional
 from urllib.parse import urlparse
+
+from narranexus.platform.utils import deployment_mode
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -162,3 +172,30 @@ async def assert_public_http_url(
         if not _is_public_ip(addr):
             raise UnsafeUrlError(f"host {host!r} resolves to non-public address {addr}")
     return addresses
+
+
+async def assert_public_http_url_in_cloud(
+    url: str,
+    *,
+    resolver: Optional[Resolver] = None,
+) -> Optional[List[str]]:
+    """Deployment-aware egress gate: cloud enforces, local/desktop allows.
+
+    Cloud: the server shares a network with the metadata endpoint and every
+    internal service, so `url` must pass `assert_public_http_url` (raises
+    UnsafeUrlError — or a bare ValueError for an unparseable URL — on refusal;
+    callers fail closed on any exception). Local/desktop is a single trusted
+    user who legitimately points at localhost or the LAN (Ollama, LM Studio, a
+    LAN Home Assistant), so it returns without resolving anything.
+
+    Raises rather than returning a verdict: each caller owns its own failure
+    contract and user-facing wording, and must never echo the exception text
+    (it can contain resolved internal addresses).
+
+    Returns the validated public IPs in cloud (for connection pinning) and
+    ``None`` locally. ``None`` means ALLOWED (nothing was checked), never
+    "refused": refusal is only ever signalled by raising.
+    """
+    if not deployment_mode.is_cloud_mode():
+        return None
+    return await assert_public_http_url(url, resolver=resolver)

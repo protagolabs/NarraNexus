@@ -17,6 +17,16 @@ remove 就是 rmtree 整个 workspace。影响只限调用者自己，但必须�
 就返回 None。测试在 skills_dir 上一层放了一个真实的 `pdf-tools/SKILL.md`，
 `_resolve_skill_dir("../pdf-tools")` 返回 None 才证明直接拼接确实被跳过。
 
+## 2026-10-28 — `fetch_github_repo` 的 git 参数卫生
+
+`branch` 是用户输入、直接上 git 命令行。现在克隆前过 `_validate_git_branch`：只收
+`[A-Za-z0-9._/-]`，拒以 `-` 开头（选项注入，如 `--upload-pack=...`）、含 `..`（ref 穿越）、
+空串、空白与 shell 元字符；不合法直接 `ValueError`，git 不会被调用。命令行在位置参数前加
+`--`，url / dest 永远不会被当成选项。克隆失败不再把 git stderr（可能带解析出的主机 / 内部
+细节）拼进返回给用户的错误，只回固定文案，stderr 进日志。三个调用方（自身
+`install_from_github`、marketplace InstallPipeline、bundle importer）共用这一处。
+测试：`tests/skill_module/test_github_skill_layouts.py`。
+
 ## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
 
 `MAX_SKILLS_PER_REPO = 20`：`find_skill_roots` 超过即 ValueError（落盘前），因为 `skill_install` 是 agent

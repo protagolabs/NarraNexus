@@ -42,6 +42,117 @@ from narranexus.platform.agent_framework.providers.framework_binding import (
     SLOT_REQUIRED_PROTOCOLS,
 )
 from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+from narranexus.platform.utils import deployment_mode
+from narranexus.platform.utils.url_safety import (
+    assert_public_http_url_in_cloud,
+    is_obviously_non_public_url,
+)
+
+
+# Shown to the user whenever a user-supplied base_url fails the egress gate.
+# Deliberately generic: never echo the resolved address (it would turn the
+# gate into a DNS oracle for the internal network).
+UNSAFE_BASE_URL_MESSAGE = (
+    "Base URL is not allowed: in the cloud it must be a public http(s) endpoint"
+)
+
+
+async def assert_user_base_url_allowed(base_url: str) -> None:
+    """SSRF egress gate for a USER-supplied provider base_url.
+
+    Cloud only, decided by the shared deployment-aware wrapper
+    ``assert_public_http_url_in_cloud`` (the backend shares a network with the
+    metadata endpoint and every internal service; local/desktop is a single
+    trusted user who legitimately points at localhost — Ollama, LM Studio).
+    An empty base_url means "provider default" (hard-coded official hosts),
+    not user-controlled, so it is not gated.
+
+    Raises ``UnsafeUrlError`` (a ``ValueError``) — or a bare ``ValueError`` for
+    an unparseable URL — when the URL is refused. Callers fail closed on any
+    exception.
+    """
+    if not base_url:
+        return
+    await assert_public_http_url_in_cloud(base_url)
+
+
+# Every platform-owned value the ``user_providers.source`` column can hold:
+# rows whose base_url WE wrote (netmind_free legitimately points at our
+# internal gateway). This set, not ProviderSource membership, is what the
+# egress gate trusts. The enum is NOT the column's value domain: ``system``
+# (driver/derive.py → system_pool driver, system_quota billing) and
+# ``system_pool`` (model_sync.apply_ledger_to_db) are live values for the
+# cloud free-tier pool with no enum member. The two spellings are an existing
+# inconsistency between derive.py and model_sync; both are trusted here.
+# Listed explicitly (not derived from the enum) so a new source is gated until
+# someone decides it is platform-owned — fail closed.
+PLATFORM_PROVIDER_SOURCES: frozenset[str] = frozenset({
+    ProviderSource.NETMIND.value,
+    ProviderSource.NETMIND_FREE.value,
+    ProviderSource.YUNWU.value,
+    ProviderSource.OPENROUTER.value,
+    ProviderSource.CLAUDE_OAUTH.value,
+    ProviderSource.CODEX_OAUTH.value,
+    "system",
+    "system_pool",
+})
+
+
+def is_platform_provider_source(source: Optional[str]) -> bool:
+    """True when a provider row's source is platform-owned (trusted base_url).
+
+    The single criterion every egress decision keyed by source uses (save-time
+    Test, saved-row Test, read path, runtime builder). ``user``, a missing
+    source and any value not in ``PLATFORM_PROVIDER_SOURCES`` return False —
+    the user-controlled, gated side (fail closed).
+    """
+    if isinstance(source, ProviderSource):
+        source = source.value
+    return (source or "").strip().lower() in PLATFORM_PROVIDER_SOURCES
+
+
+# provider_ids already reported by the read-path screen. Pure log dedup, NOT
+# state: it is per-process (each worker may log once), never shared, and never
+# caches the block verdict — is_stored_user_base_url_blocked recomputes that on
+# every call. Size is bounded by the number of offending legacy cards.
+_REPORTED_BLOCKED_PROVIDER_IDS: set[str] = set()
+
+
+def is_stored_user_base_url_blocked(
+    source: Optional[str], base_url: Optional[str], provider_id: str
+) -> bool:
+    """Read-path egress screen for a STORED provider row (cloud only).
+
+    The save path and the Test button run the full DNS-resolving gate, but rows
+    saved before that gate existed can still point at an internal host and
+    would keep driving server-side requests from the agent loop / helper LLM.
+    This screen runs where a stored row becomes usable config, so it must be
+    cheap: DNS-free ``is_obviously_non_public_url`` (literal private/metadata
+    IPs, localhost, ``.local``, single-label docker service names such as
+    ``llm-gateway``). It narrows the legacy-row gap; it is not a substitute
+    for the save-time gate.
+
+    Decided by the STORED source via ``is_platform_provider_source``, like the
+    Test path: platform rows (netmind_free, the system / system_pool free-tier
+    pool — all on our internal gateway) are trusted; ``user``, missing and
+    genuinely unknown sources are screened (fail closed). An empty base_url
+    means "provider default", not user-controlled. Local/desktop never blocks.
+    ``provider_id`` keys the once-per-card warning.
+    """
+    if not base_url or not deployment_mode.is_cloud_mode():
+        return False
+    if is_platform_provider_source(source):
+        return False
+    if not is_obviously_non_public_url(base_url):
+        return False
+    if provider_id not in _REPORTED_BLOCKED_PROVIDER_IDS:
+        _REPORTED_BLOCKED_PROVIDER_IDS.add(provider_id)
+        logger.warning(
+            f"[providers] stored user card {provider_id!r} has a non-public "
+            f"base_url; treated as unusable in cloud (delete and re-add it "
+            f"with a public endpoint)"
+        )
+    return True
 
 
 # =============================================================================
@@ -582,9 +693,17 @@ class ProviderRegistry:
 
     # ---- Connection Test ----
 
-    async def test_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
+    async def test_provider(
+        self, provider: ProviderConfig, *, stored_source: Optional[str] = None
+    ) -> tuple[bool, str]:
         """
         Test connectivity to a provider with a minimal API call.
+
+        ``stored_source`` is the raw ``user_providers.source`` of the saved row
+        this probe stands in for. When given, it — not ``provider.source`` —
+        decides the egress gate, because the column holds platform values the
+        ProviderSource enum cannot express (``system`` / ``system_pool``).
+        Omitted for transient configs, whose ``provider.source`` decides.
 
         Returns:
             (success: bool, message: str)
@@ -602,6 +721,21 @@ class ProviderRegistry:
                 "save the provider and use its Test action (live CLI check)"
             )
 
+        # Egress gate BEFORE any request. Decided by the source: only a
+        # user-supplied base_url is gated. Platform-issued cards (netmind,
+        # netmind_free on our own gateway, yunwu, openrouter, the system pool)
+        # carry fixed base_urls we wrote ourselves — the free-tier ones are
+        # internal by design. Same criterion as the read-path screen.
+        gate_source = provider.source if stored_source is None else stored_source
+        if not is_platform_provider_source(gate_source):
+            try:
+                await assert_user_base_url_allowed(provider.base_url)
+            except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+                logger.warning(
+                    f"[provider-test] refused user base_url ({type(e).__name__}): {e}"
+                )
+                return False, UNSAFE_BASE_URL_MESSAGE
+
         try:
             if provider.protocol == ProviderProtocol.OPENAI:
                 return await self._test_openai_provider(provider)
@@ -610,7 +744,10 @@ class ProviderRegistry:
             else:
                 return False, f"Unknown protocol: {provider.protocol}"
         except Exception as e:
-            return False, f"Connection failed: {e}"
+            # Exception text can carry internal addresses / upstream detail —
+            # log it, show the user a generic verdict.
+            logger.warning(f"[provider-test] connection failed: {type(e).__name__}: {e}")
+            return False, "Connection failed (could not reach the provider)"
 
     async def _test_openai_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
         """Test an OpenAI-protocol provider.
@@ -628,7 +765,7 @@ class ProviderRegistry:
 
         if is_official_provider("openai", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.get(f"{base_url}/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -637,14 +774,14 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+                return self._unexpected_status(resp)
         else:
             # Non-official: minimal chat completion with a real model name
             test_model = provider.models[0] if provider.models else "test"
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)
@@ -669,7 +806,7 @@ class ProviderRegistry:
 
         if is_official_provider("anthropic", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.get(f"{base_url}/v1/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -678,14 +815,14 @@ class ProviderRegistry:
             elif resp.status_code == 403:
                 return False, "Access denied (check API key permissions)"
             else:
-                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+                return self._unexpected_status(resp)
         else:
             # Non-official: minimal messages request with a real model name
             test_model = provider.models[0] if provider.models else "test"
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
                 resp = await client.post(f"{base_url}/v1/messages", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)
@@ -721,7 +858,18 @@ class ProviderRegistry:
         elif resp.status_code in (502, 503, 529):
             return True, "API reachable (upstream temporarily unavailable)"
         else:
-            return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+            return ProviderRegistry._unexpected_status(resp)
+
+    @staticmethod
+    def _unexpected_status(resp) -> tuple[bool, str]:
+        """Verdict for a status we don't interpret: status code only.
+
+        The upstream body stays in the log — echoing it to the user is what
+        turns a blind server-side fetch into a readable one.
+        """
+        body = (getattr(resp, "text", "") or "")[:200]
+        logger.info(f"[provider-test] unexpected HTTP {resp.status_code}: {body}")
+        return False, f"HTTP {resp.status_code} from the provider"
 
 
 # =============================================================================

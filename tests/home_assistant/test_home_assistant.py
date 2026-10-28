@@ -57,20 +57,24 @@ def _no_real_dns(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
 
 
+def _validate(url):
+    return asyncio.run(validate_base_url(url))
+
+
 def test_validate_base_url_accepts_lan_and_https():
-    assert validate_base_url("http://homeassistant.local:8123") == "http://homeassistant.local:8123"
-    assert validate_base_url("https://x.ui.nabu.casa/") == "https://x.ui.nabu.casa"  # trailing slash stripped
+    assert _validate("http://homeassistant.local:8123") == "http://homeassistant.local:8123"
+    assert _validate("https://x.ui.nabu.casa/") == "https://x.ui.nabu.casa"  # trailing slash stripped
 
 
 def test_validate_base_url_rejects_non_http():
     for bad in ("ftp://x", "file:///etc/passwd", "no-scheme"):
         with pytest.raises(HAError):
-            validate_base_url(bad)
+            _validate(bad)
 
 
 def test_validate_base_url_rejects_metadata_host():
     with pytest.raises(HAError):
-        validate_base_url("http://169.254.169.254/latest/meta-data")
+        _validate("http://169.254.169.254/latest/meta-data")
 
 
 def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
@@ -78,19 +82,204 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
     # user-supplied private/loopback host is an SSRF vector — reject it.
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     for internal in ("http://127.0.0.1:8123", "http://192.168.1.10:8123", "http://10.0.0.5:8000"):
         with pytest.raises(HAError):
-            hc.validate_base_url(internal)
+            _validate(internal)
     # A public host is still fine on cloud.
-    assert hc.validate_base_url("https://x.ui.nabu.casa") == "https://x.ui.nabu.casa"
+    assert _validate("https://x.ui.nabu.casa") == "https://x.ui.nabu.casa"
+
+
+def test_validate_base_url_reads_the_same_mode_source_as_the_egress_wrapper(monkeypatch):
+    """HA's cloud/local branch and the shared wrapper must decide the mode from
+    ONE symbol (deployment_mode.is_cloud_mode). If HA kept its own bound copy,
+    the two halves could disagree and the gate would silently not run."""
+    from narranexus.platform.utils import deployment_mode
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    monkeypatch.setattr(deployment_mode, "is_cloud_mode", lambda: True)
+    with pytest.raises(HAError):
+        _validate("http://192.168.1.10:8123")
 
 
 def test_validate_base_url_local_allows_lan(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
-    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
-    assert hc.validate_base_url("http://192.168.1.10:8123") == "http://192.168.1.10:8123"
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    assert _validate("http://192.168.1.10:8123") == "http://192.168.1.10:8123"
+
+
+def test_validate_base_url_cloud_rejects_docker_service_name(monkeypatch):
+    """A docker-network name (broker / quota-api) resolves internal → refused."""
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+
+    def _resolve(host, port, *_a, **_k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.20.0.9", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+    with pytest.raises(HAError) as exc:
+        _validate("http://broker:8020")
+    assert "172.20" not in str(exc.value)
+
+
+def test_validate_base_url_cloud_dns_failure_rejects(monkeypatch):
+    """DNS failure used to PASS the guard; it must reject (fail closed)."""
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+
+    def _fail(*_a, **_k):
+        raise socket.gaierror("Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fail)
+    with pytest.raises(HAError):
+        _validate("http://does-not-resolve.example")
+
+
+class _FakeHAResponse:
+    def __init__(self, status=200, payload=None):
+        self.status = status
+        self.content_type = "application/json"
+        self._payload = payload if payload is not None else {"message": "API running."}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def json(self):
+        return self._payload
+
+    async def text(self):
+        return "UPSTREAM-HA-BODY"
+
+
+class _FakeHASessions:
+    """Stands in for aiohttp.ClientSession; records every construction + request."""
+
+    def __init__(self):
+        self.sessions = 0
+        self.requests: list[dict] = []
+        self.response = _FakeHAResponse()
+        self.raise_exc = None
+
+    def install(self, monkeypatch, hc):
+        recorder = self
+
+        class _Session:
+            def __init__(self, *a, **k):
+                recorder.sessions += 1
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def request(self, method, url, **kw):
+                recorder.requests.append({"method": method, "url": url, **kw})
+                if recorder.raise_exc is not None:
+                    raise recorder.raise_exc
+                return recorder.response
+
+        monkeypatch.setattr(hc.aiohttp, "ClientSession", _Session)
+        monkeypatch.setattr(hc.aiohttp, "TCPConnector", lambda *a, **k: None)
+
+
+def test_cloud_internal_host_refused_before_any_request(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    fake = _FakeHASessions()
+    fake.install(monkeypatch, hc)
+
+    client = HAClient("http://172.20.0.18:8123", "tok")
+    with pytest.raises(HAError):
+        asyncio.run(client.ping())
+    assert fake.sessions == 0 and fake.requests == []
+
+
+def test_cloud_public_host_requests_without_following_redirects(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    fake = _FakeHASessions()
+    fake.install(monkeypatch, hc)
+
+    assert asyncio.run(HAClient("https://x.ui.nabu.casa", "tok").ping()) is True
+    assert fake.requests[0]["url"] == "https://x.ui.nabu.casa/api/"
+    assert fake.requests[0]["allow_redirects"] is False
+
+
+def test_redirect_is_not_followed_and_reported_generically(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    fake = _FakeHASessions()
+    fake.response = _FakeHAResponse(status=302)
+    fake.install(monkeypatch, hc)
+
+    with pytest.raises(HAError) as exc:
+        asyncio.run(HAClient("https://x.ui.nabu.casa", "tok").ping())
+    assert "302" in str(exc.value)
+    assert len(fake.requests) == 1
+
+
+def test_network_error_text_is_not_echoed(monkeypatch):
+    import aiohttp
+
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    fake = _FakeHASessions()
+    fake.raise_exc = aiohttp.ClientError("connect to 10.1.2.3:8123 refused SECRET-DETAIL")
+    fake.install(monkeypatch, hc)
+
+    with pytest.raises(HAError) as exc:
+        asyncio.run(HAClient("https://x.ui.nabu.casa", "tok").ping())
+    assert "SECRET-DETAIL" not in str(exc.value)
+    assert "10.1.2.3" not in str(exc.value)
+
+
+def _call_test_route(monkeypatch, base_url):
+    import narranexus_plugins.home_assistant_module.routes as r
+
+    async def _uid(_request):
+        return "u1"
+
+    monkeypatch.setattr(r, "current_user_id", _uid)
+    body = r.HATestBody(base_url=base_url, token="tok")
+    return asyncio.run(r.test_connection(object(), body))
+
+
+def test_test_route_returns_generic_error_for_internal_host(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    fake = _FakeHASessions()
+    fake.install(monkeypatch, hc)
+
+    out = _call_test_route(monkeypatch, "http://10.0.0.5:8123")
+    assert out["ok"] is False
+    assert "10.0.0.5" not in out["error"]
+    assert fake.requests == []
+
+
+def test_test_route_never_echoes_unexpected_exception_text(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+
+    async def _boom(self):
+        raise RuntimeError("internal traceback detail SECRET-XYZ")
+
+    monkeypatch.setattr(hc.HAClient, "ping", _boom)
+    out = _call_test_route(monkeypatch, "https://x.ui.nabu.casa")
+    assert out["ok"] is False
+    assert "SECRET-XYZ" not in out["error"]
 
 
 def test_require_agent_owner_enforced(monkeypatch):
@@ -202,3 +391,75 @@ def test_resolve_client_unconfigured(monkeypatch):
         assert msg == NOT_CONFIGURED
 
     asyncio.run(run())
+def test_verify_route_never_echoes_unexpected_exception_text(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.binding as b
+    import narranexus_plugins.home_assistant_module.routes as r
+
+    async def _uid(_request):
+        return "u1"
+
+    async def _db():
+        return object()
+
+    async def _owner(_request, _agent_id):
+        return None
+
+    class _Client:
+        async def ping(self):
+            raise RuntimeError("internal traceback detail SECRET-VERIFY")
+
+    async def _resolve(agent_id):
+        return _Client(), None
+
+    monkeypatch.setattr(r, "current_user_id", _uid)
+    monkeypatch.setattr(r, "get_db_client", _db)
+    monkeypatch.setattr(r, "require_agent_owner", _owner)
+    monkeypatch.setattr(b, "resolve_client", _resolve)
+
+    out = asyncio.run(r.verify_binding(object(), r.HAVerifyBody(agent_id="a1")))
+    assert out["ok"] is False
+    assert "SECRET-VERIFY" not in out["error"]
+
+
+@pytest.mark.parametrize("url", ["http://169.254.10.10:8123", "http://[fe80::1]:8123"])
+def test_local_mode_refuses_literal_link_local(monkeypatch, url):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    with pytest.raises(HAError):
+        _validate(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://2852039166",            # decimal form of 169.254.169.254
+        "http://169.254.169.254.",      # trailing-dot literal
+        "http://instance-data",         # EC2 name for the metadata service
+    ],
+)
+def test_local_mode_refuses_names_resolving_link_local(monkeypatch, url):
+    """Local keeps LAN hosts allowed but still resolves the host and refuses
+    any link-local answer — spellings that slip past a literal-only check."""
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+
+    def _resolve(host, port, *_a, **_k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+    with pytest.raises(HAError):
+        _validate(url)
+
+
+def test_local_mode_lan_name_resolving_private_still_allowed(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+
+    def _resolve(host, port, *_a, **_k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+    assert _validate("http://homeassistant.local:8123") == "http://homeassistant.local:8123"

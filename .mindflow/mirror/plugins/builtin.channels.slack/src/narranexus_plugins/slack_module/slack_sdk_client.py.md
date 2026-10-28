@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_sdk_client.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28 — `download_url` 只把 bot token 发给 Slack 文件主机
+
+`download_url` 把 `Authorization: Bearer xoxb-...` 发给调用方给的任意 URL；URL 来自事件
+payload / `files_info`，不能假设它一定在 Slack 上。现在先过 `is_slack_file_url`：https、无
+userinfo、host 以 `.slack.com` 结尾（覆盖 `files.slack.com` 与 `<workspace>.slack.com`；
+带点的后缀匹配挡住 `evilslack.com`、`files.slack.com.attacker.example`），否则抛
+`SlackSDKError("untrusted_host")`，**请求不发、token 不出**。调用方
+（attachment ingest）已按 `SlackSDKError` 记失败审计，行为面不变。没有加
+`allow_redirects=False`：Slack 文件下载可能合法重定向到其 CDN，且 aiohttp 跨主机重定向时会丢
+Authorization 头。
 
 ## 2026-07-10 — add_reaction (backs react_to_user_message)
 

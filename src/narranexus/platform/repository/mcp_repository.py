@@ -293,20 +293,18 @@ async def validate_mcp_sse_connection(
                     else:
                         return True, f"Warning: Content-Type is {content_type}, expected text/event-stream"
                 else:
-                    # Read error response content
-                    error_body = ""
-                    try:
-                        async for chunk in response.aiter_bytes():
-                            error_body += chunk.decode("utf-8", errors="ignore")
-                            if len(error_body) > 200:
-                                break
-                    except Exception:
-                        pass
-                    return False, f"HTTP {response.status_code}: {error_body[:200]}"
+                    # Status code only. The returned text is persisted to
+                    # mcp_urls.last_error and shown to the user — echoing the
+                    # upstream body would turn a blind server-side fetch into
+                    # a readable one. The body is not read at all.
+                    return False, f"HTTP {response.status_code} from the MCP server"
 
     except httpx.TimeoutException:
         return False, f"Connection timeout after {timeout}s"
     except httpx.ConnectError as e:
-        return False, f"Connection failed: {str(e)}"
+        # Exception text can name internal addresses; log it, return generic.
+        logger.warning(f"MCP SSE validation connect error: {type(e).__name__}: {e}")
+        return False, "Connection failed (could not reach the MCP server)"
     except Exception as e:
-        return False, f"Error: {str(e)}"
+        logger.warning(f"MCP SSE validation failed: {type(e).__name__}: {e}")
+        return False, "Connection failed (unexpected error while validating)"
