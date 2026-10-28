@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — office-asset 落盘目录先过属主限定
+
+`entry_dir` 原来直接从 `base + art.file_path` 推出，指针越界就能把资产写进别人的目录。
+现在先经 `ArtifactService.resolve_owned_entry`（内部是 [[confinement]]；越界 404），再取 dirname。
 
 ## 2026-07-22 — URL-tab endpoints
 

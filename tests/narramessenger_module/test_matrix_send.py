@@ -295,3 +295,20 @@ async def test_matrix_upload_missing_content_uri_raises(monkeypatch):
             homeserver=HOMESERVER, token=TOKEN,
             filename="a.png", mime_type="image/png", data=b"x",
         )
+
+
+def test_resolve_refuses_a_symlinked_workspace(workspace, tmp_path):
+    """The owner can swap its workspace dir (inside its own mount) for a link
+    to another tenant's; the root is lexical, so nothing in there is sendable."""
+    import os
+    import shutil
+
+    victim = tmp_path / "user_victim" / "agent_v"
+    victim.mkdir(parents=True)
+    (victim / "secret.png").write_bytes(b"victim")
+    shutil.rmtree(workspace)
+    os.symlink(victim, workspace)
+    for p in ("secret.png", str(victim / "secret.png")):
+        with pytest.raises(MatrixSendError) as ei:
+            resolve_workspace_file("agent_x", "user_owner", p)
+        assert ei.value.code == "bad_path"

@@ -1,10 +1,20 @@
 ---
 code_file: src/narranexus/platform/bundle/skill_backup.py
-last_verified: 2026-08-18
+last_verified: 2026-10-28
 stub: false
 ---
 
 # skill_backup.py — skill 归档机制 (subproject 2 §8.12.2-5)
+
+## 2026-10-28 — `archive_local_zip` 走 `resolve_inside_workspace`
+
+`zip_file_path` 是 MCP 工具参数（agent 可控）。原来把 workspace 根 `.resolve()` 后再比较：
+workspace 目录被换成指向别的租户的链接时，对方 workspace 里的 zip 会被复制进**调用者**的
+`skill_archives`。现在 `_agent_workspace_root` 只 realpath base（尾段字面），`archive_local_zip`
+交给 [[workspace_paths]] 的 `resolve_inside_workspace`（拒绝链接根、候选 realpath 必须落在字面根内），
+ValueError 原样保留本函数的错误类型。`list_unbackedup` 仍经 `_agent_workspace_root` 列 skills 目录
+名，链接 workspace 下只会暴露目录名、不读内容，本次未改。测试：
+`test_skill_archive_path_safety.py::test_archive_local_zip_refuses_a_symlinked_workspace`。
 
 ## 为什么存在
 

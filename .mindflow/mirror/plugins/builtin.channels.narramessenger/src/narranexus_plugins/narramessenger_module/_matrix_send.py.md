@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（二审）— 拒绝符号链接 workspace
+
+`resolve_workspace_file` 原来对 workspace 根 `.resolve()`：根被换成指向别的租户 workspace 的
+链接时，`narra_send_media` 能把对方的文件发出去。现在根 = realpath(base) + 字面尾段，交给
+[[workspace_paths]] 的 `resolve_inside_workspace`；它的 ValueError 仍包成
+`MatrixSendError("bad_path")`，单一错误类型契约不变。测试：
+`test_matrix_send.py::test_resolve_refuses_a_symlinked_workspace`。
+
 ## 2026-10-28 — 保持单一错误类型
 
 `agent_workspace_path` 自 2026-10-28 起对不安全的 id 抛 `ValueError`；这里包成

@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/schema/api_schema.py
-last_verified: 2026-09-06
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `FileListResponse.truncated`
+
+workspace 目录树接口有了节点数/深度上限（[[files]]），超限**且确有可见条目被略掉**时
+`truncated=True`；前端 `FileUpload` 据此在树下提示"部分列表"（`awareness.workspace.partialListing`）。
 
 ## 2026-09-03 — `BoundChannel` + `AgentInfo.bound_channels` 改为对象列表
 

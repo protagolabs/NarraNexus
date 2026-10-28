@@ -29,6 +29,7 @@ from narranexus.platform.artifact._artifact_impl import (
     raw_access,
     registration,
     url_artifact,
+    confinement,
     user_edit,
 )
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
@@ -240,6 +241,17 @@ class ArtifactService:
             artifact_id=artifact_id,
             content=content,
             base_hash=base_hash,
+        )
+
+    def resolve_owned_entry(self, artifact: Artifact) -> str:
+        """Realpath of ``artifact``'s entry file, proven to sit under its owner's
+        roots (that agent's workspace or its team folder). Raises
+        ArtifactPathEscape otherwise — the stored ``file_path`` is user-influenced
+        and must never be joined to the base blindly (2026-10-28)."""
+        from narranexus.platform.settings import settings
+        return confinement.confine_entry(
+            artifact.file_path, artifact.agent_id, artifact.user_id,
+            settings.base_working_path, team_id=artifact.team_id,
         )
 
     async def commit_office_user_edit(self, *, agent_id: str, artifact_id: str) -> Artifact:

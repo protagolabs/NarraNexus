@@ -23,6 +23,11 @@ stub: false
 
 `upstream fetch failed: {e}` 会把连接错误原文（含内网主机名/端口判断依据）带给用户；
 改为固定文案，细节进日志。
+## 2026-10-28 — preflight 落盘用固定文件名
+
+`tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
+`../x` 或绝对路径就决定了写到哪（随后 `unlink`）。改为固定 `upload.nxbundle`，与
+marketplace publish 同一规则。
 
 ## 2026-08-18 三审 — 闸口挪进线程
 

@@ -447,6 +447,9 @@ export function FileUpload() {
   const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [tree, setTree] = useState<FileInfo[]>([]);
+  // Backend capped the tree (node count / depth). Rendered as a note so files
+  // past the cap read as "not shown", never as deleted.
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -465,10 +468,13 @@ export function FileUpload() {
       const res = await api.listFiles(agentId);
       if (res.success) {
         setTree(res.tree);
+        setTruncated(res.truncated === true);
       } else {
+        setTruncated(false);
         setError(res.error || t('awareness.workspace.errLoad'));
       }
     } catch (err) {
+      setTruncated(false);
       setError(t('awareness.workspace.errLoad'));
       console.error('Error fetching workspace tree:', err);
     } finally {
@@ -665,6 +671,11 @@ export function FileUpload() {
             ))}
           </div>
         </ScrollArea>
+      )}
+      {!loading && truncated && (
+        <div className="text-xs text-[var(--text-tertiary)] px-1" role="note">
+          {t('awareness.workspace.partialListing')}
+        </div>
       )}
 
       <PreviewModal

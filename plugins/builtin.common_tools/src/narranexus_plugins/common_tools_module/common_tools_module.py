@@ -16,12 +16,15 @@ Design choices:
 """
 
 import asyncio
-import os
 from typing import Any, List, Optional
 
 from loguru import logger
 
-from narranexus.platform.artifact import ArtifactService, office_lock_present
+from narranexus.platform.artifact import (
+    ArtifactPathEscape,
+    ArtifactService,
+    office_lock_present,
+)
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
 from narranexus.platform.repository.team_workspace_repository import (
     ArtifactHistoryRepository,
@@ -418,8 +421,14 @@ class CommonToolsModule(XYZBaseModule):
                         "re-read before editing"
                     )
                 if a.kind == "application/vnd.officecli-live" and a.file_path:
-                    abs_entry = os.path.join(settings.base_working_path, a.file_path)
-                    if office_lock_present(abs_entry):
+                    # Probe next to the OWNER-CONFINED entry only: a pointer
+                    # (or a folder swapped for a link) aiming at another
+                    # tenant's tree gets no note rather than a peek there.
+                    try:
+                        abs_entry = service.resolve_owned_entry(a)
+                    except ArtifactPathEscape:
+                        abs_entry = None
+                    if abs_entry is not None and office_lock_present(abs_entry):
                         notes.append(
                             "currently open in a desktop Office app; its saves "
                             "may race yours while the lock is held"
