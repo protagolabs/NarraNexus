@@ -1199,16 +1199,14 @@ class UserProviderService:
                 return False, detail
             return True, f"{detail} (not live-verified)"
 
-        # The egress gate is decided by the STORED source, never by relabelling:
-        # a platform card (netmind_free on our own gateway) keeps its internal
-        # base_url, a user card is gated. A missing / unknown source is treated
-        # as USER — the gated side (fail closed).
-        try:
-            source = ProviderSource(row.get("source") or ProviderSource.USER.value)
-        except ValueError:
-            source = ProviderSource.USER
+        # The egress gate is decided by the raw STORED source through the one
+        # platform-source criterion (registry.is_platform_provider_source): a
+        # platform card (netmind_free, the system / system_pool pool — all on
+        # our own gateway) keeps its internal base_url; user, missing and
+        # unknown sources are gated (fail closed). No enum conversion here: the
+        # column holds platform values the enum has no member for.
         return await self._probe_api_key_card(
-            source=source,
+            gate_source=row.get("source") or "",
             card_type=row["protocol"],
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
@@ -1259,7 +1257,7 @@ class UserProviderService:
         # Raw form values are user-supplied by definition: always USER, so the
         # registry's egress gate applies to the base_url the client sent.
         return await self._probe_api_key_card(
-            source=ProviderSource.USER,
+            gate_source=ProviderSource.USER.value,
             card_type=card_type,
             api_key=api_key,
             base_url=base_url,
@@ -1270,7 +1268,7 @@ class UserProviderService:
     async def _probe_api_key_card(
         self,
         *,
-        source: ProviderSource,
+        gate_source: str,
         card_type: str,
         api_key: str,
         base_url: str,
@@ -1279,9 +1277,12 @@ class UserProviderService:
     ) -> tuple[bool, str]:
         """The ONE place a transient api-key ProviderConfig is built for a probe.
 
-        Shared by the stateless form probe (always ``source=USER``) and the
-        saved-row test (the row's real source), so the whitelists below and the
-        registry's source-keyed egress gate can't drift between the two.
+        Shared by the stateless form probe (``gate_source="user"``) and the
+        saved-row test (the row's raw stored source), so the whitelists below
+        and the registry's source-keyed egress gate can't drift between the
+        two. ``gate_source`` is handed to the registry as ``stored_source`` and
+        alone decides the egress gate; the transient config's own ``source``
+        is a fixed USER label that nothing else reads.
         """
         if card_type not in ("anthropic", "openai"):
             return False, f"Unsupported protocol: {card_type}"
@@ -1292,14 +1293,14 @@ class UserProviderService:
         prov = ProviderConfig(
             provider_id="prov_probe",          # transient, never stored
             name="probe",
-            source=source,
+            source=ProviderSource.USER,        # label only; gate_source decides
             protocol=card_type,                # pydantic coerces to ProviderProtocol
             auth_type=auth_type,
             api_key=api_key,
             base_url=base_url,
             models=models or [],
         )
-        return await provider_registry.test_provider(prov)
+        return await provider_registry.test_provider(prov, stored_source=gate_source)
 
 
 # =============================================================================

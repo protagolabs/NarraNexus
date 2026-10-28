@@ -76,13 +76,50 @@ async def assert_user_base_url_allowed(base_url: str) -> None:
     await assert_public_http_url_in_cloud(base_url)
 
 
-# provider_ids already reported by the read-path screen; the screen runs on
-# every config read, so one warning per offending card is enough.
+# Every platform-owned value the ``user_providers.source`` column can hold:
+# rows whose base_url WE wrote (netmind_free legitimately points at our
+# internal gateway). This set, not ProviderSource membership, is what the
+# egress gate trusts. The enum is NOT the column's value domain: ``system``
+# (driver/derive.py → system_pool driver, system_quota billing) and
+# ``system_pool`` (model_sync.apply_ledger_to_db) are live values for the
+# cloud free-tier pool with no enum member. The two spellings are an existing
+# inconsistency between derive.py and model_sync; both are trusted here.
+# Listed explicitly (not derived from the enum) so a new source is gated until
+# someone decides it is platform-owned — fail closed.
+PLATFORM_PROVIDER_SOURCES: frozenset[str] = frozenset({
+    ProviderSource.NETMIND.value,
+    ProviderSource.NETMIND_FREE.value,
+    ProviderSource.YUNWU.value,
+    ProviderSource.OPENROUTER.value,
+    ProviderSource.CLAUDE_OAUTH.value,
+    ProviderSource.CODEX_OAUTH.value,
+    "system",
+    "system_pool",
+})
+
+
+def is_platform_provider_source(source: Optional[str]) -> bool:
+    """True when a provider row's source is platform-owned (trusted base_url).
+
+    The single criterion every egress decision keyed by source uses (save-time
+    Test, saved-row Test, read path, runtime builder). ``user``, a missing
+    source and any value not in ``PLATFORM_PROVIDER_SOURCES`` return False —
+    the user-controlled, gated side (fail closed).
+    """
+    if isinstance(source, ProviderSource):
+        source = source.value
+    return (source or "").strip().lower() in PLATFORM_PROVIDER_SOURCES
+
+
+# provider_ids already reported by the read-path screen. Pure log dedup, NOT
+# state: it is per-process (each worker may log once), never shared, and never
+# caches the block verdict — is_stored_user_base_url_blocked recomputes that on
+# every call. Size is bounded by the number of offending legacy cards.
 _REPORTED_BLOCKED_PROVIDER_IDS: set[str] = set()
 
 
 def is_stored_user_base_url_blocked(
-    source: Optional[str], base_url: Optional[str], provider_id: str = ""
+    source: Optional[str], base_url: Optional[str], provider_id: str
 ) -> bool:
     """Read-path egress screen for a STORED provider row (cloud only).
 
@@ -95,18 +132,16 @@ def is_stored_user_base_url_blocked(
     ``llm-gateway``). It narrows the legacy-row gap; it is not a substitute
     for the save-time gate.
 
-    Decided by the STORED source, like the Test path: only USER rows (missing
-    or unknown source counts as USER — fail closed) are screened; platform rows
-    (``netmind_free`` on our internal gateway) are trusted. An empty base_url
+    Decided by the STORED source via ``is_platform_provider_source``, like the
+    Test path: platform rows (netmind_free, the system / system_pool free-tier
+    pool — all on our internal gateway) are trusted; ``user``, missing and
+    genuinely unknown sources are screened (fail closed). An empty base_url
     means "provider default", not user-controlled. Local/desktop never blocks.
+    ``provider_id`` keys the once-per-card warning.
     """
     if not base_url or not deployment_mode.is_cloud_mode():
         return False
-    try:
-        parsed_source = ProviderSource(source or ProviderSource.USER.value)
-    except ValueError:
-        parsed_source = ProviderSource.USER
-    if parsed_source != ProviderSource.USER:
+    if is_platform_provider_source(source):
         return False
     if not is_obviously_non_public_url(base_url):
         return False
@@ -658,9 +693,17 @@ class ProviderRegistry:
 
     # ---- Connection Test ----
 
-    async def test_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
+    async def test_provider(
+        self, provider: ProviderConfig, *, stored_source: Optional[str] = None
+    ) -> tuple[bool, str]:
         """
         Test connectivity to a provider with a minimal API call.
+
+        ``stored_source`` is the raw ``user_providers.source`` of the saved row
+        this probe stands in for. When given, it — not ``provider.source`` —
+        decides the egress gate, because the column holds platform values the
+        ProviderSource enum cannot express (``system`` / ``system_pool``).
+        Omitted for transient configs, whose ``provider.source`` decides.
 
         Returns:
             (success: bool, message: str)
@@ -678,11 +721,13 @@ class ProviderRegistry:
                 "save the provider and use its Test action (live CLI check)"
             )
 
-        # Egress gate BEFORE any request. Decided by the card's source: only a
+        # Egress gate BEFORE any request. Decided by the source: only a
         # user-supplied base_url is gated. Platform-issued cards (netmind,
-        # netmind_free on our own gateway, yunwu, openrouter) carry fixed
-        # base_urls we wrote ourselves — the free-tier one is internal by design.
-        if provider.source == ProviderSource.USER:
+        # netmind_free on our own gateway, yunwu, openrouter, the system pool)
+        # carry fixed base_urls we wrote ourselves — the free-tier ones are
+        # internal by design. Same criterion as the read-path screen.
+        gate_source = provider.source if stored_source is None else stored_source
+        if not is_platform_provider_source(gate_source):
             try:
                 await assert_user_base_url_allowed(provider.base_url)
             except Exception as e:  # noqa: BLE001 — any decision failure fails closed

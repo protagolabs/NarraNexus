@@ -38,7 +38,7 @@ from urllib.parse import urlparse
 import aiohttp
 from loguru import logger
 
-from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils import deployment_mode
 from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
 
 _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=8)
@@ -106,7 +106,10 @@ async def validate_base_url(base_url: str) -> str:
     fail-closed). Local: LAN hosts allowed, link-local answers refused.
     """
     normalized = _check_url_shape(base_url)
-    if is_cloud_mode():
+    # Module attribute, not a bound copy: this branch and the shared wrapper
+    # must read the SAME symbol, or a patched/forked mode could send HA into
+    # the cloud branch while the wrapper decides "local" and checks nothing.
+    if deployment_mode.is_cloud_mode():
         try:
             await assert_public_http_url_in_cloud(normalized)
         except Exception as e:  # noqa: BLE001 — any decision failure fails closed

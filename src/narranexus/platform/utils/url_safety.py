@@ -178,7 +178,7 @@ async def assert_public_http_url_in_cloud(
     url: str,
     *,
     resolver: Optional[Resolver] = None,
-) -> None:
+) -> Optional[List[str]]:
     """Deployment-aware egress gate: cloud enforces, local/desktop allows.
 
     Cloud: the server shares a network with the metadata endpoint and every
@@ -191,7 +191,11 @@ async def assert_public_http_url_in_cloud(
     Raises rather than returning a verdict: each caller owns its own failure
     contract and user-facing wording, and must never echo the exception text
     (it can contain resolved internal addresses).
+
+    Returns the validated public IPs in cloud (for connection pinning) and
+    ``None`` locally. ``None`` means ALLOWED (nothing was checked), never
+    "refused": refusal is only ever signalled by raising.
     """
     if not deployment_mode.is_cloud_mode():
-        return
-    await assert_public_http_url(url, resolver=resolver)
+        return None
+    return await assert_public_http_url(url, resolver=resolver)

@@ -4,11 +4,26 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（三）— 保存行 Test 与读取路径共用平台 source 白名单
+
+PR#418 增量 review C1：`test_provider`（保存行；ProviderReadiness 也经由它）不再做
+`ProviderSource(row.source)` 的 `ValueError → USER` 转换，而是把行里的**原始** source 字符串作为
+`gate_source` 交给 `_probe_api_key_card`，再以 `stored_source=` 传给 [[registry]] `test_provider`，
+由唯一判据 `is_platform_provider_source` 决定过不过门。原因：云端免费额度池卡的 source 是
+`system` / `system_pool`，枚举里没有，旧转换把它们当 USER，Test 与 readiness 会被门拒掉。
+transient `ProviderConfig.source` 现在固定写 USER——它只是个标签，registry 里除出网门外无人读它，
+而出网门已改读 `stored_source`。表单探测 `test_provider_config` 传 `gate_source="user"`。
+
+- `get_user_config` 的读取路径筛同样只拦非平台 source；注意本函数构造 `ProviderConfig` 时
+  `source` 是严格枚举，`system` / `system_pool` 行若带着本用户的 user_id 进到这里会 ValidationError——
+  这是既有行为（这类行 `owner_user_id=NULL`、正常不按用户 user_id 存），本 PR 不改其可见性。
+
 ## 2026-10-28（二）— 读取路径筛：已存 user 卡指向内网 → 不可用（云端）
 
 PR#418 review I2：save / Test 有门，但 10/28 之前存下的 `source=user` 行仍可能指向
 `http://llm-gateway:4000` / `quota-api` 等。`get_user_config` 组装 `ProviderConfig` 时对每行调
-[[registry]] 的 `is_stored_user_base_url_blocked`（仅云端、仅 USER 行——缺失/未知 source 也算 USER、
+[[registry]] 的 `is_stored_user_base_url_blocked`（仅云端、仅非平台 source——`user`/缺失/真正未知，
+平台白名单见「（三）」、
 DNS-free `is_obviously_non_public_url`、日志按 provider_id 只打一次），命中则 **`is_active=False`**：
 
 - **选「标记不可用」而不是「跳过」**：跳过会让卡从设置页消失，用户删不掉也看不见原因；
@@ -18,7 +33,7 @@ DNS-free `is_obviously_non_public_url`、日志按 provider_id 只打一次）�
   [[driver/resolver]] `resolve_user_runtime_llm_configs` 按 provider_id 直接读行，per-agent
   override 也不经过这里，所以那边同样调了这道筛（命中抛 `LLMConfigNotConfigured`）。
 - 热路径上不做 DNS；解析到内网的多标签名不在本筛覆盖范围，靠 save / Test 的全量门。
-- `netmind_free` 等平台卡（base_url 本就是内网网关）不受影响；local/desktop 永不拦。
+- `netmind_free`、`system` / `system_pool` 等平台卡（base_url 本就是内网网关）不受影响；local/desktop 永不拦。
 - 测试：`tests/backend/test_provider_egress_gate.py` 读取路径组。
 
 ## 2026-10-28 — 出网门：save 时拦 + 保存行测试按**存储的 source** 判定
@@ -33,7 +48,7 @@ DNS-free `is_obviously_non_public_url`、日志按 provider_id 只打一次）�
   委托给 `test_provider_config`——那样门要么误杀 free-tier 卡（其 base_url 就是内网网关），
   要么只能放弃按 source 判断。现在 transient ProviderConfig 的构造点收敛到私有
   `_probe_api_key_card(source=...)`：表单探测（`test_provider_config`）固定传 USER（原始
-  表单值天然是用户输入），保存行传行里真实的 `source`；缺失或未知 source 一律当 USER
+  表单值天然是用户输入），保存行传行里真实的 `source`（「（三）」起改为原始字符串 + 平台白名单判据）；缺失或未知 source 一律当 USER
   （被门的一侧，fail closed）。两道白名单仍只此一处。
 - 测试：`tests/backend/test_provider_egress_gate.py`。
 

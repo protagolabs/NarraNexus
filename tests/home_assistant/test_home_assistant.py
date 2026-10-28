@@ -90,6 +90,18 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
     assert _validate("https://x.ui.nabu.casa") == "https://x.ui.nabu.casa"
 
 
+def test_validate_base_url_reads_the_same_mode_source_as_the_egress_wrapper(monkeypatch):
+    """HA's cloud/local branch and the shared wrapper must decide the mode from
+    ONE symbol (deployment_mode.is_cloud_mode). If HA kept its own bound copy,
+    the two halves could disagree and the gate would silently not run."""
+    from narranexus.platform.utils import deployment_mode
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    monkeypatch.setattr(deployment_mode, "is_cloud_mode", lambda: True)
+    with pytest.raises(HAError):
+        _validate("http://192.168.1.10:8123")
+
+
 def test_validate_base_url_local_allows_lan(monkeypatch):
     import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 

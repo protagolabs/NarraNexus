@@ -4,12 +4,22 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（三）— 部署判定与共享包装读同一个符号
+
+PR#418 增量 review I4：`validate_base_url` 改调 `deployment_mode.is_cloud_mode()`（模块属性），
+不再 `from … import is_cloud_mode` 绑本模块副本——与 [[url_safety]] 包装、[[registry]] 同一写法。
+否则同一次调用里有两个判定点：谁 patch 了本模块的副本，HA 就进 cloud 分支，而包装判 local 直接返回，
+**闸口一点都没跑**、测试却是绿的。local 分支的 `_assert_not_link_local` 保持不动（局域网 HA 合法）。
+测试 `test_validate_base_url_reads_the_same_mode_source_as_the_egress_wrapper`：env=local 但
+patch `deployment_mode.is_cloud_mode → True`，私网地址必须被拒；回退成绑定副本即变红。
+HA 测试继续用 setenv，**不要**回退成 `monkeypatch.setattr(hc, "is_cloud_mode", …)`（现已无此属性）。
+
 ## 2026-10-28（二）— cloud 分支改调共享包装，本地策略不动
 
 PR#418 review I1：`validate_base_url` 的 cloud 分支改调 `url_safety.assert_public_http_url_in_cloud`
 （部署感知判定只在 [[url_safety]] 一处），失败仍翻译成本层的 `HAError(_CLOUD_PUBLIC_ONLY)`。
 **local 分支的 `_assert_not_link_local` 刻意不并入**：本地 HA 合法在私网，只拒 link-local，
-是另一种策略；并进包装会把局域网 HA 一起拒掉。所以本文件仍自己按 `is_cloud_mode()` 分流。
+是另一种策略；并进包装会把局域网 HA 一起拒掉。所以本文件仍自己按 `deployment_mode.is_cloud_mode()` 分流（「（三）」起读模块属性）。
 
 - **触发**：测试只 patch `ha_client.is_cloud_mode` → **症状**：走了 cloud 分支但包装按 env 判成
   local，内网 host 被放行 → **根因**：cloud 判定实际由包装再做一次。HA 测试已改为

@@ -14,6 +14,10 @@ base_url 是用户填的，云端在保存、Test、读取三处都要过门（`
 - **触发**：为了统计/迁移批量重贴某行的 `source`（例如把自定义卡归到 `netmind`）→ **症状**：该卡的出网闸口
   静默关闭，没有测试会红、没有日志会报 → **根因**：闸口只看 `source`，不看 base_url 指向哪里。
   结论：**永远不要重贴一行的 source**。
+- **本枚举不是 `user_providers.source` 的全部取值**（PR#418 增量 review C1）：云端系统免费额度池存成
+  `system` / `system_pool`，没有成员。信任判定读 `registry.PLATFORM_PROVIDER_SOURCES`，不读枚举成员资格；
+  docstring 已写明。**刻意没补这两个成员**：补了之后这些行会第一次能被 `ProviderConfig` 装下、出现在
+  `get_user_config` / 设置页里（`owner_user_id=NULL` 语义是对所有人可见），是本 PR 范围外的可见性变更。
 
 ## 2026-09-10 — `SUBSCRIPTION_AUTH_TYPES` 回到本文件（唯一定义）
 

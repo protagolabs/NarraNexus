@@ -410,3 +410,97 @@ async def test_local_runtime_builder_keeps_stored_internal_user_card(local, fake
     db = await _seed_bound_row("user", protocol="anthropic")
     cfgs = await resolve_user_runtime_llm_configs("u1", db)
     assert cfgs.claude.base_url == "http://llm-gateway:4000/v1"
+
+
+# ── platform sources outside the enum (cloud free-tier pool) ────────────────
+#
+# `user_providers.source` holds platform values the ProviderSource enum has no
+# member for: `system` (derive.py → system_pool driver) and `system_pool`
+# (model_sync.apply_ledger_to_db). Their base_url is our internal gateway, like
+# netmind_free. "Not an enum member" must not mean "user" — only `user`,
+# missing and genuinely unknown values are gated.
+
+_INTERNAL_GATEWAY = "http://llm-gateway:4000/v1"
+_PLATFORM_SOURCES = [
+    "netmind", "netmind_free", "yunwu", "openrouter",
+    "claude_oauth", "codex_oauth", "system", "system_pool",
+]
+
+
+@pytest.mark.parametrize("source", _PLATFORM_SOURCES)
+def test_cloud_read_screen_trusts_every_platform_source(cloud, source):
+    from narranexus.platform.agent_framework.providers.registry import (
+        is_stored_user_base_url_blocked,
+    )
+
+    assert is_stored_user_base_url_blocked(source, _INTERNAL_GATEWAY, "p1") is False
+
+
+@pytest.mark.parametrize("source", ["user", "totally_unknown", None, ""])
+def test_cloud_read_screen_gates_user_missing_and_unknown_sources(cloud, source):
+    from narranexus.platform.agent_framework.providers.registry import (
+        is_stored_user_base_url_blocked,
+    )
+
+    assert is_stored_user_base_url_blocked(source, _INTERNAL_GATEWAY, "p1") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["system", "system_pool"])
+async def test_cloud_runtime_builder_keeps_system_pool_card_on_internal_gateway(
+    cloud, fake_http, monkeypatch, source
+):
+    """The agent-loop builder must keep serving the cloud free-tier pool card:
+    refusing it would fail every run of every user bound to it."""
+    from narranexus.platform.agent_framework.providers.driver import (
+        resolve_user_runtime_llm_configs,
+    )
+    from narranexus.platform.agent_framework.providers.driver import resolver as resolver_mod
+    from narranexus_plugins.providers.system import SystemDriver
+
+    real_lookup = resolver_mod.get_driver_class
+    monkeypatch.setattr(
+        resolver_mod,
+        "get_driver_class",
+        lambda key: SystemDriver if key == "system_pool" else real_lookup(key),
+    )
+    db = FakeDB()
+    row = _row("p1", source, _INTERNAL_GATEWAY)
+    row.update(protocol="anthropic", auth_type="bearer_token", driver_type="system_pool")
+    await db.insert("user_providers", row)
+    await db.insert("user_slots", _slot("agent", "p1"))
+    await db.insert("user_slots", _slot("helper_llm", "p1"))
+
+    cfgs = await resolve_user_runtime_llm_configs("u1", db)
+
+    assert cfgs.claude.base_url == _INTERNAL_GATEWAY
+    assert fake_http.requests == []
+
+
+@pytest.mark.asyncio
+async def test_cloud_runtime_builder_still_refuses_unknown_source_card(cloud, fake_http):
+    """Fail closed is not weakened: a genuinely unknown source is gated."""
+    from narranexus.platform.agent_framework.api_config import LLMConfigNotConfigured
+    from narranexus.platform.agent_framework.providers.driver import (
+        resolve_user_runtime_llm_configs,
+    )
+
+    db = await _seed_bound_row("totally_unknown", protocol="anthropic")
+    with pytest.raises(LLMConfigNotConfigured) as exc:
+        await resolve_user_runtime_llm_configs("u1", db)
+    assert "not allowed in the cloud" in str(exc.value)
+    assert "llm-gateway" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["system", "system_pool"])
+async def test_platform_system_pool_row_on_internal_gateway_still_tests(cloud, fake_http, source):
+    """Saved-row Test (also ProviderReadiness) uses the same platform-source
+    criterion as the read path, so the pool card is probed, not refused."""
+    db = FakeDB()
+    await db.insert("user_providers", _row("p_pool", source, _INTERNAL_GATEWAY))
+
+    ok, msg = await UserProviderService(db).test_provider("u1", "p_pool")
+
+    assert ok is True, msg
+    assert fake_http.requests == [("POST", f"{_INTERNAL_GATEWAY}/chat/completions")]

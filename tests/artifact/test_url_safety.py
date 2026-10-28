@@ -225,3 +225,19 @@ async def test_in_cloud_wrapper_is_a_no_op_locally(monkeypatch):
         "http://localhost:11434/v1", resolver=_resolver_must_not_run
     )
     await assert_public_http_url_in_cloud("http://169.254.169.254/latest")
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_returns_the_validated_addresses_in_cloud(monkeypatch):
+    """The wrapper hands back the gate's validated IPs (for connection pinning)."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    addresses = await assert_public_http_url_in_cloud(
+        "https://api.example.com/v1", resolver=_resolver_returning("93.184.216.34")
+    )
+    assert addresses == ["93.184.216.34"]
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_returns_none_locally_meaning_allowed(monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    assert await assert_public_http_url_in_cloud("http://localhost:11434/v1") is None

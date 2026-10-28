@@ -24,6 +24,9 @@ PR#418 review I1：「云端才过门」这段判定原先在 4 个 sink（provi
   分支但包装判成 local，内网地址被放行、测试变红 → **根因**：判定已移到本模块；测试要用
   `monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")`（HA 测试已改）。
 - 测试：`tests/artifact/test_url_safety.py`（cloud 委托拒内网、local 不解析直接放行）。
+- **返回值**（PR#418 增量 review M8）：cloud 返回 `assert_public_http_url` 校验过的 IP 列表
+  （留给后续 IP pinning，调用方签名不用再改），local 返回 `None`。`None` = **放行（什么都没查）**，
+  不是「被拒」——拒绝永远只靠抛异常；别把 raise 契约读成返回值契约。
 
 `is_obviously_non_public_url` 新增一个消费方：[[registry]] 的 `is_stored_user_base_url_blocked`
 （已存 user 卡的读取路径筛，DNS-free，见该 mirror）。

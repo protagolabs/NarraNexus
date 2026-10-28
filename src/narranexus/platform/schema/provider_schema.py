@@ -82,6 +82,11 @@ class ProviderSource(str, Enum):
     ``registry.is_stored_user_base_url_blocked``); platform rows are trusted
     (netmind_free legitimately points at our internal gateway). Never relabel
     a row's source: that silently switches its egress gate off.
+
+    This enum is NOT the full value domain of ``user_providers.source``: the
+    cloud free-tier pool is stored as ``system`` / ``system_pool`` with no
+    member here. The trust decision therefore reads
+    ``registry.PLATFORM_PROVIDER_SOURCES``, never enum membership.
     """
     NETMIND = "netmind"            # Auto-created from NetMind one-key card
     NETMIND_FREE = "netmind_free"  # Platform free-tier wallet card (see providers/free_tier)
