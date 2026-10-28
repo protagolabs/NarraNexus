@@ -1,7 +1,7 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 ---
 
 ## 2026-09-03（批 2a.5）— `/agent-loop` 透传 `deferred_tools` 给 driver（所有 driver 都收 `**kwargs`）
@@ -171,7 +171,22 @@ remote 路径下未绑定 channel 的工具同样从模型上下文剔除。纯�
 支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
 改名/类型，职责不变。
 
-## 2026-06-17 — 日志写到 user 目录
+## 2026-10-28 — 文件日志迁出 workspace（安全事件后续）
+
+`_resolve_executor_log_dir` 只认 `NX_EXECUTOR_LOG_DIR`（broker 把
+executor_logs 卷的 per-user 子目录 bind 到容器 `/var/log/nx-executor`
+并注入该 env）；未配置则返回 None，`main()` 只走 stdout（docker logs /
+journald）。**刻意没有 workspace 回退**：旧行为把平台日志写进
+`{user}/.executor_logs`，落在 agent 可读、files API / 目录树 / bundle
+导出 / skills 打包都能看到的面上（2026-10-28 跨租户读事件的盘点项）。
+`base_working_path` 现在是**收容护栏**而非回退来源：env 值 resolve 后
+落在 workspace base 之内（含符号链接、点段）一律拒绝、fail-closed 到
+stdout-only——配错 env 也写不回用户文件。`main()` 层与解析层各有测试
+（无 env 时 `logger.add` 不被调用、workspace 下不出现 `.executor_logs`；
+env 收容负例）。存量 `{user}/.executor_logs` 的清理归 deploy 侧发版脚本
+（一次性逐用户 rm，见 deploy PR）。文件日志仍 best-effort。
+
+## 2026-06-17 — 日志写到 user 目录（已于 2026-10-28 撤销）
 
 `main()` 启动时把 loguru 文件 sink 落到**该用户 workspace 目录**下的
 `.executor_logs/`(`_resolve_executor_log_dir`:容器只挂了一个 user 子目录,
