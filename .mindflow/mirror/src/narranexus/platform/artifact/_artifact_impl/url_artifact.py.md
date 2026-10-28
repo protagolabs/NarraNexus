@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/url_artifact.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
 
@@ -43,6 +43,11 @@ which wins over the probe). Bumps updated_at via `repo.update_title` so the
 frontend's refetch sees a change. 404s if the artifact is missing / not this
 agent's / not a URL tab; a missing doc file on disk (a real pointer-model
 state) raises `ArtifactContentGone` (410), not a bare FileNotFoundError → 500.
+
+2026-10-28（PR #421 复审时同类扫描补上）：doc 路径先经 [[confinement]] `confine_entry`，
+越界 → `ArtifactNotFound`。原来是 `realpath(resolve_workspace_relative_file(...))` 后直接
+读 + 原子重写——tab 目录被换成指向别的租户 tab 目录的链接时，覆盖的是对方的 doc。
+测试 `test_set_embed_mode_never_rewrites_a_doc_behind_a_swapped_link`。
 
 ## Agent-readable content snapshot (2026-07-22)
 

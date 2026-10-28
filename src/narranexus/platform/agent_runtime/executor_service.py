@@ -586,23 +586,40 @@ def capabilities(framework: str = "nexus_power") -> dict:
     return {"framework": framework, "capabilities": sorted(caps)}
 
 
-def _resolve_executor_log_dir(base_working_path: str) -> Path:
-    """Where the executor writes its logs: under the (single) mounted user
-    workspace dir, so each user's executor logs land in THEIR directory and
-    persist on the host volume — not in a shared sink.
+def _resolve_executor_log_dir(base_working_path: str) -> Path | None:
+    """Where the executor writes its file logs: the dedicated log mount named
+    by ``NX_EXECUTOR_LOG_DIR`` (the broker binds the executor_logs volume's
+    per-user subdir there, outside the workspace), or nowhere.
 
-    The broker mounts exactly one user subtree at
-    ``{base}/{user_id}``, so ``base`` has a single non-hidden subdir = the
-    user. Falls back to ``{base}/.executor_logs`` if it can't be uniquely
-    determined (so logging never hard-fails).
+    It used to be ``{workspace}/{user}/.executor_logs`` — platform telemetry
+    inside the agent-readable workspace, so it leaked into the files API,
+    directory trees, bundle exports and skills packaging (2026-10-28
+    incident follow-up). There is deliberately NO workspace fallback: an
+    executor spawned without the log mount logs to stdout only (docker
+    logs / journald), it never writes into the user's files again.
+
+    ``base_working_path`` is the containment guard, not a fallback: an env
+    value that resolves INSIDE the workspace base (a misconfigured deploy
+    pointing the "dedicated" dir back at the mount, symlinks and dot-segments
+    included) is refused — fail closed to stdout-only, never back into the
+    user's files.
     """
-    base = Path(base_working_path)
+    env_dir = os.environ.get("NX_EXECUTOR_LOG_DIR", "").strip()
+    if not env_dir:
+        return None
+    target = Path(env_dir)
     try:
-        subdirs = [p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")]
+        resolved = target.resolve()
+        base = Path(base_working_path).resolve()
     except OSError:
-        subdirs = []
-    user_dir = subdirs[0] if len(subdirs) == 1 else base
-    return user_dir / ".executor_logs"
+        return None
+    if resolved == base or base in resolved.parents:
+        logger.warning(
+            f"[Executor] NX_EXECUTOR_LOG_DIR {env_dir!r} resolves inside the "
+            f"workspace base {base_working_path!r}; refusing file logging"
+        )
+        return None
+    return target
 
 
 def main() -> None:
@@ -612,17 +629,20 @@ def main() -> None:
 
     base = os.environ.get("BASE_WORKING_PATH", "/opt/narranexus/workspaces")
     log_dir = _resolve_executor_log_dir(base)
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        logger.add(
-            str(log_dir / "executor_{time:YYYY-MM-DD}.log"),
-            rotation="50 MB",
-            retention="14 days",
-            enqueue=True,
-        )
-        logger.info(f"[Executor] file logging at {log_dir}")
-    except OSError as e:  # noqa: BLE001 — file logging is best-effort
-        logger.warning(f"[Executor] could not set up file logging at {log_dir}: {e}")
+    if log_dir is None:
+        logger.info("[Executor] no NX_EXECUTOR_LOG_DIR; stdout logging only")
+    else:
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                str(log_dir / "executor_{time:YYYY-MM-DD}.log"),
+                rotation="50 MB",
+                retention="14 days",
+                enqueue=True,
+            )
+            logger.info(f"[Executor] file logging at {log_dir}")
+        except OSError as e:  # noqa: BLE001 — file logging is best-effort
+            logger.warning(f"[Executor] could not set up file logging at {log_dir}: {e}")
 
     port = int(os.environ.get("AGENT_EXECUTOR_PORT", "8020"))
     uvicorn.run(app, host="0.0.0.0", port=port)

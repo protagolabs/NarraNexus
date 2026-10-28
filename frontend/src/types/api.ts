@@ -569,6 +569,8 @@ export interface FileInfo {
 export interface FileListResponse extends ApiResponse {
   tree: FileInfo[];
   workspace_path: string;
+  /** True when the backend's node/depth cap left visible entries out. */
+  truncated?: boolean;
 }
 
 export interface FileUploadResponse extends ApiResponse {

@@ -1,8 +1,31 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — skill_name 只能是单个目录名
+
+`remove_skill` / `disable_skill` / `enable_skill` 入口先过 [[workspace_paths]] 的
+`safe_id_segment`，不安全的名字抛 ValueError：`..` 会把 `skills_dir / ".."` 指到 workspace 根，
+remove 就是 rmtree 整个 workspace。影响只限调用者自己，但必须堵。路由层另有 404
+（[[routes]]），这里是给 MCP 工具等直接调用方的兜底。
+
+`_resolve_skill_dir` **不抛**：名字可能来自 agent 自己写的 SKILL.md frontmatter（`org/pdf`），
+抛错会让 env 注入对所有 skill 一起失败。不安全的名字只是**跳过直接拼接**
+`skills_dir / name`，仍走 frontmatter 扫描（只会返回 `iterdir` 出来的真实子目录）；扫描不中
+就返回 None。测试在 skills_dir 上一层放了一个真实的 `pdf-tools/SKILL.md`，
+`_resolve_skill_dir("../pdf-tools")` 返回 None 才证明直接拼接确实被跳过。
+
+## 2026-10-28 — `fetch_github_repo` 的 git 参数卫生
+
+`branch` 是用户输入、直接上 git 命令行。现在克隆前过 `_validate_git_branch`：只收
+`[A-Za-z0-9._/-]`，拒以 `-` 开头（选项注入，如 `--upload-pack=...`）、含 `..`（ref 穿越）、
+空串、空白与 shell 元字符；不合法直接 `ValueError`，git 不会被调用。命令行在位置参数前加
+`--`，url / dest 永远不会被当成选项。克隆失败不再把 git stderr（可能带解析出的主机 / 内部
+细节）拼进返回给用户的错误，只回固定文案，stderr 进日志。三个调用方（自身
+`install_from_github`、marketplace InstallPipeline、bundle importer）共用这一处。
+测试：`tests/skill_module/test_github_skill_layouts.py`。
 
 ## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
 

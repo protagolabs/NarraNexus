@@ -31,6 +31,27 @@ from typing import Optional
 _LAYOUT = "nested"
 
 
+def safe_id_segment(value: str, *, label: str) -> str:
+    """Assert ``value`` is usable as ONE directory name under the base dir.
+
+    Every id that becomes a path component (agent_id, user_id, team_id)
+    passes through here. The rule is deliberately about path safety, not
+    about id shape: legacy rows carry user ids with spaces and agent ids
+    like ``agent_a_abb17376``, and those must keep resolving. What can never
+    be allowed is anything that moves the path up or sideways — separators,
+    NUL, ``.``/``..``, or a dot-led name (dotdirs are hidden tooling state and
+    ``..;``-style variants are how the 2026-10-28 cross-tenant read got in:
+    ``agent_id=".."`` collapsed ``{base}/{user}/..`` to the base itself).
+
+    Raises ValueError; HTTP callers map that to a 4xx before touching disk.
+    """
+    if not value or "\x00" in value or "/" in value or "\\" in value:
+        raise ValueError(f"invalid {label}: not a single path segment")
+    if value.startswith("."):
+        raise ValueError(f"invalid {label}: dot-led names are reserved")
+    return value
+
+
 def agent_workspace_relpath(agent_id: str, user_id: str) -> str:
     """Workspace path of one agent, RELATIVE to base_working_path.
 
@@ -38,6 +59,8 @@ def agent_workspace_relpath(agent_id: str, user_id: str) -> str:
     nested). Callers that need an absolute path use
     :func:`agent_workspace_path`.
     """
+    safe_id_segment(agent_id, label="agent_id")
+    safe_id_segment(user_id, label="user_id")
     if _LAYOUT == "nested":
         return f"{user_id}/{agent_id}"
     return f"{agent_id}_{user_id}"
@@ -76,12 +99,52 @@ _TEAMS_DIRNAME = "teams"
 def _shared_base(base: Optional[str]) -> str:
     if base is None:
         from narranexus.platform.settings import settings
-        return settings.base_working_path
-    return base
+        base = settings.base_working_path
+    return os.path.realpath(base)  # platform-owned; the tenant tail stays lexical
+
+
+def refuse_symlinked_dir(path: "Path | str", *, label: str) -> None:
+    """Fail closed when a tenant-writable directory has been swapped for a link.
+
+    Every workspace / team folder sits inside the owner's bind mount, so the
+    owner can replace it with a symlink to another tenant's tree; any code
+    that then resolves paths "inside the workspace" would be inside the
+    victim's. Raises ValueError.
+    """
+    if os.path.islink(path):
+        raise ValueError(f"{label} is a symlink: {path}")
+
+
+def resolve_inside_workspace(workspace: "Path | str", candidate: "str | Path") -> Path:
+    """Resolve ``candidate`` and prove it sits inside ``workspace``.
+
+    The one sanctioned way for host-side code to turn an agent-supplied path
+    (relative to the workspace, or absolute) into a file it will read, copy,
+    send or watch. ``workspace`` is used LEXICALLY and must be built on a
+    realpath-ed base (``resolve_existing_workspace`` does that; otherwise pass
+    ``base=os.path.realpath(base)``): the tenant tail is inside the tenant's own
+    mount and may have been swapped for a symlink to another tenant's tree, so
+    resolving it would make the link target "the workspace". The candidate IS
+    resolved, so ``..``, an absolute path elsewhere, or a link anywhere on its
+    path lands outside the lexical root and fails closed.
+
+    Raises:
+        ValueError: the workspace is a symlink, or the candidate escapes it.
+            Callers wrap it in their own error type.
+    """
+    root = Path(os.path.abspath(workspace))  # normalise only; never follows links
+    refuse_symlinked_dir(root, label="agent workspace")
+    target = (root / candidate).resolve()  # an absolute candidate replaces root
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise ValueError(f"path escapes the agent workspace: {candidate}") from None
+    return target
 
 
 def user_shared_root(user_id: str, base: Optional[str] = None) -> Path:
     """Absolute per-user shared root: ``{base}/{user_id}/_shared``."""
+    safe_id_segment(user_id, label="user_id")
     return Path(_shared_base(base)) / user_id / _SHARED_DIRNAME
 
 
@@ -95,6 +158,7 @@ def team_shared_dir(user_id: str, team_id: str, base: Optional[str] = None) -> P
     """Absolute per-team shared scratch dir:
     ``{base}/{user_id}/_shared/teams/{team_id}``. A common space for a team's
     agents to hand off collaborative artifacts beyond single-message attachments."""
+    safe_id_segment(team_id, label="team_id")
     return user_shared_root(user_id, base) / _TEAMS_DIRNAME / team_id
 
 
@@ -136,12 +200,17 @@ def turn_accessible_roots(
     return tuple(roots)
 
 
-def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
+def workspace_candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
     """All workspace-dir relpath forms, current layout first then legacy.
 
     Used by readers of EXISTING data so a row/dir written under the old flat
     layout still resolves after the flip to nested (and vice-versa), without
     a database rewrite. Order matters: the current layout wins.
+
+    Public because the artifact owner-root confinement
+    (``artifact/_artifact_impl/confinement.owner_roots``) treats every form as
+    a legitimate home of that agent; a signature change here changes which
+    roots an artifact may be served from.
     """
     return [
         agent_workspace_relpath(agent_id, user_id),   # current layout
@@ -160,8 +229,13 @@ def resolve_existing_workspace(
     if base is None:
         from narranexus.platform.settings import settings
         base = settings.base_working_path
-    root = Path(base)
-    for rel in _candidate_relpaths(agent_id, user_id):
+    # The base is platform-owned, so resolving it is safe; the per-tenant tail
+    # is appended LEXICALLY and never resolved — a tenant can turn its own
+    # workspace dir into a symlink, and resolving here would make the link's
+    # target "the workspace" (2026-10-28). Callers that realpath an entry can
+    # then compare it against this lexical root and fail closed.
+    root = Path(os.path.realpath(base))
+    for rel in workspace_candidate_relpaths(agent_id, user_id):
         p = root / rel
         if p.is_dir():
             return p
@@ -188,7 +262,7 @@ def resolve_workspace_relative_file(
     if direct.exists():
         return direct
     norm = file_path.replace("\\", "/")
-    for rel in _candidate_relpaths(agent_id, user_id):
+    for rel in workspace_candidate_relpaths(agent_id, user_id):
         prefix = rel + "/"
         if norm.startswith(prefix):
             rest = norm[len(prefix):]

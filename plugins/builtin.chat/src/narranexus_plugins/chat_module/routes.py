@@ -796,7 +796,7 @@ async def get_simple_chat_history(
 
 
 @router.get("/{agent_id}/event-log/{event_id}", response_model=EventLogResponse)
-async def get_event_log_detail(agent_id: str, event_id: str):
+async def get_event_log_detail(agent_id: str, event_id: str, request: Request):
     """
     Get event log detail (thinking + tool calls) for a specific event.
 
@@ -804,6 +804,10 @@ async def get_event_log_detail(agent_id: str, event_id: str):
     for historical chat messages. The event_log is already stored in the
     events table during Step 4 of the pipeline.
     """
+    # The event log carries the turn's thinking and every tool call with its
+    # input/output — owner-only, like the sibling /events/{event_id} route
+    # (2026-10-28: this one had no auth at all).
+    await require_agent_owner(request, agent_id)
     logger.debug(f"Getting event log detail: agent_id={agent_id}, event_id={event_id}")
 
     try:

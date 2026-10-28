@@ -26,7 +26,8 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPException
 from loguru import logger
 
-from narranexus.sdk.web import current_user_id, filter_public_mcp_servers, host_settings
+from narranexus.sdk.web import filter_public_mcp_servers, host_settings, require_workspace_agent_owner
+from narranexus.platform.utils.workspace_paths import safe_id_segment
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.schema.skill_schema import (
@@ -119,6 +120,16 @@ async def _extract_requirements_via_llm(
 
     except Exception as e:
         logger.warning(f"LLM requirements extraction failed for '{skill_name}': {e}")
+
+
+
+def _require_skill_name(skill_name: str) -> None:
+    """``skill_name`` becomes ``skills_dir / skill_name``: reject anything that is
+    not a single safe path segment (404, like an unknown skill)."""
+    try:
+        safe_id_segment(skill_name, label="skill name")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Skill not found")
 
 
 def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
@@ -290,7 +301,7 @@ async def list_skills(
     include_disabled: bool = Query(False, description="Whether to include disabled Skills"),
 ):
     """Get skill list. Identity from auth_middleware (X-User-Id / JWT)."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
     logger.info(f"GET /api/skills - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -302,7 +313,7 @@ async def list_skills(
 
     except Exception as e:
         logger.exception(f"Failed to list skills: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.post("/install", response_model=SkillOperationResponse)
@@ -323,7 +334,7 @@ async def install_skill(
     1. Install from GitHub: source=github, url=repository URL
     2. Upload zip file: source=zip, file=zip file
     """
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
     logger.info(f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}")
 
     def _reject(reason: str) -> HTTPException:
@@ -384,7 +395,7 @@ async def install_skill(
         raise _reject(str(e))
     except Exception as e:
         logger.exception(f"Failed to install skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
     # The verdict lives OUTSIDE the try above on purpose: a 4xx raised inside
     # it would be caught by the `except Exception` and re-labelled 500.
@@ -422,7 +433,8 @@ async def remove_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Remove a Skill. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -444,7 +456,7 @@ async def remove_skill(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to remove skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/disable", response_model=SkillOperationResponse)
@@ -454,7 +466,8 @@ async def disable_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Disable a Skill. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"PUT /api/skills/{skill_name}/disable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -470,7 +483,7 @@ async def disable_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to disable skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/enable", response_model=SkillOperationResponse)
@@ -480,7 +493,8 @@ async def enable_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Enable a Skill. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"PUT /api/skills/{skill_name}/enable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -496,7 +510,7 @@ async def enable_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to enable skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # =========================================================================
@@ -520,7 +534,8 @@ async def study_skill(
     3. Start background task to run AgentRuntime
     4. Background task automatically updates study_status and study_result upon completion
     """
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"POST /api/skills/{skill_name}/study - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -554,7 +569,7 @@ async def study_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to start skill study: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.get("/{skill_name}/study", response_model=SkillStudyResponse)
@@ -564,7 +579,8 @@ async def get_study_status(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get Skill study status (for frontend polling). Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         study_info = skill_module.get_study_status(skill_name)
@@ -577,7 +593,7 @@ async def get_study_status(
 
     except Exception as e:
         logger.exception(f"Failed to get study status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # =========================================================================
@@ -592,7 +608,8 @@ async def get_skill_env(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get skill's required env vars and their configuration status. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -630,7 +647,7 @@ async def get_skill_env(
         raise
     except Exception as e:
         logger.exception(f"Failed to get skill env config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/env", response_model=SkillEnvConfigResponse)
@@ -641,7 +658,8 @@ async def set_skill_env(
     body: dict = None,
 ):
     """Set env var values for a skill. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -684,7 +702,7 @@ async def set_skill_env(
         raise
     except Exception as e:
         logger.exception(f"Failed to set skill env config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.get("/{skill_name}", response_model=SkillOperationResponse)
@@ -694,7 +712,8 @@ async def get_skill(
     agent_id: str = Query(..., description="Agent ID"),
 ):
     """Get Skill details. Identity from auth_middleware."""
-    user_id = await current_user_id(request)
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
     logger.info(f"GET /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -715,7 +734,7 @@ async def get_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to get skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # ---- plugin contribution (batch 3c.5): this router belongs to builtin.skills and is

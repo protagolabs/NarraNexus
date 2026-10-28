@@ -16,22 +16,38 @@ backend-route counterpart.
 
 Ownership = ``agents.created_by``.
 
-SECURITY POSTURE — read before hanging anything sensitive off this helper:
-when the backend runs without the auth middleware enforcing identity (local
-mode: no ``request.state.user_id``), enforcement is SKIPPED — every route
-using this helper is then effectively unauthenticated, and any HTTP caller
-that can reach the backend port can bind / unbind / test any bot. Do NOT
-add sensitive operations behind this helper assuming auth — they won't have
-any in local mode. All IM-channel routes mirror this exact contract; keep
-them in lockstep.
+SECURITY POSTURE — read before hanging anything sensitive off the first two
+surfaces: when the backend runs without the auth middleware enforcing
+identity (local mode: no ``request.state.user_id``), ``check_owned`` and
+``assert_owned`` SKIP enforcement — every route using them is then
+effectively unauthenticated, and any HTTP caller that can reach the backend
+port can bind / unbind / test any bot. Do NOT add sensitive operations
+behind those two assuming auth — they won't have any in local mode. All
+IM-channel routes mirror this exact contract; keep them in lockstep.
+The third surface, ``require_owned_workspace_agent``, is the deliberate
+exception: it guards the filesystem, so it REQUIRES an identity (401) and
+never skips.
 
-Two surfaces because the callers historically returned two shapes:
+Four surfaces because the callers return four shapes:
 - ``check_owned`` -> error string | None  (channel routes wrap it in a
   ``{"success": False, "error": ...}`` payload)
-- ``assert_owned`` -> raises HTTPException  (home_assistant-style routes)
+- ``assert_owned`` -> raises HTTPException 404/403  (home_assistant-style
+  routes)
+- ``require_owned_workspace_agent`` -> returns the caller's user_id, raises
+  a uniform 404 (routes that turn ``agent_id`` into a workspace directory:
+  files / attachments / skills — the 2026-10-28 cross-tenant read)
+- ``assert_visible`` -> raises on a non-owned, non-public agent  (read /
+  drive surfaces: websocket, chat event-log — added 2026-10-28)
 
-Both map from one shared deny-reason decision, so neither surface ever
-parses the other's prose to learn what happened.
+The first three map from one shared deny-reason decision, so no surface ever
+parses another's prose to learn what happened.
+The fourth, ``assert_visible``, answers a different question — may this
+viewer SEE / drive the agent (owned OR public)? It takes an already-resolved
+viewer id, not a request, so it has NO local-mode no-op (callers pass the
+local user id), and it answers a uniform 404 for unknown and foreign agents
+alike. It does not route through ``_deny_reason``: a failed lookup surfaces as
+the db error itself (a non-HTTP exception — a 5xx / InternalError frame at the
+caller), never as "not found".
 """
 from __future__ import annotations
 
@@ -39,8 +55,10 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
+from backend.auth import resolve_current_user_id
 from narranexus.platform.repository import AgentRepository
 from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.workspace_paths import safe_id_segment
 
 # Deny reasons — the ONE decision both public surfaces map from. A failed
 # LOOKUP is not a reason either surface renders as prose: _deny_reason raises
@@ -57,7 +75,9 @@ def _caller_user_id(request: Request) -> Optional[str]:
     return uid or None
 
 
-async def _deny_reason(request: Request, agent_id: str) -> Optional[str]:
+async def _deny_reason(
+    request: Request, agent_id: str, *, user_id: Optional[str] = None
+) -> Optional[str]:
     """Why the caller may NOT touch ``agent_id`` — or None to allow.
 
     Local mode (no user_id) allows: see the module docstring's security
@@ -67,7 +87,9 @@ async def _deny_reason(request: Request, agent_id: str) -> Optional[str]:
     would make a db outage look like a batch of users' agents vanishing,
     with no 5xx metric to alarm on.
     """
-    user_id = _caller_user_id(request)
+    # A caller that already resolved (and REQUIRED) the identity passes it in,
+    # which makes the local-mode pass-through below unreachable for it.
+    user_id = user_id or _caller_user_id(request)
     if not user_id:
         return None  # local mode — no auth enforcement
     db = await get_db_client()
@@ -120,3 +142,60 @@ async def assert_owned(request: Request, agent_id: str) -> None:
     raise HTTPException(
         status_code=403, detail="Permission denied: you do not own this agent."
     )
+
+
+async def require_owned_workspace_agent(request: Request, agent_id: str) -> str:
+    """The THIRD surface, for routes that turn ``agent_id`` into a directory.
+
+    Born from the 2026-10-28 cross-tenant read: ``/api/agents/../files``
+    spliced the URL segment into ``{base}/{user_id}/{agent_id}`` and served
+    every tenant's files. Differences from the two surfaces above, each
+    deliberate:
+
+    - identity is REQUIRED (401 via ``resolve_current_user_id``) — there is
+      no local-mode pass-through, because the thing being protected is the
+      filesystem, not a bot binding;
+    - the segment must be path-safe (``safe_id_segment``) BEFORE any lookup,
+      so ``..`` / ``%2e%2e`` / ``a/b`` never reach a ``Path`` join;
+    - unknown and not-owned both answer 404 — a filesystem-facing route must
+      not tell a caller which other users' agent ids exist;
+    - a failed lookup still raises 503 from ``_deny_reason``.
+
+    Returns the caller's user_id so the route builds the path from the same
+    identity that was checked.
+    """
+    user_id = await resolve_current_user_id(request)
+    try:
+        safe_id_segment(agent_id, label="agent_id")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="agent not found")
+    reason = await _deny_reason(request, agent_id, user_id=user_id)
+    if reason is not None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return user_id
+async def assert_visible(viewer_id: str, agent_id: str) -> dict:
+    """Ensure ``viewer_id`` may see ``agent_id`` (owned OR public); return its row.
+
+    Unknown and foreign-private agents both raise the SAME 404, so agent ids
+    cannot be enumerated. No local-mode bypass — the caller supplies the
+    viewer (``/ws/agent/run`` passes the anchored local user id too). A db
+    failure propagates as-is (not an HTTPException), so it can never be read
+    as the agent's absence. Published on the plugin web seam under the
+    dashboard name ``assert_agent_visible`` (``contracts.web.WebHost``).
+    """
+    # Resolved at call time (not the module-level get_db_client) so callers'
+    # tests that patch db_factory.get_db_client keep reaching this read.
+    from narranexus.platform.utils.db.db_factory import get_db_client as _get_db
+
+    db = await _get_db()
+    rows = await db.execute(
+        "SELECT agent_id, agent_name, created_by, is_public "
+        "FROM agents WHERE agent_id=%s LIMIT 1",
+        (agent_id,),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="agent not found")
+    row = rows[0]
+    if row["created_by"] != viewer_id and not row.get("is_public"):
+        raise HTTPException(status_code=404, detail="agent not found")  # don't leak existence
+    return row

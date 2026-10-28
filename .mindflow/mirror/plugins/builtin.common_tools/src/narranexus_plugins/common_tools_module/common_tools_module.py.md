@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.common_tools/src/narranexus_plugins/common_tools_module/common_tools_module.py
-last_verified: 2026-09-23
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #421 复审 I1）— office 锁探测只看属主根内的 entry
+
+状态块的 `~$` 锁探测原来 `os.path.join(base_working_path, file_path)` 后直接 `os.path.exists`，
+跟随路径上任何链接——artifact 所在目录被换成指向别的租户目录的链接时，会把"对方正开着这份
+文档"写进本 agent 的上下文。现在先经公共入口 `ArtifactService.resolve_owned_entry`（不 import
+`_artifact_impl`），`ArtifactPathEscape` → 不加这条 note。同一个状态块里的 freshness 检测已在
+[[freshness]] 内部做同样的限定。测试
+`test_office_lock_probe_does_not_follow_a_link_into_another_tenant`（tests/common_tools_module/）。
 
 ## 2026-09-23 — 示例花括号遵循模板契约
 

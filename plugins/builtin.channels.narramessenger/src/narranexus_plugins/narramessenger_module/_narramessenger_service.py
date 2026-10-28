@@ -28,6 +28,14 @@ host a Matrix client — supported by NarraMessenger via
 by this bind flow anymore. If the owner needs Gateway later, they can hit
 that endpoint directly with the stored bearer.
 
+Egress gate (cloud): the bind link is pasted by the user and the homeserver URL
+is scraped from whatever that link's host serves, so BOTH are attacker-
+influenced server-side fetch targets. Before any request the link's base URL
+passes the shared ``assert_public_http_url_in_cloud`` gate, and the parsed homeserver
+passes it before ``runtime-ready`` completes the remote bind or anything is
+persisted. Redirects are never followed (a public host could 302 into the
+cluster). Local/desktop skips the gate (single trusted user).
+
 Caveat: extracting the bearer relies on regexing the rendered markdown, and the
 bind state machine may require a human confirmation step on the NarraMessenger
 side (``creator_confirmed``) before the bearer is revealed — in which case
@@ -42,12 +50,19 @@ from typing import Any, Optional, Tuple
 import aiohttp
 from loguru import logger
 
+from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
+
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
 
 _DEFAULT_BASE = "https://api.netmind.chat"
+
+# Upstream error codes we act on or may show the user verbatim. Anything else
+# the host returns in ``error`` / ``message`` stays in the log: the bind host is
+# user-chosen, so its free text must never be reflected back.
+_KNOWN_ERROR_CODES = frozenset({"WRONG_STATE"})
 
 # Origin tag sent to NarraMessenger on ``runtime-ready`` so their side can
 # label which platform an agent was bound from. Their field defaults to
@@ -147,10 +162,30 @@ def _parse_setup_guide(md: str) -> dict[str, str]:
     return out
 
 
+async def _is_allowed_target(url: str) -> bool:
+    """Cloud-only SSRF egress gate for a bind-time fetch target.
+
+    False on ANY failure to decide (unsafe, unresolvable, malformed) — fail
+    closed. The reason goes to the log only; callers return a generic message
+    so the gate never becomes an oracle for the internal network.
+    """
+    try:
+        await assert_public_http_url_in_cloud(url)
+    except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+        logger.warning(f"[narramessenger] bind target refused by egress gate ({type(e).__name__}): {e}")
+        return False
+    return True
+
+
 async def _get_text(session: aiohttp.ClientSession, url: str) -> str:
-    async with session.get(url) as resp:
+    async with session.get(url, allow_redirects=False) as resp:
         if 200 <= resp.status < 300:
             return await resp.text()
+        if 300 <= resp.status < 400:
+            # Redirects are refused, and the caller maps "" to "token not found";
+            # log the status so an upstream redirect is not misread as a bad
+            # token. Never log or surface Location (upstream-controlled).
+            logger.warning(f"[narramessenger] bind GET refused a {resp.status} redirect")
         return ""
 
 
@@ -160,7 +195,7 @@ async def _post_json(
     headers = {"Content-Type": "application/json"}
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
-    kwargs: dict[str, Any] = {"headers": headers}
+    kwargs: dict[str, Any] = {"headers": headers, "allow_redirects": False}
     if body is not None:
         kwargs["json"] = body
     async with session.post(url, **kwargs) as resp:
@@ -170,10 +205,27 @@ async def _post_json(
             data = {}
         if 200 <= resp.status < 300:
             return {"ok": True, "data": data if isinstance(data, dict) else {}}
+        # Raw upstream code/text, for control flow only (WRONG_STATE check).
+        # Never shown as-is — `_step_failure` builds the user-facing text.
         err = ""
         if isinstance(data, dict):
             err = str(data.get("error") or data.get("message") or "")
         return {"ok": False, "status": resp.status, "error": err}
+
+
+def _step_failure(step: str, result: dict) -> str:
+    """User-facing failure for a bind step: status code + whitelisted code only.
+
+    The single place a step result becomes user text; the raw upstream string
+    goes to the log unless it is a known code.
+    """
+    raw = str(result.get("error") or "")
+    code = raw if raw in _KNOWN_ERROR_CODES else ""
+    if raw and not code:
+        logger.info(f"[narramessenger] {step} upstream error: {raw[:200]}")
+    status = result.get("status")
+    detail = f"HTTP {status}" if status else "no response"
+    return f"{step} failed ({detail}{', ' + code if code else ''})"
 
 
 async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
@@ -191,6 +243,12 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
         }
     name, bio = await _agent_profile(db, agent_id)
     base = base_url.rstrip("/")
+    if not await _is_allowed_target(base):
+        return {
+            "success": False,
+            "error": "The bind link does not point at a public NarraMessenger "
+            "host. Re-copy the bind link from My Agents → Bind Agents.",
+        }
 
     try:
         async with aiohttp.ClientSession(
@@ -216,7 +274,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 if not rp.get("ok") and rp.get("error") not in ("WRONG_STATE", ""):
                     return {
                         "success": False,
-                        "error": f"report-profile failed: {rp.get('error') or rp.get('status')}",
+                        "error": _step_failure("report-profile", rp),
                     }
                 guide = await _get_text(session, f"{base}/{token}/setup-guide.md")
                 parsed = _parse_setup_guide(guide)
@@ -229,6 +287,18 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                     "revealed yet — the bind session may still need confirmation on "
                     "the NarraMessenger side. Confirm it there, then paste the link "
                     "again.",
+                }
+
+            # The homeserver is scraped from content the link's host served;
+            # gate it BEFORE runtime-ready so a refused bind is never completed
+            # on the NarraMessenger side, and nothing is persisted. A missing
+            # homeserver is left to the existing downstream handling.
+            homeserver_url = parsed.get("homeserver", "")
+            if homeserver_url and not await _is_allowed_target(homeserver_url):
+                return {
+                    "success": False,
+                    "error": "The setup guide names a Matrix homeserver that is "
+                    "not a public host; the bind was not completed.",
                 }
 
             # Direct Matrix bind. This is a bind-token URL (query param
@@ -251,10 +321,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             if not ready.get("ok"):
                 return {
                     "success": False,
-                    "error": (
-                        "runtime-ready failed: "
-                        f"{ready.get('error') or ready.get('status')}"
-                    ),
+                    "error": _step_failure("runtime-ready", ready),
                 }
             rdata = ready.get("data") or {}
     except aiohttp.ClientError as e:

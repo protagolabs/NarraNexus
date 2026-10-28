@@ -156,3 +156,25 @@ def test_normal_user_jwt_path_unchanged(tmp_path, monkeypatch, cloud_client):
     assert r.status_code == 200
     assert r.json()["user_id"] == "usr_jwt"
     assert r.json()["nx_service_authed"] is False
+
+
+# --- 2026-10-28: a sandbox token dies with the account ------------------------
+
+def test_service_bearer_of_a_banned_user_is_refused(tmp_path, monkeypatch, cloud_client):
+    """The service branch used to return BEFORE the account-state gate, so a
+    banned user's executor token kept working for its whole TTL. Neuter the
+    gate in the service branch and this goes green for the banned user."""
+    priv = _provision(tmp_path, monkeypatch)
+
+    async def _banned(_uid):
+        return "banned"
+    monkeypatch.setattr(auth_mod, "_account_state", _banned)
+    r = cloud_client.get(f"/api/agents/{AGENT}/awareness", headers=_service_headers(priv))
+    assert r.status_code == 403, r.text
+    assert r.json().get("code") == "account_suspended"
+
+    async def _active(_uid):
+        return "active"
+    monkeypatch.setattr(auth_mod, "_account_state", _active)
+    r = cloud_client.get(f"/api/agents/{AGENT}/awareness", headers=_service_headers(priv))
+    assert r.status_code == 200

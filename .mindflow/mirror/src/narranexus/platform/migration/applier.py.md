@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/migration/applier.py
 stub: false
-last_verified: 2026-09-06
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28 — `_copy_local_skill` 的 `skills_root.resolve()` 有意保留
+
+workspace 符号链接排查（见 [[workspace_paths]] 的 `resolve_inside_workspace`）时核过这里：
+`apply_plan` 只由 `POST /migrate/apply` 调用，该路由 `_require_local_or_raise()`，云端 503；
+本地/桌面是单一属主，不存在"换成别的租户目录"的跨租户面，agent 也调不到这个路由。
+所以 `skills_root` 仍 `resolve()`，`dest.parent != skills_root` 的防线不变。若将来迁移开放到云端，
+这里必须改成字面根 + `resolve_inside_workspace`。
 
 ## 2026-08-17 — 默认串在归一之后判
 

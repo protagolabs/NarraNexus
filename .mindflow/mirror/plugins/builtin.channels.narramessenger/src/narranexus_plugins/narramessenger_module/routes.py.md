@@ -1,8 +1,28 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/routes.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28（PR #419 review M-3）— bearer 先于 body / query 校验
+
+`POST /prewarm` 与 `GET /prewarm/status` 的鉴权移进依赖项 `require_prewarm_owner`。依赖项在
+FastAPI 校验 `PrewarmRequest` / Query 之前执行，所以没带或带错 bearer 的调用方拿到
+401 / 403，而不是一个列出 body 字段名的 422。
+
+- bearer 是 per-agent 的，校验需要 agent 标识；依赖项因此**自己宽松地读**两个标识
+  （GET 读 query string，POST 读 JSON 对象；非字符串/非对象一律视为缺省），不经过模型。
+  通过鉴权后模型校验照常生效（例如超长 `rtc_session_id` 对持正确 bearer 的调用方仍 422）。
+- **顺序变了**：缺 bearer → 401 **最先**（原来"标识误用 422"排在它前面，无凭证也能拿到
+  422）；然后标识二选一 → 422（固定文案，只有带 bearer 的调用方能看到）；超出
+  255 / 64 上限 → 404（永远解析不到，不读库；原来是模型 422）；行查找 404；不匹配 403；
+  owner 查询失败 503 / 无主 404。上面 2026-08-11 条目里"identifier misuse → 422 先于 401"
+  与"profile 超长 422"两句已被本条取代。
+- **错误体形状变了**：`_resolve_prewarm_target` 改为抛 `HTTPException`，错误体从
+  `{"error": "..."}` 变成 `{"detail": "..."}`（文案不变、状态码不变）。冻结的是请求字段名；
+  若伙伴方解析了 `error` 键需要同步告知。
+- 边界：带任意 bearer、但两个标识缺省/同时给出的调用方仍会收到那条点名两个标识字段的
+  422——不验证标识就无从判断 bearer 真伪，这是 per-agent 凭证的固有限制。
 
 ## 2026-09-07 — 宿主依赖改走 `narranexus.sdk.web`（批 6c，G2-I1）
 

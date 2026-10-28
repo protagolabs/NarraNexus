@@ -17,6 +17,7 @@ The trigger and module talk to Slack via this client.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 from loguru import logger
@@ -53,6 +54,32 @@ class SlackSDKError(RuntimeError):
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
+
+
+# Hosts Slack serves ``url_private`` files from. The bot token rides as a
+# Bearer header, so it may only ever be sent to Slack itself: the URL comes from
+# event payloads / files_info and must not be trusted to stay on Slack.
+_SLACK_FILE_HOST_SUFFIX = ".slack.com"
+
+
+def is_slack_file_url(url: str) -> bool:
+    """True only for ``https://files.slack.com/...`` or ``https://<x>.slack.com/...``.
+
+    Dot-boundary suffix match (``evilslack.com`` and
+    ``files.slack.com.attacker.example`` are refused), https only, no
+    embedded credentials. Unparseable input is refused.
+    """
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        has_userinfo = bool(parsed.username or parsed.password)
+    except Exception:  # noqa: BLE001 — garbage input is simply not a Slack URL
+        return False
+    if parsed.scheme != "https" or has_userinfo:
+        return False
+    # ".slack.com" suffix covers files.slack.com and <workspace>.slack.com and
+    # (thanks to the leading dot) never matches a look-alike registrable domain.
+    return host.endswith(_SLACK_FILE_HOST_SUFFIX)
 
 
 class SlackSDKClient:
@@ -281,6 +308,12 @@ class SlackSDKClient:
         session (or session-per-credential pool) would amortize the
         SSL cost. Defer until we observe real throughput pain.
         """
+        if not is_slack_file_url(url):
+            # Never send the bot token anywhere but Slack's file hosts.
+            logger.warning(f"[slack] download_url refused non-Slack host: {url[:80]}")
+            raise SlackSDKError(
+                "untrusted_host", "download refused: not a Slack file URL"
+            )
         headers = {"Authorization": f"Bearer {self._bot_token}"}
         timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         try:

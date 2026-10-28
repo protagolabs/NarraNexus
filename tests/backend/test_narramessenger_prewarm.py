@@ -156,6 +156,41 @@ async def test_prewarm_identifier_misuse_422(app):
     assert r2.status_code == 422
 
 
+# --- the bearer answers before the body is validated (2026-10-28 review M-3) ---
+
+_SCHEMA_FIELDS = ("agent_matrix_user_id", "agent_profile_id", "rtc_session_id")
+
+
+@pytest.mark.asyncio
+async def test_prewarm_missing_bearer_401_before_body_validation(app):
+    """No credential -> 401 even for a body that would fail validation; the
+    response never spells out PrewarmRequest's fields."""
+    async with _client(app) as c:
+        for body in ({}, {"agent_profile_id": "x" * 500}, {"rtc_session_id": 5}):
+            r = await c.post("/api/narramessenger/prewarm", json=body)
+            assert r.status_code == 401, (body, r.text)
+            assert not any(f in r.text for f in _SCHEMA_FIELDS), r.text
+        rs = await c.get("/api/narramessenger/prewarm/status",
+                         params={"agent_profile_id": "x" * 500})
+        assert rs.status_code == 401, rs.text
+    assert app.state.ensured == []
+
+
+@pytest.mark.asyncio
+async def test_prewarm_wrong_bearer_403_before_body_validation(app):
+    """A resolvable identifier with a wrong bearer -> 403, not the 422 the
+    over-long rtc_session_id would earn an authenticated caller."""
+    body = {"agent_matrix_user_id": "@agent-x:hs", "rtc_session_id": "r" * 500}
+    async with _client(app) as c:
+        r = await c.post("/api/narramessenger/prewarm", json=body,
+                         headers={"Authorization": "Bearer wrong"})
+        assert r.status_code == 403, r.text
+        assert not any(f in r.text for f in _SCHEMA_FIELDS), r.text
+        ok = await c.post("/api/narramessenger/prewarm", json=body, headers=AUTH)
+        assert ok.status_code == 422  # authenticated: body validation still applies
+    assert app.state.ensured == []
+
+
 @pytest.mark.asyncio
 async def test_prewarm_idempotent_second_call_already_warm(app, monkeypatch):
     async def alive(url, **kw):

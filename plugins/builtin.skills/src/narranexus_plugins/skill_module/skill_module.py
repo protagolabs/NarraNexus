@@ -21,6 +21,7 @@ MCP Tools:
 """
 
 import os
+import re
 import shutil
 import tempfile
 import subprocess
@@ -33,6 +34,8 @@ from urllib.parse import urlparse
 
 import yaml
 from loguru import logger
+
+from narranexus.platform.utils.workspace_paths import safe_id_segment
 
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
 from narranexus.platform.schema import (
@@ -339,6 +342,26 @@ def _skill_runtime_requires(metadata_field: dict) -> dict:
             requires = block.get("requires", {})
             return requires if isinstance(requires, dict) else {}
     return {}
+
+
+# A branch name is user input placed on the git command line. Allowed alphabet
+# only; a leading "-" (option injection), ".." (ref traversal) and anything
+# else (whitespace, shell metacharacters) are refused before git runs.
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def _validate_git_branch(branch: str) -> None:
+    """Raise ValueError unless ``branch`` is a safe git branch name."""
+    if (
+        not branch
+        or branch.startswith("-")
+        or ".." in branch
+        or not _BRANCH_RE.fullmatch(branch)
+    ):
+        raise ValueError(
+            "Invalid branch name: use letters, digits, '.', '_', '-' or '/' "
+            "(must not start with '-' or contain '..')"
+        )
 
 
 class SkillModule(XYZBaseModule):
@@ -903,9 +926,18 @@ class SkillModule(XYZBaseModule):
         # no user_id). `iterdir()` would raise FileNotFoundError below.
         if not self.skills_dir or not self.skills_dir.exists():
             return None
-        # Direct match
-        direct = self.skills_dir / skill_name
-        if direct.exists() and direct.is_dir():
+        # Direct match — only for a name that is a single safe path segment.
+        # The name may come from SKILL.md frontmatter the agent wrote
+        # (``org/pdf``, ``.x``); such a name must not be joined onto the
+        # skills dir, but it can still be matched by the scan below, which
+        # only ever returns real directories from ``iterdir``.
+        try:
+            safe_id_segment(skill_name, label="skill name")
+        except ValueError:
+            direct = None
+        else:
+            direct = self.skills_dir / skill_name
+        if direct is not None and direct.exists() and direct.is_dir():
             return direct
         # Scan and match by parsed name from SKILL.md. Name-sorted (R4d) so
         # that when two directories declare the same frontmatter name the
@@ -1424,17 +1456,24 @@ class SkillModule(XYZBaseModule):
             raise ValueError("GitHub URLs with embedded credentials are not allowed")
         if not parsed.path or parsed.path == "/":
             raise ValueError("Invalid GitHub repository URL")
+        _validate_git_branch(branch)
 
         logger.info(f"Cloning {url} (branch: {branch}) to {dest_dir}")
         try:
+            # "--" ends option parsing: url / dest can never be read as options.
             subprocess.run(
-                ["git", "clone", "--depth", "1", "-b", branch, url, str(dest_dir)],
+                ["git", "clone", "--depth", "1", "-b", branch, "--", url, str(dest_dir)],
                 check=True,
                 capture_output=True,
                 text=True,
             )
         except subprocess.CalledProcessError as e:
-            raise ValueError(f"Failed to clone {url}: {e.stderr}")
+            # git stderr can carry resolved hosts / internal detail — log only.
+            logger.warning(f"git clone failed for {url} (branch {branch}): {e.stderr}")
+            raise ValueError(
+                "Failed to clone the repository — check that the URL and branch exist "
+                "and the repository is public"
+            ) from e
 
         # Remove .git directory (version control not needed)
         git_dir = dest_dir / ".git"
@@ -1469,6 +1508,7 @@ class SkillModule(XYZBaseModule):
                 and cannot be deleted (they would re-materialize anyway). Disable
                 it instead.
         """
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 
@@ -1492,6 +1532,7 @@ class SkillModule(XYZBaseModule):
 
     def disable_skill(self, skill_name: str) -> bool:
         """Disable a Skill"""
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 
@@ -1508,6 +1549,7 @@ class SkillModule(XYZBaseModule):
 
     def enable_skill(self, skill_name: str) -> bool:
         """Enable a Skill"""
+        safe_id_segment(skill_name, label="skill name")
         if not self.skills_dir:
             return False
 

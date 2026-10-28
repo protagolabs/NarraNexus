@@ -45,6 +45,9 @@ from narranexus.platform.schema.provider_schema import (
     SlotConfig,
     SlotName,
 )
+from narranexus.platform.agent_framework.providers.registry import (
+    is_stored_user_base_url_blocked,
+)
 from narranexus.platform.agent_framework.providers.framework_binding import (
     framework_can_drive_provider,
     get_slot_required_protocols,
@@ -258,6 +261,13 @@ class UserProviderService:
             )
             raw_models = json.loads(row["models"]) if row.get("models") else []
             stored_models = effective_card_models(row.get("source"), raw_models)
+            # Read-path egress screen (cloud, USER rows, DNS-free): a stored
+            # custom card on an internal host stays LISTED (so the user can
+            # delete it) but inactive, which every consumer — completeness
+            # check, slot validation, resolver classify — treats as unusable.
+            is_active = bool(row.get("is_active", 1)) and not is_stored_user_base_url_blocked(
+                row.get("source"), row.get("base_url", ""), row["provider_id"]
+            )
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],
@@ -268,7 +278,7 @@ class UserProviderService:
                 base_url=row.get("base_url", ""),
                 models=stored_models,
                 linked_group=row.get("linked_group", ""),
-                is_active=bool(row.get("is_active", 1)),
+                is_active=is_active,
                 supports_anthropic_server_tools=bool(_server_tools),
             )
             providers[prov.provider_id] = prov
@@ -470,6 +480,20 @@ class UserProviderService:
             new_ids.append(pid)
 
         elif card_type in ("anthropic", "openai"):
+            # Egress gate at SAVE time: a stored custom card is fetched later by
+            # the agent loop / helper LLM / Test button, so an internal base_url
+            # must never persist (cloud only; see assert_user_base_url_allowed).
+            from narranexus.platform.agent_framework.providers.registry import (
+                UNSAFE_BASE_URL_MESSAGE,
+                assert_user_base_url_allowed,
+            )
+            try:
+                await assert_user_base_url_allowed(base_url)
+            except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+                logger.warning(
+                    f"[add_provider] refused user base_url ({type(e).__name__}): {e}"
+                )
+                raise ValueError(UNSAFE_BASE_URL_MESSAGE) from e
             pid = _generate_provider_id()
             display_name = name or f"Custom {card_type.title()}"
             if not models:
@@ -1116,9 +1140,10 @@ class UserProviderService:
     async def test_provider(self, user_id: str, provider_id: str) -> tuple[bool, str]:
         """Test connectivity to a SAVED provider (stateful entry point).
 
-        Loads the persisted row, then delegates to ``test_provider_config``
-        so the transient-ProviderConfig construction lives in exactly one
-        place. Both OAuth flavours delegate to the driver's ``verify_live``
+        Loads the persisted row, then delegates to ``_probe_api_key_card``
+        with the row's STORED source (so the egress gate applies to user
+        cards only), keeping the transient-ProviderConfig construction in
+        exactly one place. Both OAuth flavours delegate to the driver's ``verify_live``
         — a real one-shot through the same CLI transport the agent uses.
         The old ``oauth`` branch answered with an unconditional pass
         ("the CLI holds real credentials, so connected is truthful") —
@@ -1174,7 +1199,14 @@ class UserProviderService:
                 return False, detail
             return True, f"{detail} (not live-verified)"
 
-        return await self.test_provider_config(
+        # The egress gate is decided by the raw STORED source through the one
+        # platform-source criterion (registry.is_platform_provider_source): a
+        # platform card (netmind_free, the system / system_pool pool — all on
+        # our own gateway) keeps its internal base_url; user, missing and
+        # unknown sources are gated (fail closed). No enum conversion here: the
+        # column holds platform values the enum has no member for.
+        return await self._probe_api_key_card(
+            gate_source=row.get("source") or "",
             card_type=row["protocol"],
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
@@ -1222,6 +1254,36 @@ class UserProviderService:
         Returns:
             (success, message) — passed straight through from the registry.
         """
+        # Raw form values are user-supplied by definition: always USER, so the
+        # registry's egress gate applies to the base_url the client sent.
+        return await self._probe_api_key_card(
+            gate_source=ProviderSource.USER.value,
+            card_type=card_type,
+            api_key=api_key,
+            base_url=base_url,
+            auth_type=auth_type,
+            models=models,
+        )
+
+    async def _probe_api_key_card(
+        self,
+        *,
+        gate_source: str,
+        card_type: str,
+        api_key: str,
+        base_url: str,
+        auth_type: str,
+        models: list[str] | None,
+    ) -> tuple[bool, str]:
+        """The ONE place a transient api-key ProviderConfig is built for a probe.
+
+        Shared by the stateless form probe (``gate_source="user"``) and the
+        saved-row test (the row's raw stored source), so the whitelists below
+        and the registry's source-keyed egress gate can't drift between the
+        two. ``gate_source`` is handed to the registry as ``stored_source`` and
+        alone decides the egress gate; the transient config's own ``source``
+        is a fixed USER label that nothing else reads.
+        """
         if card_type not in ("anthropic", "openai"):
             return False, f"Unsupported protocol: {card_type}"
         if auth_type not in ("api_key", "bearer_token"):
@@ -1231,14 +1293,14 @@ class UserProviderService:
         prov = ProviderConfig(
             provider_id="prov_probe",          # transient, never stored
             name="probe",
-            source=ProviderSource.USER,
+            source=ProviderSource.USER,        # label only; gate_source decides
             protocol=card_type,                # pydantic coerces to ProviderProtocol
             auth_type=auth_type,
             api_key=api_key,
             base_url=base_url,
             models=models or [],
         )
-        return await provider_registry.test_provider(prov)
+        return await provider_registry.test_provider(prov, stored_source=gate_source)
 
 
 # =============================================================================

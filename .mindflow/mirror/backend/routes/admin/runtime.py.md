@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/admin/runtime.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28（PR #419 review I-1）— `/workers` 改用共享 staff 闸
+
+内联的 `is_cloud_mode() and role != "staff"` 换成 `Depends(require_staff_in_cloud)`（见
+[[_staff.py]]）；语义不变：local 放行，cloud 非 staff 403（detail 改为 `staff role required`，
+与 logs 一致）。测试的 patch 点从 `rt.is_cloud_mode` 挪到 `_staff.is_cloud_mode`；本文件不再
+import `is_cloud_mode` / `HTTPException` / `Request`。下面旧条目里"测试 monkeypatch
+`rt.is_cloud_mode`"一句已过时。
+
+## 2026-10-28 — `/workers` 云端只给 staff
+
+这条路由没有任何门（同文件 `/status` 有 secret）；`last_error` 带 worker 崩溃的 `repr(e)`，
+任何登录用户可读。本地/桌面模式没有角色、System 页要用，照旧放行；cloud 模式
+`request.state.role != "staff"` → 403。模式判定用公开的
+`narranexus.platform.utils.deployment_mode.is_cloud_mode`（不引 `backend.auth` 私有的
+`_is_cloud_mode`）；测试 monkeypatch `rt.is_cloud_mode`。
+
+## 2026-10-28 — secret 改为 `Depends(admin_secret_dependency)`
+
+见 [[_admin_secret]]：依赖项先于 body 校验执行，未认证请求一律 403，不再 422 泄露字段名。
+行为对持有 secret 的调用方不变。
 
 ## 2026-08-21 — /status 新增第四段 `executor_reaper`
 

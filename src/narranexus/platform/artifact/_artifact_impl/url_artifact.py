@@ -34,6 +34,7 @@ from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactContentGone,
     ArtifactError,
     ArtifactNotFound,
+    ArtifactPathEscape,
 )
 from narranexus.platform.artifact._artifact_impl.page_text import fetch_page_text
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
@@ -262,18 +263,25 @@ async def set_embed_mode(
     URL tab, by rewriting its JSON doc. Returns the artifact row.
 
     Raises:
-        ArtifactNotFound: artifact missing / not this agent's / not a URL tab.
+        ArtifactNotFound: artifact missing / not this agent's / not a URL tab /
+            its doc pointer resolves outside the owner's roots.
     """
     art = await repo.get_by_id(artifact_id)
     if art is None or art.agent_id != agent_id or art.kind != URL_ARTIFACT_KIND:
         raise ArtifactNotFound("URL artifact not found")
 
-    from narranexus.platform.utils.workspace_paths import resolve_workspace_relative_file
+    from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
 
-    base = os.path.realpath(settings.base_working_path)
-    abs_entry = os.path.realpath(
-        str(resolve_workspace_relative_file(art.file_path, art.agent_id, art.user_id, base))
-    )
+    # Read AND rewrite only a doc proven to sit under the owner's roots; a
+    # folder swapped for a link would otherwise aim the atomic rewrite at
+    # another tenant's tab (2026-10-28). Out-of-roots reads as not-found.
+    try:
+        abs_entry = confine_entry(
+            art.file_path, art.agent_id, art.user_id,
+            settings.base_working_path, team_id=art.team_id,
+        )
+    except ArtifactPathEscape:
+        raise ArtifactNotFound("URL artifact not found") from None
     doc = _read_doc(abs_entry)
     if doc.embed is None:
         # No probe verdict on disk (shouldn't happen for a real URL tab, but be

@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/artifact/artifact_service.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `resolve_owned_entry(artifact)`
+
+把 [[confinement]] 暴露成服务方法，供 backend 路由（office-asset 上传）取"已证明在属主根内"
+的 entry 绝对路径；路由不再 import `_artifact_impl`。
 
 ## 2026-08-07 — `register()` 增加 team_id / event_id 两个语义参数
 

@@ -83,6 +83,7 @@ wheels/
 .env
 .envrc
 .venv/
+.venv
 env/
 venv/
 

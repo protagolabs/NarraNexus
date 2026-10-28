@@ -1,8 +1,40 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-08-18
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #419 review I-2）— 403 按异常类型判，不再嗅探文案
+
+`/export` 改为 `isinstance(e, BundleForbidden)` → 403（类定义在 [[builder.py]]），删掉
+`str(e).startswith("Forbidden")`。原因：改 builder 文案会让 403 静默退回 500，而第三方抛出的
+恰以 "Forbidden" 开头的 ValueError 会被当成授权拒绝、丢掉 traceback。现在普通 ValueError
+无论文案如何都走 500 + `logger.exception`（`test_export_does_not_sniff_forbidden_prose` 钉住）。
+`ValueError("Agent not found…")` 仍是 500（不确认 agent 是否存在）。下面旧条目的"以 Forbidden
+开头的 ValueError 映射 403"已被本条取代。
+
+## 2026-10-28 — 导出时的归属拒绝是 403
+
+`build_bundle` 对不属于导出者的 agent / team 抛 `ValueError("Forbidden: ...")`。`/export`
+原来把所有异常都折成 500；现在以 `Forbidden` 开头的 ValueError 映射 403，detail 固定为
+`Forbidden`（不回显对方的 id），其余异常仍是 500 + 固定文案。
+
+## 2026-10-28 — from-url 上游失败不回显异常
+
+`upstream fetch failed: {e}` 会把连接错误原文（含内网主机名/端口判断依据）带给用户；
+改为固定文案，细节进日志。
+## 2026-10-28 — from-url 云端只收 https + 默认端口
+
+host allowlist 只钉住「哪台主机」；`http://` 或 `:22` / `:8443` 落在白名单主机上照样能借
+这个端点探该主机的其他服务。云端现在在 allowlist 之后再要求 scheme 为 https、端口为空或
+443（`_scheme_and_port_allowed`；非法端口如 `:99999` 也拒），否则 400，下载前就拦。
+本地 / 桌面不加此限制：本地默认 allowlist 本来就为 `http://localhost:3001` 的 dev 网站
+服务。判定用 `settings.is_cloud_mode`，和 allowlist 的模式判定同源。
+## 2026-10-28 — preflight 落盘用固定文件名
+
+`tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
+`../x` 或绝对路径就决定了写到哪（随后 `unlink`）。改为固定 `upload.nxbundle`，与
+marketplace publish 同一规则。
 
 ## 2026-08-18 三审 — 闸口挪进线程
 
@@ -150,6 +182,7 @@ review 页"的一键体验。
 |---|---|
 | URL host allowlist | SSRF(Capital One 类:把后端骗去访问 `169.254.169.254/...` 拿 IAM 凭证) |
 | 拒 redirect | 上游 302 → 内网/metadata IP 绕过 allowlist |
+| 云端只收 https + 443(2026-10-28) | 白名单主机上的其他端口/明文服务被借道探测 |
 | size cap(MAX_BUNDLE_BYTES = 500 MB) | 50 GB 文件填满磁盘 |
 | timeout 30s | hang server 占满连接池 |
 | optional sha256 | 上游服务器被攻破后投放替换包 / URL 写错指向旧版本 |

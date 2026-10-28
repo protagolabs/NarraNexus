@@ -639,6 +639,7 @@
       "dragFiles": "将文件拖到此处，或",
       "browse": "浏览",
       "empty": "工作区为空",
+      "partialListing": "仅显示部分内容——此工作区过大，无法完整列出。可以让 Agent 列出具体文件夹来查看其余文件。",
       "kindOffice": "Office 文档（实时）"
     },
     "homeAssistant": {

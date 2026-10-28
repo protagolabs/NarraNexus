@@ -1,8 +1,20 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — service bearer 不再绕过封号门
+
+`nx-agent` 服务 bearer 分支原来在 `_account_state` 之前就 return（注释写明是"已知边界"）。
+事故里攻击者把沙箱 token 拿到公网重放；封号后 token 在 72h TTL 内照常可用。现在该分支
+用同一个 `_account_state` 读取器与 `NON_TRANSACTING_USER_STATUSES` 判定，封号即 403
+`account_suspended`（`auth_error_response` 带 path/method/user_id，与 JWT 分支同形）。
+provider/quota resolver 仍跳过（数据面调用不是 LLM 花费）。
+
+后果与代价：封号用户**已在跑**的后台工作（job、经 executor 回调 backend 的 agent turn）
+在下一次调 backend 时就拿到 403 而停下，不再等 gateway key 吊销。旧注释担心的
+「热路径上每请求读 users 表」不成立——`_account_state` 有 TTL 缓存，每用户每 TTL 至多一次读库。
 
 ## 2026-09-03（批 2a.4）— `PLUGIN_EXEMPT_PREFIXES`
 

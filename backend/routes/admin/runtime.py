@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends
 
 from narranexus.platform.agent_framework.loop.broker_client import broker_url
 from narranexus.platform.agent_runtime.admission import get_admission_controller
@@ -42,7 +42,8 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 # shared ``require_admin_secret`` helper reads the same ``settings`` singleton.
 from narranexus.platform.settings import settings  # noqa: F401
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
+from ._staff import require_staff_in_cloud
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,8 @@ async def _get_audit_counts() -> dict:
 
 
 @router.get("/status")
-async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
+async def runtime_status(_: None = Depends(admin_secret_dependency)) -> dict:
     """Live scheduling/resource state. Read-only; never 500s on a sub-section."""
-    require_admin_secret(x_admin_secret)
     try:
         executors = await _get_executor_list()
     except Exception as e:  # noqa: BLE001
@@ -192,7 +192,7 @@ async def _get_worker_snapshot() -> dict:
     }
 
 
-@router.get("/workers")
+@router.get("/workers", dependencies=[Depends(require_staff_in_cloud)])
 async def worker_status() -> dict:
     """Per-worker liveness of the consolidated worker supervisor.
 
@@ -201,6 +201,9 @@ async def worker_status() -> dict:
     so the process-level card cannot tell which sub-worker is flapping — this
     surfaces each one's state + cumulative restart_count. Never 500s: an
     unreachable DB or an absent supervisor yields ``available: false``.
+
+    Staff-only in cloud (``last_error`` carries worker exception text); open in
+    local mode, where the desktop System page shows it — see ``_staff``.
     """
     try:
         return await _get_worker_snapshot()

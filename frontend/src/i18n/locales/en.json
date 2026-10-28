@@ -639,6 +639,7 @@
       "dragFiles": "Drag files here or",
       "browse": "browse",
       "empty": "Workspace is empty",
+      "partialListing": "Partial listing — this workspace is too large to show in full. Ask the agent to list a specific folder to see the rest.",
       "kindOffice": "Office document (live)"
     },
     "homeAssistant": {

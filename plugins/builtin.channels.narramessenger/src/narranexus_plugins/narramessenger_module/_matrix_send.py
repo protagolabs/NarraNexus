@@ -26,6 +26,7 @@ Endpoints:
 from __future__ import annotations
 
 import mimetypes
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -33,7 +34,10 @@ from typing import Any, Optional
 import aiohttp
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.utils.workspace_paths import (
+    agent_workspace_path,
+    resolve_inside_workspace,
+)
 
 _UPLOAD_PATH = "/_matrix/media/v3/upload"
 _ROOM_SEND_PATH = "/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"
@@ -80,19 +84,29 @@ def resolve_workspace_file(
 
     The agent may pass a path relative to its workspace root or an absolute
     path inside it. Anything that resolves outside the workspace (``..``
-    traversal, an absolute path elsewhere) raises ``MatrixSendError`` —
+    traversal, an absolute path elsewhere, a symlinked workspace dir) raises
+    ``MatrixSendError`` —
     this is the single security gate on outbound files.
     """
     if not file_path or not file_path.strip():
         raise MatrixSendError("bad_path", "file_path is empty")
 
-    root = agent_workspace_path(agent_id, owner_id).resolve()
-    # ``root / abs_path`` yields ``abs_path``; ``resolve()`` also collapses
-    # any ``..`` — so the relative_to check below is the real containment
-    # guarantee regardless of whether the agent passed relative or absolute.
-    target = (root / file_path).resolve()
+    from narranexus.platform.settings import settings
+
     try:
-        target.relative_to(root)
+        # Lexical root on a realpath-ed base (the base is platform-owned; the
+        # tenant tail may have been swapped for a symlink to another tenant's
+        # workspace, so it is never resolved). The id guard in workspace_paths
+        # also raises ValueError for an unsafe owner/agent id.
+        root = agent_workspace_path(agent_id, owner_id, base=os.path.realpath(settings.base_working_path))
+    except ValueError as e:
+        # Keep this function's one error type for callers.
+        raise MatrixSendError("bad_path", str(e)) from e
+    # The candidate is resolved (``..``, an absolute path elsewhere and links
+    # all collapse), the root is not — the containment check is the real
+    # guarantee whether the agent passed a relative or an absolute path.
+    try:
+        target = resolve_inside_workspace(root, file_path)
     except ValueError as e:
         raise MatrixSendError(
             "bad_path",

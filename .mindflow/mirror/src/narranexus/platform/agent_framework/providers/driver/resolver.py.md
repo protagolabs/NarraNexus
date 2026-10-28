@@ -1,8 +1,27 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/resolver.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #418 review I2）— 运行配置构建前的出网筛
+
+本函数按 provider_id **直接**读 `user_providers` 行（per-agent override 指向的卡也从这里进，
+不经过 `UserProviderService.get_user_config`），所以 is_active 检查之后再调
+[[registry]] 的 `is_stored_user_base_url_blocked`：云端、非平台 source（`user`/缺失/真正未知；
+平台白名单 `PLATFORM_PROVIDER_SOURCES`）、base_url 明显非公网（DNS-free）→ 抛
+`LLMConfigNotConfigured`，调用方已有的友好报错路径接住；文案**不回显 base_url**。平台卡
+（`netmind_free`，以及枚举外的系统免费额度池 `system` / `system_pool`——本函数正是它们的必经之路）
+与 local 不受影响。每个 slot 绑定只调一次，纯内存判定，不解析 DNS。
+
+- **触发**：把「不在 `ProviderSource` 枚举里」当成 USER → **症状**：绑在 `system_pool` 卡上的云端用户
+  每次 agent 运行 / helper 调用都 `LLMConfigNotConfigured`，`/health` 照绿 → **根因**：
+  `user_providers.source` 的取值域大于枚举（PR#418 增量 review C1，已改为白名单）。
+- 该 import 单独成组放在 `driver.*` 之前（review M11），别和 `driver.registry` 混看。
+
+- **触发**：只在 `get_user_config` 加筛 → **症状**：user_slots 绑定的坏卡被拦，但某个 agent 的
+  `agent_slots` override 指向同一张卡时 agent loop 照样向内网发请求 → **根因**：resolver
+  classify 只看 user 级 slot，override 叠加只发生在本函数里。
 
 ## 2026-09-10（PR #394 review I3）— `_apply_agent_overrides` 用共享判据
 

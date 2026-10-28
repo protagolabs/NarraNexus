@@ -170,3 +170,22 @@ async def test_private_artifacts_heal_exactly_as_before(env):
     res = await env["svc"].heal(agent_id=AGENT, user_id=USER, artifact_id="art_priv")
     assert res.recovered is True
     assert "already valid" in res.message
+
+
+@pytest.mark.asyncio
+async def test_a_team_folder_swapped_for_a_link_is_not_scanned(env, tmp_path):
+    """The team folder lives in the owner's mount; swapped for a link to another
+    tenant's team folder, heal offers nothing from it."""
+    import os
+    import shutil
+
+    victim_team = team_shared_dir("user_victim", TEAM, str(env["base"]))
+    victim_team.mkdir(parents=True)
+    (victim_team / "plan.md").write_text("victim plan\n")
+    shutil.rmtree(env["shared"])
+    os.symlink(victim_team, env["shared"])
+    await _seed(env, rel_path="nonexistent/gone.md")
+
+    res = await env["svc"].heal(agent_id=AGENT, user_id=USER, artifact_id="art_team")
+    assert res.recovered is False
+    assert res.candidates == []

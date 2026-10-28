@@ -162,7 +162,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
         shutil.rmtree(out_dir, ignore_errors=True)
         # B6: surface SensitiveZipDetected as 409 with structured payload
         # so the frontend can show a per-skill confirmation modal.
-        from narranexus.platform.bundle.builder import SensitiveZipDetected
+        from narranexus.platform.bundle.builder import (
+            BundleForbidden,
+            SensitiveZipDetected,
+        )
         if isinstance(e, SensitiveZipDetected):
             raise HTTPException(
                 status_code=409,
@@ -172,6 +175,13 @@ async def export_bundle(payload: ExportRequest, request: Request):
                     "hits": e.hits,
                 },
             )
+        # The builder refuses an agent or team the exporter does not own with
+        # BundleForbidden — an authorization verdict, not a server fault:
+        # answer 403 without echoing the foreign id. Matched by type only; a
+        # ValueError that merely reads "Forbidden..." stays a 500 below.
+        if isinstance(e, BundleForbidden):
+            logger.warning(f"export refused for {user_id}: {e}")
+            raise HTTPException(status_code=403, detail="Forbidden")
         logger.exception("export build failed")
         raise HTTPException(status_code=500, detail="Failed to build the export.")
 
@@ -208,7 +218,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
 async def import_preflight(file: UploadFile = File(...), request: Request = None):
     user_id = await _user_id_for_request(request)
     tmpdir = Path(tempfile.mkdtemp(prefix="nx-preflight-"))
-    bundle_path = tmpdir / (file.filename or "upload.nxbundle")
+    # FIXED name: the multipart filename is client-controlled and Starlette
+    # passes it through verbatim — "../x" or "/abs/path" would decide where
+    # the bytes land (and get unlinked afterwards). Same rule as marketplace.
+    bundle_path = tmpdir / "upload.nxbundle"
 
     try:
         contents = await file.read()
@@ -260,6 +273,8 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
 #  - URL host allowlist  → SSRF defense (the classic Capital-One-style attack
 #    where a public fetch endpoint is turned into a tunnel into internal
 #    services / cloud metadata IPs)
+#  - cloud: https + default port (443) only → an allowlisted host can't be
+#    port-scanned / reached over plaintext through this endpoint
 #  - per-request size cap → bound disk usage
 #  - per-request timeout  → bound request lifetime / connection-pool exhaustion
 #  - optional sha256      → integrity + prevents the website serving a wrong
@@ -312,6 +327,26 @@ def _host_allowed(host: Optional[str]) -> bool:
     return host.lower() in _allowed_fetch_hosts()
 
 
+def _scheme_and_port_allowed(parsed) -> bool:
+    """Cloud only: https on the default port, on top of the host allowlist.
+
+    The allowlist pins WHICH host; without this, ``http://`` or ``:22`` /
+    ``:8443`` on an allowlisted host still lets a caller probe other services
+    on it. Local/desktop keeps http + any port (the dev website runs on
+    ``http://localhost:3001``). An unparseable port is a reject.
+    """
+    from narranexus.platform.settings import settings  # late import — avoid cycle
+    if not settings.is_cloud_mode:
+        return True
+    if parsed.scheme != "https":
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return port in (None, 443)
+
+
 async def _stream_download(url: str, dst: Path) -> None:
     """Stream-fetch `url` into `dst`, enforcing size cap + timeout.
     Raises HTTPException on size overrun / upstream non-200 / network errors."""
@@ -353,7 +388,8 @@ async def _stream_download(url: str, dst: Path) -> None:
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="upstream fetch timed out")
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"upstream fetch failed: {e}")
+        logger.warning(f"bundle from-url upstream fetch failed: {e}")
+        raise HTTPException(status_code=502, detail="upstream fetch failed")
 
 
 class ImportFromUrlRequest(BaseModel):
@@ -387,6 +423,11 @@ async def import_from_url(payload: ImportFromUrlRequest, request: Request):
                 f"URL host {parsed.hostname!r} is not in the bundle-fetch "
                 "allowlist. Set BUNDLE_FETCH_ALLOWED_HOSTS to extend."
             ),
+        )
+    if not _scheme_and_port_allowed(parsed):
+        raise HTTPException(
+            status_code=400,
+            detail="bundle URLs must use https on the default port (443)",
         )
 
     # ── 2. Fetch + (optional) sha256 verify + preflight ───────────────────
