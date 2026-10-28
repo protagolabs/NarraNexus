@@ -1,8 +1,30 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — signup / send-code 加 per-IP 桶 + 一次性邮箱拒收
+
+事件：同一 IP 自助注册两个号后对 API fuzz 4 小时。审计发现 send-code 只有
+「每 email 每 60s 一次」——每次换一个新地址就无上限，等于把我们的 NetMind 发信
+通道借给任何人去轰炸任意邮箱；signup 也只有 per-email 10/10min。
+
+- **per-IP 桶**（`client_ip`，与 funnel-report 同一个 edge-appended XFF 取值；同一个
+  `SlidingWindowRateLimiter`）：send-code 5/min + 30/h，signup 5/h。限额是模块常量
+  `SIGNUP_CODE_PER_IP_PER_MINUTE` / `SIGNUP_CODE_PER_IP_PER_HOUR` / `SIGNUP_PER_IP_PER_HOUR`，
+  经 `env_limit` 从 `NARRANEXUS_SIGNUP_*` 读（已进 .env.example）。429 一律带
+  `Retry-After`（per-email 的 429 也补上了）。per-email 限额保留。
+- **求值顺序即不变量**：send-code = 拒收域 → per-IP 分钟 → per-IP 小时 → per-email →
+  上游；signup = 拒收域 → 密码策略 → per-IP → per-email → 上游。per-IP 在 per-email
+  前：可信有界的 key 给 caller-chosen email key 的分配封顶（同 funnel-report R4）。
+  密码策略在 per-IP 前：弱密码拒绝不花上游，不该把共享 NAT 的一小时额度烧掉。
+- **一次性邮箱**：`_email_policy.is_blocked_email`（见其 mirror），400 + 中性文案
+  `_BLOCKED_EMAIL_DETAIL`，排在所有桶之前。
+- Gotcha：signup 5/h/IP 对共用出口的办公室/校园偏紧——这是 env 可调的原因。
+- 测试：`tests/backend/test_signup_abuse_limits.py`；`test_signup_routes.py` 的 fixture
+  同步重置三个新 limiter（模块单例会跨用例泄漏）。
+
 
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 

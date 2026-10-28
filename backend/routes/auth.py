@@ -75,7 +75,8 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._client_ip import client_ip
-from backend.routes._rate_limiter import SlidingWindowRateLimiter
+from backend.routes._email_policy import is_blocked_email
+from backend.routes._rate_limiter import SlidingWindowRateLimiter, env_limit
 from narranexus.platform.agent_profile import apply_agent_profile_change
 from narranexus.platform.utils.deployment_mode import is_power_login_enabled
 from narranexus.platform.utils import is_valid_timezone
@@ -182,13 +183,71 @@ def _get_netmind_auth_client():
 # ---------------------------------------------------------------------------
 
 # One code request per email per 60s — the same beat as the UI countdown, so a
-# well-behaved client never trips it. Keyed by email rather than IP: the abuse
-# we care about is one mailbox being flooded, and NAT would make IP both too
-# coarse and too easy to rotate around.
+# well-behaved client never trips it. This bucket protects ONE mailbox from
+# being flooded; on its own it is no protection for the mail channel itself,
+# because a caller rotating to a fresh address per request never hits it
+# (2026-10-28). The per-IP buckets below close that.
 _signup_code_limiter = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
 # A far looser ceiling on account creation attempts per email, so a wrong code
 # can be retried a few times without opening a brute-force window on it.
 _signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
+
+# Per-client-IP buckets (``client_ip`` — the same edge-appended XFF entry the
+# funnel-report buckets use). They cap what ONE source can spend no matter how
+# many addresses it rotates through: send-code mail (minute + hour, so a burst
+# and a slow drip are both bounded) and account creation (hour). Evaluated
+# BEFORE the per-email bucket: the IP key is trusted and bounded, the email key
+# is caller-chosen, so per-IP in front is what caps per-email key allocation
+# (same invariant as funnel-report). Env-tunable for a deployment whose users
+# share one NAT egress (an office, a campus).
+SIGNUP_CODE_PER_IP_PER_MINUTE = env_limit("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE", 5)
+SIGNUP_CODE_PER_IP_PER_HOUR = env_limit("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_HOUR", 30)
+SIGNUP_PER_IP_PER_HOUR = env_limit("NARRANEXUS_SIGNUP_PER_IP_PER_HOUR", 5)
+_signup_code_ip_minute_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_CODE_PER_IP_PER_MINUTE, window_sec=60.0
+)
+_signup_code_ip_hour_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_CODE_PER_IP_PER_HOUR, window_sec=3600.0
+)
+_signup_ip_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_PER_IP_PER_HOUR, window_sec=3600.0
+)
+
+# Neutral on purpose: naming the rule ("disposable") tells a prober exactly
+# which domains to swap to.
+_BLOCKED_EMAIL_DETAIL = (
+    "This email address can't be used to sign up. Please use a different one."
+)
+
+
+def _rate_limited(limiter: SlidingWindowRateLimiter, key: str, detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail=detail,
+        headers={"Retry-After": str(limiter.retry_after(key))},
+    )
+
+
+def _enforce_ip_buckets(
+    limiters: Iterable[SlidingWindowRateLimiter], ip: str, route: str
+) -> None:
+    """Raise 429 (with Retry-After) on the first per-IP bucket that refuses.
+
+    Short-circuits: a request the narrower bucket refuses never spends the
+    wider one's budget.
+    """
+    for limiter in limiters:
+        if not limiter.allow(ip):
+            logger.info(f"[signup-funnel] {route} rate-limited ip={ip}")
+            raise _rate_limited(
+                limiter, ip, "Too many requests. Please try again later."
+            )
+
+
+def _refuse_blocked_email(email: str, route: str) -> None:
+    if is_blocked_email(email):
+        logger.info(f"[signup-funnel] {route} blocked-domain email={email}")
+        raise HTTPException(status_code=400, detail=_BLOCKED_EMAIL_DETAIL)
 
 
 class SendSignupCodeRequest(BaseModel):
@@ -212,8 +271,12 @@ def _register_client():
 
 
 @router.post("/signup/send-code")
-async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
-    """Email a 6-digit registration code."""
+async def send_signup_code(payload: SendSignupCodeRequest, request: Request) -> dict:
+    """Email a 6-digit registration code.
+
+    Gate order: blocked domain (spends nothing) -> per-IP minute/hour ->
+    per-email -> upstream.
+    """
     from backend.integrations.netmind.netmind_register_client import (
         RegistrationError,
         RegistrationUpstreamError,
@@ -221,13 +284,20 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
 
     client = _register_client()
     email = payload.email.strip().lower()
+    _refuse_blocked_email(email, "send-code")
+    _enforce_ip_buckets(
+        (_signup_code_ip_minute_limiter, _signup_code_ip_hour_limiter),
+        client_ip(request),
+        "send-code",
+    )
     if not _signup_code_limiter.allow(email):
         # Logged, not just refused: seventeen 400s with zero server-side
         # trace is how the 2026-08-01 funnel post-mortem went blind.
         logger.info(f"[signup-funnel] send-code rate-limited email={email}")
-        raise HTTPException(
-            status_code=429,
-            detail="A code was just sent. Please wait a minute before retrying.",
+        raise _rate_limited(
+            _signup_code_limiter,
+            email,
+            "A code was just sent. Please wait a minute before retrying.",
         )
     try:
         await client.send_code(email)
@@ -243,7 +313,7 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
 
 
 @router.post("/signup")
-async def register_account(payload: SignupRequest) -> dict:
+async def register_account(payload: SignupRequest, request: Request) -> dict:
     """Create a NetMind account from our own signup form.
 
     Deliberately does NOT log the user in. The page holds the credentials it
@@ -259,6 +329,7 @@ async def register_account(payload: SignupRequest) -> dict:
 
     client = _register_client()
     email = payload.email.strip().lower()
+    _refuse_blocked_email(email, "signup")
 
     # Re-checked server-side: the UI validates the same rules for feedback, but
     # that is a convenience, not a guarantee.
@@ -268,10 +339,13 @@ async def register_account(payload: SignupRequest) -> dict:
         logger.info(f"[signup-funnel] policy reject email={email}: {policy_error}")
         raise HTTPException(status_code=400, detail=policy_error)
 
+    # Per-IP after the policy check: a rejected weak password spends nothing
+    # upstream, so it must not burn a shared network's hourly allowance.
+    _enforce_ip_buckets((_signup_ip_limiter,), client_ip(request), "signup")
     if not _signup_attempt_limiter.allow(email):
         logger.info(f"[signup-funnel] signup rate-limited email={email}")
-        raise HTTPException(
-            status_code=429, detail="Too many attempts. Please try again later."
+        raise _rate_limited(
+            _signup_attempt_limiter, email, "Too many attempts. Please try again later."
         )
     try:
         await client.register(email, payload.password, payload.verify_code.strip())

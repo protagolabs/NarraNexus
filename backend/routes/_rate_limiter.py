@@ -8,6 +8,11 @@ Used by GET /api/dashboard/agents-status to cap per-viewer request rate at
 2 req/s (legitimate dashboard baseline: 0.33 req/s from 3s polling). See
 design doc TDR-6 + security critic M-5.
 
+Also the one limiter behind every per-key bucket on the unauthenticated auth
+routes (signup / send-code / funnel-report) and the anonymous channel webhook;
+``env_limit`` is the shared parser for operator-tunable limits and
+``retry_after`` feeds the 429 ``Retry-After`` header.
+
 Multi-worker deployments: this is process-local; each worker enforces its
 own limit. Real-world accepted given current single-process dev + Tauri
 sidecar runs. Upgrade to Redis-backed rate limiter alongside Redis session
@@ -15,8 +20,26 @@ registry.
 """
 from __future__ import annotations
 
+import math
+import os
 from collections import deque
 from time import monotonic
+
+
+def env_limit(name: str, default: int) -> int:
+    """Read a positive integer limit from env var ``name``.
+
+    Unset, empty, non-integer or < 1 values fall back to ``default`` instead
+    of raising at import time: a typo in a deploy env must not take the
+    backend down, and ``0`` would turn a limiter into "reject everything"
+    (``allow`` treats ``limit <= 0`` as a degenerate always-reject config),
+    which is never what an operator tuning a rate means.
+    """
+    try:
+        value = int((os.getenv(name) or "").strip())
+    except ValueError:
+        return default
+    return value if value >= 1 else default
 
 
 class SlidingWindowRateLimiter:
@@ -70,6 +93,20 @@ class SlidingWindowRateLimiter:
             dq = self._deques[key] = deque()
         dq.append(now)
         return True
+
+    def retry_after(self, key: str) -> int:
+        """Whole seconds until ``key`` regains a slot (always >= 1).
+
+        Meant for the ``Retry-After`` header right after ``allow(key)``
+        returned False. A rejected key's deque holds exactly ``limit``
+        in-window hits (``allow`` only appends below the limit), so the slot
+        frees when the OLDEST one leaves the window. A key with no state
+        (the ``limit <= 0`` degenerate config) reports the full window.
+        """
+        dq = self._deques.get(key)
+        if not dq:
+            return max(1, math.ceil(self._window))
+        return max(1, math.ceil(dq[0] + self._window - monotonic()))
 
     def _cleanup(self) -> None:
         now = monotonic()
