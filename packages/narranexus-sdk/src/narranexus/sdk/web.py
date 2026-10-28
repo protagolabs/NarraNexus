@@ -80,6 +80,11 @@ async def check_agent_owner(request: Any, agent_id: str) -> str | None:
     return await host().check_agent_owner(request, agent_id)
 
 
+async def require_workspace_agent_owner(request: Any, agent_id: str) -> str:
+    """For routes that build a workspace path from ``agent_id``: identity required, uniform 404, returns user_id."""
+    return await host().require_workspace_agent_owner(request, agent_id)
+
+
 async def resolve_viewer(request: Any) -> str:
     """The dashboard viewer identity (rejects a ``user_id`` query param)."""
     return await host().resolve_viewer(request)
@@ -151,5 +156,6 @@ __all__ = [
     "host_settings",
     "reject_cross_origin",
     "require_agent_owner",
+    "require_workspace_agent_owner",
     "resolve_viewer",
 ]

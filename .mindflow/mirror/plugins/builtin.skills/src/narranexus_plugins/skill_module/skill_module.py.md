@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — skill_name 只能是单个目录名
+
+`_resolve_skill_dir` / `remove_skill` / `disable_skill` / `enable_skill` 入口先过
+[[workspace_paths]] 的 `safe_id_segment`：`..` 会把 `skills_dir / ".."` 指到 workspace 根，
+remove 就是 rmtree 整个 workspace。影响只限调用者自己，但必须堵。路由层另有 404
+（[[routes]]），这里是给 MCP 工具等直接调用方的兜底（ValueError）。
 
 ## 2026-09-09（复审 I6/M5/M7）— 每仓 skill 数上限；未知 skill 返回 None
 

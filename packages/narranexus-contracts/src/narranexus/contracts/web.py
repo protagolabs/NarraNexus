@@ -115,6 +115,11 @@ class WebHost(Protocol):
         prose.
         """
 
+    async def require_workspace_agent_owner(self, request: Any, agent_id: str) -> str:
+        """For routes that turn ``agent_id`` into a workspace DIRECTORY: identity
+        required (401), path-unsafe or unknown or not-owned all 404 (no
+        existence oracle), 503 on lookup failure. Returns the caller's user_id."""
+
     async def resolve_viewer(self, request: Any) -> str:
         """The dashboard viewer: ``current_user_id`` plus the refusal of a ``user_id`` query param."""
 

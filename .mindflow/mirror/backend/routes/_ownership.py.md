@@ -22,6 +22,27 @@ websocket 直接用 `_ownership.assert_visible`。
   WS 那里的 `except HTTPException` 会把 503 重写成 `AgentNotFound`，故不做。
 - DB 访问保持原样：调用时从 `db_factory` 取 `get_db_client`（不用模块级名字），这样 patch
   `db_factory.get_db_client` 的既有测试继续命中。
+## 2026-10-28（审后）— `_deny_reason` 接受已解析的 `user_id`
+
+`require_owned_workspace_agent` 先 `resolve_current_user_id`（无身份 401），再把这个 user_id
+显式传给 `_deny_reason(user_id=...)`：决策里的 local-mode 放行分支对它不可达，不再依赖
+"两处读同一个 request.state 字段恰好一致"。两个旧 surface 不传，语义一字不改。
+
+## 2026-10-28 — 第三个 surface：`require_owned_workspace_agent`（跨租户读事件）
+
+`/api/agents/../files` 把 URL 段拼进 `{base}/{user_id}/{agent_id}` 读走了 246 个用户的文件。
+修复把"URL 里的 agent_id → 目录"之间缺失的确权收口到本文件，而不是再造一份副本
+（本文件存在的理由就是副本会漂移）。它与前两个 surface 的差异都是刻意的：
+
+- **身份必须存在**（`resolve_current_user_id`，无则 401），没有 local-mode 放行——保护对象
+  是文件系统，不是 bot 绑定；
+- 先过 [[workspace_paths]] 的 `safe_id_segment`，`..` / `%2e%2e` / `a/b` 在任何 `Path` 之前就被拒；
+- unknown 与 not_owner **统一 404**：面向磁盘的路由不能成为"别人的 agent_id 存在吗"的探针；
+- 查库失败仍由 `_deny_reason` 抛 503，三个 surface 共享同一决策。
+- 返回 user_id，路由用被校验过的同一身份拼路径。
+
+调用方：[[files]]、[[attachments]]（backend 直接 import），以及插件侧的 skills 路由经
+[[web]] seam（`sdk.web.require_workspace_agent_owner` → [[plugin_sdk_host]]）。
 
 ## Why it exists
 

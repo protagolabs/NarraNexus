@@ -86,7 +86,12 @@ def resolve_workspace_file(
     if not file_path or not file_path.strip():
         raise MatrixSendError("bad_path", "file_path is empty")
 
-    root = agent_workspace_path(agent_id, owner_id).resolve()
+    try:
+        root = agent_workspace_path(agent_id, owner_id).resolve()
+    except ValueError as e:
+        # The id guard in workspace_paths rejects an unsafe owner/agent id;
+        # keep this function's one error type for callers.
+        raise MatrixSendError("bad_path", str(e)) from e
     # ``root / abs_path`` yields ``abs_path``; ``resolve()`` also collapses
     # any ``..`` — so the relative_to check below is the real containment
     # guarantee regardless of whether the agent passed relative or absolute.

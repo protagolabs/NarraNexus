@@ -31,6 +31,27 @@ from typing import Optional
 _LAYOUT = "nested"
 
 
+def safe_id_segment(value: str, *, label: str) -> str:
+    """Assert ``value`` is usable as ONE directory name under the base dir.
+
+    Every id that becomes a path component (agent_id, user_id, team_id)
+    passes through here. The rule is deliberately about path safety, not
+    about id shape: legacy rows carry user ids with spaces and agent ids
+    like ``agent_a_abb17376``, and those must keep resolving. What can never
+    be allowed is anything that moves the path up or sideways — separators,
+    NUL, ``.``/``..``, or a dot-led name (dotdirs are hidden tooling state and
+    ``..;``-style variants are how the 2026-10-28 cross-tenant read got in:
+    ``agent_id=".."`` collapsed ``{base}/{user}/..`` to the base itself).
+
+    Raises ValueError; HTTP callers map that to a 4xx before touching disk.
+    """
+    if not value or "\x00" in value or "/" in value or "\\" in value:
+        raise ValueError(f"invalid {label}: not a single path segment")
+    if value.startswith("."):
+        raise ValueError(f"invalid {label}: dot-led names are reserved")
+    return value
+
+
 def agent_workspace_relpath(agent_id: str, user_id: str) -> str:
     """Workspace path of one agent, RELATIVE to base_working_path.
 
@@ -38,6 +59,8 @@ def agent_workspace_relpath(agent_id: str, user_id: str) -> str:
     nested). Callers that need an absolute path use
     :func:`agent_workspace_path`.
     """
+    safe_id_segment(agent_id, label="agent_id")
+    safe_id_segment(user_id, label="user_id")
     if _LAYOUT == "nested":
         return f"{user_id}/{agent_id}"
     return f"{agent_id}_{user_id}"
@@ -82,6 +105,7 @@ def _shared_base(base: Optional[str]) -> str:
 
 def user_shared_root(user_id: str, base: Optional[str] = None) -> Path:
     """Absolute per-user shared root: ``{base}/{user_id}/_shared``."""
+    safe_id_segment(user_id, label="user_id")
     return Path(_shared_base(base)) / user_id / _SHARED_DIRNAME
 
 
@@ -95,6 +119,7 @@ def team_shared_dir(user_id: str, team_id: str, base: Optional[str] = None) -> P
     """Absolute per-team shared scratch dir:
     ``{base}/{user_id}/_shared/teams/{team_id}``. A common space for a team's
     agents to hand off collaborative artifacts beyond single-message attachments."""
+    safe_id_segment(team_id, label="team_id")
     return user_shared_root(user_id, base) / _TEAMS_DIRNAME / team_id
 
 

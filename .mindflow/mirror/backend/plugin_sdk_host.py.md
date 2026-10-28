@@ -1,8 +1,13 @@
 ---
 code_file: backend/plugin_sdk_host.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 新增 `require_workspace_agent_owner`
+
+把 [[_ownership]] 的第三个 surface（面向 workspace 目录的严格确权）发布给插件路由；
+首个消费方是 skills 路由（[[routes]]）。
 
 # plugin_sdk_host.py — 宿主这一侧的 web seam 实现
 

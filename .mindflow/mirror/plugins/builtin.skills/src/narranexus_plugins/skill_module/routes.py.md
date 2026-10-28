@@ -9,6 +9,19 @@ stub: false
 十处 `HTTPException(500, detail=str(e))` 改为固定文案 "Skill operation failed."；异常细节
 由各 handler 原有的那一行 `logger.exception` 记录（每个异常只记一次）——2026-08-11 P2-2 的脱敏在插件里回退了。用户可操作的 400
 （ValueError 文案）保持。
+## 2026-10-28 — `skill_name` 段校验
+
+带 `skill_name` 的 8 个 handler 在确权之后立刻 `_require_skill_name`（`safe_id_segment`
+失败 → 404，与未知 skill 同口径），再构造 `SkillModule`。
+
+## 2026-10-28 — agent_id 先确权（与 files 路由同类的洞）
+
+十个 handler 都从 query/form 取 `agent_id`，直接交给 `SkillModule` 拼
+`{base}/{caller}/{agent_id}/skills`，没有确权：`?agent_id=../<victim>/<agent>` 能列、读、改 env、
+删，甚至把 skill **装进别人的 agent**。事件日志里没发现有人打过这条路，但同类必须同批修。
+现在每个 handler 第一行是 `require_workspace_agent_owner(request, agent_id)`（经 [[web]] seam
+到 [[_ownership]]）：身份必填、段安全、不是自己的一律 404；通过后才构造 `SkillModule`。
+`current_user_id` 不再单独调用——身份与确权绑在一起返回。
 
 ## 2026-09-09 — install 端点分开汇报成功与失败（GitHub #95，复审 C3）
 

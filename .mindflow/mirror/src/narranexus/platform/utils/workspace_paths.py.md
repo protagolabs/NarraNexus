@@ -1,8 +1,26 @@
 ---
 code_file: src/narranexus/platform/utils/workspace_paths.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28 — `safe_id_segment`：id 永远只能是一个目录名
+
+跨租户读事件后新增。`agent_workspace_relpath` / `user_shared_root` / `team_shared_dir`
+在拼路径前都先过它：空、含 `/` `\\` NUL、以 `.` 开头（覆盖 `.` `..` `...` `..;`
+`.hidden`）一律 `ValueError`。它是**路径安全**栅栏，不是 id 形状校验——磁盘上真实存在
+带空格的 user_id 和 `agent_a_abb17376` 这类 agent_id，必须继续解析，所以不能上严格
+正则。`_candidate_relpaths` 经由 `agent_workspace_relpath` 自动受保护，因此
+`resolve_existing_workspace` 和 `resolve_workspace_relative_file` 的 **id 参数**也一并覆盖。
+注意 `resolve_workspace_relative_file` 的 `file_path` 参数仍是原样 join（绝对路径会直接
+胜出），其范围限制一直由调用方（artifact raw_access 等）负责，本次未改。
+
+HTTP 入口不应依赖这里的 ValueError 变成 500：面向 workspace 的路由（files / attachments /
+skills）先用 [[_ownership]] 的 `require_owned_workspace_agent` 做确权与 404。这里是给
+30 个非路由调用方（bus 附件、bundle、artifact、executor…）的最后一道兜底；未经路由
+确权直接到这里的坏 id 会以 ValueError 冒泡（executor `/watch/ensure` 这类内部端点上
+表现为 500，可接受）。common_tools 的 `artifact_lines` 曾以空 user_id 调用它，已改成
+没有 user 就不生成本工作区前缀（[[artifact_lines]]）。
 
 ## 2026-08-10 (review 修正) — 新增 `turn_accessible_roots`
 
