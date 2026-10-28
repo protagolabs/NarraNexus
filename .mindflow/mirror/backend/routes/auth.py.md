@@ -11,39 +11,50 @@ stub: false
 通道借给任何人去轰炸任意邮箱；signup 也只有 per-email 10/10min。
 
 - **per-IP 桶**（`client_ip`，与 funnel-report 同一个 edge-appended XFF 取值；同一个
-  `SlidingWindowRateLimiter`）：send-code 10/min + 60/h，signup 20/h（按办公室 / 线下
-  活动共用出口的 NAT 定的默认值）。默认值是模块常量 `DEFAULT_SIGNUP_*`，生效值
-  `SIGNUP_CODE_PER_IP_PER_MINUTE` / `SIGNUP_CODE_PER_IP_PER_HOUR` / `SIGNUP_PER_IP_PER_HOUR`
+  `SlidingWindowRateLimiter`）：send-code 10/min + 60/h，signup 尝试 200/h + 建成 20/h
+  （按办公室 / 线下活动共用出口的 NAT 定的默认值）。默认值是模块常量 `DEFAULT_SIGNUP_*`，
+  生效值 `SIGNUP_CODE_PER_IP_PER_MINUTE` / `SIGNUP_CODE_PER_IP_PER_HOUR` /
+  `SIGNUP_ATTEMPTS_PER_IP_PER_HOUR` / `SIGNUP_PER_IP_PER_HOUR`
   经 `env_limit` 从 `NARRANEXUS_SIGNUP_*` 读（已进 .env.example，并提示线下活动前调高）。
   **import 期读取**：改 env 后必须重建 backend 容器才生效。429 一律带 `Retry-After`
   （per-email 的 429 也补上了）。per-email 限额保留。
-- **signup 的 per-IP 桶只记「真建成账号」的请求**：先 `allow` 预占（并发请求不能同时
-  溜过一次检查），任何没建成账号的出口——per-email 429、验证码错/已注册
-  （`RegistrationError` 400）、上游 502、客户端断开取消——在 `finally` 里
-  `refund`。目的：失败不烧共享办公室的额度；验证码爆破由 per-email 10/10min 兜。
-  **代价**：signup 的 per-IP 桶不再给「失败请求」的 per-email key 分配和上游
-  register 调用封顶（轮换 email + 错码可以无限打上游 register）；send-code 的
-  per-IP 桶仍是全额计费，验证码只能从这里或 NetMind 直连拿。
+- **signup 有两个 per-IP 桶**：
+  - **建成桶** `_signup_ip_limiter`（20/h）只记「真建成账号」的请求：先 `allow` 预占
+    （并发请求不能同时溜过一次检查），任何没建成账号的出口——per-email 429、验证码错/
+    已注册（`RegistrationError` 400）、上游 502、客户端断开取消——在 `finally` 里
+    `refund`。目的：失败不烧共享办公室的创建额度；验证码爆破由 per-email 10/10min 兜。
+  - **尝试桶** `_signup_attempt_ip_limiter`（200/h，`NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR`）
+    对每个请求全额计费、**永不退还**。PR #420 review I-1：只有建成桶时，轮换 email + 错码
+    的请求全部走失败路径、名额全部退回，单 IP 可以无限打上游 register（我们的出口 IP 成了
+    放大器），per-email key 也无封顶地堆积。尝试桶就是这条路由真正的 per-IP 上限。
+  - **陷阱**：`finally` 里只能退建成桶；把尝试桶也放进退还分支等于没加（测试
+    `test_failed_signups_are_capped_by_the_attempt_bucket` 会红）。
 - **求值顺序即不变量**：send-code = 拒收域 → per-IP 分钟 → per-IP 小时 → per-email →
-  上游；signup = 拒收域 → 密码策略 → per-IP（预占）→ per-email → 上游（失败退还）。
-  per-IP 在 per-email 前：可信有界的 key 给 caller-chosen email key 的分配封顶（同
-  funnel-report R4；signup 只对成功请求成立，见上）。`_enforce_ip_buckets` 短路：
-  分钟桶拒绝不花小时桶；反之不成立——小时桶拒绝时分钟桶已经扣过。
+  上游；signup = 拒收域 → 密码策略 → per-IP 尝试桶 → per-IP 建成桶（预占）→ per-email →
+  上游（失败只退建成桶）。per-IP 在 per-email 前：可信有界的 key 给 caller-chosen email
+  key 的分配封顶（同 funnel-report R4；signup 上由永不退还的尝试桶保证）。
+  `_enforce_ip_buckets` 短路：分钟桶拒绝不花小时桶；反之不成立——小时桶拒绝时分钟桶
+  已经扣过。signup 的尝试桶**必须排在建成桶前面**：尝试桶拒绝时建成桶还没预占；反过来
+  放，建成桶先预占、尝试桶在 `try` 之前抛出，`finally` 的退还永远到不了，这个名额就被
+  永久吃掉（测试 `test_attempt_bucket_rejection_spends_no_creation_hit_and_no_email_key`）。
   密码策略在 per-IP 前：弱密码拒绝不花上游，不该把共享 NAT 的一小时额度烧掉。
 - **一次性邮箱**：`_email_policy.is_blocked_email`（见其 mirror），400 + 中性文案
-  `_BLOCKED_EMAIL_DETAIL`，排在所有桶之前（被拒请求不花任何 per-IP 桶）。
+  `_BLOCKED_EMAIL_DETAIL`，排在所有桶之前（被拒请求不花任何 per-IP 桶；因此列表可被
+  免费枚举，这是有意的——见 `_email_policy.py.md`）。
 - **登录期免费额度门（绕过路径的兜底）**：`NETMIND_AUTH_API_URL` 经 `/config.js`
   公开，用户可以直接在 NetMind 注册、完全绕开上面两条路由；而 $10 钱包与引导
   Agent 是在 **netmind_login** 里发的。`_free_credit_withheld(user_id, email)` 对
-  NetMind 校验过的 email 做同一个 `is_blocked_email`，命中则 warning 日志（只记域名）、
+  NetMind 校验过的 email 做同一个 `is_blocked_email`，命中则 warning 日志（只记域名——
+  比 signup funnel 记完整 email 更严，因为它对每一次登录生效，不只是被拒的注册尝试）、
   `_provision_providers(..., free_tier=False)` 跳过钱包（连钱包服务都不调）、不调度
   引导 Agent、响应 `guide_agent_provisioning=False`（coachmark 同门）。用户照常登录，
   自己的 NetMind 卡照常注册。本地 `login` / `create_user` 无 email、无钱包，不受影响。
 - **per-IP 限额是纵深防御，不是闭环**：NetMind 直连注册存在，真正的「不给薅」靠的是
   登录期免费额度门；per-IP 桶只是抬高经我们路由批量注册 / 轰炸发信的成本。
-- 测试：`tests/backend/test_signup_abuse_limits.py`（含失败不扣 IP 桶、拒收域不扣 IP 桶、
+- 测试：`tests/backend/test_signup_abuse_limits.py`（含失败不扣建成桶、失败照扣尝试桶并在
+  上限处 429、尝试桶拒绝不预占建成桶也不分配 email key、拒收域不扣 IP 桶、
   登录期真跑 free-tier provisioner + mock 钱包客户端验证不调钱包）；
-  `test_signup_routes.py` 的 fixture 同步重置三个新 limiter（模块单例会跨用例泄漏）。
+  `test_signup_routes.py` 的 fixture 同步重置四个新 limiter（模块单例会跨用例泄漏）。
 
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 

@@ -17,7 +17,8 @@ changes under us and false-positives real providers. Long-lived alias /
 forwarding services (they front a real, durable inbox) are deliberately not
 listed — they are not throwaway. Operators extend it
 without a release via ``NARRANEXUS_BLOCKED_EMAIL_DOMAINS`` (comma-separated),
-read per call (cheap: one split) so tests and operators see the current env.
+read per call so tests and operators see the current env (the parsed set is
+cached per raw env value, so an unchanged env costs one dict lookup).
 
 Matching is on whole DNS labels: a listed domain blocks itself and every
 subdomain of it (``eu.mailinator.com``), never a look-alike
@@ -27,6 +28,7 @@ subdomain of it (``eu.mailinator.com``), never a look-alike
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 
 BLOCKED_EMAIL_DOMAINS_ENV = "NARRANEXUS_BLOCKED_EMAIL_DOMAINS"
 
@@ -99,9 +101,17 @@ def _normalise_domain(raw: str) -> str:
     return raw.strip().lower().lstrip("@").strip(".")
 
 
-def _env_blocked_domains() -> frozenset[str]:
-    raw = os.getenv(BLOCKED_EMAIL_DOMAINS_ENV) or ""
-    return frozenset(d for d in (_normalise_domain(p) for p in raw.split(",")) if d)
+@lru_cache(maxsize=4)
+def _blocked_domains(raw_env: str) -> frozenset[str]:
+    """The built-in list plus the env extension, cached per RAW env string.
+
+    Keyed on the env value rather than cached argument-free, so the env is
+    still read on every call and a changed value is seen immediately.
+    """
+    env = frozenset(
+        d for d in (_normalise_domain(p) for p in raw_env.split(",")) if d
+    )
+    return DISPOSABLE_EMAIL_DOMAINS | env
 
 
 def is_blocked_email(email: str) -> bool:
@@ -115,7 +125,7 @@ def is_blocked_email(email: str) -> bool:
     domain = _normalise_domain(email.rsplit("@", 1)[1])
     if not domain:
         return False
-    blocked = DISPOSABLE_EMAIL_DOMAINS | _env_blocked_domains()
+    blocked = _blocked_domains(os.getenv(BLOCKED_EMAIL_DOMAINS_ENV) or "")
     labels = domain.split(".")
     return any(".".join(labels[i:]) in blocked for i in range(len(labels)))
 

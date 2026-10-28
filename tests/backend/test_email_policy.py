@@ -57,3 +57,16 @@ def test_env_extension(monkeypatch):
     assert is_blocked_email("a@corp-burner.io")
     assert is_blocked_email("a@mx.dots.example")
     assert not is_blocked_email("a@gmail.com")
+
+
+def test_env_change_is_seen_on_the_next_call(monkeypatch):
+    """The env is read per call: a later value replaces an earlier one
+    in-process, it is never frozen at the first lookup."""
+    monkeypatch.setenv("NARRANEXUS_BLOCKED_EMAIL_DOMAINS", "first-burner.io")
+    assert is_blocked_email("a@first-burner.io")
+    monkeypatch.setenv("NARRANEXUS_BLOCKED_EMAIL_DOMAINS", "second-burner.io")
+    assert not is_blocked_email("a@first-burner.io")
+    assert is_blocked_email("a@second-burner.io")
+    monkeypatch.delenv("NARRANEXUS_BLOCKED_EMAIL_DOMAINS")
+    assert not is_blocked_email("a@second-burner.io")
+    assert is_blocked_email("a@mailinator.com")

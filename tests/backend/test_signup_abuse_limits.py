@@ -14,7 +14,9 @@ These tests pin the closures:
      request from one IP is 429 with Retry-After while another IP passes.
      The signup bucket only keeps a hit for an account actually created: a
      wrong code, an "already registered", an upstream 502 or a per-email 429
-     hands the hit back, so failures cannot lock a shared office out,
+     hands the hit back, so failures cannot lock a shared office out. A
+     looser per-IP ATTEMPT bucket in front of it is charged for every
+     attempt and never refunded, so failures are still capped per IP,
   2. the per-email limits still apply on top,
   3. throwaway-mailbox domains (and their subdomains) are refused with a
      neutral 400 BEFORE any bucket is spent or any upstream call is made,
@@ -53,6 +55,7 @@ def _xff(ip: str) -> dict:
 CODE_PER_MINUTE = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
 CODE_PER_HOUR = auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR
 SIGNUP_PER_HOUR = auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR
+SIGNUP_ATTEMPTS_PER_HOUR = auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR
 
 
 def _fresh(limit: int, window: float) -> SlidingWindowRateLimiter:
@@ -74,6 +77,11 @@ def client(monkeypatch):
     )
     monkeypatch.setattr(
         auth_mod, "_signup_ip_limiter", _fresh(SIGNUP_PER_HOUR, 3600.0)
+    )
+    monkeypatch.setattr(
+        auth_mod,
+        "_signup_attempt_ip_limiter",
+        _fresh(SIGNUP_ATTEMPTS_PER_HOUR, 3600.0),
     )
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
@@ -112,15 +120,19 @@ def test_shipped_defaults():
     assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE == 10
     assert auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR == 60
     assert auth_mod.DEFAULT_SIGNUP_PER_IP_PER_HOUR == 20
+    assert auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR == 200
 
 
 def test_unset_env_resolves_to_the_shipped_defaults(monkeypatch):
     for name in ("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
                  "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_HOUR",
-                 "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR"):
+                 "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR",
+                 "NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR"):
         monkeypatch.delenv(name, raising=False)
     assert env_limit("NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE",
                      auth_mod.DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE) == 10
+    assert env_limit("NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR",
+                     auth_mod.DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR) == 200
 
 
 # ── 1. per-IP buckets ──────────────────────────────────────────────────────
@@ -240,6 +252,51 @@ def test_per_email_429_does_not_spend_the_ip_bucket(client, upstream, monkeypatc
         assert _signup(client, "same@example.com", "51.0.0.7").status_code == 429
     upstream.assert_not_awaited()
     monkeypatch.setattr(auth_mod, "_signup_attempt_limiter", _fresh(10_000, 600.0))
+    _assert_full_ip_budget_left(client, "51.0.0.7")
+
+
+def test_failed_signups_are_capped_by_the_attempt_bucket(client, upstream):
+    """The creation bucket refunds every failure, so on its own it never
+    stops a caller rotating emails with a junk code — each request would
+    still cost us one upstream register call. The attempt bucket is charged
+    for every attempt and never refunded."""
+    upstream.side_effect = RegistrationError("Invalid verification code")
+    for i in range(SIGNUP_ATTEMPTS_PER_HOUR):
+        assert _signup(client, f"junk{i}@example.com", "51.0.0.7").status_code == 400, i
+    r = _signup(client, "junk-next@example.com", "51.0.0.7")
+    assert r.status_code == 429
+    assert 60 < int(r.headers["Retry-After"]) <= 3600
+    assert upstream.await_count == SIGNUP_ATTEMPTS_PER_HOUR
+    # Another client IP has its own attempt bucket.
+    assert _signup(client, "junk-other@example.com", "51.0.0.8").status_code == 400
+
+
+def test_successful_signups_also_spend_the_attempt_bucket(client, upstream, monkeypatch):
+    monkeypatch.setattr(auth_mod, "_signup_attempt_ip_limiter", _fresh(3, 3600.0))
+    monkeypatch.setattr(auth_mod, "_signup_ip_limiter", _fresh(10_000, 3600.0))
+    upstream.side_effect = RegistrationError("Invalid verification code")
+    assert _signup(client, "a@example.com", "51.0.0.7").status_code == 400
+    upstream.side_effect = None
+    assert _signup(client, "b@example.com", "51.0.0.7").status_code == 200
+    assert _signup(client, "c@example.com", "51.0.0.7").status_code == 200
+    assert _signup(client, "d@example.com", "51.0.0.7").status_code == 429
+
+
+def test_attempt_bucket_rejection_spends_no_creation_hit_and_no_email_key(
+    client, upstream, monkeypatch
+):
+    """The attempt bucket runs BEFORE the creation bucket: a request it
+    refuses must neither reserve a creation hit (that reservation would never
+    be refunded — the refund lives in a try block not yet entered) nor grow
+    the caller-keyed per-email key space."""
+    monkeypatch.setattr(auth_mod, "_signup_attempt_ip_limiter", _fresh(0, 3600.0))
+    for i in range(SIGNUP_PER_HOUR + 3):
+        assert _signup(client, f"flood{i}@example.com", "51.0.0.7").status_code == 429
+    upstream.assert_not_awaited()
+    assert len(auth_mod._signup_attempt_limiter._deques) == 0
+    monkeypatch.setattr(
+        auth_mod, "_signup_attempt_ip_limiter", _fresh(10_000, 3600.0)
+    )
     _assert_full_ip_budget_left(client, "51.0.0.7")
 
 

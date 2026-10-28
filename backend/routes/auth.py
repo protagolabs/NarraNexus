@@ -195,12 +195,15 @@ _signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
 # Per-client-IP buckets (``client_ip`` — the same edge-appended XFF entry the
 # funnel-report buckets use). They cap what ONE source can spend no matter how
 # many addresses it rotates through: send-code mail (minute + hour, so a burst
-# and a slow drip are both bounded) and account creation (hour). Evaluated
-# BEFORE the per-email bucket: the IP key is trusted and bounded, the email key
-# is caller-chosen, so per-IP in front is what caps per-email key allocation
-# (same invariant as funnel-report) — fully on send-code; on signup only for
-# successful attempts, because the signup bucket refunds every attempt that
-# created no account (see register_account).
+# and a slow drip are both bounded) and signup (two hour buckets: a loose one
+# charged for EVERY attempt and never refunded, and a tight one charged only
+# for accounts actually created). Evaluated BEFORE the per-email bucket: the IP
+# key is trusted and bounded, the email key is caller-chosen, so per-IP in
+# front is what caps per-email key allocation (same invariant as
+# funnel-report). On signup the never-refunded attempt bucket is what makes
+# that cap real — the creation bucket refunds every failed attempt, so on its
+# own it would let a caller with a junk code send unlimited requests (and
+# unlimited upstream register calls) from one IP.
 # Defaults are sized for an office / event NAT where a room of real people
 # shares one egress; env-tunable beyond that. These buckets are defence in
 # depth, not a closed loop: NetMind's own signup is public, so the login-time
@@ -208,6 +211,7 @@ _signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
 DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE = 10
 DEFAULT_SIGNUP_CODE_PER_IP_PER_HOUR = 60
 DEFAULT_SIGNUP_PER_IP_PER_HOUR = 20
+DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = 200
 SIGNUP_CODE_PER_IP_PER_MINUTE = env_limit(
     "NARRANEXUS_SIGNUP_CODE_PER_IP_PER_MINUTE", DEFAULT_SIGNUP_CODE_PER_IP_PER_MINUTE
 )
@@ -217,6 +221,10 @@ SIGNUP_CODE_PER_IP_PER_HOUR = env_limit(
 SIGNUP_PER_IP_PER_HOUR = env_limit(
     "NARRANEXUS_SIGNUP_PER_IP_PER_HOUR", DEFAULT_SIGNUP_PER_IP_PER_HOUR
 )
+SIGNUP_ATTEMPTS_PER_IP_PER_HOUR = env_limit(
+    "NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR",
+    DEFAULT_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR,
+)
 _signup_code_ip_minute_limiter = SlidingWindowRateLimiter(
     limit=SIGNUP_CODE_PER_IP_PER_MINUTE, window_sec=60.0
 )
@@ -225,6 +233,9 @@ _signup_code_ip_hour_limiter = SlidingWindowRateLimiter(
 )
 _signup_ip_limiter = SlidingWindowRateLimiter(
     limit=SIGNUP_PER_IP_PER_HOUR, window_sec=3600.0
+)
+_signup_attempt_ip_limiter = SlidingWindowRateLimiter(
+    limit=SIGNUP_ATTEMPTS_PER_IP_PER_HOUR, window_sec=3600.0
 )
 
 # Neutral on purpose: naming the rule ("disposable") tells a prober exactly
@@ -356,13 +367,20 @@ async def register_account(payload: SignupRequest, request: Request) -> dict:
 
     # Per-IP after the policy check: a rejected weak password spends nothing
     # upstream, so it must not burn a shared network's hourly allowance.
-    # The bucket is a shared network's budget for CREATED accounts: the hit is
-    # reserved here (so parallel attempts cannot all slip past one check) and
-    # refunded unless an account was actually created. A wrong code, an
-    # "already registered", an upstream 502 or the per-email 429 below creates
-    # nothing; brute force on the code is the per-email bucket's job.
+    # Two buckets, attempt bucket FIRST (the check short-circuits, so a request
+    # it refuses never reserves a creation hit that nothing would refund):
+    # - _signup_attempt_ip_limiter is charged for every attempt and NEVER
+    #   refunded — it is the per-IP ceiling on requests (and upstream calls);
+    # - _signup_ip_limiter is a shared network's budget for CREATED accounts:
+    #   the hit is reserved here (so parallel attempts cannot all slip past one
+    #   check) and refunded unless an account was actually created. A wrong
+    #   code, an "already registered", an upstream 502 or the per-email 429
+    #   below creates nothing; brute force on the code is the per-email
+    #   bucket's job.
     ip = client_ip(request)
-    _enforce_ip_buckets((_signup_ip_limiter,), ip, "signup")
+    _enforce_ip_buckets(
+        (_signup_attempt_ip_limiter, _signup_ip_limiter), ip, "signup"
+    )
     created = False
     try:
         if not _signup_attempt_limiter.allow(email):
@@ -382,7 +400,9 @@ async def register_account(payload: SignupRequest, request: Request) -> dict:
             )
         created = True
     finally:
-        # Also covers cancellation (client disconnect mid-call).
+        # Also covers cancellation (client disconnect mid-call). Only the
+        # creation bucket is refunded; refunding the attempt bucket would
+        # remove the per-IP ceiling on failed attempts.
         if not created:
             _signup_ip_limiter.refund(ip)
     return {"success": True}
@@ -501,7 +521,10 @@ def _free_credit_withheld(user_id: str, email: str) -> bool:
     in: NetMind's own signup is public (its auth URL ships in /config.js), and
     the free credit is handed out HERE, at login. So the blocklist is applied
     again at the point the credit is spent. The user still logs in and keeps
-    their own NetMind card — they just get nothing free. Logs the domain only.
+    their own NetMind card — they just get nothing free. Logs the domain only,
+    stricter than the signup funnel (which logs the full address to trace one
+    rejected attempt), because this check runs on EVERY login, not only on
+    refused signups.
     """
     if not is_blocked_email(email):
         return False
