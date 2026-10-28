@@ -1009,10 +1009,12 @@ async def websocket_agent_run(websocket: WebSocket):
         # a stranger who knows an agent_id would otherwise drive the owner's
         # workspace, tools, channels and quota. Same rule as the dashboard:
         # the caller owns the agent or it is public; everything else is a
-        # uniform "not found" so agent ids cannot be enumerated here.
-        from backend.routes.dashboard.routes import assert_agent_visible
+        # uniform "not found" so agent ids cannot be enumerated here. Both run
+        # modes are gated: in local mode request.user_id is the ?x_user_id=
+        # anchor checked above, so there is no local no-op here.
+        from backend.routes import _ownership
         try:
-            await assert_agent_visible(request.user_id, request.agent_id)
+            await _ownership.assert_visible(request.user_id, request.agent_id)
         except HTTPException:
             await websocket.send_json({
                 "type": "error",

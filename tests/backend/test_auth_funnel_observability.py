@@ -47,12 +47,15 @@ def log_lines():
 def client(monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: True)
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
-    monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
-                        SlidingWindowRateLimiter(limit=10, window_sec=60.0))
-    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
-                        SlidingWindowRateLimiter(limit=30, window_sec=60.0))
-    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter",
-                        SlidingWindowRateLimiter(limit=120, window_sec=60.0))
+    # Fresh buckets at the production sizes (the named constants), so the
+    # tests exercise the shipped limits rather than a hand-copied set.
+    window = auth_mod.FUNNEL_REPORT_WINDOW_SECONDS
+    monkeypatch.setattr(auth_mod, "_funnel_report_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_PER_EMAIL_LIMIT, window_sec=window))
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_PER_IP_LIMIT, window_sec=window))
+    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_GLOBAL_LIMIT, window_sec=window))
     from time import monotonic as _mono
     monkeypatch.setattr(auth_mod, "_funnel_dropped",
                         {"count": 0, "last_log": _mono()})

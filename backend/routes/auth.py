@@ -311,11 +311,21 @@ async def register_account(payload: SignupRequest) -> dict:
 #     addresses).
 # (Contrast send-code's per-email limiter: THERE the spent resource is
 # per-email mail, so email is the right key. Here it is not.)
-_funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
-_funnel_report_ip_limiter = SlidingWindowRateLimiter(limit=30, window_sec=60.0)
+FUNNEL_REPORT_WINDOW_SECONDS = 60.0
+FUNNEL_REPORT_PER_EMAIL_LIMIT = 10
+FUNNEL_REPORT_PER_IP_LIMIT = 30
 # Backstop only — the per-IP bucket is the real limit. 120/min let four IPs
 # starve everyone else's reports (2026-10-28 audit).
-_funnel_report_global_limiter = SlidingWindowRateLimiter(limit=2000, window_sec=60.0)
+FUNNEL_REPORT_GLOBAL_LIMIT = 2000
+_funnel_report_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_PER_EMAIL_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
+_funnel_report_ip_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_PER_IP_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
+_funnel_report_global_limiter = SlidingWindowRateLimiter(
+    limit=FUNNEL_REPORT_GLOBAL_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
+)
 
 # Over-limit reports are dropped silently toward the USER (never stack an
 # error on the failure they are already looking at) — but not toward OPS:

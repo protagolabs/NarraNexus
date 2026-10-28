@@ -4,6 +4,15 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-2）— 403 按异常类型判，不再嗅探文案
+
+`/export` 改为 `isinstance(e, BundleForbidden)` → 403（类定义在 [[builder.py]]），删掉
+`str(e).startswith("Forbidden")`。原因：改 builder 文案会让 403 静默退回 500，而第三方抛出的
+恰以 "Forbidden" 开头的 ValueError 会被当成授权拒绝、丢掉 traceback。现在普通 ValueError
+无论文案如何都走 500 + `logger.exception`（`test_export_does_not_sniff_forbidden_prose` 钉住）。
+`ValueError("Agent not found…")` 仍是 500（不确认 agent 是否存在）。下面旧条目的"以 Forbidden
+开头的 ValueError 映射 403"已被本条取代。
+
 ## 2026-10-28 — 导出时的归属拒绝是 403
 
 `build_bundle` 对不属于导出者的 agent / team 抛 `ValueError("Forbidden: ...")`。`/export`

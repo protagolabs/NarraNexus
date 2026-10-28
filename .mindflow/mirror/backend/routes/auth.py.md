@@ -4,6 +4,13 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review M-4）— funnel 限流数字改为具名常量
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT`(10) / `FUNNEL_REPORT_PER_IP_LIMIT`(30) /
+`FUNNEL_REPORT_GLOBAL_LIMIT`(2000) / `FUNNEL_REPORT_WINDOW_SECONDS`(60)。值不变；
+`test_auth_funnel_observability.py` 的 fixture 改用这些常量重建桶（原来手抄了过时的
+global=120），测试跑的就是线上尺寸。丢弃汇总日志的 60s 节拍是另一回事，未并入。
+
 ## 2026-10-28 — `/agents` 预览只给自己的 agent；funnel 全局桶改为兜底
 
 - 侧栏"最近一条回复"预览原来对列表里的**公开 agent**也查：任何人能看到别人公开 agent

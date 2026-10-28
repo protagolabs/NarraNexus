@@ -162,7 +162,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
         shutil.rmtree(out_dir, ignore_errors=True)
         # B6: surface SensitiveZipDetected as 409 with structured payload
         # so the frontend can show a per-skill confirmation modal.
-        from narranexus.platform.bundle.builder import SensitiveZipDetected
+        from narranexus.platform.bundle.builder import (
+            BundleForbidden,
+            SensitiveZipDetected,
+        )
         if isinstance(e, SensitiveZipDetected):
             raise HTTPException(
                 status_code=409,
@@ -173,9 +176,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
                 },
             )
         # The builder refuses an agent or team the exporter does not own with
-        # ValueError("Forbidden: ..."). That is an authorization verdict, not
-        # a server fault: answer 403 without echoing the foreign id.
-        if isinstance(e, ValueError) and str(e).startswith("Forbidden"):
+        # BundleForbidden — an authorization verdict, not a server fault:
+        # answer 403 without echoing the foreign id. Matched by type only; a
+        # ValueError that merely reads "Forbidden..." stays a 500 below.
+        if isinstance(e, BundleForbidden):
             logger.warning(f"export refused for {user_id}: {e}")
             raise HTTPException(status_code=403, detail="Forbidden")
         logger.exception("export build failed")

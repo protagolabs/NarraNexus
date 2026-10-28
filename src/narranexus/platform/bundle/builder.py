@@ -162,6 +162,16 @@ def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, An
     return row
 
 
+class BundleForbidden(ValueError):
+    """The exporter does not own an agent or team named in the selection.
+
+    An authorization verdict, not a fault: the export route maps this type to
+    403 (by ``isinstance``, never by message text). Subclasses ``ValueError``
+    so callers that already catch ``ValueError`` keep working. An UNKNOWN agent
+    is deliberately not this type — it stays a plain ``ValueError``.
+    """
+
+
 class SensitiveZipDetected(Exception):
     """Raised when a zip-source skill's archive contains sensitive paths and
     the caller has not confirmed via `accept_sensitive_zips=True`."""
@@ -295,10 +305,10 @@ def assert_team_owned(team_row: Optional[dict], team_id: str, user_id: str) -> N
 
     The agent list is owner-checked a few lines earlier; the team was read by
     id alone, so a foreign team_id exported someone else's name, intro,
-    bulletin and work board (2026-10-28). Same error shape as the agent check.
+    bulletin and work board (2026-10-28). Same verdict type as the agent check.
     """
     if team_row is not None and team_row.get("owner_user_id") != user_id:
-        raise ValueError(f"Forbidden: team {team_id} not owned by {user_id}")
+        raise BundleForbidden(f"Forbidden: team {team_id} not owned by {user_id}")
 
 
 async def build_bundle(
@@ -320,7 +330,7 @@ async def build_bundle(
         if not row:
             raise ValueError(f"Agent not found: {aid}")
         if row["created_by"] != user_id:
-            raise ValueError(f"Forbidden: agent {aid} not owned by {user_id}")
+            raise BundleForbidden(f"Forbidden: agent {aid} not owned by {user_id}")
 
     warnings: List[str] = []
     # `info` is for expected, non-actionable events (e.g. closure dropped an

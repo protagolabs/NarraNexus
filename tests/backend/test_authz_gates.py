@@ -1,13 +1,13 @@
 """
-@file_name: test_authz_batch_20261028.py
+@file_name: test_authz_gates.py
 @author: Bin Liang
 @date: 2026-10-28
-@description: The smaller authorization / hygiene gaps from the 2026-10-28
-audit, each pinned by a test that goes red when its guard is reverted:
-- bundle export refuses a team the exporter does not own;
+@description: Route-level authorization / hygiene gates, each pinned by a test
+that goes red when its guard is reverted:
+- bundle export refuses a team the exporter does not own (BundleForbidden -> 403);
 - /api/auth/agents never previews a public agent owned by someone else;
 - marketplace skill install requires owning the target agent;
-- /api/admin/runtime/workers is staff-only in cloud mode;
+- the shared staff gate (admin/_staff.py) and /api/admin/runtime/workers;
 - admin routes answer 403 before the body is validated (no 422 schema leak);
 - skills routes do not echo exception text.
 """
@@ -20,10 +20,10 @@ from fastapi.testclient import TestClient
 # --- bundle export: team ownership -------------------------------------------
 
 def test_export_refuses_foreign_team():
-    from narranexus.platform.bundle.builder import assert_team_owned
+    from narranexus.platform.bundle.builder import BundleForbidden, assert_team_owned
     assert_team_owned({"team_id": "team_1", "owner_user_id": "me"}, "team_1", "me")
     assert_team_owned(None, "team_1", "me")  # unknown team: nothing to leak
-    with pytest.raises(ValueError, match="Forbidden"):
+    with pytest.raises(BundleForbidden):
         assert_team_owned({"team_id": "team_1", "owner_user_id": "victim"}, "team_1", "me")
 
 
@@ -102,13 +102,14 @@ async def test_marketplace_install_refuses_foreign_agent(monkeypatch, db_client)
 # --- admin: workers staff gate + secret before body ----------------------------
 
 def _admin_app(monkeypatch, db_client, cloud: bool):
+    import backend.routes.admin._staff as staff
     import backend.routes.admin.runtime as rt
     import backend.routes.admin.suspend as sus
 
     async def _db():
         return db_client
     monkeypatch.setattr(rt, "get_db_client", _db)
-    monkeypatch.setattr(rt, "is_cloud_mode", lambda: cloud)
+    monkeypatch.setattr(staff, "is_cloud_mode", lambda: cloud)
     monkeypatch.setattr(rt.settings, "admin_secret_key", "sekrit")
     app = FastAPI()
 
@@ -131,6 +132,41 @@ def test_workers_is_staff_only_in_cloud(monkeypatch, db_client):
 def test_workers_stays_open_in_local_mode(monkeypatch, db_client):
     c = _admin_app(monkeypatch, db_client, cloud=False)
     assert c.get("/api/admin/runtime/workers", headers={"X-User-Id": "u"}).status_code == 200
+
+
+def _staff_gate_app(monkeypatch, cloud: bool, role):
+    import backend.routes.admin._staff as staff
+    from fastapi import Depends
+
+    monkeypatch.setattr(staff, "is_cloud_mode", lambda: cloud)
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def fake_auth(request: Request, call_next):
+        if role is not None:
+            request.state.role = role
+        return await call_next(request)
+
+    @app.get("/probe", dependencies=[Depends(staff.require_staff_in_cloud)])
+    async def probe():
+        return {"ok": True}
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.mark.parametrize("role", [None, "", "user"])
+def test_staff_gate_refuses_non_staff_in_cloud(monkeypatch, role):
+    # role None in cloud means the middleware did not resolve a role: refuse,
+    # never read it as "local mode".
+    assert _staff_gate_app(monkeypatch, True, role).get("/probe").status_code == 403
+
+
+def test_staff_gate_admits_staff_in_cloud(monkeypatch):
+    assert _staff_gate_app(monkeypatch, True, "staff").get("/probe").status_code == 200
+
+
+@pytest.mark.parametrize("role", [None, "user"])
+def test_staff_gate_allows_everyone_in_local_mode(monkeypatch, role):
+    assert _staff_gate_app(monkeypatch, False, role).get("/probe").status_code == 200
 
 
 def test_admin_secret_is_checked_before_the_body(monkeypatch, db_client):
@@ -182,10 +218,19 @@ def _export_client(monkeypatch, error):
 
 
 def test_export_of_a_foreign_team_is_403(monkeypatch):
-    client = _export_client(monkeypatch, ValueError("Forbidden: team team_v not owned by me"))
+    from narranexus.platform.bundle.builder import BundleForbidden
+    client = _export_client(monkeypatch, BundleForbidden("Forbidden: team team_v not owned by me"))
     r = client.post("/api/bundle/export", json={"agent_ids": ["agent_a"], "team_id": "team_v"})
     assert r.status_code == 403, r.text
     assert "team_v" not in r.text
+
+
+def test_export_does_not_sniff_forbidden_prose(monkeypatch):
+    # Only the typed verdict maps to 403; a plain ValueError whose text happens
+    # to start with "Forbidden" is a server fault and keeps its traceback.
+    client = _export_client(monkeypatch, ValueError("Forbidden: something upstream"))
+    r = client.post("/api/bundle/export", json={"agent_ids": ["agent_a"]})
+    assert r.status_code == 500, r.text
 
 
 def test_export_other_failures_stay_500(monkeypatch):

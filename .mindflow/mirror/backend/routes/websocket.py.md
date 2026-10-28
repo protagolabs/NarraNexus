@@ -4,6 +4,18 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-3 / I-4）— 可见性闸的 local 语义与归属地
+
+- **local / 桌面模式同样判定，不做 no-op。** local 下 `request.user_id` 已被上面的
+  `?x_user_id=` 锚点校验保证非空且与 payload 一致，所以闸门照常执行：owner 通过、陌生人
+  `AgentNotFound`（`test_local_mode_*` 两条钉住）。不采用 `_ownership._deny_reason` 的
+  "无 user_id → 放行"：那个条件在这里永远不成立，硬加 `_is_cloud_mode()` 豁免会让 local
+  端任何能连上端口的进程驱动任意 agent，且与重连分支的判据更难对齐。代价：`created_by`
+  为空的历史行在两种模式下都无法再经 WS 启动，回的是统一 `AgentNotFound`。
+- 闸门改为调用 [[_ownership.py]] 的 `assert_visible`（原 dashboard 的 `assert_agent_visible`
+  已搬家）。DB 故障是非 HTTP 异常，穿过 `except HTTPException` 落到外层 `InternalError`
+  帧——fail-closed，且不会被报成 not-found；这是 `_ownership` mirror 里写明的契约。
+
 ## 2026-10-28 — 新 run 先确认 agent 可见（归属或公开）
 
 安全审计发现：握手只校验了 JWT 与 payload 的 user_id 一致，**从不检查 agent_id 是谁的**；

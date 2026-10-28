@@ -1,8 +1,27 @@
 ---
 code_file: backend/routes/_ownership.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-10-28
 ---
+
+## 2026-10-28（PR #419 review I-4）— `assert_visible` 搬进来
+
+"这个 viewer 能不能看到/驱动这个 agent（自有 **或** 公开）"原来住在
+`dashboard/routes.py::assert_agent_visible`，`/ws/agent/run` 从一个大路由模块 import 鉴权原语。
+现在本模块是它的家：`assert_visible(viewer_id, agent_id)`，行为原样（自有或 `is_public`，
+未知与外人私有统一 404，返回 agent 行）。dashboard 以旧名再导出（[[plugin_sdk_host]] 把它
+发布到 `contracts.web.WebHost.agent_visible`，builtin.job 的 dashboard router 在用），
+websocket 直接用 `_ownership.assert_visible`。
+
+**与 `check_owned` / `assert_owned` 的契约差异（刻意保留，不是漏改）**：
+- 入参是已解析的 `viewer_id`，不是 request → **没有 local no-op**；local 下调用方传入
+  `?x_user_id=` 锚定的本地用户，照样判定。
+- **不走 `_deny_reason`**：DB 失败不转 503，而是原样抛出非 HTTP 异常——WS 的
+  `except HTTPException` 接不住它，落到外层变 `InternalError` 帧，dashboard 侧变 500。两者都
+  不会把 DB 故障报成"agent 不存在"，这次是写下来的设计而非碰巧。若把它改成走 `_deny_reason`，
+  WS 那里的 `except HTTPException` 会把 503 重写成 `AgentNotFound`，故不做。
+- DB 访问保持原样：调用时从 `db_factory` 取 `get_db_client`（不用模块级名字），这样 patch
+  `db_factory.get_db_client` 的既有测试继续命中。
 
 ## Why it exists
 

@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（PR #419 review I-1）— `/workers` 改用共享 staff 闸
+
+内联的 `is_cloud_mode() and role != "staff"` 换成 `Depends(require_staff_in_cloud)`（见
+[[_staff.py]]）；语义不变：local 放行，cloud 非 staff 403（detail 改为 `staff role required`，
+与 logs 一致）。测试的 patch 点从 `rt.is_cloud_mode` 挪到 `_staff.is_cloud_mode`；本文件不再
+import `is_cloud_mode` / `HTTPException` / `Request`。下面旧条目里"测试 monkeypatch
+`rt.is_cloud_mode`"一句已过时。
+
 ## 2026-10-28 — `/workers` 云端只给 staff
 
 这条路由没有任何门（同文件 `/status` 有 secret）；`last_error` 带 worker 崩溃的 `repr(e)`，

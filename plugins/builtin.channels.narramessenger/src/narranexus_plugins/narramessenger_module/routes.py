@@ -23,7 +23,7 @@ import itertools
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from loguru import logger
@@ -57,15 +57,19 @@ async def _get_db():
     return await get_db_client()
 
 
+# Identifier bounds, shared by the POST body, the status query and the
+# pre-body bearer dependency. 64 == the nexus_profile_id column (VARCHAR(64)):
+# anything longer can never resolve.
+_MXID_MAX_LENGTH = 255
+_PROFILE_ID_MAX_LENGTH = 64
+
+
 class PrewarmRequest(BaseModel):
     """Exactly one of the two agent identifiers is required. agent_profile_id
     resolves only for rows bound after profileId persistence landed (older
     bindings need a rebind)."""
-    agent_matrix_user_id: str = Field(default="", max_length=255)
-    # max_length 64 == the nexus_profile_id column (VARCHAR(64)): anything
-    # longer can never resolve, so tightening only turns the 404 into an
-    # earlier 422.
-    agent_profile_id: str = Field(default="", max_length=64)
+    agent_matrix_user_id: str = Field(default="", max_length=_MXID_MAX_LENGTH)
+    agent_profile_id: str = Field(default="", max_length=_PROFILE_ID_MAX_LENGTH)
     rtc_session_id: str = Field(default="", max_length=128)  # log correlation only
 
 
@@ -89,22 +93,26 @@ _PREWARM_GEN = itertools.count(1)
 
 async def _resolve_prewarm_target(
     request: Request, body_mxid: str, body_profile: str
-) -> tuple[Optional[str], Optional[JSONResponse]]:
-    """Shared auth + resolution for both prewarm endpoints.
+) -> str:
+    """Shared auth + resolution for both prewarm endpoints; returns the owner.
 
-    Returns (owner_user_id, None) on success or (None, JSONResponse) on
-    failure. Auth is the per-agent bearer_token (constant-time compare) — NOT
-    a user JWT; both paths sit in AUTH_EXEMPT_PATHS and self-credential here,
-    same pattern as /api/admin/runtime/status.
+    Raises HTTPException on failure. Auth is the per-agent bearer_token
+    (constant-time compare) — NOT a user JWT; both paths sit in
+    AUTH_EXEMPT_PATHS and self-credential here, same pattern as
+    /api/admin/runtime/status. The bearer's PRESENCE is checked first, so a
+    caller with no credential learns nothing about the identifiers.
     """
-    if bool(body_mxid) == bool(body_profile):  # neither or both
-        return None, JSONResponse(
-            status_code=422,
-            content={"error": "exactly one of agent_matrix_user_id / agent_profile_id required"},
-        )
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     if not token:
-        return None, JSONResponse(status_code=401, content={"error": "missing bearer"})
+        raise HTTPException(status_code=401, detail="missing bearer")
+    if bool(body_mxid) == bool(body_profile):  # neither or both
+        raise HTTPException(
+            status_code=422,
+            detail="exactly one of agent_matrix_user_id / agent_profile_id required",
+        )
+    if len(body_mxid) > _MXID_MAX_LENGTH or len(body_profile) > _PROFILE_ID_MAX_LENGTH:
+        # Can never resolve; answer like an unknown binding without a db read.
+        raise HTTPException(status_code=404, detail="agent binding not found")
     db = await _get_db()
     mgr = NarramessengerCredentialManager(db)
     cred = (
@@ -113,17 +121,48 @@ async def _resolve_prewarm_target(
         else await mgr.get_by_profile_id(body_profile)
     )
     if cred is None or not cred.enabled:
-        return None, JSONResponse(status_code=404, content={"error": "agent binding not found"})
+        raise HTTPException(status_code=404, detail="agent binding not found")
     if not cred.bearer_token or not hmac.compare_digest(
         token.encode(), cred.bearer_token.encode()
     ):
-        return None, JSONResponse(status_code=403, content={"error": "bearer mismatch"})
+        raise HTTPException(status_code=403, detail="bearer mismatch")
     owner = await AgentRepository(db).resolve_owner(cred.agent_id)
     if owner is None:
-        return None, JSONResponse(status_code=503, content={"error": "owner lookup failed"})
+        raise HTTPException(status_code=503, detail="owner lookup failed")
     if not owner:
-        return None, JSONResponse(status_code=404, content={"error": "agent has no owner"})
-    return owner, None
+        raise HTTPException(status_code=404, detail="agent has no owner")
+    return owner
+
+
+def _as_identifier(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+async def require_prewarm_owner(request: Request) -> str:
+    """``Depends`` form of the prewarm auth; returns the agent owner's user_id.
+
+    The bearer is per-agent, so verifying it needs the agent identifier. As a
+    dependency this runs BEFORE FastAPI validates the body / query, so it reads
+    the two identifiers leniently itself (query string for GET, JSON object for
+    POST; anything else counts as absent) instead of through PrewarmRequest.
+    A missing or wrong bearer therefore answers 401 / 403 and never a 422 that
+    spells out the body schema (2026-10-28 review M-3). Only an authenticated
+    caller ever reaches the model's own validation.
+    """
+    if request.method == "GET":
+        source: Any = request.query_params
+    else:
+        try:
+            source = await request.json()
+        except ValueError:
+            source = None
+        if not isinstance(source, dict):
+            source = {}
+    return await _resolve_prewarm_target(
+        request,
+        _as_identifier(source.get("agent_matrix_user_id")),
+        _as_identifier(source.get("agent_profile_id")),
+    )
 
 
 def _owns_ledger_entry(user_id: str, gen: int) -> bool:
@@ -189,15 +228,11 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
 
 
 @router.post("/prewarm")
-async def prewarm(request: Request, body: PrewarmRequest):
+async def prewarm(body: PrewarmRequest, owner: str = Depends(require_prewarm_owner)):
     """NarraMessenger calls this when a call starts ringing (F28): warm the
     owner's executor while the UI shows "connecting". 202 always on success
-    paths; prewarm failure must never block the call itself."""
-    owner, err = await _resolve_prewarm_target(
-        request, body.agent_matrix_user_id, body.agent_profile_id
-    )
-    if err is not None:
-        return err
+    paths; prewarm failure must never block the call itself. Auth runs in
+    ``require_prewarm_owner`` before ``body`` is validated."""
     state = _PREWARM_STATE.get(owner)
     # timeout=1.0: the caller is mid-ring — a wedged container must not cost
     # them the full 5s default before we fall through to re-warming.
@@ -237,20 +272,15 @@ async def prewarm(request: Request, body: PrewarmRequest):
 
 @router.get("/prewarm/status")
 async def prewarm_status(
-    request: Request,
-    agent_matrix_user_id: str = Query(default="", max_length=255),
-    agent_profile_id: str = Query(default="", max_length=64),
+    agent_matrix_user_id: str = Query(default="", max_length=_MXID_MAX_LENGTH),
+    agent_profile_id: str = Query(default="", max_length=_PROFILE_ID_MAX_LENGTH),
+    owner: str = Depends(require_prewarm_owner),
 ):
     """Optional readiness probe so the caller can size the "connecting" UI.
 
     Query constraints mirror the POST body's (PrewarmRequest): same fields,
-    same bounds.
+    same bounds. Auth (``require_prewarm_owner``) runs before they are checked.
     """
-    owner, err = await _resolve_prewarm_target(
-        request, agent_matrix_user_id, agent_profile_id
-    )
-    if err is not None:
-        return err
     state = _PREWARM_STATE.get(owner)
     if state and state.get("executor_url"):
         # timeout=1.0 like the POST's already-warm probe: the partner polls
