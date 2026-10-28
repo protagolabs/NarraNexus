@@ -72,19 +72,21 @@ def resolve_watch_file(agent_id: str, user_id: str, file_path: str) -> str:
             a regular file, or is not a supported Office format. The message
             is actionable and surfaced straight to the agent.
     """
-    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.workspace_paths import (
+        resolve_existing_workspace,
+        resolve_inside_workspace,
+    )
 
-    workspace = resolve_existing_workspace(agent_id, user_id).resolve()
-
-    raw = Path(file_path)
-    candidate = (raw if raw.is_absolute() else workspace / raw).resolve()
-
+    # Lexical root (resolve_existing_workspace realpaths only the base): the
+    # workspace dir may have been swapped for a link to another tenant's.
+    workspace = resolve_existing_workspace(agent_id, user_id)
     try:
-        rel = candidate.relative_to(workspace)
+        candidate = resolve_inside_workspace(workspace, file_path)
     except ValueError:
         raise ValueError(
             f"file_path is outside your agent workspace ({workspace}). Watch a file you created inside your workspace."
-        )
+        ) from None
+    rel = candidate.relative_to(workspace)
     if not candidate.is_file():
         raise ValueError(
             f"file_path does not point at an existing file: {file_path}. "
@@ -358,10 +360,20 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     Valid only when the caller is co-located with the workspace + the agent's
     officecli (local/desktop, or inside the executor container for cloud).
     """
-    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.workspace_paths import (
+        resolve_existing_workspace,
+        resolve_inside_workspace,
+    )
 
     workspace = resolve_existing_workspace(agent_id, user_id)
-    abs_file = str((workspace / rel_file).resolve())
+    # Re-confine here too: the executor's /watch/ensure hands rel_file straight
+    # in, and a symlinked workspace would otherwise spawn a watch (and write its
+    # log/meta sidecars) inside another tenant's tree.
+    try:
+        abs_file = str(resolve_inside_workspace(workspace, rel_file))
+    except ValueError as e:
+        logger.warning(f"officecli watch refused: {e}")
+        return None
 
     # Disk-is-truth: after a restart the in-memory map is empty but the detached
     # watch may still be live. Adopt it (and reap dead sidecars) BEFORE

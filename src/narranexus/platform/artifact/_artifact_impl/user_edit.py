@@ -27,9 +27,11 @@ from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactEditConflict,
     ArtifactKindMismatch,
     ArtifactNotFound,
+    ArtifactPathEscape,
     ArtifactTooLarge,
 )
 from narranexus.platform.artifact._artifact_impl.commit import commit_content_refresh
+from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
 from narranexus.platform.artifact._artifact_impl.registration import (
     MAX_ARTIFACT_BYTES,
     compute_entry_hash,
@@ -87,8 +89,16 @@ async def save_user_content(
             f"(> {MAX_ARTIFACT_BYTES / 1024 / 1024:.0f} MB max)"
         )
 
-    abs_entry = os.path.join(settings.base_working_path, artifact.file_path)
-    if not artifact.file_path or not os.path.isfile(abs_entry):
+    try:
+        abs_entry = confine_entry(
+            artifact.file_path, artifact.agent_id, artifact.user_id,
+            settings.base_working_path, team_id=artifact.team_id,
+        )
+    except ArtifactPathEscape:
+        # Same 404 discipline as the routes: a pointer outside the owner's
+        # roots is treated as not-found, never written through.
+        raise ArtifactNotFound(f"artifact not found: {artifact_id}")
+    if not os.path.isfile(abs_entry):
         raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
 
     current_hash = compute_entry_hash(abs_entry)
@@ -149,8 +159,14 @@ async def commit_office_user_edit(
             f"office-edit-commit only applies to {OFFICE_LIVE_KIND}, "
             f"got {artifact.kind}"
         )
-    abs_entry = os.path.join(settings.base_working_path, artifact.file_path)
-    if not artifact.file_path or not os.path.isfile(abs_entry):
+    try:
+        abs_entry = confine_entry(
+            artifact.file_path, artifact.agent_id, artifact.user_id,
+            settings.base_working_path, team_id=artifact.team_id,
+        )
+    except ArtifactPathEscape:
+        raise ArtifactNotFound(f"artifact not found: {artifact_id}")
+    if not os.path.isfile(abs_entry):
         raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
 
     new_hash = compute_entry_hash(abs_entry)

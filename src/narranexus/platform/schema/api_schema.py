@@ -605,6 +605,9 @@ class FileListResponse(BaseModel):
     tree: List[FileInfo] = []
     workspace_path: str = ""
     error: Optional[str] = None
+    # True when the walk hit MAX_TREE_NODES / MAX_TREE_DEPTH (files.py) and
+    # the tree is a prefix of the real one (2026-10-28).
+    truncated: bool = False
 
 
 class FileUploadResponse(BaseModel):

@@ -4,6 +4,44 @@ stub: false
 last_verified: 2026-10-28
 ---
 
+## 2026-10-28（二审）— `resolve_inside_workspace`：主机侧解析 agent 给的路径只走这一处
+
+主机侧代码要把 agent 提供的路径（相对 workspace 或绝对）变成要读/复制/发送/监视的文件时，
+统一调用 `resolve_inside_workspace(workspace, candidate)`：先 `refuse_symlinked_dir(workspace)`，
+再 `(workspace / candidate).resolve()`（绝对路径照旧直接胜出），必须 `relative_to(workspace)`，
+否则 ValueError；各调用方再包成自己的错误类型。**workspace 只做 `abspath` 规范化、绝不 resolve**，
+所以调用方必须用 realpath 过的 base 构造它（`resolve_existing_workspace` 已如此；
+`agent_workspace_path` 要显式传 `base=os.path.realpath(...)`），否则 base 本身是平台级链接
+（macOS `/var`）时候选永远落在根外。即使把显式拒绝链接那一步拿掉，字面根也足以把
+realpath 后落进受害者目录的候选挡在外面——拒绝那一步只是让错误更明确。
+
+接入点（各自保留原错误类型，各有一条"workspace 换成指向别的用户目录的链接"测试）：
+[[_bus_attachment_impl]] 的工作区相对 ref（→ 记 warning、不 stage）、
+[[_matrix_send]] 的 `resolve_workspace_file`（→ `MatrixSendError("bad_path")`）、
+[[skill_backup]] 的 `archive_local_zip`（→ ValueError）、[[office_watch]] 的
+`resolve_watch_file`（→ ValueError）与 `ensure_watch`（→ 返回 None）。backend
+`agents/files.py` 的 `_resolve_within_workspace` 是同一口径的内联写法（字面根、realpath 候选）。
+
+## 2026-10-28（复审后）— base 只做一次 realpath，租户尾段永远字面；新增 `refuse_symlinked_dir`
+
+`resolve_existing_workspace` / `_shared_base` 对 **base**（平台所有）做 realpath，之后的
+`{user}/{agent}`、`_shared/teams/{team}` 尾段只字面拼接。原因：这些目录在租户自己的挂载里，
+租户可把它们换成指向别人目录的链接；对根做 realpath 等于把链接目标认作自己的根。
+artifact 注册/限定（[[confinement]]、[[registration]]、[[raw_access]]）、files 路由、导出打包
+以及上面的五个接入点都是"根字面、entry realpath、落在根内才算"，并用 `refuse_symlinked_dir`
+直接拒绝链接根。
+
+**仍 resolve 根、且有意保留的调用方**（不是遗漏）：
+- backend `routes/manyfold/files.py::_safe_resolve` —— 凭运维网关 token 访问，按设计可寻址
+  任意 agent，不存在"租户越权"面。
+- NexusPower `policy.py` / `files.py` —— 运行在 executor 容器里，那里只挂了本用户的根，
+  指向主机路径的链接在容器内是悬空的。
+- `artifact/_artifact_impl/heal.py:224` —— 只产出候选列表；真正的读仍经 `confine_entry`。
+- `migration/applier.py::_copy_local_skill` —— 仅本地/桌面的 `POST /migrate/apply`（云端 503），
+  单一属主，agent 调不到，见 [[applier]]。
+- `_bus_attachment_impl.resolve_shared_file_for_user` 对 `{base}/{user_id}` 的 resolve —— 那是
+  bind mount 本身的挂载点，租户在容器内无法把它换成链接。
+
 ## 2026-10-28 — `safe_id_segment`：id 永远只能是一个目录名
 
 跨租户读事件后新增。`agent_workspace_relpath` / `user_shared_root` / `team_shared_dir`

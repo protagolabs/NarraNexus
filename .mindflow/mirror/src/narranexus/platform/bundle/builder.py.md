@@ -1,8 +1,27 @@
 ---
 code_file: src/narranexus/platform/bundle/builder.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（复审后）— 打包入口拒绝符号链接目录
+
+`_pack_workspace_sync` 与 `_zip_dir` 开头 `refuse_symlinked_dir(src)`：`os.walk` 对顶层路径
+本身是链接时会跟随，导出会打包别人的树。`_zip_dir` 的这次拒绝放在 docstring 之后（放在前面
+会让 docstring 变成普通字符串表达式）。
+
+full_copy 分支的降级 `except` 由 `(OSError, UnicodeDecodeError, BadZipFile)` 改为
+`(OSError, ValueError, BadZipFile)`：`_zip_dir` 对链接 skill 目录抛的是 ValueError，原来不在
+集合里，一个被换成链接的 skill 目录就让整次导出 500，违背"一个坏 skill 不能拖垮导出"的契约。
+ValueError 同时覆盖 UnicodeDecodeError（其子类）。`SensitiveZipDetected` 继承 `Exception`
+不是 ValueError，仍照常向上抛。测试：`test_skill_archive_path_safety.py::
+test_full_copy_symlinked_skill_dir_warns_and_the_export_completes`。
+
+## 2026-10-28 — `_zip_dir` 不再跟随符号链接
+
+`_zip_dir`（full_copy skill 的内层 zip 和最终 `.nxbundle`）里 `zf.write(full)` 会跟随链接
+把目标文件打进包；现在遇到 `is_symlink()` 直接跳过。`_pack_workspace_sync`（tar）的两条
+路径本来就跳过链接，未改。
 
 ## 2026-08-18 五审 — 来源点闸口的适用范围写清楚
 

@@ -369,3 +369,40 @@ def test_proc_cmdline_ps_branch_keeps_tail(monkeypatch):
     finally:
         proc.terminate()
         proc.wait(timeout=2)
+
+
+# --- symlinked workspace (2026-10-28) ----------------------------------------
+
+
+def _swap_ws_for_victim_link(tmp_path, monkeypatch):
+    import os
+    import shutil
+
+    ws = _ws(tmp_path, monkeypatch)
+    victim = tmp_path / "u2" / "a2"
+    victim.mkdir(parents=True)
+    (victim / "deck.pptx").write_bytes(b"victim")
+    shutil.rmtree(ws)
+    os.symlink(victim, ws)
+    return ws, victim
+
+
+def test_resolve_watch_file_refuses_a_symlinked_workspace(tmp_path, monkeypatch):
+    ws, victim = _swap_ws_for_victim_link(tmp_path, monkeypatch)
+    with pytest.raises(ValueError):
+        resolve_watch_file("a1", "u1", "deck.pptx")
+    with pytest.raises(ValueError):
+        resolve_watch_file("a1", "u1", str(victim / "deck.pptx"))
+
+
+def test_ensure_watch_refuses_a_symlinked_workspace(tmp_path, monkeypatch):
+    import narranexus.platform.utils.office_watch as ow
+
+    _swap_ws_for_victim_link(tmp_path, monkeypatch)
+    spawned = []
+    monkeypatch.setattr(ow.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    monkeypatch.setattr(ow, "_port_listening", lambda p, host="127.0.0.1": False)
+    monkeypatch.setattr(ow, "_assignments", {})
+    assert ow.ensure_watch("a1", "u1", "deck.pptx", wait_s=0.01) is None
+    assert spawned == []
+    assert ow._assignments == {}

@@ -32,6 +32,7 @@ from loguru import logger
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactContentGone,
     ArtifactNotFound,
+    ArtifactPathEscape,
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import ArtifactKind
@@ -86,9 +87,10 @@ async def resolve_raw_file(
     `file_path` is the sub-path under the artifact root directory; empty means
     the entry file itself.
 
-    Rules (all realpath-based so symlinks cannot escape):
-    - The artifact root (dirname of the entry) must stay inside
-      `settings.base_working_path`.
+    Rules (entry and sub-paths realpath-ed, owner roots lexical, so a symlink
+    anywhere fails closed):
+    - The entry must sit under one of its OWNER's roots (that agent's
+      workspace candidates, or its team folder) — see `confine_entry`.
     - Single-file mode: when the entry sits directly at a CONTAINER root —
       the agent's workspace, or the team's shared folder for a team artifact —
       the dirname tree would be that entire root, so serving siblings would
@@ -111,19 +113,21 @@ async def resolve_raw_file(
         # Legacy (pre-pointer-model) row that was never re-registered.
         raise ArtifactContentGone("artifact has no content pointer on disk")
 
-    from narranexus.platform.utils.workspace_paths import (
-        resolve_existing_workspace,
-        resolve_workspace_relative_file,
-    )
+    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+
+    from .confinement import confine_entry
 
     base = os.path.realpath(settings.base_working_path)
     # Resolve with a flat→nested fallback so artifacts whose file_path was
-    # stored under the old flat layout still serve after the nested flip.
-    entry_abs = os.path.realpath(str(resolve_workspace_relative_file(art.file_path, art.agent_id, art.user_id, base)))
-    artifact_root = os.path.dirname(entry_abs)
-    if not (artifact_root == base or artifact_root.startswith(base + os.sep)):
+    # stored under the old flat layout still serve after the nested flip —
+    # and pin the result to the OWNER's roots, not merely to base (which is
+    # every tenant's root; 2026-10-28).
+    try:
+        entry_abs = confine_entry(art.file_path, art.agent_id, art.user_id, base, team_id=art.team_id)
+    except ArtifactPathEscape:
         logger.warning(f"path-escape blocked: artifact={artifact_id} entry={art.file_path!r}")
         raise ArtifactNotFound("artifact not found")
+    artifact_root = os.path.dirname(entry_abs)
 
     # Single-file mode: when the entry sits directly at the agent workspace
     # root (artifact_root == workspace), the dirname tree would be the whole
@@ -131,7 +135,10 @@ async def resolve_raw_file(
     # owns. Refuse sub-path requests in that case; only the entry serves.
     # This is the soft replacement for the old "entry must be in a
     # subdirectory" hard rule.
-    workspace_root = os.path.realpath(str(resolve_existing_workspace(art.agent_id, art.user_id, base)))
+    # Lexical container roots (base already realpath-ed): confine_entry has
+    # refused a symlinked root, so a realpath here could only ever disagree
+    # with the roots the entry was just checked against.
+    workspace_root = str(resolve_existing_workspace(art.agent_id, art.user_id, base))
     # A team artifact's entry sits in the TEAM folder, which is a container
     # root exactly like a workspace root. Without it in this set, a view token
     # for one team artifact would serve every other file in the team folder —
@@ -140,7 +147,7 @@ async def resolve_raw_file(
     # began requiring it.
     container_roots = {workspace_root}
     if art.team_id:
-        container_roots.add(os.path.realpath(str(team_shared_dir(art.user_id, art.team_id, base))))
+        container_roots.add(str(team_shared_dir(art.user_id, art.team_id, base)))
     if artifact_root in container_roots and file_path:
         if os.path.normpath(file_path) == os.path.basename(entry_abs):
             file_path = ""

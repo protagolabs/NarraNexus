@@ -31,6 +31,8 @@ from typing import Optional
 
 from loguru import logger
 
+from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactError,
@@ -97,12 +99,16 @@ def _new_artifact_id() -> str:
 def workspace_root(agent_id: str, user_id: str) -> str:
     from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
-    return str(agent_workspace_path(agent_id, user_id, base=settings.base_working_path))
+    return str(agent_workspace_path(agent_id, user_id, base=os.path.realpath(settings.base_working_path)))
 
 
 def _relative_to_base(absolute_path: str) -> str:
-    """Return path relative to settings.base_working_path."""
-    return os.path.relpath(absolute_path, settings.base_working_path)
+    """Return path relative to settings.base_working_path.
+
+    The base is realpath-ed like every other root in this module: the entry is
+    a realpath, so a symlinked base (macOS ``/var``) would otherwise yield a
+    ``../``-laden stored pointer."""
+    return os.path.relpath(absolute_path, os.path.realpath(settings.base_working_path))
 
 
 def _build_url(agent_id: str, artifact_id: str) -> str:
@@ -181,7 +187,14 @@ def _resolve_entry(
     Raises:
         ArtifactPathEscape: file missing / not a file / outside the workspace.
     """
-    workspace = os.path.realpath(workspace_root(agent_id, user_id))
+    # Lexical workspace root (base realpath-ed inside workspace_root, tenant
+    # tail never resolved) and a hard refusal of a symlinked root: the entry
+    # below IS resolved, so a link anywhere on its path fails closed.
+    workspace = str(workspace_root(agent_id, user_id))
+    try:
+        refuse_symlinked_dir(workspace, label="agent workspace")
+    except ValueError as e:
+        raise ArtifactPathEscape(str(e))
     # Relative paths keep resolving against the agent's OWN workspace: the
     # team folder is reachable by absolute path, never by silently re-basing
     # a relative one onto a root the agent did not name.
@@ -206,7 +219,11 @@ def _resolve_entry(
         # entry simply has to already be somewhere the team can read, and the
         # agent can put it there (the grant covers writes), so the error below
         # is one move and a retry away from success.
-        team_root = os.path.realpath(str(team_shared_dir(user_id, team_id)))
+        team_root = str(team_shared_dir(user_id, team_id))
+        try:
+            refuse_symlinked_dir(team_root, label="team folder")
+        except ValueError as e:
+            raise ArtifactPathEscape(str(e))
         if not abs_entry.startswith(team_root + os.sep):
             raise ArtifactPathEscape(
                 f"a team artifact must live in your team's shared folder so "
@@ -343,7 +360,11 @@ async def register_artifact(
     abs_entry, artifact_root, team_root = _resolve_entry(
         agent_id, user_id, entry_path, team_id
     )
-    workspace = os.path.realpath(workspace_root(agent_id, user_id))
+    workspace = str(workspace_root(agent_id, user_id))  # lexical root (see _resolve_entry)
+    try:
+        refuse_symlinked_dir(workspace, label="agent workspace")
+    except ValueError as e:
+        raise ArtifactPathEscape(str(e))
     # Single-file mode when entry sits at the workspace root: account only for
     # the entry file (and serve only the entry — see raw_access.py).
     # Otherwise account for the whole dir so the multi-file artifact's

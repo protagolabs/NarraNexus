@@ -8,6 +8,7 @@ Subproject 2 §8.12.2 ~ §8.12.5.
 """
 
 import io
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -145,7 +146,9 @@ def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
     """Resolve canonical workspace dir; fall back to legacy `_user_` infix."""
     from narranexus.platform.settings import settings as core_settings
 
-    base = Path(core_settings.base_working_path)
+    # Realpath the platform-owned base only; the tenant tail stays lexical so
+    # resolve_inside_workspace can compare a resolved candidate against it.
+    base = Path(os.path.realpath(core_settings.base_working_path))
     from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
     candidates = [
@@ -238,28 +241,18 @@ async def archive_local_zip(
     zip_file_path: str,
 ) -> Tuple[Path, str]:
     """Copy a workspace-local zip into the archive registry."""
-    src = Path(zip_file_path)
-    if not src.is_absolute():
-        ws = _agent_workspace_root(agent_id, user_id)
-        if not ws:
-            raise ValueError("Cannot resolve agent workspace")
-        src = (ws / src).resolve()
-    src = src.resolve()
+    from narranexus.platform.utils.workspace_paths import resolve_inside_workspace
 
     ws = _agent_workspace_root(agent_id, user_id)
     if ws is None:
         raise ValueError("Cannot resolve agent workspace")
-    ws_resolved = ws.resolve()
-    # Use Path.is_relative_to (3.9+) for robust prefix check; falls back
-    # to a string-based check on older Pythons. Defense-in-depth against
-    # `/foo/agent_a_user_x/../../etc/passwd` style attempts that resolve
-    # to outside the workspace.
+    # Lexical workspace root, resolved candidate: `..`, an absolute path
+    # elsewhere and a workspace dir swapped for a link to another tenant's
+    # tree all fail here (2026-10-28).
     try:
-        is_in_ws = src.is_relative_to(ws_resolved)
-    except AttributeError:  # pragma: no cover (Python < 3.9)
-        is_in_ws = str(src).startswith(str(ws_resolved) + "/") or str(src) == str(ws_resolved)
-    if not is_in_ws:
-        raise ValueError("zip_file_path must be inside this agent's workspace")
+        src = resolve_inside_workspace(ws, zip_file_path)
+    except ValueError as e:
+        raise ValueError(f"zip_file_path must be inside this agent's workspace ({e})") from None
     if not src.exists() or not src.is_file():
         raise ValueError(f"file not found: {src}")
 
