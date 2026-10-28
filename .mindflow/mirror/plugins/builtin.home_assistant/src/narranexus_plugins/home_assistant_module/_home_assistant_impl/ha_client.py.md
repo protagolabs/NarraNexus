@@ -17,9 +17,12 @@ stub: false
 - aiohttp 请求 `allow_redirects=False`；3xx 报 `HAError`（提示填最终 URL），不跟——公网 HA
   302 到内网就是绕门。
 - `aiohttp.ClientError` 的异常文本只进日志，`HAError` 只说 "could not reach Home Assistant"。
-- 本地模式：LAN 照常放行（192.168.x / homeassistant.local 是本地 HA 的正常形态），只拒元数据
-  主机名与字面 link-local IP；不再做 DNS（旧的「本地按解析结果拒 link-local」随自写检查一起
-  删除——本地是单可信用户，与 MCP 本地不门的先例一致）。
+- 本地模式：LAN 照常放行（192.168.x / homeassistant.local 是本地 HA 的正常形态），但仍
+  **解析主机并拒任何 link-local 应答**（`_assert_not_link_local`，解析失败也拒）。只拒字面 IP
+  不够：`http://2852039166`（169.254.169.254 的十进制写法）、`http://169.254.169.254.`（尾点）、
+  `http://instance-data`（EC2 元数据名）都能绕过字面检查（review 指出）。这是与云端不同的策略
+  （私网是本地 HA 的本意），所以不是 `assert_public_http_url`。形状检查也先去掉 host 尾点再比
+  元数据主机名。
 
 # ha_client.py — HA REST 薄客户端
 
@@ -35,7 +38,8 @@ API**(HA Core Apache-2.0),品牌无关(小米/Aqara/Hue 都是 HA entity)。每�
   盲 SSRF 变成可读 SSRF;只留状态码。
 - **SSRF 护栏(部署感知,2026-10-28 改)**:构造时 `_check_url_shape` 恒拒非 http/https + 元数据主机名 +
   字面 link-local IP;每次请求前 async `validate_base_url`——**云端**走共享 `assert_public_http_url`
-  (解析后判定、DNS 失败即拒),**本地/桌面**放行私网段(本地 HA 合法在 192.168.x / homeassistant.local)。
+  (解析后判定、DNS 失败即拒),**本地/桌面**放行私网段(本地 HA 合法在 192.168.x / homeassistant.local)
+  但解析后拒 link-local 应答。
   backend 容器和 broker/mcp/llm-gateway 同网,用户自填内网 host 就是打进集群的 SSRF;云端用户本就自带
   公网 HA(Nabu Casa)。不跟重定向。
 

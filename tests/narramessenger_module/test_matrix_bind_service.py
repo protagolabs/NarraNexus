@@ -470,3 +470,99 @@ async def test_bind_http_helpers_do_not_follow_redirects():
 
     assert out["ok"] is False
     assert all(kw.get("allow_redirects") is False for _m, _u, kw in session.calls)
+
+
+@pytest.mark.asyncio
+async def test_local_mode_skips_the_bind_gate(
+    stub_db, fake_manager, guide_scripts, monkeypatch
+):
+    """Local/desktop: a single trusted user — the gate is skipped, so even a
+    LAN-looking link proceeds to fetch the guide (and the cloud fixture's
+    resolver is not consulted at all)."""
+    from narranexus.platform.utils import url_safety
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+
+    async def _resolver_must_not_run(host, port):
+        raise AssertionError("egress gate must not run in local mode")
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _resolver_must_not_run)
+    guide_scripts["guides"] = [INTERNAL_HOMESERVER_GUIDE]
+    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://quota-api/tok123/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert fake_manager.upserts[0].matrix_homeserver_url == "https://evil-homeserver.example"
+
+
+@pytest.mark.asyncio
+async def test_bind_errors_never_echo_upstream_error_text(stub_db, fake_manager, guide_scripts):
+    """Upstream JSON error/message strings are not concatenated into the
+    user-facing error — status code plus a whitelisted code only."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [
+        {"ok": False, "status": 500, "error": "SECRET upstream message from 172.20.0.7"},
+    ]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    assert "500" in result["error"]
+    assert "SECRET" not in result["error"] and "172.20" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_report_profile_error_never_echoes_upstream_text(stub_db, fake_manager, guide_scripts):
+    early = "# guide\n> **Bind Flow Status**: `awaiting_profile`\n"
+    guide_scripts["guides"] = [early]
+    guide_scripts["post_responses"] = [
+        {"ok": False, "status": 400, "error": "SECRET internal detail"},
+    ]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    assert "400" in result["error"]
+    assert "SECRET" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_step_failure_keeps_only_whitelisted_codes():
+    assert svc._step_failure("runtime-ready", {"status": 409, "error": "WRONG_STATE"}) == (
+        "runtime-ready failed (HTTP 409, WRONG_STATE)"
+    )
+    assert svc._step_failure("runtime-ready", {"status": 409, "error": "free text 10.0.0.1"}) == (
+        "runtime-ready failed (HTTP 409)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_json_reports_whitelisted_code_only():
+    class _S:
+        def post(self, url, **kw):
+            class _R:
+                status = 409
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *e):
+                    return False
+
+                async def json(self):
+                    return {"error": "WRONG_STATE"}
+
+            return _R()
+
+    out = await svc._post_json(_S(), "https://api.netmind.chat/x", {})
+    assert out == {"ok": False, "status": 409, "error": "WRONG_STATE"}

@@ -307,3 +307,23 @@ async def test_local_add_custom_provider_keeps_localhost(local, fake_http):
     )
 
     assert len(new_ids) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["mystery-source", None, ""])
+async def test_saved_row_with_unknown_or_missing_source_is_gated_as_user(cloud, fake_http, source):
+    """Fail closed: a row whose source is unknown / missing / empty is treated
+    as USER, so its base_url goes through the egress gate."""
+    row = _row("p_odd", "user", "http://llm-gateway:4000/v1")
+    if source is None:
+        row.pop("source")
+    else:
+        row["source"] = source
+    db = FakeDB()
+    await db.insert("user_providers", row)
+
+    ok, msg = await UserProviderService(db).test_provider("u1", "p_odd")
+
+    assert ok is False
+    assert "public" in msg.lower()
+    assert fake_http.requests == []

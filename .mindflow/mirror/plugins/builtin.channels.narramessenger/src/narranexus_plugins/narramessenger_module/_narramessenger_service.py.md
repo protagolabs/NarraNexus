@@ -18,12 +18,24 @@ last_verified: 2026-10-28
   实测（2026-10-28）api.netmind.chat 的 setup-guide / bind-agent 端点直接回 404/500，不走
   重定向，所以这条不影响正常 bind。
 - 本地 / 桌面跳过门（单可信用户，与 MCP 先例一致）。
+- **步骤失败不再回显上游文本**：以前 `report-profile failed: <error>` / `runtime-ready failed: <error>`
+  把 bind host 返回 JSON 里的 `error` / `message` 原样拼给用户——host 是用户选的，等于反射任意
+  上游内容。现在用户文本只由 `_step_failure` 生成：`<step> failed (HTTP <code>[, <已知码>])`，
+  只有 `_KNOWN_ERROR_CODES`（目前仅 `WRONG_STATE`，NarraMessenger 文档化新码时再加）原样展示，
+  其余原文进日志。`_post_json` 仍返回原始 `error` 供控制流用（`WRONG_STATE` = 已过 profile 步）。
 
-**后续项（本 PR 刻意不做）**：worker 侧加载已存 homeserver 时再门一次——
-`matrix_trigger.MatrixTrigger` 的 connect / 媒体下载、`_matrix_send` 的上传 / 发送 / 编辑 /
-撤回、MCP 工具与 module 的发送路径都直接用存储的 `matrix_homeserver_url`。bind 是唯一
-写入口时 bind 门够用，但 `channel_credentials` 的通用 put 路径理论上也能写这个字段，
-所以加载时复查仍值得做（connect 时一次 DNS 很便宜；send 路径需评估每次的开销）。
+**后续项（本 PR 刻意不做）**：
+
+- worker 侧加载已存 homeserver 时再门一次——`matrix_trigger.MatrixTrigger` 的 connect / 媒体
+  下载、`_matrix_send` 的上传 / 发送 / 编辑 / 撤回、MCP 工具与 module 的发送路径都直接用存储的
+  `matrix_homeserver_url`（connect 时一次 DNS 很便宜；send 路径需评估每次的开销）。
+- `backend_base_url` 同样是存储后被服务端带 bearer 去打的目标：`narra_cli_client`（取
+  `cred.backend_base_url` 作为 narra CLI 端点）和 `matrix_trigger` 的 authorize-event 闸
+  （用它 + `bearer_token` 发请求）都不复查。bind 时它来自已过门的链接 base，但同样能被下面的
+  直写路径改掉。
+- bind 不是唯一写入口：`PUT` / `PATCH /api/agents/{id}/channels/{channel}/credential`
+  （`backend/routes/agents/channel_credentials.py`）可以直接写 `matrix_homeserver_url` /
+  `backend_base_url`，绕过 bind 门。要么在这条写路径对这两个 URL 字段过门，要么在加载时复查。
 
 ## 2026-08-19 — `runtime-ready` now carries `platform="nexus"`
 

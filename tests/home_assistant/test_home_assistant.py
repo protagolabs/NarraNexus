@@ -379,3 +379,75 @@ def test_resolve_client_unconfigured(monkeypatch):
         assert msg == NOT_CONFIGURED
 
     asyncio.run(run())
+def test_verify_route_never_echoes_unexpected_exception_text(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.binding as b
+    import narranexus_plugins.home_assistant_module.routes as r
+
+    async def _uid(_request):
+        return "u1"
+
+    async def _db():
+        return object()
+
+    async def _owner(_request, _agent_id):
+        return None
+
+    class _Client:
+        async def ping(self):
+            raise RuntimeError("internal traceback detail SECRET-VERIFY")
+
+    async def _resolve(agent_id):
+        return _Client(), None
+
+    monkeypatch.setattr(r, "current_user_id", _uid)
+    monkeypatch.setattr(r, "get_db_client", _db)
+    monkeypatch.setattr(r, "require_agent_owner", _owner)
+    monkeypatch.setattr(b, "resolve_client", _resolve)
+
+    out = asyncio.run(r.verify_binding(object(), r.HAVerifyBody(agent_id="a1")))
+    assert out["ok"] is False
+    assert "SECRET-VERIFY" not in out["error"]
+
+
+@pytest.mark.parametrize("url", ["http://169.254.10.10:8123", "http://[fe80::1]:8123"])
+def test_local_mode_refuses_literal_link_local(monkeypatch, url):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+    with pytest.raises(HAError):
+        _validate(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://2852039166",            # decimal form of 169.254.169.254
+        "http://169.254.169.254.",      # trailing-dot literal
+        "http://instance-data",         # EC2 name for the metadata service
+    ],
+)
+def test_local_mode_refuses_names_resolving_link_local(monkeypatch, url):
+    """Local keeps LAN hosts allowed but still resolves the host and refuses
+    any link-local answer — spellings that slip past a literal-only check."""
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+
+    def _resolve(host, port, *_a, **_k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+    with pytest.raises(HAError):
+        _validate(url)
+
+
+def test_local_mode_lan_name_resolving_private_still_allowed(monkeypatch):
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
+
+    def _resolve(host, port, *_a, **_k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+    assert _validate("http://homeassistant.local:8123") == "http://homeassistant.local:8123"

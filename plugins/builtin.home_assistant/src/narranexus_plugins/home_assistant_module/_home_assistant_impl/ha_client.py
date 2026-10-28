@@ -19,8 +19,10 @@ request to a user-controlled host. Validation is DEPLOYMENT-AWARE:
   public addresses — a DNS failure is a reject, not a pass. Cloud users bring a
   PUBLIC HA (Nabu Casa etc.).
 - Local/desktop: a real HA lives on the LAN (192.168.x / homeassistant.local),
-  so private ranges stay allowed; only the literal metadata host / link-local
-  addresses are refused.
+  so private ranges stay allowed; the host is still resolved and any
+  link-local answer (the metadata range — reachable via spellings like
+  `2852039166`, `169.254.169.254.` or `instance-data`) is refused, as is a
+  host that does not resolve.
 Redirects are never followed (a public host could 302 into the cluster), and
 error strings never echo the upstream body or the network exception text —
 status code / generic wording only, details go to the log.
@@ -28,6 +30,7 @@ status code / generic wording only, details go to the log.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -63,7 +66,7 @@ def _check_url_shape(base_url: str) -> str:
     parsed = urlparse(base_url.strip())
     if parsed.scheme not in ("http", "https"):
         raise HAError(f"base_url must be http/https, got: {parsed.scheme or '(none)'}")
-    host = parsed.hostname
+    host = (parsed.hostname or "").rstrip(".")
     if not host:
         raise HAError("base_url has no host")
     if host in _BLOCKED_HOSTS:
@@ -77,11 +80,30 @@ def _check_url_shape(base_url: str) -> str:
     return base_url.strip().rstrip("/")
 
 
+async def _assert_not_link_local(base_url: str) -> None:
+    """Local-mode check: resolve the host, refuse any link-local answer.
+
+    A different policy from the cloud gate (private LAN ranges are the point
+    of a local HA), so it is not `assert_public_http_url`. Catches metadata
+    spellings a literal check misses (decimal IP, trailing dot, the EC2
+    `instance-data` name). A host that does not resolve is refused too.
+    """
+    parsed = urlparse(base_url)
+    host = parsed.hostname or ""
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, parsed.port or None)
+        addresses = [ipaddress.ip_address(str(info[4][0]).split("%", 1)[0]) for info in infos]
+    except Exception as e:  # noqa: BLE001 — unresolvable / unparseable fails closed
+        raise HAError("could not resolve the Home Assistant host") from e
+    if not addresses or any(ip.is_link_local for ip in addresses):
+        raise HAError("host not allowed")
+
+
 async def validate_base_url(base_url: str) -> str:
     """Return the normalized base URL or raise HAError.
 
-    Shape checks always; in cloud mode additionally the shared egress gate
-    (post-resolution, fail-closed). Local mode keeps LAN hosts allowed.
+    Shape checks always. Cloud: the shared egress gate (post-resolution,
+    fail-closed). Local: LAN hosts allowed, link-local answers refused.
     """
     normalized = _check_url_shape(base_url)
     if is_cloud_mode():
@@ -90,6 +112,8 @@ async def validate_base_url(base_url: str) -> str:
         except Exception as e:  # noqa: BLE001 — any decision failure fails closed
             logger.warning(f"HA base_url refused by egress gate ({type(e).__name__}): {e}")
             raise HAError(_CLOUD_PUBLIC_ONLY) from e
+    else:
+        await _assert_not_link_local(normalized)
     return normalized
 
 

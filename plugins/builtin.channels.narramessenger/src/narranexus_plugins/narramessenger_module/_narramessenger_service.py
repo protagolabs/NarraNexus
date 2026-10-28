@@ -60,6 +60,11 @@ from ._narramessenger_credential_manager import (
 
 _DEFAULT_BASE = "https://api.netmind.chat"
 
+# Upstream error codes we act on or may show the user verbatim. Anything else
+# the host returns in ``error`` / ``message`` stays in the log: the bind host is
+# user-chosen, so its free text must never be reflected back.
+_KNOWN_ERROR_CODES = frozenset({"WRONG_STATE"})
+
 # Origin tag sent to NarraMessenger on ``runtime-ready`` so their side can
 # label which platform an agent was bound from. Their field defaults to
 # ``"default"`` when the key is absent — which is exactly what every agent we
@@ -198,10 +203,27 @@ async def _post_json(
             data = {}
         if 200 <= resp.status < 300:
             return {"ok": True, "data": data if isinstance(data, dict) else {}}
+        # Raw upstream code/text, for control flow only (WRONG_STATE check).
+        # Never shown as-is — `_step_failure` builds the user-facing text.
         err = ""
         if isinstance(data, dict):
             err = str(data.get("error") or data.get("message") or "")
         return {"ok": False, "status": resp.status, "error": err}
+
+
+def _step_failure(step: str, result: dict) -> str:
+    """User-facing failure for a bind step: status code + whitelisted code only.
+
+    The single place a step result becomes user text; the raw upstream string
+    goes to the log unless it is a known code.
+    """
+    raw = str(result.get("error") or "")
+    code = raw if raw in _KNOWN_ERROR_CODES else ""
+    if raw and not code:
+        logger.info(f"[narramessenger] {step} upstream error: {raw[:200]}")
+    status = result.get("status")
+    detail = f"HTTP {status}" if status else "no response"
+    return f"{step} failed ({detail}{', ' + code if code else ''})"
 
 
 async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
@@ -250,7 +272,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 if not rp.get("ok") and rp.get("error") not in ("WRONG_STATE", ""):
                     return {
                         "success": False,
-                        "error": f"report-profile failed: {rp.get('error') or rp.get('status')}",
+                        "error": _step_failure("report-profile", rp),
                     }
                 guide = await _get_text(session, f"{base}/{token}/setup-guide.md")
                 parsed = _parse_setup_guide(guide)
@@ -297,10 +319,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             if not ready.get("ok"):
                 return {
                     "success": False,
-                    "error": (
-                        "runtime-ready failed: "
-                        f"{ready.get('error') or ready.get('status')}"
-                    ),
+                    "error": _step_failure("runtime-ready", ready),
                 }
             rdata = ready.get("data") or {}
     except aiohttp.ClientError as e:

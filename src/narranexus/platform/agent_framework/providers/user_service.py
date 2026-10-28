@@ -1130,9 +1130,10 @@ class UserProviderService:
     async def test_provider(self, user_id: str, provider_id: str) -> tuple[bool, str]:
         """Test connectivity to a SAVED provider (stateful entry point).
 
-        Loads the persisted row, then delegates to ``test_provider_config``
-        so the transient-ProviderConfig construction lives in exactly one
-        place. Both OAuth flavours delegate to the driver's ``verify_live``
+        Loads the persisted row, then delegates to ``_probe_api_key_card``
+        with the row's STORED source (so the egress gate applies to user
+        cards only), keeping the transient-ProviderConfig construction in
+        exactly one place. Both OAuth flavours delegate to the driver's ``verify_live``
         — a real one-shot through the same CLI transport the agent uses.
         The old ``oauth`` branch answered with an unconditional pass
         ("the CLI holds real credentials, so connected is truthful") —
