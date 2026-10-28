@@ -175,6 +175,28 @@ def _clear_health_cache():
     _reset()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_netmind_login_ip_bucket():
+    """POST /api/auth/netmind-login charges a module-level per-IP bucket, and
+    every TestClient request comes from the same peer ("testclient"). Several
+    test modules log in through that route, so without a reset the bucket
+    fills ACROSS modules and a later login turns into an order-dependent 429.
+
+    Same shape as ``_clear_health_cache``: only touches the module when it is
+    already imported, so runs that never load the auth routes pay nothing.
+    """
+    def _reset() -> None:
+        module = sys.modules.get("backend.routes.auth")
+        if module is not None:
+            module._netmind_login_ip_limiter = type(module._netmind_login_ip_limiter)(
+                limit=module.NETMIND_LOGIN_PER_IP_PER_HOUR, window_sec=3600.0
+            )
+
+    _reset()
+    yield
+    _reset()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _channel_credential_key_dir(tmp_path_factory):
     """Channel credential secrets (channel_credentials.secret_json) are encrypted
