@@ -28,6 +28,21 @@ websocket 直接用 `_ownership.assert_visible`。
 显式传给 `_deny_reason(user_id=...)`：决策里的 local-mode 放行分支对它不可达，不再依赖
 "两处读同一个 request.state 字段恰好一致"。两个旧 surface 不传，语义一字不改。
 
+## 2026-10-28（PR #419 review I-7 / M-13）— 第四个 surface：`assert_visible`
+
+合并 #419 后本文件是**四个** surface，不是三个。docstring 的 `Three surfaces` 一句已
+改成 `Four surfaces`，并补上第四条。四个 surface 按「调用方拿到什么形状」区分：
+
+| surface | 返回 / 抛出 | 典型调用方 | local 模式 |
+|---|---|---|---|
+| `check_owned` | error string \| None | 渠道路由（包成 `{"success": False, "error": …}`） | 跳过鉴权 |
+| `assert_owned` | 抛 HTTPException 404/403 | home_assistant 式路由 | 跳过鉴权 |
+| `require_owned_workspace_agent` | 返回 user_id，统一 404 | 把 agent_id 变成 workspace 目录的路由（files/attachments/skills） | **要身份，不跳过** |
+| `assert_visible` | 非自有且非公开则抛 | 读 / 驱动面（websocket、chat event-log） | 无 no-op（调用方传本地 user_id） |
+
+前三个共享 `_deny_reason` 的同一决策；`assert_visible` 走另一条问题线（能不能看/驱动，
+自有 OR 公开），查库失败直接把 db 异常抛出去（非 HTTP，5xx），不经 `_deny_reason`。
+
 ## 2026-10-28 — 第三个 surface：`require_owned_workspace_agent`（跨租户读事件）
 
 `/api/agents/../files` 把 URL 段拼进 `{base}/{user_id}/{agent_id}` 读走了 246 个用户的文件。

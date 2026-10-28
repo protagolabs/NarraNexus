@@ -28,7 +28,7 @@ The third surface, ``require_owned_workspace_agent``, is the deliberate
 exception: it guards the filesystem, so it REQUIRES an identity (401) and
 never skips.
 
-Three surfaces because the callers return three shapes:
+Four surfaces because the callers return four shapes:
 - ``check_owned`` -> error string | None  (channel routes wrap it in a
   ``{"success": False, "error": ...}`` payload)
 - ``assert_owned`` -> raises HTTPException 404/403  (home_assistant-style
@@ -36,10 +36,12 @@ Three surfaces because the callers return three shapes:
 - ``require_owned_workspace_agent`` -> returns the caller's user_id, raises
   a uniform 404 (routes that turn ``agent_id`` into a workspace directory:
   files / attachments / skills — the 2026-10-28 cross-tenant read)
+- ``assert_visible`` -> raises on a non-owned, non-public agent  (read /
+  drive surfaces: websocket, chat event-log — added 2026-10-28)
 
-All map from one shared deny-reason decision, so no surface ever parses
-another's prose to learn what happened.
-A third, different question lives here too: ``assert_visible`` — may this
+The first three map from one shared deny-reason decision, so no surface ever
+parses another's prose to learn what happened.
+The fourth, ``assert_visible``, answers a different question — may this
 viewer SEE / drive the agent (owned OR public)? It takes an already-resolved
 viewer id, not a request, so it has NO local-mode no-op (callers pass the
 local user id), and it answers a uniform 404 for unknown and foreign agents

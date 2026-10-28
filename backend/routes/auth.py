@@ -455,11 +455,23 @@ async def register_account(payload: SignupRequest, request: Request) -> dict:
 # (Contrast send-code's per-email limiter: THERE the spent resource is
 # per-email mail, so email is the right key. Here it is not.)
 FUNNEL_REPORT_WINDOW_SECONDS = 60.0
-FUNNEL_REPORT_PER_EMAIL_LIMIT = 10
-FUNNEL_REPORT_PER_IP_LIMIT = 30
+# env-tunable like the signup buckets above — same reasoning: a typo in a
+# deploy env must not take the backend down, and an operator may need to
+# retune these under live abuse without a code change (2026-10-28 audit).
+DEFAULT_FUNNEL_REPORT_PER_EMAIL_LIMIT = 10
+DEFAULT_FUNNEL_REPORT_PER_IP_LIMIT = 30
 # Backstop only — the per-IP bucket is the real limit. 120/min let four IPs
 # starve everyone else's reports (2026-10-28 audit).
-FUNNEL_REPORT_GLOBAL_LIMIT = 2000
+DEFAULT_FUNNEL_REPORT_GLOBAL_LIMIT = 2000
+FUNNEL_REPORT_PER_EMAIL_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_PER_EMAIL_LIMIT", DEFAULT_FUNNEL_REPORT_PER_EMAIL_LIMIT
+)
+FUNNEL_REPORT_PER_IP_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_PER_IP_LIMIT", DEFAULT_FUNNEL_REPORT_PER_IP_LIMIT
+)
+FUNNEL_REPORT_GLOBAL_LIMIT = env_limit(
+    "NARRANEXUS_FUNNEL_REPORT_GLOBAL_LIMIT", DEFAULT_FUNNEL_REPORT_GLOBAL_LIMIT
+)
 _funnel_report_limiter = SlidingWindowRateLimiter(
     limit=FUNNEL_REPORT_PER_EMAIL_LIMIT, window_sec=FUNNEL_REPORT_WINDOW_SECONDS
 )

@@ -4,6 +4,14 @@ last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT` / `_PER_IP_LIMIT` / `_GLOBAL_LIMIT` 从写死常量改为
+`env_limit("NARRANEXUS_FUNNEL_REPORT_*", DEFAULT_…)`，与同文件 signup / netmind-login
+五个桶同一写法：线下活动或实时滥用时运维可只改 env 调限额，不动代码；env 里的空值 /
+非整数 / <1 回落默认，不会让 backend 启动期崩。默认值不变（10 / 30 / 2000），`.env.example`
+加了三行注释示例。`WINDOW_SECONDS`(60) 不是限额，仍写死。
+
 ## 2026-10-28（PR #419 review M-4）— funnel 限流数字改为具名常量
 
 `FUNNEL_REPORT_PER_EMAIL_LIMIT`(10) / `FUNNEL_REPORT_PER_IP_LIMIT`(30) /
