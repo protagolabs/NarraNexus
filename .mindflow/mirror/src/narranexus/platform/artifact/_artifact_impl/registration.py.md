@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/registration.py
-last_verified: 2026-08-20
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 注册时 workspace/team 根为字面路径且拒绝符号链接
+
+`_resolve_entry`（及同形的第二处）原来 `realpath(workspace_root)`：租户把 workspace 目录
+换成指向受害者目录的链接后，`realpath` 让受害者目录成了"自己的 workspace"，注册出的行
+`file_path` 直接指向别人的文件。现在根是 realpath(base)+字面尾段，根本身是链接直接
+`ArtifactPathEscape`；entry 仍做 realpath，链接一出现就落到根外。team 根同样处理。
+
+`_relative_to_base` 同样对 base 做 realpath：entry 是 realpath，base 若是平台级链接（macOS
+`/var` → `/private/var`）而不 realpath，存进库的 `file_path` 会带一串 `../`，之后
+[[confinement]] 解析出来就落在属主根外。
 
 ## 2026-08-10 (方案 B 的后果修正) — 团队根也是「容器根」
 

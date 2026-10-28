@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-08-18
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — preflight 落盘用固定文件名
+
+`tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
+`../x` 或绝对路径就决定了写到哪（随后 `unlink`）。改为固定 `upload.nxbundle`，与
+marketplace publish 同一规则。
 
 ## 2026-08-18 三审 — 闸口挪进线程
 

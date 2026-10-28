@@ -1197,28 +1197,16 @@ async def _confirm_inner(
             ws_extracted = True
             ws_target = target
 
-        # instance_artifacts (1.1+ bundles). The bundle's file_path is
-        # workspace-relative (no `{aid}_{uid}/` prefix); re-prepend the
-        # recipient's prefix so the DB convention (file_path relative to
-        # settings.base_working_path) is preserved. We always reset session_id
-        # / original_session_id to NULL and force pinned=1 — sessions are not
-        # portable across instances, and pinning ensures the user can still
-        # find the artifact in the Settings → Artifacts page after import.
+        # instance_artifacts (1.1+ bundles): validation, re-prefixing and the
+        # session/pinned reset live in `rewrite_artifact_row`. A bad pointer
+        # raises ValueError and aborts the import (not caught below).
         art_path = adir / "artifacts.json"
         if art_path.exists():
             try:
                 for arec in json.loads(art_path.read_text(encoding="utf-8")):
-                    new_ar = rewrite_row("instance_artifacts", arec)
-                    fp = (new_ar.get("file_path") or "").lstrip("/")
-                    if fp:
-                        from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
-                        new_ar["file_path"] = f"{agent_workspace_relpath(new_aid, user_id)}/{fp}"
-                    new_ar["user_id"] = user_id
-                    new_ar["session_id"] = None
-                    new_ar["original_session_id"] = None
-                    new_ar["pinned"] = 1
-                    new_ar.pop("created_at", None)
-                    new_ar.pop("updated_at", None)
+                    new_ar = rewrite_artifact_row(
+                        rewrite_row("instance_artifacts", arec), new_aid, user_id
+                    )
                     try:
                         await _ins("instance_artifacts", new_ar)
                         written_summary["artifacts_created"] += 1
@@ -1471,15 +1459,9 @@ async def _confirm_inner(
                 shutil.rmtree(temp_dir)
 
     def _copy_skill_to_agent(src_skill_dir: Path, target_aid: str, skill_name: str) -> None:
-        """Copy an already-installed skill dir into a target agent's skills/ dir."""
-        from narranexus.platform.utils.workspace_paths import agent_workspace_path
-        base = agent_workspace_path(target_aid, user_id, base=core_settings.base_working_path) / "skills"
-        base.mkdir(parents=True, exist_ok=True)
-        safe_name = sanitize_filename(skill_name, label="skill name")
-        target = ensure_within_directory(base, safe_name, label="skill name")
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(src_skill_dir, target)
+        copy_skill_into_agent(
+            src_skill_dir, target_aid, user_id, skill_name, base=core_settings.base_working_path,
+        )
 
     for s in manifest.get("skills", []):
         method = s.get("install_method")
@@ -1843,18 +1825,96 @@ async def _confirm_inner(
     return written_summary
 
 
+def artifact_relpath_or_raise(fp: str) -> str:
+    """Validate an ``artifacts.json`` ``file_path`` from a bundle.
+
+    The value is attacker-controlled. It must be a plain workspace-relative
+    path: no ``..`` segment, no backslash, no NUL, nothing empty. A leading
+    slash is tolerated (older bundles wrote it) and stripped. Anything else
+    aborts the import — a bad pointer would otherwise become a row whose raw
+    / edit / upload paths point outside the new agent's workspace.
+    """
+    from narranexus.platform.utils.file_safety import validate_zip_member_path
+    if "\\" in (fp or ""):
+        raise ValueError(f"artifact file_path must not contain backslashes: {fp!r}")
+    rel = (fp or "").lstrip("/")
+    validate_zip_member_path(rel)  # raises ValueError on empty / NUL / '..' / absolute
+    return rel
+
+
+def rewrite_artifact_row(new_ar: dict, new_aid: str, user_id: str) -> dict:
+    """Re-home one ``artifacts.json`` row (already id-rewritten) onto the new agent.
+
+    The bundle's ``file_path`` is workspace-relative and attacker-controlled:
+    it is validated (:func:`artifact_relpath_or_raise`, ValueError aborts the
+    import) and re-prefixed with the recipient's workspace so the DB convention
+    (``file_path`` relative to ``base_working_path``) holds. Sessions are not
+    portable across instances, so session ids are cleared and the row pinned so
+    the user can still find it in Settings -> Artifacts. Mutates and returns
+    ``new_ar``.
+    """
+    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
+    if fp:
+        new_ar["file_path"] = f"{agent_workspace_relpath(new_aid, user_id)}/{fp}"
+    new_ar["user_id"] = user_id
+    new_ar["session_id"] = None
+    new_ar["original_session_id"] = None
+    new_ar["pinned"] = 1
+    new_ar.pop("created_at", None)
+    new_ar.pop("updated_at", None)
+    return new_ar
+
+
+def copy_skill_into_agent(
+    src_skill_dir: Path, target_aid: str, user_id: str, skill_name: str, *, base: str
+) -> Path:
+    """Copy an already-installed skill dir into ``{target agent}/skills/{name}``.
+
+    Module-level (not a closure) so the symlink behaviour is testable: the
+    name is sanitised and confined, an existing target is replaced, and the
+    copy never dereferences links (see :func:`copy_skill_dir`).
+    """
+    from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
+    skills_base.mkdir(parents=True, exist_ok=True)
+    safe_name = sanitize_filename(skill_name, label="skill name")
+    target = ensure_within_directory(skills_base, safe_name, label="skill name")
+    if target.exists():
+        shutil.rmtree(target)
+    copy_skill_dir(src_skill_dir, target)
+    return target
+
+
+def copy_skill_dir(src: Path, dst: Path) -> None:
+    """Copy an installed skill dir WITHOUT dereferencing symlinks.
+
+    ``copytree`` defaults to following links, which turns a link planted in a
+    cloned repo (``leak.txt -> /etc/passwd``) into a real file in the target
+    workspace. Links are copied as links; the executor's workspace confinement
+    then decides whether they resolve.
+    """
+    shutil.copytree(src, dst, symlinks=True)
+
+
 def _extract_tar_safely(tar_path: Path, target: Path) -> None:
     """Synchronous tar.gz extractor with traversal/symlink guards.
     Caller wraps in asyncio.to_thread() — extraction is CPU+IO bound."""
     with tarfile.open(tar_path, "r:gz") as tar:
         safe_members = []
         for member in tar.getmembers():
-            if member.issym() or member.islnk():
+            # Regular files and directories only: links are dropped (a link
+            # target is attacker-chosen), devices/FIFOs are dropped (2026-10-28
+            # — they used to be extracted).
+            if not (member.isfile() or member.isdir()):
                 continue
             if member.name.startswith("/") or ".." in member.name.split("/"):
                 continue
             safe_members.append(member)
-        tar.extractall(target, members=safe_members)
+        # The stdlib "data" filter is the second fence: it strips setuid/
+        # setgid/sticky bits and refuses anything the pass above missed.
+        tar.extractall(target, members=safe_members, filter="data")
 
 
 # Extensions whose contents we Layer-4 scan for ID rewrite.

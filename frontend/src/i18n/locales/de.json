@@ -562,6 +562,7 @@
       "dragFiles": "Dateien hierher ziehen oder",
       "browse": "durchsuchen",
       "empty": "Workspace ist leer",
+      "partialListing": "Teilansicht — dieser Workspace ist zu groß, um vollständig angezeigt zu werden. Bitte den Agenten, einen bestimmten Ordner aufzulisten, um den Rest zu sehen.",
       "kindOffice": "Office-Dokument (Live)"
     },
     "homeAssistant": {

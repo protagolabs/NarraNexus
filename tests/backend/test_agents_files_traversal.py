@@ -292,3 +292,65 @@ def test_skills_routes_reject_unsafe_skill_name(setup, bad_name):
         r = client.request(method, path, params={"agent_id": OWNED_AGENT}, headers=AS_OWNER, **kw)
         assert r.status_code == 404, (method, path, r.text)
     assert (setup["base"] / f"{OWNER}/{OWNED_AGENT}/mine.txt").exists()
+
+
+# --- a swapped workspace dir (symlink) is refused -------------------------------
+
+def test_symlinked_workspace_dir_serves_nothing(setup):
+    import os
+    import shutil
+    base = setup["base"]
+    own_ws = base / OWNER / OWNED_AGENT
+    shutil.rmtree(own_ws)
+    os.symlink(base / VICTIM / VICTIM_AGENT, own_ws)
+    client = setup["client"]
+    r = client.get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 404, r.text
+    assert "credentials" not in r.text
+    r = client.get(f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": "credentials.json"}, headers=AS_OWNER)
+    assert r.status_code == 404
+    assert "victim-secret" not in r.text
+    r = client.request("DELETE", f"/api/agents/{OWNED_AGENT}/files/credentials.json", headers=AS_OWNER)
+    assert r.status_code == 404
+    assert setup["secret"].exists()
+
+
+# --- the tree has a ceiling -------------------------------------------------------
+
+def test_tree_listing_is_capped_and_says_so(setup, monkeypatch):
+    import backend.routes.agents.files as files_mod
+    monkeypatch.setattr(files_mod, "MAX_TREE_NODES", 10)
+    monkeypatch.setattr(files_mod, "MAX_TREE_DEPTH", 3)
+    ws = setup["base"] / OWNER / OWNED_AGENT
+    for i in range(30):
+        (ws / f"f{i:02d}.txt").write_text("x", encoding="utf-8")
+    deep = ws / "d1" / "d2" / "d3" / "d4"
+    deep.mkdir(parents=True)
+    (deep / "leaf.txt").write_text("x", encoding="utf-8")
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["truncated"] is True
+
+    def _count(nodes):
+        return sum(1 + _count(n.get("children") or []) for n in nodes)
+    assert _count(body["tree"]) <= 10
+    assert "leaf.txt" not in r.text
+
+
+def test_depth_cap_on_an_empty_directory_is_not_reported_as_truncated(setup, monkeypatch):
+    """Reaching the depth ceiling only truncates when there is something below
+    it; an empty folder at the last level is a complete listing."""
+    import backend.routes.agents.files as files_mod
+    monkeypatch.setattr(files_mod, "MAX_TREE_DEPTH", 3)
+    ws = setup["base"] / OWNER / OWNED_AGENT
+    (ws / "d1" / "d2" / "d3").mkdir(parents=True)
+    (ws / "d1" / "d2" / "d3" / ".hidden").write_text("x", encoding="utf-8")
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 200, r.text
+    assert r.json()["truncated"] is False
+
+    (ws / "d1" / "d2" / "d3" / "below.txt").write_text("x", encoding="utf-8")
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.json()["truncated"] is True
+    assert "below.txt" not in r.text

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-10-14
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `FileListResponse.truncated?`
+
+对齐后端 `FileListResponse.truncated`（workspace 目录树触到节点/深度上限、且确有可见条目
+被略掉时为 true）。可选：mock 与旧后端不带它，消费方（`FileUpload`）按 `=== true` 判断。
 
 ## 2026-10-14 — `FactoryBuiltin.excluded`
 

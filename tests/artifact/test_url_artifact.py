@@ -294,3 +294,30 @@ async def test_team_root_entry_does_not_serve_its_siblings(db_client, monkeypatc
             agent_id="agent_a", artifact_id="art_teamroot",
             file_path="someone_elses.md",
         )
+
+
+@pytest.mark.asyncio
+async def test_set_embed_mode_never_rewrites_a_doc_behind_a_swapped_link(env):
+    """The tab's folder is swapped for a link to another tenant's URL-tab folder.
+    The override toggle must not read or rewrite the victim's doc."""
+    import shutil
+
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://mine.example/", title="Mine",
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    tab_dir = (env["base"] / art.file_path).parent
+    victim_dir = env["base"] / agent_workspace_relpath("agent_v", "user_v") / "tab"
+    victim_dir.mkdir(parents=True)
+    victim_doc = victim_dir / os.path.basename(art.file_path)
+    shutil.copy(env["base"] / art.file_path, victim_doc)
+    before = victim_doc.read_bytes()
+    shutil.rmtree(tab_dir)
+    os.symlink(victim_dir, tab_dir)
+
+    with pytest.raises(ArtifactError):
+        await env["service"].set_embed_mode(
+            agent_id="agent_x", artifact_id=result.artifact_id, mode="stream",
+        )
+    assert victim_doc.read_bytes() == before

@@ -872,3 +872,73 @@ async def test_full_copy_cannot_pack_another_users_workspace(
     leaks = _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")
     assert not leaks, f"SEC-08 regression — another user's workspace shipped: {leaks}"
 
+
+
+async def test_archive_local_zip_refuses_a_symlinked_workspace(tmp_path, archives_root, monkeypatch):
+    """The agent's workspace dir swapped for a link to another user's: a zip in
+    the victim's workspace must not be copied into the caller's archives."""
+    import os
+
+    from narranexus.platform.bundle import skill_backup
+    from narranexus.platform.settings import settings as core_settings
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+
+    base = tmp_path / "ws"
+    monkeypatch.setattr(core_settings, "base_working_path", str(base))
+    aid, uid = "agent_localzip01", "test_user"
+    victim = agent_workspace_path("agent_victim01", "victim_user", base=str(base))
+    victim.mkdir(parents=True)
+    with zipfile.ZipFile(victim / "skill.zip", "w") as z:
+        z.writestr("SKILL.md", "---\nname: x\n---\n")
+    own = agent_workspace_path(aid, uid, base=str(base))
+    own.parent.mkdir(parents=True)
+    os.symlink(victim, own)
+
+    for p in ("skill.zip", str(own / "skill.zip"), str(victim / "skill.zip")):
+        with pytest.raises(ValueError):
+            await skill_backup.archive_local_zip(
+                user_id=uid, agent_id=aid, skill_name="stolen", zip_file_path=p
+            )
+    assert not (archives_root / uid).exists(), "a victim's zip was archived"
+
+
+async def test_full_copy_symlinked_skill_dir_warns_and_the_export_completes(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """One skill dir swapped for a link to another tenant's skill: that skill is
+    skipped with a per-skill warning, the rest of the export still ships, and
+    none of the victim's bytes do ("one bad skill must not fail the export")."""
+    import os
+
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+
+    aid, uid = "agent_fclink01", "test_user"
+    await _seed_agent(db_client, aid, "FcLinkAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "good")
+    victim = tmp_workspace_root / "victim_user" / "agent_victim" / "skills" / "private"
+    victim.mkdir(parents=True, exist_ok=True)
+    (victim / "SKILL.md").write_text("---\nname: private\n---\n", encoding="utf-8")
+    (victim / "creds.json").write_text("VICTIM_SECRET_CANARY", encoding="utf-8")
+    os.symlink(victim, agent_workspace_path(aid, uid, base=str(tmp_workspace_root)) / "skills" / "linked")
+
+    bundle = tmp_path / "fclink.nxbundle"
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "good", "skill_dir": "good", "install_method": "full_copy"},
+                {"agent_id": aid, "skill_name": "linked", "skill_dir": "linked", "install_method": "full_copy"},
+            ],
+            include_skill_secrets=True,
+        ),
+        bundle,
+    )
+    warnings = " ".join(result.get("warnings", []))
+    assert "linked" in warnings and "full_copy failed" in warnings, warnings
+    with zipfile.ZipFile(bundle) as z:
+        names = z.namelist()
+    assert f"skills/{aid}/good-full.zip" in names
+    assert f"skills/{aid}/linked-full.zip" not in names
+    assert not _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")

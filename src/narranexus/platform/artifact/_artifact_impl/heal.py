@@ -31,7 +31,10 @@ from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_ev
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.workspace_paths import (
+    resolve_inside_workspace,
+    team_shared_dir,
+)
 
 
 # Kind → file extension(s) used by the workspace scan. Multi-extension tuples
@@ -69,36 +72,48 @@ def _absolutise(path: str, search_root: str) -> str:
     return path if os.path.isabs(path) else os.path.join(search_root, path)
 
 
+def _confined(path: str, search_root: str) -> Optional[str]:
+    """Realpath of a candidate proven to sit inside the LEXICAL ``search_root``,
+    or None. A link anywhere on its path (the file itself, a parent folder)
+    resolves outside and is dropped — before it is stat-ed or hashed."""
+    try:
+        return str(resolve_inside_workspace(search_root, path))
+    except ValueError:
+        return None
+
+
 def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandidate]:
     """Return up to `_HEAL_MAX_CANDIDATES` files in the workspace whose
     extension matches the artifact kind, sorted newest-first by mtime.
 
-    Symlinks are not followed (registration uses realpath at register time,
-    so a symlink to /etc/passwd that survives the scan is still rejected
-    when we try to register it).
+    ``workspace_root`` is LEXICAL (built on the realpath-ed base) and is walked
+    as-is, never resolved; every file is confined with `_confined` before its
+    size/mtime is read, so a link to another tenant's file — or a parent dir
+    swapped for one — contributes neither a name nor metadata.
     """
     extensions = _KIND_EXTENSIONS.get(kind)
     if not extensions:
         return []
 
     found: List[HealCandidate] = []
-    base = os.path.realpath(workspace_root)
-    if not os.path.isdir(base):
+    if not os.path.isdir(workspace_root):
         return []
 
-    for root, _dirs, files in os.walk(base, followlinks=False):
+    for root, _dirs, files in os.walk(workspace_root, followlinks=False):
         for name in files:
             if not name.lower().endswith(extensions):
                 continue
             abs_path = os.path.join(root, name)
+            real = _confined(abs_path, workspace_root)
+            if real is None:
+                continue
             try:
-                st = os.stat(abs_path)
+                st = os.stat(real)
             except OSError:
                 continue
-            rel = os.path.relpath(abs_path, base)
             found.append(
                 HealCandidate(
-                    workspace_path=rel,
+                    workspace_path=os.path.relpath(abs_path, workspace_root),
                     size_bytes=st.st_size,
                     mtime=st.st_mtime,
                 )
@@ -220,16 +235,33 @@ async def heal_artifact(
         resolve_workspace_relative_file,
     )
 
+    # The platform base is resolved; the tenant tail stays LEXICAL (same rule
+    # as every other owner-root check, see confinement.py). The workspace and
+    # the team folder sit inside the tenant's own mount, so either can be
+    # swapped for a link to another tenant's tree: resolving it would make the
+    # victim's files "candidates", hash them against art.content_hash, and
+    # call a victim file at the same relpath an "already valid" pointer.
     base = os.path.realpath(settings.base_working_path)
-    workspace_root = os.path.realpath(str(resolve_existing_workspace(agent_id, user_id, base)))
-    search_root = workspace_root
+    search_root = str(resolve_existing_workspace(agent_id, user_id, base))
     if art.team_id:
-        search_root = os.path.realpath(str(team_shared_dir(user_id, art.team_id, base)))
+        search_root = str(team_shared_dir(user_id, art.team_id, base))
+    if os.path.islink(search_root):
+        logger.warning(f"heal_artifact: {artifact_id} scope root is a symlink, refusing: {search_root}")
+        return HealResult(
+            recovered=False,
+            candidates=[],
+            message=(
+                f"{'the team shared folder' if art.team_id else 'the agent workspace'} "
+                "is a symbolic link — recovery is refused; replace it with a real folder"
+            ),
+        )
 
     # 1. Pointer might already be valid (frontend saw a transient 410).
     if art.file_path:
-        existing_abs = os.path.realpath(str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base)))
-        if existing_abs.startswith(search_root + os.sep) and os.path.isfile(existing_abs):
+        existing_abs = _confined(
+            str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base)), search_root
+        )
+        if existing_abs is not None and os.path.isfile(existing_abs):
             return HealResult(
                 recovered=True,
                 artifact=art,
@@ -256,14 +288,22 @@ async def heal_artifact(
 
     # Guardrail: never offer (or auto-take) a file that some OTHER live
     # artifact currently points at — repointing there would collapse two
-    # artifacts onto one file. Compared as absolute realpaths because
-    # candidates are scope-relative while DB file_paths are base-relative.
+    # artifacts onto one file. Both sides are compared as REALPATHS (the
+    # candidate via `_confined`, the taken pointer via realpath of its base
+    # join) — candidates are scope-relative while DB file_paths are
+    # base-relative, and only realpaths agree when an in-workspace link makes
+    # two spellings name one file. A candidate that no longer confines is
+    # dropped here too (it may have been swapped since the scan).
     taken = await repo.list_file_paths_for_heal_scope(agent_id, art.team_id)
     taken.discard(art.file_path)  # self: its pointer is the broken one
     taken_abs = {os.path.realpath(os.path.join(base, fp)) for fp in taken}
+    confined_by_path = {
+        c.workspace_path: _confined(c.workspace_path, search_root) for c in candidates
+    }
     candidates = [
         c for c in candidates
-        if os.path.realpath(_absolutise(c.workspace_path, search_root)) not in taken_abs
+        if confined_by_path[c.workspace_path] is not None
+        and confined_by_path[c.workspace_path] not in taken_abs
     ]
 
     # Hash tier: a stored fingerprint lets us VERIFY a candidate is the same
@@ -273,12 +313,14 @@ async def heal_artifact(
         # Hashing a dozen candidates is synchronous chunked IO — run it in a
         # worker thread so the loop keeps serving other requests (#334 I12).
         def _match_by_hash() -> list:
-            return [
-                c for c in candidates
-                if registration.compute_entry_hash(
-                    _absolutise(c.workspace_path, search_root)
-                ) == art.content_hash
-            ]
+            hits = []
+            for c in candidates:
+                # Re-confined at read time: only bytes inside the scope root
+                # are ever hashed, even if a path was swapped after the scan.
+                real = _confined(c.workspace_path, search_root)
+                if real is not None and registration.compute_entry_hash(real) == art.content_hash:
+                    hits.append(c)
+            return hits
 
         hash_hits = await asyncio.to_thread(_match_by_hash)
         if len(hash_hits) == 1:

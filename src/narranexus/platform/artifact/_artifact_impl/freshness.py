@@ -29,6 +29,8 @@ from narranexus.platform.artifact._artifact_impl.commit import (
     commit_content_refresh,
     entry_size_bytes,
 )
+from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
+from narranexus.platform.artifact._artifact_impl.errors import ArtifactPathEscape
 from narranexus.platform.artifact._artifact_impl.registration import compute_entry_hash
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
@@ -58,11 +60,24 @@ async def refresh_external_state(
         "fresh":    entry matches the last commit point (or only its mtime
                     moved — touch noise, silently ignored).
         "external": entry bytes differ — committed as an external edit.
-        "missing":  entry is gone; nothing committed (heal's territory).
+        "missing":  entry is gone, or its pointer resolves outside the
+                    owner's roots; nothing committed (heal's territory).
+
+    The pointer is confined exactly like the raw / edit paths: a symlink
+    swapped in after registration would otherwise turn this detector — which
+    runs unattended on every state-block render — into an oracle for another
+    tenant's mtime, directory size and content hash, written back onto the
+    attacker's own row.
     """
     if not artifact.file_path:
         return "missing"
-    abs_entry = os.path.join(settings.base_working_path, artifact.file_path)
+    try:
+        abs_entry = confine_entry(
+            artifact.file_path, artifact.agent_id, artifact.user_id,
+            settings.base_working_path, team_id=artifact.team_id,
+        )
+    except ArtifactPathEscape:
+        return "missing"
     try:
         stat = os.stat(abs_entry)
     except OSError:
@@ -102,6 +117,7 @@ async def refresh_external_state(
         return "fresh"  # touch/backup noise — not a commit point
 
     await commit_content_refresh(
-        db, artifact, new_hash=new_hash, history_action="external_edited", external=True
+        db, artifact, abs_entry=abs_entry, new_hash=new_hash,
+        history_action="external_edited", external=True,
     )
     return "external"
